@@ -129,14 +129,22 @@ Milestone 2: builder provisioned; image uploaded, registered, and wired into Pul
 
 Milestone 3: deploy and verify the running host and cluster.
 
-- [ ] After EP-2's `pulumi up` boots `nagare-01`, join the tailnet / SSH in.
-- [ ] `kubectl get nodes -o wide` reports the node `Ready`.
+- [x] After EP-2's `pulumi up` boots `nagare-01`, SSH in. (2026-06-02 — EP-2 M3 `pulumi up` created the
+      instance booting from `nagare-image-bamf7v4ym3si`; reached IAP-SSH as `deploy` with the operator
+      key, auth confirmed "Server accepts key". Tailscale left unjoined per the IAP-SSH-only choice
+      —`tailscaled-autoconnect` fails on the placeholder key, which is expected and non-fatal.)
+- [~] `kubectl get nodes -o wide` reports the node `Ready`. BLOCKED on first boot: k3s failed because
+      the blank data disk would not mount (see Surprises). Fix added to `storage.nix` (auto-format); the
+      already-running VM needs a one-time manual `mkfs.ext4` + `systemctl restart var-lib-nagare.mount
+      k3s`, which was in progress when IAP-tunnel throttling intervened. Final confirmation pending one
+      clean IAP-SSH session.
 - [ ] `mount | grep nagare` shows the data disk mounted at `/var/lib/nagare`; the seven
-      subdirectories exist.
-- [ ] `stat -c '%a' /etc/rancher/k3s/k3s.yaml` reports `644`.
-- [ ] Apply a test PVC; it binds and its hostPath lives under `/var/lib/nagare/local-path`.
+      subdirectories exist. (Pending the format + remount above.)
+- [ ] `stat -c '%a' /etc/rancher/k3s/k3s.yaml` reports `644`. (Pending k3s start.)
+- [ ] Apply a test PVC; it binds and its hostPath lives under `/var/lib/nagare/local-path`. (Pending.)
 - [ ] Exercise the day-2 path: edit a trivial setting and run
-      `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`.
+      `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`. (Pending; also requires
+      a rebuilt image with the `storage.nix` auto-format fix for a fully clean boot.)
 
 
 ## Surprises & Discoveries
@@ -162,6 +170,34 @@ implementation. Provide concise evidence (command output is ideal).
   not 26.05. `configuration-base.nix` pins `system.stateVersion = "26.05"`, which is still valid
   (stateVersion is intentionally a fixed lower bound, not the running release), so this is left as-is;
   noted so a future reader is not surprised by the version skew.
+
+- Discovery: **k3s did not start on first boot** — the serial console showed `Dependency failed for
+  k3s service`. Root cause: `k3s.nix` makes k3s `requires`/`after` the `var-lib-nagare.mount`, but EP-2
+  attaches a **blank, unformatted** persistent disk, so the ext4 mount of
+  `/dev/disk/by-id/google-nagare-data` fails (the `nofail` option lets boot continue but the mount unit
+  still fails, and k3s's hard `requires` on it then fails). The plan's Idempotence section anticipated a
+  one-time manual `mkfs.ext4`. Resolution: added a `format-nagare-data` systemd oneshot to `storage.nix`
+  that runs `mkfs.ext4 -F` on the disk **iff** `blkid` finds no filesystem, ordered `before`/`wantedBy`
+  the mount — so a clean first boot self-heals and k3s starts without manual intervention. (The already-
+  running `nagare-01` was built from the pre-fix image, so it still needs a one-time manual format until
+  the image is rebuilt.)
+
+- Discovery: reaching `nagare-01` over IAP-SSH was repeatedly blocked by two self-inflicted issues.
+  (1) **OpenSSH `PerSourcePenalties`** (default-on in current NixOS sshd): rapid aborted/failed SSH
+  attempts accrue a source-IP penalty that makes sshd close new connections, and each further failed
+  retry *extends* it — manifesting as `kex_exchange_identification: Connection closed by remote host`.
+  A VM `reset` clears the in-memory penalty state. (2) **IAP tunnel throttling**: creating many
+  `start-iap-tunnel` processes in quick succession causes the IAP WebSocket connect to time out
+  (`ConnectionCreationError: [Errno 60] Operation timed out`) / hang at "Testing if tunnel connection
+  works"; it clears after a few minutes of no attempts. Lesson: make at most one IAP-SSH attempt at a
+  time and wait between attempts; do not loop.
+
+- Discovery: `scripts/iap-ssh.sh` does not pass `-o IdentitiesOnly=yes`, so on a workstation whose
+  ssh-agent holds several keys it offers them all and trips the host's `MaxAuthTries` before reaching
+  `~/.ssh/id_ed25519` — surfacing as a generic `rc=255` that iap-ssh then misclassifies as a transient
+  tunnel failure and retries. Direct `ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519` authenticates
+  cleanly ("Server accepts key"). Worth adding `IdentitiesOnly=yes` (and an `-i` honoring `SSH_KEY`
+  ahead of agent keys) to the reference `iap-ssh.sh`.
 
 - Discovery (operator inputs already present): the workstation already has the operator SSH key
   `~/.ssh/id_ed25519.pub` (used in `users.nix`), the Nix remote builder is already wired
@@ -237,6 +273,16 @@ Record every decision made while working on the plan.
   new key would lock the operator out, and re-provisioning the builder is unnecessary
   (`setup-nix-builder.sh` is idempotent and would no-op). If the operator prefers a different deploy
   key, replace the one line in `hosts/nagare-01/users.nix` and rebuild.
+  Date: 2026-06-02
+
+- Decision: Auto-format the blank data disk on first boot via a `format-nagare-data` systemd oneshot in
+  `storage.nix`, rather than relying on the plan's manual `mkfs.ext4` recovery step.
+  Rationale: EP-2 attaches an unformatted disk; without a filesystem the `/var/lib/nagare` mount fails
+  and k3s (which `requires` the mount) never starts — observed on the first `nagare-01` boot
+  (`Dependency failed for k3s service`). A guarded `mkfs.ext4 -F` (only when `blkid` finds no
+  filesystem), ordered before the mount, makes a clean first boot self-healing and idempotent (existing
+  data is never reformatted). This keeps the "rebuild from Git is boring" guarantee — no manual step on
+  a fresh disk. Recorded as a spec/plan correction.
   Date: 2026-06-02
 
 - Decision: Commit the sops secrets file with a clearly-marked PLACEHOLDER Tailscale auth key
