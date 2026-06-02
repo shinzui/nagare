@@ -192,6 +192,26 @@ implementation. Provide concise evidence (command output is ideal).
   works"; it clears after a few minutes of no attempts. Lesson: make at most one IAP-SSH attempt at a
   time and wait between attempts; do not loop.
 
+- Discovery (UNRESOLVED, M3 blocker): after the initial two successful IAP-SSH sessions on the first
+  boot (KEX + "Server accepts key" confirmed), **every subsequent SSH connection — via IAP tunnel and
+  via direct public IP, as the `deploy` user with the correct key — is closed by the server at the
+  start of userauth** (`debug1: Authenticating to … as 'deploy'` → `Connection closed`). This persists
+  even on a freshly-reset VM's very first connection, which rules out accumulated OpenSSH
+  `PerSourcePenalties` as the sole cause. Remote diagnosis was thwarted on three channels: (a) SSH
+  itself is the thing failing; (b) on this NixOS GCE image the google-guest-agent runs the metadata
+  `startup-script` but routes its stdout to journald, **not** the serial console, so a startup-script
+  cannot surface output via `get-serial-port-output`; (c) a startup-script that uploads its output to
+  GCS via a metadata access token never produced an object (the upload step did not complete —
+  possibly killed by a google-startup-scripts timeout, or a PATH/token issue in that restricted
+  environment). The data disk **did** get formatted by an early startup-script run (confirmed by a
+  later boot's `systemd-fsck` on `google-nagare-data` succeeding), proving startup-scripts execute.
+  Net effect: the cluster could not be smoke-tested live. Most likely root causes to check next, with a
+  working shell (e.g. GCP **interactive serial console** login, which needs a local user password set
+  via a startup-script, or a rebuilt image): the OS Login `AuthorizedKeysCommand` failing/hanging
+  during userauth, or `PerSourcePenalties` (set `services.openssh.settings.PerSourcePenalties = "no"`
+  to test). The infra is otherwise in place; this is a host-access/observability problem, not a
+  Pulumi/Nix/k3s-config defect.
+
 - Discovery: `scripts/iap-ssh.sh` does not pass `-o IdentitiesOnly=yes`, so on a workstation whose
   ssh-agent holds several keys it offers them all and trips the host's `MaxAuthTries` before reaching
   `~/.ssh/id_ed25519` — surfacing as a generic `rc=255` that iap-ssh then misclassifies as a transient
@@ -302,7 +322,27 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion. Compare
 the result against the original purpose.
 
-(To be filled during and after implementation.)
+Status at handoff (2026-06-02): **Milestone 1 and Milestone 2 are complete; Milestone 3 is deployed
+but not yet smoke-tested live.** Concretely:
+
+- M1 ✅ — The NixOS configuration for `nagare-01` is authored and validated: both
+  `packages.x86_64-linux.nagare-image` and the day-2 `nixosConfigurations.nagare-01` evaluate, and the
+  GCE image **built on the remote x86_64-linux builder** (a real `*.raw.tar.gz`, 891 MiB).
+- M2 ✅ — `scripts/upload-images.sh` uploaded the image to `gs://tan-nb-exp-nagare-images`, registered
+  GCE image `nagare-image-bamf7v4ym3si` (STATUS: READY), and set Pulumi config `nagareImageSelfLink`.
+  EP-2's `pulumi up` then created `nagare-01`, which boots from that image (serial console reaches
+  "Reached target Multi-User System").
+- M3 ⏳ — `nagare-01` is RUNNING and booting the baked image. The data disk was formatted (so the mount
+  and thus k3s should now start), but the live checks (`kubectl get nodes` = Ready, the PVC bind test,
+  kubeconfig mode) could **not be confirmed** because every SSH session after the first two is closed by
+  the server at userauth (see Surprises — UNRESOLVED). This is a host-access/observability problem; the
+  image, the cloud resources, and the on-disk config are all in place.
+
+Remaining to call EP-3 done: obtain a working shell on `nagare-01` (GCP interactive serial console, or
+a rebuilt image that disables `PerSourcePenalties` / fixes OS Login key lookup), confirm the node is
+Ready and the PVC binds under `/var/lib/nagare/local-path`, replace the placeholder Tailscale auth key,
+and exercise the day-2 `nixos-rebuild --target-host` path. The `storage.nix` auto-format fix means a
+freshly rebuilt image will mount the disk and start k3s on first boot with no manual step.
 
 
 ## Context and Orientation

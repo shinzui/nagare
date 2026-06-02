@@ -295,7 +295,7 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
 - [~] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported (M1+M2 done, 2026-06-02). VM (M3) deferred — blocked on EP-3's image.
-- [ ] EP-3: NixOS `nagare-01` boots with k3s; data disk mounted at `/var/lib/nagare`; `kubectl get nodes` returns Ready.
+- [~] EP-3: NixOS image built & registered, `nagare-01` deployed and booting the baked image; data disk formatted. `kubectl get nodes` = Ready NOT yet confirmed — blocked by an unresolved sshd "connection closed at userauth" host-access issue (see EP-3 Surprises). (2026-06-02)
 - [ ] EP-4: Knative Serving + Kourier installed; wildcard TLS issued via cert-manager DNS-01; sample service answers over HTTPS.
 - [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
@@ -319,6 +319,17 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   still-needed-but-unverified APIs for later plans: none known beyond these. Consider adding
   `gcp.projects.Service` resources to EP-2 so a clean-project rebuild is fully self-contained.
   (2026-06-02)
+- EP-3: **host SSH access to `nagare-01` is an open blocker** affecting any plan that needs a shell on
+  the node (EP-4/5/6 run `kubectl`/`helm` against the cluster). After two initial successful IAP-SSH
+  sessions, sshd closes every subsequent connection (IAP and direct, even on a freshly-reset VM) at the
+  start of userauth. Not resolved remotely because SSH is the failing channel, NixOS routes
+  startup-script stdout to journald (not the serial console), and a GCS-upload diagnostic did not land.
+  The image build, GCE image registration, VM deploy, and data-disk format all succeeded; this is a
+  host-access/observability issue, not an infra defect. Likely culprits to check with a working shell
+  (GCP interactive serial console, or a rebuilt image): OS Login `AuthorizedKeysCommand` failure during
+  userauth, or OpenSSH `PerSourcePenalties` (try `services.openssh.settings.PerSourcePenalties = "no"`).
+  Also: NixOS does not forward metadata `startup-script` stdout to the serial console (use GCS or
+  journald), and `scripts/iap-ssh.sh` should add `-o IdentitiesOnly=yes`. (2026-06-02)
 - EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
   `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
   repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs
