@@ -94,12 +94,38 @@ register_if_missing() {
   fi
 }
 
+# Fail closed if the tarball we are about to upload is not a complete,
+# valid gzip stream. The remote->local copy-back of a multi-GB closure over
+# the IAP tunnel can drop mid-transfer (a known flaky transfer; see this
+# plan's Surprises), leaving a TRUNCATED local *.raw.tar.gz that nix never
+# registers as a valid store path. Uploading that yields gcloud's opaque
+# "The tar archive is not a valid image" at registration time. A cheap
+# `gzip -t` here turns that into an early, obvious failure. For a tarball
+# that lives only on the builder, verify it there instead.
+verify_tarball() {
+  local path="$1"
+  if [ -f "${path}" ]; then
+    if ! gzip -t "${path}" 2>/dev/null; then
+      echo "refusing to upload: local tarball ${path} is a truncated/corrupt gzip" >&2
+      echo "  (the builder->local copy-back likely dropped; re-run 'nix build .#${ATTR}' to re-copy)" >&2
+      return 1
+    fi
+  else
+    local q; q="$(printf '%q' "${path}")"
+    if ! "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "gzip -t ${q}" 2>/dev/null; then
+      echo "refusing to upload: builder tarball ${path} is a truncated/corrupt gzip" >&2
+      return 1
+    fi
+  fi
+}
+
 store_path="$(build_image)"
 hash="$(image_hash "${store_path}")"
 image_name="${OUTPUT}-${hash}"
 gs_uri="gs://${BUCKET}/${image_name}.raw.tar.gz"
 tarball="$(locate_tarball "${store_path}")"
 
+verify_tarball "${tarball}"
 upload_if_missing "${tarball}" "${gs_uri}"
 register_if_missing "${image_name}" "${gs_uri}"
 

@@ -5,3 +5,4 @@ config:
   gcp:zone: us-west1-a
   nagare:baseDomain: apps.example.com
   nagare:imageBucket: tan-nb-exp-nagare-images
+  nagare:nagareImageSelfLink: https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/nagare-image-s04l9dg8rc01
