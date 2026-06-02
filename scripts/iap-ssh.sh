@@ -168,6 +168,11 @@ ssh_common_args() {
     echo "-i"
     echo "${ident}"
   done
+  # Only offer the explicit -i identities above, not every key in the agent.
+  # Without this, a workstation whose ssh-agent holds several keys offers them
+  # all and trips the host's MaxAuthTries before reaching the right one,
+  # surfacing as a generic rc=255 that gets misread as a transient tunnel drop.
+  echo "-o IdentitiesOnly=yes"
   echo "-o StrictHostKeyChecking=no"
   echo "-o UserKnownHostsFile=/dev/null"
   echo "-o GlobalKnownHostsFile=/dev/null"
