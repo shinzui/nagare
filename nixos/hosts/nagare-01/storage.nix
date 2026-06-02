@@ -47,16 +47,32 @@ in
     options = [ "defaults" "nofail" ];
   };
 
-  # Create the IP-3 subdirectory layout under the mount. These run on every
-  # boot and are idempotent (tmpfiles only creates what is missing).
-  systemd.tmpfiles.rules = [
-    "d /var/lib/nagare 0755 root root -"
-    "d /var/lib/nagare/victoria-metrics 0755 root root -"
-    "d /var/lib/nagare/victoria-logs 0755 root root -"
-    "d /var/lib/nagare/victoria-traces 0755 root root -"
-    "d /var/lib/nagare/postgres 0755 root root -"
-    "d /var/lib/nagare/sqlite 0755 root root -"
-    "d /var/lib/nagare/backups 0755 root root -"
-    "d /var/lib/nagare/local-path 0755 root root -"
-  ];
+  # Create the IP-3 subdirectory layout AFTER the disk is mounted. This must
+  # not use systemd.tmpfiles.rules: those run at systemd-tmpfiles-setup, which
+  # can fire before the (nofail, possibly-just-formatted) data disk is mounted
+  # — the dirs would then be created on the root fs and immediately shadowed by
+  # the mount, leaving only lost+found visible under /var/lib/nagare (observed
+  # on the first boot; see EP-3 Surprises). Ordering an explicit oneshot after
+  # the mount guarantees the dirs land on the data disk. Idempotent.
+  systemd.services.nagare-data-layout = {
+    description = "Create the /var/lib/nagare subdirectory layout (IP-3)";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "var-lib-nagare.mount" ];
+    requires = [ "var-lib-nagare.mount" ];
+    unitConfig.RequiresMountsFor = "/var/lib/nagare";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      install -d -m 0755 \
+        /var/lib/nagare/victoria-metrics \
+        /var/lib/nagare/victoria-logs \
+        /var/lib/nagare/victoria-traces \
+        /var/lib/nagare/postgres \
+        /var/lib/nagare/sqlite \
+        /var/lib/nagare/backups \
+        /var/lib/nagare/local-path
+    '';
+  };
 }
