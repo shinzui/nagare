@@ -105,7 +105,7 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Repository scaffolding and Nix flake dev environment | docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md | None | None | Not Started |
+| 1 | Repository scaffolding and Nix flake dev environment | docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md | None | None | Complete |
 | 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | Not Started |
 | 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Not Started |
 | 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Not Started |
@@ -293,7 +293,7 @@ rebuilds.
 
 Milestone-level progress across all child plans. Updated as each child plan's milestones complete.
 
-- [ ] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain.
+- [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
 - [ ] EP-2: Pulumi project plans/creates the VM, IP, DNS, disk, SA, Artifact Registry, and backup bucket; stack outputs exported.
 - [ ] EP-3: NixOS `nagare-01` boots with k3s; data disk mounted at `/var/lib/nagare`; `kubectl get nodes` returns Ready.
 - [ ] EP-4: Knative Serving + Kourier installed; wildcard TLS issued via cert-manager DNS-01; sample service answers over HTTPS.
@@ -304,8 +304,13 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 ## Surprises & Discoveries
 
-(None yet. Cross-plan discoveries that affect other plans' assumptions, interfaces, or feasibility go
-here as implementation proceeds.)
+- EP-1: `pkgs.nodejs_20` is now marked insecure (end-of-life) in the resolved `nixos-unstable` channel
+  and refuses to evaluate, so the dev shell pins `pkgs.nodejs_22` (current LTS) instead. This affects
+  EP-2, which authors the Pulumi/TypeScript program against that Node runtime — EP-2 should assume
+  Node 22, not 20. The pinned Pulumi CLI is unchanged (3.239.0). (2026-06-02)
+- EP-1: Nix flakes only see Git-tracked files; new flake-referenced files must be `git add`-ed before
+  `nix develop` / `nixos-rebuild` will see them. Directly relevant to EP-3's `nixos/flake.nix` image
+  build. (2026-06-02)
 
 
 ## Decision Log

@@ -74,19 +74,30 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 requires splitting a partially completed task into two ("done" vs. "remaining"). This section must
 always reflect the actual current state of the work.
 
-- [ ] M1: Author `flake.nix` at the repo root with the pinned Pulumi overlay and the combined dev
-      shell, then verify every tool prints its version under `nix develop`.
-- [ ] M1: Obtain the correct release-specific `vendorHash` values for `pulumi` and `pulumi-nodejs`
-      (start from the reference repo's pinned 3.239.0; refresh only if a different version is chosen).
-- [ ] M2: Create the repository directory skeleton with `.gitkeep` placeholder files.
-- [ ] M2: Author the root `justfile` with thin wrapper recipes and verify `just --list`.
-- [ ] M2: Update `README.md` so it reflects the corrected decisions (Haskell CLI, cert-manager TLS,
+- [x] M1: Author `flake.nix` at the repo root with the pinned Pulumi overlay and the combined dev
+      shell, then verify every tool prints its version under `nix develop`. (2026-06-02 — `pulumi
+      v3.239.0`, `kubectl v1.36.1`, `helm v3.20.2`, `ghc 9.10.3`, `cabal 3.16.1.0`, `sops 3.13.1`,
+      `just 1.51.0`; `gcloud/gsutil/tailscale/age/jq/socat/node 22.22.3/tsc 5.9.3` all resolve to Nix
+      store paths.)
+- [x] M1: Obtain the correct release-specific `vendorHash` values for `pulumi` and `pulumi-nodejs`.
+      (2026-06-02 — reused the reference repo's known-good 3.239.0 hashes verbatim; build succeeded with
+      no hash mismatch, so no refresh was needed.)
+- [x] M2: Create the repository directory skeleton with `.gitkeep` placeholder files. (2026-06-02 —
+      seven `.gitkeep` files under `infra/pulumi`, `nixos/hosts/nagare-01`, `cluster/{bootstrap,
+      observability,examples}`, `cli/nagarectl`, `scripts`.)
+- [x] M2: Author the root `justfile` with thin wrapper recipes and verify `just --list`. (2026-06-02 —
+      all eight recipes + `default` shown.)
+- [x] M2: Update `README.md` so it reflects the corrected decisions (Haskell CLI, cert-manager TLS,
       `tan-nb-exp` project) and verify a `.gitignore` exists covering Nix/Pulumi/direnv artifacts.
-- [ ] M3: Author `.envrc` with the GCP isolation env vars and `use flake`; run `direnv allow` and
-      confirm `$CLOUDSDK_CORE_PROJECT` is `tan-nb-exp`.
-- [ ] M3: Author the root `CLAUDE.md` restating GCP project isolation, the preflight assertion, and
-      the Git conventions.
-- [ ] Final: Run the full acceptance checklist in "Validation and Acceptance" and record outcomes.
+      (2026-06-02 — TLS row, registry path, ServiceLB note, and MasterPlan pointer corrected; gitignore
+      extended with `result`, `.direnv/`, `.pulumi-home/`, `.pulumi-state/`, `node_modules/`.)
+- [x] M3: Author `.envrc` with the GCP isolation env vars and `use flake`; run `direnv allow` and
+      confirm `$CLOUDSDK_CORE_PROJECT` is `tan-nb-exp`. (2026-06-02 — `direnv exec` prints `tan-nb-exp`,
+      `us-west1`, `us-west1-a`, and `pulumi` resolves through the flake.)
+- [x] M3: Author the root `CLAUDE.md` restating GCP project isolation, the preflight assertion, and
+      the Git conventions. (2026-06-02)
+- [x] Final: Run the full acceptance checklist in "Validation and Acceptance" and record outcomes.
+      (2026-06-02 — all M1/M2/M3 checks pass; `nix flake check` succeeds.)
 
 
 ## Surprises & Discoveries
@@ -94,7 +105,20 @@ always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during implementation.
 Provide concise evidence.
 
-(None yet.)
+- Discovery: `pkgs.nodejs_20` (which the plan and the reference repo pinned) is now marked **insecure**
+  in the current `nixos-unstable` channel and refuses to evaluate. Evidence — `nix develop` failed with:
+  `error: Refusing to evaluate package 'nodejs-20.20.2' ... because it is marked as insecure ... This
+  NodeJS release has reached its end of life.` Resolution: bumped the dev shell to `pkgs.nodejs_22`
+  (current active LTS); the build then proceeded. This only affects the Node.js runtime Pulumi's
+  TypeScript program uses (EP-2), not the pinned Pulumi CLI version (still 3.239.0). The reference repo
+  (`load-testing-infra`) will hit the same wall whenever it re-resolves its flake against a newer
+  nixpkgs and should make the same bump. See the Decision Log.
+
+- Discovery: Nix flakes only see files tracked by Git. The first `nix develop` failed with
+  `error: Path 'flake.nix' in the repository ... is not tracked by Git` because the new files had not
+  been staged. Resolution: `git add` the new files before `nix develop`. (Re-stage after every edit to
+  a flake-referenced file, since the flake reads the committed/staged tree, not the dirty working copy
+  for path-visibility purposes.)
 
 
 ## Decision Log
@@ -142,13 +166,39 @@ Record every decision made while working on the plan.
   isolation policy. EP-1 is the plan that owns this policy file-wise; downstream plans obey it.
   Date: 2026-06-02
 
+- Decision: Pin the dev shell's Node.js to `pkgs.nodejs_22` instead of the plan's original
+  `pkgs.nodejs_20`.
+  Rationale: The `nixos-unstable` channel resolved during implementation marks `nodejs_20` insecure
+  (end-of-life), which makes `nix develop` refuse to evaluate. `nodejs_22` is the current active LTS and
+  is the supported, secure choice for Pulumi's Node.js language host. The Pulumi CLI itself remains
+  pinned at 3.239.0; only the Node runtime moved. See Surprises & Discoveries for the error evidence.
+  Date: 2026-06-02
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion. Compare the result
 against the original purpose.
 
-(To be filled during and after implementation.)
+EP-1 delivered the full repository foundation exactly as scoped, and every observable behavior in the
+Purpose section holds. A fresh `nix develop` produces a shell where `pulumi` (v3.239.0, pinned via the
+reference repo's override), `kubectl`, `helm`, `ghc`, `cabal`, `sops`, and `just` all print versions,
+and `gcloud`, `gsutil`, `tailscale`, `age`, `jq`, `socat`, `node`, and `tsc` all resolve to Nix store
+paths. `direnv allow` loads the GCP isolation variables (`tan-nb-exp` / `us-west1` / `us-west1-a`), the
+in-repo Pulumi home/passphrase, and the dev shell, so entering the directory makes the whole toolchain
+and the correct cloud defaults simply present — the contract EP-2 through EP-7 rely on. `just --list`
+shows the eight thin-wrapper recipes, and the directory skeleton gives each later plan a home. No cloud
+resources, VM, or cluster were created, as intended.
+
+The one deviation from the written plan: `nodejs_20` is now flagged insecure (EOL) in the resolved
+`nixos-unstable`, so the dev shell pins `nodejs_22` (current LTS) instead. This did not affect the
+pinned Pulumi CLI version and is recorded in the Decision Log and Surprises & Discoveries. No other
+gaps; the plan was otherwise accurate, and the reference repo's 3.239.0 `vendorHash` values applied
+cleanly with no refresh needed.
+
+Lesson for downstream plans: Nix flakes only see Git-tracked files, so any new file a flake references
+must be `git add`-ed before `nix develop`/`nixos-rebuild` will see it — relevant to EP-3's NixOS image
+flake in particular.
 
 
 ## Context and Orientation

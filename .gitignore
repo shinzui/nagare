@@ -2,3 +2,15 @@
 .agents/
 .seihou/manifest.json.tmp
 CLAUDE.local.md
+
+# Nix build outputs
+result
+result-*
+
+# direnv cache
+.direnv/
+
+# Pulumi in-repo home, state backend, and TypeScript deps (see .envrc / EP-2)
+infra/pulumi/.pulumi-home/
+infra/pulumi/.pulumi-state/
+infra/pulumi/node_modules/

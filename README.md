@@ -10,9 +10,13 @@ Nagare is a cheap, single-node **personal PaaS** that runs on one GCP Compute
 Engine instance. It lets you deploy many small projects without thinking about
 servers, while staying simple enough to rebuild the entire system from scratch.
 
-> **Status:** Early/spec stage. This repository currently contains the design
-> spec ([`docs/initial-spec.md`](docs/initial-spec.md)); implementation has not
-> started yet.
+> **Status:** Bootstrapping. The build is coordinated by the MasterPlan at
+> [`docs/masterplans/1-bootstrap-nagare-personal-paas.md`](docs/masterplans/1-bootstrap-nagare-personal-paas.md),
+> which decomposes the work into seven child ExecPlans under
+> [`docs/plans/`](docs/plans/). The foundation (Nix dev shell, repository
+> skeleton, conventions) is plan
+> [`docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md`](docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md).
+> See the full design spec at [`docs/initial-spec.md`](docs/initial-spec.md).
 
 ---
 
@@ -35,10 +39,10 @@ Service, wires up secrets and domains, waits for readiness, and prints the URL.
 | --- | --- |
 | **Cloud** | GCP Compute Engine, static IP, Cloud DNS, GCS backups — managed with [Pulumi](https://www.pulumi.com/) |
 | **Host** | [NixOS](https://nixos.org/) — users, SSH, firewall, disks, Tailscale, sops-nix, backups |
-| **Cluster** | [k3s](https://k3s.io/) (Traefik/servicelb disabled) |
+| **Cluster** | [k3s](https://k3s.io/) (Traefik disabled; built-in ServiceLB kept for Kourier) |
 | **Apps** | Knative Serving, scale-to-zero web services |
 | **Ingress** | [Kourier](https://github.com/knative-extensions/net-kourier) / Envoy |
-| **TLS** | cert-manager + Let's Encrypt, or host-level Caddy |
+| **TLS** | cert-manager + Let's Encrypt (wildcard via DNS-01) |
 | **Observability** | [VictoriaMetrics](https://victoriametrics.com/), VictoriaLogs, VictoriaTraces, OpenTelemetry Collector |
 | **Dashboards** | [Grafana](https://grafana.com/) |
 | **Data** | SQLite + Litestream → GCS; host Postgres or Cloud SQL for important shared state |
@@ -108,7 +112,7 @@ Each app repo provides a `Dockerfile` and a `nagare.yaml`:
 ```yaml
 name: notes
 namespace: personal
-image: us-docker.pkg.dev/my-project/nagare/notes
+image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes
 domain: notes.example.com
 
 env:
