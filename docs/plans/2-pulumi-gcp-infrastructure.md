@@ -68,11 +68,14 @@ after the operating-system image exists). Check items off as they are demonstrab
 - [x] M1: `pulumi preview` runs and plans 19 perimeter resources, with the VM **omitted** because
   `nagareImageSelfLink` config is unset (no `gcp:compute:Instance` in the plan; graceful handling
   proven). All nine stack-output names present. (2026-06-02)
-- [ ] M2: `pulumi up` creates the network + subnet, firewall rules, static IP, data disk, service
+- [x] M2: `pulumi up` creates the network + subnet, firewall rules, static IP, data disk, service
   account + IAM members, DNS managed zone + wildcard record, Artifact Registry, and both buckets.
-- [ ] M2: `pulumi stack output` prints all nine output names; `publicIp` is a real IPv4 address.
-- [ ] M2: the wildcard DNS record resolves to `publicIp` (verified with `gcloud dns record-sets list`
-  and/or `dig`).
+  (2026-06-02 — required enabling `artifactregistry`/`iam` APIs first; see Surprises.)
+- [x] M2: `pulumi stack output` prints all nine output names; `publicIp` is a real IPv4 address
+  (`34.145.74.203`). (2026-06-02)
+- [x] M2: the wildcard DNS record resolves to `publicIp` — `gcloud dns record-sets list` shows
+  `*.apps.example.com. A 34.145.74.203`; Artifact Registry `nagare` (DOCKER) and both buckets exist.
+  (2026-06-02)
 - [ ] M3 (blocked on EP-3): after EP-3 sets `nagareImageSelfLink` via `scripts/upload-images.sh`,
   a second `pulumi up` creates the `nagare-01` instance booting from the NixOS image.
 - [ ] M3: `gcloud compute instances describe nagare-01` shows it RUNNING with the data disk and the
@@ -102,6 +105,17 @@ with concise evidence (command output is ideal).
   extra is provider-version noise (component resources are counted). The load-bearing acceptance —
   **no `gcp:compute:Instance` in the plan** while `nagareImageSelfLink` is unset — holds. All nine
   stack-output names appear; `publicIp` shows `[unknown]` at preview time (it is created during `up`).
+
+- Discovery: the first `pulumi up` partially failed because two required GCP service APIs were **not
+  enabled** on the shared `tan-nb-exp` project: `artifactregistry.googleapis.com` (Artifact Registry
+  repo) and `iam.googleapis.com` (service-account creation). Result was `10 created, 2 errored` with
+  `Error 403 ... SERVICE_DISABLED`. `compute`, `dns`, and `storage` were already enabled. Resolution:
+  `gcloud services enable artifactregistry.googleapis.com iam.googleapis.com --project=tan-nb-exp`,
+  wait ~15s for propagation, then re-run `pulumi up` (idempotent — it created the remaining 9
+  resources, 10 unchanged). Lesson for downstream plans: EP-2 does not declare the API enablement as
+  Pulumi resources, so a clean-project rebuild must enable these APIs first. Consider adding
+  `gcp.projects.Service` resources in a future revision; for now this is a documented manual prereq.
+  Final `publicIp` = `34.145.74.203`; wildcard `*.apps.example.com.` A record matches it.
 
 
 ## Decision Log
@@ -186,7 +200,25 @@ Summarize outcomes, gaps, and lessons learned at major milestones or at completi
 result against the Purpose: can a reader run `pulumi up` and get a reproducible cloud perimeter, and
 do all nine stack outputs exist with correct values?
 
-(To be filled during and after implementation.)
+Status: **M1 and M2 complete; M3 deferred (blocked on EP-3).** A `pulumi up` from a clean checkout
+reproduces the entire cloud perimeter except the VM, and all nine Integration-Point-1 stack outputs
+exist with correct values (`publicIp` = `34.145.74.203`, `artifactRegistry` =
+`us-west1-docker.pkg.dev/tan-nb-exp/nagare`, `backupBucket` = `tan-nb-exp-nagare-backups`, etc.). The
+wildcard `*.apps.example.com.` A record resolves to the static IP, the Artifact Registry DOCKER repo
+and both GCS buckets exist, and the conditional-instance logic correctly omits the VM while
+`nagareImageSelfLink` is unset. The output contract — the single most important deliverable — is
+verified intact.
+
+Two deviations from the written plan, both recorded above: (1) the in-repo file backend must be logged
+into from within `infra/pulumi` with `file://./.pulumi-state` (the plan's repo-root-relative path
+doubled the segment); (2) `artifactregistry.googleapis.com` and `iam.googleapis.com` had to be enabled
+on `tan-nb-exp` before `pulumi up` could create the registry and service account — the plan does not
+model API enablement as Pulumi resources, so this is a manual prereq for a clean-project rebuild.
+
+Remaining: **M3** creates the `nagare-01` VM and is intentionally blocked until EP-3
+(`docs/plans/3-nixos-host-nagare-01-with-k3s.md`) builds and registers the NixOS GCE image and sets
+the `nagareImageSelfLink` config key. The perimeter is ready for EP-3 to upload its image into
+`gs://tan-nb-exp-nagare-images`.
 
 
 ## Context and Orientation

@@ -311,6 +311,19 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 - EP-1: Nix flakes only see Git-tracked files; new flake-referenced files must be `git add`-ed before
   `nix develop` / `nixos-rebuild` will see them. Directly relevant to EP-3's `nixos/flake.nix` image
   build. (2026-06-02)
+- EP-2: the shared `tan-nb-exp` project did not have all required GCP service APIs enabled. `compute`,
+  `dns`, and `storage` were on, but `artifactregistry.googleapis.com` and `iam.googleapis.com` were
+  off and had to be enabled with `gcloud services enable ... --project=tan-nb-exp` before `pulumi up`
+  could create the Artifact Registry repo and the service account. Affects every GCP-touching plan on
+  a clean project: EP-4 (cert-manager DNS-01 needs `dns` — already on), EP-7 (storage — on). Likely
+  still-needed-but-unverified APIs for later plans: none known beyond these. Consider adding
+  `gcp.projects.Service` resources to EP-2 so a clean-project rebuild is fully self-contained.
+  (2026-06-02)
+- EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
+  `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
+  repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs
+  `pulumi` (EP-3 sets `nagareImageSelfLink` config the same way: `cd infra/pulumi && pulumi config
+  set ...`). (2026-06-02)
 
 
 ## Decision Log
