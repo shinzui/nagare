@@ -88,30 +88,44 @@ the narrative; this is the checklist.
 
 Milestone 1: NixOS configuration authored and `nagare-image` builds on the remote builder.
 
-- [ ] Create directory `nixos/` at the repo root with `nixos/hosts/nagare-01/`.
-- [ ] Author `nixos/flake.nix` with inputs `nixpkgs` and `sops-nix`, a `mkImage` helper, and
-      the output `packages.x86_64-linux.nagare-image`.
-- [ ] Author `nixos/configuration-base.nix` (shared base: GCE module wiring via
-      `services.gcp.enable`, base packages, nix settings, state version).
-- [ ] Author `nixos/modules/gcp.nix` (GCE compatibility module, adapted from the reference repo).
-- [ ] Author the host files under `nixos/hosts/nagare-01/`: `configuration.nix`, `k3s.nix`,
-      `networking.nix`, `storage.nix`, `users.nix`, `security.nix`, `tailscale.nix`.
-- [ ] Run `nix flake lock` inside `nixos/`; commit `nixos/flake.lock`.
-- [ ] Build via the remote builder: `cd nixos && nix build .#packages.x86_64-linux.nagare-image`
-      succeeds and the store path contains exactly one `*.raw.tar.gz`. Record store path + size.
+- [x] Create directory `nixos/` at the repo root with `nixos/hosts/nagare-01/`. (2026-06-02)
+- [x] Author `nixos/flake.nix` with inputs `nixpkgs` and `sops-nix`, a `mkImage` helper, and
+      the output `packages.x86_64-linux.nagare-image`. (2026-06-02 — GCE module moved into the shared
+      module set so the day-2 `nixosConfigurations.nagare-01` target is also bootable; see Decision Log.)
+- [x] Author `nixos/configuration-base.nix` (shared base: GCE module wiring via
+      `services.gcp.enable`, base packages, nix settings, state version). (2026-06-02)
+- [x] Author `nixos/modules/gcp.nix` (GCE compatibility module, adapted from the reference repo).
+      (2026-06-02)
+- [x] Author the host files under `nixos/hosts/nagare-01/`: `configuration.nix`, `k3s.nix`,
+      `networking.nix`, `storage.nix`, `users.nix`, `security.nix`, `tailscale.nix`. (2026-06-02 —
+      `users.nix` uses the real operator key `id_ed25519`; secrets file created with a placeholder
+      Tailscale key encrypted to host age key `age1rc26869…`.)
+- [x] Run `nix flake lock` inside `nixos/`; commit `nixos/flake.lock`. (2026-06-02 — nixpkgs
+      `331800d` / 26.11 line, sops-nix `c591bf6`.)
+- [~] Build via the remote builder: `cd nixos && nix build .#packages.x86_64-linux.nagare-image`.
+      Config fully validated by evaluation (`nix eval` of both the image and the day-2 toplevel
+      derivations succeeds); the actual remote-builder build is deferred to the user checkpoint
+      (folded into M2's pipeline run). Record store path + size when built.
 
 Milestone 2: builder provisioned; image uploaded, registered, and wired into Pulumi config.
 
-- [ ] Author `scripts/nix-builder-startup.sh.tpl` (adapted verbatim from the reference repo).
-- [ ] Author `scripts/setup-nix-builder.sh` (IP-9 preflight; provisions `nix-builder-x86`).
-- [ ] Author `scripts/iap-ssh.sh` (IAP-tunneled ssh/scp wrapper, adapted verbatim).
-- [ ] Author `scripts/upload-images.sh` (build `nagare-image`, upload, register, write
-      `nagareImageSelfLink`).
-- [ ] Run `scripts/setup-nix-builder.sh`; confirm the builder VM exists and is stopped.
-- [ ] Configure the host-side builder SSH wiring (see Concrete Steps) so darwin offloads the
-      build; confirm `nix store info --store ssh-ng://nix-gcp-builder` resolves.
+- [x] Author `scripts/nix-builder-startup.sh.tpl` (copied verbatim from the reference repo).
+      (2026-06-02)
+- [x] Author `scripts/setup-nix-builder.sh` (IP-9 preflight; provisions `nix-builder-x86`). (2026-06-02
+      — copied verbatim from the reference repo.)
+- [x] Author `scripts/iap-ssh.sh` (IAP-tunneled ssh/scp wrapper, copied verbatim). (2026-06-02)
+- [x] Author `scripts/upload-images.sh` (build `nagare-image`, upload, register, write
+      `nagareImageSelfLink`). (2026-06-02 — Nagare-specific single-image adaptation.)
+- [~] Run `scripts/setup-nix-builder.sh`; confirm the builder VM exists and is stopped. Already
+      satisfied: `nix-builder-x86` exists in `tan-nb-exp` (TERMINATED) from the reference-repo setup;
+      the script is idempotent and would no-op.
+- [~] Configure the host-side builder SSH wiring. Already satisfied: `/etc/nix/machines` registers
+      `builder@nix-gcp-builder`, `/etc/nix/builder_ed25519` exists, and the SSH host resolves via
+      `/etc/ssh/ssh_config.d/200-nix-gcp-builder.conf` (nix-darwin managed). Deferred verification
+      (`nix store info`) to the build checkpoint.
 - [ ] Run `scripts/upload-images.sh`; confirm `pulumi config get nagareImageSelfLink` returns
-      a `https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/...` URL.
+      a `https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/...` URL. (Deferred to
+      the user checkpoint — runs the remote-builder build + upload.)
 
 Milestone 3: deploy and verify the running host and cluster.
 
@@ -130,7 +144,32 @@ Milestone 3: deploy and verify the running host and cluster.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence (command output is ideal).
 
-(None yet.)
+- Discovery: the plan's `nixos/flake.nix` placed the upstream GCE module
+  (`google-compute-image.nix`) only inside `mkImage`, leaving
+  `nixosConfigurations.nagare-01` (the day-2 `nixos-rebuild` target) without it. That target then
+  fails to evaluate. Evidence — `nix eval --raw .#nixosConfigurations.nagare-01.config.system.build.toplevel.drvPath`:
+  `Failed assertions: - The 'fileSystems' option does not specify your root file system. - You must
+  set the option 'boot.loader.grub.devices' ...`. The GCE module is what supplies the root fs and grub
+  config (via `google-compute-config.nix`), so without it the rebuild target is not bootable — directly
+  contradicting the plan's claim that the image and rebuild target are identical. The reference repo
+  only ever builds images (no `nixosConfigurations`), so it never hit this. Resolution: move the GCE
+  module into the shared `nagare01Modules` list so both the image and `nixosConfigurations.nagare-01`
+  are built from the identical, bootable module set (`mkSystem`). Both now evaluate: image drvPath
+  unchanged at `…-google-compute-image.drv`; the day-2 target resolves to
+  `…-nixos-system-nagare-01-google-compute-26.11….drv`.
+
+- Discovery: the resolved `nixos-unstable` is the **26.11** release line (`nixos-system-…-26.11…`),
+  not 26.05. `configuration-base.nix` pins `system.stateVersion = "26.05"`, which is still valid
+  (stateVersion is intentionally a fixed lower bound, not the running release), so this is left as-is;
+  noted so a future reader is not surprised by the version skew.
+
+- Discovery (operator inputs already present): the workstation already has the operator SSH key
+  `~/.ssh/id_ed25519.pub` (used in `users.nix`), the Nix remote builder is already wired
+  (`/etc/nix/machines` registers `builder@nix-gcp-builder`; `/etc/nix/builder_ed25519` exists; the SSH
+  host is resolved by the nix-darwin-managed `/etc/ssh/ssh_config.d/200-nix-gcp-builder.conf` whose
+  ProxyCommand opens the IAP tunnel on demand), and the builder VM `nix-builder-x86` already exists in
+  `tan-nb-exp` (TERMINATED). So `scripts/setup-nix-builder.sh` is a no-op here and the host-side build
+  wiring in the plan's Step 8 is already satisfied by the reference-repo setup.
 
 
 ## Decision Log
@@ -177,6 +216,38 @@ Record every decision made while working on the plan.
   a non-root user with NOPASSWD sudo and the operator's public key. Root SSH and password auth
   are disabled to reduce the attack surface on the box even though it is reachable mainly over
   Tailscale.
+  Date: 2026-06-02
+
+- Decision: Include the upstream GCE module (`google-compute-image.nix`) in the **shared**
+  `nagare01Modules` list so both `packages.x86_64-linux.nagare-image` and
+  `nixosConfigurations.nagare-01` are built from it, rather than adding it only in `mkImage` as the
+  plan's Step 2 wrote.
+  Rationale: `nixosConfigurations.nagare-01` (the day-2 `nixos-rebuild --target-host` target) must have
+  a root filesystem and bootloader to evaluate and to be bootable; those come from the GCE module. With
+  the module image-only, the day-2 target failed assertions (see Surprises). Sharing the module makes
+  the plan's "image and rebuild target are identical" guarantee literally true. The extra
+  `system.build.image` output on the rebuild target is unused and harmless.
+  Date: 2026-06-02
+
+- Decision: Use the existing operator key `~/.ssh/id_ed25519.pub`
+  (`ssh-ed25519 AAAA…JZ7R shinzui@sungkyung`) as the `deploy` user's authorized key, and reuse the
+  reference repo's already-provisioned Nix builder (`nix-builder-x86`) and host build wiring rather
+  than re-provisioning.
+  Rationale: The workstation already has this key and a working builder (see Surprises); fabricating a
+  new key would lock the operator out, and re-provisioning the builder is unnecessary
+  (`setup-nix-builder.sh` is idempotent and would no-op). If the operator prefers a different deploy
+  key, replace the one line in `hosts/nagare-01/users.nix` and rebuild.
+  Date: 2026-06-02
+
+- Decision: Commit the sops secrets file with a clearly-marked PLACEHOLDER Tailscale auth key
+  (`tskey-auth-PLACEHOLDER-REPLACE-BEFORE-DEPLOY`), encrypted to a freshly generated host age key
+  (public `age1rc26869…`; private key stored locally at `~/.config/nagare/nagare-01-age-key.txt`, never
+  committed).
+  Rationale: The flake cannot evaluate without the sops file present, but a real Tailscale pre-auth key
+  is an external secret only the operator can mint (Tailscale admin console). The placeholder lets the
+  config be validated and committed now; it must be replaced (re-encrypt the file, redeploy) before the
+  host can join the tailnet. The host still boots and k3s still runs without it — Tailscale join is the
+  only affected behavior.
   Date: 2026-06-02
 
 

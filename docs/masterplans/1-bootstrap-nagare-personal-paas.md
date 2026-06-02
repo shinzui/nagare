@@ -107,7 +107,7 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Repository scaffolding and Nix flake dev environment | docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md | None | None | Complete |
 | 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | In Progress |
-| 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Not Started |
+| 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | In Progress |
 | 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Not Started |
 | 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Not Started |
 | 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |

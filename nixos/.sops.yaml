@@ -1,0 +1,7 @@
+keys:
+  - &host_nagare01 age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99
+creation_rules:
+  - path_regex: hosts/nagare-01/secrets/.*\.yaml$
+    key_groups:
+      - age:
+          - *host_nagare01
