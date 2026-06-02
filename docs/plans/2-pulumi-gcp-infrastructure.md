@@ -54,16 +54,20 @@ This section is the live checklist. Every stopping point must be reflected here.
 organized into three milestones (M1 scaffolding + preview; M2 everything except the VM; M3 the VM
 after the operating-system image exists). Check items off as they are demonstrably done.
 
-- [ ] M1: `infra/pulumi/` project scaffolding created (`Pulumi.yaml`, `Pulumi.dev.yaml`,
+- [x] M1: `infra/pulumi/` project scaffolding created (`Pulumi.yaml`, `Pulumi.dev.yaml`,
   `package.json`, `tsconfig.json`, `index.ts`, `src/outputs.ts`, and the component files under
-  `src/components/`).
-- [ ] M1: in-repo Pulumi state backend initialized with `pulumi login file://./infra/pulumi/.pulumi-state`
-  and the `dev` stack selected; `PULUMI_HOME` and `PULUMI_CONFIG_PASSPHRASE` from `.envrc` honored.
-- [ ] M1: config keys set (`gcp:project`, `gcp:region`, `gcp:zone`, `baseDomain`, `imageBucket`).
-- [ ] M1: `npm install` (or the flake's pinned Node) installs `@pulumi/pulumi` and `@pulumi/gcp`;
-  `npm run build` (`tsc --noEmit`) type-checks cleanly.
-- [ ] M1: `pulumi preview` runs and plans the perimeter resources, with the VM **omitted** because
-  `nagareImageSelfLink` config is unset (graceful handling proven).
+  `src/components/`). (2026-06-02)
+- [x] M1: in-repo Pulumi state backend initialized — `cd infra/pulumi && pulumi login
+  file://./.pulumi-state` (corrected from the plan's repo-root-relative path; see Decision Log) and the
+  `dev` stack created; `PULUMI_HOME` and `PULUMI_CONFIG_PASSPHRASE` from `.envrc` honored via `direnv
+  exec`. (2026-06-02)
+- [x] M1: config keys set (`gcp:project=tan-nb-exp`, `gcp:region=us-west1`, `gcp:zone=us-west1-a`,
+  `baseDomain=apps.example.com`, `imageBucket=tan-nb-exp-nagare-images`). (2026-06-02)
+- [x] M1: `npm install` installed `@pulumi/pulumi` + `@pulumi/gcp` (346 packages, 0 vulnerabilities);
+  `npm run build` (`tsc --noEmit`) type-checks cleanly, exit 0. (2026-06-02)
+- [x] M1: `pulumi preview` runs and plans 19 perimeter resources, with the VM **omitted** because
+  `nagareImageSelfLink` config is unset (no `gcp:compute:Instance` in the plan; graceful handling
+  proven). All nine stack-output names present. (2026-06-02)
 - [ ] M2: `pulumi up` creates the network + subnet, firewall rules, static IP, data disk, service
   account + IAM members, DNS managed zone + wildcard record, Artifact Registry, and both buckets.
 - [ ] M2: `pulumi stack output` prints all nine output names; `publicIp` is a real IPv4 address.
@@ -80,7 +84,24 @@ after the operating-system image exists). Check items off as they are demonstrab
 Document unexpected behaviors, bugs, optimizations, or insights discovered during implementation,
 with concise evidence (command output is ideal).
 
-(None yet.)
+- Discovery: the in-repo Pulumi file backend must be logged into **from within `infra/pulumi`** with
+  the relative URL `file://./.pulumi-state`, not from the repo root with
+  `file://./infra/pulumi/.pulumi-state` + `pulumi --cwd infra/pulumi` as the plan's Step 9 wrote.
+  Evidence — running `pulumi login file://./infra/pulumi/.pulumi-state` then `pulumi --cwd infra/pulumi
+  stack init dev` failed with: `error: unable to open bucket
+  file:///Users/.../infra/pulumi/infra/pulumi/.pulumi-state ... no such file or directory`. A relative
+  `file://` backend URL is re-resolved against the **project** directory (the `--cwd`), so the
+  `infra/pulumi` segment is applied twice. Resolution: adopt the reference repo's exact pattern — `cd
+  infra/pulumi` and `pulumi login file://./.pulumi-state`, then run all `pulumi` commands from inside
+  `infra/pulumi` (which is also what the EP-1 `justfile` recipes do: `cd infra/pulumi && pulumi …`).
+  The state lives at `infra/pulumi/.pulumi-state` either way. The `.pulumi-state` directory must exist
+  before `pulumi login` (login does not create it): `mkdir -p infra/pulumi/.pulumi-state`.
+
+- Discovery: the gcp provider resolved to `gcp-8.41.1` (newer than the `^8.10.0` floor in
+  `package.json`), and `pulumi preview` planned **19** resources, not the ~18 the plan estimated. The
+  extra is provider-version noise (component resources are counted). The load-bearing acceptance —
+  **no `gcp:compute:Instance` in the plan** while `nagareImageSelfLink` is unset — holds. All nine
+  stack-output names appear; `publicIp` shows `[unknown]` at preview time (it is created during `up`).
 
 
 ## Decision Log
@@ -145,6 +166,17 @@ reader can reconstruct the reasoning from this file alone.
   Rationale: MasterPlan Integration Point 4 and its Decision Log pin a single placeholder domain and
   a single source of truth (the Pulumi output) to prevent drift across plans. The real domain is set
   later with `pulumi config set baseDomain <real-domain>`.
+  Date: 2026-06-02
+
+- Decision: operate Pulumi from **inside `infra/pulumi`** and log into the file backend with
+  `file://./.pulumi-state` (matching the reference repo), rather than the plan's Step 9 wording of
+  logging in from the repo root with `file://./infra/pulumi/.pulumi-state` and using `pulumi --cwd
+  infra/pulumi`.
+  Rationale: A relative `file://` backend URL is re-resolved against the project directory, so the
+  repo-root-relative path doubles the `infra/pulumi` segment and `pulumi` fails to open the bucket (see
+  Surprises & Discoveries for the exact error). Running from `infra/pulumi` with a project-relative
+  backend URL is the canonical, portable pattern the EP-1 `justfile` recipes already assume
+  (`cd infra/pulumi && pulumi …`). State still lives at `infra/pulumi/.pulumi-state`.
   Date: 2026-06-02
 
 
