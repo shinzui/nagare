@@ -294,7 +294,7 @@ rebuilds.
 Milestone-level progress across all child plans. Updated as each child plan's milestones complete.
 
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
-- [ ] EP-2: Pulumi project plans/creates the VM, IP, DNS, disk, SA, Artifact Registry, and backup bucket; stack outputs exported.
+- [~] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported (M1+M2 done, 2026-06-02). VM (M3) deferred — blocked on EP-3's image.
 - [ ] EP-3: NixOS `nagare-01` boots with k3s; data disk mounted at `/var/lib/nagare`; `kubectl get nodes` returns Ready.
 - [ ] EP-4: Knative Serving + Kourier installed; wildcard TLS issued via cert-manager DNS-01; sample service answers over HTTPS.
 - [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
