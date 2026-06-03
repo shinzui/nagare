@@ -1,0 +1,1306 @@
+---
+id: 11
+slug: reusable-config-presets-and-composition-library
+title: "Reusable config presets and composition library"
+kind: exec-plan
+created_at: 2026-06-03T03:44:07Z
+intention: "intention_01kt5s3j2zedh8ew1yp9qdp6c7"
+master_plan: "docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md"
+---
+
+# Reusable config presets and composition library
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+
+
+## Purpose / Big Picture
+
+After this plan is complete, a Nagare app author no longer needs to repeat the same boilerplate
+for every service they deploy. Instead of copying twelve lines of configuration from one app to
+the next and inevitably drifting, the author writes something like this:
+
+```haskell
+-- cluster/examples/preset-app-a/nagare/Config.hs   (native eDSL branch)
+import Nagare.Dsl.Presets (webService, production)
+
+deployment :: Deployment
+deployment = production $ webService "notes" "gcr.io/myproject/notes"
+```
+
+Two different apps share exactly the same `webService` preset and the same `production` overlay.
+The type system guarantees the composed result is a valid `Deployment` — not because a runtime
+validator runs, but because the overlay functions operate on already-smart-constructed values and
+re-run the smart constructors when they touch constrained fields, so an overlay that would
+produce an invalid state (for example, forcing `max < min`) is rejected at the point of
+composition, not silently applied.
+
+This plan is the observable proof that Nagare's configuration is *easy to reuse*. It is one of
+the two headline user requirements of the parent MasterPlan at
+`docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`. The concrete proof is
+two example apps — `cluster/examples/preset-app-a/` and `cluster/examples/preset-app-b/` — that
+share one preset library and one overlay, differ only in name, image, and one environment
+variable, and each produce a correct, distinct Knative Service YAML. You can see the proof by
+running `cabal test` inside `cli/nagare-dsl/` and observing the property tests pass and the
+golden outputs diverge in exactly the name/image/env lines.
+
+
+## Progress
+
+- [ ] M0: Determine the substrate chosen by EP-8 and record it; branch the concrete steps.
+- [ ] M1.1: Create `cli/nagare-dsl/src/Nagare/Dsl/Presets.hs` (eDSL branch) or
+      `cli/nagare-dsl/dhall/Nagare/presets.dhall` (Dhall branch) with `webService`,
+      `development`, `production`, `secretEnv`, `stdResources`, and `teamDefaults`.
+- [ ] M1.2: Add `Nagare.Dsl.Presets` to the `exposed-modules` list in `nagare-dsl.cabal`
+      (eDSL branch) or add the Dhall package path to the loader (Dhall branch).
+- [ ] M1.3: Verify the presets module builds: `cabal build` exits 0 (eDSL) or
+      `dhall type < cli/nagare-dsl/dhall/Nagare/presets.dhall` exits 0 (Dhall).
+- [ ] M2.1: Create `cluster/examples/preset-app-a/nagare/Config.hs` (eDSL) or
+      `cluster/examples/preset-app-a/nagare.dhall` (Dhall) using `webService` + `production`.
+- [ ] M2.2: Create `cluster/examples/preset-app-b/nagare/Config.hs` (eDSL) or
+      `cluster/examples/preset-app-b/nagare.dhall` (Dhall) using the same preset + overlay
+      but a different name, image, and one `secretEnv` variable.
+- [ ] M2.3: Create golden files for both apps' rendered Knative Service YAML.
+- [ ] M2.4: Add golden tests to `cli/nagare-dsl/test/Spec.hs` that load each example via
+      EP-10's `loadDeployment`, render via EP-9's `renderService`, and compare to golden.
+- [ ] M2.5: Run `cabal test`; both app golden tests pass and output diverges in the expected lines.
+- [ ] M3.1: Add property tests (using `tasty-quickcheck`) for preset/overlay composition:
+      composing valid presets + overlays always yields a `Right Deployment`; forcing invalid
+      overlay (max < min) yields `Left`.
+- [ ] M3.2: Run `cabal test`; all property tests pass.
+- [ ] Final: Update Progress, Surprises & Discoveries, Decision Log, and Outcomes; verify all
+      Integration Points; mark EP-11 complete in the parent MasterPlan.
+
+
+## Surprises & Discoveries
+
+(None yet.)
+
+
+## Decision Log
+
+- Decision: Use `tasty-quickcheck` for the property tests in M3, not `tasty-hedgehog`.
+  Rationale: Both `tasty-quickcheck` and `tasty-hedgehog` are present in the local mori corpus
+  at `/Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/quickcheck` and
+  `/Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty-hedgehog/` respectively. QuickCheck
+  is chosen because (a) the rest of the test suite already uses `tasty-hunit` (also in the
+  tasty corpus project), and QuickCheck is the more widely-used companion in that ecosystem;
+  (b) the properties here are simple enough that QuickCheck's random generation is sufficient;
+  and (c) the contract plan EP-9 specifies `tasty-quickcheck` as an option and the corpus
+  confirms its presence. If the implementer prefers hedgehog, that is a valid substitute —
+  record the change in this Decision Log and update `nagare-dsl.cabal` accordingly.
+  Date: 2026-06-03
+
+- Decision: The presets live in a new module `Nagare.Dsl.Presets` inside the *existing*
+  `nagare-dsl` library package rather than in a separate `nagare-presets` package.
+  Rationale: The MasterPlan names the deliverable as "a `nagare-presets` library" but also
+  names the library location as `cli/nagare-dsl/`. Keeping everything in one Cabal package
+  avoids an inter-package dependency that EP-12's `nagarectl` would have to manage separately.
+  Presets are thin wrappers around the types in `Nagare.Dsl.Types`, so they belong in the same
+  package. If the library grows large enough to warrant splitting, that is an EP-12 or
+  post-cutover refactor. The exposed module is named `Nagare.Dsl.Presets` to make the namespace
+  clear.
+  Date: 2026-06-03
+
+- Decision: EP-11's `nagare-presets` and example apps follow the house Haskell standards
+  (haskell-jitsurei) and the GHC 9.12 / GHC2024 toolchain. Presets are written as typed
+  constructor functions over the EP-9 core model, importing `Nagare.Dsl.Prelude`, using
+  generic-lens `#label` for composition/overlays, strict unprefixed fields, and explicit
+  deriving strategies. Rationale: consistency with the `nagare-dsl` package and MasterPlan
+  Integration Point 6; lens-based overlays are the idiomatic way to express the
+  "production/development overlay" composition this plan demonstrates. Date: 2026-06-03
+
+- Decision: EP-11 is written to *branch* on the substrate decision from EP-8. The plan provides
+  full concrete steps for both the native Haskell eDSL outcome and the Dhall outcome. When the
+  implementer begins, they read EP-8's Decision Log, identify the chosen substrate, and follow
+  only the relevant branch throughout. The other branch's steps are retained in the plan for
+  reference but should not be executed.
+  Date: 2026-06-03
+
+
+## Outcomes & Retrospective
+
+(To be filled during and after implementation.)
+
+
+## Context and Orientation
+
+This section defines every term used in this plan. Read it fully before touching any code.
+
+**What Nagare is.** Nagare is a personal Platform-as-a-Service: one GCP virtual machine running
+k3s (a lightweight Kubernetes distribution) with Knative Serving installed. A Nagare deployment
+is described by a typed configuration and rendered to a Knative `Service` manifest. The typed
+model lives in the Haskell library `nagare-dsl` at `cli/nagare-dsl/`.
+
+**What "substrate" means.** The MasterPlan required evaluating three candidate configuration
+surfaces (EP-8): a native Haskell eDSL (config-as-program), an interpreted Haskell eDSL
+(evaluated at runtime without a per-app compile step), and Dhall (a typed functional
+configuration language). EP-8 picks one; EP-10 implements the loader for it. This plan (EP-11)
+adds the reusable-preset layer on top of whatever EP-10 chose.
+
+**Hard dependencies.** EP-11 has a hard dependency on EP-10: the preset library is written in
+the chosen substrate, so the substrate's surface and the `loadDeployment` loader must exist
+before presets can be exercised end-to-end. EP-11 also soft-depends on EP-9: presets are
+typed constructors over `Nagare.Dsl.Types.Deployment` and its smart constructors.
+
+**The `nagare-dsl` library layout.** EP-9 created the package at `cli/nagare-dsl/` with two
+modules: `Nagare.Dsl.Types` (the typed deployment model with smart constructors) and
+`Nagare.Dsl.Render` (the Knative YAML renderer). EP-10 added `Nagare.Dsl.Load` (the loader).
+EP-11 adds `Nagare.Dsl.Presets`. The full module list after EP-11:
+
+```text
+cli/nagare-dsl/
+  src/
+    Nagare/
+      Dsl/
+        Types.hs     -- EP-9: Deployment, smart constructors, newtypes
+        Render.hs    -- EP-9: renderService, renderDomainMapping
+        Load.hs      -- EP-10: loadDeployment
+        Presets.hs   -- EP-11: webService, development, production, secretEnv, etc.
+  test/
+    Spec.hs          -- EP-9/11: unit tests + golden tests + property tests
+    golden/          -- EP-9 + EP-11 golden YAML fixtures
+    negative/        -- EP-9 negative compile tests
+```
+
+**The key types from EP-9.** These types are defined in `Nagare.Dsl.Types` and are the building
+blocks for all presets. A novice does not need to understand their internals, only their smart
+constructors:
+
+- `ServiceName` — a DNS-safe service name; created with `mkServiceName :: Text -> Either Text ServiceName`.
+- `Namespace` — a Kubernetes namespace; `defaultNamespace :: Namespace` is `"personal"`.
+- `ImageRef` — a container image repository path, no tag; `mkImageRef :: Text -> Either Text ImageRef`.
+- `Port` — a TCP port 1–65535; `defaultPort :: Port` is `8080`.
+- `Quantity` — a Kubernetes resource quantity string like `"250m"` or `"128Mi"`; `mkQuantity :: Text -> Either Text Quantity`.
+- `Scale` — autoscaling bounds (min and max pod count); `mkScale :: Int -> Int -> Either Text Scale` rejects `max < min`.
+- `EnvVar` — either `EnvLiteral Text` (a literal value) or `EnvSecretRef SecretName` (a Kubernetes Secret reference). These two choices are mutually exclusive by the type — there is no constructor that accepts both.
+- `Resources = Resources { cpu :: !(Maybe Quantity), memory :: !(Maybe Quantity) }` — CPU and memory requests (strict, unprefixed fields per the house standards).
+- `Deployment` — the complete deployment record with strict, unprefixed fields `name`, `namespace`, `image`, `domain`, `port`, `env`, `resources`, `scale`, accessed via generic-lens `#label`.
+
+**What a preset is.** A preset is a Haskell function (eDSL branch) or a Dhall function (Dhall
+branch) that returns a `Deployment` (or a partial record that can be completed) with sensible
+defaults filled in. An **overlay** is a function `Deployment -> Deployment` (eDSL) or a Dhall
+function `Env -> Deployment -> Deployment` that adjusts a `Deployment` without copying it. The
+key constraint is that overlays go through the smart constructors whenever they touch a
+constrained field — they never write a raw field value that bypasses validation.
+
+**The example apps.** Two throwaway apps are placed under `cluster/examples/` alongside the
+existing `hello-knative-service/`:
+
+- `cluster/examples/preset-app-a/` — a "notes" web service using `webService` + `production`.
+- `cluster/examples/preset-app-b/` — a "tasks" web service using the same preset + overlay, but with a different name, image, and an environment variable sourced from a Kubernetes Secret.
+
+Neither app needs a running cluster; they are exercised by the test suite using EP-10's
+`loadDeployment` and EP-9's `renderService`.
+
+**Toolchain.** All commands are run inside `nix develop` at the repository root. `cabal build`
+and `cabal test` are run from `cli/nagare-dsl/`. GHC 9.12 (pinned via the repository flake) is
+provided by the nix shell. `dhall` is available in the nix shell for the Dhall branch's
+type-check commands.
+
+> **Haskell standards (binding; see MasterPlan Integration Point 6).** This package is built with **GHC 9.12** pinned through the repository Nix flake and follows the house standards in `/Users/shinzui/Keikaku/bokuno/haskell-jitsurei`. Every Cabal stanza uses `default-language: GHC2024` and `import: common`, where the `common` stanza enables `DeriveAnyClass`, `DuplicateRecordFields`, `OverloadedLabels`, `OverloadedStrings` (and `MultilineStrings` where useful). Modules import the shared `Nagare.Dsl.Prelude` (EP-9) instead of repeating common imports; record types use strict (`!`) unprefixed fields with explicit `deriving stock`/`deriving newtype`/`deriving anyclass` strategies; field access/update uses generic-lens `#label` with lens operators; qualified imports are postpositive. Formatting is `fourmolu` + `cabal-gild` via `treefmt`.
+
+
+## Plan of Work
+
+The work proceeds in three milestones. Milestone 0 is a one-step orientation: read EP-8's
+Decision Log, identify the chosen substrate, and record it here. Milestones 1–3 then proceed
+concretely for that substrate. Full steps for both the native eDSL and Dhall outcomes are
+given in Concrete Steps; the implementer follows only the branch matching EP-8's decision.
+
+**Milestone M0 — determine the substrate.** Open
+`docs/plans/8-config-substrate-evaluation-spike-and-decision.md` and read the Decision Log.
+The substrate decision is recorded there. It is one of: "native Haskell eDSL
+(config-as-program)", "interpreted Haskell eDSL", or "Dhall". Record it in EP-11's Decision
+Log. Then proceed to M1 for that branch.
+
+**Milestone M1 — the presets module builds.** At the end of M1, `Nagare.Dsl.Presets` (eDSL
+branch) or `cli/nagare-dsl/dhall/Nagare/presets.dhall` (Dhall branch) exists and compiles or
+type-checks without errors. The module provides: `webService`, the `development` and
+`production` overlays, and three smaller helpers (`secretEnv`, `stdResources`, `teamDefaults`).
+No tests yet — M1 ends at `cabal build` (eDSL) or `dhall type` (Dhall) succeeding.
+
+**Milestone M2 — two apps share the preset; golden tests pass.** At the end of M2, two example
+apps exist under `cluster/examples/`. Both import the same `Nagare.Dsl.Presets` module (or
+Dhall package). Each loads through EP-10's `loadDeployment`, renders through EP-9's
+`renderService`, and produces valid Knative YAML. Golden tests in `cli/nagare-dsl/test/Spec.hs`
+lock in the expected output for both apps. The golden files for the two apps differ in exactly
+the lines that reflect their distinct name, image, and environment. Running `cabal test` prints
+both golden tests as `OK`. This milestone is the observable "shared, not copy-pasted" proof.
+
+**Milestone M3 — property tests pass.** At the end of M3, `cli/nagare-dsl/test/Spec.hs`
+contains QuickCheck property tests (via `tasty-quickcheck`) that verify: (a) composing a valid
+`webService` result with a valid overlay always returns a valid `Deployment`; and (b) applying
+an overlay that forces `max < min` is rejected (returns `Left`) rather than silently producing
+an invalid value. `cabal test` passes all unit tests, golden tests, and property tests. For the
+Dhall branch, property tests are complemented by `dhall type` checks on the preset functions
+confirming totality.
+
+
+## Concrete Steps
+
+All commands are run from the repository root `/Users/shinzui/Keikaku/bokuno/nagare` unless
+stated otherwise. Enter the developer shell first with `nix develop`.
+
+
+### M0 — Determine the substrate
+
+Open `docs/plans/8-config-substrate-evaluation-spike-and-decision.md` and read the Decision
+Log. Find the entry that records the substrate decision. It will say one of:
+
+- "native Haskell eDSL (config-as-program)" — follow the eDSL branch below.
+- "interpreted Haskell eDSL" — the interpreter substrate also produces a `Deployment` value the
+  same way as the native eDSL. The presets module is identical to the eDSL branch; the only
+  difference is how EP-10 loads the config file. Follow the eDSL branch.
+- "Dhall" — follow the Dhall branch below.
+
+Record your finding:
+
+```text
+Decision: substrate chosen by EP-8 is [fill in].
+Rationale: see EP-8 Decision Log.
+Date: [today]
+```
+
+Add this to EP-11's Decision Log section, then proceed.
+
+
+### M1 — Presets module
+
+#### M1 (eDSL branch)
+
+Create the file `cli/nagare-dsl/src/Nagare/Dsl/Presets.hs`. This module exports five public
+definitions: `webService`, `development`, `production`, `secretEnv`, `stdResources`, and
+`teamDefaults`. Read this section fully before writing anything — the type-safety reasoning at
+the end is as important as the code.
+
+```haskell
+-- cli/nagare-dsl/src/Nagare/Dsl/Presets.hs
+--
+-- Reusable building blocks for Nagare deployments.
+--
+-- An app author imports this module and composes presets and overlays to
+-- describe their service without boilerplate:
+--
+--   import Nagare.Dsl.Presets (webService, production, secretEnv)
+--
+--   deployment :: Deployment
+--   deployment =
+--     production
+--       $ secretEnv "DATABASE_URL" "my-db-secret"
+--       $ webService "notes" "gcr.io/myproject/notes"
+--
+-- The type system guarantees the result is a valid Deployment: every overlay
+-- goes through the smart constructors for any field it modifies, so an overlay
+-- that would produce an invalid value (e.g. max < min) is rejected at the
+-- point of overlay application, not silently passed through.
+
+module Nagare.Dsl.Presets
+  ( -- * Web-service preset
+    webService
+    -- * Environment overlays
+  , development
+  , production
+    -- * Helpers
+  , secretEnv
+  , stdResources
+  , teamDefaults
+  ) where
+
+import "generic-lens" Data.Generics.Labels ()
+import Data.Map (Map)
+import Data.Map qualified as Map
+import Nagare.Dsl.Prelude
+import Nagare.Dsl.Types
+
+-- ---------------------------------------------------------------------------
+-- Web-service preset
+
+-- | Build a standard HTTP web-service deployment from just a name and image.
+--
+-- Defaults applied:
+--   namespace  = personal   (via 'defaultNamespace')
+--   port       = 8080       (via 'defaultPort')
+--   scale      = 0..3       (scale-to-zero with a max of 3 pods)
+--   resources  = 'stdResources'  (250m CPU, 128Mi memory)
+--   env        = empty
+--   domain     = Nothing
+--
+-- Returns 'Left' with a descriptive error if the name or image is invalid
+-- (invalid DNS name, or image path contains a colon/tag).
+webService :: Text -> Text -> Either Text Deployment
+webService nameText imageText = do
+  name  <- mkServiceName nameText
+  img   <- mkImageRef imageText
+  sc    <- mkScale 0 3
+  res   <- stdResources
+  pure Deployment
+    { name      = name
+    , namespace = defaultNamespace
+    , image     = img
+    , domain    = Nothing
+    , port      = defaultPort
+    , env       = Map.empty
+    , resources = Just res
+    , scale     = Just sc
+    }
+
+-- ---------------------------------------------------------------------------
+-- Environment overlays
+--
+-- An overlay is a function  Deployment -> Either Text Deployment.
+-- It receives a valid Deployment and returns either a modified valid Deployment
+-- or a Left error if the modification would produce an invalid state.
+--
+-- CRITICAL: any overlay that changes a constrained field (Scale, Quantity, etc.)
+-- MUST go through the field's smart constructor.  The overlay functions below
+-- call mkScale / mkQuantity for every scale/resource change.  This means:
+--
+--   - Overlays cannot bypass validation.  An overlay that sets max=1, min=5
+--     returns Left from mkScale, not a corrupt Deployment.
+--   - Composing valid presets with valid overlays always yields a valid result.
+--   - Composing a valid preset with an invalid overlay (e.g. max < min) yields
+--     Left at the overlay step.  The Deployment is never silently invalidated.
+--
+-- The type  Deployment -> Either Text Deployment  makes this contract visible
+-- in every overlay's type signature: the caller must handle the Left case.
+
+-- | Adjust a deployment for the development environment.
+--
+-- Applies:
+--   scale = 0..1   (still scale-to-zero; at most one replica — saves cost)
+--
+-- Returns Left if the resulting scale would be invalid (it cannot with these
+-- fixed values, but the smart constructor call is present for future-proofing
+-- and to make the pattern explicit).
+development :: Deployment -> Either Text Deployment
+development dep = do
+  sc <- mkScale 0 1
+  pure (dep & #scale .~ Just sc)
+
+-- | Adjust a deployment for the production environment.
+--
+-- Applies:
+--   scale     = 1..5   (min >= 1 guarantees always-warm; higher max for load)
+--   resources = 500m CPU, 256Mi memory   (higher limits for production traffic)
+--
+-- Returns Left if mkScale or mkQuantity rejects the values (they will not with
+-- these hard-coded values, but the pattern is explicit so that future callers
+-- who pass variables cannot bypass validation).
+production :: Deployment -> Either Text Deployment
+production dep = do
+  sc     <- mkScale 1 5
+  cpuQ   <- mkQuantity "500m"
+  memQ   <- mkQuantity "256Mi"
+  let res = Resources { cpu = Just cpuQ, memory = Just memQ }
+  pure (dep & #scale .~ Just sc & #resources .~ Just res)
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+
+-- | Add a Kubernetes Secret reference as an environment variable.
+--
+-- The environment variable named @varName@ will be set from the Kubernetes
+-- Secret named @secretName@ via 'EnvSecretRef'.  Existing env entries are
+-- preserved.  Returns Left if the variable name or secret name is empty.
+secretEnv :: Text -> Text -> Deployment -> Either Text Deployment
+secretEnv varName secretNameText dep = do
+  en <- mkEnvName varName
+  sn <- mkSecretName secretNameText
+  let entry = Map.singleton en (EnvSecretRef sn)
+  pure (dep & #env %~ Map.union entry)
+
+-- | Standard resource block for small web services.
+--
+-- CPU: 250m (250 millicpu — one quarter of one CPU)
+-- Memory: 128Mi (128 mebibytes)
+--
+-- Returns Left if the quantity strings are invalid (they are hard-coded valid
+-- values, so this will only fail if the Quantity validator's rules change).
+stdResources :: Either Text Resources
+stdResources = do
+  cpuQ <- mkQuantity "250m"
+  memQ <- mkQuantity "128Mi"
+  pure Resources { cpu = Just cpuQ, memory = Just memQ }
+
+-- | Team-wide defaults applied on top of any preset.
+--
+-- Currently sets the namespace to 'defaultNamespace' ("personal") and clears
+-- the domain.  Extend this function as team conventions evolve.
+teamDefaults :: Deployment -> Deployment
+teamDefaults dep =
+  dep
+    & #namespace .~ defaultNamespace
+    & #domain .~ Nothing
+```
+
+Add `Nagare.Dsl.Presets` to `cli/nagare-dsl/nagare-dsl.cabal` in the `exposed-modules`
+stanza. The library stanza follows the house standards — it uses `import: common` and
+`default-language: GHC2024`, and (because `Nagare.Dsl.Presets` uses generic-lens `#label`
+access with lens operators) its `build-depends` includes `generic-lens ^>=2.2` and
+`lens ^>=5.3`:
+
+```cabal
+library
+    import:           common
+    default-language: GHC2024
+    exposed-modules:
+        Nagare.Dsl.Prelude
+        Nagare.Dsl.Types
+        Nagare.Dsl.Render
+        Nagare.Dsl.Load
+        Nagare.Dsl.Presets
+    build-depends:
+        base
+      , containers
+      , text
+      , generic-lens ^>=2.2
+      , lens         ^>=5.3
+```
+
+Verify the build from `cli/nagare-dsl/`:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl
+cabal build
+```
+
+Expected (trimmed):
+
+```text
+Build profile: -w ghc-9.12 -O1
+...
+[1 of 4] Compiling Nagare.Dsl.Types   ...
+[2 of 4] Compiling Nagare.Dsl.Render  ...
+[3 of 4] Compiling Nagare.Dsl.Load    ...
+[4 of 4] Compiling Nagare.Dsl.Presets ...
+```
+
+No warnings, exit 0. M1 (eDSL branch) is complete.
+
+
+#### M1 (Dhall branch)
+
+Create the directory and file:
+
+```bash
+mkdir -p /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl/dhall/Nagare
+```
+
+Create `cli/nagare-dsl/dhall/Nagare/presets.dhall`. Dhall uses records and functions as its
+primary abstraction. The `//` operator merges two records, with the right-hand record's fields
+overriding the left. This is the Dhall idiom for overlays.
+
+In Dhall, configuration is a record that maps to the Haskell `Deployment` type when loaded via
+`Dhall.inputFile`. The record type must match the `FromDhall Deployment` instance that EP-10
+implemented. Consult `cli/nagare-dsl/src/Nagare/Dsl/Load.hs` for the exact field names the
+`FromDhall` instance expects.
+
+```dhall
+-- cli/nagare-dsl/dhall/Nagare/presets.dhall
+--
+-- Reusable building blocks for Nagare deployments in the Dhall configuration
+-- language.  Import this file and use the exported functions:
+--
+--   let Presets = /path/to/nagare/presets.dhall
+--   in  Presets.production (Presets.webService "notes" "gcr.io/myproject/notes")
+--
+-- Dhall's // operator merges records: the right side overrides the left.
+-- An overlay is a function  DeploymentRecord -> DeploymentRecord  that uses //
+-- to apply targeted overrides.  The overlay cannot produce an invalid scale
+-- (max < min) because the Dhall type system enforces Natural and the smart
+-- constructors in the Haskell loader validate the decoded record.
+
+let DeploymentRecord =
+      { name      : Text
+      , namespace : Text
+      , image     : Text
+      , domain    : Optional Text
+      , port      : Natural
+      , env       : List { name : Text, value : Text }
+      , resources : Optional { cpu : Text, memory : Text }
+      , scale     : Optional { min : Natural, max : Natural }
+      }
+
+-- Standard resource block.
+let stdResources =
+      Some { cpu = "250m", memory = "128Mi" }
+
+-- Team defaults.
+let teamDefaults =
+      { namespace = "personal"
+      , domain    = None Text
+      }
+
+-- | webService: build a minimal HTTP web service record from name + image.
+-- All other fields are filled with sensible defaults.
+let webService
+    : Text -> Text -> DeploymentRecord
+    = \(name : Text) -> \(image : Text) ->
+        { name      = name
+        , namespace = "personal"
+        , image     = image
+        , domain    = None Text
+        , port      = 8080
+        , env       = [] : List { name : Text, value : Text }
+        , resources = stdResources
+        , scale     = Some { min = 0, max = 3 }
+        }
+
+-- | development overlay: scale = 0..1
+let development
+    : DeploymentRecord -> DeploymentRecord
+    = \(d : DeploymentRecord) ->
+        d // { scale = Some { min = 0, max = 1 } }
+
+-- | production overlay: scale = 1..5, larger resources.
+-- Dhall's Natural type cannot go negative, so min > max is still expressible
+-- as a Dhall record.  The Haskell loader's mkScale smart constructor rejects
+-- it when it decodes the record.  If you need Dhall-level enforcement, write
+-- an assertion: assert : Natural/lessThanEqual 1 5 === True.
+let production
+    : DeploymentRecord -> DeploymentRecord
+    = \(d : DeploymentRecord) ->
+        d //
+          { scale     = Some { min = 1, max = 5 }
+          , resources = Some { cpu = "500m", memory = "256Mi" }
+          }
+
+-- | secretEnv: add a secret-reference env variable.
+-- In the Dhall branch, env entries are plain { name, value } records;
+-- secret references are indicated by a naming convention ("secret:<name>")
+-- that the EP-10 loader decodes into EnvSecretRef.  Consult the FromDhall
+-- instance in Nagare.Dsl.Load for the exact convention.
+let secretEnv
+    : Text -> Text -> DeploymentRecord -> DeploymentRecord
+    = \(varName : Text) -> \(secretName : Text) -> \(d : DeploymentRecord) ->
+        d //
+          { env =
+              d.env
+              # [ { name = varName, value = "secret:" ++ secretName } ]
+          }
+
+in  { webService
+    , development
+    , production
+    , secretEnv
+    , stdResources
+    , teamDefaults
+    , DeploymentRecord
+    }
+```
+
+Type-check the file:
+
+```bash
+dhall type <<< 'let P = ./cli/nagare-dsl/dhall/Nagare/presets.dhall in P'
+```
+
+Expected output (the type of the exported record):
+
+```text
+{ DeploymentRecord : Type
+, development : { ... } -> { ... }
+, production  : { ... } -> { ... }
+, secretEnv   : Text -> Text -> { ... } -> { ... }
+, stdResources : Optional { cpu : Text, memory : Text }
+, teamDefaults : { domain : Optional Text, namespace : Text }
+, webService  : Text -> Text -> { ... }
+}
+```
+
+The exact field types will depend on how EP-10 defined the `DeploymentRecord` type alias in
+the Dhall package. If the type-check succeeds and prints a record type, M1 (Dhall branch) is
+complete.
+
+
+### M2 — Two example apps
+
+#### M2 (eDSL branch)
+
+Create the directory structure:
+
+```bash
+mkdir -p /Users/shinzui/Keikaku/bokuno/nagare/cluster/examples/preset-app-a/nagare
+mkdir -p /Users/shinzui/Keikaku/bokuno/nagare/cluster/examples/preset-app-b/nagare
+```
+
+Create `cluster/examples/preset-app-a/nagare/Config.hs`:
+
+```haskell
+-- cluster/examples/preset-app-a/nagare/Config.hs
+--
+-- The "notes" web service: a simple HTTP app that runs in production.
+-- Imports the shared preset and overlay from Nagare.Dsl.Presets.
+-- The only app-specific information is the name and image.
+module Config where
+
+import Nagare.Dsl.Prelude
+import Nagare.Dsl.Presets (production, webService)
+import Nagare.Dsl.Types (Deployment)
+
+-- | The deployment value that nagarectl will load.
+-- 'webService' fills in all defaults; 'production' adjusts scale and resources
+-- for a live environment.
+deployment :: Either String Deployment
+deployment = do
+  base <- either (Left . show) Right (webService "notes" "gcr.io/myproject/notes")
+  either (Left . show) Right (production base)
+```
+
+Create `cluster/examples/preset-app-b/nagare/Config.hs`:
+
+```haskell
+-- cluster/examples/preset-app-b/nagare/Config.hs
+--
+-- The "tasks" web service: uses the same webService preset and production
+-- overlay as preset-app-a, but with a different name, image, and an
+-- environment variable sourced from a Kubernetes Secret.
+module Config where
+
+import Nagare.Dsl.Prelude
+import Nagare.Dsl.Presets (production, secretEnv, webService)
+import Nagare.Dsl.Types (Deployment)
+
+-- | The deployment value for the tasks service.
+-- 'secretEnv' adds a DATABASE_URL env var sourced from the "tasks-db" Secret.
+deployment :: Either String Deployment
+deployment = do
+  base  <- either (Left . show) Right (webService "tasks" "gcr.io/myproject/tasks")
+  withDb <- either (Left . show) Right (secretEnv "DATABASE_URL" "tasks-db" base)
+  either (Left . show) Right (production withDb)
+```
+
+Note on the type of `deployment`: in the native eDSL branch, EP-10's loader expects a binding
+of type `Deployment` (not `Either String Deployment`) from the compiled config. The `Either`
+wrapper shown here is for illustrative clarity in the test suite (see M2.4). In the actual
+EP-10 loader, the config file binds `deployment :: Deployment` and the loader handles `Left`
+from smart constructors by returning `Left LoadError`. Adapt the binding signature to match
+whatever EP-10's loader contract specifies.
+
+For the **golden files**, generate them via `cabal repl` in `cli/nagare-dsl/`:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl
+cabal repl nagare-dsl
+```
+
+In the REPL:
+
+```haskell
+import Data.Map qualified as Map
+import Nagare.Dsl.Types
+import Nagare.Dsl.Render
+import Nagare.Dsl.Presets
+import Data.ByteString qualified as BS
+
+-- App A: notes service
+let Right baseA     = webService "notes" "gcr.io/myproject/notes"
+    Right depA      = production baseA
+
+-- App B: tasks service with a secret env var
+let Right baseB     = webService "tasks" "gcr.io/myproject/tasks"
+    Right withDbB   = secretEnv "DATABASE_URL" "tasks-db" baseB
+    Right depB      = production withDbB
+
+BS.writeFile "test/golden/preset-app-a.service.yaml" (renderService depA "20260602-120000")
+BS.writeFile "test/golden/preset-app-b.service.yaml" (renderService depB "20260602-120000")
+```
+
+Inspect the golden files:
+
+```bash
+cat test/golden/preset-app-a.service.yaml
+cat test/golden/preset-app-b.service.yaml
+```
+
+App A should produce something like (field values will match the production overlay):
+
+```yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notes
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/max-scale: '5'
+        autoscaling.knative.dev/min-scale: '1'
+    spec:
+      containers:
+      - image: gcr.io/myproject/notes:20260602-120000
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+```
+
+App B differs in `name`, `image`, and adds an `env` block with a `valueFrom.secretKeyRef`:
+
+```yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: tasks
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/max-scale: '5'
+        autoscaling.knative.dev/min-scale: '1'
+    spec:
+      containers:
+      - image: gcr.io/myproject/tasks:20260602-120000
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: tasks-db
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+```
+
+The two golden files are the proof that two apps share one preset without copy-paste: the only
+differences are `name`, `image`, and the `env` block.
+
+Add golden tests to `cli/nagare-dsl/test/Spec.hs`. Add the following test group alongside the
+existing EP-9 tests:
+
+```haskell
+import Nagare.Dsl.Presets (webService, production, secretEnv)
+
+presetsGoldenTests :: [TestTree]
+presetsGoldenTests =
+  [ goldenVsString
+      "preset-app-a: notes service (webService + production)"
+      "test/golden/preset-app-a.service.yaml"
+      (case do { b <- webService "notes" "gcr.io/myproject/notes"
+               ; production b } of
+        Left err -> fail ("preset-app-a failed: " <> T.unpack err)
+        Right dep -> pure (fromStrict (renderService dep "20260602-120000")))
+  , goldenVsString
+      "preset-app-b: tasks service (webService + secretEnv + production)"
+      "test/golden/preset-app-b.service.yaml"
+      (case do { b  <- webService "tasks" "gcr.io/myproject/tasks"
+               ; b' <- secretEnv "DATABASE_URL" "tasks-db" b
+               ; production b' } of
+        Left err -> fail ("preset-app-b failed: " <> T.unpack err)
+        Right dep -> pure (fromStrict (renderService dep "20260602-120000")))
+  ]
+```
+
+Add `presetsGoldenTests` to the `main` test group:
+
+```haskell
+main :: IO ()
+main = defaultMain $ testGroup "nagare-dsl"
+  [ testGroup "Nagare.Dsl.Types"   unitTests
+  , testGroup "Nagare.Dsl.Render"  goldenTests
+  , testGroup "Nagare.Dsl.Presets" presetsGoldenTests
+  ]
+```
+
+Run all tests from `cli/nagare-dsl/`:
+
+```bash
+cabal test nagare-dsl-test --test-show-details=streaming
+```
+
+Expected output (abridged):
+
+```text
+Nagare.Dsl.Presets
+  preset-app-a: notes service (webService + production):              OK
+  preset-app-b: tasks service (webService + secretEnv + production):  OK
+
+All N tests passed (0.01s)
+Test suite nagare-dsl-test: PASS
+```
+
+M2 (eDSL branch) is complete.
+
+
+#### M2 (Dhall branch)
+
+Create the directory structure:
+
+```bash
+mkdir -p /Users/shinzui/Keikaku/bokuno/nagare/cluster/examples/preset-app-a
+mkdir -p /Users/shinzui/Keikaku/bokuno/nagare/cluster/examples/preset-app-b
+```
+
+Create `cluster/examples/preset-app-a/nagare.dhall`:
+
+```dhall
+-- cluster/examples/preset-app-a/nagare.dhall
+--
+-- The "notes" web service.  Imports the shared preset package and uses
+-- the webService preset + production overlay.  The only app-specific
+-- information is the name and image.
+
+let Presets = ../../cli/nagare-dsl/dhall/Nagare/presets.dhall
+
+in  Presets.production
+      (Presets.webService "notes" "gcr.io/myproject/notes")
+```
+
+Create `cluster/examples/preset-app-b/nagare.dhall`:
+
+```dhall
+-- cluster/examples/preset-app-b/nagare.dhall
+--
+-- The "tasks" web service.  Same preset + overlay as preset-app-a, but with
+-- a different name, image, and a DATABASE_URL secret env variable.
+
+let Presets = ../../cli/nagare-dsl/dhall/Nagare/presets.dhall
+
+in  Presets.production
+      (Presets.secretEnv "DATABASE_URL" "tasks-db"
+        (Presets.webService "tasks" "gcr.io/myproject/tasks"))
+```
+
+Type-check both:
+
+```bash
+dhall type <<< './cluster/examples/preset-app-a/nagare.dhall'
+dhall type <<< './cluster/examples/preset-app-b/nagare.dhall'
+```
+
+Both should print the record type without errors. Then use the EP-10 loader to decode each and
+render to golden files via `cabal repl`:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl
+cabal repl nagare-dsl
+```
+
+In the REPL:
+
+```haskell
+import Nagare.Dsl.Load   (loadDeployment)
+import Nagare.Dsl.Render (renderService)
+import Data.ByteString qualified as BS
+
+Right depA <- loadDeployment "../../cluster/examples/preset-app-a/nagare.dhall"
+Right depB <- loadDeployment "../../cluster/examples/preset-app-b/nagare.dhall"
+
+BS.writeFile "test/golden/preset-app-a.service.yaml" (renderService depA "20260602-120000")
+BS.writeFile "test/golden/preset-app-b.service.yaml" (renderService depB "20260602-120000")
+```
+
+Add the golden tests to `Spec.hs` using `loadDeployment` in the test IO action:
+
+```haskell
+import Nagare.Dsl.Load (loadDeployment)
+
+presetsGoldenTests :: [TestTree]
+presetsGoldenTests =
+  [ goldenVsString
+      "preset-app-a: notes service (webService + production)"
+      "test/golden/preset-app-a.service.yaml"
+      (do result <- loadDeployment "../../cluster/examples/preset-app-a/nagare.dhall"
+          case result of
+            Left err -> fail ("loadDeployment preset-app-a: " <> show err)
+            Right dep -> pure (fromStrict (renderService dep "20260602-120000")))
+  , goldenVsString
+      "preset-app-b: tasks service (webService + secretEnv + production)"
+      "test/golden/preset-app-b.service.yaml"
+      (do result <- loadDeployment "../../cluster/examples/preset-app-b/nagare.dhall"
+          case result of
+            Left err -> fail ("loadDeployment preset-app-b: " <> show err)
+            Right dep -> pure (fromStrict (renderService dep "20260602-120000")))
+  ]
+```
+
+Run all tests and confirm M2 is complete.
+
+
+### M3 — Property tests
+
+#### M3 (eDSL branch)
+
+Add `tasty-quickcheck` to `build-depends` in the `test-suite nagare-dsl-test` stanza of
+`cli/nagare-dsl/nagare-dsl.cabal`:
+
+```cabal
+test-suite nagare-dsl-test
+    ...
+    build-depends:
+        base
+      , nagare-dsl
+      , text
+      , bytestring
+      , containers
+      , tasty           >= 1.4
+      , tasty-hunit     >= 0.10
+      , tasty-golden    >= 2.3
+      , tasty-quickcheck >= 0.10
+```
+
+If Hackage is unavailable, add the corpus path to `cabal.project`:
+
+```cabal
+-- cli/nagare-dsl/cabal.project  (add if Hackage is unavailable)
+packages:
+  .
+  /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/quickcheck
+```
+
+Add the property tests to `cli/nagare-dsl/test/Spec.hs`. Add these imports at the top:
+
+```haskell
+import Test.Tasty.QuickCheck (testProperty, Gen, arbitrary, choose, listOf,
+                               elements, oneof, (==>), Property, forAll)
+import Data.Map qualified as Map
+import Nagare.Dsl.Presets (webService, production, development, secretEnv, stdResources)
+```
+
+Add the property test group:
+
+```haskell
+presetsPropertyTests :: [TestTree]
+presetsPropertyTests =
+  [ testProperty
+      "webService: valid name and image always yields Right"
+      prop_webServiceValid
+  , testProperty
+      "production overlay: composing valid webService with production yields Right"
+      prop_productionOverlayValid
+  , testProperty
+      "development overlay: composing valid webService with development yields Right"
+      prop_developmentOverlayValid
+  , testProperty
+      "secretEnv: adding a secret env always yields Right when inputs are non-empty"
+      prop_secretEnvValid
+  , testProperty
+      "invalid overlay (max < min via mkScale): always yields Left"
+      prop_invalidScaleOverlayRejected
+  ]
+
+-- A valid DNS-label-safe service name generator: lowercase letters and digits
+-- only, 1–10 characters, no leading/trailing hyphens.
+genValidName :: Gen Text
+genValidName = do
+  len  <- choose (1, 10)
+  -- Use only lowercase letters to keep it simple
+  chars <- sequence (replicate len (elements "abcdefghijklmnopqrstuvwxyz"))
+  pure (T.pack chars)
+
+-- A valid image path generator: "gcr.io/proj/repo" form
+genValidImage :: Gen Text
+genValidImage = do
+  proj <- genValidName
+  repo <- genValidName
+  pure ("gcr.io/" <> proj <> "/" <> repo)
+
+prop_webServiceValid :: Property
+prop_webServiceValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(name, img) ->
+    case webService name img of
+      Right _ -> True
+      Left _  -> False
+
+prop_productionOverlayValid :: Property
+prop_productionOverlayValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(name, img) ->
+    case webService name img >>= production of
+      Right _ -> True
+      Left _  -> False
+
+prop_developmentOverlayValid :: Property
+prop_developmentOverlayValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(name, img) ->
+    case webService name img >>= development of
+      Right _ -> True
+      Left _  -> False
+
+prop_secretEnvValid :: Property
+prop_secretEnvValid =
+  forAll ((,,) <$> genValidName <*> genValidImage <*> genValidName) $ \(name, img, secret) ->
+    case webService name img >>= secretEnv "MY_VAR" secret of
+      Right _ -> True
+      Left _  -> False
+
+-- An invalid scale overlay: force max < min by calling mkScale directly with
+-- inverted bounds.  This tests that the overlay pattern (going through mkScale)
+-- rejects the invalid state rather than silently storing it.
+prop_invalidScaleOverlayRejected :: Property
+prop_invalidScaleOverlayRejected =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(name, img) ->
+    case webService name img of
+      Left _    -> True  -- construction failure is not what we're testing
+      Right dep ->
+        -- Directly apply an overlay that attempts to set max < min.
+        -- This bypasses the preset overlays deliberately to test the safety
+        -- of mkScale itself: even if an overlay author makes a mistake,
+        -- the smart constructor catches it.
+        let badOverlay d = do
+              sc <- mkScale 5 1  -- max=1, min=5: invalid
+              pure (d & #scale .~ Just sc)
+        in case badOverlay dep of
+             Left _  -> True   -- correctly rejected
+             Right _ -> False  -- should not happen
+```
+
+Add `presetsPropertyTests` to the main test group:
+
+```haskell
+main :: IO ()
+main = defaultMain $ testGroup "nagare-dsl"
+  [ testGroup "Nagare.Dsl.Types"        unitTests
+  , testGroup "Nagare.Dsl.Render"       goldenTests
+  , testGroup "Nagare.Dsl.Presets"      (presetsGoldenTests <> presetsPropertyTests)
+  ]
+```
+
+Run all tests:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl
+cabal test nagare-dsl-test --test-show-details=streaming
+```
+
+Expected output (trimmed):
+
+```text
+Nagare.Dsl.Presets
+  preset-app-a: notes service (webService + production):              OK
+  preset-app-b: tasks service (webService + secretEnv + production):  OK
+  webService: valid name and image always yields Right:               OK (100 tests)
+  production overlay: composing valid webService with production yields Right: OK (100 tests)
+  development overlay: composing valid webService with development yields Right: OK (100 tests)
+  secretEnv: adding a secret env always yields Right when inputs are non-empty: OK (100 tests)
+  invalid overlay (max < min via mkScale): always yields Left:        OK (100 tests)
+
+All N tests passed (0.05s)
+Test suite nagare-dsl-test: PASS
+```
+
+Every property test must say `OK (100 tests)` (QuickCheck's default run count). M3 (eDSL
+branch) is complete.
+
+
+#### M3 (Dhall branch)
+
+For the Dhall branch, property tests over Haskell generators are identical to the eDSL branch
+above — the generators produce `Text` names and images, the tests call `webService`, `production`,
+etc., and the Haskell functions in `Nagare.Dsl.Presets` (which in the Dhall branch still exist
+as Haskell wrappers that call `loadDeployment` for full configs) are what get tested. Add the
+same `tasty-quickcheck` stanza and the same test code.
+
+Additionally, for Dhall-specific type-safety confirmation, add a `dhall type` check to the test
+suite or run it manually as a gate:
+
+```bash
+# Verify the presets file is well-typed
+dhall type <<< './cli/nagare-dsl/dhall/Nagare/presets.dhall'
+
+# Verify that composing production + webService is well-typed end-to-end
+dhall type <<< '
+  let P = ./cli/nagare-dsl/dhall/Nagare/presets.dhall
+  in  P.production (P.webService "notes" "gcr.io/myproject/notes")
+'
+
+# Verify the Dhall type checker catches a scale where max < min
+# (In Dhall, Natural cannot go negative, but max < min is still a valid Natural pair.
+#  The assertion below shows how to write a Dhall-level guard if desired.)
+dhall <<< '
+  let P = ./cli/nagare-dsl/dhall/Nagare/presets.dhall
+  let badScale = { min = 5, max = 1 }
+  let _ = assert : Natural/lessThanEqual badScale.min badScale.max === False
+  in  "scale is invalid (as expected)"
+'
+```
+
+The last assertion will succeed (Dhall evaluates it to `"scale is invalid (as expected)"`)
+because `Natural/lessThanEqual 5 1` is `False`, matching the expected value `False`. This shows
+that Dhall-level assertions can guard scale validity if desired, though the primary defense
+remains the Haskell smart constructor in `mkScale`.
+
+M3 (Dhall branch) is complete when both the `tasty-quickcheck` property tests and the three
+`dhall type` checks above succeed.
+
+
+## Validation and Acceptance
+
+Acceptance is behavioral. All three gates below must pass before this plan is marked complete.
+
+**Gate 1 — M1: presets module compiles.** From `cli/nagare-dsl/`:
+
+```bash
+cabal build
+```
+
+Expected: exit 0. No warnings. The build log shows `Nagare.Dsl.Presets` being compiled (eDSL
+branch), or `dhall type` exits 0 without errors (Dhall branch).
+
+**Gate 2 — M2: golden tests pass and outputs differ in the expected lines.** From
+`cli/nagare-dsl/`:
+
+```bash
+cabal test nagare-dsl-test --test-show-details=streaming
+```
+
+Both preset golden tests must print `OK`. Inspect the two golden files with `diff`:
+
+```bash
+diff test/golden/preset-app-a.service.yaml test/golden/preset-app-b.service.yaml
+```
+
+Expected: the diff shows only the lines that differ between the two apps — specifically `name`,
+`image`, and the presence/absence of the `env` block. All other lines (`apiVersion`, `kind`,
+`namespace`, `annotations`, `resources`) are identical. This is the observable proof that both
+apps share one definition without copy-paste.
+
+A sample expected diff:
+
+```diff
+--- test/golden/preset-app-a.service.yaml
++++ test/golden/preset-app-b.service.yaml
+@@ -3,10 +3,16 @@
+   name: notes
++  name: tasks
+   namespace: personal
+-      - image: gcr.io/myproject/notes:20260602-120000
++      - image: gcr.io/myproject/tasks:20260602-120000
++        env:
++        - name: DATABASE_URL
++          valueFrom:
++            secretKeyRef:
++              key: DATABASE_URL
++              name: tasks-db
+```
+
+**Gate 3 — M3: property tests pass.** From `cli/nagare-dsl/`:
+
+```bash
+cabal test nagare-dsl-test --test-show-details=streaming
+```
+
+All five property tests must say `OK (100 tests)`. The critical property is
+`prop_invalidScaleOverlayRejected`: this proves that an overlay that attempts to set `max < min`
+returns `Left` rather than silently producing a `Deployment` with an invalid scale. A human can
+verify this by reading the test body and tracing the call through `mkScale 5 1`, which the
+`Types.hs` implementation rejects with `Left "scale max (1) must be >= scale min (5)"`.
+
+To run all three gates together:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagare-dsl
+cabal build \
+  && cabal test nagare-dsl-test --test-show-details=streaming \
+  && diff test/golden/preset-app-a.service.yaml test/golden/preset-app-b.service.yaml \
+       | grep -q "name:" \
+  && echo "ALL GATES PASSED"
+```
+
+Expected final line: `ALL GATES PASSED`.
+
+
+## Idempotence and Recovery
+
+All steps are additive and safe to repeat. `cabal build` and `cabal test` are idempotent;
+re-running them produces the same result. The `cabal repl` golden-file generation step
+overwrites the golden files when re-run — this is intentional for regeneration and safe
+because the golden files are always derivable from the renderer. Never hand-edit a golden file;
+always regenerate from the renderer and commit the result.
+
+If `cabal test` fails with a golden mismatch after a preset change, the test output shows
+actual vs. expected bytes. The fix is either to correct the preset or to regenerate the golden
+file (if the change was intentional). Regenerate by deleting the golden file and re-running
+`cabal test` — `goldenVsString` creates the file on first run with no golden present, then
+passes on the second run. Inspect the generated file, commit it, and document the change in the
+Decision Log.
+
+If a property test fails, QuickCheck prints the counterexample that triggered the failure.
+Examine it to identify which name or image string caused the issue, then fix the generator or
+the preset function, re-run, and confirm the test passes with `100 tests`.
+
+The substrate branching in M0 is not reversible without re-implementing the other branch, but
+since the plan contains both branches in full, switching substrates after M1 requires only
+deleting the wrong branch's files and following the correct branch's steps from M1 onward.
+
+
+## Interfaces and Dependencies
+
+**Libraries.**
+
+- `nagare-dsl` (same package, earlier modules) — `Nagare.Dsl.Types` for the types and smart
+  constructors; `Nagare.Dsl.Render` for `renderService`; `Nagare.Dsl.Load` for `loadDeployment`.
+- `containers` (`Data.Map`) — `Map EnvName EnvVar` for the env field, `Map.union` for overlay
+  merging.
+- `text` (`Data.Text`) — all string fields (re-exported via `Nagare.Dsl.Prelude`).
+- `generic-lens` ^>=2.2 and `lens` ^>=5.3 — `#label` field access and the lens operators
+  (`&`, `.~`, `%~`) used by the overlays to compose and override `Deployment` fields. The
+  `OverloadedLabels` extension (enabled in the `common` stanza) plus
+  `import "generic-lens" Data.Generics.Labels ()` makes `#scale`, `#resources`, `#env`, etc.
+  resolve to lenses over the unprefixed `Deployment` fields.
+- `tasty-quickcheck` >= 0.10 — `testProperty`, `forAll`, `Gen`, `choose`, `elements`, property
+  combinators. Corpus source at
+  `/Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/quickcheck`. Hackage fallback:
+  `tasty-quickcheck` at the same version.
+- `dhall` (Dhall branch only) — `Dhall.inputFile`, `Dhall.auto`, `FromDhall` for decoding
+  `.dhall` config files. Already added to `nagare-dsl.cabal` by EP-10 if the Dhall branch was
+  chosen. Corpus source at `/Users/shinzui/Keikaku/hub/haskell/dhall-haskell-project/`.
+
+**Types and function signatures** that must exist at the end of this plan (full module paths):
+
+From `Nagare.Dsl.Presets` (eDSL branch):
+
+```haskell
+-- A preset: returns a Deployment with defaults filled in
+webService   :: Text -> Text -> Either Text Deployment
+
+-- Overlays: adjust a Deployment for a target environment
+development  :: Deployment -> Either Text Deployment
+production   :: Deployment -> Either Text Deployment
+
+-- Helpers
+secretEnv    :: Text -> Text -> Deployment -> Either Text Deployment
+stdResources :: Either Text Resources
+teamDefaults :: Deployment -> Deployment
+```
+
+From `cli/nagare-dsl/dhall/Nagare/presets.dhall` (Dhall branch), the exported record contains
+functions whose Dhall types are:
+
+```dhall
+{ webService   : Text -> Text -> DeploymentRecord
+, development  : DeploymentRecord -> DeploymentRecord
+, production   : DeploymentRecord -> DeploymentRecord
+, secretEnv    : Text -> Text -> DeploymentRecord -> DeploymentRecord
+, stdResources : Optional { cpu : Text, memory : Text }
+, teamDefaults : { domain : Optional Text, namespace : Text }
+, DeploymentRecord : Type
+}
+```
+
+**Files produced by this plan** (all paths relative to the repository root):
+
+```text
+cli/nagare-dsl/src/Nagare/Dsl/Presets.hs         (eDSL branch)
+cli/nagare-dsl/dhall/Nagare/presets.dhall         (Dhall branch)
+cli/nagare-dsl/test/golden/preset-app-a.service.yaml
+cli/nagare-dsl/test/golden/preset-app-b.service.yaml
+cluster/examples/preset-app-a/nagare/Config.hs    (eDSL branch)
+cluster/examples/preset-app-a/nagare.dhall         (Dhall branch)
+cluster/examples/preset-app-b/nagare/Config.hs    (eDSL branch)
+cluster/examples/preset-app-b/nagare.dhall         (Dhall branch)
+```
+
+**Integration Point.** This plan is a consumer of Integration Points 1, 2, and 3 from the
+parent MasterPlan at `docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`
+(the `Deployment` type, the renderer, and the `loadDeployment` loader). It does not define new
+integration points of its own, but it feeds EP-12 with a richer reuse story: EP-12's
+end-to-end demo benefits from showing `nagarectl deploy` loading a config that uses a preset,
+though EP-12 does not hard-depend on EP-11.
