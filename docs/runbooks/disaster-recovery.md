@@ -170,6 +170,49 @@ Observe: the tool prints the app URL; `curl` returns the app's response.
 the rendered Knative Service manifests directly as in
 `cluster/examples/hello-knative-service/`.)
 
+## Power management (stop / start / full teardown)
+
+Nagare is designed to be disposable, so there are three "off" levels:
+
+**Stop the VM (cheapest reversible — halts compute only).**
+
+```bash
+gcloud compute instances stop  nagare-01 --project=tan-nb-exp --zone=us-west1-a
+gcloud compute instances start nagare-01 --project=tan-nb-exp --zone=us-west1-a
+```
+
+Stopping halts compute charges; the boot + data disks and the reserved static IP
+still incur small storage/reservation costs. **Restart caveat:** `start` boots the
+*existing* boot disk (the current system generation), NOT the latest registered
+image. Two runtime workarounds applied during 2026-06-03 bring-up do **not** all
+survive a reboot:
+- `/etc/resolv.conf` is `chattr +i` immutable, so the `8.8.8.8` content **persists**
+  across reboot (DNS keeps working).
+- The pod→metadata route and MASQUERADE, and the coredns upstream, are runtime-only
+  and are **lost** on reboot — so after a `start`, re-apply them (or replace the VM,
+  below) before expecting keyless in-cluster ADC (Litestream/cert-manager) to work:
+  ```bash
+  GW=$(... default gw); ip route replace 169.254.169.254/32 via "$GW" dev eth0
+  iptables -t nat -A POSTROUTING -d 169.254.169.254/32 -j MASQUERADE
+  kubectl -n kube-system rollout restart deploy/coredns
+  ```
+
+**Replace the VM onto the fixed image (clean boot, recommended).** A `pulumi up`
+that recreates the instance boots from `nagareImageSelfLink`
+(`nagare-image-gnq7zw6pwd1a`, which has the DNS + metadata fixes), giving a fully
+clean boot with no workarounds — then re-bootstrap per steps 4–8 above. Do this
+once to retire the runtime workarounds.
+
+**Full teardown (stop all charges).**
+
+```bash
+cd infra/pulumi && pulumi destroy
+```
+
+This deletes the VM, disks, IP, DNS zone, and buckets' contents per the stack.
+Rebuild from scratch with this runbook from step 1. The age private key, Git, and
+the GCS backup bucket contents are what make that rebuild possible.
+
 ## Notes on idempotence
 
 Every step is safe to re-run: `pulumi up` reconciles; `just cluster-bootstrap`

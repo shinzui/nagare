@@ -539,3 +539,11 @@ Recommended next steps: (a) replace the VM onto the latest `nagareImageSelfLink`
 clean boot (working DNS + metadata) and then drop the runtime workarounds; (b) implement/verify EP-6
 `nagarectl` to realize the one-command-deploy MVP; (c) supply a real domain and run
 `just cluster-enable-tls` for HTTPS; (d) deploy Postgres and run the EP-7 Postgres backup/restore.
+
+**Operational state (2026-06-03):** `nagare-01` was **stopped** (`gcloud compute instances stop`,
+status TERMINATED) to halt compute charges after this implementation pass. The boot + data disks and
+the reserved static IP (`34.145.74.203`) remain (small storage/reservation cost); the latest fixed
+image is `nagare-image-gnq7zw6pwd1a`. To resume, `gcloud compute instances start nagare-01` (note the
+reboot caveats — re-apply the metadata route/MASQUERADE/coredns workarounds, or `pulumi up` to replace
+the VM onto the fixed image for a clean boot). For a full cost stop, `cd infra/pulumi && pulumi
+destroy`. See `docs/runbooks/disaster-recovery.md` → "Power management".
