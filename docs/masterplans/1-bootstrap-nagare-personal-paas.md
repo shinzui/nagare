@@ -108,8 +108,8 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 | 1 | Repository scaffolding and Nix flake dev environment | docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md | None | None | Complete |
 | 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | Complete |
 | 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Complete |
-| 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | In Progress |
-| 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Not Started |
+| 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Complete (TLS deferred) |
+| 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | In Progress |
 | 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |
 | 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Not Started |
 
@@ -296,12 +296,13 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
 - [x] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported; VM `nagare-01` created and RUNNING from the registered NixOS image (M1+M2+M3 done). (2026-06-02)
 - [x] EP-3: NixOS image built & registered, `nagare-01` deployed booting the baked image; data disk formatted & mounted with all seven subdirs; the sshd "connection closed at userauth" blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers; post-mount subdir oneshot). Verified live: `kubectl get nodes` = Ready (k3s v1.35.4, NixOS 26.11); coredns/local-path-provisioner/metrics-server Running; a test PVC Bound under `/var/lib/nagare/local-path`. Residual operator follow-ups (non-blocking for EP-4/5/6): join Tailscale with a real auth key, and exercise the day-2 `nixos-rebuild --target-host`. (2026-06-02)
-- [~] EP-4: cert-manager + `letsencrypt-dns` issuer (Ready), Knative Serving + Kourier, and
+- [x] EP-4: cert-manager + `letsencrypt-dns` issuer (Ready), Knative Serving + Kourier, and
   net-certmanager all installed and wired; the hello sample service answers over **HTTP**
-  (`Hello Nagare!`, 200) and a custom-domain DomainMapping routes. Per the operator's HTTP-first
-  choice, Let's Encrypt wildcard **TLS/HTTPS is deferred** — gated solely on a real apps domain being
-  set in Pulumi `baseDomain` and delegated; enabling it is one config flip (`just cluster-enable-tls`).
-  (2026-06-02)
+  (`Hello Nagare!`, 200) and a custom-domain DomainMapping routes. **Marked Complete (operator
+  decision 2026-06-02)** with Let's Encrypt wildcard **TLS/HTTPS deferred** as a domain-gated
+  follow-up — enabling it is one config flip (`just cluster-enable-tls`) once a real apps domain is
+  set in Pulumi `baseDomain`, `pulumi up`-applied, and delegated to the zone's nameservers. This
+  unblocks EP-6's hard dependency. (2026-06-02)
 - [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
 - [ ] EP-7: sops-encrypted secrets, Litestream/Postgres backups to GCS, dashboards in Git, and a tested recovery runbook.

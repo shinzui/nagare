@@ -232,8 +232,11 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-Status (2026-06-02): **HTTP path complete and verified live; Let's Encrypt HTTPS deferred on the
-placeholder domain.** Delivered against the Purpose:
+Status (2026-06-02): **Marked Complete in the MasterPlan registry by operator decision** — HTTP path
+complete and verified live; Let's Encrypt HTTPS deferred on the placeholder domain as a domain-gated
+follow-up (one config flip, `just cluster-enable-tls`, once a real `baseDomain` is set in Pulumi and
+delegated). Marking EP-4 Complete unblocks EP-6's hard dependency so the initiative can proceed.
+Delivered against the Purpose:
 
 - cert-manager v1.20.2 installed; the `letsencrypt-dns` DNS-01 ClusterIssuer (ambient ADC, project
   `tan-nb-exp`) is `READY=True`.
