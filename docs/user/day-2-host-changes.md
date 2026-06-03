@@ -1,0 +1,113 @@
+# Day-2 host changes
+
+> **Status:** 🟡 In progress (EP-3)
+>
+> `nixos-rebuild switch --target-host` works against `nagare-01` over Tailscale.
+> The `--sudo` flag is required because you deploy as the non-root `deploy` user.
+
+Once `nagare-01` is booted, you do **not** rebuild the image and recreate the VM
+for ordinary config changes. You edit the NixOS config in this repo and push it
+to the running host with `nixos-rebuild switch`. The image build pipeline is
+only for the *initial* boot (or a deliberate from-scratch rebuild).
+
+---
+
+## Apply a change
+
+Edit the relevant file under `nixos/`, then:
+
+```bash
+just host-switch
+# = nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo
+```
+
+What each flag does:
+
+- `--flake .#nagare-01` — build the `nixosConfigurations.nagare-01` defined in
+  `nixos/flake.nix`.
+- `--target-host nagare-01` — activate it on the remote host (resolved via
+  Tailscale; you must be able to `ssh deploy@nagare-01`).
+- `--sudo` — the `deploy` user isn't root, so activation runs under `sudo`.
+  Passwordless sudo for `wheel` (set in `security.nix`) makes this unattended.
+
+The build happens on a builder; because the workstation is `aarch64-darwin`, the
+`x86_64-linux` closure is built on the remote Linux Nix builder (same mechanism
+as the image build — see [Host image and first boot](host-image-and-boot.md)).
+`deploy` is a Nix `trusted-user` (`@wheel`), so it can receive the pushed
+closure.
+
+## How the host config is organized
+
+```text
+nixos/
+  flake.nix                     # outputs: nagare-image + nixosConfigurations.nagare-01
+  configuration-base.nix        # shared base: GCP module, flakes, timezone, stateVersion
+  modules/gcp.nix               # services.gcp: guest agent, hardened sshd, sysctls, journald caps
+  .sops.yaml                    # which age keys encrypt which secret files
+  hosts/nagare-01/
+    configuration.nix           # imports the host modules + wires sops secrets
+    networking.nix              # hostname, DNS resolvers, firewall
+    storage.nix                 # data-disk format + mount + subdir layout
+    users.nix                   # the deploy user + operator SSH key
+    security.nix                # sshd hardening, sudo, OS Login off
+    k3s.nix                     # k3s server flags + ordering
+    tailscale.nix               # tailnet join via sops auth key
+    secrets/nagare-01.yaml      # sops-encrypted host secrets
+```
+
+`configuration.nix` imports the host modules and declares the sops defaults
+(`defaultSopsFile`, `age.keyFile = /var/lib/sops-nix/age-key.txt`).
+
+## Common day-2 tasks
+
+### Add or change an operator SSH key
+
+Edit `users.users.deploy.openssh.authorizedKeys.keys` in
+`nixos/hosts/nagare-01/users.nix`, then `just host-switch`. `mutableUsers =
+false`, so the declarative key list is authoritative — keys not listed there are
+removed on activation.
+
+### Add a host secret
+
+Add it to the sops file and reference it. See [Secrets](secrets.md). A new
+secret that a service consumes (like the Tailscale key) needs both the sops
+entry and the consuming module, then a `host-switch`.
+
+### Change k3s flags
+
+Edit `nixos/hosts/nagare-01/k3s.nix`. The current server flags are
+`--disable=traefik --write-kubeconfig-mode=0644
+--default-local-storage-path=/var/lib/nagare/local-path` (ServiceLB is
+intentionally left enabled — Kourier needs a LoadBalancer). k3s is ordered after
+the data-disk mount and the `nagare-data-layout` unit; preserve that ordering if
+you touch it, or k3s may start before its storage path exists.
+
+### Change firewall / DNS
+
+`networking.nix`. Note the deliberate `8.8.8.8`/`8.8.4.4` resolvers and
+`nohook resolv.conf` — both are load-bearing fixes, not arbitrary. See
+[Troubleshooting](troubleshooting.md#name-resolution-fails-on-the-vm).
+
+## Safety notes
+
+- **`stateVersion` is `26.05`.** Never bump it on a running system without a
+  migration plan — it pins the semantics of stateful options.
+- **Don't lock yourself out.** A bad `security.nix` or `networking.firewall`
+  change applied via `switch` can sever SSH. Keep the IAP break-glass path
+  (`scripts/iap-ssh.sh`) in mind, and consider `nixos-rebuild test` (activates
+  without making it the boot default) for risky changes so a reboot reverts.
+- **`nofail` on the data disk** means a disk problem won't wedge the whole boot —
+  but it also means a missing disk boots a host with no `/var/lib/nagare`. Check
+  the mount after risky storage changes.
+
+## Verify
+
+```bash
+ssh deploy@nagare-01 'systemctl status k3s; mount | grep /var/lib/nagare'
+kubectl get nodes        # still Ready after the switch
+```
+
+## Next
+
+With a healthy host, bootstrap the cluster platform:
+**[Cluster bootstrap →](cluster-bootstrap.md)**
