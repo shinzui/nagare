@@ -83,10 +83,20 @@
               pkgs.jq
               # The command runner that reads ./justfile.
               pkgs.just
-              # Haskell toolchain for nagarectl — EP-6. GHC's closure is
-              # large (multiple GB); see the plan for an optional split.
-              pkgs.ghc
+              # Haskell toolchain pinned to GHC 9.12 (house standard;
+              # see haskell-jitsurei/core/standards.md). Pattern mirrors
+              # bokuno/nix/nix-flake-templates/haskell-9_12/flake.nix.
+              # Originally EP-6's unpinned pkgs.ghc (~9.10); re-pinned to
+              # 9.12 by EP-8 M0 (MasterPlan 2, Integration Point 6) so the
+              # nagare-dsl initiative inherits the house toolchain. GHC's
+              # closure is large (multiple GB); see the optional split below.
+              pkgs.haskell.compiler.ghc912
               pkgs.cabal-install
+              pkgs.haskell.packages.ghc912.haskell-language-server
+              pkgs.haskell.packages.ghc912.fourmolu
+              pkgs.haskell.packages.ghc912.cabal-gild
+              pkgs.zlib
+              pkgs.pkg-config
             ];
             shellHook = ''
               export PULUMI_HOME="''${PWD}/infra/pulumi/.pulumi-home"
@@ -101,7 +111,12 @@
           # unused.
           haskell = pkgs.mkShell {
             name = "nagare-haskell";
-            packages = [ pkgs.ghc pkgs.cabal-install ];
+            packages = [
+              pkgs.haskell.compiler.ghc912
+              pkgs.cabal-install
+              pkgs.zlib
+              pkgs.pkg-config
+            ];
           };
         });
     };
