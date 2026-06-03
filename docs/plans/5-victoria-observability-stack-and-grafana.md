@@ -65,9 +65,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Prerequisites confirmed: `KUBECONFIG` points at `nagare-01`; `kubectl get nodes` shows `Ready`; `helm version` works; data disk mounted at `/var/lib/nagare` with the local-path provisioner active (`kubectl get storageclass` shows `local-path` as default).
-- [ ] Helm repos added: `vm` (VictoriaMetrics) and `open-telemetry` (OpenTelemetry); `helm repo update` run.
-- [ ] M1: `cluster/observability/victoria-metrics/values.yaml` authored; `victoria-metrics-k8s-stack` installed in `monitoring`; pods healthy; Grafana reachable; `up` query returns data.
+- [x] Prerequisites confirmed: `KUBECONFIG` points at `nagare-01`; `kubectl get nodes` shows `Ready` (k3s v1.35.4); `helm version` works; data disk mounted at `/var/lib/nagare`; `local-path` is the default StorageClass (VMSingle PVC bound to it). Cluster reached via the EP-4 SSH local-forward to 127.0.0.1:6443 over the port-22 IAP tunnel. (2026-06-02)
+- [x] Helm repos added: `vm` (VictoriaMetrics) and `open-telemetry` (OpenTelemetry); `helm repo update` run. (2026-06-02)
+- [x] All values files + datasource provisioning + `install.sh` authored and validated offline with `helm template` against pinned charts (k8s-stack 0.81.0, logs-single 0.13.5, logs-collector 0.3.4, traces-single 0.1.6, otel-collector 0.158.0). Service-name URLs verified (e.g. `victoria-logs-victoria-logs-single-server`, not the draft's `vls-` guess). (2026-06-02)
+- [~] M1: `cluster/observability/victoria-metrics/values.yaml` authored; first live install **FAILED** on node DiskPressure (6 GB boot disk full — see Surprises). **BLOCKED on enlarging the boot disk (EP-2/EP-3 infra fix).** Reinstall + verify (`up` query) pending that fix.
 - [ ] M1: VictoriaMetrics in-cluster service name + port recorded (discovered with `kubectl get svc -n monitoring`).
 - [ ] M2: `cluster/observability/victoria-logs/values.yaml` and `collector-values.yaml` authored; `victoria-logs-single` + `victoria-logs-collector` installed in `logging`; container logs searchable in Grafana with namespace/pod/container labels; retention 7d confirmed.
 - [ ] M2: VictoriaLogs in-cluster service name + port recorded.
@@ -101,7 +102,26 @@ implementation. Provide concise evidence.
   names into the Grafana datasource URLs. The plan gives the known naming patterns and ports so you can
   recognize them.
 
-(More to be added during implementation.)
+- **BLOCKER (infra): the node's 6 GB boot disk is too small for the observability stack.** On the
+  first live install attempt (2026-06-02), `helm upgrade --install vmks` failed with
+  `context deadline exceeded` and node-exporter was repeatedly `Evicted` with reason
+  `The node had condition: [DiskPressure]`. Root cause: `nagare-01`'s **boot disk is 6 GB**
+  (`gcloud compute disks describe nagare-01` → `sizeGb=6`), exposed to Kubernetes as
+  `ephemeral-storage` capacity ~6105644Ki. On the VM, `df -h /` showed `/dev/sdb1 5.9G 5.1G 93%` and
+  rose to **99% (65 M free)** during the install — the root disk holds both the NixOS `/nix/store`
+  and the containerd image store (`/var/lib/rancher/k3s/agent/containerd` = 2.0 G), leaving no room
+  for the stack's images (Grafana, VictoriaMetrics, node-exporter, kube-state-metrics, operator,
+  vmagent). Memory was fine (5.9 G free). The 100 GB data disk at `/var/lib/nagare` was 1% used and
+  the VMSingle PVC bound to it correctly — the problem is image/ephemeral storage, NOT PVC storage.
+  The disk pressure also destabilized EP-4's Knative pods (readiness failures, evictions).
+  **This is an EP-2/EP-3 infra fix, not an EP-5 values fix:** `infra/pulumi/src/components/NagareInstance.ts`
+  sets `bootDisk: { initializeParams: { image } }` with **no `size`**, so GCE defaults the boot disk
+  to the NixOS image's ~6 GB minimum. EP-3's `nixos/flake.nix` imports
+  `google-compute-image.nix` (which enables `growPartition`), so the root partition **auto-grows to
+  fill a larger boot disk on reboot** — an in-place `gcloud compute disks resize` + reboot is
+  sufficient; no manual `growpart` needed. The failed `vmks` release was uninstalled and its (empty)
+  PVC deleted to relieve the node; EP-4 recovered to one healthy replica per Deployment and the hello
+  ksvc is `READY=True`. EP-5 M1–M3 are blocked until the boot disk is enlarged. (2026-06-02)
 
 
 ## Decision Log

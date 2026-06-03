@@ -362,6 +362,21 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   IAP tunnel — then `kubectl` against the unmodified kubeconfig (server `https://127.0.0.1:6443`,
   whose k3s cert SAN includes 127.0.0.1). One durable connection avoids the per-command IAP-tunnel
   throttling EP-3 documented. (2026-06-02)
+- EP-5 (cross-plan, affects EP-2/EP-3/EP-4): **`nagare-01`'s 6 GB boot disk is too small.** EP-2's
+  `NagareInstance.ts` sets `bootDisk.initializeParams` with **no `size`**, so GCE defaults the boot
+  disk to the NixOS image's ~6 GB minimum. That 6 GB root holds both `/nix/store` and the containerd
+  image store, and filled to 99% when EP-5's observability images pulled, tripping `DiskPressure` →
+  node-exporter `Evicted`, the `vmks` install `context deadline exceeded`, and EP-4's Knative pods
+  destabilized. The 100 GB data disk (`/var/lib/nagare`) is the right place for bulk storage and is
+  only 1% used (PVCs bind there fine), but **container images and ephemeral storage live on the root
+  disk**, which is the constraint. EP-5 M1–M3 are blocked until this is fixed. Fix options: (A)
+  in-place `gcloud compute disks resize nagare-01 --size=<N>` + reboot (EP-3's `google-compute-image`
+  module has `growPartition`, so root auto-grows; then `pulumi refresh` + set `size` in
+  `NagareInstance.ts` to keep Git authoritative); or (B) set `bootDisk.initializeParams.size` in
+  `NagareInstance.ts` and `pulumi up` to recreate the VM, then re-run `just cluster-bootstrap` (EP-4)
+  + `just observability` (EP-5). The data disk is a separate resource and survives either path. This
+  belongs in EP-2's instance component (boot disk sizing) and should be recorded so a clean rebuild
+  is correctly sized from the start. (2026-06-02)
 - EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
   `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
   repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs
