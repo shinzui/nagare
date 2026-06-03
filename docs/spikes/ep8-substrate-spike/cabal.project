@@ -9,6 +9,13 @@
 -- it is needed. (Deviation from the plan's all-at-once cabal.project, recorded
 -- in the Decision Log.)
 
+-- Write a `.ghc.environment.*` file so a bare GHC session (Prototype 2's hint
+-- interpreter, and Prototype 1's runghc) can see the project's package set
+-- (aeson, yaml, ...) which otherwise live only in the cabal store, invisible to
+-- a fresh GHC session. This is itself criterion-(e) evidence for the
+-- interpreter substrate: it does not work out of the box.
+write-ghc-environment-files: always
+
 packages:
   .
   /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle

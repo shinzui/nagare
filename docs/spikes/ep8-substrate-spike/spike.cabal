@@ -56,10 +56,16 @@ executable proto2-interpreter
   main-is:         Proto2.hs
   hs-source-dirs:  app
   build-depends:
+    , aeson
     , base
     , bytestring
+    , containers
+    , directory
+    , filepath
+    , hint
     , spike-lib
     , text
+    , yaml
 
 -- Prototype 3: Dhall (Dhall.inputFile auto). The `dhall` dependency and the
 -- corpus package path are added in M4.

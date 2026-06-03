@@ -49,9 +49,9 @@ This section must always reflect the actual current state of the work.
 - [x] M2.2 Implement the hello config file for Prototype 1 (`hello/Config.hs`), importing the stub DSL library and binding `deployment :: Deployment`. _(2026-06-02)_
 - [x] M2.3 Implement Prototype 1 executable: shell out via `cradle` to `cabal exec -- runghc` on `helper/RunConfig.hs`, capture the rendered YAML (`StdoutRaw`), diff against the golden file. _(2026-06-02; needs `-threaded` for cradle.)_
 - [x] M2.4 Validate M2: `cabal run proto1-config-as-program` prints `PASS: output matches golden target`. _(2026-06-02: PASS; round-trip ~1.47s.)_
-- [ ] M3.1 Investigate `hint` availability: run `mori registry search hint`; attempt `cabal install hint` from Hackage; record feasibility verdict in Decision Log entry for M3.
-- [ ] M3.2 Implement Prototype 2 executable: evaluate `hello/Config.hs` via the GHC interpreter API (`GHC.Paths` + `GHC` API from the GHC boot package, or `hint` if obtained); extract `deployment :: Deployment`; render YAML; diff against golden.
-- [ ] M3.3 Validate M3: `cabal run proto2-interpreter` prints `PASS: output matches golden target` (or documents the exact infeasibility block if the interpreter path cannot be made to work).
+- [x] M3.1 Investigate `hint` availability. _(2026-06-02: absent from mori corpus; resolved cleanly from Hackage as `hint-0.9.0.9`. Feasible but operationally heavy — see Surprises/Decision Log.)_
+- [x] M3.2 Implement Prototype 2 executable via `hint` (`runInterpreter`): load `Config`/`Spike.Types`/`Spike.Render` from source, render inside the interpreter, return the `ByteString`. _(2026-06-02)_
+- [x] M3.3 Validate M3: `cabal run proto2-interpreter` prints `PASS: output matches golden target`. _(2026-06-02: PASS; round-trip ~1.35s. Required four non-obvious workarounds — see Surprises.)_
 - [ ] M4.1 Implement the hello config file for Prototype 3 (`hello/hello.dhall`), importing a local Dhall prelude and expressing the `Deployment`-equivalent record.
 - [ ] M4.2 Implement Prototype 3 executable: use `Dhall.inputFile auto "hello/hello.dhall"` to decode into the `SpikeDhallDeployment` Haskell record; re-render to YAML; diff against golden.
 - [ ] M4.3 Validate M4: `cabal run proto3-dhall` prints `PASS: output matches golden target`.
@@ -88,6 +88,21 @@ implementation. Provide concise evidence.
   `cabal build` reported "Up to date" and kept the old non-threaded binary; the fix was to remove
   the executable's `dist-newstyle/.../x/proto1-config-as-program` build dir to force a relink.
   Worth remembering for the later plans. (2026-06-02)
+- **`hint` works but is operationally heavy (Prototype 2).** `hint-0.9.0.9` resolves cleanly from
+  Hackage (not in the corpus), but getting it to evaluate the shared `Config.hs` against the
+  shared renderer took four non-obvious workarounds, each a concrete cost the production tool
+  would carry: (1) hint's GHC session does **not** see cabal's in-place `spike-lib` package, so
+  `Config`'s `import Spike.Types` cannot resolve against the compiled library — the modules must
+  be loaded from **source** on the search path instead; (2) loading from source means the
+  interpreted `Deployment` is a *different* type from the host's, so a `Deployment` value cannot
+  cross the boundary — the prototype renders *inside* the interpreter and returns only a
+  `ByteString`; (3) hint's typed `Extension` enum predates `DerivingStrategies`/`ImportQualifiedPost`,
+  so the house-standard sources only compile after `unsafeSetGhcOption "-XGHC2024"` (the raw-flag
+  escape hatch); (4) a fresh GHC session sees only boot packages, so `aeson`/`yaml` are invisible
+  until cabal is told to emit a `.ghc.environment.*` file (`write-ghc-environment-files: always`).
+  And underneath all of that, `hint` links the **GHC API** (`ghc` package) into the binary and
+  requires GHC's `libdir` + package databases present at runtime. PASS achieved, but the closure
+  and runtime requirements are the heaviest of the three. (2026-06-02)
 
 
 ## Decision Log
