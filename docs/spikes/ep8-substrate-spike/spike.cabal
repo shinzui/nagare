@@ -1,0 +1,74 @@
+cabal-version:   3.0
+name:            spike
+version:         0.1.0.0
+synopsis:        EP-8 throwaway substrate evaluation prototypes.
+build-type:      Simple
+
+-- Shared common stanza (house standard: GHC2024 + the common extension set).
+common common
+  default-language:   GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:        -Wall
+
+-- Shared library: the minimal Deployment type and renderer used by all
+-- prototypes. The comparison is only meaningful if every prototype renders
+-- through the exact same code, so the renderer lives here.
+library spike-lib
+  import:          common
+  hs-source-dirs:  src
+  exposed-modules:
+    Spike.Render
+    Spike.Types
+
+  build-depends:
+    , aeson
+    , base        >=4.17 && <5
+    , bytestring
+    , containers
+    , text
+    , yaml
+
+-- Prototype 1: config-as-program (shell out to runghc).
+executable proto1-config-as-program
+  import:          common
+  main-is:         Proto1.hs
+  hs-source-dirs:  app
+  -- cradle spawns child processes and requires the threaded RTS.
+  ghc-options:     -threaded
+  build-depends:
+    , base
+    , bytestring
+    , cradle
+    , directory
+    , filepath
+    , spike-lib
+    , text
+
+-- Prototype 2: interpreter (hint or GHC API). Substrate dependency is added
+-- in M3 once the feasibility investigation picks the mechanism.
+executable proto2-interpreter
+  import:          common
+  main-is:         Proto2.hs
+  hs-source-dirs:  app
+  build-depends:
+    , base
+    , bytestring
+    , spike-lib
+    , text
+
+-- Prototype 3: Dhall (Dhall.inputFile auto). The `dhall` dependency and the
+-- corpus package path are added in M4.
+executable proto3-dhall
+  import:          common
+  main-is:         Proto3.hs
+  hs-source-dirs:  app
+  build-depends:
+    , base
+    , bytestring
+    , spike-lib
+    , text

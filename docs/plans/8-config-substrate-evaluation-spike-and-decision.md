@@ -42,13 +42,13 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] M0.1 Pin GHC 9.12 in the repository root Nix flake (replace unpinned `pkgs.ghc`/`pkgs.cabal-install` with `pkgs.haskell.compiler.ghc912` + `pkgs.cabal-install` + `pkgs.haskell.packages.ghc912.{haskell-language-server,fourmolu,cabal-gild}`); verify `nix develop` provides `ghc --version` → 9.12.x. _(2026-06-02: done; both the `default` and `haskell` dev shells re-pinned, `pkgs.zlib`+`pkgs.pkg-config` added; `nix develop --command ghc --version` → 9.12.3.)_
-- [ ] M1.1 Create the spike workspace at `docs/spikes/ep8-substrate-spike/` with the shared hello input and golden target YAML copied verbatim from EP-6.
-- [ ] M1.2 Create `docs/spikes/ep8-substrate-spike/cabal.project` referencing the local mori corpus paths for `dhall`, `cradle`, `tasty`, and `yaml`/`aeson`.
-- [ ] M1.3 Create `docs/spikes/ep8-substrate-spike/spike.cabal` with three executable targets: `proto1-config-as-program`, `proto2-interpreter`, `proto3-dhall`.
-- [ ] M2.1 Implement the prototype DSL stub library (`Spike.Types`, `Spike.Render`) shared by all three prototypes.
-- [ ] M2.2 Implement the hello config file for Prototype 1 (`hello/Config.hs`), importing the stub DSL library and binding `deployment :: Deployment`.
-- [ ] M2.3 Implement Prototype 1 executable: shell out via `cradle` to `runghc` / `cabal run`, capture the rendered YAML, diff against the golden file.
-- [ ] M2.4 Validate M2: `cabal run proto1-config-as-program` prints `PASS: output matches golden target`.
+- [x] M1.1 Create the spike workspace at `docs/spikes/ep8-substrate-spike/` with the shared hello input and golden target YAML copied verbatim from EP-6. _(2026-06-02)_
+- [x] M1.2 Create `docs/spikes/ep8-substrate-spike/cabal.project`. _(2026-06-02: deviated — lists only `.` + `cradle` initially; `dhall` added in M4 to keep the M1/M2 build closure small. See Decision Log.)_
+- [x] M1.3 Create `docs/spikes/ep8-substrate-spike/spike.cabal` with three executable targets: `proto1-config-as-program`, `proto2-interpreter`, `proto3-dhall`. _(2026-06-02; `proto2`/`proto3` start as stubs, substrate deps added in M3/M4.)_
+- [x] M2.1 Implement the prototype DSL stub library (`Spike.Types`, `Spike.Render`) shared by all three prototypes. _(2026-06-02: renderer uses `Data.Yaml.Pretty.encodePretty` + explicit key comparator; renders byte-identical to golden.)_
+- [x] M2.2 Implement the hello config file for Prototype 1 (`hello/Config.hs`), importing the stub DSL library and binding `deployment :: Deployment`. _(2026-06-02)_
+- [x] M2.3 Implement Prototype 1 executable: shell out via `cradle` to `cabal exec -- runghc` on `helper/RunConfig.hs`, capture the rendered YAML (`StdoutRaw`), diff against the golden file. _(2026-06-02; needs `-threaded` for cradle.)_
+- [x] M2.4 Validate M2: `cabal run proto1-config-as-program` prints `PASS: output matches golden target`. _(2026-06-02: PASS; round-trip ~1.47s.)_
 - [ ] M3.1 Investigate `hint` availability: run `mori registry search hint`; attempt `cabal install hint` from Hackage; record feasibility verdict in Decision Log entry for M3.
 - [ ] M3.2 Implement Prototype 2 executable: evaluate `hello/Config.hs` via the GHC interpreter API (`GHC.Paths` + `GHC` API from the GHC boot package, or `hint` if obtained); extract `deployment :: Deployment`; render YAML; diff against golden.
 - [ ] M3.3 Validate M3: `cabal run proto2-interpreter` prints `PASS: output matches golden target` (or documents the exact infeasibility block if the interpreter path cannot be made to work).
@@ -66,7 +66,28 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **Byte-exact rendering needs an explicit key comparator, not plain `Yaml.encode`.** The
+  golden YAML is not alphabetically ordered: inside the autoscaling annotations block,
+  `autoscaling.knative.dev/min-scale` precedes `autoscaling.knative.dev/max-scale` (but `max` <
+  `min` alphabetically), and a container lists `image`/`ports`/`env`/`resources` in document
+  order. `Data.Yaml.encode` orders object keys by the aeson `KeyMap`'s internal order, which
+  reproduces neither. `Spike.Render` therefore renders through `Data.Yaml.Pretty.encodePretty`
+  with a `setConfCompare` comparator that ranks each key explicitly (falling back to alphabetical
+  for unranked keys). With this, the rendered bytes are byte-identical to `hello/golden.yaml`
+  (verified by `diff` returning empty). (2026-06-02)
+- **`runghc` does not inherit the cabal `common` stanza's language edition.** When Prototype 1
+  shells out to `runghc`, GHC compiles the source files fresh and defaults to `Haskell2010`, so
+  `deriving stock` fails with "Illegal deriving strategy". The harness must pass `-XGHC2024
+  -XOverloadedStrings` explicitly to `runghc`. This is a real operational data point for the
+  config-as-program substrate (criterion e): the tool must reproduce the project's language
+  flags when it interprets the user's config. (2026-06-02)
+- **`cradle` requires the threaded RTS.** Linking `proto1` without `-threaded` makes every
+  `cradle` `run`/`run_` throw `Cradle needs the ghc's threaded runtime system`. Added
+  `ghc-options: -threaded` to the `proto1` stanza. (2026-06-02)
+- **cabal does not always relink on a lone `ghc-options` change.** After adding `-threaded`,
+  `cabal build` reported "Up to date" and kept the old non-threaded binary; the fix was to remove
+  the executable's `dist-newstyle/.../x/proto1-config-as-program` build dir to force a relink.
+  Worth remembering for the later plans. (2026-06-02)
 
 
 ## Decision Log
@@ -110,6 +131,18 @@ implementation. Provide concise evidence.
   prototypes need the compiler, so it establishes the pinned toolchain that EP-9–EP-12 inherit.
   The pattern mirrors `bokuno/nix/nix-flake-templates/haskell-9_12`.
   Date: 2026-06-03
+
+
+- Decision (implementation): Keep `cabal.project` lean (only `.` + the `cradle` corpus path)
+  through M1/M2 and add the `dhall` corpus package only in M4; stub `proto2`/`proto3` until their
+  milestones. Render through `Data.Yaml.Pretty.encodePretty` with an explicit key comparator
+  rather than the plan's literal `Data.Yaml.encode`.
+  Rationale: deferring `dhall` avoids dragging its large transitive closure into the early,
+  fast-iterating M1/M2 builds; the comparator is required for byte-exact output (see Surprises).
+  All three are local, recorded deviations that do not change the spike's outcome — every
+  prototype still renders the shared hello example through the one `Spike.Render` and is compared
+  to the same golden.
+  Date: 2026-06-02
 
 
 ## Outcomes & Retrospective

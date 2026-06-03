@@ -1,0 +1,14 @@
+-- EP-8 substrate spike. Throwaway prototypes; not production code.
+--
+-- Only `.` (the spike package) is listed by default so that `cabal build
+-- spike-lib` and the lighter prototypes have a small, fast solve. The heavier
+-- corpus packages are added incrementally as each prototype needs them:
+--   * proto1 (config-as-program) needs `cradle`  -> uncommented below.
+--   * proto3 (dhall)             needs `dhall`    -> added in M4.
+-- This keeps M1/M2 from dragging in dhall's large transitive closure before
+-- it is needed. (Deviation from the plan's all-at-once cabal.project, recorded
+-- in the Decision Log.)
+
+packages:
+  .
+  /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle

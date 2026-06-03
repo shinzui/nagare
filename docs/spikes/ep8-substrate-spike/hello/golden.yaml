@@ -1,0 +1,28 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/max-scale: '3'
+    spec:
+      containers:
+      - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/hello:20260602-120000
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: hello-db-url
+              key: DATABASE_URL
+        - name: LOG_LEVEL
+          value: info
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
