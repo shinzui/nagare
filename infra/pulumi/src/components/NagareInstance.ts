@@ -25,7 +25,12 @@ export class NagareInstance extends pulumi.ComponentResource {
             name,                       // GCE instance name == resource name == "nagare-01"
             zone: args.zone,
             machineType: args.machineType,
-            bootDisk: { initializeParams: { image: args.imageSelfLink } },
+            // Boot disk holds NixOS /nix/store AND the containerd image store, so
+            // it must be sized for the cluster's images, not just the OS. The image's
+            // default (~6 GB) tripped DiskPressure during the EP-5 observability
+            // install (see MasterPlan Surprises, 2026-06-02). NixOS auto-grows the
+            // root partition (google-compute-image.nix `growPartition`) to fill this.
+            bootDisk: { initializeParams: { image: args.imageSelfLink, size: 100 } },
             attachedDisks: [{
                 source: args.dataDiskId,
                 deviceName: "nagare-data",   // stable device name EP-3 mounts at /var/lib/nagare
