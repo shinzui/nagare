@@ -7,15 +7,22 @@ resources, which the `letsencrypt-dns` ClusterIssuer fulfils via DNS-01.
 
 ## Install
 
-net-certmanager release artifacts left GitHub after v1.14.0, so the canonical
-source is the Knative GCS bucket. Version tracks the Knative line
-(**v1.22.0**). Confirm the current path on the Knative "Configure cert-manager
-integration" install page.
+net-certmanager release artifacts left GitHub after v1.14.0, and its version
+line **diverged from Knative's and froze at v1.14.0** — the Knative GCS bucket's
+`net-certmanager/latest/` and newest `previous/` both resolve to **v1.14.0**
+(April 2024). So v1.14.0 is the current net-certmanager even against Knative
+Serving v1.22; there is no v1.22.0 net-certmanager. To check for a newer one:
+`gsutil ls gs://knative-releases/net-certmanager/previous/`.
 
 ```bash
-kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/v1.22.0/net-certmanager.yaml
+kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/v1.14.0/net-certmanager.yaml
 kubectl -n knative-serving rollout status deploy/net-certmanager-controller
 ```
+
+Compatibility: the v1.14.0 controller reconciles `networking.internal.knative.dev`
+`Certificate` (KCert) objects, a stable API, so it coexists with Knative v1.22.
+With `external-domain-tls` disabled it creates no certificates, so any latent
+skew is inert until TLS is enabled.
 
 It is configured by the `config-certmanager` ConfigMap patch in
 `../knative-serving/config-certmanager.yaml` (which points `issuerRef` at the

@@ -9,3 +9,9 @@
 # cannot be issued for the placeholder domain). See this directory's README.
 data:
   ingress-class: kourier.ingress.networking.knative.dev
+  # Single-tenant PaaS: let DomainMappings create their own ClusterDomainClaim
+  # automatically. Without this (default "false"), every custom-domain mapping
+  # (e.g. nagarectl's `domain:` field, EP-6) needs an admin-created
+  # ClusterDomainClaim first. There is only one tenant here, so autocreation is
+  # safe and is what makes `nagarectl` able to map arbitrary domains.
+  autocreate-cluster-domain-claims: "true"

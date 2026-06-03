@@ -296,7 +296,12 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
 - [x] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported; VM `nagare-01` created and RUNNING from the registered NixOS image (M1+M2+M3 done). (2026-06-02)
 - [x] EP-3: NixOS image built & registered, `nagare-01` deployed booting the baked image; data disk formatted & mounted with all seven subdirs; the sshd "connection closed at userauth" blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers; post-mount subdir oneshot). Verified live: `kubectl get nodes` = Ready (k3s v1.35.4, NixOS 26.11); coredns/local-path-provisioner/metrics-server Running; a test PVC Bound under `/var/lib/nagare/local-path`. Residual operator follow-ups (non-blocking for EP-4/5/6): join Tailscale with a real auth key, and exercise the day-2 `nixos-rebuild --target-host`. (2026-06-02)
-- [ ] EP-4: Knative Serving + Kourier installed; wildcard TLS issued via cert-manager DNS-01; sample service answers over HTTPS.
+- [~] EP-4: cert-manager + `letsencrypt-dns` issuer (Ready), Knative Serving + Kourier, and
+  net-certmanager all installed and wired; the hello sample service answers over **HTTP**
+  (`Hello Nagare!`, 200) and a custom-domain DomainMapping routes. Per the operator's HTTP-first
+  choice, Let's Encrypt wildcard **TLS/HTTPS is deferred** — gated solely on a real apps domain being
+  set in Pulumi `baseDomain` and delegated; enabling it is one config flip (`just cluster-enable-tls`).
+  (2026-06-02)
 - [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
 - [ ] EP-7: sops-encrypted secrets, Litestream/Postgres backups to GCS, dashboards in Git, and a tested recovery runbook.
