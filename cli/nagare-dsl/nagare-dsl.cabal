@@ -29,6 +29,7 @@ library
     Nagare.Dsl.Config
     Nagare.Dsl.Load
     Nagare.Dsl.Prelude
+    Nagare.Dsl.Presets
     Nagare.Dsl.Render
     Nagare.Dsl.Types
 
@@ -66,8 +67,9 @@ test-suite nagare-dsl-test
     , bytestring
     , containers
     , nagare-dsl
-    , tasty         >=1.4
-    , tasty-golden  >=2.3
-    , tasty-hunit   >=0.10
+    , tasty            >=1.4
+    , tasty-golden     >=2.3
+    , tasty-hunit      >=0.10
+    , tasty-quickcheck >=0.10
     , temporary
     , text

@@ -6,11 +6,13 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import LoadSpec (loadTests)
 import Nagare.Dsl.Load (loadDeployment)
+import Nagare.Dsl.Presets (development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
 import Nagare.Dsl.Types
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck (Gen, Property, choose, elements, forAll, testProperty)
 
 main :: IO ()
 main =
@@ -21,6 +23,7 @@ main =
       , testGroup "Nagare.Dsl.Render" goldenTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
       , loadTests
+      , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       ]
 
 -- | EP-10: the hello config-as-program file loads to the very same
@@ -42,6 +45,90 @@ loadGoldenTests =
             Right dep -> pure (fromStrict (renderService dep "20260602-120000"))
       )
   ]
+
+-- | EP-11: two example apps share one preset library and one overlay. Each is
+-- loaded end-to-end via 'loadDeployment' (presets -> loader -> renderer); the
+-- goldens differ only in name/image/env, proving "shared, not copy-pasted".
+presetsGoldenTests :: [TestTree]
+presetsGoldenTests =
+  [ goldenVsString
+      "preset-app-a: notes service (webService + production)"
+      "test/golden/preset-app-a.service.yaml"
+      (loadAndRender "../../cluster/examples/preset-app-a/nagare/Config.hs")
+  , goldenVsString
+      "preset-app-b: tasks service (webService + secretEnv + production)"
+      "test/golden/preset-app-b.service.yaml"
+      (loadAndRender "../../cluster/examples/preset-app-b/nagare/Config.hs")
+  ]
+  where
+    loadAndRender path = do
+      result <- loadDeployment path
+      case result of
+        Left err -> fail ("loadDeployment " <> path <> ": " <> show err)
+        Right dep -> pure (fromStrict (renderService dep "20260602-120000"))
+
+-- | EP-11: composing valid presets/overlays always yields a valid 'Deployment',
+-- and an overlay that forces @max < min@ is rejected (never silently applied).
+presetsPropertyTests :: [TestTree]
+presetsPropertyTests =
+  [ testProperty "webService valid name+image yields Right" prop_webServiceValid
+  , testProperty "webService >>= production yields Right" prop_productionOverlayValid
+  , testProperty "webService >>= development yields Right" prop_developmentOverlayValid
+  , testProperty "webService >>= secretEnv yields Right" prop_secretEnvValid
+  , testProperty "overlay forcing max<min is rejected (Left)" prop_invalidScaleOverlayRejected
+  ]
+
+-- | Valid DNS-label-safe name: 1–10 lowercase letters.
+genValidName :: Gen Text
+genValidName = do
+  len <- choose (1, 10)
+  cs <- sequence (replicate len (elements ['a' .. 'z']))
+  pure (Text.pack cs)
+
+-- | Valid image path of the form @gcr.io/<proj>/<repo>@ (no tag).
+genValidImage :: Gen Text
+genValidImage = do
+  proj <- genValidName
+  repo <- genValidName
+  pure ("gcr.io/" <> proj <> "/" <> repo)
+
+prop_webServiceValid :: Property
+prop_webServiceValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(n, img) ->
+    isRight (webService n img)
+
+prop_productionOverlayValid :: Property
+prop_productionOverlayValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(n, img) ->
+    isRight (webService n img >>= production)
+
+prop_developmentOverlayValid :: Property
+prop_developmentOverlayValid =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(n, img) ->
+    isRight (webService n img >>= development)
+
+prop_secretEnvValid :: Property
+prop_secretEnvValid =
+  forAll ((,,) <$> genValidName <*> genValidImage <*> genValidName) $ \(n, img, sec) ->
+    isRight (webService n img >>= secretEnv "MY_VAR" sec)
+
+-- | An overlay author's mistake (max < min) is caught by 'mkScale', not stored.
+prop_invalidScaleOverlayRejected :: Property
+prop_invalidScaleOverlayRejected =
+  forAll ((,) <$> genValidName <*> genValidImage) $ \(n, img) ->
+    case webService n img of
+      Left _ -> True -- construction failure is not what we test here
+      Right dep -> isLeft (badScaleOverlay dep)
+  where
+    badScaleOverlay d = do
+      sc <- mkScale 5 1 -- max=1 < min=5: must be rejected
+      pure (d {scale = Just sc})
+
+isRight :: Either a b -> Bool
+isRight = either (const False) (const True)
+
+isLeft :: Either a b -> Bool
+isLeft = either (const True) (const False)
 
 unitTests :: [TestTree]
 unitTests =

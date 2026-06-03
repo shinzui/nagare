@@ -154,7 +154,7 @@ shape the decomposition principles say to merge.
 | 8 | Config substrate evaluation spike and decision | docs/plans/8-config-substrate-evaluation-spike-and-decision.md | None | EP-6 | Complete |
 | 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Complete |
 | 10 | Config surface and loading for the chosen substrate | docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md | EP-8, EP-9 | None | Complete |
-| 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Not Started |
+| 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Complete |
 | 12 | nagarectl integration and full YAML cutover | docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md | EP-9, EP-10 | EP-11, EP-6 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
@@ -368,8 +368,11 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   _(2026-06-03: config-as-program loader compiles-and-runs `Config.hs` via `runghc`, JSON transport
   through `Nagare.Dsl.Config.emitDeployment`; 56 tests green; loaded value equals EP-9's `helloDep`.
   EP-12 owns production package-env provisioning for the standalone binary.)_
-- [ ] EP-11: a `nagare-presets` library plus two example apps that share one preset and one
+- [x] EP-11: a `nagare-presets` library plus two example apps that share one preset and one
   environment overlay; property tests show composing valid presets yields a valid `Deployment`.
+  _(2026-06-03: `Nagare.Dsl.Presets` (webService + production/development overlays + helpers); two
+  apps under `cluster/examples/preset-app-{a,b}/` loaded end-to-end, goldens diff only in
+  name/image/env; 63 tests green incl. 5 QuickCheck properties.)_
 - [ ] EP-12: `nagarectl deploy` deploys from the typed config end-to-end and prints a live URL; the
   `nagare.yaml` parsing path is deleted, EP-6's `Nagare.Config`/`Nagare.Render` are retired, and the
   in-repo example app carries the typed config instead of YAML.
