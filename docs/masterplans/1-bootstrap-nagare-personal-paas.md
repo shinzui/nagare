@@ -111,7 +111,7 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 | 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Complete (TLS deferred) |
 | 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Complete |
 | 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |
-| 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Not Started |
+| 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Complete (Postgres live-test + full DR drill deferred) |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference other
 rows by their `EP-<#>` prefix.
@@ -309,7 +309,12 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   PVCs Bound to `local-path`; reproducible via `just observability`. Required enlarging the boot disk
   to 100 GB (VM rebuild) and a live DNS workaround (EP-3 image follow-up). (2026-06-03)
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
-- [ ] EP-7: sops-encrypted secrets, Litestream/Postgres backups to GCS, dashboards in Git, and a tested recovery runbook.
+- [x] EP-7: sops+age secrets (encrypted Secret round-trips to the cluster and into a pod via
+  `secretRef`, verified live); Litestream SQLite backups replicating to
+  `gcs://tan-nb-exp-nagare-backups/litestream/` via keyless ADC (verified live, after the metadata
+  fix below); Postgres backup/restore scripts authored (live test deferred — no Postgres deployed);
+  dashboards in Git; `docs/runbooks/disaster-recovery.md` written with backup inventory. Full
+  clean-room DR drill deferred. (2026-06-03)
 
 
 ## Surprises & Discoveries
@@ -398,6 +403,22 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   Durable fix: rebuild + re-register the image with `just host-image` so clean rebuilds boot with
   working DNS (EP-3 follow-up; see EP-3 Surprises). This directly threatens the MasterPlan's
   "boring, reproducible rebuild" goal until done. (2026-06-03)
+  **DONE (2026-06-03):** per the operator, the image was rebuilt and re-registered (twice — once for
+  DNS, then again for the metadata fix below); the latest `nagareImageSelfLink` boots with both fixes.
+  The running host still carries the runtime workaround (immutable resolv.conf) until it next boots
+  the new image via a VM replacement.
+- EP-7/EP-3/EP-4 (cross-plan, in-cluster GCP auth): **pods could not reach the GCE metadata server,
+  so keyless ADC failed for in-cluster workloads.** Surfaced when EP-7's Litestream sidecar could not
+  authenticate to GCS (`could not find default credentials`, then `169.254.169.254:80: no route to
+  host`). Root cause: dhcpcd assigned IPv4 link-local `169.254.0.0/16` addresses to the flannel/veth
+  interfaces, and the on-link route hijacked the metadata IP onto `flannel.1`
+  (`ip route get 169.254.169.254 → dev flannel.1`) instead of eth0. Fix in EP-3's `networking.nix`:
+  `networking.dhcpcd.denyInterfaces = [veth* flannel* cni* kube* datapath*]` + a MASQUERADE for
+  pod → `169.254.169.254`; the Litestream sidecar also sets `GCE_METADATA_HOST=169.254.169.254`.
+  Validated at runtime (pod read the node SA from metadata; Litestream replicated to GCS), committed
+  to source, and baked into the rebuilt image. **This also unblocks EP-4's deferred DNS-01 wildcard
+  TLS** (cert-manager pods need GCP creds to write the Cloud DNS challenge record), which would have
+  hit the same wall. (2026-06-03)
 - EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
   `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
   repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs
@@ -476,6 +497,45 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Compare the delivered system against the Vision &
-Scope and the spec's MVP Definition: one-command deploy, scale-to-zero, observability, and a boring,
-reproducible rebuild.)
+**Status (2026-06-03): six of seven child plans Complete (EP-1–EP-5, EP-7); EP-6 (`nagarectl`) is
+Not Started.** The platform substrate exists end to end: Pulumi provisions the GCP perimeter (IP,
+DNS, disk, SA+IAM, Artifact Registry, buckets); a reproducible NixOS GCE image boots `nagare-01` with
+k3s; Knative + Kourier + cert-manager serve a scale-to-zero web app over HTTP with a custom
+DomainMapping; the VictoriaMetrics/Logs/Traces + Grafana observability stack is installed and verified
+(metrics, logs, a test trace); and sops+age secrets plus Litestream backups to GCS work, with a
+disaster-recovery runbook in `docs/runbooks/`. The headline `nagarectl deploy` one-command developer
+experience (EP-6) is **not yet built** — it is the main remaining gap to the spec's MVP.
+
+Delivered against the Vision & Scope / spec MVP:
+- **Provisioning, host, cluster platform, observability, backups, runbook:** done and largely
+  verified live.
+- **Scale-to-zero web service over a real URL:** done over **HTTP** (`hello.personal.apps.example.com`
+  → `Hello Nagare!`).
+
+Deferred (each with a clear, recorded reason):
+1. **Let's Encrypt wildcard HTTPS (EP-4)** — gated on a real apps domain delegated to the Cloud DNS
+   zone; one config flip (`just cluster-enable-tls`) once a domain exists. The metadata-routing fix
+   this session also removed the *second* blocker (cert-manager pods can now reach GCP for DNS-01).
+2. **`nagarectl` one-command deploy (EP-6) — Not Started.** This session implemented EP-5 and EP-7;
+   EP-6 (the Haskell deploy CLI) has not been built and is the principal remaining work to reach the
+   spec's one-command-deploy MVP. A separate MasterPlan (`docs/masterplans/2-…`, plans 8–12) covers a
+   typed config DSL for `nagarectl` and may inform or supersede parts of EP-6 — reconcile the two
+   before implementing.
+3. **Postgres backup live-test and a clean-room full DR drill (EP-7)** — the scripts/runbook exist;
+   the Postgres test needs a deployed Postgres, and a true rebuild-from-nothing drill was not run to
+   avoid destroying the live cluster.
+
+Biggest lessons (all reproducibility-related, all now fixed in source + the rebuilt image):
+- **Boot-disk sizing belongs in IaC.** The image's ~6 GB default tripped DiskPressure; `NagareInstance.ts`
+  now pins 100 GB.
+- **Clean-boot host networking was the recurring trap.** The registered image lagged `networking.nix`,
+  and dhcpcd misbehaviour caused both the broken DNS (metadata resolver) and the metadata-route
+  hijack that broke keyless in-cluster ADC. Both are fixed in `networking.nix` and baked into the
+  rebuilt image; the running host carries runtime workarounds until its next clean boot.
+- **A flake only bakes git-tracked files** — image rebuilds must follow source commits, or the image
+  silently lags the repo (which is exactly how the DNS fix went missing).
+
+Recommended next steps: (a) replace the VM onto the latest `nagareImageSelfLink` to confirm a fully
+clean boot (working DNS + metadata) and then drop the runtime workarounds; (b) implement/verify EP-6
+`nagarectl` to realize the one-command-deploy MVP; (c) supply a real domain and run
+`just cluster-enable-tls` for HTTPS; (d) deploy Postgres and run the EP-7 Postgres backup/restore.

@@ -251,6 +251,27 @@ implementation. Provide concise evidence (command output is ideal).
   `/etc/dhcpcd.conf` has `nohook resolv.conf` and `/etc/resolv.conf` shows `8.8.8.8` on a clean boot,
   then drop the manual `chattr +i`.** Until then the running host's DNS survives only until reboot, and
   a `pulumi`-driven VM replacement reintroduces the break. (2026-06-03)
+  **UPDATE (2026-06-03):** the image was rebuilt and re-registered with `just host-image`
+  (`nagareImageSelfLink` updated). It now contains the `networking.nix` DNS fix **and** the
+  metadata-routing fix below. The running VM still carries the runtime workarounds; verify a fully
+  clean boot (and drop the workarounds) on the next VM replacement onto the new image.
+
+- **FOLLOW-UP (fixed in source + image; clean-boot verification pending): pods could not reach the
+  GCE metadata server, breaking keyless ADC.** Discovered 2026-06-03 while bringing up EP-7's
+  Litestream backup. dhcpcd assigned IPv4 link-local `169.254.0.0/16` addresses to the flannel/veth
+  interfaces; the resulting on-link route hijacked `169.254.169.254` onto `flannel.1`
+  (`ip route get 169.254.169.254 → dev flannel.1 src 169.254.x.x`) instead of eth0 to the real
+  metadata server, so neither host nor pods could reach it. Effect: in-cluster GCP auth via
+  Application Default Credentials fails — Litestream backups (EP-7) and cert-manager's DNS-01 wildcard
+  TLS (EP-4) both need it. Fix added to `networking.nix`:
+  `networking.dhcpcd.denyInterfaces = [ "veth*" "flannel*" "cni*" "kube*" "datapath*" ]` (removes the
+  /16 hijack, leaving the GCE `/32` metadata route on eth0) plus a `firewall.extraCommands`
+  MASQUERADE for pod → `169.254.169.254` (SNAT to the node IP). Validated at runtime before baking: a
+  pod read `nagare-node@tan-nb-exp.iam.gserviceaccount.com` from the metadata server and Litestream
+  replicated to GCS. GCP-using pods should also set `GCE_METADATA_HOST=169.254.169.254` so the Go
+  metadata library skips the pod-unresolvable `metadata.google.internal` hostname. Baked into the
+  rebuilt image; confirm on the next clean boot that `ip route get 169.254.169.254` uses eth0.
+  (2026-06-03)
 
 
 ## Decision Log
