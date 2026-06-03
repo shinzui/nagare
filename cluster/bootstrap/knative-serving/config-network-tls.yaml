@@ -1,0 +1,19 @@
+# Patch body that ENABLES automatic external-domain TLS with per-namespace
+# wildcard certificates (EP-4 Milestone 3). DEFERRED in the HTTP-first
+# bootstrap — apply this only after a real `baseDomain` is set and delegated to
+# the Cloud DNS zone's nameservers (see cluster/bootstrap/cert-manager/README.md).
+#
+#   - external-domain-tls: Enabled        -> turn on automatic public-domain certs
+#   - namespace-wildcard-cert-selector {} -> one wildcard cert PER NAMESPACE
+#                                            (*.<namespace>.<baseDomain>), matching
+#                                            every namespace (empty selector).
+#
+# This is a merge patch layered on top of config-network.yaml's ingress-class:
+#   kubectl -n knative-serving patch configmap config-network \
+#     --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
+#
+# Per-namespace wildcards require DNS-01 (the only challenge that issues
+# wildcards), which the letsencrypt-dns ClusterIssuer provides.
+data:
+  external-domain-tls: Enabled
+  namespace-wildcard-cert-selector: "{}"

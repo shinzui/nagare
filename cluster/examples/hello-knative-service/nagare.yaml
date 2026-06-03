@@ -1,0 +1,14 @@
+name: hello                                        # Knative Service name (DNS-safe)
+namespace: personal                                # Kubernetes namespace
+image: gcr.io/knative-samples/helloworld-go        # public sample image, no tag here
+domain: hello.example.com                          # optional custom public domain (DomainMapping)
+port: 8080                                          # container port the app listens on
+env:
+  TARGET:
+    value: "Nagare"                                 # literal env var; sample app echoes it
+resources:
+  cpu: 250m
+  memory: 128Mi
+scale:
+  min: 0                                            # scale-to-zero when idle
+  max: 3

@@ -1,0 +1,12 @@
+# Patch body for the knative-serving `config-certmanager` ConfigMap (installed
+# by net-certmanager). Points Knative's cert-manager bridge at our cluster-wide
+# DNS-01 issuer. The issuerRef value is a YAML string (ConfigMap values are
+# strings). Applying this is harmless while external-domain-tls is disabled: it
+# only takes effect when Knative actually requests certificates.
+#
+#   kubectl -n knative-serving patch configmap config-certmanager \
+#     --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
+data:
+  issuerRef: |
+    kind: ClusterIssuer
+    name: letsencrypt-dns

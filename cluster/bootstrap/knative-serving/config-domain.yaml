@@ -1,0 +1,15 @@
+# Patch body for the knative-serving `config-domain` ConfigMap.
+#
+# Knative's config-domain convention is unusual: the *key* is the domain and the
+# *value* is empty. This replaces the default `svc.cluster.local` (cluster-only)
+# so Knative builds public URLs of the form `service.namespace.<baseDomain>`.
+#
+# This file carries the PLACEHOLDER key. Do not apply it verbatim — render the
+# real base domain from Pulumi (`pulumi -C infra/pulumi stack output baseDomain`)
+# and apply that, also removing the default key, e.g.:
+#   kubectl -n knative-serving patch configmap config-domain \
+#     --type merge --patch "{\"data\":{\"${BASE_DOMAIN}\":\"\"}}"
+#   kubectl -n knative-serving patch configmap config-domain \
+#     --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
+data:
+  apps.example.com: ""

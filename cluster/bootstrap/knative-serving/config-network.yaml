@@ -1,0 +1,11 @@
+# Patch body for the knative-serving `config-network` ConfigMap.
+#
+# M2 (active, HTTP): select Kourier as the ingress class. This is the only key
+# applied in the HTTP-first bootstrap.
+#
+# The two automatic-TLS keys are intentionally NOT here — they live in
+# `config-network-tls.yaml` and are applied only once a real `baseDomain` is
+# delegated (enabling them now would make Knative request a wildcard cert that
+# cannot be issued for the placeholder domain). See this directory's README.
+data:
+  ingress-class: kourier.ingress.networking.knative.dev
