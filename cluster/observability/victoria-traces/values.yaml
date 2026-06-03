@@ -1,0 +1,12 @@
+# Helm values for vm/victoria-traces-single (chart 0.1.6, app v0.9.2 — BETA), in
+# the `tracing` namespace as release `victoria-traces`. VictoriaTraces is the trace
+# store. It listens on HTTP 10428 for OTLP ingest (path
+# /insert/opentelemetry/v1/traces), query, the Jaeger API (/select/jaeger), and UI.
+# Traces are the least-stable pillar (see Surprises); if this misbehaves, M1 metrics
+# and M2 logs still stand on their own.
+# EP-5 Milestone M3.
+server:
+  retentionPeriod: 3d           # traces grow fastest; start at the low end (Decision Log)
+  persistentVolume:
+    enabled: true
+    size: 10Gi                  # storageClassName unset -> default local-path (data disk)

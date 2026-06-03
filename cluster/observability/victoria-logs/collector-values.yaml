@@ -1,0 +1,10 @@
+# Helm values for vm/victoria-logs-collector (chart 0.3.4), installed in the
+# `logging` namespace as release `victoria-logs-collector`. This is a Vector-based
+# DaemonSet (one pod per node) that tails every container log file under
+# /var/log/containers and ships the lines to VictoriaLogs.
+# EP-5 Milestone M2.
+#
+# Point remoteWrite at the VictoriaLogs server Service on 9428. The service name
+# is release-derived (release `victoria-logs`); verified with `helm template`.
+remoteWrite:
+  - url: http://victoria-logs-victoria-logs-single-server.logging.svc:9428

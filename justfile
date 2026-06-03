@@ -73,23 +73,12 @@ cluster-enable-tls:
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
     @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
 
-# EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md): install
-# the VictoriaMetrics/Logs/Traces stack + Grafana via Helm.
+# EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md): install the
+# VictoriaMetrics/Logs/Traces stack + OpenTelemetry Collector + Grafana via Helm.
+# The script owns the pinned chart versions and the install order; it is idempotent
+# (helm upgrade --install). Assumes KUBECONFIG points at the cluster.
 observability:
-    helm repo add vm https://victoriametrics.github.io/helm-charts/
-    helm repo update
-    helm upgrade --install vmks vm/victoria-metrics-k8s-stack \
-      --namespace monitoring --create-namespace \
-      -f cluster/observability/victoria-metrics/values.yaml
-    helm upgrade --install victoria-logs vm/victoria-logs-single \
-      --namespace logging --create-namespace \
-      -f cluster/observability/victoria-logs/values.yaml
-    helm upgrade --install victoria-logs-collector vm/victoria-logs-collector \
-      --namespace logging \
-      -f cluster/observability/victoria-logs/collector-values.yaml
-    helm upgrade --install victoria-traces vm/victoria-traces-single \
-      --namespace tracing --create-namespace \
-      -f cluster/observability/victoria-traces/values.yaml
+    cluster/observability/install.sh
 
 # EP-4 ships the sample app; this applies it as a smoke test. Apply the
 # Kubernetes manifests explicitly (nagare.yaml is the app contract, not a k8s

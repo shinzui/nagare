@@ -1,0 +1,9 @@
+# Helm values for vm/victoria-logs-single (chart 0.13.5), installed in the
+# `logging` namespace as release `victoria-logs`. VictoriaLogs is the log store;
+# it listens on HTTP 9428 for ingest, query (LogsQL), and its UI.
+# EP-5 Milestone M2.
+server:
+  retentionPeriod: 7d           # keep logs 7 days (Decision Log)
+  persistentVolume:
+    enabled: true
+    size: 20Gi                  # storageClassName unset -> default local-path (data disk)

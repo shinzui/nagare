@@ -1,0 +1,11 @@
+# Grafana datasource provisioning file (Grafana "provisioning/datasources" format).
+# Kept in Git for reproducibility; the live datasource is also declared inline in the
+# metrics chart values (cluster/observability/victoria-metrics/values.yaml ->
+# grafana.additionalDataSources) so Grafana loads it at boot. Keep the two in sync.
+apiVersion: 1
+datasources:
+  - name: VictoriaLogs
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victoria-logs-victoria-logs-single-server.logging.svc:9428
+    editable: true

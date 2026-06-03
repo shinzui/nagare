@@ -1,0 +1,10 @@
+# Grafana datasource provisioning file. The Jaeger type points at VictoriaTraces'
+# Jaeger-compatible query API. Kept in Git for reproducibility; mirrored inline in
+# the metrics chart values (grafana.additionalDataSources). Keep the two in sync.
+apiVersion: 1
+datasources:
+  - name: VictoriaTraces
+    type: jaeger
+    access: proxy
+    url: http://victoria-traces-vt-single-server.tracing.svc:10428/select/jaeger
+    editable: true

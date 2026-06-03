@@ -1,0 +1,86 @@
+# Helm values for vm/victoria-metrics-k8s-stack (chart 0.81.0), installed in the
+# `monitoring` namespace as release `vmks`. This bundles: VictoriaMetrics single
+# (VMSingle), VMAgent (scraper), prometheus-node-exporter, kube-state-metrics, the
+# victoria-metrics-operator, and Grafana.
+#
+# EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md), Milestone M1.
+# Storage: every PVC leaves storageClassName unset so it binds to the cluster
+# default StorageClass `local-path`, which EP-3 pointed at /var/lib/nagare/local-path
+# on the attached data disk (MasterPlan Integration Point 3).
+
+# --- Metrics store: VMSingle (one process holds all metrics). ---
+vmsingle:
+  enabled: true
+  spec:
+    # Keep metrics 30 days (Decision Log: metrics 30d / logs 7d / traces 3d).
+    retentionPeriod: "30d"
+    # Pin the HTTP port to 8429. Chart 0.81.0 defaults to "8428"; pinning keeps the
+    # Grafana datasource URL stable and avoids an unexpected VMSingle restart on a
+    # future chart upgrade that changes the default. Confirm with
+    # `kubectl get svc -n monitoring` after install.
+    port: "8429"
+    storage:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+
+# VMSingle and VMCluster are mutually exclusive; single only on an 8 GB box.
+vmcluster:
+  enabled: false
+
+# VMAgent scrapes node-exporter, kube-state-metrics, Knative (EP-4), and any
+# annotated app endpoints, then writes samples into VMSingle.
+vmagent:
+  enabled: true
+
+# No alerting in v1.
+alertmanager:
+  enabled: false
+vmalert:
+  enabled: false
+
+# Host-level metrics (CPU, memory, disk, network) for nagare-01.
+prometheus-node-exporter:
+  enabled: true
+
+# Kubernetes object state (deployments, pods, nodes) as metrics.
+kube-state-metrics:
+  enabled: true
+
+# --- Grafana (the dashboard UI). Values pass through to the upstream grafana chart. ---
+grafana:
+  enabled: true
+  # CHANGE THIS before a real install, and do NOT commit a production password.
+  # In steady state, prefer admin.existingSecret pointing at a sops-managed Secret
+  # (EP-7). This placeholder is only for the private, Tailscale-only v1 Grafana.
+  adminPassword: "change-me-nagare"
+  service:
+    type: ClusterIP
+    port: 80
+  # The k8s-stack chart auto-provisions the in-cluster VictoriaMetrics
+  # (prometheus-type) datasource. We declare the other two here so they persist
+  # across chart upgrades. Service names verified with `helm template` against the
+  # pinned chart versions (release names `victoria-logs` and `victoria-traces`).
+  additionalDataSources:
+    - name: VictoriaLogs
+      type: victoriametrics-logs-datasource   # official Grafana-signed plugin
+      access: proxy
+      url: http://victoria-logs-victoria-logs-single-server.logging.svc:9428
+      jsonData: {}
+    - name: VictoriaTraces
+      type: jaeger
+      access: proxy
+      url: http://victoria-traces-vt-single-server.tracing.svc:10428/select/jaeger
+  # Install the VictoriaLogs datasource plugin so the type above is recognized.
+  # (Grafana needs internet access at boot to fetch it.)
+  plugins:
+    - victoriametrics-logs-datasource
+  # Load dashboard JSON committed under cluster/observability/grafana/dashboards/
+  # via the sidecar (ConfigMaps labelled grafana_dashboard). EP-7 backs these up.
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
