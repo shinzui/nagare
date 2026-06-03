@@ -1,0 +1,9 @@
+# Litestream config for the sqlite-litestream sample (EP-7 M2).
+# Litestream watches the SQLite db and continuously ships its WAL to GCS.
+# Auth uses Application Default Credentials = the node/VM service account, which
+# EP-2 grants roles/storage.objectAdmin on the backup bucket. Replace the bucket
+# in the replica URL if your backupBucket differs (pulumi stack output backupBucket).
+dbs:
+  - path: /data/app.db
+    replicas:
+      - url: gcs://tan-nb-exp-nagare-backups/litestream/app.db

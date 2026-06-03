@@ -14,3 +14,8 @@ result-*
 infra/pulumi/.pulumi-home/
 infra/pulumi/.pulumi-state/
 infra/pulumi/node_modules/
+
+# Never commit age private keys (EP-7)
+keys.txt
+*.agekey
+*.age.key

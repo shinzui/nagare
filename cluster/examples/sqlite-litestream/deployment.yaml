@@ -1,0 +1,52 @@
+# sqlite-litestream sample (EP-7 M2): an app writing to a SQLite file with a
+# Litestream sidecar continuously replicating it to GCS. For the demo the db is
+# on an emptyDir; a real app would use a PVC on the data disk (local-path).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlite-litestream
+  namespace: personal
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: sqlite-litestream }
+  template:
+    metadata:
+      labels: { app: sqlite-litestream }
+    spec:
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: litestream-config
+          configMap:
+            name: sqlite-litestream-config
+      containers:
+        # App: appends a timestamped row to /data/app.db every 10s.
+        - name: app
+          image: keinos/sqlite3:latest
+          command:
+            - sh
+            - -c
+            - |
+              sqlite3 /data/app.db "CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY, body TEXT);"
+              while true; do
+                sqlite3 /data/app.db "INSERT INTO notes(body) VALUES ('hello at '||datetime('now'));"
+                sleep 10
+              done
+          volumeMounts:
+            - { name: data, mountPath: /data }
+        # Sidecar: Litestream replicates /data/app.db to GCS via ADC.
+        - name: litestream
+          image: litestream/litestream:0.3.13
+          args: ["replicate", "-config", "/etc/litestream.yml"]
+          env:
+            # Pods cannot resolve metadata.google.internal (only the host's
+            # /etc/hosts has it; coredns forwards to public DNS -> NXDOMAIN), so
+            # the Google ADC library can't find the metadata server by name.
+            # Point it at the metadata IP directly so ADC uses the node's
+            # service account (EP-2 grants it roles/storage.objectAdmin).
+            - name: GCE_METADATA_HOST
+              value: "169.254.169.254"
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: litestream-config, mountPath: /etc/litestream.yml, subPath: litestream.yml }

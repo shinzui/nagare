@@ -1,0 +1,20 @@
+# .sops.yaml — sops policy for the Nagare repository (EP-7).
+# creation_rules are matched top-to-bottom; the first whose path_regex matches a
+# file decides how `sops -e` encrypts it. The age recipient below is the PUBLIC
+# half of the project key; the PRIVATE identity lives at
+# ~/.config/sops/age/keys.txt (and on the host at /var/lib/sops-nix/age-key.txt)
+# and is NEVER committed. Losing the private key means nothing here decrypts —
+# back it up offline (see docs/runbooks/disaster-recovery.md).
+creation_rules:
+  # Kubernetes Secret manifests committed to Git. Encrypt ONLY the data/stringData
+  # values so keys and metadata stay readable in diffs.
+  - path_regex: cluster/secrets/.*\.ya?ml$
+    encrypted_regex: "^(data|stringData)$"
+    age: >-
+      age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
+
+  # Host secrets consumed by sops-nix at NixOS activation (e.g. the Tailscale
+  # auth key, a backup token). Whole-file encryption is fine here.
+  - path_regex: nixos/secrets/.*\.ya?ml$
+    age: >-
+      age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
