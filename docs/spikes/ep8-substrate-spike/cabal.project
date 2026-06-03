@@ -19,3 +19,4 @@ write-ghc-environment-files: always
 packages:
   .
   /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle
+  /Users/shinzui/Keikaku/hub/haskell/dhall-haskell-project/dhall-haskell/dhall

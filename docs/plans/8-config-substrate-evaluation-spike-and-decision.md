@@ -52,9 +52,9 @@ This section must always reflect the actual current state of the work.
 - [x] M3.1 Investigate `hint` availability. _(2026-06-02: absent from mori corpus; resolved cleanly from Hackage as `hint-0.9.0.9`. Feasible but operationally heavy — see Surprises/Decision Log.)_
 - [x] M3.2 Implement Prototype 2 executable via `hint` (`runInterpreter`): load `Config`/`Spike.Types`/`Spike.Render` from source, render inside the interpreter, return the `ByteString`. _(2026-06-02)_
 - [x] M3.3 Validate M3: `cabal run proto2-interpreter` prints `PASS: output matches golden target`. _(2026-06-02: PASS; round-trip ~1.35s. Required four non-obvious workarounds — see Surprises.)_
-- [ ] M4.1 Implement the hello config file for Prototype 3 (`hello/hello.dhall`), importing a local Dhall prelude and expressing the `Deployment`-equivalent record.
-- [ ] M4.2 Implement Prototype 3 executable: use `Dhall.inputFile auto "hello/hello.dhall"` to decode into the `SpikeDhallDeployment` Haskell record; re-render to YAML; diff against golden.
-- [ ] M4.3 Validate M4: `cabal run proto3-dhall` prints `PASS: output matches golden target`.
+- [x] M4.1 Implement the hello config file for Prototype 3 (`hello/hello.dhall`). _(2026-06-02; M4.4 reuse demo applied — imports `prelude.dhall`'s `webService` preset and layers env via `//`.)_
+- [x] M4.2 Implement Prototype 3 executable: `Dhall.inputFile Dhall.auto` decodes `hello.dhall` into `SpikeDhallDeployment` (generic `FromDhall`); convert to `Deployment`; render. _(2026-06-02; numeric fields are `Natural`, narrowed to `Int`; `scaleMin`/`scaleMax` disambiguated with `OverloadedRecordDot`.)_
+- [x] M4.3 Validate M4: `cabal run proto3-dhall` prints `PASS: output matches golden target`. _(2026-06-02: PASS, including the composed reuse config; round-trip ~0.5s — the fastest of the three. Broken-name test (M4.5): `name : Text` accepts `Hello_Bad` silently at the substrate level.)_
 - [ ] M5.1 Fill in the scoring table (all five criteria, all three prototypes).
 - [ ] M5.2 Write the substrate decision in this plan's Decision Log.
 - [ ] M5.3 Write a note in the parent MasterPlan's Decision Log directing the implementer of EP-10 to the chosen substrate (implementer action: update `docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`).
@@ -103,6 +103,19 @@ implementation. Provide concise evidence.
   And underneath all of that, `hint` links the **GHC API** (`ghc` package) into the binary and
   requires GHC's `libdir` + package databases present at runtime. PASS achieved, but the closure
   and runtime requirements are the heaviest of the three. (2026-06-02)
+- **Dhall builds big but runs cleanest (Prototype 3).** Building `dhall-1.42.3` from the corpus
+  pulled a ~78-package closure (`megaparsec`, `prettyprinter`, `cborg`/`serialise`, and a full
+  network/TLS/crypto stack — `http-client`, `tls`, `crypton-*`, `network` — for Dhall's remote
+  imports). That is a one-time *build/link* cost folded into the `nagarectl` binary. At *run*
+  time, Prototype 3 needs nothing but the linked binary — no GHC, no package db, no language
+  runtime — and round-trips in ~0.5s, half the GHC-based prototypes' ~1.4s. Generic `FromDhall`
+  derivation worked once two shape facts were respected: Dhall numeric literals (`8080`, `0`) are
+  `Natural`, not `Int` (decode to `Natural`, narrow afterward); and the Haskell field/constructor
+  names must match the Dhall record fields / union alternatives exactly. Reuse (criterion c) is
+  first-class: a `webService` **function** in `prelude.dhall` plus the `//` override operator
+  composes a preset with per-app fields, type-checked by Dhall, no copy-paste. Like the eDSL
+  paths, a bad `name` passes through at the substrate level (`name : Text`), though Dhall could add
+  an assertion/refinement and real validation lands in the Haskell marshalling layer. (2026-06-02)
 
 
 ## Decision Log

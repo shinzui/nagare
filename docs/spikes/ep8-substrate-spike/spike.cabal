@@ -70,11 +70,18 @@ executable proto2-interpreter
 -- Prototype 3: Dhall (Dhall.inputFile auto). The `dhall` dependency and the
 -- corpus package path are added in M4.
 executable proto3-dhall
-  import:          common
-  main-is:         Proto3.hs
-  hs-source-dirs:  app
+  import:             common
+  main-is:            Proto3.hs
+  hs-source-dirs:     app
+  -- Disambiguate scaleMin/scaleMax (shared field names with Spike.Types.Scale)
+  -- via record-dot access on the decoded value.
+  default-extensions: OverloadedRecordDot
   build-depends:
     , base
     , bytestring
+    , containers
+    , dhall
+    , directory
+    , filepath
     , spike-lib
     , text
