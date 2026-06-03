@@ -1,10 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Hello app deployment descriptor — the config-as-program surface file an
--- app author ships. @nagarectl@/the loader compiles-and-runs it; every field is
--- built through EP-9's smart constructors, so a bad value is a compile-time or
--- load-time error, never a silent cluster rejection. Mirrors
--- cluster/examples/hello-knative-service/nagare/Config.hs.
+-- | Deployment descriptor for the hello-knative-service example — the
+-- config-as-program surface file an app author ships (EP-8's chosen substrate).
+--
+-- @nagarectl deploy@ compiles-and-runs this file with @runghc@; every field is
+-- built through EP-9's smart constructors, so an invalid value (a non-DNS name,
+-- @max < min@ scale, a malformed quantity, an env entry that is both a literal
+-- and a secret ref) is a compile-time or load-time error here — never a silent
+-- cluster rejection. This replaces the former @nagare.yaml@ in this directory.
 module Main (main) where
 
 import Data.Map.Strict qualified as Map

@@ -162,7 +162,7 @@ comparing do you promote (copy the scratch SQLite file to
 ### 8. Redeploy the apps (EP-6)
 
 ```bash
-nagarectl deploy        # run in each app repo containing a nagare.yaml
+nagarectl deploy        # run in each app repo containing a nagare/Config.hs
 ```
 
 Observe: the tool prints the app URL; `curl` returns the app's response.

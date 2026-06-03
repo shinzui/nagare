@@ -1,0 +1,21 @@
+-- cli/nagarectl/cabal.project
+--
+-- Tells cabal where to find the nagarectl executable package and its local
+-- sibling library nagare-dsl. The ../nagare-dsl entry makes the nagare-dsl
+-- Cabal package available without publishing it to Hackage.
+--
+-- `cradle` is not on Hackage, so its corpus source path is listed explicitly.
+-- All other dependencies (optparse-applicative, text, bytestring, time,
+-- temporary, lens, generic-lens, directory) resolve from Hackage.
+--
+-- `write-ghc-environment-files: always` materialises a `.ghc.environment.*`
+-- here so that, when `nagarectl` is run from this directory, the loader's
+-- `runghc` (EP-10's Nagare.Dsl.Load) can resolve the `nagare-dsl` package and
+-- its deps. To run `nagarectl deploy` from an app directory instead, point the
+-- `--ghc-env` flag (or NAGARE_GHC_ENVIRONMENT) at a built env file — see Main.hs.
+write-ghc-environment-files: always
+
+packages:
+  .
+  ../nagare-dsl
+  /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle

@@ -876,3 +876,19 @@ Serving API groups `serving.knative.dev/v1` (Service) and `serving.knative.dev/v
 `https://<name>.<namespace>.<baseDomain>` with `baseDomain` defaulting to `apps.example.com`
 (IP-4). The test artifact is `cluster/examples/hello-knative-service/` from EP-4
 (`docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md`).
+
+## Revision note (EP-12, 2026-06-03)
+
+EP-12 (`docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md`) performed the hard cutover
+described in MasterPlan 2 (`docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`)
+Integration Point 4. The modules `Nagare.Config` (YAML parser, `NagareConfig` record) and
+`Nagare.Render` (YAML renderer from `NagareConfig`) were never implemented and are now explicitly
+retired — they must not be created. The `cli/nagarectl/` package instead depends on `nagare-dsl` and
+calls `Nagare.Dsl.Load.loadDeployment` (EP-10) and `Nagare.Dsl.Render.renderService` /
+`renderDomainMapping` (EP-9). `Nagare.Image` and `Nagare.Deploy` were implemented to accept
+`Nagare.Dsl.Types.Deployment` rather than `NagareConfig`. The golden test in this plan's M1.5 (which
+tested `Nagare.Config`/`Nagare.Render`) was not created; the authoritative renderer golden tests live
+in `nagare-dsl-test` (EP-9). The example app's `nagare.yaml` was replaced by a typed
+`nagare/Config.hs`. All other EP-6 milestones (M2 live deploy, M3 secrets/custom-domain) are unchanged
+in intent — only the config-loading path differs: `nagarectl` compiles-and-runs the app's
+`nagare/Config.hs` to obtain a validated `Deployment` instead of parsing YAML.

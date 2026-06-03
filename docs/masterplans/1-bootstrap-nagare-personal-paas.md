@@ -218,34 +218,20 @@ prints a deployed app's address, and uses Knative DomainMapping for nicer public
 by EP-4's sample service). Plans must use these exact names so service URLs and ConfigMap references
 line up.
 
-**6. The `nagare.yaml` application contract (defined and consumed by EP-6; referenced by EP-4's sample
-app).** This is the schema every deployable app repository provides. It is the contract between an app
-author and `nagarectl`. The canonical shape is:
-
-```yaml
-name: notes                       # Knative Service name (DNS-safe)
-namespace: personal               # Kubernetes namespace (default: personal)
-image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes   # image repo, no tag; nagarectl appends a tag
-domain: notes.example.com         # optional: custom public domain via DomainMapping
-port: 8080                        # optional container port (default 8080)
-env:                              # optional environment variables
-  DATABASE_URL:
-    secretRef: notes-db-url       # value pulled from a Kubernetes Secret named notes-db-url
-  LOG_LEVEL:
-    value: info                   # literal value
-resources:
-  cpu: 250m
-  memory: 512Mi
-scale:
-  min: 0                          # scale-to-zero
-  max: 3
-```
-
-EP-6 owns the parser and the renderer that turns this into a `serving.knative.dev/v1` Service plus, if
-`domain` is set, a `serving.knative.dev/v1beta1` DomainMapping. `min`/`max` become the Knative
-autoscaling annotations `autoscaling.knative.dev/min-scale` and `.../max-scale`. EP-4 must ship an
-example app under `cluster/examples/hello-knative-service/` whose `nagare.yaml` conforms to this shape
-so EP-6 has a real artifact to test against.
+**6. The application deployment contract (originally the `nagare.yaml` schema owned by EP-6;
+superseded by the Haskell DSL initiative).** This integration point originally defined the
+`nagare.yaml` YAML schema that EP-6 parsed and rendered. That YAML contract has been fully replaced
+by the typed deployment DSL initiative tracked in
+`docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`. The new contract is a typed
+configuration file in the substrate chosen by EP-8 of that initiative — the native Haskell eDSL in
+the config-as-program model, an app-supplied `nagare/Config.hs` that imports `nagare-dsl` and binds a
+`Deployment` through maximal-safety smart constructors. The canonical deployment type is
+`Nagare.Dsl.Types.Deployment` defined in `cli/nagare-dsl/`. The cutover was performed by EP-12
+(`docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md`), which built `cli/nagarectl/` against
+`nagare-dsl` (the EP-6 `Nagare.Config` YAML parser and `Nagare.Render` YAML renderer were never
+created and are explicitly retired) and replaced the example app's `nagare.yaml` with the typed
+`nagare/Config.hs`. No `nagare.yaml` file exists anywhere in the repository after that cutover; the
+example app under `cluster/examples/hello-knative-service/` now carries the typed config.
 
 **7. Cluster access / kubeconfig (produced by EP-3; consumed by EP-4, EP-5, EP-6).** EP-3 configures
 k3s to write its kubeconfig at `/etc/rancher/k3s/k3s.yaml` with mode `0644`, and the operator reaches
@@ -547,3 +533,14 @@ image is `nagare-image-gnq7zw6pwd1a`. To resume, `gcloud compute instances start
 reboot caveats — re-apply the metadata route/MASQUERADE/coredns workarounds, or `pulumi up` to replace
 the VM onto the fixed image for a clean boot). For a full cost stop, `cd infra/pulumi && pulumi
 destroy`. See `docs/runbooks/disaster-recovery.md` → "Power management".
+
+## Revision note (EP-12, 2026-06-03)
+
+Integration Point 6 was amended to record the supersession of the `nagare.yaml` contract by the
+typed Haskell DSL initiative (`docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`,
+EP-12). The YAML schema block was replaced with a forward reference to the typed
+config-as-program substrate (`nagare/Config.hs` + `nagare-dsl`). No other integration points were
+affected. EP-6's registry row and Progress checkbox are left unchanged as historical record: EP-6 is
+the package that EP-12 modified, and EP-12 performed the cutover (building `cli/nagarectl/` against
+`nagare-dsl` and never creating EP-6's `Nagare.Config`/`Nagare.Render` modules). The example app at
+`cluster/examples/hello-knative-service/` now carries `nagare/Config.hs` instead of `nagare.yaml`.

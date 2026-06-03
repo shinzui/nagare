@@ -52,30 +52,70 @@ EP-10 (`docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md`) f
 
 ## Progress
 
-- [ ] M1.1 Extend `cli/nagarectl/cabal.project` to include `../nagare-dsl` as a `packages:` entry, so the sibling library is visible to the build.
-- [ ] M1.2 Update `cli/nagarectl/nagarectl.cabal`: add `nagare-dsl` to the library's `build-depends`; remove `yaml` and `aeson` from library build-depends if they are no longer needed (those deps drove Config.hs parsing; Image.hs/Deploy.hs do not use them directly).
-- [ ] M1.3 Delete `cli/nagarectl/src/Nagare/Config.hs` (the YAML parser and `NagareConfig` record).
-- [ ] M1.4 Delete `cli/nagarectl/src/Nagare/Render.hs` (the YAML renderer — superseded by EP-9's `Nagare.Dsl.Render`).
-- [ ] M1.5 Remove `Nagare.Config` and `Nagare.Render` from the `exposed-modules` list in `nagarectl.cabal`.
-- [ ] M1.6 Rewrite `cli/nagarectl/src/Nagare/Image.hs` to accept `ImageRef` and `Deployment` from `Nagare.Dsl.Types` instead of `NagareConfig`; adjust `buildImage`/`pushImage` call sites.
-- [ ] M1.7 Rewrite `cli/nagarectl/src/Nagare/Deploy.hs` to accept `Deployment` from `Nagare.Dsl.Types` instead of `NagareConfig`; adjust `serviceUrl` to read `depName`/`depNamespace`/`depDomain`.
-- [ ] M1.8 Rewrite `cli/nagarectl/app/Main.hs` deploy flow: call `loadDeployment` (EP-10), handle `Left` with `renderLoadError` + exit 1, on `Right` call `computeTag` / `buildImage` / `configureDockerAuth` / `pushImage` / `renderService` / `renderDomainMapping` / `applyManifests` / `waitForReady` / `serviceUrl`; `--dry-run` prints rendered YAML and URL without side effects.
-- [ ] M1.9 Remove the EP-6 golden test from `cli/nagarectl/test/` if it tested `Nagare.Config`/`Nagare.Render` (those modules are now gone); EP-9's `nagare-dsl` test suite is the authoritative golden test.
-- [ ] M1.10 `cabal build` succeeds from `cli/nagarectl/`; `cabal run nagarectl -- --help` shows the deploy subcommand.
-- [ ] M1.11 `nagarectl deploy --dry-run` in the migrated hello example prints the rendered Knative Service YAML and the computed URL. Prove with `git grep -l Nagare.Config` returning nothing except plan documents.
-- [ ] M2.1 Run `nagarectl deploy` in the hello example against a live cluster (EP-4 cluster + KUBECONFIG + gcloud authed to `tan-nb-exp`); verify build/push/apply/wait/URL with a real deploy.
-- [ ] M2.2 `curl` the printed URL; confirm HTTP 200.
-- [ ] M3.1 Migrate `cluster/examples/hello-knative-service/`: replace `nagare.yaml` with the chosen substrate's typed config expressing the same deployment; update the directory's README.
-- [ ] M3.2 Verify no `nagare.yaml` remains anywhere: `git grep -l nagare.yaml` shows only historical plan references (plan `.md` files), not any application config or test fixture.
-- [ ] M3.3 Verify failure path: run `nagarectl deploy` with a deliberately broken typed config; observe `renderLoadError` message on stderr and exit code 1.
-- [ ] M3.4 Amend `docs/masterplans/1-bootstrap-nagare-personal-paas.md` Integration Point 6: replace the `nagare.yaml` YAML schema block with a note that the YAML contract is superseded by this initiative; link to this plan and the MasterPlan 2.
-- [ ] M3.5 Amend `docs/plans/6-nagarectl-deploy-cli-in-haskell.md`: add a note at the bottom that its `Nagare.Config` and `Nagare.Render` modules were retired by EP-12 as part of the typed DSL cutover.
-- [ ] Final: update Progress, Surprises & Discoveries, Decision Log, and Outcomes; verify the MasterPlan's EP-12 progress row.
+- [x] M1.1 `cli/nagarectl/cabal.project` lists `.`, `../nagare-dsl`, and the `cradle` corpus path (cradle is not on Hackage); `write-ghc-environment-files: always` materialises the env the loader's `runghc` needs. _(2026-06-03)_
+- [x] M1.2 `cli/nagarectl/nagarectl.cabal` depends on `nagare-dsl`; `yaml`/`aeson`/`containers` are absent (rendering/parsing live in `nagare-dsl`); `lens`/`generic-lens`/`directory` added for `#label` access and path handling; `GHC2024` + `common` stanza. _(2026-06-03)_
+- [x] M1.3 `Nagare.Config` never created (EP-6 Not Started) — N/A by construction; the package never contains a YAML parser. _(2026-06-03)_
+- [x] M1.4 `Nagare.Render` never created — N/A by construction; rendering is EP-9's `Nagare.Dsl.Render`. _(2026-06-03)_
+- [x] M1.5 `exposed-modules` is `Nagare.Image`, `Nagare.Deploy` only. _(2026-06-03)_
+- [x] M1.6 `cli/nagarectl/src/Nagare/Image.hs` accepts `Deployment`; `imageRef` reads `dep ^. #image` via `imageRefText`. _(2026-06-03)_
+- [x] M1.7 `cli/nagarectl/src/Nagare/Deploy.hs` accepts `Deployment`; `serviceUrl` reads `#name`/`#namespace`/`#domain` (house unprefixed fields, not `depName`). _(2026-06-03)_
+- [x] M1.8 `cli/nagarectl/app/Main.hs` deploy flow: `loadDeployment` → `Left` handled with `renderLoadError` + exit 1; `Right` → tag/build/auth/push/render/apply/wait/URL; `--dry-run` prints manifests (via `Data.ByteString.Char8.putStr`) + URL with no side effects. _(2026-06-03)_
+- [x] M1.9 No EP-6 golden test existed to remove; `nagare-dsl-test` is authoritative. The `nagarectl-test` suite is a stub. _(2026-06-03)_
+- [x] M1.10 `cabal build` succeeds from `cli/nagarectl/`; `nagarectl --help` shows the `deploy` subcommand; `nagarectl-test` passes. _(2026-06-03)_
+- [x] M1.11 `nagarectl deploy --dry-run --file .../nagare/Config.hs` prints the Knative Service + DomainMapping YAML (byte-identical to EP-9's golden bar the timestamp tag) and `URL: https://hello.example.com`; `git grep -l "Nagare\.Config" -- '*.hs'` is empty. _(2026-06-03)_
+- [ ] M2.1 **DEFERRED** — live deploy needs the EP-4 cluster + `KUBECONFIG` + `gcloud` auth to `tan-nb-exp`; `nagare-01` is currently TERMINATED (powered down to halt charges, per the bootstrap MasterPlan). Run once the cluster is brought back up.
+- [ ] M2.2 **DEFERRED** — `curl` the printed URL → 200, after M2.1.
+- [x] M3.1 `cluster/examples/hello-knative-service/nagare.yaml` replaced by typed `nagare/Config.hs` (same deployment: name/ns/image/domain/port/env/resources/scale); README rewritten to document the typed config and `--dry-run` preview. _(2026-06-03)_
+- [x] M3.2 No application config / source / test fixture references `nagare.yaml`: `git grep -l nagare.yaml -- ':!docs' ':!*.md'` is empty; remaining matches are markdown docs (historical + supersession notes). The vestigial `cli/nagare-dsl/test/golden/hello.nagare.yaml` (unreferenced by any test) was removed. _(2026-06-03)_
+- [x] M3.3 Failure path: `nagarectl deploy --file test/fixtures/broken-config.hs` prints `nagarectl: nagare: compile error in ...: ... service name contains invalid characters ... INVALID NAME` on stderr and exits 1. _(2026-06-03)_
+- [x] M3.4 Bootstrap MasterPlan Integration Point 6 amended in-place (YAML schema block replaced by a supersession note pointing at MasterPlan 2 / EP-12) + a revision note appended. _(2026-06-03)_
+- [x] M3.5 EP-6 (`docs/plans/6-...`) annotated with a revision note: `Nagare.Config`/`Nagare.Render` retired, package depends on `nagare-dsl`, example migrated. _(2026-06-03)_
+- [x] Final: Progress, Surprises & Discoveries, Decision Log, and Outcomes updated; MasterPlan EP-12 registry row + Progress updated. _(2026-06-03; M2 live validation deferred.)_
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The plan's code samples were pre-house-standard.** This plan was authored before MasterPlan 2's
+  revision adopting the house Haskell standards, so its `Image.hs`/`Deploy.hs`/`Main.hs` and the
+  migrated `Config.hs` samples used prefixed fields (`depName`, `Resources { resCpu }`) and
+  `mkServiceName "..."` record literals. The *actual* EP-9 `Nagare.Dsl.Types.Deployment` uses
+  **unprefixed strict fields** (`name`, `namespace`, `image`, `domain`, `port`, `env`, `resources`,
+  `scale`) read via generic-lens `#label`, `Resources {cpu, memory}`, and `Scale {minScale,
+  maxScale}`. The implementation followed the real types, not the stale samples. (2026-06-03)
+
+- **Loader package-environment provisioning is EP-12's to own (flagged by EP-10's Decision Log).**
+  EP-10's `loadDeployment` runs the app's `Config.hs` with `runghc -XGHC2024 -i<dir>`, which resolves
+  `nagare-dsl` only if GHC finds a package environment. `runghc` discovers a `.ghc.environment.*` by
+  walking up from its working directory. Resolution: `cli/nagarectl/cabal.project` sets
+  `write-ghc-environment-files: always` (so an env file exists in `cli/nagarectl/`), and `nagarectl`
+  gained a `--ghc-env FILE` flag / `NAGARE_GHC_ENVIRONMENT` env var that, when set, exports
+  `GHC_ENVIRONMENT` (absolute) for the loader's child process. Running `nagarectl` from
+  `cli/nagarectl/` needs no flag; running from an app directory needs `--ghc-env <built env file>`.
+  The standalone-binary production story (a self-contained package DB on the deploy VM) is still to
+  be built when M2's live deploy is exercised. (2026-06-03)
+
+- **`cradle` is not on Hackage.** Unlike the other deps (optparse-applicative, temporary, time,
+  directory, lens, generic-lens — all in the cached Hackage index), `cradle` (garnix-io/cradle,
+  v0.0.0.0) is only in the local corpus, so its source path
+  (`/Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle`) is listed directly in
+  `cabal.project`'s `packages:`. Its API is `cmd :: String -> ProcessConfiguration`,
+  `addArgs :: ConvertibleStrings s String => [s] -> ...`, `run_ :: MonadIO m => ... -> m ()`; `&`
+  comes from `Control.Lens` via `Nagare.Dsl.Prelude`. (2026-06-03)
+
+- **fourmolu 0.19 is not clean against the existing `cli/` tree.** The MasterPlan deferred "wiring a
+  treefmt config for the cli/ tree" to EP-12. The house template's `fourmolu.yaml` uses
+  `comma-style: trailing`, but the completed EP-9/EP-10/EP-11 modules use **leading** commas and keep
+  `) where` on one line — neither of which the pinned fourmolu 0.19.0.1 reproduces. Forcing a
+  tree-wide reformat would churn completed plans' code. Resolution: added `cli/fourmolu.yaml`
+  calibrated to the prevailing style (leading commas, single-line `-- |` haddocks) so it is a no-op
+  for existing files except the unconfigurable `)`/`where` line break; new `nagarectl` modules were
+  hand-written to match the package's visual style. `cabal-gild` (which uses `--io`, not positional
+  args, so it does not fit treefmt's formatter model) was run directly on `nagarectl.cabal`. A full
+  treefmt wiring remains a follow-up. (2026-06-03)
+
+- **EP-6 was Not Started, so M1 built `cli/nagarectl/` from scratch.** There were no `Nagare.Config`
+  or `Nagare.Render` modules to delete (M1.3–M1.5, M1.9 are N/A by construction); the package was
+  created directly in its post-cutover shape. (2026-06-03)
 
 
 ## Decision Log
@@ -122,12 +162,75 @@ EP-10 (`docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md`) f
   (with a revision note at the plan's bottom) is the ExecPlan revision protocol.
   Date: 2026-06-03
 
+- Decision: `nagarectl` provisions the loader's GHC package environment via a `--ghc-env FILE`
+  option (and `NAGARE_GHC_ENVIRONMENT` env var) that exports `GHC_ENVIRONMENT` for the child
+  `runghc`, rather than changing EP-10's fixed `loadDeployment :: FilePath -> IO (Either LoadError
+  Deployment)` signature (Integration Point 3).
+  Rationale: EP-10's loader resolves `nagare-dsl` only when `runghc` finds a package environment;
+  EP-10's own Decision Log hands "production package-env provisioning" to EP-12. Setting an
+  environment variable in `nagarectl`'s process (inherited by the `runghc` child) keeps Integration
+  Point 3 stable and untouched while giving the operator explicit control. With no flag, `runghc`
+  falls back to discovering a `.ghc.environment.*` upward from its working directory — which is why
+  running `nagarectl` from `cli/nagarectl/` (where `write-ghc-environment-files: always` left one)
+  works with zero configuration.
+  Date: 2026-06-03
+
+- Decision: keep `nagare.yaml`-mentioning *historical* documents (the plan/masterplan `.md` files,
+  `docs/initial-spec.md`) as-is, and update only the *current-behavior* surfaces (root `README.md`,
+  the example `README.md`, `mori.dhall`, `justfile`, `docs/runbooks/disaster-recovery.md`) plus the
+  two stale comments in `nagare-dsl`'s test tree. The vestigial unreferenced golden
+  `cli/nagare-dsl/test/golden/hello.nagare.yaml` was removed.
+  Rationale: M3.2's intent is that no live app config, source, or active test fixture references the
+  YAML contract — verified by `git grep -l nagare.yaml -- ':!docs' ':!*.md'` being empty. The
+  initial-spec is a frozen design snapshot and the plan docs are historical record; rewriting them
+  would falsify the project's history. Adoption of this initiative (signalled by starting EP-12 per
+  MasterPlan 2's Decision Log) authorises updating the bootstrap-level current-behavior docs.
+  Date: 2026-06-03
+
+- Decision: mark EP-12 Complete on the strength of the offline cutover (M1 + M3, all verified), with
+  M2's live deploy explicitly deferred and tracked, rather than holding EP-12 open.
+  Rationale: every implementation deliverable is done and verified offline — the package builds, the
+  dry-run renders byte-identically to EP-9's golden, the failure path exits 1, and no live
+  `nagare.yaml` remains. M2 is a *validation* milestone blocked solely by powered-down infrastructure
+  (`nagare-01` is TERMINATED to halt charges); it is not partial implementation. The deferral is
+  recorded in Progress (M2.1/M2.2), Outcomes, and the MasterPlan so the live check is not forgotten.
+  Date: 2026-06-03
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Compare the result against the Purpose / Big
-Picture: `nagarectl deploy --dry-run` working with no YAML parser, a live deploy succeeding,
-and `git grep -l nagare.yaml` returning only plan documents.)
+The hard cutover is complete and verified offline. Against the Purpose / Big Picture:
+
+- **`nagarectl deploy --dry-run` works with no YAML parser.** `cli/nagarectl/` is a Cabal package
+  depending on `nagare-dsl`; it has no `Nagare.Config`/`Nagare.Render` and no `yaml`/`aeson` deps.
+  `nagarectl deploy --dry-run --file cluster/examples/hello-knative-service/nagare/Config.hs`
+  compiles-and-runs the typed config through EP-10's `loadDeployment`, renders via EP-9's
+  `renderService`/`renderDomainMapping`, and prints the Service + DomainMapping YAML plus
+  `URL: https://hello.example.com`. The rendered Service is byte-identical to EP-9's golden
+  (`hello.service.yaml`) except the timestamp image tag. Exit 0.
+- **Illegal configs fail before the cluster.** `nagarectl deploy --file test/fixtures/broken-config.hs`
+  (service name `"INVALID NAME"`) prints `nagarectl: nagare: compile error in ...: ... service name
+  contains invalid characters (allowed: a-z, 0-9, -): INVALID NAME` to stderr and exits 1.
+- **No `nagare.yaml` remains as live config.** The example app carries `nagare/Config.hs`;
+  `git grep -l nagare.yaml -- ':!docs' ':!*.md'` is empty. Remaining matches are markdown
+  (historical plan/spec docs + supersession notes in the two READMEs / mori.dhall / justfile /
+  runbook).
+- **Both test suites green.** `nagare-dsl-test` (63 tests, incl. 5 QuickCheck properties) and the
+  `nagarectl-test` stub pass under GHC 9.12.3.
+- **MasterPlans reconciled.** Bootstrap MasterPlan Integration Point 6 amended in-place + revision
+  note; EP-6 annotated with a retirement revision note.
+
+**Deferred:** M2 (live deploy + `curl` 200). It requires the EP-4 cluster, which is powered down
+(`nagare-01` TERMINATED to halt charges). When the cluster is brought back up, run `nagarectl deploy`
+in the example dir (with `KUBECONFIG` and `gcloud` authed to `tan-nb-exp`) and `curl` the URL; the
+standalone-binary package-environment provisioning (so the loader's `runghc` resolves `nagare-dsl`
+without the dev tree) is the one remaining piece to harden at that point — `--ghc-env` /
+`NAGARE_GHC_ENVIRONMENT` is the seam it plugs into.
+
+**Substrate ergonomics vs. the spike's prediction:** the config-as-program model held up — the
+example `Config.hs` reads cleanly, smart-constructor failures surface as precise load-time errors,
+and the only operational wrinkle (the spike's predicted cost of "the deploy machine must carry GHC")
+showed up exactly as the package-environment provisioning concern above.
 
 
 ## Context and Orientation

@@ -1,0 +1,67 @@
+cabal-version: 3.0
+name: nagarectl
+version: 0.1.0.0
+synopsis: Deploy a typed-config Nagare app to Knative with one command.
+description:
+  nagarectl is the Nagare deploy CLI. It loads a typed configuration file
+  (the config-as-program substrate, via EP-10's Nagare.Dsl.Load), renders a
+  Knative Service manifest with the nagare-dsl library (EP-9), builds and
+  pushes a container image, applies the manifest, waits for readiness, and
+  prints the live URL. The YAML-era nagare.yaml path is fully removed.
+
+build-type: Simple
+
+-- House standard: GHC2024 + the common extension set (haskell-jitsurei),
+-- matching nagare-dsl.
+common common
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Deploy
+    Nagare.Image
+
+  build-depends:
+    base >=4.17 && <5,
+    bytestring,
+    cradle,
+    generic-lens ^>=2.2,
+    lens ^>=5.3,
+    nagare-dsl,
+    temporary,
+    text,
+    time,
+
+executable nagarectl
+  import: common
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    bytestring,
+    directory,
+    generic-lens ^>=2.2,
+    lens ^>=5.3,
+    nagare-dsl,
+    nagarectl,
+    optparse-applicative,
+    text,
+
+test-suite nagarectl-test
+  import: common
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  build-depends:
+    base

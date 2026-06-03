@@ -81,8 +81,9 @@ observability:
     cluster/observability/install.sh
 
 # EP-4 ships the sample app; this applies it as a smoke test. Apply the
-# Kubernetes manifests explicitly (nagare.yaml is the app contract, not a k8s
-# object, so it must not be passed to kubectl).
+# Kubernetes manifests explicitly (the app contract is the typed
+# nagare/Config.hs, not a k8s object, so it must not be passed to kubectl;
+# `nagarectl deploy` is the path that renders it).
 deploy-hello:
     kubectl apply -f cluster/examples/hello-knative-service/service.yaml
     kubectl apply -f cluster/examples/hello-knative-service/domainmapping.yaml

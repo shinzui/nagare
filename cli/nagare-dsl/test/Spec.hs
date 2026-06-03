@@ -220,7 +220,7 @@ goldenTests =
   ]
 
 -- | The canonical hello deployment, assembled entirely through smart
--- constructors. Mirrors cluster/examples/hello-knative-service/nagare.yaml.
+-- constructors. Mirrors cluster/examples/hello-knative-service/nagare/Config.hs.
 helloDep :: Deployment
 helloDep =
   Deployment

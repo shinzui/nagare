@@ -107,26 +107,50 @@ Data disk: 100–200GB balanced persistent disk
 
 ## Deploying an app
 
-Each app repo provides a `Dockerfile` and a `nagare.yaml`:
+Each app repo provides a `Dockerfile` and a typed, compile-checked
+`nagare/Config.hs` (the config-as-program substrate — no YAML). It imports the
+`nagare-dsl` library and binds a top-level `Deployment` value through
+maximal-safety smart constructors, so a non-DNS name, a `max < min` scale, a
+malformed CPU/memory quantity, or an env var that is both a literal and a secret
+reference is a compile-time error rather than a silent cluster rejection:
 
-```yaml
-name: notes
-namespace: personal
-image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes
-domain: notes.example.com
+```haskell
+module Main (main) where
 
-env:
-  DATABASE_URL:
-    secretRef: notes-db-url
+import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Config (emitDeployment)
+import Nagare.Dsl.Types
 
-resources:
-  cpu: 250m
-  memory: 512Mi
+deployment :: Either String Deployment
+deployment = do
+  name' <- mapLeft show (mkServiceName "notes")
+  ns' <- mapLeft show (mkNamespace "personal")
+  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+  dom' <- mapLeft show (mkDomain "notes.example.com")
+  port' <- mapLeft show (mkPort 8080)
+  dbUrl <- mapLeft show (mkEnvName "DATABASE_URL")
+  secret <- mapLeft show (mkSecretName "notes-db-url")
+  sc <- mapLeft show (mkScale 0 3)
+  cpuQ <- mapLeft show (mkQuantity "250m")
+  memQ <- mapLeft show (mkQuantity "512Mi")
+  Right
+    Deployment
+      { name = name', namespace = ns', image = img', domain = Just dom'
+      , port = port', env = Map.singleton dbUrl (EnvSecretRef secret)
+      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
+      , scale = Just sc
+      }
+  where
+    mapLeft f = either (Left . f) Right
 
-scale:
-  min: 0
-  max: 3
+main :: IO ()
+main = either (ioError . userError) emitDeployment deployment
 ```
+
+`nagarectl deploy` compiles-and-runs that file to obtain the validated
+`Deployment`, renders the Knative manifests, and applies them. (The former
+untyped `nagare.yaml` contract was replaced by this typed DSL; see
+`docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`.)
 
 Apps get automatic internal domains (`service.namespace.apps.example.com`) via
 wildcard DNS, and optional public domains (`notes.example.com`) via Knative
@@ -162,7 +186,7 @@ nagare/
 The **MVP** is done when Pulumi provisions the VM, NixOS boots with k3s, Knative
 + Kourier are running, DNS and TLS work, a hello-world service deploys, the
 Victoria stack collects metrics/logs/traces visible in Grafana, `nagarectl` can
-deploy an app from `nagare.yaml`, and important data is backed up.
+deploy an app from its typed `nagare/Config.hs`, and important data is backed up.
 
 ## Philosophy
 

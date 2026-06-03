@@ -155,7 +155,7 @@ shape the decomposition principles say to merge.
 | 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Complete |
 | 10 | Config surface and loading for the chosen substrate | docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md | EP-8, EP-9 | None | Complete |
 | 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Complete |
-| 12 | nagarectl integration and full YAML cutover | docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md | EP-9, EP-10 | EP-11, EP-6 | Not Started |
+| 12 | nagarectl integration and full YAML cutover | docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md | EP-9, EP-10 | EP-11, EP-6 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 other rows by their `EP-<#>` prefix, where the number is the child plan's `docs/plans/<#>` file
@@ -373,9 +373,13 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   _(2026-06-03: `Nagare.Dsl.Presets` (webService + production/development overlays + helpers); two
   apps under `cluster/examples/preset-app-{a,b}/` loaded end-to-end, goldens diff only in
   name/image/env; 63 tests green incl. 5 QuickCheck properties.)_
-- [ ] EP-12: `nagarectl deploy` deploys from the typed config end-to-end and prints a live URL; the
-  `nagare.yaml` parsing path is deleted, EP-6's `Nagare.Config`/`Nagare.Render` are retired, and the
-  in-repo example app carries the typed config instead of YAML.
+- [x] EP-12: `nagarectl deploy` deploys from the typed config; the `nagare.yaml` parsing path is
+  gone, EP-6's `Nagare.Config`/`Nagare.Render` are retired (never created — EP-6 was Not Started),
+  and the example app carries `nagare/Config.hs` instead of YAML. _(2026-06-03: `cli/nagarectl/`
+  built against `nagare-dsl`; `deploy --dry-run` renders byte-identically to EP-9's golden and prints
+  the URL; failure path exits 1; no live `nagare.yaml` remains; bootstrap MP IP6 + EP-6 amended.
+  **M2 live deploy + `curl` 200 deferred** — `nagare-01` is powered down to halt charges; run once
+  the cluster is back up.)_
 
 
 ## Surprises & Discoveries
@@ -527,11 +531,39 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Compare the delivered system against the Vision &
-Scope: a typed config in which the documented classes of misconfiguration are unrepresentable,
-demonstrable reuse across two apps, and `nagarectl deploy` producing a live URL from the typed
-config with `nagare.yaml` fully removed. Record which substrate won and whether its real-world
-ergonomics matched the spike's prediction.)
+All five child plans are Complete. The initiative delivered the Vision & Scope, with one validation
+milestone (EP-12 M2, the live deploy) deferred behind powered-down infrastructure.
+
+**Against the Vision & Scope:**
+
+- **Typed config; illegal states unrepresentable.** An app is described by a typed
+  `nagare/Config.hs` importing `nagare-dsl` and binding a `Deployment` (EP-9). The documented illegal
+  configurations are construction or compile errors: a non-DNS `ServiceName`, an `EnvVar` that is
+  both literal and secret (a sum type, so unrepresentable), a `Scale` with `max < min`, a malformed
+  CPU/memory `Quantity`, an out-of-range `Port`. EP-9's negative type tests prove the worst of these
+  fail to compile; the rest fail in their smart constructors with precise messages.
+- **Demonstrable reuse across two apps.** EP-11's `Nagare.Dsl.Presets` (a `webService` preset +
+  `production`/`development` overlays) is shared by `cluster/examples/preset-app-{a,b}/`, whose
+  rendered goldens differ only in name/image/env; 5 QuickCheck properties show composing valid
+  presets yields a valid `Deployment`.
+- **`nagarectl deploy` from the typed config, no YAML.** EP-12 built `cli/nagarectl/` against
+  `nagare-dsl`; `deploy --dry-run` loads `Config.hs` (EP-10's `loadDeployment`, compile-and-run),
+  renders byte-identically to EP-9's golden, and prints the URL. `nagare.yaml` is gone from all live
+  config/source/fixtures. The live-URL leg (M2) is deferred pending cluster bring-up.
+
+**Which substrate won, and did ergonomics match the spike?** The **native Haskell eDSL in the
+config-as-program model** (EP-8 Prototype 1, scored 20/25, chosen by the user over Dhall's 19/25 on
+the binding maximal-type-safety priority). Real-world ergonomics matched the spike's prediction: the
+config reads cleanly and constructor failures surface as precise load-time errors. The spike's one
+predicted cost — "the deploy machine must carry GHC" — materialised exactly as EP-12's loader
+package-environment provisioning concern (the loader's `runghc` must resolve `nagare-dsl`), handled
+in the dev tree via `write-ghc-environment-files` + a `--ghc-env`/`NAGARE_GHC_ENVIRONMENT` seam, with
+the standalone-binary package-DB story left to harden alongside the deferred live deploy.
+
+**Toolchain/standards.** GHC 9.12 is pinned via the flake; both `cli/` packages use `GHC2024` + the
+house `common` stanza, `Nagare.Dsl.Prelude`, strict unprefixed `#label` fields, and a shared
+`cli/fourmolu.yaml`. (Caveat recorded in EP-12: the pinned fourmolu 0.19 is not clean against the
+pre-existing leading-comma style, so a full treefmt gate remains a follow-up.)
 
 
 ## Revision Notes

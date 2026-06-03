@@ -55,7 +55,7 @@ in  Schema.Project::{
         , language = Schema.Language.Haskell
         , path = Some "cli/nagarectl"
         , description = Some
-            "The deploy CLI. `nagarectl deploy` reads a project's nagare.yaml, builds and pushes the image, renders and applies a Knative Service, wires secrets and domains, waits for readiness, and prints the URL — hiding Kubernetes from the developer."
+            "The deploy CLI. `nagarectl deploy` loads a project's typed config-as-program (nagare/Config.hs, via nagare-dsl), builds and pushes the image, renders and applies a Knative Service, wires secrets and domains, waits for readiness, and prints the URL — hiding Kubernetes from the developer."
         }
       ]
     }
