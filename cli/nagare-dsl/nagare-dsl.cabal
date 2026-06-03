@@ -1,0 +1,56 @@
+cabal-version:   3.0
+name:            nagare-dsl
+version:         0.1.0.0
+synopsis:        Typed deployment model and Knative renderer for Nagare.
+description:
+  A library of maximally-safe Haskell types for describing Nagare
+  deployments, together with a renderer that produces Knative Service and
+  DomainMapping YAML. Illegal configurations (bad DNS names, value+secretRef
+  env vars, max<min scale) are made unrepresentable by the type system.
+
+build-type:      Simple
+
+-- House standard: GHC2024 + the common extension set (haskell-jitsurei).
+common common
+  default-language:   GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    MultilineStrings
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:        -Wall -Wno-unused-imports
+
+library
+  import:          common
+  hs-source-dirs:  src
+  exposed-modules:
+    Nagare.Dsl.Prelude
+    Nagare.Dsl.Render
+    Nagare.Dsl.Types
+
+  build-depends:
+    , aeson
+    , base          >=4.17 && <5
+    , bytestring
+    , containers
+    , generic-lens  ^>=2.2
+    , lens          ^>=5.3
+    , text
+    , yaml
+
+test-suite nagare-dsl-test
+  import:          common
+  type:            exitcode-stdio-1.0
+  main-is:         Spec.hs
+  hs-source-dirs:  test
+  build-depends:
+    , base
+    , bytestring
+    , containers
+    , nagare-dsl
+    , tasty         >=1.4
+    , tasty-golden  >=2.3
+    , tasty-hunit   >=0.10
+    , text

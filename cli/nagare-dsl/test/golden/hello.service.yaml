@@ -1,0 +1,23 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: '0'
+        autoscaling.knative.dev/max-scale: '3'
+    spec:
+      containers:
+      - image: gcr.io/knative-samples/helloworld-go:20260602-120000
+        ports:
+        - containerPort: 8080
+        env:
+        - name: TARGET
+          value: Nagare
+        resources:
+          requests:
+            cpu: 250m
+            memory: 128Mi

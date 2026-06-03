@@ -152,7 +152,7 @@ shape the decomposition principles say to merge.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 8 | Config substrate evaluation spike and decision | docs/plans/8-config-substrate-evaluation-spike-and-decision.md | None | EP-6 | Complete |
-| 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Not Started |
+| 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Complete |
 | 10 | Config surface and loading for the chosen substrate | docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md | EP-8, EP-9 | None | Not Started |
 | 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Not Started |
 | 12 | nagarectl integration and full YAML cutover | docs/plans/12-nagarectl-integration-and-full-yaml-cutover.md | EP-9, EP-10 | EP-11, EP-6 | Not Started |
@@ -350,17 +350,19 @@ updates Integration Point 1 and the consuming plans accordingly.
 
 Milestone-level progress across all child plans. Updated as each child plan's milestones complete.
 
-- [ ] Toolchain: GHC 9.12 pinned in the repository Nix flake (EP-8 M0); `nagare-dsl` uses
-  `GHC2024` + the house `common` stanza and a `Nagare.Dsl.Prelude` custom prelude; `fourmolu` +
-  `cabal-gild` formatting wired via `treefmt`. (Integration Point 6.)
+- [x] Toolchain: GHC 9.12 pinned in the repository Nix flake (EP-8 M0); `nagare-dsl` uses
+  `GHC2024` + the house `common` stanza and a `Nagare.Dsl.Prelude` custom prelude. (Integration
+  Point 6.) _(2026-06-03. `fourmolu` + `cabal-gild` are provided by the dev shell; wiring a
+  `treefmt` config for the `cli/` tree is deferred to EP-12 when `nagarectl` joins.)_
 - [x] EP-8: Three runnable prototypes (config-as-program, interpreted eDSL, Dhall) each render the
   shared hello example to Knative YAML byte-identical to EP-6's target; scored on the five criteria;
   a substrate decision is recorded in this MasterPlan's and EP-8's Decision Log. _(2026-06-03:
   Complete. Winner: native Haskell eDSL, config-as-program. GHC 9.12 pinned (M0).)_
-- [ ] EP-9: `cli/nagare-dsl/` library exists with the `Deployment` type and maximal-safety
+- [x] EP-9: `cli/nagare-dsl/` library exists with the `Deployment` type and maximal-safety
   constructors; a golden test renders the canonical example byte-for-byte to Knative YAML; negative
   type tests prove illegal configs (bad name, value+secretRef, max<min) fail to compile or
-  construct.
+  construct. _(2026-06-03: 45 tests green; unprefixed strict fields; renderer uses `encodePretty`
+  + key comparator to match EP-6 byte-for-byte.)_
 - [ ] EP-10: `loadDeployment :: FilePath -> IO (Either LoadError Deployment)` loads a real config
   file in the chosen substrate into a `Deployment`, with clear `LoadError`s for each failure mode.
 - [ ] EP-11: a `nagare-presets` library plus two example apps that share one preset and one

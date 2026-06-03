@@ -1,0 +1,14 @@
+-- cli/nagare-dsl/cabal.project
+--
+-- nagare-dsl is independently buildable/testable without EP-6's nagarectl
+-- package existing. Dependencies (yaml, aeson, generic-lens, lens, tasty, ...)
+-- resolve from Hackage by default.
+--
+-- If Hackage is unavailable, add corpus source paths for the tasty family:
+--   packages:
+--     .
+--     /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/core
+--     /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/hunit
+--     /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty-golden
+-- and record which path was used in Surprises & Discoveries.
+packages: .

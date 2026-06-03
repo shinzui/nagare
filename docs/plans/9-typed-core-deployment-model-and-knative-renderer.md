@@ -40,24 +40,50 @@ This plan owns Integration Points 1, 2, and 5 of the MasterPlan at
 
 ## Progress
 
-- [ ] M1.1 Decide cabal.project layout; create `cli/nagare-dsl/nagare-dsl.cabal` and `cli/nagare-dsl/cabal.project`.
-- [ ] M1.2 Create stub modules: `src/Nagare/Dsl/Types.hs`, `src/Nagare/Dsl/Render.hs`.
-- [ ] M1.2b Create `src/Nagare/Dsl/Prelude.hs` re-exporting the common imports (Generic, Text, aeson classes, Control.Lens).
-- [ ] M1.3 `cabal build` succeeds from `cli/nagare-dsl/` inside `nix develop`.
-- [ ] M2.1 Implement all newtypes, sum types, and smart constructors in `src/Nagare/Dsl/Types.hs`.
-- [ ] M2.2 Add `test/Spec.hs` test suite with unit tests for smart constructors (accept valid, reject invalid).
-- [ ] M2.3 `cabal test` passes for the unit test suite.
-- [ ] M3.1 Implement `src/Nagare/Dsl/Render.hs` with `renderService` and `renderDomainMapping`.
-- [ ] M3.2 Check in golden files: `test/golden/hello.nagare.yaml`, `test/golden/hello.service.yaml`, `test/golden/hello.domainmapping.yaml`.
-- [ ] M3.3 Add golden test to `test/Spec.hs`; `cabal test` passes.
-- [ ] M4.1 Create `test/negative/BadConstructor.hs` and `test/negative/check-negative-types.sh`.
-- [ ] M4.2 Run the negative-type check script; confirm expected compile errors are reported.
-- [ ] Final Update Progress, Surprises & Discoveries, Decision Log, and Outcomes; verify Integration Points.
+- [x] M1.1 cabal.project layout; create `cli/nagare-dsl/nagare-dsl.cabal` and `cli/nagare-dsl/cabal.project`. _(2026-06-03)_
+- [x] M1.2 Modules `src/Nagare/Dsl/Types.hs`, `src/Nagare/Dsl/Render.hs` (implemented directly, not stubbed). _(2026-06-03)_
+- [x] M1.2b `src/Nagare/Dsl/Prelude.hs` re-exporting Generic, Text, base helpers, Control.Lens (not Data.Generics.Labels). _(2026-06-03)_
+- [x] M1.3 `cabal build` succeeds from `cli/nagare-dsl/` inside `nix develop`. _(2026-06-03; needed `{-# LANGUAGE PackageImports #-}` in Render.hs for the `"generic-lens"` import.)_
+- [x] M2.1 All newtypes, sum types, and smart constructors in `src/Nagare/Dsl/Types.hs` (unprefixed strict fields). _(2026-06-03)_
+- [x] M2.2 `test/Spec.hs` unit tests for every smart constructor (accept valid, reject invalid). _(2026-06-03)_
+- [x] M2.3 `cabal test` passes the unit tests. _(2026-06-03: 38 unit cases.)_
+- [x] M3.1 `src/Nagare/Dsl/Render.hs` with `renderService` and `renderDomainMapping`. _(2026-06-03; uses `encodePretty` + key comparator — see Decision Log.)_
+- [x] M3.2 Check in golden files: `test/golden/hello.nagare.yaml` (input), `test/golden/hello.service.yaml`, `test/golden/hello.domainmapping.yaml` (generated). _(2026-06-03)_
+- [x] M3.3 Golden tests in `test/Spec.hs`; `cabal test` passes. _(2026-06-03: 45 total cases; byte-identical to EP-6's documented Service + DomainMapping.)_
+- [x] M4.1 `test/negative/BadConstructor.hs` and `test/negative/check-negative-types.sh`. _(2026-06-03)_
+- [x] M4.2 Negative-type check passes — GHC rejects the hidden-constructor use. _(2026-06-03: `[GHC-01928] Illegal term-level use of the type constructor 'ServiceName'`.)_
+- [x] Final: Progress, Surprises, Decision Log, Outcomes updated; Integration Points 1/2/5 verified. _(2026-06-03)_
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The renderer must use `encodePretty` + an explicit key comparator, not plain `Data.Yaml.encode`
+  (deviation from the plan text).** This plan's M3.1/M3.3 assumed `Data.Yaml.encode` sorts object
+  keys alphabetically and instructed generating the golden from whatever it produces — but its own
+  illustrated golden is *not* alphabetical (`image` before `env`; `min-scale` before `max-scale`),
+  and MasterPlan Integration Point 2 requires byte-for-byte parity with EP-6's documented output.
+  Carrying the EP-8 spike lesson, `Render.hs` serialises through `Data.Yaml.Pretty.encodePretty`
+  with a `setConfCompare` comparator that ranks keys explicitly. The generated golden then matches
+  EP-6's authoritative order exactly (verified by `cat` and the `goldenVsString` lock-in). (2026-06-03)
+- **The key comparator needs care for `name`.** `name` must sort *first* in `metadata` and
+  `secretKeyRef` (before `namespace`/`key`) but *last* in a DomainMapping `ref` (after `apiVersion`
+  and `kind`). A first attempt with `name` ranked 0 globally produced `ref: {apiVersion, name, kind}`
+  — wrong. The fix is a rank assignment satisfying all three contexts at once:
+  `apiVersion(0) < kind(1) < name(2) < namespace/key/value/valueFrom(3) < metadata(4) < spec(5)`,
+  with the per-object keys (`image/ports/env/resources`, `min/max-scale`, `cpu/memory`) ranked
+  within their own objects. (2026-06-03)
+- **GHC 9.12 negative-test wording.** Importing only the *type* `ServiceName` and then using it as
+  a term yields `[GHC-01928] Illegal term-level use of the type constructor 'ServiceName'`, not the
+  plan's anticipated "Not in scope: data constructor". Both prove the data constructor is
+  unexported/inaccessible; the check script accepts either wording. The negative module must be
+  compiled against the *installed* `nagare-dsl` package (via `cabal exec -- ghc -package nagare-dsl`),
+  not bare `ghc -isrc`, because the library's prelude pulls non-boot packages (`lens`,
+  `generic-lens`) that a bare GHC session cannot resolve. (2026-06-03)
+- **`Nagare.Dsl.Prelude` re-exports all of `Control.Lens`, which clashes with aeson's `(.=)`.**
+  `Render.hs` imports the prelude `hiding ((.=))` and takes `(.=)` from `Data.Aeson`. (2026-06-03)
+- Dependencies all resolved from Hackage (the corpus fallback in `cabal.project` was not needed):
+  `aeson 2.3`, `yaml 0.11`, `generic-lens 2.2.2`, `lens 5.3.6`, `tasty`/`tasty-hunit`/`tasty-golden`.
+  (2026-06-03)
 
 
 ## Decision Log
@@ -105,10 +131,47 @@ This plan owns Integration Points 1, 2, and 5 of the MasterPlan at
   GHC2021 and `dep*`/`res*`/`scale*` prefixed fields. See MasterPlan Integration Point 6.
   Date: 2026-06-03
 
+- Decision: Render via `Data.Yaml.Pretty.encodePretty` with an explicit key comparator, overriding
+  the M3.1/M3.3 instruction to use plain `Data.Yaml.encode` and accept its native key order.
+  Rationale: the plan text assumed `Yaml.encode` sorts keys alphabetically, but that both
+  contradicts the plan's own illustrated golden (non-alphabetical) and would not deterministically
+  reproduce EP-6's documented byte order, which MasterPlan Integration Point 2 requires. The
+  comparator (carried from the EP-8 spike, which hit the same issue) gives deterministic output
+  matching EP-6 exactly for both the Service and the DomainMapping. The golden files are still
+  generated from the renderer and locked in by `goldenVsString`. This does not change the
+  `Deployment` types (Integration Point 1) or the public renderer signatures (Integration Point 2),
+  only the internal serializer.
+  Date: 2026-06-03
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome.** `cli/nagare-dsl/` exists as an independently buildable, offline-testable Haskell
+library that fully delivers Integration Points 1, 2, and 5. `Nagare.Dsl.Types` defines the
+canonical `Deployment` with maximal-safety types — hidden-constructor newtypes (`ServiceName`,
+`Namespace`, `ImageRef`, `EnvName`, `SecretName`, `Port`, `Quantity`, `Domain`) each reachable only
+through a validating `mkX :: ... -> Either Text X`, the `EnvVar = EnvLiteral | EnvSecretRef` sum
+type making the value+secretRef bug unrepresentable, and `mkScale` rejecting `max < min`. Fields are
+strict and **unprefixed** (`name/namespace/image/domain/port/env/resources/scale`,
+`Resources.cpu/memory`, `Scale.minScale/maxScale`) per the house standard, addressing the user's
+explicit objection to the spike's `dep*`/`res*` prefixes. `Nagare.Dsl.Render` renders to Knative
+`Service` + `DomainMapping` YAML byte-identical to EP-6's documented output.
+
+**Verification.** `cabal test` runs 45 cases — 38 smart-constructor unit tests (every accept/reject
+path) and 2 golden tests proving byte-exact rendering — all green. The negative-type gate shows GHC
+refusing `ServiceName "INVALID NAME WITH SPACES"` with `[GHC-01928]`, proving the hidden constructor
+cannot be bypassed. All gates are offline; no cluster needed.
+
+**Lessons.** The renderer's key ordering needed the spike's `encodePretty`+comparator approach (the
+plan's plain-`Yaml.encode` assumption was wrong); the comparator needed a careful rank to place
+`name` correctly across `metadata`/`secretKeyRef`/`ref`. The custom prelude's `Control.Lens`
+re-export collides with aeson's `(.=)` — import the prelude `hiding ((.=))` in the renderer.
+
+**Carried to downstream plans.** EP-10's loader compiles-and-runs the app's `Config.hs` to obtain a
+`Deployment` and calls `Nagare.Dsl.Render.renderService`/`renderDomainMapping`; EP-11's presets are
+functions returning these types; EP-12 wires the renderer into `nagarectl` and deletes EP-6's
+duplicate. The `Deployment` field names and the renderer signatures here are the contract those
+plans build on (Integration Points 1, 2, 5).
 
 
 ## Context and Orientation
