@@ -55,10 +55,10 @@ This section must always reflect the actual current state of the work.
 - [x] M4.1 Implement the hello config file for Prototype 3 (`hello/hello.dhall`). _(2026-06-02; M4.4 reuse demo applied — imports `prelude.dhall`'s `webService` preset and layers env via `//`.)_
 - [x] M4.2 Implement Prototype 3 executable: `Dhall.inputFile Dhall.auto` decodes `hello.dhall` into `SpikeDhallDeployment` (generic `FromDhall`); convert to `Deployment`; render. _(2026-06-02; numeric fields are `Natural`, narrowed to `Int`; `scaleMin`/`scaleMax` disambiguated with `OverloadedRecordDot`.)_
 - [x] M4.3 Validate M4: `cabal run proto3-dhall` prints `PASS: output matches golden target`. _(2026-06-02: PASS, including the composed reuse config; round-trip ~0.5s — the fastest of the three. Broken-name test (M4.5): `name : Text` accepts `Hello_Bad` silently at the substrate level.)_
-- [ ] M5.1 Fill in the scoring table (all five criteria, all three prototypes).
-- [ ] M5.2 Write the substrate decision in this plan's Decision Log.
-- [ ] M5.3 Write a note in the parent MasterPlan's Decision Log directing the implementer of EP-10 to the chosen substrate (implementer action: update `docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`).
-- [ ] M5.4 Update Outcomes & Retrospective in this plan.
+- [x] M5.1 Fill in the scoring table (all five criteria, all three prototypes). _(2026-06-02: P1 20/25, P2 16/25, P3 19/25; see Decision Log.)_
+- [x] M5.2 Write the substrate decision in this plan's Decision Log. _(2026-06-03: native eDSL, config-as-program — user's choice given the 1-point margin and the maximal-safety priority.)_
+- [x] M5.3 Write a note in the parent MasterPlan's Decision Log directing the implementer of EP-10 to the chosen substrate. _(2026-06-03: MasterPlan Decision Log + Exec-Plan Registry updated; EP-8 marked Complete.)_
+- [x] M5.4 Update Outcomes & Retrospective in this plan. _(2026-06-03)_
 
 
 ## Surprises & Discoveries
@@ -120,6 +120,86 @@ implementation. Provide concise evidence.
 
 ## Decision Log
 
+- M5 scoring table (all three prototypes verified PASS against the same golden, 2026-06-02):
+
+  | Criterion | P1: config-as-program | P2: interpreter (hint) | P3: Dhall |
+  |-----------|----------------------|------------------------|-----------|
+  | (a) Type-safety / unrepresentable invariants | **5** | **5** | **3** |
+  | (b) Error-message quality (broken-config) | **4** | **3** | **4** |
+  | (c) Reuse ergonomics (webService + env overlay) | **5** | **5** | **4** |
+  | (d) Build/eval latency + dependency-closure weight | **4** | **2** | **3** |
+  | (e) Operational complexity (what's needed at deploy time) | **2** | **1** | **5** |
+  | **Total** | **20 / 25** | **16 / 25** | **19 / 25** |
+
+  Per-cell evidence:
+  - **(a)** P1/P2 are real Haskell, so EP-9's maximal-safety surface (hidden-constructor
+    `ServiceName` newtype, the `EnvLiteral | EnvSecretRef` sum, smart-constructed `Scale`/
+    `Quantity`) makes all three target invariants unrepresentable *by construction* — bad configs
+    fail to compile. **5**. P3/Dhall makes the env literal-vs-secret exclusivity unrepresentable-both
+    by construction (a union value is exactly one alternative), but a DNS-safe `name` and `max≥min`
+    are not expressible in Dhall's own type system without awkward assertions; they land in the
+    Haskell `FromDhall` marshalling layer as *load-time* errors, not config type-check errors. **3**.
+  - **(b)** Broken-name test (`Hello_Bad`): at the spike level every prototype passes the bad name
+    through silently (the shared `Spike.Types` has no validation). In production: P1 surfaces GHC's
+    direct, source-located diagnostic / a smart-constructor `Left` message (**4**); P2 surfaces the
+    same wrapped in a hint `InterpreterError`/`GhcError` (unicode-escaped `Show`, less readable —
+    **3**); Dhall's own type errors are excellent and source-located, and refinement failures come
+    from the marshalling smart constructor (**4**).
+  - **(c)** P1/P2: a `webService :: Text -> Text -> Deployment` Haskell function + record/lens
+    update — fully type-checked, maximally expressive (**5**). P3: a `webService` Dhall *function*
+    in `prelude.dhall` + the `//` override operator, type-checked by Dhall, demonstrated composing
+    the preset with per-app env without copy-paste (**4**).
+  - **(d)** Eval latency: P3 ~0.5s (best) < P2 ~1.35s < P1 ~1.47s. Closure weight (linked into the
+    `nagarectl` binary): P1 tiny (`cradle`; GHC is external) → **4**; P3 large but self-contained
+    (~78 pkgs: `megaparsec`/`cborg`/`http-client`/`tls`/`crypton`) → **3**; P2 worst — links the
+    GHC API (`ghc` package, the compiler itself) → **2**.
+  - **(e)** At deploy time P1 needs GHC + `cabal`/`runghc` + the DSL package env + the right
+    `-XGHC2024` flags (**2**); P2 needs all of that plus hint's `.ghc.environment`/package-db
+    handling, `unsafeSetGhcOption` escapes, and the GHC API+libdir at runtime (**1**); P3 needs
+    nothing but the compiled `nagarectl` binary — the `dhall` library is linked in, no language
+    runtime (**5**).
+
+  Note on sensitivity: P1 and P3 are within one point. The decisive axes pull in opposite
+  directions — (a) maximal type-safety favors the native eDSL (P1), while (e) operational
+  complexity strongly favors Dhall (P3). Because that trade-off engages the user's explicitly
+  stated top priority ("maximal type-level safety") against the practical reality of deploying a
+  personal PaaS from a laptop, the final substrate choice was put to the user rather than decided
+  by the raw total alone (see the Decision below). Date: 2026-06-02
+
+- **SUBSTRATE DECISION: the native Haskell embedded DSL in the *config-as-program* model
+  (Prototype 1) wins.** An app ships a real Haskell source file (e.g. `nagare/Config.hs`) that
+  imports the `nagare-dsl` library and binds a top-level `deployment :: Deployment`; `nagarectl`
+  compiles-and-runs it (as Prototype 1 did via `cabal exec -- runghc`) to obtain the typed value,
+  then renders it.
+  Rationale: It scores highest (20/25) and, decisively, it is the only substrate that fully
+  satisfies the MasterPlan's binding *maximal type-safety* decision — the user's explicitly stated
+  top priority. Because the config *is* Haskell, EP-9's hidden-constructor `ServiceName` newtype,
+  the `EnvLiteral | EnvSecretRef` sum type, and the smart-constructed `Scale`/`Quantity` make
+  every documented illegal configuration (non-DNS-safe name, value+secretRef together, `max < min`)
+  **fail to compile** — not merely fail validation at load time. Reuse is also maximal: shared
+  shapes are ordinary Haskell functions over the typed model. When the scores were presented (the
+  one-point P1-vs-P3 margin, with criterion (a) favoring the eDSL and (e) favoring Dhall), the user
+  chose the native eDSL, accepting its operational cost.
+  Accepted trade-off (criterion e = 2): the machine running `nagarectl deploy` must have GHC +
+  `cabal`/`runghc` and the `nagare-dsl` package available. This is acceptable because the Nagare
+  operator already works inside this repo's Nix dev shell, which EP-8 M0 pinned to GHC 9.12 — so
+  the toolchain is present in the standard operating environment — and the maximal-safety guarantee
+  was judged worth the cost. The interpreter variant (Prototype 2, 16/25) is rejected as dominated:
+  same type-safety as P1 but the heaviest closure (it links the GHC API) and the most fragile
+  runtime (GHC libdir + package db, `.ghc.environment`, `unsafeSetGhcOption`).
+  Consequences for downstream plans: EP-10's `loadDeployment :: FilePath -> IO (Either LoadError
+  Deployment)` implements the config-as-program mechanism — locate the app's `Config.hs`, compile
+  and run it against the `nagare-dsl` package, and capture the bound `deployment` value; its
+  `LoadError` enumerates "config file not found", "compilation failed" (carrying the GHC
+  diagnostic), and "config did not bind `deployment`" (matching MasterPlan Integration Point 3's
+  native-eDSL outcome). EP-9, EP-11, EP-12 are unaffected by the choice (they target the
+  substrate-independent `Deployment` type). EP-8's prototypes surfaced concrete ergonomic lessons
+  EP-9/EP-10 should carry: pass `-XGHC2024 -XOverloadedStrings` (or the app file's own pragmas)
+  when interpreting the config; expose the DSL library to the compile step via a generated
+  `.ghc.environment.*` file or an explicit package-db/`-package` flag (a bare `runghc` sees only
+  boot packages); and `cradle`-based process spawning needs `-threaded`.
+  Date: 2026-06-03
+
 - Decision: Place the spike workspace at `docs/spikes/ep8-substrate-spike/` (not under `cli/`).
   Rationale: The spike is explicitly throwaway and must be isolated from production code. Putting
   it under `cli/` would pollute the package layout that EP-9 and EP-10 create. A `docs/spikes/`
@@ -178,7 +258,39 @@ implementation. Provide concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome.** The spike met its purpose in full. Three runnable prototypes were built under
+`docs/spikes/ep8-substrate-spike/`, each rendering the shared hello example to Knative YAML
+**byte-identical** to the EP-6 golden, all verified offline with no cluster access:
+
+- Prototype 1 (config-as-program, `cabal exec -- runghc` via `cradle`): PASS, ~1.47s.
+- Prototype 2 (interpreter, `hint-0.9.0.9`): PASS, ~1.35s — but only after four workarounds
+  (source-loading instead of the in-place package, in-interpreter rendering, `unsafeSetGhcOption
+  "-XGHC2024"`, and a generated `.ghc.environment.*`), and it links the GHC API.
+- Prototype 3 (Dhall, `Dhall.inputFile auto`): PASS, ~0.5s (fastest), with a `prelude.dhall`
+  `webService` preset composed via `//` proving first-class reuse; large build closure, zero
+  runtime deps.
+
+The five-criterion scoring (full table + evidence in the Decision Log) put P1 at 20/25, P3 at
+19/25, P2 at 16/25. The P1-vs-P3 margin was one point, with the two decisive criteria opposed:
+(a) maximal type-safety favors the native eDSL, (e) operational simplicity favors Dhall. The
+choice was presented to the user, who selected the **native eDSL in the config-as-program model**
+— honoring the MasterPlan's binding maximal-type-safety priority (illegal configs fail to
+*compile*) and accepting that the deploy machine must carry GHC (mitigated by the repo's pinned
+GHC-9.12 Nix shell).
+
+**Lessons carried forward (for EP-9/EP-10).** Byte-exact rendering needs an explicit key
+comparator (`Data.Yaml.Pretty.encodePretty` + `setConfCompare`), not plain `Yaml.encode`, because
+the golden order is non-alphabetical. A bare `runghc`/interpreter sees only boot packages and the
+project's default language edition is *not* inherited — the compile/eval step must supply
+`-XGHC2024 -XOverloadedStrings` (or rely on the app file's pragmas) and expose `nagare-dsl` via a
+`.ghc.environment.*` file or explicit `-package`/`-package-db` flags. `cradle` requires
+`-threaded`, and cabal may not relink on a lone `ghc-options` change (remove the component's build
+dir to force it).
+
+**Gaps / future cleanup.** The prototypes are throwaway; per the plan they are left in place for
+reference until EP-9 lands, then deleted. The `Spike.Types` fields use `dep*`/`res*` prefixes
+(the spike predates adopting the house unprefixed-field convention); EP-9's production
+`Nagare.Dsl.Types` uses the unprefixed names per MasterPlan Integration Point 6.
 
 
 ## Context and Orientation

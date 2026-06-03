@@ -151,7 +151,7 @@ shape the decomposition principles say to merge.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 8 | Config substrate evaluation spike and decision | docs/plans/8-config-substrate-evaluation-spike-and-decision.md | None | EP-6 | In Progress |
+| 8 | Config substrate evaluation spike and decision | docs/plans/8-config-substrate-evaluation-spike-and-decision.md | None | EP-6 | Complete |
 | 9 | Typed core deployment model and Knative renderer | docs/plans/9-typed-core-deployment-model-and-knative-renderer.md | None | EP-8, EP-6 | Not Started |
 | 10 | Config surface and loading for the chosen substrate | docs/plans/10-config-surface-and-loading-for-the-chosen-substrate.md | EP-8, EP-9 | None | Not Started |
 | 11 | Reusable config presets and composition library | docs/plans/11-reusable-config-presets-and-composition-library.md | EP-10 | EP-9 | Not Started |
@@ -353,9 +353,10 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 - [ ] Toolchain: GHC 9.12 pinned in the repository Nix flake (EP-8 M0); `nagare-dsl` uses
   `GHC2024` + the house `common` stanza and a `Nagare.Dsl.Prelude` custom prelude; `fourmolu` +
   `cabal-gild` formatting wired via `treefmt`. (Integration Point 6.)
-- [ ] EP-8: Three runnable prototypes (config-as-program, interpreted eDSL, Dhall) each render the
+- [x] EP-8: Three runnable prototypes (config-as-program, interpreted eDSL, Dhall) each render the
   shared hello example to Knative YAML byte-identical to EP-6's target; scored on the five criteria;
-  a substrate decision is recorded in this MasterPlan's and EP-8's Decision Log.
+  a substrate decision is recorded in this MasterPlan's and EP-8's Decision Log. _(2026-06-03:
+  Complete. Winner: native Haskell eDSL, config-as-program. GHC 9.12 pinned (M0).)_
 - [ ] EP-9: `cli/nagare-dsl/` library exists with the `Deployment` type and maximal-safety
   constructors; a golden test renders the canonical example byte-for-byte to Knative YAML; negative
   type tests prove illegal configs (bad name, value+secretRef, max<min) fail to compile or
@@ -484,6 +485,35 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   `GHC2024` edition all need it); the current flake ships an unpinned `pkgs.ghc` (~9.10). Bumping
   the shared flake is acceptable because EP-6 — the only other Haskell consumer — is Not Started.
   See Integration Point 6.
+  Date: 2026-06-03
+
+
+## Surprises & Discoveries (continued)
+
+- EP-8 substrate decision (2026-06-03): all three prototypes were built and each rendered the
+  shared hello example **byte-identically** to the EP-6 golden, scored P1 (config-as-program)
+  20/25, P3 (Dhall) 19/25, P2 (interpreter) 16/25. The P1-vs-P3 margin was one point with the
+  decisive criteria opposed — (a) maximal type-safety favors the native eDSL, (e) operational
+  simplicity favors Dhall — so the choice was put to the user, who selected the **native Haskell
+  eDSL in the config-as-program model**, honoring the binding maximal-type-safety priority. See
+  EP-8's Decision Log for the full table, evidence, and the downstream consequences for EP-10's
+  loader (it implements compile-and-run of the app's `Config.hs`).
+
+
+## Decision Log (continued)
+
+- Decision: **The chosen substrate is the native Haskell embedded DSL in the config-as-program
+  model** (EP-8 Prototype 1). An app ships a real Haskell source file binding `deployment ::
+  Deployment`; `nagarectl` compiles-and-runs it to obtain the typed value, then renders it.
+  Rationale: highest spike score (20/25) and the only substrate that fully delivers the binding
+  *maximal type-safety* decision — because the config is Haskell, EP-9's hidden-constructor
+  newtypes and sum types make every documented illegal config *fail to compile*. The one-point
+  margin over Dhall (which wins on operational simplicity) was resolved by the user in favor of
+  the maximal-safety priority, accepting that the deploy machine must carry GHC (mitigated by the
+  repo's pinned GHC-9.12 Nix shell). The interpreter variant is rejected as dominated. This fixes
+  EP-10's loader as a compile-and-run mechanism with a `LoadError` covering "file not found",
+  "compilation failed" (GHC diagnostic), and "did not bind `deployment`" (Integration Point 3,
+  native-eDSL outcome). EP-9/EP-11/EP-12 are unaffected (substrate-independent `Deployment` type).
   Date: 2026-06-03
 
 
