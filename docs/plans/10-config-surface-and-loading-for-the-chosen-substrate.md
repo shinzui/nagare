@@ -38,19 +38,19 @@ produces the specific `LoadError` variant described in this plan.
 
 ## Progress
 
-- [ ] Determine the chosen substrate: read EP-8's Decision Log (step described in Concrete Steps M0).
-- [ ] M1.1 Add `Nagare.Dsl.Load` to the exposed-modules list in `cli/nagare-dsl/nagare-dsl.cabal`.
-- [ ] M1.2 Add substrate-specific dependencies to `nagare-dsl.cabal` (see branch instructions).
-- [ ] M1.3 Write stub `cli/nagare-dsl/src/Nagare/Dsl/Load.hs` with the `LoadError` type, `renderLoadError`, and a stub `loadDeployment` returning a fixed `Left`.
-- [ ] M1.4 `cabal build` from `cli/nagare-dsl/` succeeds.
-- [ ] M1.5 Run the stub harness: `cabal run nagare-dsl-load-demo -- /nonexistent` prints `renderLoadError` output for each variant.
-- [ ] M2.1 Implement the loader body following the branch matching EP-8's decision.
-- [ ] M2.2 Write the hello config surface file (the worked example) in the chosen substrate.
-- [ ] M2.3 `cabal test` passes: the golden load test confirms the hello config loads to the canonical hello `Deployment` and renders byte-identically to EP-9's golden service YAML.
-- [ ] M3.1 Write the failure-mode test suite (`test/LoadSpec.hs` or extend `test/Spec.hs`).
-- [ ] M3.2 `cabal test` passes all failure-mode tests: bad name, value+secretRef, max<min, missing field, syntax error each yield the expected `LoadError`.
-- [ ] Record the branch taken and any surprises in the Decision Log and Surprises sections.
-- [ ] Update Outcomes & Retrospective.
+- [x] M0 Determine the chosen substrate from EP-8's Decision Log. _(2026-06-03: Branch B — config-as-program, native eDSL.)_
+- [x] M1.1 Add `Nagare.Dsl.Load` (and helper `Nagare.Dsl.Config`) to `exposed-modules`. _(2026-06-03)_
+- [x] M1.2 Add deps to `nagare-dsl.cabal` (`directory`, `filepath`, `process`; `temporary` for tests); `write-ghc-environment-files: always` in `cabal.project`. _(2026-06-03; used `process.readProcessWithExitCode`, not `cradle`.)_
+- [x] M1.3 Write `Nagare.Dsl.Load` — `LoadError` (FileNotFound/CompileError/MissingBinding/MarshalError), `renderLoadError`, `loadDeployment`, plus a pure exported `decodeDeployment`. _(2026-06-03; implemented in full, not stubbed.)_
+- [x] M1.4 `cabal build` succeeds. _(2026-06-03)_
+- [x] M1.5 `cabal run nagare-dsl-load-demo` prints `renderLoadError` for each variant. _(2026-06-03)_
+- [x] M2.1 Implement the loader (Branch B): compile-and-run `Config.hs` via `runghc`, capture JSON, decode + re-validate. _(2026-06-03)_
+- [x] M2.2 Write the hello config surface file `test/fixtures/nagare/Config.hs` (unprefixed fields, `module Main`). _(2026-06-03)_
+- [x] M2.3 `cabal test`: `loadDeployment` on the hello fixture returns a `Deployment` equal to EP-9's `helloDep` and renders byte-identically to the golden service YAML. _(2026-06-03)_
+- [x] M3.1 Failure-mode suite `test/LoadSpec.hs`. _(2026-06-03)_
+- [x] M3.2 `cabal test`: bad name → MarshalError, max<min → MarshalError, syntax error → CompileError, no emit → MissingBinding, missing file → FileNotFound, value+secretRef sum-type. _(2026-06-03)_
+- [x] Record branch + surprises in Decision Log / Surprises. _(2026-06-03)_
+- [x] Update Outcomes & Retrospective. _(2026-06-03)_
 
 
 ## Surprises & Discoveries
@@ -58,7 +58,26 @@ produces the specific `LoadError` variant described in this plan.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The plan's Branch B code used EP-9's *old* prefixed field names** (`depName`, `resCpu`,
+  `scaleMin`, positional `Deployment ...`). EP-9 shipped **unprefixed** strict fields per the house
+  standard, so all marshalling/construction was rewritten to `Deployment { name = ..., namespace =
+  ..., image = ..., domain = ..., port = ..., env = ..., resources = ..., scale = ... }`,
+  `Resources { cpu = ..., memory = ... }`, and `Scale.minScale/maxScale`. (2026-06-03)
+- **The loader's `runghc` resolves `nagare-dsl` via the inherited cabal package environment, not a
+  CWD file.** `ls` showed no `.ghc.environment.*` in the package dir, yet a child `runghc` found
+  `Nagare.Dsl.Config`/`Types`. The mechanism is that `cabal test`/`cabal run` export the package
+  environment (`GHC_PACKAGE_PATH` and/or a generated env file) to child processes, which `runghc`
+  inherits. This is why the load tests pass deterministically (56/56). It also pins the EP-12
+  caveat: a stand-alone `nagarectl` binary will not have this inherited environment and must
+  provision one itself. (2026-06-03)
+- **`MarshalError` is not naturally reachable through a well-formed config-as-program file**: the
+  app's `Config.hs` already validates via the smart constructors, so by the time it emits JSON the
+  values are valid, and a config that crashes on a bad value exits non-zero → `CompileError`. The
+  loader's JSON re-validation (`decodeDeployment`) is defence-in-depth; the `MarshalError` path is
+  therefore unit-tested directly against `decodeDeployment` with hand-written bad JSON rather than
+  through a subprocess. (2026-06-03)
+- All deps resolved from Hackage / boot libraries; `process`, `directory`, `filepath` are boot,
+  `temporary` from Hackage. No mori-corpus fallback was needed. (2026-06-03)
 
 
 ## Decision Log
@@ -84,9 +103,36 @@ implementation. Provide concise evidence.
   invocations rather than accepting it as an argument, keeping the caller interface simple.
   Date: 2026-06-03
 
-- Decision: Branch taken: (record here during M0 which branch was followed)
-  Rationale: (record here after reading EP-8's Decision Log)
-  Date: (fill in during implementation)
+- Decision: Branch taken: **Branch B — config-as-program (native Haskell eDSL).**
+  Rationale: EP-8's M5 Decision Log records the native Haskell eDSL in the config-as-program model
+  as the chosen substrate (the user's pick; it scored 20/25 and is the only substrate delivering
+  the binding maximal-type-safety priority — illegal configs fail to compile). The loader therefore
+  compiles-and-runs the app's `Config.hs` to obtain the `deployment` value.
+  Date: 2026-06-03
+
+- Decision (implementation details for Branch B):
+  - **Process spawning** uses `System.Process.readProcessWithExitCode` (a boot library) rather than
+    `cradle`'s tuple output — it returns exit code + stdout + stderr in one call, needs no
+    `-threaded`, and avoids the tuple-`Output` complexity the plan flagged. No `cradle` dependency
+    is added.
+  - **GHC invocation** is plain `runghc -XGHC2024 -i<configDir> <path>` (via
+    `readProcessWithExitCode`). The config imports the `nagare-dsl` package (`Nagare.Dsl.Config`,
+    `Nagare.Dsl.Types`), which a bare `runghc` started cold cannot see (it gets only boot packages —
+    an EP-8 spike finding). It works in the test because the spawned `runghc` **inherits the GHC
+    package environment** (`GHC_PACKAGE_PATH` / a `.ghc.environment.*` file) that cabal sets up for
+    the test process — `write-ghc-environment-files: always` in `cabal.project` materialises that
+    environment. `-XGHC2024` gives app configs the house language edition. NOTE for EP-12: this
+    inheritance only holds because the loader runs inside the `cli/nagare-dsl/` cabal context;
+    provisioning the package environment for `nagarectl` at a user's app site (no cabal project,
+    `nagarectl` is a built binary) is EP-12's integration responsibility — it must arrange a GHC
+    package environment exposing `nagare-dsl` (e.g. ship a package-env file or invoke through a
+    project). The `loadDeployment` signature (Integration Point 3) is unchanged regardless.
+  - **Transport** is JSON (aeson). `Nagare.Dsl.Config.emitDeployment :: Deployment -> IO ()`
+    serialises a validated `Deployment` to JSON on stdout; the loader decodes it and re-runs EP-9's
+    smart constructors (defence in depth) via the pure, exported `decodeDeployment :: ByteString ->
+    Either LoadError Deployment`, which also lets the `MarshalError` path be unit-tested without a
+    subprocess.
+  Date: 2026-06-03
 
 - Decision: EP-10 follows the house Haskell standards (haskell-jitsurei) and the
   GHC 9.12 / GHC2024 toolchain established by EP-8 (flake pin) and EP-9 (`common`
@@ -103,7 +149,25 @@ implementation. Provide concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome.** `Nagare.Dsl.Load` now bridges an on-disk config-as-program file to EP-9's typed
+`Deployment`. `loadDeployment :: FilePath -> IO (Either LoadError Deployment)` (Integration Point 3)
+compiles-and-runs the app's `Config.hs` with `runghc`, captures the JSON it emits via the new
+`Nagare.Dsl.Config.emitDeployment` helper, decodes it, and re-runs EP-9's smart constructors,
+returning either a fully-validated `Deployment` or a precise `LoadError`
+(`FileNotFound`/`CompileError`/`MissingBinding`/`MarshalError`) with a terminal-ready
+`renderLoadError`. EP-11 will write presets in this Haskell surface; EP-12 will call this exact
+function from `nagarectl deploy`.
+
+**Verification.** `cabal test` runs 56 cases, all green. The keystone proof — `loadDeployment` on
+`test/fixtures/nagare/Config.hs` returns a `Deployment` **equal to EP-9's `helloDep`** and renders
+byte-identically to the golden Service YAML — wires Integration Point 3 to Integration Points 1 and
+2. Every failure mode is exercised: missing file, compile/runtime error, no emit, and bad
+name/scale (MarshalError) via the pure `decodeDeployment`.
+
+**Gaps / handoff.** The loader's `runghc` package-environment provisioning works in-test by
+inheriting cabal's environment; making it work for a stand-alone `nagarectl` binary at a user's app
+site is EP-12's responsibility (documented in the Decision Log and Surprises). The `loadDeployment`
+signature is fixed and unchanged, so EP-12 can be authored against it.
 
 
 ## Context and Orientation

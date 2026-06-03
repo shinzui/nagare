@@ -4,6 +4,8 @@ import Data.ByteString.Lazy (fromStrict)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import LoadSpec (loadTests)
+import Nagare.Dsl.Load (loadDeployment)
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
 import Nagare.Dsl.Types
 import Test.Tasty
@@ -17,7 +19,29 @@ main =
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
       , testGroup "Nagare.Dsl.Render" goldenTests
+      , testGroup "Nagare.Dsl.Load" loadGoldenTests
+      , loadTests
       ]
+
+-- | EP-10: the hello config-as-program file loads to the very same
+-- 'Deployment' EP-9 constructs, and renders to the same golden Service YAML.
+loadGoldenTests :: [TestTree]
+loadGoldenTests =
+  [ testCase "loadDeployment hello returns Right helloDep" $ do
+      result <- loadDeployment "test/fixtures/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("loadDeployment returned Left: " <> show err)
+        Right dep -> dep @?= helloDep
+  , goldenVsString
+      "loadDeployment hello renders to golden service YAML"
+      "test/golden/hello.service.yaml"
+      ( do
+          result <- loadDeployment "test/fixtures/nagare/Config.hs"
+          case result of
+            Left err -> fail ("loadDeployment returned Left: " <> show err)
+            Right dep -> pure (fromStrict (renderService dep "20260602-120000"))
+      )
+  ]
 
 unitTests :: [TestTree]
 unitTests =

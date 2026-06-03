@@ -11,4 +11,9 @@
 --     /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty/hunit
 --     /Users/shinzui/Keikaku/hub/haskell/tasty-project/tasty-golden
 -- and record which path was used in Surprises & Discoveries.
+-- Materialise a `.ghc.environment.*` file so the config-as-program loader's
+-- `runghc` (EP-10) can see the nagare-dsl package and its deps; a bare GHC
+-- session sees only boot packages (an EP-8 spike finding).
+write-ghc-environment-files: always
+
 packages: .
