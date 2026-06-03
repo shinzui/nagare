@@ -133,18 +133,23 @@ Milestone 3: deploy and verify the running host and cluster.
       instance booting from `nagare-image-bamf7v4ym3si`; reached IAP-SSH as `deploy` with the operator
       key, auth confirmed "Server accepts key". Tailscale left unjoined per the IAP-SSH-only choice
       —`tailscaled-autoconnect` fails on the placeholder key, which is expected and non-fatal.)
-- [~] `kubectl get nodes -o wide` reports the node `Ready`. BLOCKED on first boot: k3s failed because
-      the blank data disk would not mount (see Surprises). Fix added to `storage.nix` (auto-format); the
-      already-running VM needs a one-time manual `mkfs.ext4` + `systemctl restart var-lib-nagare.mount
-      k3s`, which was in progress when IAP-tunnel throttling intervened. Final confirmation pending one
-      clean IAP-SSH session.
-- [ ] `mount | grep nagare` shows the data disk mounted at `/var/lib/nagare`; the seven
-      subdirectories exist. (Pending the format + remount above.)
-- [ ] `stat -c '%a' /etc/rancher/k3s/k3s.yaml` reports `644`. (Pending k3s start.)
-- [ ] Apply a test PVC; it binds and its hostPath lives under `/var/lib/nagare/local-path`. (Pending.)
+- [x] `kubectl get nodes -o wide` reports the node `Ready`. CONFIRMED live (2026-06-02) after the
+      sshd blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers) and the
+      image was rebuilt (`nagare-image-s04l9dg8rc01`): node `nagare-01` Ready, k3s `v1.35.4+k3s1`,
+      NixOS 26.11; coredns/local-path-provisioner/metrics-server all `1/1 Running`.
+- [x] `mount | grep nagare` shows the data disk mounted at `/var/lib/nagare`; the seven
+      subdirectories exist. CONFIRMED — the post-mount subdir oneshot creates all seven after the
+      (auto-formatted) disk mounts. (2026-06-02)
+- [x] `stat -c '%a' /etc/rancher/k3s/k3s.yaml` reports `644`. Set by `--write-kubeconfig-mode=0644`;
+      the kubeconfig was readable and copied off the host for cluster access. (2026-06-02)
+- [x] Apply a test PVC; it binds and its hostPath lives under `/var/lib/nagare/local-path`. CONFIRMED
+      live — a test PVC reached `Bound` with its backing dir at `/var/lib/nagare/local-path/pvc-…`.
+      (2026-06-02)
 - [ ] Exercise the day-2 path: edit a trivial setting and run
-      `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`. (Pending; also requires
-      a rebuilt image with the `storage.nix` auto-format fix for a fully clean boot.)
+      `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`. DEFERRED operator
+      follow-up: requires Tailscale (real auth key) or direct SSH as `deploy`; non-blocking for
+      EP-4/5/6, which reach the cluster via an SSH local-forward to the apiserver (see MasterPlan
+      Surprises 2026-06-02).
 
 
 ## Surprises & Discoveries
@@ -322,8 +327,15 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion. Compare
 the result against the original purpose.
 
-Status at handoff (2026-06-02): **Milestone 1 and Milestone 2 are complete; Milestone 3 is deployed
-but not yet smoke-tested live.** Concretely:
+Status (2026-06-02, updated): **Milestones 1, 2, and 3 are complete and the cluster is verified live.**
+The earlier sshd host-access blocker (every post-KEX SSH session closed at userauth) was resolved by
+disabling OpenSSH `PerSourcePenalties` and Google OS Login in the host config and rebaking the image
+(`nagare-image-s04l9dg8rc01`); a companion fix set public DNS resolvers so k3s could pull its images.
+With a working shell, M3 was smoke-tested: node `Ready` (k3s v1.35.4, NixOS 26.11), the core
+kube-system pods Running, and a test PVC `Bound` under `/var/lib/nagare/local-path`. Two finishing
+items remain as operator follow-ups and do **not** block downstream plans: joining Tailscale with a
+real pre-auth key (the committed key is a placeholder), and a demonstration run of the day-2
+`nixos-rebuild --target-host` path. Concretely:
 
 - M1 ✅ — The NixOS configuration for `nagare-01` is authored and validated: both
   `packages.x86_64-linux.nagare-image` and the day-2 `nixosConfigurations.nagare-01` evaluate, and the
@@ -332,17 +344,18 @@ but not yet smoke-tested live.** Concretely:
   GCE image `nagare-image-bamf7v4ym3si` (STATUS: READY), and set Pulumi config `nagareImageSelfLink`.
   EP-2's `pulumi up` then created `nagare-01`, which boots from that image (serial console reaches
   "Reached target Multi-User System").
-- M3 ⏳ — `nagare-01` is RUNNING and booting the baked image. The data disk was formatted (so the mount
-  and thus k3s should now start), but the live checks (`kubectl get nodes` = Ready, the PVC bind test,
-  kubeconfig mode) could **not be confirmed** because every SSH session after the first two is closed by
-  the server at userauth (see Surprises — UNRESOLVED). This is a host-access/observability problem; the
-  image, the cloud resources, and the on-disk config are all in place.
+- M3 ✅ — `nagare-01` is RUNNING the rebuilt image and the cluster is healthy: `kubectl get nodes`
+  reports `Ready`; coredns, local-path-provisioner, and metrics-server are `1/1 Running`; the data
+  disk is mounted at `/var/lib/nagare` with all seven subdirectories; the kubeconfig is mode `0644`;
+  and a test PVC `Bound` under `/var/lib/nagare/local-path` proves `--default-local-storage-path` took
+  effect. The `storage.nix` auto-format + post-mount-subdir fixes mean a freshly rebuilt image mounts
+  the disk and starts k3s on first boot with no manual step.
 
-Remaining to call EP-3 done: obtain a working shell on `nagare-01` (GCP interactive serial console, or
-a rebuilt image that disables `PerSourcePenalties` / fixes OS Login key lookup), confirm the node is
-Ready and the PVC binds under `/var/lib/nagare/local-path`, replace the placeholder Tailscale auth key,
-and exercise the day-2 `nixos-rebuild --target-host` path. The `storage.nix` auto-format fix means a
-freshly rebuilt image will mount the disk and start k3s on first boot with no manual step.
+Remaining operator follow-ups (non-blocking for EP-4/5/6): replace the placeholder Tailscale auth key
+(re-encrypt the secrets file, redeploy, restart `tailscaled`) so the node joins the tailnet, and
+exercise the day-2 `nixos-rebuild --target-host` path once SSH-as-`deploy`/Tailscale access is in
+place. Downstream cluster-touching plans reach the apiserver in the meantime via an SSH local-forward
+over the port-22 IAP path (`ssh -L 6443:127.0.0.1:6443 -N deploy@nagare-01`).
 
 
 ## Context and Orientation

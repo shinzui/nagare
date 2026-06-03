@@ -106,9 +106,9 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Repository scaffolding and Nix flake dev environment | docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md | None | None | Complete |
-| 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | In Progress |
-| 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | In Progress |
-| 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Not Started |
+| 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | Complete |
+| 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Complete |
+| 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | In Progress |
 | 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Not Started |
 | 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |
 | 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Not Started |
@@ -294,8 +294,8 @@ rebuilds.
 Milestone-level progress across all child plans. Updated as each child plan's milestones complete.
 
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
-- [~] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported (M1+M2 done, 2026-06-02). VM (M3) deferred — blocked on EP-3's image.
-- [~] EP-3: NixOS image built & registered, `nagare-01` deployed and booting the baked image; data disk formatted. `kubectl get nodes` = Ready NOT yet confirmed — blocked by an unresolved sshd "connection closed at userauth" host-access issue (see EP-3 Surprises). (2026-06-02)
+- [x] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported; VM `nagare-01` created and RUNNING from the registered NixOS image (M1+M2+M3 done). (2026-06-02)
+- [x] EP-3: NixOS image built & registered, `nagare-01` deployed booting the baked image; data disk formatted & mounted with all seven subdirs; the sshd "connection closed at userauth" blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers; post-mount subdir oneshot). Verified live: `kubectl get nodes` = Ready (k3s v1.35.4, NixOS 26.11); coredns/local-path-provisioner/metrics-server Running; a test PVC Bound under `/var/lib/nagare/local-path`. Residual operator follow-ups (non-blocking for EP-4/5/6): join Tailscale with a real auth key, and exercise the day-2 `nixos-rebuild --target-host`. (2026-06-02)
 - [ ] EP-4: Knative Serving + Kourier installed; wildcard TLS issued via cert-manager DNS-01; sample service answers over HTTPS.
 - [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
@@ -330,6 +330,32 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   userauth, or OpenSSH `PerSourcePenalties` (try `services.openssh.settings.PerSourcePenalties = "no"`).
   Also: NixOS does not forward metadata `startup-script` stdout to the serial console (use GCS or
   journald), and `scripts/iap-ssh.sh` should add `-o IdentitiesOnly=yes`. (2026-06-02)
+- EP-3: **the M3 sshd host-access blocker is RESOLVED.** Two changes fixed it: (1)
+  `services.openssh.settings.PerSourcePenalties = "no"` — the OpenSSH 9.8+/10.x per-source penalty
+  heuristic was dropping post-KEX connections (all IAP connections share one source IP, so a few
+  failed attempts locked the box out); (2) `security.googleOsLogin.enable = lib.mkForce false` — the
+  GCE module's OS Login `AuthorizedKeysCommand` was the other userauth-close cause; we auth as
+  `deploy` with the operator key so OS Login is unnecessary. A separate fix made first boot fully
+  clean: the GCE metadata DNS (169.254.169.254) is unreachable on this VM, so `networking.nix` sets
+  public resolvers (8.8.8.8/8.8.4.4) and stops dhcpcd overwriting resolv.conf — without which k3s
+  could not pull coredns/local-path images. The cluster is now verified Ready live. (2026-06-02)
+- EP-4: **the apps base domain is still the placeholder `apps.example.com`**, and the Cloud DNS zone
+  EP-2 created is authoritative only for that placeholder. Let's Encrypt DNS-01 validation therefore
+  cannot succeed (the real authoritative nameservers for `example.com` are not this zone's), so EP-4's
+  Let's Encrypt **wildcard TLS (M1 test cert + M3 HTTPS) is deferred** until the operator supplies a
+  real domain and delegates it to the zone's Cloud DNS nameservers. Per the operator's choice
+  (HTTP-first), EP-4 installs cert-manager + Knative + Kourier + net-certmanager and proves the hello
+  app over **HTTP** (`curl --resolve … :80:publicIp`); enabling TLS later is a one-config flip
+  (`config-network: external-domain-tls: Enabled` + `namespace-wildcard-cert-selector: {}`). This
+  affects EP-6 too (a deployed app's HTTPS URL needs the same real domain). (2026-06-02)
+- EP-4/cluster access: the kube-apiserver (6443) is reachable **only** on the Tailscale interface
+  (firewall opens 22/80/443; 6443 is `trustedInterfaces = [tailscale0]`), and Tailscale is not yet
+  joined. IAP cannot tunnel directly to 6443 either (the IAP firewall rule permits only port 22).
+  The working pattern for cluster-touching plans (EP-4/5/6) until Tailscale is up: an SSH local
+  forward over the port-22 IAP path — `ssh -L 6443:127.0.0.1:6443 -N deploy@nagare-01` through the
+  IAP tunnel — then `kubectl` against the unmodified kubeconfig (server `https://127.0.0.1:6443`,
+  whose k3s cert SAN includes 127.0.0.1). One durable connection avoids the per-command IAP-tunnel
+  throttling EP-3 documented. (2026-06-02)
 - EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
   `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
   repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs
