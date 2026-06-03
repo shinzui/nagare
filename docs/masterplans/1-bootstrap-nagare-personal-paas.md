@@ -109,7 +109,7 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 | 2 | Pulumi GCP infrastructure | docs/plans/2-pulumi-gcp-infrastructure.md | None | EP-1 | Complete |
 | 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Complete |
 | 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Complete (TLS deferred) |
-| 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | In Progress |
+| 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Complete |
 | 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |
 | 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Not Started |
 
@@ -303,7 +303,11 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   follow-up — enabling it is one config flip (`just cluster-enable-tls`) once a real apps domain is
   set in Pulumi `baseDomain`, `pulumi up`-applied, and delegated to the zone's nameservers. This
   unblocks EP-6's hard dependency. (2026-06-02)
-- [ ] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed; metrics, logs, and a test trace visible in Grafana.
+- [x] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed and verified live —
+  `up`/node metrics return data; container logs searchable via `{kubernetes.pod_namespace="..."}`; a
+  test trace (`nagare-test`) is queryable through VictoriaTraces' Jaeger API; retention 30d/7d/3d; all
+  PVCs Bound to `local-path`; reproducible via `just observability`. Required enlarging the boot disk
+  to 100 GB (VM rebuild) and a live DNS workaround (EP-3 image follow-up). (2026-06-03)
 - [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
 - [ ] EP-7: sops-encrypted secrets, Litestream/Postgres backups to GCS, dashboards in Git, and a tested recovery runbook.
 
@@ -377,6 +381,23 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   + `just observability` (EP-5). The data disk is a separate resource and survives either path. This
   belongs in EP-2's instance component (boot disk sizing) and should be recorded so a clean rebuild
   is correctly sized from the start. (2026-06-02)
+  **RESOLVED (2026-06-03):** per the operator, `NagareInstance.ts` now sets
+  `bootDisk.initializeParams.size = 100`; `pulumi up` replaced only the instance (`+-1 replaced, 20
+  unchanged` — data disk, IP, DNS, SA preserved) and NixOS grew root to 99 G. EP-4 was re-bootstrapped
+  and EP-5 installed cleanly; root now 8 % used.
+- EP-5/EP-3 (cross-plan, reproducibility): **the registered NixOS GCE image lacks EP-3's
+  `networking.nix` DNS fix, so a clean rebuild boots with broken DNS.** When EP-5's VM rebuild booted a
+  fresh instance from `nagareImageSelfLink`, `/etc/resolv.conf` had the unreachable metadata resolver
+  `169.254.169.254` (the booted system has no `nohook resolv.conf` in `/etc/dhcpcd.conf` and no
+  `/etc/static/resolv.conf`), so external image pulls failed (`Temporary failure in name resolution`)
+  and coredns (`forward . /etc/resolv.conf`) inherited the broken upstream (the `letsencrypt-dns`
+  issuer reported `acme-v02... server misbehaving`). The `networking.nix` **source is correct** — the
+  image was evidently built before that file was git-tracked (EP-1 surprise: flakes only see
+  git-tracked files), and the previously-working VM had the fix applied via a day-2 `nixos-rebuild`.
+  Worked around live (static `8.8.8.8` resolv.conf, `chattr +i`, coredns restart) — **not reboot-safe.**
+  Durable fix: rebuild + re-register the image with `just host-image` so clean rebuilds boot with
+  working DNS (EP-3 follow-up; see EP-3 Surprises). This directly threatens the MasterPlan's
+  "boring, reproducible rebuild" goal until done. (2026-06-03)
 - EP-2: the in-repo Pulumi file backend is logged into from **within `infra/pulumi`** with
   `file://./.pulumi-state` (a relative `file://` URL re-resolves against the project dir, so the
   repo-root form doubles the path). This refines Integration Point 9's wording for any plan that runs

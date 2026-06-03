@@ -232,6 +232,26 @@ implementation. Provide concise evidence (command output is ideal).
   `tan-nb-exp` (TERMINATED). So `scripts/setup-nix-builder.sh` is a no-op here and the host-side build
   wiring in the plan's Step 8 is already satisfied by the reference-repo setup.
 
+- **FOLLOW-UP (open): the registered GCE image does not contain the `networking.nix` DNS fix, so a
+  clean rebuild boots with broken DNS.** Discovered 2026-06-03 when EP-5 rebuilt the VM (to enlarge the
+  boot disk to 100 GB) and the fresh instance booted from `nagareImageSelfLink` with
+  `/etc/resolv.conf` pointing at the unreachable metadata resolver `169.254.169.254`. Evidence on the
+  booted host: `grep nohook /etc/dhcpcd.conf` → absent; no `/etc/static/resolv.conf`. Effect:
+  containerd could not pull non-airgap images (`Temporary failure in name resolution`) and coredns
+  (`forward . /etc/resolv.conf`) inherited the broken upstream, so in-cluster external DNS also failed
+  (cert-manager's `letsencrypt-dns` issuer reported `acme-v02... server misbehaving`). The
+  `nixos/hosts/nagare-01/networking.nix` **source is correct** (it sets `networking.nameservers =
+  [8.8.8.8 8.8.4.4]` and `networking.dhcpcd.extraConfig = "nohook resolv.conf"`); the registered image
+  was evidently built before that file was git-tracked (cf. EP-1's flake/git-tracked-files surprise),
+  and the earlier live-verified VM had the fix applied via a day-2 `nixos-rebuild`, which is why EP-4
+  worked there but a fresh rebuild from the image did not. Live workaround applied (not reboot-safe):
+  static `8.8.8.8/8.8.4.4` `/etc/resolv.conf`, `chattr +i` to keep dhcpcd from overwriting it, and
+  `kubectl -n kube-system rollout restart deploy/coredns`. **Durable fix: rebuild + re-register the
+  image with `just host-image` (which runs `scripts/upload-images.sh`), confirm the new image's
+  `/etc/dhcpcd.conf` has `nohook resolv.conf` and `/etc/resolv.conf` shows `8.8.8.8` on a clean boot,
+  then drop the manual `chattr +i`.** Until then the running host's DNS survives only until reboot, and
+  a `pulumi`-driven VM replacement reintroduces the break. (2026-06-03)
+
 
 ## Decision Log
 

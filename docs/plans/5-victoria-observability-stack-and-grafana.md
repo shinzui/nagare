@@ -68,16 +68,16 @@ This section must always reflect the actual current state of the work.
 - [x] Prerequisites confirmed: `KUBECONFIG` points at `nagare-01`; `kubectl get nodes` shows `Ready` (k3s v1.35.4); `helm version` works; data disk mounted at `/var/lib/nagare`; `local-path` is the default StorageClass (VMSingle PVC bound to it). Cluster reached via the EP-4 SSH local-forward to 127.0.0.1:6443 over the port-22 IAP tunnel. (2026-06-02)
 - [x] Helm repos added: `vm` (VictoriaMetrics) and `open-telemetry` (OpenTelemetry); `helm repo update` run. (2026-06-02)
 - [x] All values files + datasource provisioning + `install.sh` authored and validated offline with `helm template` against pinned charts (k8s-stack 0.81.0, logs-single 0.13.5, logs-collector 0.3.4, traces-single 0.1.6, otel-collector 0.158.0). Service-name URLs verified (e.g. `victoria-logs-victoria-logs-single-server`, not the draft's `vls-` guess). (2026-06-02)
-- [~] M1: `cluster/observability/victoria-metrics/values.yaml` authored; first live install **FAILED** on node DiskPressure (6 GB boot disk full — see Surprises). **BLOCKED on enlarging the boot disk (EP-2/EP-3 infra fix).** Reinstall + verify (`up` query) pending that fix.
-- [ ] M1: VictoriaMetrics in-cluster service name + port recorded (discovered with `kubectl get svc -n monitoring`).
-- [ ] M2: `cluster/observability/victoria-logs/values.yaml` and `collector-values.yaml` authored; `victoria-logs-single` + `victoria-logs-collector` installed in `logging`; container logs searchable in Grafana with namespace/pod/container labels; retention 7d confirmed.
-- [ ] M2: VictoriaLogs in-cluster service name + port recorded.
-- [ ] M3: `cluster/observability/victoria-traces/values.yaml` and `cluster/observability/opentelemetry-collector/values.yaml` authored; `victoria-traces-single` + `opentelemetry-collector` installed in `tracing`; a test OTLP trace sent and visible in Grafana via the Jaeger datasource; retention 3–7d confirmed.
-- [ ] M3: VictoriaTraces + OTel Collector in-cluster service names + ports recorded.
-- [ ] Grafana datasource provisioning files written under `cluster/observability/grafana/datasources/` and wired into the metrics chart values; all three datasources pass Grafana's "Save & test" / health check.
-- [ ] Dashboards directory `cluster/observability/grafana/dashboards/` created with at least a README placeholder (dashboards are committed to Git per EP-7 backups plan).
-- [ ] Grafana access method documented (kubectl port-forward 3000; Tailscale-only exposure noted as the recommended option).
-- [ ] All `helm` commands recorded in a `cluster/observability/install.sh` (or `justfile` target) for repeatable installs.
+- [x] M1: `victoria-metrics-k8s-stack` (vmks) installed in `monitoring`; all pods Running (vmsingle, vmagent 2/2, grafana 3/3, kube-state-metrics, node-exporter, operator). `up` query returns `success` with data (kubelet/node series = 1) and `node_memory_MemAvailable_bytes` returns node-exporter data. PVC `vmsingle-...` Bound to `local-path`, retention 30d. (Initial attempt on the 6 GB boot disk failed on DiskPressure — fixed by rebuilding the VM with a 100 GB boot disk, see Surprises; root now 8% used.) (2026-06-03)
+- [x] M1: VMSingle service `vmsingle-vmks-victoria-metrics-k8s-stack.monitoring.svc:8429` (also exposes 8428); Grafana `vmks-grafana.monitoring.svc:80`. (2026-06-03)
+- [x] M2: `victoria-logs-single` + `victoria-logs-collector` installed in `logging`; both Running. Container logs searchable; `_time:1h` returns data and the stream selector `{kubernetes.pod_namespace="monitoring"}` returns logs. **Field names are `kubernetes.pod_namespace` / `kubernetes.pod_name` / `kubernetes.container_name`** (this chart ships the VictoriaLogs-native `vlagent` collector, not Vector — see Surprises), not the draft's `namespace`/`pod`/`container`. Retention 7d confirmed (`-retentionPeriod=7d`). PVC 20Gi Bound to `local-path`. (2026-06-03)
+- [x] M2: VictoriaLogs service `victoria-logs-victoria-logs-single-server.logging.svc:9428` (headless). (2026-06-03)
+- [x] M3: `victoria-traces-single` + `opentelemetry-collector` installed in `tracing`; both Running. A test trace (`telemetrygen --service nagare-test --traces 5` → OTel Collector OTLP/gRPC 4317 → VictoriaTraces) is visible: the Jaeger services API returns `{"data":["nagare-test"],...,"total":1}`. Retention 3d confirmed. PVC 10Gi Bound to `local-path`. (2026-06-03)
+- [x] M3: VictoriaTraces `victoria-traces-vt-single-server.tracing.svc:10428` (Jaeger API `/select/jaeger`, OTLP ingest `/insert/opentelemetry/v1/traces`); OTel Collector `otel-collector-opentelemetry-collector.tracing.svc` OTLP gRPC 4317 / HTTP 4318. (2026-06-03)
+- [x] Grafana datasource provisioning files written under `cluster/observability/grafana/datasources/` (VictoriaLogs, VictoriaTraces) and mirrored inline in the metrics chart values (`grafana.additionalDataSources`); the VictoriaMetrics datasource is auto-provisioned by the k8s-stack chart. (2026-06-03)
+- [x] Dashboards directory `cluster/observability/grafana/dashboards/` created with a README (load-via-sidecar + EP-7 backup note). (2026-06-03)
+- [x] Grafana access method documented (`kubectl port-forward -n monitoring svc/vmks-grafana 3000:80`; Tailscale-only steady-state recommended) in install.sh notes and the plan's Final wiring. (2026-06-03)
+- [x] All `helm` commands recorded in `cluster/observability/install.sh` (idempotent, pinned chart versions, includes the OTel collector) and the `observability` justfile target wraps it. (2026-06-03)
 
 
 ## Surprises & Discoveries
@@ -102,7 +102,44 @@ implementation. Provide concise evidence.
   names into the Grafana datasource URLs. The plan gives the known naming patterns and ports so you can
   recognize them.
 
-- **BLOCKER (infra): the node's 6 GB boot disk is too small for the observability stack.** On the
+- **RESOLVED: the 6 GB boot-disk blocker was fixed by rebuilding the VM with a 100 GB boot disk.**
+  Per the operator's choice, `infra/pulumi/src/components/NagareInstance.ts` now sets
+  `bootDisk.initializeParams.size = 100`; `pulumi up` replaced only the instance (data disk, static
+  IP, DNS, SA all unchanged — `+-1 replaced, 20 unchanged`), and NixOS `growPartition` grew the root
+  to 99 G. After reinstall the root disk sits at **8 % used (88 G free)** with the full stack running.
+  The boot-disk sizing belongs in EP-2's instance component so clean rebuilds are correctly sized from
+  the start. (2026-06-03)
+
+- **The VM rebuild surfaced a latent EP-3 DNS regression (now worked around).** The registered NixOS
+  GCE image does **not** contain the `networking.nix` DNS fix (`grep nohook /etc/dhcpcd.conf` →
+  absent; no `/etc/static/resolv.conf`), so on a clean boot dhcpcd's resolvconf hook writes the
+  unreachable metadata resolver `169.254.169.254` into `/etc/resolv.conf`. k3s system images are
+  airgap-baked so the node came up, but cert-manager/Knative/observability images (quay.io, ghcr.io)
+  failed with `Temporary failure in name resolution`, and **coredns** (`forward . /etc/resolv.conf`)
+  inherited the broken upstream so in-cluster external DNS failed too (the `letsencrypt-dns`
+  ClusterIssuer reported `lookup acme-v02... server misbehaving`). Worked around live by writing a
+  static `8.8.8.8/8.8.4.4` `/etc/resolv.conf`, locking it immutable (`chattr +i`), and restarting
+  coredns. **This is not reboot-safe.** The `networking.nix` source is already correct; the durable
+  fix is to rebuild + re-register the image (`just host-image`) so clean rebuilds boot with working
+  DNS. Recorded as an EP-3 follow-up (see EP-3 Surprises and the MasterPlan). (2026-06-03)
+
+- **Log field names are `kubernetes.pod_namespace` / `kubernetes.pod_name` / `kubernetes.container_name`,
+  and queries use the LogsQL stream selector `{...}`.** This chart version ships the VictoriaLogs-native
+  `vlagent` Kubernetes collector (configured with `streamFields=kubernetes.container_name,
+  kubernetes.pod_name,kubernetes.pod_namespace`), **not** a Vector agent as the plan assumed. So the
+  correct search is `{kubernetes.pod_namespace="monitoring"}` (returns 1000+ lines), not the plan's
+  `{namespace="monitoring"}`. The dotted names are stream fields, so the `{field="value"}` selector
+  works; a bare `field:value` filter does not match them. Grafana LogsQL queries, and EP-6/EP-7,
+  should use these field names. (2026-06-03)
+
+- **Knative request metrics are not scraped by default.** A query for Knative
+  `*request*` series returns empty: VMAgent's default scrape config (kube components, node-exporter,
+  kube-state-metrics, annotated pods) does not include Knative's metrics endpoints. M1 acceptance
+  (node + cluster metrics) holds regardless; surfacing Knative request metrics is a later enhancement
+  (add a VMServiceScrape for the Knative `controller`/`activator` metrics services, or pod annotations)
+  and is not required by EP-5. (2026-06-03)
+
+- **BLOCKER (infra, RESOLVED above): the node's 6 GB boot disk was too small for the observability stack.** On the
   first live install attempt (2026-06-02), `helm upgrade --install vmks` failed with
   `context deadline exceeded` and node-exporter was repeatedly `Evicted` with reason
   `The node had condition: [DiskPressure]`. Root cause: `nagare-01`'s **boot disk is 6 GB**
@@ -182,7 +219,37 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Status (2026-06-03): COMPLETE — all three pillars installed and verified live.** Against the Purpose:
+
+- **Metrics (M1):** `victoria-metrics-k8s-stack` (vmks) in `monitoring`; VMSingle (30d, port 8429,
+  20Gi on `local-path`), VMAgent, node-exporter, kube-state-metrics, the operator, and Grafana (with
+  the VictoriaLogs + VictoriaTraces datasources and the logs-datasource plugin). `up` and
+  `node_memory_MemAvailable_bytes` return live data.
+- **Logs (M2):** `victoria-logs-single` (7d, 20Gi) + the `victoria-logs-collector` DaemonSet in
+  `logging`. Container logs are searchable; the correct query is the stream selector
+  `{kubernetes.pod_namespace="<ns>"}` with fields `kubernetes.pod_namespace`/`.pod_name`/
+  `.container_name` (this chart ships VictoriaLogs' native `vlagent`, not Vector).
+- **Traces (M3):** `victoria-traces-single` (beta, 3d, 10Gi) + the OpenTelemetry Collector in
+  `tracing`. A test trace sent to the Collector's OTLP endpoint is queryable via VictoriaTraces' Jaeger
+  API (service `nagare-test` listed). The Collector OTLP endpoint
+  `otel-collector-opentelemetry-collector.tracing.svc:4317/4318` is the address EP-6 apps target.
+
+All PVCs are Bound to `local-path` on the 100 GB data disk; `helm list -A` shows all five releases
+`deployed`; the install is reproducible via `cluster/observability/install.sh` (`just observability`).
+Grafana is reached by `kubectl port-forward` (Tailscale-only recommended for steady state).
+
+**What changed during implementation vs the draft:** (1) the boot disk had to be enlarged from 6 GB to
+100 GB (a VM rebuild via Pulumi) before the stack would fit — boot-disk sizing should live in EP-2;
+(2) the VM rebuild surfaced that the registered image lacks EP-3's DNS fix, worked around live but
+needing an image rebuild for reproducibility (EP-3 follow-up); (3) the log collector is VictoriaLogs'
+`vlagent` with `kubernetes.pod_*` field names, not Vector; (4) net of pins: charts k8s-stack 0.81.0,
+logs-single 0.13.5, logs-collector 0.3.4, traces-single 0.1.6, otel-collector 0.158.0.
+
+**Gaps / follow-ups (non-blocking for EP-5):** Knative request metrics are not scraped yet (add a
+VMServiceScrape); Grafana datasource "Save & test" was not exercised through the UI (backends verified
+directly instead, which is stronger); the Grafana admin password is a placeholder pending EP-7
+secrets; the host DNS fix is a manual immutable resolv.conf + coredns restart that is not reboot-safe
+until the image is rebuilt.
 
 
 ## Context and Orientation
