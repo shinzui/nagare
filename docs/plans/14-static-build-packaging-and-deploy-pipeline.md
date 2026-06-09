@@ -29,18 +29,39 @@ would apply the service using the same `kubectl` helpers as the existing app dep
 
 ## Progress
 
-- [ ] Add `nagarectl site deploy` CLI options and route them separately from the existing `nagarectl deploy`.
-- [ ] Implement static build execution for `NoBuild` and `BuildCommand` configs.
-- [ ] Implement temporary image-context generation with static files, generated Nginx config, and generated Dockerfile.
-- [ ] Reuse or generalize image tagging, Docker build, Docker push, and Docker auth helpers.
-- [ ] Implement dry-run output for static deploys.
-- [ ] Implement non-dry-run build, push, `kubectl apply`, wait, and URL printing.
-- [ ] Add unit/integration-style tests where practical and a static site example fixture.
+- [x] Add `nagarectl site deploy` CLI options and route them separately from the existing `nagarectl deploy`. (2026-06-09: top-level `Command = Deploy | SiteDeploy`; `site` subparser nests `deploy` with `--file/--tag/--base-domain/--project-dir/--ghc-env/--dry-run/--skip-build`.)
+- [x] Implement static build execution for `NoBuild` and `BuildCommand` configs. (2026-06-09: `Nagare.Static.Build.prepareStaticOutput` runs `BuildCommand` via `sh -c` in the project root and validates the output dir for both variants.)
+- [x] Implement temporary image-context generation with static files, generated Nginx config, and generated Dockerfile. (2026-06-09: `Nagare.Static.Image.withStaticImageContext` writes `Dockerfile`/`nginx.conf`/`site/` into a temp dir cleaned up on exit.)
+- [x] Reuse or generalize image tagging, Docker build, Docker push, and Docker auth helpers. (2026-06-09: added `taggedImageRef :: ImageRef -> Text -> Text`; reused `computeTag`/`configureDockerAuth`/`buildImage`/`pushImage`/`applyManifests`/`waitForReady` unchanged.)
+- [x] Implement dry-run output for static deploys. (2026-06-09: prints generated nginx.conf, Service manifest, any DomainMappings, and the URL with no side effects.)
+- [x] Implement non-dry-run build, push, `kubectl apply`, wait, and URL printing. (2026-06-09: prepare → context → build → push → apply → wait → `Deployed static site: <url>`.)
+- [x] Add unit/integration-style tests where practical and a static site example fixture. (2026-06-09: `nagarectl-test` covers the Dockerfile and `prepareStaticOutput` state machine; `cluster/examples/static-site/` is the worked example.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-06-09: `cradle` (the process library all shell-outs go through) requires
+  GHC's threaded runtime — without `-threaded` every `run`/`run_` throws
+  "Cradle needs the ghc's threaded runtime system to work correctly". The
+  existing executable lacked `-threaded`, so a real `nagarectl deploy` (build /
+  push / apply) would have hit the same error; it only ever ran `--dry-run`
+  before. Added `-threaded` to the `common` ghc-options so both the executable
+  and the test suite link it. The dry-run paths never shell out, which is why
+  the gap went unnoticed.
+
+- 2026-06-09: The static Docker build context copies the prepared output's
+  *contents* (`cp -R <out>/. <ctx>/site`) rather than the directory itself, so
+  files land directly under `site/` and the Dockerfile's
+  `COPY site/ /usr/share/nginx/html/` puts `index.html` at the web root.
+
+- 2026-06-09: `site deploy` keeps the kind-dispatch seam explicit: it calls
+  `loadStaticSite` today and the non-dry-run body is the `SiteStatic` branch.
+  EP-18 swaps the load call for a `loadSite` returning `SiteStatic`/`SiteServer`
+  and adds a parallel Node image-context generator beside `withStaticImageContext`;
+  the tag/build/push/apply/wait helpers and all CLI options are reused unchanged.
+  A `--project-dir` (`-C`, default `.`) option was added beyond the original
+  option list so the build command's working directory and the output-directory
+  resolution are explicit and testable.
 
 
 ## Decision Log
@@ -74,7 +95,43 @@ would apply the service using the same `kubectl` helpers as the existing app dep
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-06-09. `nagarectl site deploy` now deploys a static web project
+from a developer's machine, alongside the unchanged `nagarectl deploy`.
+
+What exists now that did not before:
+
+- A kind-dispatching CLI: `nagarectl site deploy` (in `cli/nagarectl/app/Main.hs`)
+  loads a `StaticSite`, renders the generated Nginx config and Knative manifests,
+  and — unless `--dry-run` — prepares the output, packages it into a generated
+  Nginx image, pushes, applies, waits, and prints `Deployed static site: <url>`.
+- `Nagare.Static.Build` — `prepareStaticOutput` runs the build (or skips it) and
+  validates the output directory, with a renderable `StaticBuildError`.
+- `Nagare.Static.Image` — `staticDockerfile` and `withStaticImageContext`, which
+  assemble the temp Docker context (`Dockerfile` + `nginx.conf` + `site/`).
+- `Nagare.Image.taggedImageRef` — the runtime-agnostic `ImageRef -> tag -> ref`
+  helper EP-18 also uses; `imageRef` is now defined in terms of it.
+- A worked example at `cluster/examples/static-site/` and real `nagarectl-test`
+  unit tests.
+
+Validation: `nagarectl site deploy --dry-run` on `cluster/examples/static-site`
+prints the generated nginx.conf (redirect, header rule, immutable-asset cache,
+default max-age, 404 page), the Knative Service (Nginx image, port 8080), and
+`URL: https://static-site.personal.apps.example.com`. The existing
+`nagarectl deploy --dry-run` for `hello-knative-service` is unchanged. A
+`site deploy` on a `Deployment` config fails with the precise EP-13
+`UnexpectedKind` error and exit code 1. `cabal test` in `cli/nagarectl/` passes
+all 6 helper tests. Full Docker + cluster execution (build, push, apply, Ready)
+is documented as manual validation in the example README because it needs a
+Docker daemon and a live cluster.
+
+Handoffs:
+
+- EP-15 reuses this deploy path for previews (set `StaticDeployContext.previewName`)
+  and rollback (re-apply `renderStaticService` with a prior `imageTag`); the
+  release record it adds wraps the same `taggedImageRef` tag.
+- EP-18 adds the `SiteServer` branch at the `loadStaticSite` seam in
+  `runSiteDeploy` and a Node image-context generator beside
+  `withStaticImageContext`, reusing every other helper.
 
 
 ## Context and Orientation

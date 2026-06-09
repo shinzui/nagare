@@ -12,6 +12,7 @@ module Nagare.Image
   , configureDockerAuth
   , pushImage
   , imageRef
+  , taggedImageRef
   ) where
 
 import Nagare.Dsl.Prelude
@@ -21,7 +22,7 @@ import "generic-lens" Data.Generics.Labels ()
 import Cradle
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
-import Nagare.Dsl.Types (Deployment, imageRefText)
+import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText)
 
 -- | Artifact Registry host for Docker credential configuration.
 registryHost :: String
@@ -38,7 +39,14 @@ computeTag = do
 -- path is read from the deployment's 'Nagare.Dsl.Types.ImageRef'; the @tag@ is
 -- the value 'computeTag' (or @--tag@) produced.
 imageRef :: Deployment -> Text -> Text
-imageRef dep tag = imageRefText (dep ^. #image) <> ":" <> tag
+imageRef dep tag = taggedImageRef (dep ^. #image) tag
+
+-- | The full image reference for any 'ImageRef' and tag, e.g.
+-- @"gcr.io/foo/bar" + "20260607-120000" -> "gcr.io/foo/bar:20260607-120000"@.
+-- The runtime-agnostic form used by both the app deploy ('imageRef') and the
+-- static/server site deploy paths.
+taggedImageRef :: ImageRef -> Text -> Text
+taggedImageRef ref tag = imageRefText ref <> ":" <> tag
 
 -- | Run @docker build -t \<image:tag\> \<context\>@.
 -- The @context@ argument is the build-context directory (typically @"."@).

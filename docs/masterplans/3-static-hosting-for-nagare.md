@@ -111,7 +111,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | Complete |
-| 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Not Started |
+| 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Complete |
 | 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Not Started |
 | 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Not Started |
 | 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Not Started |
@@ -242,7 +242,7 @@ describe the server image only at the user-visible level; users never hand-write
 
 - [x] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API. (2026-06-09)
 - [x] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules. (2026-06-09)
-- [ ] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply.
+- [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09)
 - [ ] EP-15: Add release metadata, release listing, rollback, and preview deploy naming.
 - [ ] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys.
 - [ ] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting.
@@ -266,6 +266,17 @@ describe the server image only at the user-visible level; users never hand-write
   re-pattern-matching `StaticBuild`. The renderer's `StaticDeployContext` already
   carries `previewName`, wired for EP-15's preview deploys but passed `Nothing`
   on the production path.
+- 2026-06-09 (EP-14): `cradle`, the process library every `nagarectl` shell-out
+  uses, requires GHC's threaded runtime. The executable lacked `-threaded`, so a
+  real `nagarectl deploy` (not just `--dry-run`) would have thrown before this
+  plan. Added `-threaded` to the `nagarectl` common ghc-options — this also
+  un-breaks the pre-existing app `deploy` path, not just the new `site deploy`.
+- 2026-06-09 (EP-14): `Nagare.Image.taggedImageRef :: ImageRef -> Text -> Text`
+  is the runtime-agnostic image-ref helper (Integration Point 3); EP-18's Node
+  path and EP-15's rollback both use it. The kind-dispatch seam in
+  `runSiteDeploy` (currently `loadStaticSite`) is where EP-18 plugs in `loadSite`,
+  and `withStaticImageContext` is the static sibling of EP-18's future Node
+  image-context generator.
 
 
 ## Decision Log

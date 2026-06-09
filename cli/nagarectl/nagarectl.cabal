@@ -24,6 +24,7 @@ common common
   ghc-options:
     -Wall
     -Wno-unused-imports
+    -threaded
 
 library
   import: common
@@ -31,11 +32,15 @@ library
   exposed-modules:
     Nagare.Deploy
     Nagare.Image
+    Nagare.Static.Build
+    Nagare.Static.Image
 
   build-depends:
     base >=4.17 && <5,
     bytestring,
     cradle,
+    directory,
+    filepath,
     generic-lens ^>=2.2,
     lens ^>=5.3,
     nagare-dsl,
@@ -64,4 +69,13 @@ test-suite nagarectl-test
   main-is: Spec.hs
   hs-source-dirs: test
   build-depends:
-    base
+    base,
+    bytestring,
+    directory,
+    filepath,
+    nagare-dsl,
+    nagarectl,
+    tasty >=1.4,
+    tasty-hunit >=0.10,
+    temporary,
+    text,
