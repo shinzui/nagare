@@ -31,6 +31,8 @@ library
     Nagare.Dsl.Prelude
     Nagare.Dsl.Presets
     Nagare.Dsl.Render
+    Nagare.Dsl.Static.Render
+    Nagare.Dsl.Static.Types
     Nagare.Dsl.Types
 
   build-depends:

@@ -29,12 +29,12 @@ reject invalid rules, and compare rendered YAML/Nginx config against golden file
 
 ## Progress
 
-- [ ] Add `Nagare.Dsl.Static.Types` with the `StaticSite` model and validating smart constructors.
-- [ ] Extend `Nagare.Dsl.Config` and `Nagare.Dsl.Load` so config-as-program files can emit and load static sites without breaking existing `Deployment` loading.
-- [ ] Add `Nagare.Dsl.Static.Render` with renderers for Nginx config, Knative Service, and DomainMappings.
+- [x] Add `Nagare.Dsl.Static.Types` with the `StaticSite` model and validating smart constructors. (2026-06-09)
+- [x] Extend `Nagare.Dsl.Config` and `Nagare.Dsl.Load` so config-as-program files can emit and load static sites without breaking existing `Deployment` loading. (2026-06-09)
+- [x] Add `Nagare.Dsl.Static.Render` with renderers for Nginx config, Knative Service, and DomainMappings. (2026-06-09)
 - [ ] Add positive fixtures and golden tests for a static site with domains, redirects, headers, cache policy, and a 404 page.
 - [ ] Add negative tests for invalid site names, directories, redirect rules, header names, status codes, and conflicting emit output.
-- [ ] Update `nagare-dsl.cabal` exposed modules and run the `cli/nagare-dsl` test suite.
+- [x] Update `nagare-dsl.cabal` exposed modules; run the `cli/nagare-dsl` test suite after tests are added. (2026-06-09: cabal exposes `Nagare.Dsl.Static.Types` and `Nagare.Dsl.Static.Render`; library builds clean.)
 
 
 ## Surprises & Discoveries
@@ -63,6 +63,16 @@ reject invalid rules, and compare rendered YAML/Nginx config against golden file
   headers are project-level declarations. A typed renderer can validate rule shape before deploy and
   can later import `_redirects` and `_headers` compatibility without exposing Nginx internals.
   Date: 2026-06-07
+
+- Decision: Treat the JSON `kind` discriminator and the shared leaf types (`SiteName`,
+  `FilePathText`) as an open extension surface, not a static-only one.
+  Rationale: `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md` (EP-18) adds a
+  sibling `ServerSite` model for server-rendered apps such as TanStack Start, emitted with
+  `"kind":"ServerSite"` and reusing `SiteName` and `FilePathText` from `Nagare.Dsl.Static.Types`.
+  This plan therefore keeps the loader's `kind` handling tolerant of additional known kinds (returning
+  a precise error for an unexpected kind rather than assuming static), and exposes `SiteName`,
+  `FilePathText`, and `mkFilePathText` so EP-18 can import them instead of redefining them.
+  Date: 2026-06-09
 
 
 ## Outcomes & Retrospective
@@ -246,3 +256,13 @@ module Nagare.Dsl.Static.Render
   , renderStaticDomainMappings
   ) where
 ```
+
+
+## Revision Notes
+
+- 2026-06-09: Recorded that the `kind` discriminator and the `SiteName`/`FilePathText` leaf types are
+  a shared extension surface reused by `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md`
+  (EP-18), which adds a `ServerSite` model for server-rendered apps (TanStack Start and other Node
+  frameworks). No change to this plan's static-site model, renderers, or tests; the amendment only
+  fixes the contract EP-18 builds on. Reason: the parent MasterPlan was extended to support full-stack
+  server-runtime hosting in addition to static hosting.

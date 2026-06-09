@@ -9,6 +9,7 @@
 -- constructors as defence in depth.
 module Nagare.Dsl.Config
   ( emitDeployment
+  , emitStaticSite
   ) where
 
 import "generic-lens" Data.Generics.Labels ()
@@ -18,6 +19,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
@@ -55,4 +57,59 @@ deploymentJSON dep =
         [ "varName" .= envNameText n
         , "kind" .= ("SecretRef" :: Text)
         , "secretName" .= secretNameText sn
+        ]
+
+-- | Serialize a 'StaticSite' to JSON and write it to stdout. Call this as the
+-- last line of a static project's @Config.hs@ @main@. The top-level
+-- @"kind": "StaticSite"@ discriminator lets the loader report a precise error if
+-- a config emits the wrong shape under @nagarectl site deploy@.
+emitStaticSite :: StaticSite -> IO ()
+emitStaticSite site = LBS.putStr (encode (staticSiteJSON site))
+
+-- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeStaticSite').
+staticSiteJSON :: StaticSite -> Value
+staticSiteJSON site =
+  object
+    [ "kind" .= ("StaticSite" :: Text)
+    , "name" .= siteNameText (site ^. #name)
+    , "namespace" .= namespaceText (site ^. #namespace)
+    , "image" .= imageRefText (site ^. #image)
+    , "build" .= buildJSON (site ^. #build)
+    , "domains" .= map domainText (site ^. #domains)
+    , "redirects" .= map redirectJSON (site ^. #redirects)
+    , "headers" .= map headerJSON (site ^. #headers)
+    , "cache" .= cacheJSON (site ^. #cache)
+    , "notFound" .= fmap filePathText (site ^. #notFound)
+    ]
+  where
+    buildJSON (NoBuild dir) =
+      object
+        [ "kind" .= ("NoBuild" :: Text)
+        , "directory" .= filePathText dir
+        ]
+    buildJSON (BuildCommand cmd outDir) =
+      object
+        [ "kind" .= ("BuildCommand" :: Text)
+        , "command" .= cmd
+        , "outputDirectory" .= filePathText outDir
+        ]
+
+    redirectJSON r =
+      object
+        [ "from" .= (r ^. #from)
+        , "to" .= (r ^. #to)
+        , "status" .= (r ^. #status)
+        ]
+
+    headerJSON h =
+      object
+        [ "path" .= (h ^. #path)
+        , "name" .= (h ^. #name)
+        , "value" .= (h ^. #value)
+        ]
+
+    cacheJSON cp =
+      object
+        [ "immutableAssets" .= immutableAssets cp
+        , "defaultMaxAge" .= defaultMaxAge cp
         ]

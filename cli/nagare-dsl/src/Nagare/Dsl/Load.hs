@@ -10,6 +10,8 @@ module Nagare.Dsl.Load
   , renderLoadError
   , loadDeployment
   , decodeDeployment
+  , loadStaticSite
+  , decodeStaticSite
   ) where
 
 import Control.Exception (IOException, try)
@@ -19,6 +21,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
@@ -41,6 +44,11 @@ data LoadError
   | -- | the emitted JSON decoded but a field failed an EP-9 smart constructor
     -- (field name, message)
     MarshalError !Text !Text
+  | -- | the config emitted a different @kind@ than the loader expected, e.g. a
+    -- config that calls 'Nagare.Dsl.Config.emitDeployment' loaded under
+    -- @nagarectl site deploy@, or a @ServerSite@ where a @StaticSite@ was
+    -- expected (expected kind, actual kind)
+    UnexpectedKind !Text !Text
   deriving stock (Generic, Eq, Show)
 
 -- | Render a 'LoadError' as a single line (or short block) for the terminal.
@@ -54,6 +62,12 @@ renderLoadError = \case
     "nagare: " <> Text.pack path <> " compiled but did not produce a 'deployment' value"
   MarshalError field msg ->
     "nagare: field '" <> field <> "' failed validation: " <> msg
+  UnexpectedKind expected got ->
+    "nagare: config emitted a '"
+      <> got
+      <> "' but '"
+      <> expected
+      <> "' was expected (did it call the wrong emit* function?)"
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate (mirrors Nagare.Dsl.Config's emitted shape)
@@ -179,16 +193,179 @@ decodeDeployment bs =
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
     Right jd -> toDeployment jd
 
--- | Load a 'Deployment' from a Haskell config-as-program source file.
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for static sites (mirrors Nagare.Dsl.Config's emitted shape)
+
+-- | A minimal envelope used to read the top-level @kind@ discriminator before
+-- committing to a full decode.
+newtype JsonKindEnvelope = JsonKindEnvelope {jkeKind :: Maybe Text}
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonKindEnvelope where
+  parseJSON = withObject "kinded" $ \o -> JsonKindEnvelope <$> o .:? "kind"
+
+data JsonStaticBuild = JsonStaticBuild
+  { jsbKind :: !Text
+  , jsbDirectory :: !(Maybe Text)
+  , jsbCommand :: !(Maybe Text)
+  , jsbOutputDirectory :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonStaticBuild where
+  parseJSON = withObject "StaticBuild" $ \o ->
+    JsonStaticBuild
+      <$> o .: "kind"
+      <*> o .:? "directory"
+      <*> o .:? "command"
+      <*> o .:? "outputDirectory"
+
+data JsonRedirect = JsonRedirect
+  { jrFrom :: !Text
+  , jrTo :: !Text
+  , jrStatus :: !Int
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonRedirect where
+  parseJSON = withObject "RedirectRule" $ \o ->
+    JsonRedirect <$> o .: "from" <*> o .: "to" <*> o .: "status"
+
+data JsonHeader = JsonHeader
+  { jhPath :: !Text
+  , jhName :: !Text
+  , jhValue :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonHeader where
+  parseJSON = withObject "HeaderRule" $ \o ->
+    JsonHeader <$> o .: "path" <*> o .: "name" <*> o .: "value"
+
+data JsonCache = JsonCache
+  { jcImmutableAssets :: !Bool
+  , jcDefaultMaxAge :: !(Maybe Int)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonCache where
+  parseJSON = withObject "CachePolicy" $ \o ->
+    JsonCache <$> o .: "immutableAssets" <*> o .:? "defaultMaxAge"
+
+data JsonStaticSite = JsonStaticSite
+  { jssName :: !Text
+  , jssNamespace :: !Text
+  , jssImage :: !Text
+  , jssBuild :: !JsonStaticBuild
+  , jssDomains :: ![Text]
+  , jssRedirects :: ![JsonRedirect]
+  , jssHeaders :: ![JsonHeader]
+  , jssCache :: !JsonCache
+  , jssNotFound :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonStaticSite where
+  parseJSON = withObject "StaticSite" $ \o ->
+    JsonStaticSite
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "image"
+      <*> o .: "build"
+      <*> o .: "domains"
+      <*> o .: "redirects"
+      <*> o .: "headers"
+      <*> o .: "cache"
+      <*> o .:? "notFound"
+
+-- ---------------------------------------------------------------------------
+-- Marshalling JsonStaticSite -> StaticSite (re-runs the smart constructors)
+
+toStaticSite :: JsonStaticSite -> Either LoadError StaticSite
+toStaticSite j = do
+  name' <- mapLeft (MarshalError "name") $ mkSiteName (jssName j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jssNamespace j)
+  img' <- mapLeft (MarshalError "image") $ mkImageRef (jssImage j)
+  build' <- toStaticBuild (jssBuild j)
+  domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jssDomains j)
+  redirects' <- traverse toRedirect (jssRedirects j)
+  headers' <- traverse toHeader (jssHeaders j)
+  cache' <-
+    mapLeft (MarshalError "cache") $
+      mkCachePolicy (jcImmutableAssets cacheJ) (jcDefaultMaxAge cacheJ)
+  notFound' <- traverse (mapLeft (MarshalError "notFound") . mkFilePathText) (jssNotFound j)
+  Right
+    StaticSite
+      { name = name'
+      , namespace = ns'
+      , image = img'
+      , build = build'
+      , domains = domains'
+      , redirects = redirects'
+      , headers = headers'
+      , cache = cache'
+      , notFound = notFound'
+      }
+  where
+    cacheJ = jssCache j
+
+toStaticBuild :: JsonStaticBuild -> Either LoadError StaticBuild
+toStaticBuild jb = case jsbKind jb of
+  "NoBuild" -> case jsbDirectory jb of
+    Nothing -> Left (MarshalError "build" "NoBuild entry missing 'directory' field")
+    Just d -> fmap NoBuild . mapLeft (MarshalError "build.directory") $ mkFilePathText d
+  "BuildCommand" -> do
+    cmd <-
+      maybe (Left (MarshalError "build" "BuildCommand entry missing 'command' field")) Right $
+        jsbCommand jb
+    outD <-
+      maybe (Left (MarshalError "build" "BuildCommand entry missing 'outputDirectory' field")) Right $
+        jsbOutputDirectory jb
+    outD' <- mapLeft (MarshalError "build.outputDirectory") $ mkFilePathText outD
+    Right (BuildCommand {command = cmd, outputDirectory = outD'})
+  other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
+
+toRedirect :: JsonRedirect -> Either LoadError RedirectRule
+toRedirect jr =
+  mapLeft (MarshalError "redirect") $ mkRedirectRule (jrFrom jr) (jrTo jr) (jrStatus jr)
+
+toHeader :: JsonHeader -> Either LoadError HeaderRule
+toHeader jh =
+  mapLeft (MarshalError "header") $ mkHeaderRule (jhPath jh) (jhName jh) (jhValue jh)
+
+-- | Decode the JSON a config program emits (via
+-- 'Nagare.Dsl.Config.emitStaticSite') into a validated 'StaticSite', re-running
+-- the smart constructors. The top-level @kind@ is checked first: a missing or
+-- non-@StaticSite@ kind is reported as 'UnexpectedKind' (so a config that emits
+-- a 'Deployment' under @nagarectl site deploy@ fails precisely rather than being
+-- misread). Exposed so the marshalling path can be unit-tested without spawning
+-- a subprocess.
+decodeStaticSite :: ByteString -> Either LoadError StaticSite
+decodeStaticSite bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "StaticSite" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode static site: " <> Text.pack perr))
+        Right jss -> toStaticSite jss
+      Just other -> Left (UnexpectedKind "StaticSite" other)
+      Nothing -> Left (UnexpectedKind "StaticSite" "<none>")
+
+-- | Compile-and-run a config-as-program source file with @runghc@ and capture
+-- the JSON it prints on stdout, mapping every failure mode to a 'LoadError'.
 --
--- The file is compiled and run with @runghc@ (with the house @GHC2024@ edition
--- and the config's directory on the include path). The config must print its
--- JSON via 'Nagare.Dsl.Config.emitDeployment'. @runghc@ resolves the
--- @nagare-dsl@ package through the project's @.ghc.environment.*@ file
--- (@write-ghc-environment-files: always@ in @cabal.project@); see this plan's
--- Decision Log for the production-provisioning note handed to EP-12.
-loadDeployment :: FilePath -> IO (Either LoadError Deployment)
-loadDeployment path = do
+-- The file is run with @runghc@ (the house @GHC2024@ edition and the config's
+-- directory on the include path). @runghc@ resolves the @nagare-dsl@ package
+-- through the project's @.ghc.environment.*@ file
+-- (@write-ghc-environment-files: always@ in @cabal.project@). The config must
+-- print its JSON via one of the @Nagare.Dsl.Config.emit*@ helpers; empty output
+-- means it never called one ('MissingBinding'). The decoder that reads the
+-- captured bytes is chosen by the caller ('decodeDeployment' or
+-- 'decodeStaticSite').
+runConfig :: FilePath -> IO (Either LoadError ByteString)
+runConfig path = do
   exists <- doesFileExist path
   if not exists
     then pure (Left (FileNotFound path))
@@ -202,4 +379,18 @@ loadDeployment path = do
         Right (ExitFailure _, _out, err) -> Left (CompileError path (Text.pack err))
         Right (ExitSuccess, out, _err)
           | null out -> Left (MissingBinding path)
-          | otherwise -> decodeDeployment (BC.pack out)
+          | otherwise -> Right (BC.pack out)
+
+-- | Load a 'Deployment' from a Haskell config-as-program source file. The config
+-- must print its JSON via 'Nagare.Dsl.Config.emitDeployment'. See 'runConfig'
+-- for the compile-and-run contract; see this plan's Decision Log for the
+-- production-provisioning note handed to EP-12.
+loadDeployment :: FilePath -> IO (Either LoadError Deployment)
+loadDeployment path = fmap (>>= decodeDeployment) (runConfig path)
+
+-- | Load a 'StaticSite' from a Haskell config-as-program source file. The config
+-- must print its JSON via 'Nagare.Dsl.Config.emitStaticSite'. A config that
+-- instead emits a 'Deployment' (or a future @ServerSite@) is reported as
+-- 'UnexpectedKind', not silently misread.
+loadStaticSite :: FilePath -> IO (Either LoadError StaticSite)
+loadStaticSite path = fmap (>>= decodeStaticSite) (runConfig path)
