@@ -112,7 +112,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 |---|-------|------|-----------|-----------|--------|
 | 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | Complete |
 | 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Complete |
-| 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Not Started |
+| 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Complete |
 | 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Not Started |
 | 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Not Started |
 | 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Not Started |
@@ -243,7 +243,7 @@ describe the server image only at the user-visible level; users never hand-write
 - [x] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API. (2026-06-09)
 - [x] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules. (2026-06-09)
 - [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09)
-- [ ] EP-15: Add release metadata, release listing, rollback, and preview deploy naming.
+- [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation)
 - [ ] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys.
 - [ ] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting.
 - [ ] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`.
@@ -277,6 +277,20 @@ describe the server image only at the user-visible level; users never hand-write
   `runSiteDeploy` (currently `loadStaticSite`) is where EP-18 plugs in `loadSite`,
   and `withStaticImageContext` is the static sibling of EP-18's future Node
   image-context generator.
+- 2026-06-09 (EP-15): Release records (Integration Point 4) live in ConfigMap
+  `nagare-static-releases-<site>`, data key `releases.json`, schema
+  `{current, releases:[{releaseId, siteName, namespace, image, imageTag, url,
+  source, createdAt}]}`, newest-first, capped at 50. The record is
+  runtime-agnostic, so EP-18 server sites and EP-16 webhook deploys append through
+  the same `writeReleaseLog`. Previews are separate Knative Services named
+  `<site>-pr-<name>` with domain `<preview>.<site>.preview.<base>` — identified by
+  name prefix (no labels), so EP-17 documents that convention and EP-16 triggers
+  `site preview deploy` for PR builds with no extra schema.
+- 2026-06-09 (EP-15): EP-15's kubectl-backed lifecycle (`releases`, `rollback`,
+  `preview list`/`delete`) is implemented and unit-tested for all pure logic, but
+  its end-to-end run requires a live cluster and is recorded as manual validation
+  (see the static-site example README). This does not block EP-16/EP-17/EP-18,
+  which depend on the deploy path and record schema, both complete.
 
 
 ## Decision Log

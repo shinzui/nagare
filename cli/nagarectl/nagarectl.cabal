@@ -34,8 +34,11 @@ library
     Nagare.Image
     Nagare.Static.Build
     Nagare.Static.Image
+    Nagare.Static.Preview
+    Nagare.Static.Release
 
   build-depends:
+    aeson,
     base >=4.17 && <5,
     bytestring,
     cradle,
@@ -62,6 +65,7 @@ executable nagarectl
     nagarectl,
     optparse-applicative,
     text,
+    time,
 
 test-suite nagarectl-test
   import: common
@@ -69,6 +73,7 @@ test-suite nagarectl-test
   main-is: Spec.hs
   hs-source-dirs: test
   build-depends:
+    aeson,
     base,
     bytestring,
     directory,
@@ -79,3 +84,4 @@ test-suite nagarectl-test
     tasty-hunit >=0.10,
     temporary,
     text,
+    time,
