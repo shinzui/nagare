@@ -58,6 +58,19 @@ would apply the service using the same `kubectl` helpers as the existing app dep
   Docker or cluster side effects.
   Date: 2026-06-07
 
+- Decision: Treat `nagarectl site deploy` as a kind-dispatching command and the image-context
+  generation as a per-runtime step, not a static-only path.
+  Rationale: `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md` (EP-18) adds a
+  server runtime (Node image for TanStack Start and similar) under the same `nagarectl site deploy`
+  command, selected by the config's `kind` rather than a new flag. This plan should therefore route
+  through the dispatching loader (EP-18's `loadSite`, falling back to `loadStaticSite` if EP-18 is not
+  yet implemented), keep the static Nginx-image generation behind a `SiteStatic` branch, and factor
+  the temporary image-context helper (write Dockerfile, copy files, build, push) so EP-18 can add a
+  parallel Node image-context generator that reuses the same image tagging, build, push, apply, and
+  wait helpers. The CLI options defined here (`--file`, `--tag`, `--base-domain`, `--ghc-env`,
+  `--dry-run`, `--skip-build`) are reused unchanged by the server path.
+  Date: 2026-06-09
+
 
 ## Outcomes & Retrospective
 
@@ -219,3 +232,14 @@ renderStaticDomainMappings :: StaticSite -> StaticDeployContext -> [ByteString]
 It should add modules under `cli/nagarectl/src/Nagare/Static/` and expose them in
 `cli/nagarectl/nagarectl.cabal` if tests import them. External command dependencies are `docker`,
 `gcloud`, and `kubectl`, matching the existing deploy command's assumptions.
+
+
+## Revision Notes
+
+- 2026-06-09: Recorded that `nagarectl site deploy` is a kind-dispatching command shared with
+  `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md` (EP-18). The static path
+  described here is the `SiteStatic` branch; EP-18 adds the `SiteServer` branch (Node image for
+  TanStack Start and similar) reusing the same CLI options and image/deploy helpers. The image-context
+  helper should be factored so EP-18 can add a parallel Node generator. No change to this plan's static
+  build, packaging, or example; the amendment only clarifies the extension seam. Reason: the parent
+  MasterPlan was extended to support full-stack server-runtime hosting.
