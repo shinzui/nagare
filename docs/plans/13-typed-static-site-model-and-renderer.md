@@ -32,14 +32,36 @@ reject invalid rules, and compare rendered YAML/Nginx config against golden file
 - [x] Add `Nagare.Dsl.Static.Types` with the `StaticSite` model and validating smart constructors. (2026-06-09)
 - [x] Extend `Nagare.Dsl.Config` and `Nagare.Dsl.Load` so config-as-program files can emit and load static sites without breaking existing `Deployment` loading. (2026-06-09)
 - [x] Add `Nagare.Dsl.Static.Render` with renderers for Nginx config, Knative Service, and DomainMappings. (2026-06-09)
-- [ ] Add positive fixtures and golden tests for a static site with domains, redirects, headers, cache policy, and a 404 page.
-- [ ] Add negative tests for invalid site names, directories, redirect rules, header names, status codes, and conflicting emit output.
-- [x] Update `nagare-dsl.cabal` exposed modules; run the `cli/nagare-dsl` test suite after tests are added. (2026-06-09: cabal exposes `Nagare.Dsl.Static.Types` and `Nagare.Dsl.Static.Render`; library builds clean.)
+- [x] Add positive fixtures and golden tests for a static site with domains, redirects, headers, cache policy, and a 404 page. (2026-06-09: `test/fixtures/static-site/nagare/Config.hs` loads via `loadStaticSite` to the expected `StaticSite`; goldens `static-site.nginx.conf`, `static-site.service.yaml`, `static-site.domainmapping.yaml`.)
+- [x] Add negative tests for invalid site names, directories, redirect rules, header names, status codes, and conflicting emit output. (2026-06-09: `StaticSpec.hs` covers constructor-level and `decodeStaticSite` rejections incl. `UnexpectedKind` for missing/`ServerSite` kind.)
+- [x] Update `nagare-dsl.cabal` exposed modules; run the `cli/nagare-dsl` test suite after tests are added. (2026-06-09: cabal exposes `Nagare.Dsl.Static.Types`/`Nagare.Dsl.Static.Render`, adds `StaticSpec` to the test suite; `cabal test` reports all 95 tests passing.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-06-09: Added a dedicated `UnexpectedKind !Text !Text` (expected, actual)
+  constructor to `Nagare.Dsl.Load.LoadError` rather than overloading
+  `MarshalError` for the kind-discriminator mismatch. This makes "config emitted
+  the wrong shape" a distinct, matchable failure for the kind-dispatching
+  `loadSite` that EP-18 adds and that EP-14's `nagarectl site deploy` calls. It
+  is a backward-compatible addition: existing `loadDeployment`/`decodeDeployment`
+  behavior is unchanged (a deployment-shaped config has no `kind` field and is
+  only rejected on the *static* path). `renderLoadError` handles the new
+  constructor.
+
+- 2026-06-09: The loader subprocess runner was factored out of `loadDeployment`
+  into a shared `runConfig :: FilePath -> IO (Either LoadError ByteString)` so
+  `loadStaticSite` reuses the exact compile-and-run + `MissingBinding`/`CompileError`
+  contract. `loadDeployment = fmap (>>= decodeDeployment) . runConfig` is
+  behaviorally identical to the previous inline implementation.
+
+- 2026-06-09: `Nagare.Dsl.Static.Types` exports a few helpers beyond the
+  illustrative list in Interfaces and Dependencies, because EP-14/EP-15 will need
+  them: `siteNameText`, `filePathText`, `staticOutputDir`, `staticBuildCommand`,
+  `allowedRedirectStatuses`, `defaultCachePolicy`, and `mkCachePolicy`. In
+  particular `staticOutputDir`/`staticBuildCommand` give EP-14 the directory to
+  package and the optional build command to run without re-pattern-matching
+  `StaticBuild`.
 
 
 ## Decision Log
@@ -77,7 +99,46 @@ reject invalid rules, and compare rendered YAML/Nginx config against golden file
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-06-09. Nagare's typed DSL can now describe a static site and
+render it to the three deploy artifacts, all proven offline by `cabal test`.
+
+What exists now that did not before:
+
+- `Nagare.Dsl.Static.Types` — the `StaticSite` model with hidden-constructor
+  leaf newtypes (`SiteName`, `FilePathText`) and validating smart constructors
+  for site names, relative paths, redirect rules (status restricted to
+  301/302/303/307/308), header rules (name rejects whitespace, control chars,
+  and colon), and `CachePolicy`. `StaticBuild` is `NoBuild`/`BuildCommand`.
+- `Nagare.Dsl.Config.emitStaticSite` — JSON transport tagged
+  `"kind":"StaticSite"`; `emitDeployment` is untouched.
+- `Nagare.Dsl.Load.loadStaticSite`/`decodeStaticSite` — kind-checked decode that
+  re-runs every smart constructor and reports `UnexpectedKind` when a config
+  emits the wrong shape.
+- `Nagare.Dsl.Static.Render` — `renderNginxConfig`, `renderStaticService`,
+  `renderStaticDomainMappings`, with `StaticDeployContext { imageTag, previewName }`.
+
+Validation: `cabal test` in `cli/nagare-dsl/` reports all 95 tests passing
+(63 pre-existing + 32 new), including the fixture round-trip, three render
+goldens, and the constructor/decoder negative cases.
+
+Handoffs to later plans:
+
+- EP-14 consumes `loadStaticSite` and the three renderers. `previewName` in
+  `StaticDeployContext` is wired for EP-15 but unused on the production path
+  (pass `Nothing`). The Nginx image must serve `/usr/share/nginx/html` on port
+  8080 and place `renderNginxConfig` output where Nginx reads its server block.
+- EP-18 imports `SiteName`, `FilePathText`, and `mkFilePathText` from
+  `Nagare.Dsl.Static.Types` and adds a sibling `ServerSite` kind; the loader's
+  kind handling already returns a precise `UnexpectedKind` for any kind it does
+  not recognise, so EP-18's `loadSite` dispatcher slots in without changing the
+  static path.
+
+Possible follow-ups (not blocking): the Nginx `location` precedence when a
+header-rule path and the immutable-asset regex both match a request is resolved
+by nginx's longest-prefix/regex rules, not by declaration order; EP-14's
+end-to-end serving test should confirm the intended header wins for a real
+fingerprinted asset. A `_redirects`/`_headers` importer was deliberately left
+out of this plan (see Decision Log).
 
 
 ## Context and Orientation

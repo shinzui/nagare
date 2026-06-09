@@ -110,7 +110,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | In Progress |
+| 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | Complete |
 | 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Not Started |
 | 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Not Started |
 | 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Not Started |
@@ -240,8 +240,8 @@ describe the server image only at the user-visible level; users never hand-write
 
 ## Progress
 
-- [ ] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API.
-- [ ] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules.
+- [x] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API. (2026-06-09)
+- [x] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules. (2026-06-09)
 - [ ] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply.
 - [ ] EP-15: Add release metadata, release listing, rollback, and preview deploy naming.
 - [ ] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys.
@@ -252,7 +252,20 @@ describe the server image only at the user-visible level; users never hand-write
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-06-09 (EP-13): The shared loader gained a dedicated
+  `UnexpectedKind !Text !Text` constructor on `Nagare.Dsl.Load.LoadError`,
+  distinct from `MarshalError`, so a config emitting the wrong `kind` fails
+  precisely. This is the hook EP-18's kind-dispatching `loadSite` and EP-14's
+  `nagarectl site deploy` rely on (Integration Points 1 and 7): the static path
+  already rejects a `Deployment`-shaped or `ServerSite` config rather than
+  misreading it. Backward compatible — `loadDeployment` is unchanged.
+- 2026-06-09 (EP-13): `Nagare.Dsl.Static.Types` exposes more than the
+  illustrative export list — notably `staticOutputDir`/`staticBuildCommand`
+  (the directory to package and the optional build command) and
+  `siteNameText`/`filePathText`. EP-14 should import these rather than
+  re-pattern-matching `StaticBuild`. The renderer's `StaticDeployContext` already
+  carries `previewName`, wired for EP-15's preview deploys but passed `Nothing`
+  on the production path.
 
 
 ## Decision Log

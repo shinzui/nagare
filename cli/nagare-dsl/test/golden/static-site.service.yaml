@@ -1,0 +1,12 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notes
+  namespace: personal
+spec:
+  template:
+    spec:
+      containers:
+      - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes:20260607-120000
+        ports:
+        - containerPort: 8080
