@@ -118,6 +118,20 @@ it. Only Traefik is disabled.
 All via **non-authoritative** `*IAMMember` resources (never clobber the shared
 project's existing bindings).
 
+## `nagarectl site` commands (static & full-stack hosting)
+
+| Command | Does |
+| --- | --- |
+| `nagarectl site deploy` | Build, package, and deploy the site in the current dir (static → Nginx image; full-stack → Node image, auto-detected from the config `kind`). |
+| `nagarectl site deploy --dry-run` | Print the generated Nginx config / Dockerfile and Knative manifests; no side effects. |
+| `nagarectl site releases` | List recorded releases (per-site ConfigMap; `*` = live). |
+| `nagarectl site rollback RELEASE_ID` | Re-point production at a prior release's image tag. |
+| `nagarectl site preview deploy --name NAME` | Deploy an isolated preview Service + domain (static sites). |
+| `nagarectl site preview list` / `delete NAME` | List / remove previews. |
+
+See the [Static & full-stack site hosting](static-hosting.md) guide. The webhook
+runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.
+
 ## Domain model
 
 ```text

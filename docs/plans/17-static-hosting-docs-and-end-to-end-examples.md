@@ -28,18 +28,27 @@ Nagare cluster, they can follow the end-to-end section and get a public static s
 
 ## Progress
 
-- [ ] Add a static hosting user guide under `docs/user/`.
-- [ ] Add or finalize `cluster/examples/static-site/` with a typed config, static files, redirects, headers, and README.
-- [ ] Document `nagarectl site deploy`, dry-run, releases, rollback, and preview commands.
-- [ ] Document Git webhook setup if EP-16 is complete; otherwise document it as a planned follow-up with exact status.
-- [ ] Update `docs/user/README.md` and `docs/user/reference.md` to link the static hosting guide.
-- [ ] Run the dry-run validation path and record expected output excerpts in the guide.
-- [ ] Run live validation if Docker and the Nagare cluster are available; record any deferred steps clearly.
+- [x] Add a static hosting user guide under `docs/user/`. (2026-06-09: `docs/user/static-hosting.md`, covering static + full-stack hosting.)
+- [x] Add or finalize `cluster/examples/static-site/` with a typed config, static files, redirects, headers, and README. (2026-06-09: present since EP-14; added `public/assets/app.css` and linked it from `index.html` to exercise the immutable-asset cache.)
+- [x] Document `nagarectl site deploy`, dry-run, releases, rollback, and preview commands. (2026-06-09: full CLI reference + worked sections.)
+- [x] Document Git webhook setup if EP-16 is complete; otherwise document it as a planned follow-up with exact status. (2026-06-09: EP-16 is complete — documented `nagared`, signature verification, and GitHub webhook config, pointing at `cluster/bootstrap/nagared/README.md`.)
+- [x] Update `docs/user/README.md` and `docs/user/reference.md` to link the static hosting guide. (2026-06-09: status table row, read-in-order sub-bullet, and a `nagarectl site` command table.)
+- [x] Run the dry-run validation path and record expected output excerpts in the guide. (2026-06-09: static and server dry-run excerpts captured and verified against live `--dry-run` output.)
+- [ ] Run live validation if Docker and the Nagare cluster are available; record any deferred steps clearly. (2026-06-09: deferred — `nagare-01` is powered down; the guide marks the live deploy 🟡 and the `apps.example.com` URLs as placeholders, matching `deploying-apps.md`.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-06-09: Both soft dependencies were already complete when this plan ran
+  (EP-16 webhooks and EP-18 full-stack), so the guide documents the *full*
+  workflow — static + server hosting, releases, rollback, previews, and Git
+  webhooks — rather than leaving chapters pending. The guide notes the one real
+  gap (server-site previews, an EP-18 follow-up) inline.
+- 2026-06-09: The repo doc convention is that an *opening* fence carries a
+  language tag while the *closing* fence is bare ```` ``` ````, so the plan's
+  `rg '^```$'` check necessarily matches every closing fence. Verified instead by
+  parity (tagged-openings + bare-closings == total fences) that no opening fence
+  is untagged.
 
 
 ## Decision Log
@@ -58,7 +67,33 @@ Nagare cluster, they can follow the end-to-end section and get a public static s
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-06-09 (offline/dry-run validated; live cluster validation deferred
+until `nagare-01` is up).
+
+What exists now that did not before:
+
+- `docs/user/static-hosting.md` — the developer guide: the two site kinds and the
+  one command, the `StaticSite` and `ServerSite` config shapes with field
+  references, dry-run and live deploy, releases/rollback, previews, the full-stack
+  (TanStack Start) path, Git webhooks (`nagared`), a CLI reference, and a
+  troubleshooting table. It leads with the workflow, not Nginx/Kubernetes
+  internals (per the Decision Log).
+- `docs/user/README.md` links it (status table row + read-in-order sub-bullet);
+  `docs/user/reference.md` gains a `nagarectl site` command table.
+- `cluster/examples/static-site/` finalized with `public/assets/app.css` linked
+  from `index.html`, so the immutable-asset cache rule is exercised. The
+  `cluster/examples/tanstack-start/` example (from EP-18) is linked for the
+  full-stack path.
+
+Validation: the static and server `--dry-run` excerpts in the guide were captured
+from and re-checked against live `nagarectl site deploy --dry-run` output. Fence
+parity was verified (no untagged opening fence). The guide states the exact status
+of every leg: dry-run works today; the live build→push→apply→URL leg and the
+in-cluster GitHub webhook round-trip are 🟡 pending the box and a real base domain.
+
+This completes MasterPlan 3: static hosting is now understandable and verifiable
+from the repository, from config through deploy, lifecycle, automation, and the
+full-stack runtime.
 
 
 ## Context and Orientation

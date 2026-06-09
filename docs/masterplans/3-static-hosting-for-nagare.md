@@ -114,7 +114,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 | 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Complete |
 | 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Complete |
 | 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Complete |
-| 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Not Started |
+| 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Complete |
 | 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
@@ -245,7 +245,7 @@ describe the server image only at the user-visible level; users never hand-write
 - [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09)
 - [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation)
 - [x] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys. (2026-06-09; in-cluster GitHub round-trip documented as operator setup)
-- [ ] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting.
+- [x] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting. (2026-06-09; live validation deferred until `nagare-01` is up)
 - [x] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`. (2026-06-09)
 - [x] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation. (2026-06-09; live Docker/cluster deploy is manual)
 
@@ -389,7 +389,46 @@ describe the server image only at the user-visible level; users never hand-write
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All six child plans (EP-13 … EP-18) are Complete as of 2026-06-09. Nagare now has
+first-class static **and** full-stack site hosting, end to end:
+
+- **EP-13** — the typed `StaticSite` model, JSON transport, and renderers
+  (Nginx config + Knative Service + DomainMappings) in `cli/nagare-dsl/`; 95 → 112
+  tests including golden and negative cases.
+- **EP-14** — `nagarectl site deploy` builds a local static project, packages it
+  into a generated Nginx image, and applies the manifests; a worked
+  `cluster/examples/static-site` example.
+- **EP-15** — release records in per-site ConfigMaps, `site releases`/`rollback`,
+  and preview deployments (`site preview deploy|list|delete`).
+- **EP-16** — `nagared`, the Git webhook runner: HMAC-SHA256 verification (matches
+  GitHub/`openssl`), repo checkout, and the same deploy path as the CLI; RBAC and
+  manifests under `cluster/bootstrap/nagared/`.
+- **EP-18** — the parallel `ServerSite` model and Node image path, so the same
+  `site deploy` deploys a TanStack Start app; `cluster/examples/tanstack-start`.
+- **EP-17** — the `docs/user/static-hosting.md` developer guide and doc-index
+  wiring.
+
+What worked well: the kind-discriminator + shared-leaf-types design (EP-13) and
+the factored single deploy engine (EP-16 Milestone 1, `Nagare.Static.Deploy`)
+meant EP-18's server runtime and EP-16's webhook automation both plugged into one
+seam (`loadSite`, `recordReleaseFor`) with no second deploy path and no churn in
+the static plans. The release record proved genuinely runtime-agnostic, so
+`releases`/`rollback` are kind-agnostic.
+
+Verified offline: `cabal test` passes in both packages (nagare-dsl 112, nagarectl
+35); `nagarectl site deploy --dry-run` renders correct artifacts for static and
+server examples; a live `nagared` answered `/healthz` and the signed/unsigned
+webhook paths.
+
+Deferred (environment-gated, documented as manual): the live build → push →
+`kubectl apply` → Ready → URL leg, the in-cluster GitHub webhook round-trip, and a
+real custom domain — all pending `nagare-01` being powered on. These are the same
+"box is down" caveats the rest of the operator guide carries.
+
+Known follow-ups (small, non-blocking): server-site **preview** deploys (static
+previews work today); teaching `nagared` the `loadSite` dispatcher so webhooks can
+also deploy server sites; and the optional Nix-native image-building path noted in
+the Decision Log if the in-cluster Docker daemon proves painful.
 
 
 ## Revision Notes

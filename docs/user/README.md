@@ -38,6 +38,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Cluster bootstrap (Knative/Kourier/cert-manager) | EP-4 | 🔭 Planned |
 | Observability (Victoria stack + Grafana) | EP-5 | 🔭 Planned |
 | Deploy CLI (`nagarectl`) + typed config DSL | MP-2 (EP-8–12) | 🟡 Built; live deploy pending |
+| Static & full-stack site hosting (`nagarectl site`) | MP-3 (EP-13–18) | 🟡 Built; live deploy pending |
 | Backups, secrets, disaster recovery | EP-7 | 🔭 Planned |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -73,6 +74,9 @@ you can observe.
 8. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
    `nagare/Config.hs`, with the [Config reference](config-reference.md) for the
    full field/constructor catalogue. 🟡
+   - [Static & full-stack site hosting](static-hosting.md) — host a website or a
+     full-stack app (TanStack Start) the Cloudflare-Pages way: `nagarectl site
+     deploy`, previews, rollbacks, redirects/headers, and Git webhooks. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
