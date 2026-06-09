@@ -32,7 +32,6 @@ import Data.ByteString.Char8 qualified as BC
 import Data.Maybe (maybeToList)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Data.Time (getCurrentTime)
 import Options.Applicative
 import System.Directory (makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
@@ -42,44 +41,27 @@ import System.IO (stderr)
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
-import Nagare.Dsl.Static.Render
-  ( StaticDeployContext (..)
-  , renderNginxConfig
-  , renderStaticDomainMappings
-  , renderStaticService
-  )
+import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
-import Nagare.Dsl.Types
-  ( domainText
-  , imageRefText
-  , mkDomain
-  , namespaceText
-  , serviceNameText
-  )
+import Nagare.Dsl.Types (namespaceText, serviceNameText)
 import Nagare.Image
   ( buildImage
   , computeTag
   , configureDockerAuth
   , imageRef
   , pushImage
-  , taggedImageRef
   )
-import Nagare.Static.Build
-  ( PreparedStaticOutput (..)
-  , prepareStaticOutput
-  , renderStaticBuildError
+import Nagare.Static.Deploy
+  ( DeployInputs (..)
+  , StaticManifests (..)
+  , deployStaticPreview
+  , deployStaticProduction
+  , previewManifests
+  , productionManifests
   )
-import Nagare.Static.Image (withStaticImageContext)
-import Nagare.Static.Preview
-  ( deletePreview
-  , listPreviews
-  , previewDomain
-  , previewServiceName
-  )
+import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Static.Release
-  ( StaticRelease (..)
-  , StaticReleaseLog (..)
-  , addRelease
+  ( StaticReleaseLog (..)
   , findRelease
   , formatReleasesTable
   , readReleaseLog
@@ -378,52 +360,18 @@ runSiteDeploy sopts = do
   -- dispatching to the Nginx or Node image path; the rest is the SiteStatic branch.
   site <- loadSiteOrDie (sopts ^. #file)
   imageTag <- resolveTag (sopts ^. #tag)
-
-  let ctx = StaticDeployContext {imageTag = imageTag, previewName = Nothing}
-      ref = taggedImageRef (site ^. #image) imageTag
-      nginxBytes = renderNginxConfig site
-      svcBytes = renderStaticService site ctx
-      dmBytes = renderStaticDomainMappings site ctx
-      url = staticUrl site bd
-      name = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
+  let inputs = siteDeployInputs sopts site imageTag bd
+      m = productionManifests inputs
 
   if sopts ^. #dryRun
     then do
-      printStaticArtifacts nginxBytes svcBytes dmBytes url
+      printStaticArtifacts (nginxConf m) (service m) (domainMappings m) (url m)
       TIO.putStrLn ("Release: " <> imageTag)
     else do
-      out <- prepareOrDie (sopts ^. #skipBuild) site (sopts ^. #projectDir)
-      configureDockerAuth
-      withStaticImageContext site out (buildImage ref)
-      pushImage ref
-      applyManifests (svcBytes : dmBytes)
-      waitForReady name ns
-      recordRelease site imageTag url name ns (sopts ^. #source)
-      TIO.putStrLn ("Deployed static site: " <> url)
-
--- | Build, store, and report a release record after a successful production
--- deploy. A malformed existing history is reported and the deploy exits
--- non-zero (the service is live, but history would be lost if overwritten).
-recordRelease :: StaticSite -> Text -> Text -> Text -> Text -> Maybe String -> IO ()
-recordRelease site imageTag url name ns src = do
-  now <- getCurrentTime
-  let rel =
-        StaticRelease
-          { releaseId = imageTag
-          , siteName = name
-          , namespace = ns
-          , image = imageRefText (site ^. #image)
-          , imageTag = imageTag
-          , url = url
-          , source = T.pack <$> src
-          , createdAt = now
-          }
-  elog <- readReleaseLog name ns
-  case elog of
-    Left err ->
-      dieT ("deploy succeeded but release history is unreadable (not overwritten): " <> err)
-    Right logv -> writeReleaseLog name ns (addRelease rel logv)
+      result <- deployStaticProduction inputs (T.pack <$> sopts ^. #source)
+      case result of
+        Left err -> dieT err
+        Right u -> TIO.putStrLn ("Deployed static site: " <> u)
 
 -- | @site releases@: print the recorded release history.
 runSiteReleases :: SiteCommonOpts -> IO ()
@@ -438,9 +386,11 @@ runSiteReleases copts = do
     Right logv -> TIO.putStr (formatReleasesTable logv)
 
 -- | @site rollback RELEASE_ID@: re-point the production Service at a prior
--- release's image tag and mark it current.
+-- release's image tag and mark it current. The image already exists in the
+-- registry, so this re-applies the rendered Service (no rebuild).
 runSiteRollback :: SiteCommonOpts -> Text -> IO ()
 runSiteRollback copts rid = do
+  bd <- resolveBaseDomain (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
   site <- loadSiteOrDie (copts ^. #file)
   let name = siteNameText (site ^. #name)
@@ -452,10 +402,16 @@ runSiteRollback copts rid = do
   case findRelease rid logv of
     Nothing -> dieT ("no such release: " <> rid)
     Just rel -> do
-      let ctx = StaticDeployContext {imageTag = rel ^. #imageTag, previewName = Nothing}
-          svcBytes = renderStaticService site ctx
-          dmBytes = renderStaticDomainMappings site ctx
-      applyManifests (svcBytes : dmBytes)
+      let inputs =
+            DeployInputs
+              { site = site
+              , imageTag = rel ^. #imageTag
+              , baseDomain = bd
+              , projectDir = "."
+              , skipBuild = True
+              }
+          m = productionManifests inputs
+      applyManifests (service m : domainMappings m)
       waitForReady name ns
       writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
       TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
@@ -468,33 +424,19 @@ runPreviewDeploy sopts pname = do
   bd <- resolveBaseDomain (sopts ^. #baseDomain)
   provisionGhcEnv (sopts ^. #ghcEnv)
   site <- loadSiteOrDie (sopts ^. #file)
-  let prodName = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
-  svcName <- orDie (previewServiceName prodName pname)
-  pdomText <- orDie (previewDomain prodName pname bd)
-  pd <- orDie (mkDomain pdomText)
   imageTag <- resolveTag (sopts ^. #tag)
-
-  let previewSite = site & #domains .~ [pd]
-      ctx = StaticDeployContext {imageTag = imageTag, previewName = Just svcName}
-      ref = taggedImageRef (site ^. #image) imageTag
-      nginxBytes = renderNginxConfig site
-      svcBytes = renderStaticService previewSite ctx
-      dmBytes = renderStaticDomainMappings previewSite ctx
-      url = "https://" <> pdomText
+  let inputs = siteDeployInputs sopts site imageTag bd
+  m <- orDie (previewManifests inputs pname)
 
   if sopts ^. #dryRun
     then do
-      printStaticArtifacts nginxBytes svcBytes dmBytes url
-      TIO.putStrLn ("Preview service: " <> svcName)
+      printStaticArtifacts (nginxConf m) (service m) (domainMappings m) (url m)
+      TIO.putStrLn ("Preview service: " <> serviceName m)
     else do
-      out <- prepareOrDie (sopts ^. #skipBuild) site (sopts ^. #projectDir)
-      configureDockerAuth
-      withStaticImageContext site out (buildImage ref)
-      pushImage ref
-      applyManifests (svcBytes : dmBytes)
-      waitForReady svcName ns
-      TIO.putStrLn ("Deployed preview: " <> url)
+      result <- deployStaticPreview inputs pname
+      case result of
+        Left err -> dieT err
+        Right u -> TIO.putStrLn ("Deployed preview: " <> u)
 
 -- | @site preview list@: list the site's preview Service names.
 runPreviewList :: SiteCommonOpts -> IO ()
@@ -524,19 +466,16 @@ runPreviewDelete copts pname = do
 -- ---------------------------------------------------------------------------
 -- Shared helpers
 
--- | The static site's public URL: the first configured custom domain if any,
--- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
-staticUrl :: StaticSite -> Text -> Text
-staticUrl site baseDomain =
-  case site ^. #domains of
-    (d : _) -> "https://" <> domainText d
-    [] ->
-      "https://"
-        <> siteNameText (site ^. #name)
-        <> "."
-        <> namespaceText (site ^. #namespace)
-        <> "."
-        <> baseDomain
+-- | Assemble the runtime-agnostic 'DeployInputs' from the @site deploy@ options.
+siteDeployInputs :: SiteDeployOpts -> StaticSite -> Text -> Text -> DeployInputs
+siteDeployInputs sopts site imageTag bd =
+  DeployInputs
+    { site = site
+    , imageTag = imageTag
+    , baseDomain = bd
+    , projectDir = sopts ^. #projectDir
+    , skipBuild = sopts ^. #skipBuild
+    }
 
 printStaticArtifacts :: ByteString -> ByteString -> [ByteString] -> Text -> IO ()
 printStaticArtifacts nginxBytes svcBytes dmBytes url = do
@@ -555,13 +494,6 @@ loadSiteOrDie file = do
   case esite of
     Left err -> dieT (Load.renderLoadError err)
     Right s -> pure s
-
-prepareOrDie :: Bool -> StaticSite -> FilePath -> IO PreparedStaticOutput
-prepareOrDie skip site root = do
-  result <- prepareStaticOutput skip site root
-  case result of
-    Left err -> dieT (renderStaticBuildError err)
-    Right p -> pure p
 
 resolveTag :: Maybe String -> IO Text
 resolveTag (Just t) = pure (T.pack t)

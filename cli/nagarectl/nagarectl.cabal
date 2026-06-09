@@ -33,19 +33,24 @@ library
     Nagare.Deploy
     Nagare.Image
     Nagare.Static.Build
+    Nagare.Static.Checkout
+    Nagare.Static.Deploy
     Nagare.Static.Image
     Nagare.Static.Preview
     Nagare.Static.Release
+    Nagare.Static.Webhook
 
   build-depends:
     aeson,
     base >=4.17 && <5,
     bytestring,
     cradle,
+    crypton,
     directory,
     filepath,
     generic-lens ^>=2.2,
     lens ^>=5.3,
+    memory,
     nagare-dsl,
     temporary,
     text,
@@ -67,6 +72,23 @@ executable nagarectl
     text,
     time,
 
+executable nagared
+  import: common
+  main-is: Main.hs
+  hs-source-dirs: nagared
+  build-depends:
+    base,
+    bytestring,
+    directory,
+    filepath,
+    http-types,
+    nagare-dsl,
+    nagarectl,
+    optparse-applicative,
+    text,
+    wai,
+    warp,
+
 test-suite nagarectl-test
   import: common
   type: exitcode-stdio-1.0
@@ -76,6 +98,7 @@ test-suite nagarectl-test
     aeson,
     base,
     bytestring,
+    crypton,
     directory,
     filepath,
     nagare-dsl,

@@ -113,7 +113,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 | 13 | Typed static site model and renderer | docs/plans/13-typed-static-site-model-and-renderer.md | None | EP-12 | Complete |
 | 14 | Static build packaging and deploy pipeline | docs/plans/14-static-build-packaging-and-deploy-pipeline.md | EP-13 | EP-12 | Complete |
 | 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Complete |
-| 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Not Started |
+| 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Complete |
 | 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Not Started |
 | 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Not Started |
 
@@ -244,7 +244,7 @@ describe the server image only at the user-visible level; users never hand-write
 - [x] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules. (2026-06-09)
 - [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09)
 - [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation)
-- [ ] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys.
+- [x] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys. (2026-06-09; in-cluster GitHub round-trip documented as operator setup)
 - [ ] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting.
 - [ ] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`.
 - [ ] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation.
@@ -291,6 +291,19 @@ describe the server image only at the user-visible level; users never hand-write
   its end-to-end run requires a live cluster and is recorded as manual validation
   (see the static-site example README). This does not block EP-16/EP-17/EP-18,
   which depend on the deploy path and record schema, both complete.
+- 2026-06-09 (EP-16): EP-16 Milestone 1 finally factored the EP-14/EP-15 deploy
+  logic out of `app/Main.hs` into `Nagare.Static.Deploy` (`DeployInputs`,
+  `productionManifests`/`previewManifests`, `deployStaticProduction`/
+  `deployStaticPreview`). This is the single deploy engine Integration Point 6
+  promised: the CLI and `nagared` both call it, and EP-18's `SiteServer` branch
+  plugs in at the same `loadStaticSite`→`loadSite` seam with no webhook-side
+  change. The webhook decision is the pure `decideWebhook` (verify → parse →
+  route); `nagared` only does IO (checkout + deploy) on `Triggered`.
+- 2026-06-09 (EP-16): The webhook signature is HMAC-SHA256 verified
+  (constant-time) and matches `openssl`/GitHub; the canonical test vector is
+  pinned in `nagarectl-test`. `nagared` runs as an always-on Knative Service
+  (`min-scale: 1`). Its real runtime (docker/git/kubectl/GHC env) is operator
+  setup, not a turnkey image — see `cluster/bootstrap/nagared/README.md`.
 
 
 ## Decision Log

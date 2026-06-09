@@ -1,0 +1,66 @@
+# nagared as an always-on Knative Service (EP-16).
+#
+# min-scale 1 disables scale-to-zero so an in-progress deploy (docker build +
+# push, which exceeds a webhook's request window) is never killed mid-flight;
+# the existing Kourier ingress + cert-manager give it a TLS endpoint, and the
+# DomainMapping below gives it a stable hook URL. GitHub's 10s webhook timeout
+# will mark the delivery failed for a slow deploy, but the deploy still
+# completes — that is acceptable for a personal PaaS.
+#
+# RUNTIME REQUIREMENTS (the image must provide these; this manifest is the
+# starting point, not a turnkey deploy — see README.md):
+#   * docker (build/push) — needs a Docker daemon, e.g. the host socket mounted,
+#     or a rootless/buildkit alternative;
+#   * kubectl — uses the mounted ServiceAccount token (RBAC in rbac.yaml);
+#   * git — for repository checkout;
+#   * a GHC package environment so the config loader's runghc resolves nagare-dsl
+#     (pass --ghc-env).
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: nagared
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/max-scale: "1"
+    spec:
+      serviceAccountName: nagared
+      containers:
+        - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/nagared:latest
+          ports:
+            - containerPort: 8088
+          args:
+            - "--port=8088"
+            - "--secret-file=/etc/nagared/webhook-secret"
+            - "--production-branch=main"
+            - "--base-domain=apps.example.com"
+            - "--workspace=/var/lib/nagare/webhook-workspaces"
+          volumeMounts:
+            - name: webhook-secret
+              mountPath: /etc/nagared
+              readOnly: true
+            - name: workspaces
+              mountPath: /var/lib/nagare/webhook-workspaces
+      volumes:
+        - name: webhook-secret
+          secret:
+            secretName: nagared
+            items:
+              - key: webhook-secret
+                path: webhook-secret
+        - name: workspaces
+          emptyDir: {}
+---
+apiVersion: serving.knative.dev/v1beta1
+kind: DomainMapping
+metadata:
+  name: hooks.apps.example.com
+  namespace: personal
+spec:
+  ref:
+    apiVersion: serving.knative.dev/v1
+    kind: Service
+    name: nagared

@@ -1,0 +1,38 @@
+# RBAC for the nagared webhook runner (EP-16).
+#
+# nagared drives the same deploy path as `nagarectl site deploy`: it applies
+# Knative Services and DomainMappings and reads/writes the per-site release
+# ConfigMaps in the application namespace. This Role grants exactly those verbs
+# in `personal` and nothing cluster-wide.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nagared
+  namespace: personal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nagared
+  namespace: personal
+rules:
+  - apiGroups: ["serving.knative.dev"]
+    resources: ["services", "domainmappings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nagared
+  namespace: personal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nagared
+subjects:
+  - kind: ServiceAccount
+    name: nagared
+    namespace: personal
