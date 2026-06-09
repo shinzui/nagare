@@ -58,15 +58,15 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Add `Nagare.Dsl.Server.Types` with the `ServerSite` model, `ServerBuild`, `ServerRuntime`, and validating smart constructors, reusing shared types from `Nagare.Dsl.Static.Types` and `Nagare.Dsl.Types`.
-- [ ] Add `emitServerSite` to `Nagare.Dsl.Config` and `loadServerSite`/`decodeServerSite` plus a kind-dispatching `loadSite` to `Nagare.Dsl.Load`, keeping `loadStaticSite` and `loadDeployment` unchanged.
-- [ ] Add `Nagare.Dsl.Server.Render` with `renderServerService`, `renderServerDomainMappings`, and `renderServerDockerfile`.
-- [ ] Add positive fixtures and golden tests for a server site with env, scale, resources, a custom domain, and the default TanStack Start runtime.
-- [ ] Add negative tests for invalid output directories, empty start command, invalid base image, and wrong emitted kind.
-- [ ] Make `nagarectl site deploy` dispatch on config kind: static path (existing) vs. server path (new), sharing options and image/deploy helpers.
-- [ ] Implement `Nagare.Static.Server` (or `Nagare.Server.Build`/`Nagare.Server.Image`) for server build execution and Node image-context generation, reusing image tagging/build/push helpers.
-- [ ] Implement server dry-run output and non-dry-run build, push, `kubectl apply`, wait, and URL printing.
-- [ ] Add the `cluster/examples/tanstack-start/` example and end-to-end manual validation notes.
+- [x] Add `Nagare.Dsl.Server.Types` with the `ServerSite` model, `ServerBuild`, `ServerRuntime`, and validating smart constructors, reusing shared types from `Nagare.Dsl.Static.Types` and `Nagare.Dsl.Types`. (2026-06-09: incl. `RuntimeImage`, `defaultServerRuntime`, `tanstackStartBuild`; `NonEmpty` outputDirs/startCommand.)
+- [x] Add `emitServerSite` to `Nagare.Dsl.Config` and `loadServerSite`/`decodeServerSite` plus a kind-dispatching `loadSite` to `Nagare.Dsl.Load`, keeping `loadStaticSite` and `loadDeployment` unchanged. (2026-06-09: `SiteConfig = SiteStatic | SiteServer`.)
+- [x] Add `Nagare.Dsl.Server.Render` with `renderServerService`, `renderServerDomainMappings`, and `renderServerDockerfile`. (2026-06-09)
+- [x] Add positive fixtures and golden tests for a server site with env, scale, resources, a custom domain, and the default TanStack Start runtime. (2026-06-09: `test/fixtures/server-site/` + 3 goldens; loads via `loadServerSite` and `loadSite`.)
+- [x] Add negative tests for invalid output directories, empty start command, invalid base image, and wrong emitted kind. (2026-06-09: `ServerSpec.hs` decode-failure cases + `mkRuntimeImage` tests.)
+- [x] Make `nagarectl site deploy` dispatch on config kind: static path (existing) vs. server path (new), sharing options and image/deploy helpers. (2026-06-09: `runSiteDeploy` calls `loadSite`; `deployStatic`/`deployServer`.)
+- [x] Implement `Nagare.Server.Build`/`Nagare.Server.Image` for server build execution and Node image-context generation, reusing image tagging/build/push helpers. (2026-06-09: + `Nagare.Server.Deploy` for the effect.)
+- [x] Implement server dry-run output and non-dry-run build, push, `kubectl apply`, wait, and URL printing. (2026-06-09: dry-run prints Dockerfile + Service + DomainMappings + URL + Release; non-dry-run records a release and prints `Deployed server site:`.)
+- [x] Add the `cluster/examples/tanstack-start/` example and end-to-end manual validation notes. (2026-06-09: example + README; live build/deploy is manual since it needs npm + Docker + cluster.)
 
 
 ## Surprises & Discoveries
@@ -74,7 +74,29 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-06-09: The kind-dispatch seam EP-14/EP-16 left (`runSiteDeploy` calling
+  `loadStaticSite`, the factored `Nagare.Static.Deploy`) made plugging in the
+  server path a small change: `runSiteDeploy` now calls `Load.loadSite` and
+  branches to `deployStatic`/`deployServer`. The webhook runner (`nagared`)
+  needs no change — it drives `Nagare.Static.Deploy`; a follow-up can teach it
+  `loadSite` to also deploy server sites from webhooks.
+- 2026-06-09: The release record is genuinely runtime-agnostic. Factoring
+  `recordReleaseFor :: image -> tag -> url -> name -> ns -> source -> IO (Either Text ())`
+  into `Nagare.Static.Release` let the server deploy record releases through the
+  same ConfigMap, and made `site releases` and `site rollback` kind-agnostic
+  (both load via `loadSite` and dispatch the renderer). So server sites list and
+  roll back with no new schema, exactly as the MasterPlan predicted.
+- 2026-06-09: `Nagare.Server.Build.PreparedServerOutput` records each output as a
+  `(relativePath, absolutePath)` pair, not just the absolute path, so
+  `Nagare.Server.Image.withServerImageContext` can recreate the relative layout
+  under `app/` (`.output` → `app/.output`). This is the one structural difference
+  from the static image context (which copies a single dir's contents to `site/`).
+- 2026-06-09 (scope note): server *preview* deploys are not yet wired — `site
+  preview deploy|list|delete` still load the static config and report a precise
+  wrong-kind error on a `ServerSite`. Server `deploy`, `releases`, and `rollback`
+  are kind-agnostic. Server previews are a small follow-up (a `previewServerManifests`
+  beside the static one); they are out of this plan's stated Milestone-2 scope,
+  which is the server `site deploy` path.
 
 
 ## Decision Log
@@ -142,7 +164,37 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Completed 2026-06-09 (offline DSL tests + dry-run validated; live build/deploy of
+a real TanStack Start app is manual, needing npm + Docker + a cluster).
+
+What exists now that did not before:
+
+- `Nagare.Dsl.Server.Types` — `ServerSite`/`ServerBuild`/`ServerRuntime`/
+  `RuntimeImage` with TanStack Start defaults, reusing `SiteName`/`FilePathText`
+  and the core leaf types. `outputDirs`/`startCommand` are `NonEmpty`, so empty
+  sets are unrepresentable.
+- `Nagare.Dsl.Config.emitServerSite`, `Nagare.Dsl.Load.{loadServerSite,
+  decodeServerSite, SiteConfig, loadSite}`, and `Nagare.Dsl.Server.Render`
+  (`renderServerDockerfile`/`renderServerService`/`renderServerDomainMappings`).
+- `Nagare.Server.{Build,Image,Deploy}` and the kind-dispatching `nagarectl site
+  deploy` (static Nginx path vs. server Node path), plus kind-agnostic `releases`
+  and `rollback`.
+- The `cluster/examples/tanstack-start/` worked example.
+
+Validation: `cabal test` in `cli/nagare-dsl/` passes all 112 tests (incl. the
+server fixture round-trip through `loadServerSite` and `loadSite`, and the three
+render goldens — Dockerfile with `EXPOSE 8080` and no `ENV PORT=`, Service on port
+8080 with env/scale/resources, one DomainMapping per domain). `cabal test` in
+`cli/nagarectl/` passes all 35 tests. `nagarectl site deploy --dry-run` on
+`cluster/examples/tanstack-start` prints the Dockerfile, the Node Service, the
+URL, and the release id; the existing app `deploy` and static `site deploy` paths
+are unchanged; a `Deployment`-shaped config under `site deploy` fails with a
+precise "StaticSite or ServerSite expected" error.
+
+Gaps: server preview deploys are a noted follow-up (see Surprises). The live
+non-dry-run path (real `npm run build`, Docker build/push, cluster apply, `curl`
+of server-rendered HTML) is documented in the example README and requires a
+machine with the JS toolchain, Docker, and cluster access.
 
 
 ## Context and Orientation

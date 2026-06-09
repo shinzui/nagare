@@ -41,6 +41,7 @@ import System.IO (stderr)
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
+import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (namespaceText, serviceNameText)
@@ -58,6 +59,12 @@ import Nagare.Static.Deploy
   , deployStaticProduction
   , previewManifests
   , productionManifests
+  )
+import Nagare.Server.Deploy
+  ( ServerDeployInputs (..)
+  , ServerManifests (..)
+  , deployServerProduction
+  , serverManifests
   )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Static.Release
@@ -349,23 +356,28 @@ runDeploy dopts = do
       waitForReady name ns
       TIO.putStrLn ("Deployed: " <> url)
 
--- | Deploy a static site (EP-14/EP-15). On success records a release.
+-- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
+-- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share
+-- the same CLI options and record a release on success.
 runSiteDeploy :: SiteDeployOpts -> IO ()
 runSiteDeploy sopts = do
   bd <- resolveBaseDomain (sopts ^. #baseDomain)
   provisionGhcEnv (sopts ^. #ghcEnv)
+  esite <- Load.loadSite (sopts ^. #file)
+  case esite of
+    Left err -> dieT (Load.renderLoadError err)
+    Right (Load.SiteStatic s) -> deployStatic sopts s bd
+    Right (Load.SiteServer s) -> deployServer sopts s bd
 
-  -- Kind-dispatching seam: today @site deploy@ loads a StaticSite directly. When
-  -- EP-18 lands, this becomes a `loadSite` returning SiteStatic/SiteServer and
-  -- dispatching to the Nginx or Node image path; the rest is the SiteStatic branch.
-  site <- loadSiteOrDie (sopts ^. #file)
+-- | The static (Nginx) deploy path.
+deployStatic :: SiteDeployOpts -> StaticSite -> Text -> IO ()
+deployStatic sopts site bd = do
   imageTag <- resolveTag (sopts ^. #tag)
   let inputs = siteDeployInputs sopts site imageTag bd
       m = productionManifests inputs
-
   if sopts ^. #dryRun
     then do
-      printStaticArtifacts (nginxConf m) (service m) (domainMappings m) (url m)
+      printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       TIO.putStrLn ("Release: " <> imageTag)
     else do
       result <- deployStaticProduction inputs (T.pack <$> sopts ^. #source)
@@ -373,13 +385,42 @@ runSiteDeploy sopts = do
         Left err -> dieT err
         Right u -> TIO.putStrLn ("Deployed static site: " <> u)
 
--- | @site releases@: print the recorded release history.
+-- | The server (Node) deploy path.
+deployServer :: SiteDeployOpts -> ServerSite -> Text -> IO ()
+deployServer sopts site bd = do
+  imageTag <- resolveTag (sopts ^. #tag)
+  let inputs =
+        ServerDeployInputs
+          { site = site
+          , imageTag = imageTag
+          , baseDomain = bd
+          , projectDir = sopts ^. #projectDir
+          , skipBuild = sopts ^. #skipBuild
+          }
+      m = serverManifests inputs
+  if sopts ^. #dryRun
+    then do
+      BC.putStrLn "--- Generated Dockerfile ---"
+      TIO.putStr (m ^. #dockerfile)
+      BC.putStrLn "--- Knative Service manifest ---"
+      BC.putStr (m ^. #service)
+      forM_ (m ^. #domainMappings) $ \dm -> do
+        BC.putStrLn "--- DomainMapping manifest ---"
+        BC.putStr dm
+      TIO.putStrLn ("URL: " <> (m ^. #url))
+      TIO.putStrLn ("Release: " <> imageTag)
+    else do
+      result <- deployServerProduction inputs (T.pack <$> sopts ^. #source)
+      case result of
+        Left err -> dieT err
+        Right u -> TIO.putStrLn ("Deployed server site: " <> u)
+
+-- | @site releases@: print the recorded release history. Kind-agnostic — works
+-- for both static and server sites (the release record is runtime-agnostic).
 runSiteReleases :: SiteCommonOpts -> IO ()
 runSiteReleases copts = do
   provisionGhcEnv (copts ^. #ghcEnv)
-  site <- loadSiteOrDie (copts ^. #file)
-  let name = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
+  (name, ns) <- siteIdentityOrDie (copts ^. #file)
   elog <- readReleaseLog name ns
   case elog of
     Left err -> dieT err
@@ -387,34 +428,54 @@ runSiteReleases copts = do
 
 -- | @site rollback RELEASE_ID@: re-point the production Service at a prior
 -- release's image tag and mark it current. The image already exists in the
--- registry, so this re-applies the rendered Service (no rebuild).
+-- registry, so this re-applies the rendered Service (no rebuild). Kind-agnostic:
+-- it renders the static or server Service to match the project.
 runSiteRollback :: SiteCommonOpts -> Text -> IO ()
 runSiteRollback copts rid = do
   bd <- resolveBaseDomain (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
-  site <- loadSiteOrDie (copts ^. #file)
-  let name = siteNameText (site ^. #name)
-      ns = namespaceText (site ^. #namespace)
-  elog <- readReleaseLog name ns
-  logv <- case elog of
-    Left err -> dieT err
-    Right l -> pure l
-  case findRelease rid logv of
-    Nothing -> dieT ("no such release: " <> rid)
-    Just rel -> do
-      let inputs =
-            DeployInputs
-              { site = site
-              , imageTag = rel ^. #imageTag
-              , baseDomain = bd
-              , projectDir = "."
-              , skipBuild = True
-              }
-          m = productionManifests inputs
-      applyManifests (service m : domainMappings m)
-      waitForReady name ns
-      writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
-      TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
+  esite <- Load.loadSite (copts ^. #file)
+  case esite of
+    Left err -> dieT (Load.renderLoadError err)
+    Right sc -> do
+      let (name, ns) = siteConfigIdentity sc
+      elog <- readReleaseLog name ns
+      logv <- case elog of
+        Left err -> dieT err
+        Right l -> pure l
+      case findRelease rid logv of
+        Nothing -> dieT ("no such release: " <> rid)
+        Just rel -> do
+          let (svc, dms) = rollbackManifests sc bd (rel ^. #imageTag)
+          applyManifests (svc : dms)
+          waitForReady name ns
+          writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
+          TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
+
+-- | The (name, namespace) of either site kind.
+siteConfigIdentity :: Load.SiteConfig -> (Text, Text)
+siteConfigIdentity (Load.SiteStatic s) =
+  (siteNameText (s ^. #name), namespaceText (s ^. #namespace))
+siteConfigIdentity (Load.SiteServer s) =
+  (siteNameText (s ^. #name), namespaceText (s ^. #namespace))
+
+-- | Load a site of either kind and return its (name, namespace).
+siteIdentityOrDie :: FilePath -> IO (Text, Text)
+siteIdentityOrDie file = do
+  esite <- Load.loadSite file
+  case esite of
+    Left err -> dieT (Load.renderLoadError err)
+    Right sc -> pure (siteConfigIdentity sc)
+
+-- | Render the production Service + DomainMappings for a rollback to @tag@,
+-- dispatching on kind.
+rollbackManifests :: Load.SiteConfig -> Text -> Text -> (ByteString, [ByteString])
+rollbackManifests (Load.SiteStatic s) bd tag =
+  let m = productionManifests (DeployInputs s tag bd "." True)
+   in (m ^. #service, m ^. #domainMappings)
+rollbackManifests (Load.SiteServer s) bd tag =
+  let m = serverManifests (ServerDeployInputs s tag bd "." True)
+   in (m ^. #service, m ^. #domainMappings)
 
 -- | @site preview deploy --name NAME@: deploy the current build as an isolated
 -- preview Service under a derived name and domain. Previews are not recorded in
@@ -430,8 +491,8 @@ runPreviewDeploy sopts pname = do
 
   if sopts ^. #dryRun
     then do
-      printStaticArtifacts (nginxConf m) (service m) (domainMappings m) (url m)
-      TIO.putStrLn ("Preview service: " <> serviceName m)
+      printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
+      TIO.putStrLn ("Preview service: " <> (m ^. #serviceName))
     else do
       result <- deployStaticPreview inputs pname
       case result of

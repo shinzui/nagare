@@ -12,16 +12,23 @@ module Nagare.Dsl.Load
   , decodeDeployment
   , loadStaticSite
   , decodeStaticSite
+  , loadServerSite
+  , decodeServerSite
+  , SiteConfig (..)
+  , loadSite
   ) where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
+import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
@@ -394,3 +401,158 @@ loadDeployment path = fmap (>>= decodeDeployment) (runConfig path)
 -- 'UnexpectedKind', not silently misread.
 loadStaticSite :: FilePath -> IO (Either LoadError StaticSite)
 loadStaticSite path = fmap (>>= decodeStaticSite) (runConfig path)
+
+-- | Load a 'ServerSite' from a Haskell config-as-program source file (EP-18). The
+-- config must print its JSON via 'Nagare.Dsl.Config.emitServerSite'. A config
+-- that emits a different shape is reported as 'UnexpectedKind'.
+loadServerSite :: FilePath -> IO (Either LoadError ServerSite)
+loadServerSite path = fmap (>>= decodeServerSite) (runConfig path)
+
+-- | The two site shapes @nagarectl site deploy@ can deploy.
+data SiteConfig
+  = SiteStatic !StaticSite
+  | SiteServer !ServerSite
+  deriving stock (Generic, Eq, Show)
+
+-- | Load whichever site a config emits, dispatching on the top-level @kind@
+-- (EP-18). This is the single loader @nagarectl site deploy@ calls: a
+-- @"StaticSite"@ runs the Nginx path, a @"ServerSite"@ runs the Node path, and a
+-- @Deployment@-shaped config (no @kind@) or an unknown kind is reported as
+-- 'UnexpectedKind' so the user is told to use the right command.
+loadSite :: FilePath -> IO (Either LoadError SiteConfig)
+loadSite path = fmap (>>= decodeSite) (runConfig path)
+
+decodeSite :: ByteString -> Either LoadError SiteConfig
+decodeSite bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "StaticSite" -> SiteStatic <$> decodeStaticSite bs
+      Just "ServerSite" -> SiteServer <$> decodeServerSite bs
+      Just other -> Left (UnexpectedKind "StaticSite or ServerSite" other)
+      Nothing -> Left (UnexpectedKind "StaticSite or ServerSite" "<none>")
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for server sites (mirrors Nagare.Dsl.Config's emitted shape)
+
+data JsonServerBuild = JsonServerBuild
+  { srvCommand :: !Text
+  , srvOutputDirs :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonServerBuild where
+  parseJSON = withObject "ServerBuild" $ \o ->
+    JsonServerBuild <$> o .: "command" <*> o .: "outputDirs"
+
+data JsonServerRuntime = JsonServerRuntime
+  { jsrBaseImage :: !Text
+  , jsrStartCommand :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonServerRuntime where
+  parseJSON = withObject "ServerRuntime" $ \o ->
+    JsonServerRuntime <$> o .: "baseImage" <*> o .: "startCommand"
+
+data JsonServerSite = JsonServerSite
+  { jsvName :: !Text
+  , jsvNamespace :: !Text
+  , jsvImage :: !Text
+  , jsvBuild :: !JsonServerBuild
+  , jsvRuntime :: !JsonServerRuntime
+  , jsvPort :: !Int
+  , jsvEnv :: ![JsonEnvEntry]
+  , jsvCpuRequest :: !(Maybe Text)
+  , jsvMemoryRequest :: !(Maybe Text)
+  , jsvScaleMin :: !(Maybe Int)
+  , jsvScaleMax :: !(Maybe Int)
+  , jsvDomains :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonServerSite where
+  parseJSON = withObject "ServerSite" $ \o ->
+    JsonServerSite
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "image"
+      <*> o .: "build"
+      <*> o .: "runtime"
+      <*> o .: "port"
+      <*> o .:? "env" .!= []
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "scaleMin"
+      <*> o .:? "scaleMax"
+      <*> o .:? "domains" .!= []
+
+-- ---------------------------------------------------------------------------
+-- Marshalling JsonServerSite -> ServerSite (re-runs the smart constructors)
+
+toServerSite :: JsonServerSite -> Either LoadError ServerSite
+toServerSite j = do
+  name' <- mapLeft (MarshalError "name") $ mkSiteName (jsvName j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jsvNamespace j)
+  img' <- mapLeft (MarshalError "image") $ mkImageRef (jsvImage j)
+  build' <- toServerBuild (jsvBuild j)
+  runtime' <- toServerRuntime (jsvRuntime j)
+  port' <- mapLeft (MarshalError "port") $ mkPort (jsvPort j)
+  env' <- mapM toEnvEntry (jsvEnv j)
+  res' <- toServerResources (jsvCpuRequest j) (jsvMemoryRequest j)
+  scale' <- case (jsvScaleMin j, jsvScaleMax j) of
+    (Nothing, Nothing) -> Right Nothing
+    (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
+    _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
+  domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jsvDomains j)
+  Right
+    ServerSite
+      { name = name'
+      , namespace = ns'
+      , image = img'
+      , build = build'
+      , runtime = runtime'
+      , port = port'
+      , env = Map.fromList env'
+      , resources = res'
+      , scale = scale'
+      , domains = domains'
+      }
+
+toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild
+toServerBuild jb = do
+  dirs <- traverse (mapLeft (MarshalError "build.outputDirs") . mkFilePathText) (srvOutputDirs jb)
+  neDirs <- maybe (Left (MarshalError "build.outputDirs" "outputDirs must be non-empty")) Right (NE.nonEmpty dirs)
+  Right (ServerBuild {command = srvCommand jb, outputDirs = neDirs})
+
+toServerRuntime :: JsonServerRuntime -> Either LoadError ServerRuntime
+toServerRuntime jr = do
+  base <- mapLeft (MarshalError "runtime.baseImage") $ mkRuntimeImage (jsrBaseImage jr)
+  neCmd <- maybe (Left (MarshalError "runtime.startCommand" "startCommand must be non-empty")) Right (NE.nonEmpty (jsrStartCommand jr))
+  Right (ServerRuntime {baseImage = base, startCommand = neCmd})
+
+toServerResources :: Maybe Text -> Maybe Text -> Either LoadError (Maybe Resources)
+toServerResources mc mm =
+  case (mc, mm) of
+    (Nothing, Nothing) -> Right Nothing
+    (c, m) -> do
+      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
+      Right (Just Resources {cpu = c', memory = m'})
+
+-- | Decode the JSON a config emits (via 'Nagare.Dsl.Config.emitServerSite') into
+-- a validated 'ServerSite', re-running the smart constructors. The top-level
+-- @kind@ is checked first; a missing or non-@ServerSite@ kind is 'UnexpectedKind'.
+decodeServerSite :: ByteString -> Either LoadError ServerSite
+decodeServerSite bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "ServerSite" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode server site: " <> Text.pack perr))
+        Right jss -> toServerSite jss
+      Just other -> Left (UnexpectedKind "ServerSite" other)
+      Nothing -> Left (UnexpectedKind "ServerSite" "<none>")

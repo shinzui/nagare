@@ -9,6 +9,7 @@ import Nagare.Dsl.Load (loadDeployment)
 import Nagare.Dsl.Presets (development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
 import Nagare.Dsl.Types
+import ServerSpec (serverTests)
 import StaticSpec (staticTests)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
@@ -26,6 +27,7 @@ main =
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
+      , serverTests
       ]
 
 -- | EP-10: the hello config-as-program file loads to the very same

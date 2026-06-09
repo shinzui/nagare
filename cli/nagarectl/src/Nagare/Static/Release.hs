@@ -27,6 +27,7 @@ module Nagare.Static.Release
   , formatReleasesTable
   , readReleaseLog
   , writeReleaseLog
+  , recordReleaseFor
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -54,7 +55,7 @@ import Data.List (find, sortOn)
 import Data.Ord (Down (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Nagare.Deploy (applyManifests)
 import System.Exit (ExitCode (..))
 
@@ -249,3 +250,29 @@ readReleaseLog site ns = do
 writeReleaseLog :: Text -> Text -> StaticReleaseLog -> IO ()
 writeReleaseLog site ns logv =
   applyManifests [renderReleaseConfigMap site ns logv]
+
+-- | Runtime-agnostic release recording: read the site's history, append a record
+-- for @(image, tag, url, name, ns, source)@, and write it back. Used by both the
+-- static and server deploy paths. A malformed existing history is reported as
+-- 'Left' (and not overwritten); success returns @()@.
+recordReleaseFor :: Text -> Text -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
+recordReleaseFor image tag url name ns src = do
+  now <- getCurrentTime
+  let rel =
+        StaticRelease
+          { releaseId = tag
+          , siteName = name
+          , namespace = ns
+          , image = image
+          , imageTag = tag
+          , url = url
+          , source = src
+          , createdAt = now
+          }
+  elog <- readReleaseLog name ns
+  case elog of
+    Left err ->
+      pure (Left ("deploy succeeded but release history is unreadable (not overwritten): " <> err))
+    Right logv -> do
+      writeReleaseLog name ns (addRelease rel logv)
+      pure (Right ())

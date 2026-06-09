@@ -115,7 +115,7 @@ triggers the same deploy path regardless of which runtime the project uses.
 | 15 | Static release rollback and preview deployments | docs/plans/15-static-release-rollback-and-preview-deployments.md | EP-14 | None | Complete |
 | 16 | Git webhook automation for static sites | docs/plans/16-git-webhook-automation-for-static-sites.md | EP-15 | EP-3, EP-4 | Complete |
 | 17 | Static hosting docs and end-to-end examples | docs/plans/17-static-hosting-docs-and-end-to-end-examples.md | EP-15 | EP-16, EP-18 | Not Started |
-| 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Not Started |
+| 18 | Full-stack server-runtime hosting (TanStack Start) | docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md | EP-14 | EP-13 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
@@ -246,8 +246,8 @@ describe the server image only at the user-visible level; users never hand-write
 - [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation)
 - [x] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys. (2026-06-09; in-cluster GitHub round-trip documented as operator setup)
 - [ ] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting.
-- [ ] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`.
-- [ ] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation.
+- [x] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`. (2026-06-09)
+- [x] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation. (2026-06-09; live Docker/cluster deploy is manual)
 
 
 ## Surprises & Discoveries
@@ -304,6 +304,16 @@ describe the server image only at the user-visible level; users never hand-write
   pinned in `nagarectl-test`. `nagared` runs as an always-on Knative Service
   (`min-scale: 1`). Its real runtime (docker/git/kubectl/GHC env) is operator
   setup, not a turnkey image — see `cluster/bootstrap/nagared/README.md`.
+- 2026-06-09 (EP-18): The server runtime landed on the shared seam exactly as
+  designed (Integration Points 1-3, 5, 7). `loadSite` (`SiteConfig = SiteStatic |
+  SiteServer`) is the kind-dispatcher; `nagarectl site deploy` branches to the
+  Nginx or Node path; `recordReleaseFor` made the release record runtime-agnostic
+  so `site releases`/`rollback` work for both kinds with no new schema. The static
+  plans (EP-13/EP-14) needed only the light amendments already recorded. Server
+  *preview* deploys are a noted small follow-up (the static preview path reports a
+  precise wrong-kind error on a `ServerSite`); server `deploy`/`releases`/`rollback`
+  are kind-agnostic. Knative injects `PORT=8080`, so the Dockerfile sets no
+  `ENV PORT=`.
 
 
 ## Decision Log

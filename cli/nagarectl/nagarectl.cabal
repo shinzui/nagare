@@ -32,6 +32,9 @@ library
   exposed-modules:
     Nagare.Deploy
     Nagare.Image
+    Nagare.Server.Build
+    Nagare.Server.Deploy
+    Nagare.Server.Image
     Nagare.Static.Build
     Nagare.Static.Checkout
     Nagare.Static.Deploy
@@ -98,6 +101,7 @@ test-suite nagarectl-test
     aeson,
     base,
     bytestring,
+    containers,
     crypton,
     directory,
     filepath,

@@ -10,15 +10,18 @@
 module Nagare.Dsl.Config
   ( emitDeployment
   , emitStaticSite
+  , emitServerSite
   ) where
 
 import "generic-lens" Data.Generics.Labels ()
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import Data.Aeson (Value, encode, object, (.=))
+import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types
 
@@ -112,4 +115,56 @@ staticSiteJSON site =
       object
         [ "immutableAssets" .= immutableAssets cp
         , "defaultMaxAge" .= defaultMaxAge cp
+        ]
+
+-- | Serialize a 'ServerSite' to JSON and write it to stdout (EP-18). Call this
+-- as the last line of a server project's @Config.hs@ @main@. The top-level
+-- @"kind": "ServerSite"@ discriminator lets the loader dispatch and report a
+-- precise error if the wrong shape is deployed.
+emitServerSite :: ServerSite -> IO ()
+emitServerSite site = LBS.putStr (encode (serverSiteJSON site))
+
+serverSiteJSON :: ServerSite -> Value
+serverSiteJSON site =
+  object
+    [ "kind" .= ("ServerSite" :: Text)
+    , "name" .= siteNameText (site ^. #name)
+    , "namespace" .= namespaceText (site ^. #namespace)
+    , "image" .= imageRefText (site ^. #image)
+    , "build" .= buildJSON (site ^. #build)
+    , "runtime" .= runtimeJSON (site ^. #runtime)
+    , "port" .= portInt (site ^. #port)
+    , "env" .= map envEntryJSON (Map.toAscList (site ^. #env))
+    , "cpuRequest" .= fmap quantityText (resources >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (resources >>= (^. #memory))
+    , "scaleMin" .= fmap (^. #minScale) scale
+    , "scaleMax" .= fmap (^. #maxScale) scale
+    , "domains" .= map domainText (site ^. #domains)
+    ]
+  where
+    resources = site ^. #resources
+    scale = site ^. #scale
+
+    buildJSON b =
+      object
+        [ "command" .= (b ^. #command)
+        , "outputDirs" .= map filePathText (NE.toList (b ^. #outputDirs))
+        ]
+    runtimeJSON r =
+      object
+        [ "baseImage" .= runtimeImageText (r ^. #baseImage)
+        , "startCommand" .= toJSON (NE.toList (r ^. #startCommand))
+        ]
+
+    envEntryJSON (n, EnvLiteral lit) =
+      object
+        [ "varName" .= envNameText n
+        , "kind" .= ("Literal" :: Text)
+        , "value" .= lit
+        ]
+    envEntryJSON (n, EnvSecretRef sn) =
+      object
+        [ "varName" .= envNameText n
+        , "kind" .= ("SecretRef" :: Text)
+        , "secretName" .= secretNameText sn
         ]

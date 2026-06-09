@@ -13,12 +13,16 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (mkImageRef, mkNamespace)
+import Nagare.Dsl.Types (defaultPort, mkImageRef, mkNamespace)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
+import Nagare.Server.Build
 import Nagare.Static.Build
 import Nagare.Static.Image (staticDockerfile)
 import Nagare.Static.Preview
@@ -40,6 +44,7 @@ main =
       , testGroup "Nagare.Static.Release" releaseTests
       , testGroup "Nagare.Static.Preview" previewTests
       , testGroup "Nagare.Static.Webhook" webhookTests
+      , testGroup "Nagare.Server.Build" serverBuildTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -196,6 +201,57 @@ previewTests =
 assertLeftText :: Either Text a -> Assertion
 assertLeftText (Left _) = pure ()
 assertLeftText (Right _) = assertFailure "expected Left, got Right"
+
+-- ---------------------------------------------------------------------------
+-- Server build (EP-18)
+
+serverBuildTests :: [TestTree]
+serverBuildTests =
+  [ testCase "skipBuild + existing .output resolves the output dir" $
+      withSystemTempDirectory "nagare-srv" $ \root -> do
+        createDirectoryIfMissing True (root </> ".output")
+        result <- prepareServerOutput True demoServerSite root
+        case result of
+          Right (PreparedServerOutput outs) ->
+            assertInfixStr ".output" (snd (head (toList' outs)))
+          Left e -> assertFailure ("expected Right, got: " <> T.unpack e)
+  , testCase "missing .output returns a clear error" $
+      withSystemTempDirectory "nagare-srv" $ \root -> do
+        result <- prepareServerOutput True demoServerSite root
+        case result of
+          Left _ -> pure ()
+          Right _ -> assertFailure "expected Left for missing .output"
+  , testCase "build command that exits non-zero is reported" $
+      withSystemTempDirectory "nagare-srv" $ \root -> do
+        result <- prepareServerOutput False (demoServerSiteWith "exit 4") root
+        case result of
+          Left e -> assertBool "mentions exit 4" (T.isInfixOf "exit 4" e)
+          Right _ -> assertFailure "expected Left for failing build"
+  ]
+  where
+    toList' ne = foldr (:) [] ne
+
+demoServerSite :: ServerSite
+demoServerSite = demoServerSiteWith "npm run build"
+
+demoServerSiteWith :: Text -> ServerSite
+demoServerSiteWith buildCmd =
+  ServerSite
+    { name = unsafeS (mkSiteName "demo")
+    , namespace = unsafeS (mkNamespace "personal")
+    , image = unsafeS (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/demo")
+    , build = ServerBuild {command = buildCmd, outputDirs = unsafeS (mkFilePathText ".output") :| []}
+    , runtime = defaultServerRuntime
+    , port = defaultPort
+    , env = Map.empty
+    , resources = Nothing
+    , scale = Nothing
+    , domains = []
+    }
+
+unsafeS :: Either Text a -> a
+unsafeS (Right a) = a
+unsafeS (Left e) = error ("test fixture invalid: " <> T.unpack e)
 
 -- ---------------------------------------------------------------------------
 -- Webhook

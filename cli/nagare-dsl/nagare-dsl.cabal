@@ -31,6 +31,8 @@ library
     Nagare.Dsl.Prelude
     Nagare.Dsl.Presets
     Nagare.Dsl.Render
+    Nagare.Dsl.Server.Render
+    Nagare.Dsl.Server.Types
     Nagare.Dsl.Static.Render
     Nagare.Dsl.Static.Types
     Nagare.Dsl.Types
@@ -65,6 +67,7 @@ test-suite nagare-dsl-test
   hs-source-dirs:  test
   other-modules:
     LoadSpec
+    ServerSpec
     StaticSpec
   build-depends:
     , base
