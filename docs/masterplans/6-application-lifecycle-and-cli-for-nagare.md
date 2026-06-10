@@ -138,7 +138,7 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 |---|-------|------|-----------|-----------|--------|
 | 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
 | 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Complete |
-| 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | In Progress |
+| 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Complete |
 | 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -285,9 +285,9 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - [x] EP-30: `Nagare.App` module with `appIdentityOrDie` and `streamServiceLogs`; unit tests for pure helpers. (2026-06-10)
 - [x] EP-30: `app list` and `app get` implemented (label-filtered list, formatted get with EP-29 enrichment); `--help` verified, live run deferred. (2026-06-10)
 - [x] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` implemented; `nagarectl-test` green (102). (2026-06-10)
-- [ ] EP-31: `recordReleaseFor`-style recording wired into `runDeploy`; per-app history ConfigMap.
-- [ ] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs.
-- [ ] EP-31: pure-layer unit tests (record/round-trip/find/format) green.
+- [x] EP-31: `recordDeploymentFor` wired into `runDeploy` (non-fatal); per-app history ConfigMap `nagare-app-deployments-<app>`; `--source` added. (2026-06-10)
+- [x] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs (id→revision via `resolveRevisionForTag`). (2026-06-10)
+- [x] EP-31: pure-layer unit tests (store name, `revisionForTag`) green; static-release tests unchanged. (2026-06-10)
 - [ ] EP-32: `docs/user/app-lifecycle.md` written; `config-reference.md`/`deploying-apps.md` updated for new fields.
 - [ ] EP-32: runnable example exercised end-to-end (deploy → list → get → logs → deployments → restart → stop → delete).
 
@@ -330,6 +330,19 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - **`deleteApp` (EP-30) already removes the history ConfigMap named `nagare-app-deployments-<app>`**
   with `--ignore-not-found` (IP3). EP-31 must use exactly that ConfigMap name so the two agree; the
   name is now committed in `cli/nagarectl/src/Nagare/App.hs`. (EP-30, 2026-06-10)
+
+- **IP3 resolved by generalizing, not copying.** EP-31 parameterized `Nagare.Static.Release` by a
+  ConfigMap-name prefix (`*With` functions; the original functions fix `"nagare-static-releases-"`,
+  static tests unchanged) and added `Nagare.App.Deployments` wrapping it under
+  `"nagare-app-deployments-"` — whose `appConfigMapName` matches EP-30's `deleteApp` name exactly. The
+  `deployments logs` revision path reuses EP-30's `Nagare.App.streamServiceLogs`/`LogTarget` (IP2). The
+  recorded deployment id is the resolved `imageTag`; for prebuilt-image deploys `deployments logs <id>`
+  reports a clear "no live revision" message (the running image carries the prebuilt tag, not the
+  deploy id). (EP-31, 2026-06-10)
+
+- **App `deploy` gained `--source`** (provenance recorded with the deployment and surfaced as
+  `NAGARE_SOURCE`), matching the site deploy path. `DeployOpts` previously had no source field. (EP-31,
+  2026-06-10)
 
 
 ## Decision Log

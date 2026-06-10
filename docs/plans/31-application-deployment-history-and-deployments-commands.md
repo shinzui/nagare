@@ -54,14 +54,40 @@ running revision.
 ## Progress
 
 - [x] M1: per-app deployment history store (reuse/generalize `Nagare.Static.Release`) with pure-layer unit tests. (2026-06-10)
-- [ ] M2: `runDeploy` records a deployment on success; verified by reading back the ConfigMap.
-- [ ] M3: `deployments list NAME` prints the table; `deployments logs NAME [ID]` streams logs.
-- [ ] M4: `nagarectl-test` green; end-to-end transcript captured.
+- [x] M2: `runDeploy` records a deployment on success (non-fatal); `--source` added to app `deploy` and surfaced as `NAGARE_SOURCE`. (2026-06-10)
+- [x] M3: `deployments list NAME` prints the table; `deployments logs NAME [ID]` streams logs (id → revision via `resolveRevisionForTag`). (2026-06-10)
+- [x] M4: `nagarectl-test` green (106); `--help` transcripts captured below; live cluster run deferred (no cluster mutated), as M4 permits. (2026-06-10)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **EP-30 had already landed**, so `Nagare.App` (`cli/nagarectl/src/Nagare/App.hs`) already provided
+  `LogTarget`/`streamServiceLogs`/`appIdentityOrDie` with the exact IP2 signatures — this plan reused
+  them directly (no fallback creation needed). The `app delete` path already removes the
+  `nagare-app-deployments-<app>` ConfigMap, which matches the name `Nagare.App.Deployments.appConfigMapName`
+  produces, so the two halves of IP3 agree with no coordination needed. (2026-06-10)
+
+- **Generalization approach (a) was clean.** Parameterizing `Nagare.Static.Release` by a ConfigMap-name
+  prefix (`configMapNameWith`/`renderReleaseConfigMapWith`/`readReleaseLogWith`/`writeReleaseLogWith`/
+  `recordReleaseForWith`) and making the original functions thin wrappers fixing
+  `"nagare-static-releases-"` left static behaviour byte-identical — all pre-existing
+  `Nagare.Static.Release` tests pass unchanged — and `Nagare.App.Deployments` is a ~30-line wrapper
+  supplying the app prefix. Approach (b) (wholesale copy) was not needed. (2026-06-10)
+
+- **Deployment id vs. prebuilt-image revision matching.** The recorded deployment id is the resolved
+  `imageTag` (= `NAGARE_RELEASE_ID`, = `--tag`), for consistency with the static `releaseId` and the
+  generated env. For Dockerfile/Nixpacks builds the deployed image carries that same tag, so
+  `deployments logs NAME <id>` resolves the revision by matching `:<id>` on the revision's image. For a
+  *prebuilt* image the running image carries the prebuilt's own tag (not the deploy id), so
+  `resolveRevisionForTag` will not find a revision and the command reports the clear "no live revision
+  for deployment <id>" message — `deployments logs NAME` (live) always works. Recorded in the Decision
+  Log. (2026-06-10)
+
+- **Live cluster run deferred** (same rationale as EP-30): creating real Knative Services / ConfigMaps
+  in `tan-nb-exp` is outward-facing and not required to implement the plan. The pure helpers
+  (`addRelease` reuse, table formatting, `revisionForTag` id→revision matcher) are unit-tested and the
+  command surfaces verified via `--help`; the end-to-end live transcript is left for a follow-up.
+  (2026-06-10)
 
 
 ## Decision Log
@@ -90,6 +116,53 @@ running revision.
   revision still exists for an old id (Knative garbage-collected it), report that clearly rather than
   streaming nothing.
   Date: 2026-06-10
+
+- Decision: Record the deployment id as the resolved `imageTag` (not the build-spec-resolved `effTag`),
+  for consistency with the static `releaseId`, `NAGARE_RELEASE_ID`, and the `--tag` the user passes.
+  Consequence accepted: for a *prebuilt-image* deploy the running revision's image carries the
+  prebuilt's own tag rather than `imageTag`, so `deployments logs NAME <id>` cannot resolve that
+  revision and reports the clear garbage-collected-style message; the live `deployments logs NAME`
+  always works. Dockerfile/Nixpacks builds (the common path) are unaffected because their deployed
+  image *is* tagged with `imageTag`.
+  Rationale: A single, predictable deployment id that matches every other place the tag appears beats a
+  per-build-mode id scheme. The prebuilt edge case degrades to a clear message, not silent failure.
+  Date: 2026-06-10
+
+- Decision: Generalize `Nagare.Static.Release` via prefix-parameterized `*With` functions (approach
+  (a) from the Plan of Work), keeping the original functions as wrappers that fix the static prefix, so
+  static behaviour and tests are unchanged; `Nagare.App.Deployments` wraps them with the
+  `"nagare-app-deployments-"` prefix.
+  Rationale: One implementation, one set of tests, byte-identical static behaviour; the app store is a
+  thin, obviously-correct wrapper. Approach (b) (wholesale copy) was unnecessary.
+  Date: 2026-06-10
+
+
+## Outcomes & Retrospective
+
+Completed 2026-06-10. `cli/nagarectl` builds and `nagarectl-test` is green (106 tests).
+
+What exists now that did not before:
+
+- `Nagare.Static.Release` generalized with prefix-parameterized `configMapNameWith`/
+  `renderReleaseConfigMapWith`/`readReleaseLogWith`/`writeReleaseLogWith`/`recordReleaseForWith`; the
+  original functions are wrappers fixing `"nagare-static-releases-"` (static behaviour byte-identical).
+- `cli/nagarectl/src/Nagare/App/Deployments.hs` — the per-app history store reusing that layer under
+  `"nagare-app-deployments-"`: `appConfigMapName`, `readDeployments`, `writeDeployments`,
+  `recordDeploymentFor`, `findDeployment`, `formatDeploymentsTable`, plus `resolveRevisionForTag` and
+  its pure core `revisionForTag`.
+- `nagarectl deploy` now records a deployment on success (non-fatal) and carries `--source`
+  (surfaced as `NAGARE_SOURCE`, matching the site path).
+- Two new commands: `nagarectl deployments list NAME` (history table, live deployment starred) and
+  `nagarectl deployments logs NAME [DEPLOYMENT_ID]` (live revision logs, or a past deployment's
+  revision resolved by image tag).
+- 4 new unit tests (`appConfigMapName`, `revisionForTag` match/no-match/malformed).
+
+Verification: `cabal test` green (static tests unchanged, proving no regression); `--help`
+transcripts in Concrete Steps. Live cluster run deferred (no cluster mutated) per M4.
+
+Integration confirmed: the history ConfigMap name `nagare-app-deployments-<app>` matches the name
+`nagarectl app delete` (EP-30) already removes, and the `deployments logs` revision path reuses
+`Nagare.App.streamServiceLogs`/`LogTarget` from EP-30 — IP2 and IP3 satisfied with no re-derivation.
 
 
 ## Context and Orientation
@@ -318,6 +391,33 @@ Expected `deployments list` shape (mirrors `site releases`):
 * 20260610-110000   2026-06-10 11:00:00 …  a1b2c3d     https://notes.personal.apps.example.com
   20260610-100000   2026-06-10 10:00:00 …  a1b2c3d     https://notes.personal.apps.example.com
 ```
+
+### Implementation evidence (2026-06-10)
+
+`cabal test` in `cli/nagarectl` is green (106 tests, including the new `Nagare.App.Deployments` group
+and the *unchanged* `Nagare.Static.Release` group). The new command surfaces parse as designed:
+
+```text
+$ nagarectl deployments --help
+Usage: nagarectl deployments COMMAND
+  Application deployment history and logs
+Available commands:
+  list   List recorded deployments for an app, newest first
+  logs   Stream logs for the live or a specific past deployment
+
+$ nagarectl deployments list --help
+Usage: nagarectl deployments list NAME [-n|--namespace NS]
+
+$ nagarectl deployments logs --help
+Usage: nagarectl deployments logs NAME [DEPLOYMENT_ID] [-n|--namespace NS] [--follow] [--tail N]
+
+$ nagarectl deploy --help        # now carries --source
+  ... [--dry-run] [--source REF]
+  --source REF   Provenance to record with the deployment (e.g. a git SHA or branch)
+```
+
+The live cluster transcript (deploy twice → `deployments list` → `deployments logs` live/by-id) is
+deferred (no cluster mutated); see the Surprises & Discoveries note.
 
 
 ## Validation and Acceptance

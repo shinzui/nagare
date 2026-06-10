@@ -62,7 +62,20 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
-import Nagare.Dsl.Types (EnvScope (..), domainText, namespaceText, quantityText, serviceNameText)
+import Nagare.App.Deployments
+  ( formatDeploymentsTable
+  , readDeployments
+  , recordDeploymentFor
+  , resolveRevisionForTag
+  )
+import Nagare.Dsl.Types
+  ( EnvScope (..)
+  , domainText
+  , imageRefText
+  , namespaceText
+  , quantityText
+  , serviceNameText
+  )
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
@@ -121,6 +134,9 @@ data DeployOpts = DeployOpts
   , dockerfileOverride :: !(Maybe FilePath)
   , ghcEnv :: !(Maybe FilePath)
   , dryRun :: !Bool
+  , source :: !(Maybe String)
+  -- ^ Free-form provenance recorded with the deployment (e.g. a git SHA or
+  -- branch), and surfaced as @NAGARE_SOURCE@ — matching the site deploy path.
   }
   deriving stock (Generic, Show)
 
@@ -195,6 +211,24 @@ data AppDeleteOpts = AppDeleteOpts
   }
   deriving stock (Generic, Show)
 
+-- | Options for @deployments list NAME@ (EP-31).
+data DepListOpts = DepListOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @deployments logs NAME [DEPLOYMENT_ID]@ (EP-31): an optional
+-- positional id selects a past deployment's revision; absent streams the live one.
+data DepLogsOpts = DepLogsOpts
+  { nameArg :: !String
+  , depId :: !(Maybe String)
+  , namespace :: !(Maybe String)
+  , follow :: !Bool
+  , tailN :: !(Maybe Int)
+  }
+  deriving stock (Generic, Show)
+
 -- | Everything @nagarectl@ can be asked to do.
 data Command
   = Deploy DeployOpts
@@ -212,6 +246,8 @@ data Command
   | AppRestart AppNameOpts
   | AppStop AppNameOpts
   | AppDelete AppDeleteOpts
+  | DeploymentsList DepListOpts
+  | DeploymentsLogs DepLogsOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -323,6 +359,13 @@ deployOptsParser defaultFile =
       )
     <*> ghcEnvOpt
     <*> dryRunOpt
+    <*> optional
+      ( strOption
+          ( long "source"
+              <> metavar "REF"
+              <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
+          )
+      )
 
 siteDeployOptsParser :: FilePath -> Parser SiteDeployOpts
 siteDeployOptsParser defaultFile =
@@ -414,6 +457,25 @@ appDeleteOptsParser =
     <*> fileOpt defaultConfigFile
     <*> ghcEnvOpt
 
+depListOptsParser :: Parser DepListOpts
+depListOptsParser = DepListOpts <$> appNameArg <*> namespaceOpt
+
+depLogsOptsParser :: Parser DepLogsOpts
+depLogsOptsParser =
+  DepLogsOpts
+    <$> appNameArg
+    <*> optional (strArgument (metavar "DEPLOYMENT_ID" <> help "A past deployment id (image tag); omit for the live deployment"))
+    <*> namespaceOpt
+    <*> switch (long "follow" <> help "Stream logs until interrupted")
+    <*> optional
+      ( option
+          auto
+          ( long "tail"
+              <> metavar "N"
+              <> help "Lines of recent logs to show (default: 200; ignored with --follow)"
+          )
+      )
+
 previewNameOpt :: Parser String
 previewNameOpt =
   strOption
@@ -490,6 +552,7 @@ opts =
             <> command "env" envCmd
             <> command "secret" secretCmd
             <> command "app" appCmd
+            <> command "deployments" deploymentsCmd
         )
     deployCmd =
       info
@@ -687,6 +750,25 @@ opts =
                   (progDesc "Delete the app, its DomainMappings, and its deployment history")
               )
         )
+    deploymentsCmd =
+      info
+        (deploymentsSubparser <**> helper)
+        (fullDesc <> progDesc "Application deployment history and logs")
+    deploymentsSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (DeploymentsList <$> depListOptsParser <**> helper)
+                (progDesc "List recorded deployments for an app, newest first")
+            )
+            <> command
+              "logs"
+              ( info
+                  (DeploymentsLogs <$> depLogsOptsParser <**> helper)
+                  (progDesc "Stream logs for the live or a specific past deployment")
+              )
+        )
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -709,6 +791,8 @@ main =
     AppRestart o -> runAppRestart o
     AppStop o -> runAppStop o
     AppDelete o -> runAppDelete o
+    DeploymentsList o -> runDeploymentsList o
+    DeploymentsLogs o -> runDeploymentsLogs o
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
@@ -725,8 +809,9 @@ runDeploy dopts = do
 
   -- EP-26: inject the generated NAGARE_* identity variables as inline {Runtime}
   -- env before rendering, so they appear in the Service and override the managed
-  -- envFrom store. The prebuilt-image deploy has no --source flag, so source=Nothing.
-  let url = serviceUrl dep bd
+  -- envFrom store. EP-31 adds an app-level --source, surfaced as NAGARE_SOURCE.
+  let srcText = T.pack <$> dopts ^. #source
+      url = serviceUrl dep bd
       gctx =
         Gen.GeneratedContext
           { Gen.serviceName = serviceNameText (dep ^. #name)
@@ -734,7 +819,7 @@ runDeploy dopts = do
           , Gen.serviceUrl = url
           , Gen.baseDomain = bd
           , Gen.releaseId = imageTag
-          , Gen.source = Nothing
+          , Gen.source = srcText
           }
       dep' = dep & #env %~ mergeGenerated (generatedEnv gctx)
 
@@ -768,6 +853,13 @@ runDeploy dopts = do
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       applyManifests (svcBytes : dmBytes)
       waitForReady name ns
+      -- EP-31: record the deployment in the per-app history ConfigMap. The
+      -- deployment id is the resolved image tag (= NAGARE_RELEASE_ID, = --tag).
+      -- Non-fatal: a failed history write must not fail a successful deploy.
+      rec <- recordDeploymentFor (imageRefText (dep ^. #image)) imageTag url name ns srcText
+      case rec of
+        Left warn -> TIO.hPutStrLn stderr ("nagarectl: " <> warn)
+        Right () -> pure ()
       TIO.putStrLn ("Deployed: " <> url)
 
 -- | Apply the @--context@/@--dockerfile@ overrides to the config's build spec,
@@ -1103,6 +1195,53 @@ resolveDeleteDomains o ns name = do
         Right dep -> pure (map (\d -> domainText (d ^. #domain)) (dep ^. #domains))
         Left _ -> appDomains ns name
     else appDomains ns name
+
+-- ---------------------------------------------------------------------------
+-- deployments handlers (EP-31)
+
+-- | @deployments list NAME@: print the app's deployment history newest-first,
+-- the live deployment starred.
+runDeploymentsList :: DepListOpts -> IO ()
+runDeploymentsList o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+  elog <- readDeployments name ns
+  case elog of
+    Left err -> dieT err
+    Right logv -> TIO.putStr (formatDeploymentsTable logv)
+
+-- | @deployments logs NAME [DEPLOYMENT_ID]@: stream the live revision's logs, or
+-- (with an id) the revision that deployment produced — mapped via its image tag.
+-- A non-existent revision for an old id is a clear error.
+runDeploymentsLogs :: DepLogsOpts -> IO ()
+runDeploymentsLogs o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+      following = o ^. #follow
+      tailLines = if following then Nothing else Just (fromMaybe 200 (o ^. #tailN))
+      mkTarget rev =
+        LogTarget
+          { ltNamespace = ns
+          , ltService = name
+          , ltRevision = rev
+          , ltFollow = following
+          , ltTail = tailLines
+          }
+  case o ^. #depId of
+    Nothing -> streamServiceLogs (mkTarget Nothing)
+    Just idStr -> do
+      let did = T.pack idStr
+      mrev <- resolveRevisionForTag ns name did
+      case mrev of
+        Just rev -> streamServiceLogs (mkTarget (Just rev))
+        Nothing ->
+          dieT
+            ( "no live revision for deployment "
+                <> did
+                <> " (its pods may have been garbage-collected; try 'nagarectl deployments logs "
+                <> name
+                <> "' for the live deployment)"
+            )
 
 -- ---------------------------------------------------------------------------
 -- env / secret handlers (EP-25)
