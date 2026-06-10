@@ -33,10 +33,20 @@ Delivered so far, each by a completed MasterPlan under `docs/masterplans/`:
 - ✅ Managed databases (typed `Database` for Postgres/Redis/ClickHouse, StatefulSet/Service/PVC/Secret
   renderer, `nagarectl db …`, app connection-env injection, scheduled GCS backups + restore) —
   MasterPlan 9.
+- ✅ Scheduled tasks and one-off jobs (typed `Task` co-located on an app, CronJob/Job renderer,
+  `nagarectl task list/run/logs/delete`, app image/env/secret inheritance) — MasterPlan 10.
+- ✅ CDN integration (typed `Cdn` field on static sites / server sites / apps, Google Cloud CDN load
+  balancer in Pulumi, Cloudflare provisioning via API, deploy-time wiring, `nagarectl cdn …`) —
+  MasterPlan 11.
 
-Still missing (future initiatives): scheduled tasks (Phase 5), curated service templates (Phase 6),
-dynamic-app previews (Phase 7), a general control API and CLI contexts (Phase 8 — only the static
-webhook runner `nagared` exists today), and an optional dashboard (Phase 10).
+Still missing (future initiatives): curated service templates (Phase 6), dynamic-app previews
+(Phase 7), a general control API and CLI contexts (Phase 8 — only the static webhook runner `nagared`
+exists today), and an optional dashboard (Phase 10).
+
+In planning (not yet delivered): bring-your-own GCP project onboarding — making `tan-nb-exp`/region/
+zone configurable from a git-ignored target profile, with a `nagarectl init` guided onboarding command
+(MasterPlan 12, child plans EP-60–EP-64 drafted). This is a portability/onboarding initiative rather
+than a PaaS capability gap, so it sits outside the phase numbering below.
 
 Sources used for the initial comparison. This list is intentionally incomplete and should be updated
 as more PaaS platforms are researched:
@@ -51,16 +61,15 @@ as more PaaS platforms are researched:
 Nagare already has a strong core: one typed Haskell config produces one Knative Service, and
 `nagarectl deploy` builds, pushes, applies, waits, and prints a URL. The type-safe DSL initiative
 eliminated the old YAML surface and made illegal app deployment states much harder to write down.
-On top of that, seven capability initiatives have now landed (see *Implementation status* above):
+On top of that, nine capability initiatives have now landed (see *Implementation status* above):
 static hosting (Cloudflare Pages/Netlify-style static-site config, generated Nginx image packaging,
 releases, rollback, previews, and Git webhook automation), typed application build modes, environment
 and secret management, the application model and CLI lifecycle, persistent storage with app-volume
-backups, and the operator-facing server/operations UX.
+backups, the operator-facing server/operations UX, managed databases with backups, scheduled tasks
+and one-off jobs, and CDN integration (Cloudflare and Google Cloud CDN).
 
-That leaves these broader PaaS gaps (managed databases with backups, Phase 4, is now delivered by
-MasterPlan 9):
+That leaves these broader PaaS gaps:
 
-- scheduled tasks (Phase 5),
 - curated service templates, and optionally Docker Compose-style services (Phase 6),
 - dynamic-app preview deployments (Phase 7),
 - a general control-plane API and CLI contexts beyond today's static webhook runner (Phase 8),
@@ -85,7 +94,10 @@ any one platform's architecture. Nagare should stay Kubernetes/Knative-native an
 | Server inventory & operations UX | `nagarectl server status` / `doctor` / `domains list` / `cleanup` | ✅ Done — MasterPlan 8 |
 | Managed databases | First-class Postgres/Redis/ClickHouse `Database` resources, generated env injection | ✅ Done — MasterPlan 9 |
 | Managed-database backups | Scheduled CronJob + on-demand `db backup`, `db restore`, keep-last-N retention | ✅ Done — MasterPlan 9 |
-| Scheduled tasks | Kubernetes CronJob renderer and `nagarectl task` commands | ⬜ Not started — Phase 5 |
+| Scheduled tasks | Kubernetes CronJob renderer and `nagarectl task` commands | ✅ Done — MasterPlan 10 |
+| One-off jobs | One-off `nagarectl task run` firing a Job from the CronJob template | ✅ Done — MasterPlan 10 |
+| CDN integration | Typed `Cdn` field on static/server/apps; Google Cloud CDN + Cloudflare backends | ✅ Done — MasterPlan 11 |
+| CDN operations | `nagarectl cdn list/status/purge/disable`, deploy-time provisioning | ✅ Done — MasterPlan 11 |
 | Service templates | Curated typed templates (Postgres admin, MinIO, etc.) | ⬜ Not started — Phase 6 |
 | Docker Compose apps | Decompose to typed resources, or run in a constrained namespace | ⬜ Not started — Phase 6 (low interest) |
 | Preview deployments for dynamic apps | Branch/PR suffixes over the Knative Service renderer | ⬜ Not started — Phase 7 (static-site previews already done) |
@@ -260,9 +272,19 @@ Why fourth: this is the biggest remaining PaaS gap after app lifecycle and env m
 not be started until storage and secrets have a stable shape.
 
 
-## Phase 5: Scheduled Tasks and One-Off Jobs — ⬜ Not started
+## Phase 5: Scheduled Tasks and One-Off Jobs — ✅ Done
 
-**Status: not started.** No `Task` model, CronJob renderer, or `nagarectl task` commands exist yet.
+**Status: delivered by MasterPlan 10** (`docs/masterplans/10-scheduled-tasks-for-nagare.md`,
+EP-49–EP-53). A typed `Task` (validated cron `Schedule`, command/args, image-or-app-inheritance,
+scoped inline env, resource requests/limits, timeout, concurrency/retry policy, history limits) is
+co-located on an app's `Deployment.tasks` and rendered to a Kubernetes CronJob by `nagarectl deploy`;
+`nagarectl task list/run/logs/delete` operate it, with `task run` firing a one-off Job via
+`kubectl create job --from=cronjob` and waiting for completion. Tasks inherit the referenced app's
+resolved image tag and runtime env/secrets via `envFrom`, plus predefined `NAGARE_TASK_NAME`/
+`NAGARE_NAMESPACE`/`NAGARE_APP`/`NAGARE_RUN_ID` vars, and history is queryable in VictoriaLogs/Grafana
+via the pod-label stream field. User guide: `docs/user/scheduled-tasks.md`; examples
+`cluster/examples/heartbeat-task` and `app-cleanup-task`. The original Phase 5 deliverables below are
+retained for historical context.
 
 Scheduled tasks are a common PaaS feature for applications and services. Nagare can map this cleanly
 to Kubernetes CronJobs and one-off Jobs.
@@ -287,6 +309,30 @@ Suggested plan shape: one ExecPlan or small MasterPlan if one-off Jobs and CronJ
 
 Why fifth: scheduled jobs are important, but they depend on env, secrets, storage, and database
 connections being stable.
+
+
+## Delivered beyond the original phases: CDN Integration — ✅ Done
+
+CDN was not one of the original numbered phases; it emerged as a capability gap after the early phases
+landed and was delivered as its own initiative.
+
+**Status: delivered by MasterPlan 11** (`docs/masterplans/11-cdn-integration-for-nagare.md`,
+EP-54–EP-59). A typed `Cdn` field (`CdnProvider`, `CdnCacheRule`, presets, `with*` combinators) attaches
+to `StaticSite`, `ServerSite`, and `Deployment`, so a developer enables an edge CDN by adding a few
+lines to the same typed `nagare/Config.hs` and running the same `nagarectl site deploy`. Two backends
+ship: **Google Cloud CDN** (a global HTTP(S) load balancer with caching, provisioned through Pulumi as
+the opt-in `NagareCdn` component behind `nagare:enableCdn`) and **Cloudflare** (the preferred default,
+configured through the Cloudflare API as a reverse proxy in front of the VM's public IP). Deploy-time
+`provisionCdn` wiring creates per-hostname proxied DNS records and applies per-path cache rules, with a
+`--dry-run` plan; `nagarectl cdn list/status/purge/disable` operate it. User guide and DNS/origin-TLS
+runbook: `docs/user/cdn.md`; worked examples `cluster/examples/static-cdn-site` (Cloudflare) and
+`tanstack-start-cdn` (Google Cloud CDN). The typed contract, deploy wiring, and docs are complete and
+offline-verified; the live cloud legs (cache-HIT curls, `pulumi up` for the billable load balancer,
+live `nagarectl cdn` discovery) are deferred to one operator session under the repo-wide powered-off-VM
+constraint.
+
+The companion `docs/roadmaps/ingress-networking-layer-roadmap.md` covers a separate, still-postponed
+networking question (Kourier vs. Envoy Gateway) and is unrelated to this edge-CDN capability.
 
 
 ## Phase 6: Service Templates — ⬜ Not started
@@ -446,12 +492,14 @@ Why last: a dashboard built too early would either duplicate CLI logic or force 
 4. ✅ Persistent storage (MasterPlan 7).
 5. ✅ Server/operator UX (MasterPlan 8) — pulled forward ahead of the items below, since its health
    checks are useful now and the resources they inspect are already standardized.
-6. ⬜ Managed PostgreSQL and Redis with backups. ← **next**
-7. ⬜ Scheduled tasks.
-8. ⬜ Service templates.
-9. ⬜ Dynamic app previews.
-10. 🟡 Control API and contexts (today only the static webhook runner `nagared` exists).
-11. ⬜ Optional dashboard.
+6. ✅ Managed databases (Postgres/Redis/ClickHouse) with backups (MasterPlan 9).
+7. ✅ Scheduled tasks and one-off jobs (MasterPlan 10).
+8. ✅ CDN integration — Cloudflare and Google Cloud CDN (MasterPlan 11). Not originally in this list;
+   delivered after the managed-database and scheduled-task work.
+9. ⬜ Service templates. ← **next**
+10. ⬜ Dynamic app previews.
+11. 🟡 Control API and contexts (today only the static webhook runner `nagared` exists).
+12. ⬜ Optional dashboard.
 
 This order keeps Nagare pragmatic: first make individual apps and static sites pleasant, then add
 stateful resources, then templates, then automation and UI. It also preserves the existing principle
@@ -460,20 +508,20 @@ that Nagare is a typed, Kubernetes-native personal PaaS rather than a clone of a
 
 ## Candidate MasterPlans to Create Next
 
-Already created and completed: **Application Lifecycle** (MasterPlan 6), **Environment and Secret
-Management** (MasterPlan 5), **Application Build Modes** (MasterPlan 4), **Persistent Storage**
-(MasterPlan 7), and **Server Inventory and Operations UX** (MasterPlan 8).
+Already created and completed: **Application Build Modes** (MasterPlan 4), **Environment and Secret
+Management** (MasterPlan 5), **Application Lifecycle** (MasterPlan 6), **Persistent Storage**
+(MasterPlan 7), **Server Inventory and Operations UX** (MasterPlan 8), **Managed Databases**
+(MasterPlan 9), **Scheduled Tasks** (MasterPlan 10), and **CDN Integration** (MasterPlan 11).
+
+Created but not yet delivered: **Bring-your-own GCP project onboarding** (MasterPlan 12, child plans
+EP-60–EP-64 drafted) — a portability/onboarding initiative (configurable target profile, `nagarectl
+init`), tracked separately from the PaaS capability gaps in this roadmap.
 
 The next useful planning artifacts to create would be:
 
-1. **Managed Databases for Nagare**: first-class Postgres and Redis resources, generated env
-   injection (`DATABASE_URL`/`REDIS_URL`), scheduled backups, restore commands, and restore drills.
-   (Persistent volumes already shipped in MasterPlan 7; this builds the database layer on top.)
-2. **Scheduled Tasks for Nagare**: a typed `Task` model, the Kubernetes CronJob/one-off Job renderer,
-   and `nagarectl task` commands.
-3. **Service Templates for Nagare**: a curated typed template schema and registry, with
+1. **Service Templates for Nagare**: a curated typed template schema and registry, with
    `nagarectl service …` commands — a small, version-pinned curated set.
-4. **Dynamic App Previews for Nagare**: `PreviewPolicy` on the app DSL, `nagarectl app preview …`,
+2. **Dynamic App Previews for Nagare**: `PreviewPolicy` on the app DSL, `nagarectl app preview …`,
    reusing the static-hosting webhook automation.
-5. **Nagare Control Plane API**: generalize `nagared` beyond the static webhook runner — contexts,
+3. **Nagare Control Plane API**: generalize `nagared` beyond the static webhook runner — contexts,
    auth, a read-only API, then mutation endpoints.
