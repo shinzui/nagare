@@ -35,6 +35,19 @@ import Nagare.App
   , restartPatch
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
+import Nagare.Ops.Probe
+  ( Probe (..)
+  , ProbeStatus (..)
+  , parseClusterIssuerReady
+  , parseConfigDomain
+  , parseDeploymentReady
+  , parseDfUsage
+  , parseKourierIp
+  , parseNewestBackupAge
+  , parseNodeReady
+  , renderInventory
+  , statusLabel
+  )
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
@@ -114,11 +127,86 @@ main =
       , testGroup "EP-26 render demonstration" renderDemonstrationTests
       , testGroup "Nagare.Env.BuildArgs" buildArgsTests
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
+      , testGroup "Nagare.Ops" opsTests
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Ops (MasterPlan 8, EP-38): the pure probe parsers and the formatter.
+
+opsTests :: [TestTree]
+opsTests =
+  [ testCase "parseNodeReady: Ready=True node" $
+      parseNodeReady nodeReadyJson @?= Just True
+  , testCase "parseNodeReady: Ready=False node" $
+      parseNodeReady nodeNotReadyJson @?= Just False
+  , testCase "parseNodeReady: malformed JSON" $
+      parseNodeReady "{not json" @?= Nothing
+  , testCase "parseDeploymentReady: available single object" $
+      parseDeploymentReady deployReadyJson "controller" @?= Just True
+  , testCase "parseDeploymentReady: zero replicas" $
+      parseDeploymentReady deployUnavailableJson "controller" @?= Just False
+  , testCase "parseKourierIp: ingress present" $
+      parseKourierIp kourierJson @?= Just "34.83.0.1"
+  , testCase "parseKourierIp: no ingress yet" $
+      parseKourierIp kourierPendingJson @?= Nothing
+  , testCase "parseConfigDomain: returns the domain key, skips _example" $
+      parseConfigDomain configDomainJson @?= Just "apps.example.com"
+  , testCase "parseClusterIssuerReady: Ready=True" $
+      parseClusterIssuerReady clusterIssuerJson @?= Just True
+  , testCase "parseNewestBackupAge: picks the max timestamp, ignores TOTAL:" $
+      parseNewestBackupAge gsutilLs @?= Just "2026-06-09T03:00:01Z"
+  , testCase "parseNewestBackupAge: empty prefix" $
+      parseNewestBackupAge "" @?= Nothing
+  , testCase "parseDfUsage: data mount" $
+      parseDfUsage dfOutput "/var/lib/nagare" @?= Just "12% of 100G"
+  , testCase "parseDfUsage: boot mount" $
+      parseDfUsage dfOutput "/" @?= Just "24% of 100G"
+  , testCase "parseDfUsage: absent mount" $
+      parseDfUsage dfOutput "/nope" @?= Nothing
+  , testCase "statusLabel covers every constructor" $
+      map statusLabel [StatusOk, StatusWarn, StatusUnknown, StatusFail]
+        @?= ["OK", "WARN", "UNKNOWN", "FAIL"]
+  , testCase "renderInventory aligns STATUS/CHECK/DETAIL" $
+      renderInventory [Probe "VM" StatusOk "RUNNING", Probe "k3s node" StatusFail "NotReady"]
+        @?= T.unlines
+          [ "  STATUS   CHECK                 DETAIL"
+          , "  OK       VM                    RUNNING"
+          , "  FAIL     k3s node              NotReady"
+          ]
+  ]
+  where
+    nodeReadyJson =
+      "{\"items\":[{\"status\":{\"conditions\":[{\"type\":\"MemoryPressure\",\"status\":\"False\"},{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
+    nodeNotReadyJson =
+      "{\"items\":[{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"False\"}]}}]}"
+    deployReadyJson =
+      "{\"metadata\":{\"name\":\"controller\"},\"status\":{\"availableReplicas\":1,\"conditions\":[{\"type\":\"Available\",\"status\":\"True\"}]}}"
+    deployUnavailableJson =
+      "{\"metadata\":{\"name\":\"controller\"},\"status\":{\"availableReplicas\":0,\"conditions\":[{\"type\":\"Available\",\"status\":\"False\"}]}}"
+    kourierJson =
+      "{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"34.83.0.1\"}]}}}"
+    kourierPendingJson =
+      "{\"status\":{\"loadBalancer\":{}}}"
+    configDomainJson =
+      "{\"data\":{\"_example\":\"## docs ##\",\"apps.example.com\":\"\"}}"
+    clusterIssuerJson =
+      "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
+    gsutilLs =
+      T.unlines
+        [ "      1234  2026-06-08T03:00:01Z  gs://b/postgres/dump-20260608.sql.gz"
+        , "      5678  2026-06-09T03:00:01Z  gs://b/postgres/dump-20260609.sql.gz"
+        , "TOTAL: 2 objects, 6912 bytes"
+        ]
+    dfOutput =
+      T.unlines
+        [ "Filesystem      Size  Used Avail Use% Mounted on"
+        , "/dev/sda1       100G   24G   76G  24% /"
+        , "/dev/sdb        100G   12G   88G  12% /var/lib/nagare"
+        ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Storage.Snapshot (EP-36)

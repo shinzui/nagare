@@ -40,6 +40,9 @@ library
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
     Nagare.Image
+    Nagare.Ops.Probe
+    Nagare.Ops.Pulumi
+    Nagare.Ops.Status
     Nagare.Server.Build
     Nagare.Server.Deploy
     Nagare.Server.Image
