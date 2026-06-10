@@ -30,6 +30,8 @@ Then install Kourier (see `../kourier/README.md`) and net-certmanager (see
   **Deferred** — apply only after a real domain is delegated.
 - `config-certmanager.yaml` — points the net-certmanager bridge at the
   `letsencrypt-dns` ClusterIssuer. Applied (inert until TLS is enabled).
+- `config-features.yaml` — enables PVC volume + read-write mounts (EP-33).
+  **Applied** to allow Nagare apps to mount durable `local-path` storage.
 
 ## Apply order
 
@@ -46,6 +48,9 @@ kubectl -n knative-serving patch configmap config-domain \
 # cert-manager bridge issuer (inert until TLS enabled)
 kubectl -n knative-serving patch configmap config-certmanager \
   --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
+# PVC volume support (EP-33)
+kubectl -n knative-serving patch configmap config-features \
+  --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
 ```
 
 ## Enabling TLS later (deferred)
