@@ -67,29 +67,58 @@ A note on terms used throughout, defined here so the rest of the plan needs no o
 
 Milestone 1 — `storage snapshot` writes a verified tar.gz to GCS, plus retention pruning:
 
-- [ ] Add the `Nagare.Storage.Snapshot` module to `cli/nagarectl/nagarectl.cabal` `exposed-modules`.
-- [ ] Implement the pure GCS object-path helper `snapshotObjectPath` and the timestamp formatter.
-- [ ] Implement the pure retention-pruning selector `snapshotsToPrune` (keep-last-N).
-- [ ] Implement the snapshot Job manifest renderer `renderSnapshotJob`.
-- [ ] Wire `runSnapshot` (apply Job, wait for completion, prune) into `cli/nagarectl/app/Main.hs`.
-- [ ] Add the `snapshot` subcommand to the `storage` subparser in `cli/nagarectl/app/Main.hs`.
-- [ ] Add pure tests for `snapshotObjectPath` and `snapshotsToPrune` to `cli/nagarectl/test/Spec.hs`.
-- [ ] Validate end to end: `nagarectl storage snapshot myapp data` then `gsutil ls` shows the object.
+- [x] Add the `Nagare.Storage.Snapshot` module to `cli/nagarectl/nagarectl.cabal` `exposed-modules`. (2026-06-09)
+- [x] Implement the pure GCS object-path helper `snapshotObjectPath` and the timestamp formatter. (2026-06-09; + `snapshotGsUrl`, `snapshotTimestamp`.)
+- [x] Implement the pure retention-pruning selector `snapshotsToPrune` (keep-last-N). (2026-06-09)
+- [x] Implement the snapshot Job manifest renderer `renderSnapshotJob`. (2026-06-09; `batch/v1` Job, RO PVC co-mount, `google/cloud-sdk:slim`, ADC via metadata IP, project pinned, `tar | gsutil cp -`.)
+- [x] Wire `runSnapshot` (apply Job, wait for completion, prune) into the CLI. (2026-06-09; in `Nagare.Storage.Snapshot`, dispatched from Main.)
+- [x] Add the `snapshot` subcommand to the `storage` subparser in `cli/nagarectl/app/Main.hs`. (2026-06-09; `StorageSnapshot` + `--bucket`/`--keep`; extends EP-35's subparser, IP5.)
+- [x] Add pure tests for `snapshotObjectPath` and `snapshotsToPrune` to `cli/nagarectl/test/Spec.hs`. (2026-06-09; new `Nagare.Storage.Snapshot` group — 118 tests pass.)
+- [ ] Validate end to end: `nagarectl storage snapshot myapp data` then `gsutil ls` shows the object. (Deferred to EP-37 — needs a deployed app + cluster API access; IAP forwards only SSH/22. See Surprises.)
 
 Milestone 2 — backup-ownership policy + runbook + tested restore:
 
-- [ ] Implement the pure `backupExcludedWarnings` check over a loaded config's volumes.
-- [ ] Emit the warnings from `runDeploy` in `cli/nagarectl/app/Main.hs`.
-- [ ] Add the `scripts/restore-volume.sh` scratch-first restore script.
-- [ ] Add the "app volumes" row + restore procedure to `docs/runbooks/disaster-recovery.md`.
-- [ ] Add the "app volumes" row to `docs/user/backups-and-disaster-recovery.md`.
-- [ ] Add a pure test for `backupExcludedWarnings` to `cli/nagarectl/test/Spec.hs`.
-- [ ] Validate end to end: restore a snapshot into a disposable PVC and compare contents.
+- [x] Implement the pure `backupExcludedWarnings` check over a loaded config's volumes. (2026-06-09; `Delete` ⇒ excluded.)
+- [x] Emit the warnings from `runDeploy` in `cli/nagarectl/app/Main.hs`. (2026-06-09; stderr, both dry-run and live — verified via the real CLI on a `Delete`-volume config.)
+- [x] Add the `scripts/restore-volume.sh` scratch-first restore script. (2026-06-09; `bash -n` clean, `chmod +x`, scratch PVC + restore Job, never touches the live PVC.)
+- [x] Add the "app volumes" row + restore procedure to `docs/runbooks/disaster-recovery.md`. (2026-06-09; inventory row + step-7 sub-step + hot-DB caveat.)
+- [x] Add the "app volumes" row to `docs/user/backups-and-disaster-recovery.md`. (2026-06-09; row + include/exclude policy section.)
+- [x] Add a pure test for `backupExcludedWarnings` to `cli/nagarectl/test/Spec.hs`. (2026-06-09)
+- [ ] Validate end to end: restore a snapshot into a disposable PVC and compare contents. (Deferred to EP-37 — needs cluster API access; same IAP constraint.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **EP-34's `attachVolume` only produces `Retain` volumes — there is no preset for a backup-excluded
+  (`Delete`) volume.** To mark a volume backup-excluded today a config must build a `Volume` record
+  literal directly (the `Volume(..)` constructor and `mkVolumeName`/`mkQuantity`/`mkMountPath` are
+  exported), e.g. `pure base { volumes = [Volume { … retention = Delete }] }`. This works (verified
+  via the real CLI — the deploy-time warning fired for such a config) but is clunky. **Follow-up for
+  EP-34/EP-37:** consider an `attachVolumeExcluded` (or an `attachVolumeWith` taking a
+  `RetentionPolicy`) preset so opting out is ergonomic; the docs example in EP-37 should show the
+  literal form until then.
+
+- **`StdoutUntrimmed` is `Text`, `StdoutRaw` is `ByteString`.** `pruneSnapshots` captures the
+  `gsutil ls` output as `StdoutUntrimmed` (already `Text`, no decode); `Nagare.Storage.Discover`
+  captures `kubectl get … -o json` as `StdoutRaw` for `aeson`. Mixing them up is a type error.
+
+- **Snapshot resolves the PVC name deterministically (`pvcName`), like `storage inspect`.** Rather
+  than querying the cluster to map `VOLUME → claimName`, `runSnapshot` loads the config
+  (`resolveStorageDep`), verifies the volume is declared, and computes `pvcName app volume` — the same
+  approach EP-35's `inspect` uses. The PVC must exist on the cluster (the deploy created it); if it
+  doesn't, the Job fails to schedule and `kubectl wait` surfaces it.
+
+- **`renderSnapshotJob` builds the Job via `Data.Yaml.encode` of an aeson `Value`,** not a text
+  template — this quotes the `tar … | gsutil cp -` shell pipeline as a proper YAML string scalar with
+  no indentation/escaping pitfalls. No golden test is needed (the Job is applied, not compared to a
+  cluster contract); the pure path/prune/warning logic is what the suite covers.
+
+- **The live snapshot/restore transcripts are deferred to EP-37 (same IAP constraint as EP-35).** A
+  workstation `kubectl`/`gsutil` against `nagare-01` can't reach the k3s API (IAP forwards only
+  SSH/22), and a real snapshot needs a *deployed* volume app. The pure logic (path, prune, warnings)
+  is unit-tested; the deploy-time warning and the restore script's `bash -n` are verified locally;
+  the on-cluster `storage snapshot … → gsutil ls` and the restore drill belong to EP-37's end-to-end
+  examples (run `nagarectl` on the VM or SSH-forward 6443, per EP-35's Surprises).
 
 
 ## Decision Log
@@ -187,7 +216,38 @@ Milestone 2 — backup-ownership policy + runbook + tested restore:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Result: both milestones implemented; build clean; all 118 `nagarectl` tests pass (incl. the new
+`Nagare.Storage.Snapshot` group). Pure logic + the deploy-time warning + the restore script verified
+locally; the live snapshot/restore transcripts are deferred to EP-37 (IAP/cluster-access constraint).**
+
+- **M1 — `storage snapshot` (IP4).** `nagarectl storage snapshot APP VOLUME [--bucket B] [--keep N]`
+  resolves the PVC deterministically, renders and applies a short-lived `batch/v1` Job that
+  co-mounts the PVC read-only and streams `tar … | gsutil cp -` to
+  `gs://<bucket>/volumes/<app>/<volume>/<ts>.tar.gz`, waits for completion (surfacing logs on
+  failure), deletes the Job, and prunes to the newest N. Pure helpers (`snapshotObjectPath`,
+  `snapshotGsUrl`, `snapshotTimestamp`, `snapshotsToPrune`) are unit-tested. The snapshot command
+  extends EP-35's `storage` subparser (IP5) — it did not fork it.
+
+- **M2 — backup-ownership + restore.** `backupExcludedWarnings` (a volume is excluded iff
+  `retention = Delete`) is emitted to stderr from `runDeploy` in both dry-run and live deploys
+  (verified through the real CLI). `scripts/restore-volume.sh` restores a snapshot into a *scratch*
+  PVC via a one-off Job and prints the restored tree for comparison, never touching the live volume
+  (mirrors `restore-sqlite.sh`/`restore-postgres.sh`). The disaster-recovery runbook and the user
+  backup guide gained app-volume rows, a restore sub-step, and the hot-DB consistency caveat.
+
+- **Decisions honored / deviations.** The `RetentionPolicy` overload (`Delete` = both "disposable
+  disk" and "backup-excluded") is implemented as decided; snapshot retention (keep-last-N in
+  `nagarectl`) is kept distinct from the PVC retention policy. Deviation: `runSnapshot`/`storage`
+  commands take the resolved `Deployment` (not the plan's `(Text, FilePath, …)` signatures) for the
+  same reason EP-35 did — the declared volume set is needed. Follow-up surfaced: EP-34 lacks an
+  ergonomic preset for a `Delete` (excluded) volume (see Surprises) — noted for EP-37/EP-34.
+
+- **Gaps.** Live `storage snapshot … → gsutil ls` and the restore drill are deferred to EP-37's
+  on-cluster examples (IAP forwards only SSH/22; a real snapshot needs a deployed volume app). The
+  snapshot/restore Job manifests, `runSnapshot` IO, `pruneSnapshots`, and the restore script's Job
+  body are not unit-tested (they shell to `kubectl`/`gsutil`), matching the repo convention that
+  cluster IO is exercised by `--dry-run`/by hand. A scheduled-snapshot CronJob remains out of scope
+  (Decision Log).
 
 
 ## Context and Orientation

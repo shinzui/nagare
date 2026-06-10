@@ -53,6 +53,7 @@ library
     Nagare.Storage.Discover
     Nagare.Storage.Inspect
     Nagare.Storage.List
+    Nagare.Storage.Snapshot
 
   build-depends:
     aeson,

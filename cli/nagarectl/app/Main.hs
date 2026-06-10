@@ -116,6 +116,7 @@ import Nagare.Server.Deploy
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
+import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Static.Release
   ( StaticReleaseLog (..)
   , findRelease
@@ -297,6 +298,7 @@ data SecretCommand
 data StorageCommand
   = StorageList StoreCommonOpts
   | StorageInspect StoreCommonOpts String -- ^ VOLUME
+  | StorageSnapshot StoreCommonOpts String (Maybe String) Int -- ^ VOLUME, --bucket, --keep (EP-36)
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -788,6 +790,33 @@ opts =
                   )
                   (progDesc "Show full detail of one volume's PVC")
               )
+            <> command
+              "snapshot"
+              ( info
+                  ( Storage
+                      <$> ( StorageSnapshot
+                              <$> storeCommonOptsParser
+                              <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
+                              <*> optional
+                                ( strOption
+                                    ( long "bucket"
+                                        <> metavar "BUCKET"
+                                        <> help "GCS backup bucket (overrides NAGARE_BACKUP_BUCKET, default tan-nb-exp-nagare-backups)"
+                                    )
+                                )
+                              <*> option
+                                auto
+                                ( long "keep"
+                                    <> metavar "N"
+                                    <> value 7
+                                    <> showDefault
+                                    <> help "Snapshots to keep per volume (older are pruned)"
+                                )
+                          )
+                      <**> helper
+                  )
+                  (progDesc "Snapshot a volume's contents to the GCS backup bucket")
+              )
         )
     deploymentsCmd =
       info
@@ -870,6 +899,10 @@ runDeploy dopts = do
       dmBytes = renderDomainMappings dep'
       name = serviceNameText (dep' ^. #name)
       ns = namespaceText (dep' ^. #namespace)
+
+  -- EP-36: warn (never fail) for each volume opted out of backups, in both
+  -- dry-run and live deploys, so no volume is ever silently unprotected.
+  forM_ (backupExcludedWarnings name (dep' ^. #volumes)) (TIO.hPutStrLn stderr)
 
   if dopts ^. #dryRun
     then do
@@ -1375,6 +1408,18 @@ runStorage = \case
   StorageInspect copts vol -> do
     dep <- resolveStorageDep copts
     runStorageInspect dep (T.pack vol)
+  StorageSnapshot copts vol bucket keep -> do
+    dep <- resolveStorageDep copts
+    b <- resolveBackupBucket bucket
+    runSnapshot dep (T.pack vol) b keep
+
+-- | Resolve the GCS backup bucket: @--bucket@, then @NAGARE_BACKUP_BUCKET@,
+-- defaulting to @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).
+resolveBackupBucket :: Maybe String -> IO Text
+resolveBackupBucket (Just b) = pure (T.pack b)
+resolveBackupBucket Nothing = do
+  menv <- lookupEnv "NAGARE_BACKUP_BUCKET"
+  pure (maybe "tan-nb-exp-nagare-backups" T.pack menv)
 
 runEnv :: EnvCommand -> IO ()
 runEnv = \case

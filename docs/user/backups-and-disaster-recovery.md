@@ -27,6 +27,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Secrets | **sops-encrypted in Git** + host age key offline | 🟡 (see [Secrets](secrets.md)) |
 | SQLite app data | **Litestream → GCS** (`/var/lib/nagare/sqlite`) | 🔭 EP-7 |
 | Postgres | `pg_dump` / WAL archive → GCS (`/var/lib/nagare/postgres`) | 🔭 EP-7 |
+| App volumes (PVCs) | `nagarectl storage snapshot` → GCS (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ EP-36 |
 | Grafana dashboards | **Git** (exported as code) | 🔭 EP-5/EP-7 |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 
@@ -34,6 +35,28 @@ The backup bucket is `tan-nb-exp-nagare-backups` (uniform bucket-level access,
 `forceDestroy: false` so it can't be wiped by a careless `pulumi destroy`). The
 node service account already has object-admin on it, so backup jobs running on
 the VM can write with ambient credentials.
+
+### App volumes: backup-included by default, opt out explicitly
+
+A durable volume attached to an app (EP-34/EP-35) is part of the backup story by
+default. `nagarectl storage snapshot APP VOLUME` tars the volume's contents to
+`gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` (a
+short-lived in-cluster Job mounts the PVC read-only and streams the archive to
+GCS), and keeps the last N snapshots per volume (`--keep`, default 7). Restore a
+snapshot into a disposable scratch PVC — never over live data — with
+`scripts/restore-volume.sh gs://…/<ts>.tar.gz`.
+
+A volume you don't want backed up (a cache, scratch space) is opted out by
+declaring it with `retention = Delete` in the typed config: such a volume is
+treated as throwaway, and **`nagarectl deploy` prints a warning naming it at
+deploy time** so no volume is ever *silently* unprotected. Volumes with
+`retention = Retain` (the default) are backup-included.
+
+Caveat: a file-level snapshot of a *hot* (actively written) SQLite database can
+capture a torn page. Quiesce the app before snapshotting a live database, or use
+the continuous Litestream pattern (`cluster/examples/sqlite-litestream/`) for
+databases written while serving. Uploaded files, generated assets, and a stopped
+app's database snapshot cleanly.
 
 > **The two things you must keep off-machine yourself:** the **host age private
 > key** (without it you cannot decrypt secrets to rebuild) and a **copy of this

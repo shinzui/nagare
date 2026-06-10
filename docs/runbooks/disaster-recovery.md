@@ -29,6 +29,8 @@ SQLite app data ........... Litestream replica in
                             gcs://<backupBucket>/litestream/          -> scripts/restore-sqlite.sh (scratch)
 Postgres data ............. pg_dump in
                             gcs://<backupBucket>/postgres/            -> scripts/restore-postgres.sh (scratch)
+App volume data ........... tar.gz snapshots in
+                            gcs://<backupBucket>/volumes/<app>/<volume>/ -> scripts/restore-volume.sh (scratch)
 Grafana dashboards ........ Git (cluster/observability/grafana/
                             dashboards/)                              -> provisioned by EP-5 sidecar
 Victoria metrics/logs/traces  NOT backed up (non-critical;
@@ -153,11 +155,26 @@ scripts/restore-sqlite.sh /tmp/restore-app.db
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
 # Postgres into a scratch db, compare row counts, then promote:
 scripts/restore-postgres.sh gs://$BACKUP_BUCKET/postgres/<latest>.sql.gz
+# App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
+scripts/restore-volume.sh gs://$BACKUP_BUCKET/volumes/<app>/<volume>/<latest>.tar.gz
 ```
 
-Observe: the scratch row counts match the source at backup time. Only after
-comparing do you promote (copy the scratch SQLite file to
-`/var/lib/nagare/sqlite/`, or rename the scratch Postgres db).
+Observe: the scratch row counts (or, for an app volume, the restored file tree
+the Job logs print) match the source at backup time. Only after comparing do you
+promote (copy the scratch SQLite file to `/var/lib/nagare/sqlite/`, rename the
+scratch Postgres db, or copy the scratch PVC's files into the live volume). The
+restore scripts only ever write to a scratch target, so a botched restore can
+never clobber live data.
+
+**App-volume snapshots are file-level, point-in-time copies** (`tar` of the
+mounted volume → `gs://<backupBucket>/volumes/<app>/<volume>/<ts>.tar.gz`, taken
+by `nagarectl storage snapshot APP VOLUME`). A snapshot of a *hot* (actively
+written) SQLite database can capture a torn page — quiesce the app first, or use
+the continuous Litestream pattern (`cluster/examples/sqlite-litestream/`) for
+databases that are written while live. Uploaded files / generated assets / a
+stopped app's DB snapshot cleanly. Volumes declared with `retention = Delete` are
+treated as throwaway and are **excluded** from backups (and `nagarectl deploy`
+warns about them).
 
 ### 8. Redeploy the apps (EP-6)
 

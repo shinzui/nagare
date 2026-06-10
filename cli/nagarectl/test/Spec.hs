@@ -69,6 +69,11 @@ import Nagare.Storage.Discover
   , formatStorageTable
   , pvcName
   )
+import Nagare.Storage.Snapshot
+  ( backupExcludedWarnings
+  , snapshotObjectPath
+  , snapshotsToPrune
+  )
 import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
@@ -112,7 +117,52 @@ main =
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
+      , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Storage.Snapshot (EP-36)
+
+storageSnapshotTests :: [TestTree]
+storageSnapshotTests =
+  [ testCase "snapshotObjectPath builds volumes/<app>/<volume>/<ts>.tar.gz" $
+      snapshotObjectPath "myapp" "data" "20260609T141503Z"
+        @?= "volumes/myapp/data/20260609T141503Z.tar.gz"
+  , testCase "snapshotsToPrune keeps the newest N and returns the oldest (newest-first)" $
+      snapshotsToPrune 7 nineStamps
+        @?= [ "gs://b/volumes/a/d/20260602T000000Z.tar.gz"
+            , "gs://b/volumes/a/d/20260601T000000Z.tar.gz"
+            ]
+  , testCase "snapshotsToPrune is idempotent on an already-pruned set" $
+      snapshotsToPrune 7 (drop 2 (reverse nineStamps)) @?= []
+  , testCase "snapshotsToPrune keeps everything when count <= N" $
+      snapshotsToPrune 7 (take 3 nineStamps) @?= []
+  , testCase "backupExcludedWarnings warns for exactly the Delete volume" $
+      backupExcludedWarnings "myapp" [mkVolWith Retain "data" "/data", mkVolWith Delete "cache" "/cache"]
+        @?= ["warning: volume 'cache' on app 'myapp' is NOT backed up (backup excluded in config)"]
+  , testCase "backupExcludedWarnings is empty when all volumes are Retain" $
+      backupExcludedWarnings "myapp" [mkVolWith Retain "data" "/data"] @?= []
+  ]
+  where
+    -- Nine fixed-width timestamps; lexicographic == chronological.
+    nineStamps =
+      [ "gs://b/volumes/a/d/2026060" <> T.pack (show d) <> "T000000Z.tar.gz"
+      | d <- [1 .. 9 :: Int]
+      ]
+
+-- | A 'Volume' with an explicit 'RetentionPolicy' for the backup-policy tests.
+mkVolWith :: RetentionPolicy -> Text -> Text -> Volume
+mkVolWith ret n mp =
+  Volume
+    { volName = orError (mkVolumeName n)
+    , size = orError (mkQuantity "1Gi")
+    , mountPath = orError (mkMountPath mp)
+    , accessMode = ReadWriteOnce
+    , readOnly = False
+    , retention = ret
+    }
+  where
+    orError = either (error . T.unpack) id
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Storage.Discover (EP-35)
