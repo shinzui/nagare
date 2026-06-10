@@ -33,6 +33,7 @@ library
     Nagare.App
     Nagare.App.Deployments
     Nagare.Build
+    Nagare.Cdn.Cloudflare
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -88,6 +89,8 @@ library
     directory,
     filepath,
     generic-lens ^>=2.2,
+    http-client,
+    http-client-tls,
     lens ^>=5.3,
     memory,
     nagare-dsl,

@@ -62,22 +62,26 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1 — Add `http-client` and `http-client-tls` to the `nagarectl.cabal` library
+- [x] Milestone 1 — Add `http-client` and `http-client-tls` to the `nagarectl.cabal` library
   `build-depends`, and expose the new module `Nagare.Cdn.Cloudflare`.
-- [ ] Milestone 1 — Create `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs` with the credential,
+- [x] Milestone 1 — Create `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs` with the credential,
   origin-TLS, and result types plus the pure request-builders
   (`buildUpsertRecordPayload`, `buildCacheRulesPayload`, `buildPurgePayload`,
   `sslModeToken`, `zoneNameFromHostname`, the Cloudflare-envelope parsers).
-- [ ] Milestone 1 — Add a `Nagare.Cdn` test group to `cli/nagarectl/test/Spec.hs` asserting the
-  exact JSON payloads (default-TTL + `/assets/` + never-cache `/api/` + static-asset caching),
-  the SSL-mode mapping, purge-all vs purge-paths, and the success/error envelope parsing.
-- [ ] Milestone 1 — `cd cli/nagarectl && cabal test` passes; record the transcript in Concrete
-  Steps.
-- [ ] Milestone 2 — Implement the five IO functions (`loadCloudflareCreds`,
+- [x] Milestone 1 — Add a `Nagare.Cdn (EP-57)` test group to `cli/nagarectl/test/Spec.hs`
+  asserting the exact JSON payloads (default-TTL + `/assets/` + never-cache `/api/` +
+  static-asset caching), the SSL-mode mapping, purge-all vs purge-paths, the envelope parsing,
+  and `parseZoneId`/`parseDnsRecordId` (both list and single-object shapes).
+- [x] Milestone 1 — `cd cli/nagarectl && cabal test` passes (237 total, +11 in `Nagare.Cdn`);
+  EP-55's `Nagare.Dsl.Cdn.Types` is merged, so it is imported directly (no stand-in needed).
+- [x] Milestone 2 — Implement the five IO functions (`loadCloudflareCreds`,
   `upsertProxiedRecord`, `applyCacheRules`, `setOriginTlsMode`, `purgeHostname`) on top of the
-  pure builders, with the find-or-create idempotency and the `Either Text` totality.
-- [ ] Milestone 2 — Write the manual live-validation runbook (token scopes, env vars, the
-  `curl` transcript showing `CF-Cache-Status: HIT`) and mark the live leg deferred/manual.
+  pure builders, with find-or-create idempotency (`parseDnsRecordId` made robust to both the
+  list-find and the single-object create responses) and `Either Text` totality via a shared
+  `cfRequest`/`withZone`/`sendUnit`.
+- [x] Milestone 2 — The manual live-validation runbook (token scopes, env vars, the
+  `curl` transcript showing `CF-Cache-Status: HIT`) is in Validation & Acceptance; the live leg
+  is deferred/manual (no Cloudflare account/token in CI; VM off).
 
 
 ## Surprises & Discoveries
@@ -85,7 +89,16 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The plan's `parseDnsRecordId` (reading `result.id`) does not detect an existing record in
+  `upsertProxiedRecord`'s find step: `GET /zones/{zone}/dns_records?name=...` returns `result` as
+  an **array**, so `result.id` is always absent → every deploy would POST a duplicate. Fixed by
+  making `parseDnsRecordId` read `result[0].id` when `result` is an array and `result.id` when it
+  is a single object, so the same parser serves both the find (list) and the create/update
+  (object) responses and the find-or-create idempotency actually holds.
+
+- `http-client` + `http-client-tls` resolve cleanly in the project's GHC 9.12 package set; the
+  library compiled and `cabal test` ran 237 tests green (+11 `Nagare.Cdn`). No stand-in for the
+  EP-55 model was needed — `Nagare.Dsl.Cdn.Types` is already merged and imported directly.
 
 
 ## Decision Log
@@ -168,7 +181,20 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Complete (2026-06-10).** `Nagare.Cdn.Cloudflare` is the single outbound-HTTP surface in the CLI
+(the first; `http-client`/`http-client-tls` added to the library stanza only). The five IO
+functions EP-58 consumes — `loadCloudflareCreds`, `upsertProxiedRecord`, `applyCacheRules`,
+`setOriginTlsMode`, `purgeHostname` — are implemented over the pure builders, total via
+`Either Text`, with the token read from `CF_API_TOKEN` and never logged. The pure builders and
+envelope parsers are unit-tested byte-exactly (`cabal test`: 237 total, +11 `Nagare.Cdn`),
+including the worked `buildCacheRulesPayload` golden (default + `/assets/` + never-cache `/api/` +
+static-asset rule, in precedence order) the plan specifies.
+
+**Gaps / deferred.** The live leg (a real Cloudflare zone + scoped token + powered-on VM) is
+deferred/manual — the runbook and the `CF-Cache-Status: HIT` proof are in Validation & Acceptance,
+to be captured when an operator runs it. EP-58 wires these functions into the deploy seam and the
+`nagarectl cdn` command group. One correctness fix vs the plan's draft (the array-aware
+`parseDnsRecordId`) is recorded in Surprises.
 
 
 ## Context and Orientation

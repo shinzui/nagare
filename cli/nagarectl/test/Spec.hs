@@ -118,6 +118,8 @@ import Nagare.Ops.Probe
   , statusLabel
   )
 import Nagare.Build (applyBuildOverrides, describeBuild)
+import Nagare.Cdn.Cloudflare
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -213,6 +215,7 @@ main = do
       , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
       , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
       , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
+      , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -1880,3 +1883,105 @@ backupRestoreTests =
           assertBool "no scratch suffix" (not ("_restore_scratch" `T.isInfixOf` y))
       ]
   ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Cdn (MasterPlan 11, EP-57): the pure Cloudflare request-builders and
+-- envelope parsers, asserted byte-exactly (compared as decoded Values so key
+-- order is irrelevant).
+
+cloudflareTests :: [TestTree]
+cloudflareTests =
+  [ testCase "buildCacheRulesPayload: default + /assets/ + never-cache /api/ + static" $
+      buildCacheRulesPayload "blog.example.com" cdnFixture @?= expectedCacheRules
+  , testCase "buildUpsertRecordPayload: proxied A record" $
+      buildUpsertRecordPayload "blog.example.com" "34.105.10.20"
+        @?= Aeson.object
+          [ "type" Aeson..= ("A" :: Text)
+          , "name" Aeson..= ("blog.example.com" :: Text)
+          , "content" Aeson..= ("34.105.10.20" :: Text)
+          , "proxied" Aeson..= True
+          , "ttl" Aeson..= (1 :: Int)
+          ]
+  , testCase "sslModeToken: flexible/full/strict" $ do
+      sslModeToken Flexible @?= "flexible"
+      sslModeToken Full @?= "full"
+      sslModeToken FullStrict @?= "strict"
+  , testCase "buildPurgePayload: purge-all when no paths" $
+      buildPurgePayload "blog.example.com" []
+        @?= Aeson.object ["purge_everything" Aeson..= True]
+  , testCase "buildPurgePayload: purge specific URLs" $
+      buildPurgePayload "blog.example.com" ["/assets/app.css", "/"]
+        @?= Aeson.object
+          [ "files"
+              Aeson..= ( [ "https://blog.example.com/assets/app.css"
+                         , "https://blog.example.com/"
+                         ] ::
+                           [Text]
+                       )
+          ]
+  , testCase "zoneNameFromHostname: registrable domain" $ do
+      zoneNameFromHostname "blog.example.com" @?= "example.com"
+      zoneNameFromHostname "example.com" @?= "example.com"
+      zoneNameFromHostname "a.b.example.com." @?= "example.com"
+  , testCase "parseEnvelopeUnit: success:true -> Right ()" $
+      parseEnvelopeUnit "{\"success\":true,\"errors\":[],\"result\":{}}" @?= Right ()
+  , testCase "parseEnvelopeUnit: success:false -> Left message" $
+      parseEnvelopeUnit
+        "{\"success\":false,\"errors\":[{\"code\":9109,\"message\":\"Invalid access token\"}]}"
+        @?= Left "Invalid access token"
+  , testCase "parseZoneId: result[0].id from a zone list" $
+      parseZoneId "{\"success\":true,\"result\":[{\"id\":\"zone1\",\"name\":\"example.com\"}]}"
+        @?= Just "zone1"
+  , testCase "parseDnsRecordId: result[0].id from a record list (find)" $
+      parseDnsRecordId "{\"success\":true,\"result\":[{\"id\":\"rec1\"}]}"
+        @?= Just "rec1"
+  , testCase "parseDnsRecordId: result.id from a single-object response (create)" $
+      parseDnsRecordId "{\"success\":true,\"result\":{\"id\":\"rec2\"}}"
+        @?= Just "rec2"
+  ]
+  where
+    cdnFixture =
+      Cdn
+        { provider = CloudflareCdn
+        , defaultTtlSeconds = Just 3600
+        , cacheStaticAssets = True
+        , cacheRules =
+            [ CdnCacheRule "/assets/" (Just 31536000)
+            , CdnCacheRule "/api/" Nothing
+            ]
+        }
+
+    ttlParams ttl =
+      Aeson.object
+        [ "cache" Aeson..= True
+        , "edge_ttl"
+            Aeson..= Aeson.object
+              [ "mode" Aeson..= ("override_origin" :: Text)
+              , "default" Aeson..= (ttl :: Int)
+              ]
+        ]
+    bypassParams = Aeson.object ["cache" Aeson..= False]
+    ruleObj expr params =
+      Aeson.object
+        [ "expression" Aeson..= (expr :: Text)
+        , "action" Aeson..= ("set_cache_settings" :: Text)
+        , "action_parameters" Aeson..= params
+        ]
+
+    expectedCacheRules =
+      Aeson.object
+        [ "rules"
+            Aeson..= [ ruleObj
+                        "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/assets/\")"
+                        (ttlParams 31536000)
+                     , ruleObj
+                        "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/api/\")"
+                        bypassParams
+                     , ruleObj
+                        "(http.host eq \"blog.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})"
+                        (ttlParams 31536000)
+                     , ruleObj
+                        "(http.host eq \"blog.example.com\")"
+                        (ttlParams 3600)
+                     ]
+        ]
