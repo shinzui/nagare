@@ -55,6 +55,21 @@ export class NagareNetwork extends pulumi.ComponentResource {
             allows: [{ protocol: "tcp", ports: ["22"] }],
         }, { parent: this });
 
+        // Google load-balancer health-check / proxy source ranges (MasterPlan
+        // 11 / EP-56). A Google global external Application Load Balancer probes
+        // and proxies to the origin from 130.211.0.0/22 and 35.191.0.0/16; this
+        // rule admits them on the backend ports. It is intentionally NOT gated
+        // behind `nagare:enableCdn`: it only widens which source ranges may
+        // reach already-open ports (fw-web opens 80/443 to 0.0.0.0/0), so it is
+        // free and harmless when the CDN is off, and it documents the dependency
+        // and survives any future tightening of fw-web.
+        new gcp.compute.Firewall(`${name}-fw-lb-health`, {
+            network: this.network.id,
+            direction: "INGRESS",
+            sourceRanges: ["130.211.0.0/22", "35.191.0.0/16"],
+            allows: [{ protocol: "tcp", ports: ["80", "443"] }],
+        }, { parent: this });
+
         // Tailscale's direct-connection port. Tailscale (configured by
         // EP-3) is a mesh VPN; udp/41641 is the port its WireGuard data
         // plane prefers for direct peer connections. Allowing it from

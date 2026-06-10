@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
 import { NagareNetwork } from "./NagareNetwork";
 import { NagareInstance } from "./NagareInstance";
+import { NagareCdn } from "./NagareCdn";
 
 export interface NagarePerimeterArgs {
     gcpProject: string;
@@ -17,6 +18,9 @@ export interface NagarePerimeterArgs {
     /** Present only after EP-3 sets Pulumi config `nagareImageSelfLink`.
      *  When undefined, the VM is not declared. */
     imageSelfLink?: string;
+    /** MasterPlan 11 / EP-56: opt-in for the standing Google Cloud CDN load
+     *  balancer (default false; billable, so never created implicitly). */
+    enableCdn: boolean;
 }
 
 export class NagarePerimeter extends pulumi.ComponentResource {
@@ -27,6 +31,12 @@ export class NagarePerimeter extends pulumi.ComponentResource {
     public readonly artifactRegistry: pulumi.Output<string>;
     public readonly backupBucket: pulumi.Output<string>;
     public readonly instanceName: pulumi.Output<string>;
+    // MasterPlan 11 / EP-56 — Integration Point 2. Read by EP-58 via
+    // `pulumi stack output`. When the CDN is disabled (flag off or no VM), these
+    // carry a clear sentinel so the output is well-typed but obviously absent.
+    public readonly cdnGlobalIp: pulumi.Output<string>;
+    public readonly cdnBackendService: pulumi.Output<string>;
+    public readonly cdnUrlMap: pulumi.Output<string>;
 
     constructor(name: string, args: NagarePerimeterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:env:NagarePerimeter", name, {}, opts);
@@ -141,6 +151,31 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             }, { parent: this });
         }
 
+        // MasterPlan 11 / EP-56: the standing Google Cloud CDN load balancer.
+        // Instantiated only when the operator opts in (the flag is billable) AND
+        // the VM exists (the backend needs an origin to point at). When either is
+        // absent, the three outputs carry a clear disabled sentinel that EP-58
+        // treats as "no Google CDN provisioned".
+        const CDN_DISABLED = "(cdn disabled)";
+        if (args.enableCdn && instance) {
+            const cdn = new NagareCdn(`${name}-cdn`, {
+                gcpProject: args.gcpProject,
+                region: args.region,
+                zone: args.zone,
+                baseDomain: args.baseDomain,
+                instanceSelfLink: instance.instance.selfLink,
+                network: net.network.id,
+                publicIp: address.address,
+            }, { parent: this });
+            this.cdnGlobalIp = cdn.cdnGlobalIp;
+            this.cdnBackendService = cdn.cdnBackendService;
+            this.cdnUrlMap = cdn.cdnUrlMap;
+        } else {
+            this.cdnGlobalIp = pulumi.output(CDN_DISABLED);
+            this.cdnBackendService = pulumi.output(CDN_DISABLED);
+            this.cdnUrlMap = pulumi.output(CDN_DISABLED);
+        }
+
         this.publicIp = address.address;
         this.serviceAccountEmail = sa.email;
         this.dataDiskName = dataDisk.name;
@@ -161,6 +196,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             artifactRegistry: this.artifactRegistry,
             backupBucket: this.backupBucket,
             instanceName: this.instanceName,
+            cdnGlobalIp: this.cdnGlobalIp,
+            cdnBackendService: this.cdnBackendService,
+            cdnUrlMap: this.cdnUrlMap,
         });
     }
 }

@@ -63,20 +63,25 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1 — Add the `nagare:enableCdn` config flag and a `NagareCdn` component
+- [x] Milestone 1 — Add the `nagare:enableCdn` config flag and a `NagareCdn` component
       (`infra/pulumi/src/components/NagareCdn.ts`) creating the global IP, unmanaged instance
       group, health check, CDN backend service, URL map, managed cert, HTTP/HTTPS proxies, and
-      forwarding rules; instantiate it from `NagarePerimeter` only when the flag is set.
-- [ ] Milestone 1 — Add the load-balancer health-check firewall rule
-      (`130.211.0.0/22`, `35.191.0.0/16`) to `NagareNetwork`.
-- [ ] Milestone 1 — Bubble `cdnGlobalIp`, `cdnBackendService`, `cdnUrlMap` through
+      forwarding rules; instantiate it from `NagarePerimeter` only when the flag is set and the
+      VM exists (else a `"(cdn disabled)"` sentinel output).
+- [x] Milestone 1 — Add the load-balancer health-check firewall rule
+      (`130.211.0.0/22`, `35.191.0.0/16`) to `NagareNetwork` (`nagare-network-fw-lb-health`,
+      ungated).
+- [x] Milestone 1 — Bubble `cdnGlobalIp`, `cdnBackendService`, `cdnUrlMap` through
       `NagarePerimeter`, export them from `index.ts`, and add them to `StackOutputs` in
       `infra/pulumi/src/outputs.ts`.
-- [ ] Milestone 1 — `cd infra/pulumi && npm run build` (`tsc --noEmit`) passes; `pulumi -C
-      infra/pulumi preview` shows the new resources with the flag `true` and none with it
-      `false`. Capture the preview transcript.
-- [ ] Milestone 2 — `pulumi -C infra/pulumi up` applies the resources; verify with
-      `gcloud compute ... --project=tan-nb-exp` and `pulumi -C infra/pulumi stack output`.
+- [x] Milestone 1 — `cd infra/pulumi && npm run build` (`tsc --noEmit`) passes; `pulumi preview`
+      shows **13 resources to create** with the flag `true` (the full `nagare:cdn:NagareCdn`
+      component + the firewall) and, with the flag `false`, **only** the ungated
+      `nagare-network-fw-lb-health` firewall. Transcript captured in Surprises & Discoveries.
+- [ ] Milestone 2 (DEFERRED — billable + VM-off, operator-gated) — `pulumi up` creates a billable
+      global external Application Load Balancer; the default flag is off and the operator has not
+      opted in, so apply is left to the operator. The `gcloud` resource verification and the
+      `stack output` reads run after that apply.
 - [ ] Milestone 2 (DEFERRED, VM-off) — once `nagare-01` is powered on, run the
       `curl`-through-the-load-balancer acceptance and record the result.
 
@@ -86,7 +91,47 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- `pulumi preview` ran fully offline (file-backed state + ambient ADC), so Milestone 1's
+  acceptance is the real plan diff, not just `tsc`. The VM being powered OFF does not matter:
+  `preview` is a plan-only diff.
+
+- A `gcp.compute.BackendService` with `enableCdn: true` and a `cdnPolicy` block **requires**
+  either `cdnPolicy.cacheKeyPolicy` or `cdnPolicy.signedUrlCacheMaxAgeSec` — the first preview
+  failed with `Missing required argument "cdn_policy.0.cache_key_policy"`. Resolved by adding an
+  explicit `cacheKeyPolicy { includeHost, includeProtocol, includeQueryString }`, which is also
+  exactly what EP-54's cache-key decision wants (the key must include the host so multiple
+  CDN-fronted hostnames sharing the one backend do not collide in the edge cache).
+
+- Flag-gating transcript. With `nagare:enableCdn true`, `pulumi preview` plans **13 to create**:
+
+  ```text
+   +  nagare:cdn:NagareCdn          nagare-cdn               create
+   +  gcp:compute:GlobalAddress     nagare-cdn-ip            create
+   +  gcp:compute:HealthCheck       nagare-cdn-hc            create
+   +  gcp:compute:InstanceGroup     nagare-cdn-ig            create
+   +  gcp:compute:BackendService    nagare-cdn-backend       create
+   +  gcp:compute:URLMap            nagare-cdn-urlmap        create
+   +  gcp:compute:URLMap            nagare-cdn-redirect      create
+   +  gcp:compute:ManagedSslCertificate nagare-cdn-cert      create
+   +  gcp:compute:TargetHttpsProxy  nagare-cdn-https-proxy   create
+   +  gcp:compute:TargetHttpProxy   nagare-cdn-http-proxy    create
+   +  gcp:compute:GlobalForwardingRule nagare-cdn-fr-https   create
+   +  gcp:compute:GlobalForwardingRule nagare-cdn-fr-http    create
+   +  gcp:compute:Firewall          nagare-network-fw-lb-health create
+  Outputs:
+   +  cdnBackendService : "nagare-cdn-backend-8138a50"
+   +  cdnUrlMap         : "nagare-cdn-urlmap-02b62b3"
+  Resources: + 13 to create
+  ```
+
+  With `nagare:enableCdn false`, the preview plans **only** the ungated
+  `nagare-network-fw-lb-health` firewall (`+ 1 to create`) and **none** of the `nagare:cdn:*`
+  resources — proving the flag gates the whole capability. The flag was removed from
+  `Pulumi.dev.yaml` afterward, so the committed default stays off.
+
+- An unrelated pending diff on `gcp:compute:Instance nagare-01`
+  (`+allowStoppingForUpdate ~bootDisk`) appears in the preview regardless of the CDN flag; it is
+  pre-existing state-vs-code drift from a prior infra commit, not introduced by this plan.
 
 
 ## Decision Log
@@ -162,12 +207,56 @@ Record every decision made while working on the plan.
   Date: 2026-06-10
 
 
+- Decision (implementation): the backend-service origin protocol is **HTTP** (port-name `http`)
+  for now, matching the platform's HTTP-first origin; the health check is HTTP on port 80.
+  Rationale: HTTPS is currently deferred on the origin (no delegated `baseDomain`, so cert-manager
+  cannot complete the DNS-01 challenge — see EP-4). EP-54's steady-state proposal is an HTTPS
+  origin hop once origin TLS is enabled; flipping `protocol`/`portName`/the health-check port to
+  HTTPS is a one-line change tied to that enablement. Encoding HTTP now keeps the standing infra
+  working against the real current origin instead of a not-yet-existing HTTPS endpoint.
+  Date: 2026-06-10
+
+- Decision (implementation): edge TLS uses a single-hostname `gcp.compute.ManagedSslCertificate`
+  with `managed.domains = [baseDomain]`, not Certificate Manager.
+  Rationale: EP-54 offers both the single-hostname `ManagedSslCertificate` path and a wildcard
+  Certificate Manager path. The simpler single-hostname path keeps Milestone 1 to one cert
+  resource and is sufficient for the standing capability; the cert sits in `PROVISIONING` until
+  `baseDomain` is delegated and a hostname resolves to the anycast IP (expected, non-blocking).
+  For multiple CDN hostnames or a wildcard, migrate to `gcp.certificatemanager.*` — recorded as a
+  follow-up the operator/EP-58 picks up when real hostnames exist.
+  Date: 2026-06-10
+
+- Decision (implementation): `cdnPolicy.cacheKeyPolicy` includes host, protocol, and query string.
+  Rationale: forced by the provider (a `cdnPolicy` requires a cache-key policy or signed-URL TTL)
+  and required for correctness — the one backend service fronts every CDN hostname, so the cache
+  key must include the host to avoid cross-host cache collisions, exactly EP-54's cache-key
+  decision.
+  Date: 2026-06-10
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Milestone 1 complete (2026-06-10).** The standing Google Cloud CDN capability is implemented as
+the `NagareCdn` component (`infra/pulumi/src/components/NagareCdn.ts`) and wired through
+`NagarePerimeter` behind the opt-in `nagare:enableCdn` flag (default off; the disabled state
+yields a `"(cdn disabled)"` sentinel for the three outputs). `NagareNetwork` gained the ungated
+Google health-check firewall rule. The three Integration-Point-2 outputs `cdnGlobalIp`,
+`cdnBackendService`, `cdnUrlMap` flow through `index.ts` and `StackOutputs`. `tsc --noEmit` passes
+and `pulumi preview` validates the gating (13 resources on, only the firewall off) — acceptance is
+the real plan diff, captured in Surprises. The contract EP-58 consumes (output names, the
+`gcloud`-targetable backend service and URL map, the anycast IP for per-hostname DNS) is in place.
+
+**Deferred / gaps.** Milestone 2 (`pulumi up` + live `gcloud`/`curl`) is intentionally NOT run: a
+global external Application Load Balancer is billable and the default flag is off, so applying is
+an operator decision; the end-to-end cache `curl` additionally needs `nagare-01` powered on. Both
+are recorded as deferred, matching EP-43/EP-49. Two values inherit EP-54's *proposed* (not yet
+live-confirmed) decisions and will be confirmed/tuned when the VM is on: the health-check
+host/path that returns HEALTHY through Kourier (the standing probe uses `host = baseDomain`,
+`path = /`, which Kourier answers 404 for an unmatched host — so the backend may read UNHEALTHY
+until EP-58 points the probe at a deployed host), and the eventual HTTPS origin hop. Neither blocks
+the standing infra or EP-58.
 
 
 ## Context and Orientation

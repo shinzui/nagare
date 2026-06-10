@@ -26,6 +26,11 @@ const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.dev.yaml
 // `get` (not `require`) so the VM is simply omitted until it is set.
 const imageSelfLink = cfg.get("nagareImageSelfLink");
 
+// MasterPlan 11 / EP-56: opt-in for the standing Google Cloud CDN load
+// balancer. Default false so existing `pulumi up` runs are byte-for-byte
+// unchanged and the billable load balancer is never created implicitly.
+const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
+
 const perimeter = new NagarePerimeter("nagare", {
     gcpProject,
     region,
@@ -38,6 +43,7 @@ const perimeter = new NagarePerimeter("nagare", {
     backupBucketName: backupBucketNameCfg,
     imageBucketName: imageBucketNameCfg,
     imageSelfLink,
+    enableCdn: enableCdnCfg,
 });
 
 // Integration Point 1 — the nine exact stack-output names. The exported
@@ -52,3 +58,11 @@ export const dnsZoneName = perimeter.dnsZoneName;
 export const artifactRegistry = perimeter.artifactRegistry;
 export const backupBucket = perimeter.backupBucket;
 export const sshCommand = buildSshCommand(perimeter.instanceName, zone, gcpProject);
+
+// MasterPlan 11 / EP-56 — Integration Point 2. The exported binding name *is*
+// the stack-output name, so these are the exact `cdnGlobalIp` /
+// `cdnBackendService` / `cdnUrlMap` contract EP-58 reads via
+// `pulumi stack output`. Do not rename without updating the MasterPlan and EP-58.
+export const cdnGlobalIp = perimeter.cdnGlobalIp;
+export const cdnBackendService = perimeter.cdnBackendService;
+export const cdnUrlMap = perimeter.cdnUrlMap;
