@@ -7,6 +7,8 @@
 -- temp file and applied with @kubectl apply -f@ (simpler than stdin piping).
 module Nagare.Deploy
   ( applyManifests
+  , applyPVCs
+  , pvcPhases
   , waitForReady
   , serviceUrl
   ) where
@@ -18,6 +20,7 @@ import "generic-lens" Data.Generics.Labels ()
 import Cradle
 import Data.ByteString qualified as BS
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Types
   ( Deployment
   , canonicalDomain
@@ -25,6 +28,7 @@ import Nagare.Dsl.Types
   , namespaceText
   , serviceNameText
   )
+import System.Exit (ExitCode (..))
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 
@@ -38,6 +42,45 @@ applyManifests = mapM_ applyOne
       BS.hPut h m
       hClose h
       run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
+
+-- | Apply the rendered PVC manifests for an app, *before* the Service, so the
+-- PVC objects exist when Knative schedules the consuming pod (the @local-path@
+-- StorageClass binds @WaitForFirstConsumer@, so a PVC stays @Pending@ until a
+-- pod mounts it — see EP-35 Decision Log). A no-op on the empty list (the common
+-- zero-volume case). Idempotent: re-applying an existing PVC is a no-op for
+-- unchanged fields and never recreates the underlying disk.
+applyPVCs :: [BS.ByteString] -> IO ()
+applyPVCs [] = pure ()
+applyPVCs pvcs = applyManifests pvcs
+
+-- | After the Service is Ready, read each PVC's @.status.phase@ for an
+-- informational summary. Returns @(pvcName, phase)@ pairs in the input order; a
+-- missing PVC yields @(name, "NotFound")@. Never throws and never gates the
+-- deploy — by the time this runs the consuming pod has scheduled, so a healthy
+-- volume reads @Bound@.
+pvcPhases :: Text -> [Text] -> IO [(Text, Text)]
+pvcPhases ns = traverse one
+  where
+    one n = do
+      (code, StdoutRaw out) <-
+        run $
+          cmd "kubectl"
+            & addArgs
+              [ "get"
+              , "pvc"
+              , T.unpack n
+              , "-n"
+              , T.unpack ns
+              , "-o"
+              , "jsonpath={.status.phase}"
+              ]
+            & silenceStderr
+      pure $ case code of
+        ExitSuccess -> (n, phaseOr out)
+        ExitFailure _ -> (n, "NotFound")
+    phaseOr raw =
+      let p = T.strip (TE.decodeUtf8 raw)
+       in if T.null p then "Pending" else p
 
 -- | Run @kubectl wait --for=condition=Ready --timeout=300s ksvc/\<name\> -n \<namespace\>@.
 -- Blocks until the Knative Service is Ready or the 5-minute timeout expires.

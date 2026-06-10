@@ -41,20 +41,33 @@ import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Render (renderService)
 import Nagare.Dsl.Types
-  ( Deployment (..)
+  ( AccessMode (..)
+  , Deployment (..)
   , EnvName
   , EnvScope (..)
   , EnvVar (..)
+  , RetentionPolicy (..)
   , ScopedEnvVar (..)
+  , Volume (..)
   , defaultPort
   , envNameText
   , mkEnvName
   , mkImageRef
+  , mkMountPath
   , mkNamespace
+  , mkQuantity
   , mkSecretName
   , mkServiceName
+  , mkVolumeName
   , runtimeScoped
   , scopedEnv
+  )
+import Nagare.Storage.Discover
+  ( PVCRow (..)
+  , appPVCLabelSelector
+  , extractPVCStatus
+  , formatStorageTable
+  , pvcName
   )
 import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
 import Nagare.Env.Dotenv (parseDotenv)
@@ -98,7 +111,77 @@ main =
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
+      , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Storage.Discover (EP-35)
+
+-- | Build a known-valid 'Volume' for the storage tests.
+mkVol :: Text -> Text -> Text -> Volume
+mkVol n sz mp =
+  Volume
+    { volName = orError (mkVolumeName n)
+    , size = orError (mkQuantity sz)
+    , mountPath = orError (mkMountPath mp)
+    , accessMode = ReadWriteOnce
+    , readOnly = False
+    , retention = Retain
+    }
+  where
+    orError = either (error . T.unpack) id
+
+storageDiscoverTests :: [TestTree]
+storageDiscoverTests =
+  [ testCase "appPVCLabelSelector builds the app selector" $
+      appPVCLabelSelector "myapp" @?= "nagare.dev/app=myapp"
+  , testCase "pvcName is the deterministic nagare-vol-<app>-<vol> form" $
+      pvcName "myapp" "data" @?= "nagare-vol-myapp-data"
+  , testCase "extractPVCStatus reads one item into a row" $
+      extractPVCStatus (BC.pack pvcListJSON)
+        @?= Right
+          [ PVCRow
+              { prVolume = "data"
+              , prName = "nagare-vol-myapp-data"
+              , prSize = "1Gi"
+              , prStatus = "Bound"
+              , prPvName = "pvc-abc123"
+              , prNodePath = ""
+              }
+          ]
+  , testCase "extractPVCStatus of empty items is []" $
+      extractPVCStatus (BC.pack "{\"items\":[]}") @?= Right []
+  , testCase "extractPVCStatus of malformed JSON is Left" $
+      case extractPVCStatus (BC.pack "not json") of
+        Left _ -> pure ()
+        Right r -> assertFailure ("expected Left, got: " <> show r)
+  , testCase "formatStorageTable marks a declared-but-missing volume MISSING" $ do
+      let vols = [mkVol "data" "1Gi" "/data", mkVol "logs" "2Gi" "/logs"]
+          rows =
+            [ PVCRow
+                { prVolume = "data"
+                , prName = "nagare-vol-myapp-data"
+                , prSize = "1Gi"
+                , prStatus = "Bound"
+                , prPvName = "pvc-abc123"
+                , prNodePath = "/var/lib/nagare/local-path/pvc-abc123"
+                }
+            ]
+          out = formatStorageTable "myapp" vols rows
+      assertInfix "VOLUME" out
+      assertInfix "Bound" out
+      assertInfix "MISSING" out
+      assertInfix "nagare-vol-myapp-logs" out
+  ]
+  where
+    assertInfix needle hay =
+      assertBool ("expected " <> show needle <> " in:\n" <> T.unpack hay) (needle `T.isInfixOf` hay)
+    pvcListJSON =
+      "{\"items\":[{\"metadata\":{\"name\":\"nagare-vol-myapp-data\",\"labels\":\
+      \{\"nagare.dev/volume\":\"data\",\"nagare.dev/app\":\"myapp\",\
+      \\"nagare.dev/managed-by\":\"nagarectl\"}},\"spec\":{\"resources\":\
+      \{\"requests\":{\"storage\":\"1Gi\"}},\"volumeName\":\"pvc-abc123\"},\
+      \\"status\":{\"phase\":\"Bound\"}}]}"
 
 -- ---------------------------------------------------------------------------
 -- Nagare.App.Deployments (EP-31)
@@ -431,6 +514,7 @@ mkDemoDep envMap =
     , resources = Nothing
     , scale = Nothing
     , healthCheck = Nothing
+    , volumes = []
     }
 
 renderDemonstrationTests :: [TestTree]
@@ -757,6 +841,7 @@ demoServerSiteWith buildCmd =
     , resources = Nothing
     , scale = Nothing
     , domains = []
+    , volumes = []
     }
 
 unsafeS :: Either Text a -> a

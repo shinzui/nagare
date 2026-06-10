@@ -50,6 +50,9 @@ library
     Nagare.Static.Preview
     Nagare.Static.Release
     Nagare.Static.Webhook
+    Nagare.Storage.Discover
+    Nagare.Storage.Inspect
+    Nagare.Storage.List
 
   build-depends:
     aeson,

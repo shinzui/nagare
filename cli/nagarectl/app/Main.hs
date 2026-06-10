@@ -43,10 +43,10 @@ import System.Exit (exitFailure)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
-import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
+import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
-import Nagare.Dsl.Render (renderDomainMappings, renderService, scopeToken)
+import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -69,12 +69,14 @@ import Nagare.App.Deployments
   , resolveRevisionForTag
   )
 import Nagare.Dsl.Types
-  ( EnvScope (..)
+  ( Deployment
+  , EnvScope (..)
   , domainText
   , imageRefText
   , namespaceText
   , quantityText
   , serviceNameText
+  , volumeNameText
   )
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Dotenv (parseDotenv)
@@ -112,6 +114,8 @@ import Nagare.Server.Deploy
   , serverUrl
   )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
+import Nagare.Storage.Inspect (runStorageInspect)
+import Nagare.Storage.List (runStorageList)
 import Nagare.Static.Release
   ( StaticReleaseLog (..)
   , findRelease
@@ -248,6 +252,7 @@ data Command
   | AppDelete AppDeleteOpts
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
+  | Storage StorageCommand
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -284,6 +289,14 @@ data SecretCommand
   = SecretSet StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY (value from stdin)
   | SecretList StoreCommonOpts Bool -- ^ Bool = --all
   | SecretDelete StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY
+
+-- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
+-- APP + @-f@ config + @--ghc-env@); identity and the declared volume set come
+-- from the loaded config. 'StorageInspect' adds a positional @VOLUME@. EP-36
+-- extends this with a @StorageSnapshot@ constructor (Integration Point IP5).
+data StorageCommand
+  = StorageList StoreCommonOpts
+  | StorageInspect StoreCommonOpts String -- ^ VOLUME
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -553,6 +566,7 @@ opts =
             <> command "secret" secretCmd
             <> command "app" appCmd
             <> command "deployments" deploymentsCmd
+            <> command "storage" storageCmd
         )
     deployCmd =
       info
@@ -750,6 +764,31 @@ opts =
                   (progDesc "Delete the app, its DomainMappings, and its deployment history")
               )
         )
+    storageCmd =
+      info
+        (storageSubparser <**> helper)
+        (fullDesc <> progDesc "Inspect an app's persistent volumes")
+    storageSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (Storage . StorageList <$> storeCommonOptsParser <**> helper)
+                (progDesc "List an app's volumes and their PVC status")
+            )
+            <> command
+              "inspect"
+              ( info
+                  ( Storage
+                      <$> ( StorageInspect
+                              <$> storeCommonOptsParser
+                              <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
+                          )
+                      <**> helper
+                  )
+                  (progDesc "Show full detail of one volume's PVC")
+              )
+        )
     deploymentsCmd =
       info
         (deploymentsSubparser <**> helper)
@@ -793,6 +832,7 @@ main =
     AppDelete o -> runAppDelete o
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
+    Storage scmd -> runStorage scmd
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
@@ -825,6 +865,7 @@ runDeploy dopts = do
 
   let effTag = resolveImageTag spec imageTag
       ref = imageRef dep' effTag
+      pvcBytes = renderVolumeClaims dep' -- EP-35: [] when the app declares no volumes
       svcBytes = renderService dep' imageTag -- renderer resolves the tag itself
       dmBytes = renderDomainMappings dep'
       name = serviceNameText (dep' ^. #name)
@@ -832,6 +873,10 @@ runDeploy dopts = do
 
   if dopts ^. #dryRun
     then do
+      -- EP-35: PVCs are created before the Service, so they print first in dry-run.
+      forM_ pvcBytes $ \pvc -> do
+        BC.putStrLn "--- PersistentVolumeClaim manifest ---"
+        BC.putStr pvc
       BC.putStrLn "--- Knative Service manifest ---"
       BC.putStr svcBytes
       forM_ dmBytes $ \dm -> do
@@ -851,8 +896,12 @@ runDeploy dopts = do
           performBuild (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
+      -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a
+      -- pre-Service Bound wait (local-path is WaitForFirstConsumer; that deadlocks).
+      applyPVCs pvcBytes
       applyManifests (svcBytes : dmBytes)
       waitForReady name ns
+      reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The
       -- deployment id is the resolved image tag (= NAGARE_RELEASE_ID, = --tag).
       -- Non-fatal: a failed history write must not fail a successful deploy.
@@ -861,6 +910,21 @@ runDeploy dopts = do
         Left warn -> TIO.hPutStrLn stderr ("nagarectl: " <> warn)
         Right () -> pure ()
       TIO.putStrLn ("Deployed: " <> url)
+
+-- | After a live deploy, print one informational line per declared volume
+-- reporting its PVC's bound phase (EP-35). A no-op when the app has no volumes,
+-- so a stateless deploy's output is byte-identical to before this change. Never
+-- fails the deploy: 'pvcPhases' tolerates a missing/Pending PVC.
+reportPVCs :: Text -> Deployment -> IO ()
+reportPVCs ns dep = do
+  let app = serviceNameText (dep ^. #name)
+      vols = dep ^. #volumes
+      names = [pvcName app (volumeNameText (v ^. #volName)) | v <- vols]
+  unless (null vols) $ do
+    phases <- pvcPhases ns names
+    forM_ (zip vols phases) $ \(v, (pn, phase)) ->
+      TIO.putStrLn
+        ("Volume " <> volumeNameText (v ^. #volName) <> ": pvc " <> pn <> " is " <> phase)
 
 -- | Apply the @--context@/@--dockerfile@ overrides to the config's build spec,
 -- exiting with a clear error if an override is invalid or misused (e.g. an
@@ -1280,6 +1344,37 @@ resolveAppOrDie copts = do
             <> "'; they must match (the config's name is what the Service references)"
         )
     else pure (name, ns)
+
+-- | Load the app's typed config for the @storage@ commands and verify the
+-- positional @APP@ matches the config's name (mirrors 'resolveAppOrDie' but
+-- returns the full 'Deployment' so the declared volumes are available to
+-- 'runStorageList'/'runStorageInspect'). EP-35.
+resolveStorageDep :: StoreCommonOpts -> IO Deployment
+resolveStorageDep copts = do
+  provisionGhcEnv (copts ^. #ghcEnv)
+  edep <- Load.loadDeployment (copts ^. #file)
+  dep <- case edep of
+    Left err -> dieT (Load.renderLoadError err)
+    Right d -> pure d
+  let typed = T.pack (copts ^. #app)
+      name = serviceNameText (dep ^. #name)
+  if typed /= name
+    then
+      dieT
+        ( "config names app '"
+            <> name
+            <> "' but the command names '"
+            <> typed
+            <> "'; they must match (the config's name is what the Service references)"
+        )
+    else pure dep
+
+runStorage :: StorageCommand -> IO ()
+runStorage = \case
+  StorageList copts -> resolveStorageDep copts >>= runStorageList
+  StorageInspect copts vol -> do
+    dep <- resolveStorageDep copts
+    runStorageInspect dep (T.pack vol)
 
 runEnv :: EnvCommand -> IO ()
 runEnv = \case
