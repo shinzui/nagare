@@ -65,26 +65,34 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Confirm EP-23 is merged and exports `EnvScope`, `scopeToken`,
-      `managedConfigMapName`, `managedSecretName` from the `nagare-dsl` library;
-      if not, coordinate (see Interfaces and Dependencies).
-- [ ] Add `base64` to `cli/nagarectl/nagarectl.cabal` `build-depends` (library and
-      test-suite) and confirm it resolves in the nix flake (see Decision Log).
-- [ ] M1: Create `cli/nagarectl/src/Nagare/Env/Store.hs` with the pure layer:
+- [x] Confirmed EP-23 is merged and exports `EnvScope`, `scopeToken`,
+      `managedConfigMapName`, `managedSecretName` from the `nagare-dsl` library
+      (EP-23 marked Complete in the MasterPlan registry). (2026-06-09)
+- [x] base64 codec resolved: used `Data.ByteArray.Encoding` from the `memory`
+      package (already a `nagarectl` dependency) instead of adding `base64` —
+      no cabal `build-depends` change, no nix-flake resolution risk. Isolated in
+      `b64encode`/`b64decode`. (See Decision Log.) (2026-06-09)
+- [x] M1: Created `cli/nagarectl/src/Nagare/Env/Store.hs` with the pure layer:
       `ReconcileMode`, `reconcile`, `renderEnvConfigMap`, `renderEnvSecret`,
-      `extractConfigMapData`, `extractSecretData`.
-- [ ] M1: Add `Nagare.Env.Store` to `other-modules` (library stanza) in
-      `cli/nagarectl/nagarectl.cabal`.
-- [ ] M1: Add a tasty test group `Nagare.Env.Store` to
-      `cli/nagarectl/test/Spec.hs` covering reconcile (both modes), base64
-      round-trip, and apply-able ConfigMap JSON with the IP2 name.
-- [ ] M1: `cd cli/nagarectl && cabal test` is green.
-- [ ] M2: Add the thin kubectl IO layer (`readEnvStore`, `readSecretStore`,
-      `writeEnvStore`, `writeSecretStore`) to `Nagare.Env.Store`.
-- [ ] M2: `cd cli/nagarectl && cabal build` is green (IO layer compiles).
-- [ ] M2: Perform (or document skipping) the manual live-cluster check against GCP
-      project `tan-nb-exp`, region `us-west1`.
-- [ ] Fill in Outcomes & Retrospective.
+      `extractConfigMapData`, `extractSecretData`. (2026-06-09)
+- [x] M1: Added `Nagare.Env.Store` to `exposed-modules` (not `other-modules`) in
+      `cli/nagarectl/nagarectl.cabal` — the test-suite is an external consumer of
+      the library and cannot see `other-modules`. (See Decision Log.) (2026-06-09)
+- [x] M1: Added a tasty test group `Nagare.Env.Store` to
+      `cli/nagarectl/test/Spec.hs` (10 cases) covering reconcile (both modes),
+      base64 round-trip, plaintext round-trip, apply-able ConfigMap/Secret JSON
+      with the IP2 names + `Opaque` type + on-the-wire base64 encoding, and the
+      malformed-input (no silent loss) cases. (2026-06-09)
+- [x] M1: `cd cli/nagarectl && cabal test` is green (62 tests, +10). (2026-06-09)
+- [x] M2: Added the thin kubectl IO layer (`readEnvStore`, `readSecretStore`,
+      `writeEnvStore`, `writeSecretStore`) to `Nagare.Env.Store` in the same file. (2026-06-09)
+- [x] M2: `cd cli/nagarectl && cabal build` is green (IO layer compiles; both
+      `nagarectl` and `nagared` executables link). (2026-06-09)
+- [x] M2: Manual live-cluster check **skipped** — it is optional and no live
+      cluster is exercised in this session. The IO layer is verified by compilation
+      against `cradle`/`applyManifests`; EP-25/EP-28 exercise it against
+      `tan-nb-exp` end to end. (2026-06-09)
+- [x] Filled in Outcomes & Retrospective. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -131,6 +139,27 @@ Record every decision made while working on the plan.
   code is unaffected. Resolve the actual availability during implementation and record
   it here. Date: 2026-06-09.
 
+- Decision (RESOLVED at implementation): Used **neither** `base64` nor
+  `base64-bytestring`; instead used `convertToBase`/`convertFromBase Base64` from
+  `Data.ByteArray.Encoding` in the **`memory`** package, which is already a
+  `build-depends` of the `nagarectl` library (alongside `crypton`). Rationale: the
+  build runs under a nix flake whose Haskell package set is the source of truth; both
+  base64 packages are only in the local Hackage cache, not confirmed in the flake set,
+  so adding either risked an unresolved dependency. `memory` is guaranteed present (it
+  already builds), so reusing it adds zero dependency-resolution risk and no cabal
+  `build-depends` change at all. The codec choice stays isolated behind the two
+  private helpers `b64encode`/`b64decode` exactly as the original decision intended, so
+  swapping to `base64` later is a two-line change. `convertFromBase` returns
+  `Either String ByteString`, so malformed base64 is a `Left` (no silent loss),
+  satisfying the contract. Date: 2026-06-09.
+
+- Decision: Registered `Nagare.Env.Store` under `exposed-modules` (not
+  `other-modules`) of the library stanza. Rationale: the `nagarectl-test` suite
+  depends on the `nagarectl` library as an external package, and Cabal does not expose
+  a library's `other-modules` to external consumers; the test could not import the
+  module otherwise. The plan anticipated this fallback. The executables also gain
+  direct access for EP-25/EP-27. Date: 2026-06-09.
+
 - Decision: A *missing* resource (kubectl exits non-zero) reads as `Right` empty map;
   a *present-but-malformed* one reads as `Left`. Rationale: identical to
   `readReleaseLog`/`extractReleaseLog` — never treat malformed data as "empty" because
@@ -142,7 +171,30 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete.** `cli/nagarectl/src/Nagare/Env/Store.hs` exists
+with the full public contract from Interfaces and Dependencies, unchanged: the pure
+`reconcile` (both modes), `renderEnvConfigMap`/`renderEnvSecret`,
+`extractConfigMapData`/`extractSecretData`, and the thin IO layer
+`readEnvStore`/`readSecretStore`/`writeEnvStore`/`writeSecretStore`. The names come
+from EP-23's IP2 helpers (imported, never re-derived), so the store writes exactly
+the resources the rendered Service's `envFrom` references. 10 new unit tests pass
+(62 total); the library and both executables build.
+
+**Against the purpose:** the missing per-app, per-scope store now exists and is
+tested without a cluster — reconcile semantics, the base64 round-trip, the
+apply-able manifests with the right names/type, and the strict "malformed ≠ empty"
+rule are all proven. EP-25 (CLI) and EP-27 (build/preview) can consume the stable
+signatures.
+
+**Notes / lessons:**
+- The single non-trivial deviation from the written plan is the base64 codec: used
+  the already-present `memory` package rather than adding `base64`, eliminating a
+  dependency-resolution risk under the nix flake. Recorded in the Decision Log; the
+  `b64encode`/`b64decode` isolation the plan mandated made this a clean swap.
+- `exposed-modules` (not `other-modules`) was required so the external test suite can
+  import the module — also recorded.
+- The live-cluster check was skipped (optional); the IO layer is covered by
+  compilation and will be exercised end to end by EP-28.
 
 
 ## Context and Orientation

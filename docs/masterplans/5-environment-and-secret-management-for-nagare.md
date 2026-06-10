@@ -107,7 +107,7 @@ grows.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 23 | Scoped env model and scoped Knative renderer | docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md | None | None | Complete |
-| 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Not Started |
+| 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Complete |
 | 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Not Started |
 | 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Not Started |
 | 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Not Started |
@@ -256,8 +256,8 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-23: `EnvScope`/`ScopedEnvVar` types added; existing configs compile with default Runtime scope. (2026-06-09)
 - [x] EP-23: JSON round-trip (Config.hs emit / Load.hs decode) carries scopes; golden tests pass. (2026-06-09)
 - [x] EP-23: Scope-filtered inline render + `envFrom` wiring + naming helpers; golden tests pass. (2026-06-09)
-- [ ] EP-24: Pure `reconcile` + ConfigMap/Secret rendering with unit tests.
-- [ ] EP-24: kubectl read/write IO for the per-app stores.
+- [x] EP-24: Pure `reconcile` + ConfigMap/Secret rendering with unit tests. (2026-06-09)
+- [x] EP-24: kubectl read/write IO for the per-app stores. (2026-06-09)
 - [ ] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`).
 - [ ] EP-25: `nagarectl secret set|list|delete` commands; `.env` parsing with reconcile modes.
 - [ ] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them.
@@ -268,7 +268,19 @@ documents the table. Because they are injected as inline `env:`, they override m
 
 ## Surprises & Discoveries
 
-(None yet.)
+- EP-24 base64 codec (2026-06-09): the store base64-encodes Secret values, but rather
+  than adding the `base64`/`base64-bytestring` package (only present in the local
+  Hackage cache, not confirmed in the nix flake's Haskell package set), EP-24 reused
+  `Data.ByteArray.Encoding` from `memory`, already a `nagarectl` dependency. The public
+  `Nagare.Env.Store` signatures (IP4) are unchanged, so EP-25 and EP-27 are unaffected.
+  Lesson for the remaining plans: prefer an already-present dependency over adding one
+  under the flake; if a new package is unavoidable, verify it resolves in the flake
+  set, not just the Hackage cache.
+
+- EP-24 module visibility (2026-06-09): `Nagare.Env.Store` had to be `exposed-modules`
+  (not `other-modules`) because the `nagarectl-test` suite consumes the library as an
+  external package and Cabal hides `other-modules` from external consumers. Any future
+  library module the test suite imports must be `exposed-modules`.
 
 
 ## Decision Log

@@ -9,6 +9,9 @@
 module Main (main) where
 
 import Data.Aeson (eitherDecodeStrict, encode)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
@@ -21,7 +24,8 @@ import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (defaultPort, mkImageRef, mkNamespace)
+import Nagare.Dsl.Types (EnvScope (..), defaultPort, mkImageRef, mkNamespace)
+import Nagare.Env.Store
 import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -49,7 +53,68 @@ main =
       , testGroup "Nagare.Static.Webhook" webhookTests
       , testGroup "Nagare.Server.Build" serverBuildTests
       , testGroup "Nagare.Build" buildModeTests
+      , testGroup "Nagare.Env.Store" envStoreTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Env.Store (EP-24)
+
+envStoreTests :: [TestTree]
+envStoreTests =
+  [ testCase "reconcile Merge unions, incoming wins, keeps existing-only keys" $
+      reconcile Merge (Map.fromList [("A", "1"), ("B", "2")]) (Map.fromList [("B", "9"), ("C", "3")])
+        @?= Map.fromList [("A", "1"), ("B", "9"), ("C", "3")]
+  , testCase "reconcile ReconcileExact replaces the whole set" $
+      reconcile ReconcileExact (Map.fromList [("A", "1"), ("B", "2")]) (Map.fromList [("B", "9"), ("C", "3")])
+        @?= Map.fromList [("B", "9"), ("C", "3")]
+  , testCase "renderEnvSecret/extractSecretData round-trip base64 values" $ do
+      let kvs = Map.fromList [("DATABASE_URL", "postgres://u:p@h/db"), ("API_KEY", "s3cr3t==")]
+      case extractSecretData (renderEnvSecret "notes" "personal" Runtime kvs) of
+        Right back -> back @?= kvs
+        Left e -> assertFailure ("extract failed: " <> T.unpack e)
+  , testCase "renderEnvConfigMap round-trips plaintext values" $ do
+      let kvs = Map.fromList [("LOG_LEVEL", "info"), ("REGION", "us-west1")]
+      case extractConfigMapData (renderEnvConfigMap "notes" "personal" Runtime kvs) of
+        Right back -> back @?= kvs
+        Left e -> assertFailure ("extract failed: " <> T.unpack e)
+  , testCase "renderEnvConfigMap is apply-able JSON named per IP2" $ do
+      let bs = renderEnvConfigMap "notes" "personal" Runtime (Map.singleton "K" "v")
+      case Aeson.eitherDecodeStrict bs of
+        Right (Aeson.Object o) -> do
+          KeyMap.lookup (Key.fromText "kind") o @?= Just (Aeson.String "ConfigMap")
+          metaName o @?= Just (Aeson.String "nagare-env-notes-runtime")
+        other -> assertFailure ("not a JSON object: " <> show other)
+  , testCase "renderEnvSecret is named per IP2 and typed Opaque" $ do
+      let bs = renderEnvSecret "notes" "personal" Build (Map.singleton "K" "v")
+      case Aeson.eitherDecodeStrict bs of
+        Right (Aeson.Object o) -> do
+          KeyMap.lookup (Key.fromText "kind") o @?= Just (Aeson.String "Secret")
+          KeyMap.lookup (Key.fromText "type") o @?= Just (Aeson.String "Opaque")
+          metaName o @?= Just (Aeson.String "nagare-secret-notes-build")
+        other -> assertFailure ("not a JSON object: " <> show other)
+  , testCase "renderEnvSecret base64-encodes values on the wire" $ do
+      -- aGVsbG8= is base64 of "hello"; prove values are encoded, not plaintext.
+      let bs = renderEnvSecret "notes" "personal" Runtime (Map.singleton "API_KEY" "hello")
+      case Aeson.eitherDecodeStrict bs of
+        Right (Aeson.Object o)
+          | Just (Aeson.Object d) <- KeyMap.lookup (Key.fromText "data") o ->
+              KeyMap.lookup (Key.fromText "API_KEY") d @?= Just (Aeson.String "aGVsbG8=")
+        other -> assertFailure ("unexpected secret JSON: " <> show other)
+  , testCase "extractConfigMapData of missing data yields empty map" $
+      extractConfigMapData "{\"kind\":\"ConfigMap\"}" @?= Right Map.empty
+  , testCase "extractConfigMapData of malformed JSON is Left" $
+      case extractConfigMapData "not json" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "expected Left for malformed JSON"
+  , testCase "extractSecretData rejects malformed base64 (no silent loss)" $
+      case extractSecretData "{\"kind\":\"Secret\",\"data\":{\"K\":\"!!!notb64!!!\"}}" of
+        Left _ -> pure ()
+        Right _ -> assertFailure "expected Left for malformed base64"
+  ]
+  where
+    metaName o = do
+      Aeson.Object m <- KeyMap.lookup (Key.fromText "metadata") o
+      KeyMap.lookup (Key.fromText "name") m
 
 -- ---------------------------------------------------------------------------
 -- Dockerfile

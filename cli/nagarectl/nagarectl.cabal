@@ -32,6 +32,7 @@ library
   exposed-modules:
     Nagare.Build
     Nagare.Deploy
+    Nagare.Env.Store
     Nagare.Image
     Nagare.Server.Build
     Nagare.Server.Deploy
