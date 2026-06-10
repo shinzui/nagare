@@ -81,16 +81,20 @@ This section must always reflect the actual current state of the work.
       the per-target self-link note at the write site. (2026-06-10)
 - [x] M2: Confirmed `scripts/nix-builder-startup.sh.tpl` contains no project literal (grep clean);
       pubkey substitution untouched; no `@TARGET_PROJECT@` marker added. (2026-06-10)
-- [ ] M3: Parameterize the in-cluster manifest in `scripts/restore-volume.sh`: source the
-      helper and interpolate `${TARGET_PROJECT}` into the Job's `CLOUDSDK_CORE_PROJECT` env
-      value; fix the two `tan-nb-exp` comments.
-- [ ] M3: Parameterize the cdn-spike example scripts
-      `cluster/examples/cdn-spike/gcp-cdn-up.sh` and `gcp-cdn-down.sh` (path-adjusted source
-      of the helper; replace `ZONE=us-west1-a` with `TARGET_ZONE`) — see Decision Log for the
-      in-scope ruling.
-- [ ] Validation: with the default profile, dry-run each script and observe the preflight
-      passing for `tan-nb-exp` and failing closed when `CLOUDSDK_CORE_PROJECT` is wrong; show
-      a rendered restore-volume manifest containing the configured project, not a literal.
+- [x] M3: Parameterize the in-cluster manifest in `scripts/restore-volume.sh`: sourced the
+      helper + `_require_target_project`; interpolated `${TARGET_PROJECT}` into the Job's
+      `CLOUDSDK_CORE_PROJECT` env value (verified the `<<YAML` marker is unquoted); fixed the
+      two `tan-nb-exp` comments. (2026-06-10)
+- [x] M3: Parameterized the cdn-spike example scripts
+      `cluster/examples/cdn-spike/gcp-cdn-up.sh` and `gcp-cdn-down.sh` (path-adjusted source of
+      the helper via `../../../scripts`; `ZONE="$TARGET_ZONE"`; `PROJECT="$TARGET_PROJECT"` so the
+      `g()` wrapper is unchanged). (2026-06-10)
+- [x] Validation: default (`.envrc`-loaded) preflight passes; with the env unset and gcloud's
+      config default differing it fails closed (exit 1); a stubbed render of the restore-volume
+      Job manifest under `CLOUDSDK_CORE_PROJECT=acme-prod` shows
+      `CLOUDSDK_CORE_PROJECT, value: "acme-prod"` — no literal. Whole-tree
+      `grep tan-nb-exp/us-west1 scripts/ cluster/examples/cdn-spike/*.sh` returns only the helper's
+      own fallback defaults. (2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -201,7 +205,27 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-61 removed every literal `tan-nb-exp` / `us-west1` / `us-west1-a` project binding from the eight
+operational scripts and the two cdn-spike example scripts, replacing each inline six-line preflight
+with `source lib/target.sh` + an explicit `_require_target_project` call (EP-60's helper defines the
+guard but does not auto-run it on source — the one contract correction this plan made, recorded in
+the Decision Log). The single in-cluster project literal (`restore-volume.sh` Job manifest) now
+interpolates `${TARGET_PROJECT}`; the nix-builder resource names became `NIX_BUILDER_*`-overridable;
+`upload-images.sh` derives its region from `TARGET_REGION` and documents the per-target self-link.
+
+Acceptance was proven by observable behavior, not edited lines: (a) the default `.envrc`-loaded
+profile passes the preflight as `tan-nb-exp`; (b) with the env unset and gcloud's config default
+differing, the guard fails closed and exits 1; (c) a stubbed render of the restore-volume Job
+manifest under `acme-prod` carries `acme-prod`, never the literal; and a whole-tree grep over
+`scripts/` and the cdn-spike `*.sh` returns only the helper's own fallback defaults.
+
+Result vs. purpose: every script now reads its GCP target from the profile via the shared helper,
+the fail-closed guardrail is preserved (one enforcement path instead of six copies), and a second
+operator can run the backup/restore, IAP-SSH, nix-builder, image-upload, and CDN-spike scripts
+against their own project with no tracked-source edit. Scope was trimmed once during planning (the
+`.tpl` carries no project literal — confirmed by grep) and once during implementation (the helper's
+preflight-invocation contract). The `cdn-spike/README.md` prose still names `tan-nb-exp`/`us-west1-a`
+as worked examples; updating that prose is EP-64's job, as the plan scoped.
 
 
 ## Context and Orientation

@@ -113,7 +113,7 @@ first-class `nagarectl init` command for a testable, guided UX, so the orchestra
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 60 | Target profile model and configurable isolation guardrail | docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md | None | None | Complete |
-| 61 | Parameterize shell scripts and .envrc to the target profile | docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md | EP-60 | None | Not Started |
+| 61 | Parameterize shell scripts and .envrc to the target profile | docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md | EP-60 | None | Complete |
 | 62 | Parameterize nagarectl and the DSL image refs to the target profile | docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md | EP-60 | None | Not Started |
 | 63 | GCP bootstrap automation and nagarectl init onboarding command | docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md | EP-60, EP-62 | EP-61 | Not Started |
 | 64 | Bring-your-own-project onboarding documentation | docs/plans/64-bring-your-own-project-onboarding-documentation.md | None | EP-60, EP-61, EP-62, EP-63 | Not Started |
@@ -232,7 +232,7 @@ Track milestone-level progress across all child plans. Each entry names the chil
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
 - [x] EP-60: `nagare.target.env.example` + git-ignore entry exist; `scripts/lib/target.sh` loads the profile and runs the configurable fail-closed preflight; `.envrc` sources the profile with `tan-nb-exp` fallbacks; `CLAUDE.md` isolation section rewritten to the configurable model. (2026-06-10)
-- [ ] EP-61: all eight `scripts/` files source `scripts/lib/target.sh` (no literal `tan-nb-exp`/`us-west1` preflight remains); the one in-cluster project literal (`restore-volume.sh` Job manifest) is interpolated from `$TARGET_PROJECT`; the cdn-spike example scripts are reconciled; scripts run green against the default profile. (Note: `nix-builder-startup.sh.tpl` was found to carry no project literal, so it needs no change — see EP-61 Surprises.)
+- [x] EP-61: all eight `scripts/` files source `scripts/lib/target.sh` (no literal `tan-nb-exp`/`us-west1` preflight remains); the one in-cluster project literal (`restore-volume.sh` Job manifest) is interpolated from `$TARGET_PROJECT`; the cdn-spike example scripts are reconciled; scripts run green against the default profile. (Note: `nix-builder-startup.sh.tpl` was found to carry no project literal, so it needs no change — see EP-61 Surprises.) (2026-06-10)
 - [ ] EP-62: `nagarectl` resolves a `TargetProfile` from the environment; the six literal `tan-nb-exp` refs, the `registryHost` constant, and the region/zone/bucket defaults are gone; DSL image refs derive their prefix from the profile; example/fixture `Config.hs` no longer bake project/region; CLI test suite green.
 - [ ] EP-63: `scripts/enable-apis.sh` (and/or `gcp.projects.Service`) codifies API enablement; `nagarectl init` preflights gcloud auth + operator IAM, prompts and writes `nagare.target.env`, enables APIs, and seeds Pulumi config; verified by onboarding a fresh (or simulated) project.
 - [ ] EP-64: `docs/user/gcp-prerequisites.md` and `docs/user/onboarding-bring-your-own-project.md` exist; getting-started / provisioning / host-image docs are project-agnostic; the configurable-guardrail model and the documented onboarding gaps (auth, IAM, age key, Tailscale, Docker auth) are covered.
@@ -259,6 +259,25 @@ interactions between child plans. Provide concise evidence.
   roles, the six service APIs, the `nagarectl init` flags, and the eight seeded Pulumi keys all match
   across the plans that touch them. No reconciliation edits were needed beyond the `.tpl` correction
   above. (2026-06-10)
+
+
+- Implementation-time contract correction (EP-60 → EP-61, affects EP-63). The child plans assumed
+  EP-60's `scripts/lib/target.sh` would run the fail-closed preflight automatically *on source*. As
+  delivered (and verified), the helper instead only loads the profile, sets
+  `TARGET_PROJECT`/`TARGET_REGION`/`TARGET_ZONE`, and **defines** `_require_target_project`; the
+  caller must invoke it explicitly. EP-61 therefore writes `source ".../lib/target.sh"` **followed by
+  a `_require_target_project` line** in every script. EP-63's onboarding scripts (e.g.
+  `scripts/enable-apis.sh`) must do the same — source then call. This is consistent with EP-60's own
+  CLAUDE.md/Interfaces text ("scripts source it and call `_require_target_project`"); the discrepancy
+  was only in the consumer plans' Interfaces summaries. (2026-06-10)
+- Implementation-time semantics note (EP-61, affects EP-63 and EP-64 docs). Because the helper
+  derives `TARGET_PROJECT="${CLOUDSDK_CORE_PROJECT:-tan-nb-exp}"` from the same Cloud SDK variable it
+  reads as the "active" project, setting `CLOUDSDK_CORE_PROJECT=wrong` makes both sides equal and the
+  preflight passes — by design, since an explicitly-set Cloud SDK project *is* the configured target.
+  The guard bites the real failure mode: `CLOUDSDK_CORE_PROJECT` unset (operator forgot `direnv
+  allow`) while gcloud's *config* default differs from the profile/default target. EP-64's docs and
+  any onboarding-time verification in EP-63 should demonstrate the guard this way (env unset +
+  divergent gcloud config), not by exporting a "wrong" `CLOUDSDK_CORE_PROJECT`. (2026-06-10)
 
 
 ## Decision Log

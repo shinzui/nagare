@@ -17,13 +17,10 @@
 # volume) is a deliberate, separate, manual step.
 set -euo pipefail
 
-# --- project-isolation preflight: refuse to run outside tan-nb-exp ---
-PROJECT=tan-nb-exp
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  exit 1
-fi
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Exports TARGET_PROJECT for the in-cluster manifest below.
+source "$(dirname "$0")/lib/target.sh"
+_require_target_project
 
 OBJECT="${1:?usage: restore-volume.sh gs://BUCKET/volumes/<app>/<volume>/<ts>.tar.gz [SCRATCH_PVC]}"
 SCRATCH_PVC="${2:-vol-restore-scratch}"
@@ -53,7 +50,8 @@ YAML
 
 # 2) One-off Job: stream the archive from GCS and untar it into the scratch PVC,
 #    then print a listing. ADC resolves the node service account via the metadata
-#    IP; the project is pinned to tan-nb-exp (in-cluster analogue of the preflight).
+#    IP; the project is pinned to the configured target project (in-cluster
+#    analogue of the preflight).
 kubectl delete job "${JOB}" -n "${NS}" --ignore-not-found
 kubectl apply -f - <<YAML
 apiVersion: batch/v1
@@ -81,7 +79,7 @@ spec:
           env:
             - { name: OBJECT, value: "${OBJECT}" }
             - { name: GCE_METADATA_HOST, value: "169.254.169.254" }
-            - { name: CLOUDSDK_CORE_PROJECT, value: "tan-nb-exp" }
+            - { name: CLOUDSDK_CORE_PROJECT, value: "${TARGET_PROJECT}" }
           volumeMounts:
             - { name: restore, mountPath: /restore }
       volumes:

@@ -8,15 +8,13 @@
 # absence via `|| true`.
 set -euo pipefail
 
-# --- Project isolation preflight (CLAUDE.md): refuse to run outside tan-nb-exp ---
-PROJECT=tan-nb-exp
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  exit 1
-fi
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Exports TARGET_PROJECT / TARGET_ZONE.
+source "$(cd "$(dirname "$0")/../../../scripts" && pwd)/lib/target.sh"
+_require_target_project
+PROJECT="$TARGET_PROJECT"
 
-ZONE=us-west1-a
+ZONE="$TARGET_ZONE"
 IG=cdn-spike-ig
 HC=cdn-spike-hc
 BES=cdn-spike-bes
