@@ -27,6 +27,7 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Nagare.Dsl.Build
+    Nagare.Dsl.Cdn.Types
     Nagare.Dsl.Config
     Nagare.Dsl.Database
     Nagare.Dsl.Database.Render
@@ -72,6 +73,7 @@ test-suite nagare-dsl-test
   main-is:         Spec.hs
   hs-source-dirs:  test
   other-modules:
+    CdnSpec
     LoadSpec
     ServerSpec
     StaticSpec

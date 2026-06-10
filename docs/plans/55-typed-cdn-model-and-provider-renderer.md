@@ -60,15 +60,16 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1 — the `Cdn` model: create `cli/nagare-dsl/src/Nagare/Dsl/Cdn/Types.hs` with
+- [x] Milestone 1 — the `Cdn` model: create `cli/nagare-dsl/src/Nagare/Dsl/Cdn/Types.hs` with
   `CdnProvider`, `CdnCacheRule`, `Cdn`, the smart constructor `mkCdnCacheRule`, the validated
   list builder `mkCacheRules`, the presets `cloudflareCdn`/`gcpCloudCdn`, and the combinators
   `withDefaultTtl`/`withCacheRule`/`withoutStaticAssetCache`.
-- [ ] Milestone 1 — add `Nagare.Dsl.Cdn.Types` to the `exposed-modules` of
+- [x] Milestone 1 — add `Nagare.Dsl.Cdn.Types` to the `exposed-modules` of
   `cli/nagare-dsl/nagare-dsl.cabal`.
-- [ ] Milestone 1 — add a `CdnSpec` test module exercising the constructors, combinators, and
+- [x] Milestone 1 — add a `CdnSpec` test module exercising the constructors, combinators, and
   presets; register it in the `.cabal` test-suite `other-modules` and wire it into `Spec.hs`.
-- [ ] Milestone 1 — `cd cli/nagare-dsl && cabal test` passes with the new `CdnSpec` group.
+- [x] Milestone 1 — `cd cli/nagare-dsl && cabal test` passes with the new `CdnSpec` group
+  (248 tests, +13 in the `Nagare.Dsl.Cdn` group).
 - [ ] Milestone 2 — add `cdn :: !(Maybe Cdn)` to `StaticSite`, `ServerSite`, and `Deployment`.
 - [ ] Milestone 2 — emit a nested `"cdn"` object (omitted when `Nothing`) from `staticSiteJSON`,
   `serverSiteJSON`, and `deploymentJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`.

@@ -7,6 +7,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import CdnSpec (cdnTests)
 import LoadSpec (loadTests)
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDatabase, encodeDeployment, encodeTask)
@@ -50,6 +51,7 @@ main =
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
       , serverTests
+      , cdnTests
       ]
 
 -- | EP-10: the hello config-as-program file loads to the very same
