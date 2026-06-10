@@ -332,6 +332,11 @@ Pick the lightest tier that fits the app (full detail in the
 | **2 — Small stateful** | Personal apps, low write volume. | SQLite on a host-mounted path under `/var/lib/nagare/sqlite`, with **Litestream** streaming to GCS. |
 | **3 — Important shared state** | Data you really don't want to lose, higher write volume. | Host Postgres (`/var/lib/nagare/postgres`) with backups, or managed Cloud SQL / Neon / Supabase. |
 
+For tier 2 you no longer need a hand-mounted host path: declare a durable
+**volume** in your typed config and Nagare provisions a PVC, mounts it, and can
+snapshot it to GCS — see **[Persistent storage](persistent-storage.md)** (the
+SQLite-on-PVC example pairs a durable volume with Litestream).
+
 Avoid running a serious database inside Kubernetes until backup/restore is
 solved. Secrets an app needs (`EnvSecretRef` / `secretEnv`) are managed with
 sops+age — see [Secrets](secrets.md).

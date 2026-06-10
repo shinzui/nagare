@@ -39,7 +39,10 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Observability (Victoria stack + Grafana) | EP-5 | 🔭 Planned |
 | Deploy CLI (`nagarectl`) + typed config DSL | MP-2 (EP-8–12) | 🟡 Built; live deploy pending |
 | Static & full-stack site hosting (`nagarectl site`) | MP-3 (EP-13–18) | 🟡 Built; live deploy pending |
+| Application build modes (Dockerfile/Nixpacks/prebuilt) | MP-4 (EP-19–22) | 🟡 Built; live deploy pending |
 | App env & secrets (`nagarectl env`/`secret`) | MP-5 (EP-23–28) | 🟡 Built; live deploy pending |
+| Application lifecycle (`nagarectl app`/`deployments`) | MP-6 (EP-29–32) | 🟡 Built; live verbs pending |
+| Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37) | 🟡 Built; live deploy/snapshot pending |
 | Backups, secrets, disaster recovery | EP-7 | 🔭 Planned |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -86,6 +89,9 @@ you can observe.
    - [Environment and secrets](env-and-secrets.md) — manage an app's env vars and
      secrets as a day-2 operation with `nagarectl env`/`secret`: scopes, the managed
      store, `.env` sync, generated `NAGARE_*` vars, build-time and preview env. 🟡
+   - [Persistent storage](persistent-storage.md) — attach a durable disk to an app
+     with a typed `volumes` declaration: PVC provisioning, `nagarectl storage
+     list/inspect/snapshot`, and the backup-ownership policy. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to

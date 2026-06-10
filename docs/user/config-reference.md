@@ -279,8 +279,8 @@ mkDomains [("app.example.com", True), ("www.example.com", False)]
 
 > **Redirects are not installed.** Each domain gets a DomainMapping and the
 > canonical one drives the reported URL, but a non-canonical hostname is *not*
-> HTTP-redirected to the canonical one — that hard redirect is deferred future
-> work (EP-29). All listed domains serve the app directly.
+> HTTP-redirected to the canonical one — that hard redirect remains deferred
+> future work. All listed domains serve the app directly.
 
 ## Build modes
 
@@ -341,6 +341,41 @@ A `DockerfileBuild` with `dockerfile = "Dockerfile"`, `context = "."`, and no
 build args — exactly Nagare's pre-`BuildSpec` behavior. `webService` uses this, so
 a preset-based config already has it. Use it in a hand-written literal to keep the
 old behavior: `build <- defaultBuild` (in an `Either` block).
+
+## Volumes
+
+`volumes :: [Volume]` attaches durable disks to an app. It defaults to `[]` (so
+existing configs are unaffected — a stateless app has no volumes). Each `Volume`
+renders one `PersistentVolumeClaim` plus a container `volumeMount` and pod
+`volume`; see [Persistent storage](persistent-storage.md) for the full feature.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `volName` | `VolumeName` (via `mkVolumeName`) | DNS-label name, unique within the app. |
+| `size` | `Quantity` (via `mkQuantity`, e.g. `"1Gi"`) | Requested disk size. |
+| `mountPath` | `MountPath` (via `mkMountPath`) | Absolute in-container path; unique within the app. |
+| `accessMode` | `AccessMode` | `ReadWriteOnce` (single-node default). |
+| `readOnly` | `Bool` | Mount the volume read-only. |
+| `retention` | `RetentionPolicy` | `Retain` (keep on app deletion, backup-included) or `Delete` (destroy on deletion, backup-excluded). |
+
+Name and mount-path uniqueness across an app's volumes is checked at load time;
+a duplicate name or path is a `MarshalError "volumes"`. The ergonomic way to add
+a `Retain` volume is the `attachVolume` overlay from `Nagare.Dsl.Presets`:
+
+```haskell
+import Nagare.Dsl.Presets (attachVolume, webService)
+
+deployment =
+  webService "notes" "gcr.io/myproject/notes"
+    >>= attachVolume "data" "1Gi" "/data"   -- name size mountPath; Retain, RWO, rw
+```
+
+For a backup-excluded (`Delete`) volume, build the `Volume` record literal
+directly (`Volume(..)`, `mkVolumeName`, `mkQuantity`, `mkMountPath` are exported
+from `Nagare.Dsl.Types`) and set `retention = Delete`, then
+`pure base { volumes = [v] }`. Attaching any volume pins the Service to
+`min-scale = 1` / `max-scale = 1` / `rollout-duration = 0s` (single-writer +
+stay-warm; see [Persistent storage](persistent-storage.md)).
 
 ## Reusable presets
 

@@ -153,6 +153,27 @@ Managed values live in `nagare-env-<app>-<scope>` (ConfigMap) and
 `nagare-secret-<app>-<scope>` (Secret); the running Service reads the runtime pair via
 `envFrom`. See the [Environment and secrets](env-and-secrets.md) guide.
 
+## `nagarectl storage` commands (persistent volumes)
+
+App identity comes from the loaded config (`-f/--config`, default
+`nagare/Config.hs`), like the `env`/`secret` commands. Volumes are declared in
+the typed config (`volumes` field); `nagarectl deploy` provisions one PVC per
+volume *before* the Service.
+
+| Command | Does |
+| --- | --- |
+| `nagarectl storage list APP` | List the app's volumes: volume name, PVC name, size, bound status, node path (`MISSING` if a declared volume has no PVC yet). |
+| `nagarectl storage inspect APP VOLUME` | `kubectl describe` the volume's PVC in detail. |
+| `nagarectl storage snapshot APP VOLUME [--bucket B] [--keep N]` | Tar the volume's contents to the GCS backup bucket (keeps the newest `N`, default 7). |
+
+PVCs are named deterministically `nagare-vol-<app>-<volume>` and labelled
+`nagare.dev/managed-by: nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<volume>`
+(the storage commands discover them by these labels). Snapshots land at
+`gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz`. A
+volume's data lives on the host under `/var/lib/nagare/local-path/` (see *On-host
+storage layout* above). Restore with `scripts/restore-volume.sh` (scratch-first).
+See the [Persistent storage](persistent-storage.md) guide.
+
 ## Domain model
 
 ```text

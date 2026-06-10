@@ -1,0 +1,15 @@
+# Litestream config for the sqlite-pvc-litestream example (EP-37).
+#
+# Litestream watches the SQLite db on the DURABLE PVC at /data and continuously
+# ships its write-ahead log to the GCS backup bucket. Auth uses Application
+# Default Credentials = the node service account, which has
+# roles/storage.objectAdmin on tan-nb-exp-nagare-backups (no key files).
+#
+# The typed Nagare model has no sidecar field yet, so this runs as a documented
+# supplementary container added to the deployed Service (see the README). Replace
+# the bucket in the replica URL if your backupBucket differs
+# (pulumi stack output backupBucket).
+dbs:
+  - path: /data/app.db
+    replicas:
+      - url: gcs://tan-nb-exp-nagare-backups/litestream/sqlite-pvc-litestream/app.db

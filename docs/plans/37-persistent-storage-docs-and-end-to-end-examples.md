@@ -94,23 +94,57 @@ Terms used throughout this plan, defined once here in plain language:
 
 ## Progress
 
-- [ ] M1: `docs/user/persistent-storage.md` written (concepts, typed `volumes` config, `storage`
-  commands, backup-ownership policy, restore pointer); linked from `docs/user/README.md`; the typed
-  `Volume` fields documented in `docs/user/config-reference.md`; the `nagarectl storage` table added to
-  `docs/user/reference.md`; `docs/user/backups-and-disaster-recovery.md` cross-linked.
-- [ ] M2: `cluster/examples/sqlite-pvc-litestream/` built — `nagare/Config.hs` declaring a `1Gi` volume at
-  `/data`, the Litestream sidecar config, and a README; deployed and verified (write a row, roll a
-  revision, confirm persistence, confirm Litestream replicated to GCS) with real transcripts captured (or
-  marked dry-run-verified / live-deferred).
-- [ ] M3: `cluster/examples/uploads-volume/` built — `nagare/Config.hs` declaring a volume at `/uploads`
-  and a README; deployed and verified (upload via curl, roll, confirm persistence), then
-  `nagarectl storage snapshot` + `gsutil ls` proves the tarball in GCS and a restore drill is walked, with
-  real transcripts captured (or marked dry-run-verified / live-deferred).
+- [x] M1: `docs/user/persistent-storage.md` written (concepts, typed `volumes` config, `storage`
+  commands, backup-ownership policy, restore pointer); linked from `docs/user/README.md` and
+  `docs/user/deploying-apps.md`; the typed `Volume` fields documented in `docs/user/config-reference.md`
+  (new "Volumes" section); the `nagarectl storage` table added to `docs/user/reference.md`;
+  `docs/user/backups-and-disaster-recovery.md` cross-linked (EP-36 added its app-volume row). (2026-06-09;
+  reconciled to the real API — `attachVolume`, not `mkVolume`; raw `Volume` literal for a `Delete`/excluded
+  volume; real `--dry-run` output format; rollout-scaling note.)
+- [x] M2: `cluster/examples/sqlite-pvc-litestream/` built — `nagare/Config.hs` (`attachVolume "data" "1Gi"
+  "/data"`), a dependency-free `app.py` (stdlib SQLite HTTP server) + `Dockerfile`, `litestream.yml`, and a
+  README contrasting durable PVC vs the old `emptyDir` example. Dry-run verified (renders the `1Gi`
+  `local-path` PVC + `/data` mount); live deploy/roll/Litestream legs deferred (cluster access). The
+  Litestream sidecar is a documented supplementary step (the DSL has no sidecar field — see Surprises).
+- [x] M3: `cluster/examples/uploads-volume/` built — `nagare/Config.hs` (`attachVolume "uploads" "1Gi"
+  "/uploads"`), a dependency-free `app.py` (stdlib upload server) + `Dockerfile`, and a README with the
+  upload → roll → snapshot → restore-drill walk-through. Dry-run verified (renders the `/uploads` PVC +
+  mount); live deploy/snapshot/restore legs deferred (cluster access).
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The shipped API is `attachVolume`, not `mkVolume`.** EP-34 shipped
+  `attachVolume :: Text -> Text -> Text -> Deployment -> Either Text Deployment` (name, size,
+  mountPath; defaults RWO / not-read-only / `Retain`) — there is no `mkVolume name size mountPath
+  retention`. The docs and example configs use `webService … >>= attachVolume "data" "1Gi" "/data"`.
+  Because `attachVolume` only builds `Retain` volumes, the docs show a raw `Volume` record literal
+  (`Volume(..)` + `mkVolumeName`/`mkQuantity`/`mkMountPath`, all exported) for a `Delete`/backup-excluded
+  volume. **Follow-up for EP-34:** an `attachVolumeWith retention …` or `attachVolumeExcluded` preset
+  would make opting out ergonomic; logged here and in EP-36.
+
+- **Attaching a volume overrides the app's `scale`** (EP-34/EP-33): any volume-bearing Service renders
+  `min-scale = 1` / `max-scale = 1` / `rollout-duration = 0s` (single-writer + stay-warm). The guide
+  calls this out explicitly so users aren't surprised their `scale` is ignored. The real `--dry-run`
+  output (captured into the docs) confirms it.
+
+- **The typed model has no sidecar field, so the SQLite example's Litestream is a documented
+  supplementary step,** not part of `Config.hs`. The example ships `litestream.yml` and the README
+  shows adding the Litestream container to the deployed Service (referencing the old
+  `sqlite-litestream/deployment.yaml` sidecar spec). The typed config's job is the durable PVC; the
+  continuous-backup sidecar is layered on. (Matches the plan's allowance for this limitation.)
+
+- **The examples are real, dependency-free stdlib Python apps with a Dockerfile** (built by
+  `webService`'s default Dockerfile build), not third-party images — a Knative Service needs an HTTP
+  server on `$PORT`, and the app must write to the mount path to demonstrate durability. `app.py` for
+  each (`py_compile`-clean) is small enough to read in one screen.
+
+- **Concurrent uncommitted work touched `docs/user/README.md` and `config-reference.md`.** During this
+  session another process had already added capability-matrix rows (including a now-stale "Persistent
+  storage … DSL pending" row) and a deferred-note tweak to those two files (and created the untracked
+  MasterPlan-8 / EP-38–42 files). EP-37 edits the same two files; the small pre-existing hunks are
+  benign and consistent with EP-37 (I corrected the stale row to "Built; live deploy/snapshot
+  pending"), so they are carried in EP-37's docs commit — noted here for honest attribution.
 
 
 ## Decision Log
@@ -157,7 +191,29 @@ Terms used throughout this plan, defined once here in plain language:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Result: all three milestones delivered; the persistent-storage feature is now discoverable and
+learnable. Docs reconciled to the shipped API; both examples dry-run-verified; live legs deferred to a
+running cluster (IAP/cluster-access constraint shared with EP-35/EP-36).**
+
+- **M1 — docs.** New `docs/user/persistent-storage.md` (concepts → typed `volumes` config → offline
+  `--dry-run` proof → `nagarectl storage` verbs → backup-ownership policy → restore pointer → two
+  worked examples). `config-reference.md` gained a "Volumes" field table; `reference.md` gained a
+  `nagarectl storage` command table + PVC-naming/GCS-layout note; `deploying-apps.md` "data tier" and
+  `README.md` index link the new page; `backups-and-disaster-recovery.md` is cross-linked (EP-36
+  added the row). Every snippet/command matches IP1–IP5 as actually shipped.
+
+- **M2/M3 — examples.** `cluster/examples/sqlite-pvc-litestream/` and `cluster/examples/uploads-volume/`
+  are runnable typed Nagare apps (stdlib `app.py` + `Dockerfile` + `nagare/Config.hs` + README), each
+  proving durable storage via one `attachVolume` line. Both render the correct `1Gi` `local-path` PVC +
+  volumeMount under `nagarectl deploy --dry-run` (verified through the real binary). The SQLite example
+  contrasts durable PVC vs the old `emptyDir`/raw-`kubectl` `sqlite-litestream`; the uploads example
+  walks snapshot → `gsutil ls` → scratch-first restore.
+
+- **Gaps / follow-ups.** Live deploy/roll/snapshot/restore transcripts are deferred (cluster not
+  reachable from a workstation — IAP forwards only SSH/22; run the READMEs on the VM or via an
+  SSH-forwarded API port). EP-34 lacks an ergonomic preset for a `Delete`/excluded volume (raw `Volume`
+  literal used in docs meanwhile). Litestream remains a documented supplementary sidecar step (no DSL
+  sidecar field). These are noted in Surprises and the MasterPlan.
 
 
 ## Context and Orientation
