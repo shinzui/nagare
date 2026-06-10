@@ -40,6 +40,7 @@ import Nagare.Dsl.Types
   , EnvVar (..)
   , Resources
   , Scale
+  , ScopedEnvVar
   , domainText
   , envNameText
   , imageRefText
@@ -139,12 +140,12 @@ containerValue site ctx =
       ]
     optionals = envField (site ^. #env) <> resourcesField (site ^. #resources)
 
-envField :: Map EnvName EnvVar -> [Pair]
+envField :: Map EnvName ScopedEnvVar -> [Pair]
 envField m
   | Map.null m = []
   | otherwise = ["env" .= toJSON (map envEntry (Map.toAscList m))]
   where
-    envEntry (n, ev) = envEntryValue (envNameText n) ev
+    envEntry (n, sev) = envEntryValue (envNameText n) (sev ^. #value)
 
 envEntryValue :: Text -> EnvVar -> Value
 envEntryValue n (EnvLiteral lit) =

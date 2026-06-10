@@ -239,7 +239,7 @@ helloDep =
     , build = unsafe defaultBuild
     , domain = Just (unsafe (mkDomain "hello.example.com"))
     , port = unsafe (mkPort 8080)
-    , env = Map.fromList [(unsafe (mkEnvName "TARGET"), EnvLiteral "Nagare")]
+    , env = Map.fromList [(unsafe (mkEnvName "TARGET"), runtimeScoped (EnvLiteral "Nagare"))]
     , resources =
         Just
           Resources

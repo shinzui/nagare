@@ -86,7 +86,7 @@ secretEnv :: Text -> Text -> Deployment -> Either Text Deployment
 secretEnv varName secretNameText dep = do
   en <- mkEnvName varName
   sn <- mkSecretName secretNameText
-  pure (dep & #env %~ Map.insert en (EnvSecretRef sn))
+  pure (dep & #env %~ Map.insert en (runtimeScoped (EnvSecretRef sn)))
 
 -- | Standard resource block for small web services: 250m CPU, 128Mi memory.
 stdResources :: Either Text Resources

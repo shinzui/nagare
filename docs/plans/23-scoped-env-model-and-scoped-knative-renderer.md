@@ -102,14 +102,19 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `EnvScope` and `ScopedEnvVar` to `Nagare.Dsl.Types`, with the
-      non-empty-set invariant, `runtimeScoped`, and `scopedEnv`; export them.
-- [ ] M1: Change `Deployment.env` and `ServerSite.env` to `Map EnvName ScopedEnvVar`.
-- [ ] M1: Update `Nagare.Dsl.Presets.secretEnv` to produce a Runtime-scoped entry.
-- [ ] M1: Update example/fixture configs and in-test fixtures so they compile with the
-      default `{Runtime}` scope; document each touched file.
-- [ ] M1: `cabal build` succeeds; existing golden tests still pass byte-for-byte
-      (no `envFrom` yet — see M3 note on golden updates).
+- [x] M1: Add `EnvScope` and `ScopedEnvVar` to `Nagare.Dsl.Types`, with the
+      non-empty-set invariant, `runtimeScoped`, and `scopedEnv`; export them. (2026-06-09)
+- [x] M1: Change `Deployment.env` and `ServerSite.env` to `Map EnvName ScopedEnvVar`. (2026-06-09)
+- [x] M1: Update `Nagare.Dsl.Presets.secretEnv` to produce a Runtime-scoped entry. (2026-06-09)
+- [x] M1: Update example/fixture configs and in-test fixtures so they compile with the
+      default `{Runtime}` scope; document each touched file. Touched:
+      `cluster/examples/hello-knative-service/nagare/Config.hs`,
+      `cli/nagare-dsl/test/fixtures/nagare/Config.hs`,
+      `cli/nagare-dsl/test/fixtures/server-site/nagare/Config.hs`,
+      `cli/nagare-dsl/test/Spec.hs`, `cli/nagare-dsl/test/ServerSpec.hs`.
+      `cluster/examples/preset-app-b/nagare/Config.hs` needed no edit (uses `secretEnv`). (2026-06-09)
+- [x] M1: `cabal build` succeeds; existing golden tests still pass byte-for-byte
+      (all 135 tests pass, no `envFrom` yet). (2026-06-09)
 - [ ] M2: Add `"scopes"` to the emitted JSON in `Nagare.Dsl.Config`
       (`envJSON`/`envEntryJSON`); decode it in `Nagare.Dsl.Load`
       (`JsonEnvEntry`/`toEnvEntry`) with missing/empty defaulting to `["Runtime"]`

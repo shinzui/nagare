@@ -48,8 +48,8 @@ notesApp =
     , port = defaultPort
     , env =
         Map.fromList
-          [ (unsafe (mkEnvName "HOSTNAME"), EnvLiteral "0.0.0.0")
-          , (unsafe (mkEnvName "API_BASE"), EnvLiteral "https://api.example.com")
+          [ (unsafe (mkEnvName "HOSTNAME"), runtimeScoped (EnvLiteral "0.0.0.0"))
+          , (unsafe (mkEnvName "API_BASE"), runtimeScoped (EnvLiteral "https://api.example.com"))
           ]
     , resources =
         Just Resources {cpu = Just (unsafe (mkQuantity "500m")), memory = Just (unsafe (mkQuantity "256Mi"))}

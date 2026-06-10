@@ -34,8 +34,8 @@ serverSite = do
       , port = defaultPort
       , env =
           Map.fromList
-            [ (host, EnvLiteral "0.0.0.0")
-            , (apiBase, EnvLiteral "https://api.example.com")
+            [ (host, runtimeScoped (EnvLiteral "0.0.0.0"))
+            , (apiBase, runtimeScoped (EnvLiteral "https://api.example.com"))
             ]
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
       , scale = Just sc

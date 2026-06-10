@@ -218,7 +218,7 @@ toBuildSpec jb = case jbKind jb of
     Right (NixpacksBuild {context = ctx', buildArgs = jbBuildArgs jb})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
-toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, EnvVar)
+toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, ScopedEnvVar)
 toEnvEntry e = do
   n <- mapLeft (MarshalError "env.varName") $ mkEnvName (jeVarName e)
   v <- case jeKind e of
@@ -232,7 +232,7 @@ toEnvEntry e = do
           . mapLeft (MarshalError ("env." <> jeVarName e <> ".secretRef"))
           $ mkSecretName sec
     other -> Left (MarshalError ("env." <> jeVarName e <> ".kind") ("unknown env kind: " <> other))
-  Right (n, v)
+  Right (n, runtimeScoped v)
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
 toResources jd =

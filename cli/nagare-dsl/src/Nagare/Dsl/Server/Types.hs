@@ -41,6 +41,7 @@ import Nagare.Dsl.Types
   , Port
   , Resources
   , Scale
+  , ScopedEnvVar
   )
 
 -- | A base image reference for the runtime, e.g. @"node:22-alpine"@. Unlike
@@ -113,7 +114,7 @@ data ServerSite = ServerSite
   , build :: !ServerBuild
   , runtime :: !ServerRuntime
   , port :: !Port
-  , env :: !(Map EnvName EnvVar)
+  , env :: !(Map EnvName ScopedEnvVar)
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
   , domains :: ![Domain]

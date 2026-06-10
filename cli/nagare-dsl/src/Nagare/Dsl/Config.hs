@@ -77,18 +77,19 @@ deploymentJSON dep =
         , "buildArgs" .= args
         ]
 
-    envJSON (n, EnvLiteral lit) =
-      object
-        [ "varName" .= envNameText n
-        , "kind" .= ("Literal" :: Text)
-        , "value" .= lit
-        ]
-    envJSON (n, EnvSecretRef sn) =
-      object
-        [ "varName" .= envNameText n
-        , "kind" .= ("SecretRef" :: Text)
-        , "secretName" .= secretNameText sn
-        ]
+    envJSON (n, sev) = case sev ^. #value of
+      EnvLiteral lit ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("Literal" :: Text)
+          , "value" .= lit
+          ]
+      EnvSecretRef sn ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("SecretRef" :: Text)
+          , "secretName" .= secretNameText sn
+          ]
 
 -- | Serialize a 'StaticSite' to JSON and write it to stdout. Call this as the
 -- last line of a static project's @Config.hs@ @main@. The top-level
@@ -184,15 +185,16 @@ serverSiteJSON site =
         , "startCommand" .= toJSON (NE.toList (r ^. #startCommand))
         ]
 
-    envEntryJSON (n, EnvLiteral lit) =
-      object
-        [ "varName" .= envNameText n
-        , "kind" .= ("Literal" :: Text)
-        , "value" .= lit
-        ]
-    envEntryJSON (n, EnvSecretRef sn) =
-      object
-        [ "varName" .= envNameText n
-        , "kind" .= ("SecretRef" :: Text)
-        , "secretName" .= secretNameText sn
-        ]
+    envEntryJSON (n, sev) = case sev ^. #value of
+      EnvLiteral lit ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("Literal" :: Text)
+          , "value" .= lit
+          ]
+      EnvSecretRef sn ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("SecretRef" :: Text)
+          , "secretName" .= secretNameText sn
+          ]

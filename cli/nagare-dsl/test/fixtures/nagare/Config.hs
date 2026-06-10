@@ -32,7 +32,7 @@ deployment = do
       , build = bld
       , domain = Just dom'
       , port = port'
-      , env = Map.singleton target (EnvLiteral "Nagare")
+      , env = Map.singleton target (runtimeScoped (EnvLiteral "Nagare"))
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
       , scale = Just sc
       }

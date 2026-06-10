@@ -38,6 +38,14 @@ module Nagare.Dsl.Types
     -- * EnvVar
   , EnvVar (..)
 
+    -- * EnvScope
+  , EnvScope (..)
+
+    -- * ScopedEnvVar
+  , ScopedEnvVar (..)
+  , runtimeScoped
+  , scopedEnv
+
     -- * Port
   , Port
   , mkPort
@@ -69,6 +77,8 @@ import Nagare.Dsl.Prelude
 
 import Data.Char (isDigit, isLower)
 import Data.Map (Map)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build (BuildSpec)
 
@@ -177,6 +187,35 @@ data EnvVar
     -- 'Nagare.Dsl.Render.renderService').
     EnvSecretRef SecretName
   deriving stock (Generic, Eq, Show)
+
+-- | When an environment variable applies. 'Runtime' is present in the running
+-- container; 'Build' is present during the image build; 'Preview' overlays
+-- preview deployments. A variable may carry several scopes at once.
+data EnvScope = Runtime | Build | Preview
+  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
+
+-- | An env value (literal or secret reference) together with the non-empty set
+-- of scopes it applies to. The 'EnvVar' sum type is unchanged, preserving the
+-- headline safety invariant (literal XOR secret ref). Invariant: 'scopes' is
+-- non-empty; construct via 'runtimeScoped' (always 'Runtime') or 'scopedEnv'
+-- (validates non-emptiness).
+data ScopedEnvVar = ScopedEnvVar
+  { value :: !EnvVar
+  , scopes :: !(Set EnvScope)
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | The backward-compatible default: a single 'Runtime' scope. A bare variable
+-- with no scope decoration behaves exactly as before this change.
+runtimeScoped :: EnvVar -> ScopedEnvVar
+runtimeScoped v = ScopedEnvVar {value = v, scopes = Set.singleton Runtime}
+
+-- | Construct a 'ScopedEnvVar' from an explicit scope set, rejecting the empty
+-- set so the non-empty invariant cannot be violated.
+scopedEnv :: Set EnvScope -> EnvVar -> Either Text ScopedEnvVar
+scopedEnv ss v
+  | Set.null ss = Left "env scopes must not be empty"
+  | otherwise = Right (ScopedEnvVar {value = v, scopes = ss})
 
 -- | A TCP port number. Constructor hidden; use 'mkPort' or 'defaultPort'.
 newtype Port = Port Int
@@ -299,8 +338,10 @@ data Deployment = Deployment
   , domain :: !(Maybe Domain)
   , port :: !Port
   -- | Env entries are stored by 'EnvName' so 'Data.Map.toAscList' yields a
-  -- deterministic, name-sorted order for the renderer.
-  , env :: !(Map EnvName EnvVar)
+  -- deterministic, name-sorted order for the renderer. Each value carries the
+  -- set of scopes it applies to (see 'ScopedEnvVar'); a bare variable defaults
+  -- to @{Runtime}@ via 'runtimeScoped'.
+  , env :: !(Map EnvName ScopedEnvVar)
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
   }
