@@ -40,6 +40,24 @@ emitDeployment dep = LBS.putStr (encodeDeployment dep)
 encodeDeployment :: Deployment -> LBS.ByteString
 encodeDeployment = encode . deploymentJSON
 
+-- | The JSON shape of one 'Volume', shared by 'Deployment' and 'ServerSite'
+-- emission. The loader reads it back in 'Nagare.Dsl.Load.toVolume'; @accessMode@
+-- and @retention@ are the 'Show'-style enum tokens.
+volumeJSON :: Volume -> Value
+volumeJSON v =
+  object
+    [ "name" .= volumeNameText (v ^. #volName)
+    , "size" .= quantityText (v ^. #size)
+    , "mountPath" .= mountPathText (v ^. #mountPath)
+    , "accessMode" .= accessModeToken (v ^. #accessMode)
+    , "readOnly" .= (v ^. #readOnly)
+    , "retention" .= retentionToken (v ^. #retention)
+    ]
+  where
+    accessModeToken ReadWriteOnce = "ReadWriteOnce" :: Text
+    retentionToken Retain = "Retain" :: Text
+    retentionToken Delete = "Delete"
+
 -- | The scope set of a 'ScopedEnvVar' as a JSON-ready list of capitalized
 -- tokens matching the 'Show' 'EnvScope' names (@"Runtime"@, @"Build"@,
 -- @"Preview"@), sorted ascending for deterministic output. These capitalized
@@ -66,6 +84,7 @@ deploymentJSON dep =
     , "scaleMin" .= fmap (^. #minScale) scale
     , "scaleMax" .= fmap (^. #maxScale) scale
     , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
+    , "volumes" .= map volumeJSON (dep ^. #volumes)
     ]
   where
     resources = dep ^. #resources
@@ -208,6 +227,7 @@ serverSiteJSON site =
     , "scaleMin" .= fmap (^. #minScale) scale
     , "scaleMax" .= fmap (^. #maxScale) scale
     , "domains" .= map domainText (site ^. #domains)
+    , "volumes" .= map volumeJSON (site ^. #volumes)
     ]
   where
     resources = site ^. #resources

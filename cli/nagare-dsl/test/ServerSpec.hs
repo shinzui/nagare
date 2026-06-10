@@ -32,6 +32,7 @@ serverTests =
     [ testGroup "RuntimeImage" runtimeImageTests
     , testGroup "loadServerSite + render goldens" loadAndGoldenTests
     , testGroup "decodeServerSite failure modes" decodeFailureTests
+    , testGroup "volume render parity (EP-34)" volumeParityTests
     ]
 
 ctx :: ServerDeployContext
@@ -55,6 +56,7 @@ notesApp =
         Just Resources {cpu = Just (unsafe (mkQuantity "500m")), memory = Just (unsafe (mkQuantity "256Mi")), cpuLimit = Nothing, memoryLimit = Nothing}
     , scale = Just (unsafe (mkScale 1 3))
     , domains = [unsafe (mkDomain "notes-app.example.com")]
+    , volumes = []
     }
 
 loadAndGoldenTests :: [TestTree]
@@ -84,6 +86,36 @@ loadAndGoldenTests =
   ]
   where
     fixturePath = "test/fixtures/server-site/nagare/Config.hs"
+
+-- | 'notesApp' with one durable volume, proving the 'ServerSite' renderer emits
+-- the same PVC / volumeMount / volume / rollout-annotation shape as the
+-- 'Deployment' renderer (EP-34 IP2 parity).
+notesVolApp :: ServerSite
+notesVolApp =
+  notesApp
+    { volumes =
+        [ Volume
+            { volName = unsafe (mkVolumeName "uploads")
+            , size = unsafe (mkQuantity "2Gi")
+            , mountPath = unsafe (mkMountPath "/data/uploads")
+            , accessMode = ReadWriteOnce
+            , readOnly = False
+            , retention = Retain
+            }
+        ]
+    }
+
+volumeParityTests :: [TestTree]
+volumeParityTests =
+  [ goldenVsString
+      "renderServerService notes-app with volume"
+      "test/golden/server-site-volume.service.yaml"
+      (pure (fromStrict (renderServerService notesVolApp ctx)))
+  , goldenVsString
+      "renderServerVolumeClaims notes-app volume"
+      "test/golden/server-site-volume.pvc.yaml"
+      (pure (fromStrict (BS.intercalate (BC.pack "---\n") (renderServerVolumeClaims notesVolApp ctx))))
+  ]
 
 runtimeImageTests :: [TestTree]
 runtimeImageTests =

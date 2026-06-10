@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-vol-notes-app-uploads
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/app: notes-app
+    nagare.dev/volume: uploads
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi

@@ -62,28 +62,59 @@ backup tooling (EP-36) build on.
 
 ## Progress
 
-- [ ] M1: `VolumeName`, `MountPath`, `AccessMode`, `RetentionPolicy`, `Volume` types and their
-      smart constructors added to `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`; exports updated.
-- [ ] M1: `volumes :: ![Volume]` field added to `Deployment` (and `ServerSite`) with an empty-list
-      default; every existing config and fixture still compiles.
-- [ ] M1: `attachVolume` overlay added to `cli/nagare-dsl/src/Nagare/Dsl/Presets.hs`.
-- [ ] M1: unit tests for the new smart constructors and negative tests (relative mount path,
-      duplicate name, bad size) pass.
-- [ ] M2: `volumes` emitted in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`; decoded in
+- [x] M1: `VolumeName`, `MountPath`, `AccessMode`, `RetentionPolicy`, `Volume` types and their
+      smart constructors added to `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`; exports updated. (2026-06-09)
+- [x] M1: `volumes :: ![Volume]` field added to `Deployment` (and `ServerSite`) with an empty-list
+      default; every existing config and fixture still compiles. (2026-06-09; `volumes = []` added to
+      `webService`, loader literals, `helloDep`, `notesApp`, both test fixtures, and the full-literal
+      examples `hello-knative-service`, `env-and-secrets`, `tanstack-start`.)
+- [x] M1: `attachVolume` overlay added to `cli/nagare-dsl/src/Nagare/Dsl/Presets.hs`. (2026-06-09)
+- [x] M1: unit tests for the new smart constructors and negative tests (relative mount path,
+      duplicate name, bad size) pass. (2026-06-09)
+- [x] M2: `volumes` emitted in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`; decoded in
       `cli/nagare-dsl/src/Nagare/Dsl/Load.hs` with a load-time uniqueness check; emit→decode
-      round-trip test passes; fixture `Config.hs` with a volume added and load-and-render test
-      passes.
-- [ ] M3: `pvcName` helper, `renderVolumeClaims` (PVC manifest), and container/pod
+      round-trip test passes. (2026-06-09; see Decision Log re: not adding a volume to the shared
+      `hello` fixture — a dedicated `volumeDep` is used instead.)
+- [x] M3: `pvcName` helper, `renderVolumeClaims` (PVC manifest), and container/pod
       `volumeMounts`/`volumes` rendering added to `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` and
       mirrored in `cli/nagare-dsl/src/Nagare/Dsl/Server/Render.hs`; `ranks` table extended;
-      golden `.service.yaml` and `.pvc.yaml` files created and passing.
-- [ ] M3: goldens reconciled against EP-33's verified YAML shape and any required Service
-      annotation stamped (see Decision Log when this is done).
+      golden `.service.yaml` and `.pvc.yaml` files created and passing. (2026-06-09; 4 goldens,
+      all 185 tests pass, no existing golden changed.)
+- [x] M3: goldens reconciled against EP-33's verified YAML shape and the required rollout-safety
+      Service annotation stamped (`volumeAnnotationPairs`: min-scale=1/max-scale=1/rollout-duration=0s
+      when volumes present). (2026-06-09; byte-matches EP-33's IP2 stanza — see Decision Log.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The actual `Deployment` record had drifted from the plan's snapshot.** It has `domains ::
+  ![DomainSpec]` (not `domain :: !(Maybe Domain)`) and a `healthCheck :: !(Maybe HealthCheck)` field;
+  `volumes` was appended after `healthCheck`. The full-literal sites needing `volumes = []` were
+  therefore: `webService`, `toDeployment`/`toServerSite`, `helloDep`, `notesApp`, both nagare/server
+  fixtures, and the examples `hello-knative-service`, `env-and-secrets`, `tanstack-start`. The
+  record-update examples (`dockerfile-app`, `nixpacks-app`, `prebuilt-image-app`,
+  `app-lifecycle-demo`) inherit `volumes` from `webService` and needed no change.
+
+- **`volumeJSON` is a single top-level helper in `Config.hs`, shared by `deploymentJSON` and
+  `serverSiteJSON`.** The plan suggested a per-`where`-block helper; one top-level function avoids
+  duplicating the access-mode/retention token encoders.
+
+- **PVC rendering is owned once, in `Render.hs`.** `Server/Render.hs` delegates to the exported
+  `renderPersistentVolumeClaims` and reuses `volumeMountsField`/`volumesField`/`volumeAnnotationPairs`,
+  so a `Deployment` and a `ServerSite` emit byte-identical PVC and volume YAML. The PVC-document key
+  ranks live only in `Render.hs`; `Server/Render.hs`'s `ranks` only gained the *embedded* Service keys
+  (`rollout-duration`, `volumeMounts`, `volumes`, `mountPath`, `readOnly`, `persistentVolumeClaim`,
+  `claimName`).
+
+- **`rollout-duration` renders unquoted as `0s`** (while `min-scale`/`max-scale` render quoted as
+  `'1'`). This is correct and equivalent to EP-33's `"0s"`: `0s` is not a valid YAML number, so the
+  pretty-printer emits it as a plain string scalar; a quoted-int like `1` must be quoted to stay a
+  string. Both parse to the string Kubernetes annotation value.
+
+- **A volume forces the rollout-safety annotations, *replacing* the author's `scale`.** Per EP-33, a
+  writable RWO `local-path` volume must not have concurrent writers and must stay warm, so when
+  `volumes` is non-empty the renderer stamps min-scale=1/max-scale=1/rollout-duration=0s and ignores
+  the `Scale` field. This is a deliberate override, documented in the Decision Log, not a merge.
 
 
 ## Decision Log
@@ -152,10 +183,64 @@ backup tooling (EP-36) build on.
   must stamp it on any Service that declares at least one volume.
   Date: 2026-06-09
 
+- Decision: RESOLVED — EP-33 (now Complete) verified the IP2 shape and finalized the rollout-safety
+  annotation set, and EP-34's renderer reproduces it exactly. The renderer stamps
+  `autoscaling.knative.dev/min-scale: "1"`, `autoscaling.knative.dev/max-scale: "1"`, and
+  `serving.knative.dev/rollout-duration: "0s"` (via `volumeAnnotationPairs`) on any Service whose
+  `volumes` list is non-empty, **replacing** the author's `scale` annotations for that Service.
+  Rationale: EP-33 proved a single-node RWO `local-path` PVC survives a Knative revision roll without
+  a Multi-Attach deadlock, but that a writable volume must avoid concurrent writers and stay warm —
+  exactly what min=max=1 + immediate cutover provide. The goldens
+  `cli/nagare-dsl/test/golden/hello-volume.service.yaml` and `…/server-site-volume.service.yaml`
+  byte-match EP-33's recorded IP2 stanza (`rollout-duration` renders unquoted `0s`, equivalent to
+  EP-33's `"0s"` — both are string scalars).
+  Date: 2026-06-09
+
+- Decision: Do NOT add a volume to the shared `hello` fixture
+  (`cli/nagare-dsl/test/fixtures/nagare/Config.hs`) or to `helloDep`/`notesApp`; use a dedicated
+  `volumeDep`/`notesVolApp` for the volume round-trip and render goldens instead.
+  Rationale: the plan suggested adding a volume to the hello fixture, but `helloDep` feeds the
+  `dep @?= helloDep` load assertion and the *shared* `hello.service.yaml` golden, and `buildOnlyDep`/
+  `richDep`/the build-spec fixtures all derive from `helloDep` by record update. Adding a volume there
+  would have rippled volume YAML (and the rollout-annotation override) into many unrelated goldens and
+  broken the load-equality test. A separate `volumeDep = attachVolume "data" "1Gi" "/data" helloDep`
+  keeps the stateless goldens byte-identical (confirmed: no existing golden changed) while still
+  exercising load round-trip, uniqueness, and the new render path. The `hello` fixtures carry only
+  `volumes = []`.
+  Date: 2026-06-09
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Result: all three milestones complete; IP1, IP2, and IP3 delivered. All 185 `nagare-dsl` tests
+pass; no existing golden changed (full backward compatibility).**
+
+- **IP1 (typed model + JSON).** `Volume` plus `VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy`
+  live in `cli/nagare-dsl/src/Nagare/Dsl/Types.hs` with smart constructors; `volumes :: ![Volume]`
+  (empty default) is on both `Deployment` and `ServerSite`. `Config.hs` emits `volumes`; `Load.hs`
+  decodes it and enforces name + mount-path uniqueness as `MarshalError "volumes"`. The emit→decode
+  round-trip is golden via `volumeDep`. `attachVolume` is the ergonomic overlay.
+
+- **IP2 (rendered shape).** `renderVolumeClaims`/`renderServerVolumeClaims` emit one PVC manifest per
+  volume; the Service carries container `volumeMounts`, pod `volumes`, and the EP-33 rollout-safety
+  annotations. Goldens byte-match EP-33's verified stanza.
+
+- **IP3 (naming + labels).** `pvcName app vol == "nagare-vol-<app>-<vol>"` is the single owner of the
+  PVC name; every PVC carries `nagare.dev/managed-by: nagarectl`, `nagare.dev/app`, `nagare.dev/volume`
+  for EP-35/EP-36 discovery.
+
+- **Gaps / notes for downstream plans.** (1) EP-35 must discover PVCs by the IP3 labels (e.g.
+  `kubectl get pvc -l nagare.dev/app=<app>`) and apply `renderVolumeClaims` *before* the Service, and
+  honor `RetentionPolicy` on delete (EP-33 found namespace deletion does not cascade-clean PVCs). (2)
+  The rollout-safety annotations *override* the author's `scale` for any volume-bearing app — EP-37's
+  docs should state this so users aren't surprised their `scale` is ignored when they attach a volume.
+  (3) `accessMode` is a one-constructor sum (`ReadWriteOnce`); the JSON/loader already reject unknown
+  modes, so a future `ReadWriteMany` is an additive change.
+
+- **Deviation from the plan.** The plan's "add a volume to the hello fixture" step was replaced by a
+  dedicated `volumeDep`/`notesVolApp` to avoid rippling volume YAML into unrelated shared goldens (see
+  Decision Log). Net effect is stronger: stateless goldens are provably unchanged *and* the volume
+  path is fully exercised.
 
 
 ## Context and Orientation

@@ -26,6 +26,13 @@ module Nagare.Dsl.Render
   , scopeToken
   , managedConfigMapName
   , managedSecretName
+    -- * Persistent volume rendering (IP2/IP3)
+  , pvcName
+  , renderVolumeClaims
+  , renderPersistentVolumeClaims
+  , volumeMountsField
+  , volumesField
+  , volumeAnnotationPairs
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -81,6 +88,108 @@ managedSecretName :: Text -> EnvScope -> Text
 managedSecretName app s = "nagare-secret-" <> app <> "-" <> scopeToken s
 
 -- ---------------------------------------------------------------------------
+-- Persistent volume rendering (MasterPlan IP2/IP3; verified by EP-33)
+--
+-- This module is the single owner of the PVC naming convention and the
+-- rendered volume/volumeMount/PVC YAML shape. EP-35/EP-36 discover PVCs by the
+-- labels stamped here and must never re-derive the name. The Service-side
+-- helpers ('volumeMountsField', 'volumesField', 'volumeAnnotationPairs') are
+-- reused by 'Nagare.Dsl.Server.Render' so both renderers emit one shape.
+
+-- | The deterministic PVC name for an app/volume pair (MasterPlan IP3):
+-- @pvcName "hello" "data" == "nagare-vol-hello-data"@. EP-35 and EP-36 discover
+-- PVCs by the @nagare.dev/app@/@nagare.dev/volume@ labels, never by re-deriving
+-- this string.
+pvcName :: Text -> Text -> Text
+pvcName app vol = "nagare-vol-" <> app <> "-" <> vol
+
+accessModeText :: AccessMode -> Text
+accessModeText ReadWriteOnce = "ReadWriteOnce"
+
+-- | Render one 'PersistentVolumeClaim' manifest per declared volume (MasterPlan
+-- IP2/IP3). @storageClassName@ is the cluster's built-in @local-path@;
+-- @accessModes@ is the single-node @[ReadWriteOnce]@; the requested size becomes
+-- @resources.requests.storage@. The labels let EP-35/EP-36 discover the PVC by
+-- app/volume. Shared by 'Nagare.Dsl.Server.Render' so PVC YAML is identical for
+-- a 'Deployment' and a 'ServerSite'.
+renderPersistentVolumeClaims :: Text -> Text -> [Volume] -> [ByteString]
+renderPersistentVolumeClaims app ns = map (YP.encodePretty knativeConfig . pvcValue app ns)
+
+-- | Render the PVC manifests for a 'Deployment' (one per declared volume).
+renderVolumeClaims :: Deployment -> [ByteString]
+renderVolumeClaims dep =
+  renderPersistentVolumeClaims
+    (serviceNameText (dep ^. #name))
+    (namespaceText (dep ^. #namespace))
+    (dep ^. #volumes)
+
+pvcValue :: Text -> Text -> Volume -> Value
+pvcValue app ns v =
+  object
+    [ "apiVersion" .= ("v1" :: Text)
+    , "kind" .= ("PersistentVolumeClaim" :: Text)
+    , "metadata"
+        .= object
+          [ "name" .= pvcName app (volumeNameText (v ^. #volName))
+          , "namespace" .= ns
+          , "labels"
+              .= object
+                [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+                , "nagare.dev/app" .= app
+                , "nagare.dev/volume" .= volumeNameText (v ^. #volName)
+                ]
+          ]
+    , "spec"
+        .= object
+          [ "accessModes" .= toJSON [accessModeText (v ^. #accessMode)]
+          , "storageClassName" .= ("local-path" :: Text)
+          , "resources" .= object ["requests" .= object ["storage" .= quantityText (v ^. #size)]]
+          ]
+    ]
+
+-- | The container @volumeMounts:@ block, one entry per volume (empty when none,
+-- so no empty key is emitted — the 'resourcesField' convention).
+volumeMountsField :: [Volume] -> [Pair]
+volumeMountsField [] = []
+volumeMountsField vs = ["volumeMounts" .= toJSON (map mountEntry vs)]
+  where
+    mountEntry v =
+      object
+        [ "name" .= volumeNameText (v ^. #volName)
+        , "mountPath" .= mountPathText (v ^. #mountPath)
+        , "readOnly" .= (v ^. #readOnly)
+        ]
+
+-- | The pod @volumes:@ block, one @persistentVolumeClaim@ entry per volume
+-- referencing the deterministic 'pvcName' (empty when none).
+volumesField :: Text -> [Volume] -> [Pair]
+volumesField _ [] = []
+volumesField app vs = ["volumes" .= toJSON (map volEntry vs)]
+  where
+    volEntry v =
+      object
+        [ "name" .= volumeNameText (v ^. #volName)
+        , "persistentVolumeClaim"
+            .= object ["claimName" .= pvcName app (volumeNameText (v ^. #volName))]
+        ]
+
+-- | The rollout-safety annotations EP-33 verified a single-node @ReadWriteOnce@
+-- @local-path@ PVC needs to survive a Knative revision roll: pin a single
+-- always-on replica (@min-scale=1@, @max-scale=1@) and cut over immediately
+-- (@rollout-duration=0s@). Returns @[]@ for a stateless app (no volumes), so the
+-- author's own scale annotations are used unchanged. When volumes are present
+-- these REPLACE the scale-derived annotations: a writable RWO volume must not be
+-- mounted by more than one concurrent writer, and the app must stay warm.
+-- See @docs/plans/33-...@ Decision Log / Interfaces (verified IP2 shape).
+volumeAnnotationPairs :: [Volume] -> [Pair]
+volumeAnnotationPairs [] = []
+volumeAnnotationPairs _ =
+  [ "autoscaling.knative.dev/min-scale" .= ("1" :: Text)
+  , "autoscaling.knative.dev/max-scale" .= ("1" :: Text)
+  , "serving.knative.dev/rollout-duration" .= ("0s" :: Text)
+  ]
+
+-- ---------------------------------------------------------------------------
 -- YAML key ordering
 
 -- | A pretty-print config whose comparator imposes the contract's key order.
@@ -114,6 +223,7 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("spec", 5)
       , ("autoscaling.knative.dev/min-scale", 0)
       , ("autoscaling.knative.dev/max-scale", 1)
+      , ("serving.knative.dev/rollout-duration", 2)
       , ("annotations", 0)
       , ("template", 0)
       , ("containers", 0)
@@ -130,6 +240,8 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("readinessProbe", 5)
       , ("livenessProbe", 6)
       , ("startupProbe", 7)
+      , ("volumeMounts", 8)
+      , ("volumes", 1)
       , ("cpu", 0)
       , ("memory", 1)
       , ("optional", 4)
@@ -145,6 +257,20 @@ keyCompare a b = compare (rank a, a) (rank b, b)
         ("path", 0)
       , ("port", 1)
       , ("scheme", 2)
+      , -- volumeMount entry keys: name(2) < mountPath < readOnly
+        ("mountPath", 3)
+      , ("readOnly", 4)
+      , -- pod volume entry: name(2) < persistentVolumeClaim
+        ("persistentVolumeClaim", 3)
+      , ("claimName", 0)
+      , -- PVC spec keys: accessModes < storageClassName < resources(4)
+        ("accessModes", 0)
+      , ("storageClassName", 1)
+      , ("storage", 0)
+      , -- PVC label keys (non-alphabetical contract order)
+        ("nagare.dev/managed-by", 0)
+      , ("nagare.dev/app", 1)
+      , ("nagare.dev/volume", 2)
       ]
 
 -- ---------------------------------------------------------------------------
@@ -172,23 +298,34 @@ namespacedMeta n ns = object ["name" .= n, "namespace" .= ns]
 
 templateValue :: Deployment -> Text -> Value
 templateValue dep tag =
-  case dep ^. #scale of
-    Nothing -> object ["spec" .= specValue dep tag]
-    Just sc ->
+  case annotationPairs dep of
+    [] -> object ["spec" .= specValue dep tag]
+    pairs ->
       object
-        [ "metadata" .= object ["annotations" .= annotationsValue sc]
+        [ "metadata" .= object ["annotations" .= object pairs]
         , "spec" .= specValue dep tag
         ]
 
-annotationsValue :: Scale -> Value
-annotationsValue sc =
-  object
-    [ "autoscaling.knative.dev/min-scale" .= (Text.pack (show (sc ^. #minScale)) :: Text)
-    , "autoscaling.knative.dev/max-scale" .= (Text.pack (show (sc ^. #maxScale)) :: Text)
-    ]
+-- | The pod-template annotations. A storage-backed app (one or more volumes)
+-- uses EP-33's verified rollout-safety set ('volumeAnnotationPairs'), which
+-- replaces the author's scale annotations; a stateless app uses its 'Scale'
+-- (or none). Empty means no @metadata.annotations@ block is emitted.
+annotationPairs :: Deployment -> [Pair]
+annotationPairs dep
+  | not (null (dep ^. #volumes)) = volumeAnnotationPairs (dep ^. #volumes)
+  | otherwise = case dep ^. #scale of
+      Nothing -> []
+      Just sc ->
+        [ "autoscaling.knative.dev/min-scale" .= (Text.pack (show (sc ^. #minScale)) :: Text)
+        , "autoscaling.knative.dev/max-scale" .= (Text.pack (show (sc ^. #maxScale)) :: Text)
+        ]
 
 specValue :: Deployment -> Text -> Value
-specValue dep tag = object ["containers" .= toJSON [containerValue dep tag]]
+specValue dep tag =
+  object
+    ( ["containers" .= toJSON [containerValue dep tag]]
+        <> volumesField (serviceNameText (dep ^. #name)) (dep ^. #volumes)
+    )
 
 containerValue :: Deployment -> Text -> Value
 containerValue dep tag =
@@ -205,6 +342,7 @@ containerValue dep tag =
         <> envFromField (serviceNameText (dep ^. #name))
         <> resourcesField (dep ^. #resources)
         <> probesField (dep ^. #healthCheck) (dep ^. #port)
+        <> volumeMountsField (dep ^. #volumes)
 
 -- | The inline @env:@ block, restricted to entries whose scope set contains
 -- 'Runtime'. A @{Build}@- or @{Preview}@-only entry is excluded from the running

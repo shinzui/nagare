@@ -12,8 +12,8 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDeployment)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
-import Nagare.Dsl.Presets (development, production, secretEnv, webService)
-import Nagare.Dsl.Render (renderDomainMappings, renderService)
+import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
+import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Types
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
@@ -29,6 +29,7 @@ main =
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
       , testGroup "Nagare.Dsl.Render" goldenTests
+      , testGroup "Nagare.Dsl volumes (EP-34)" volumeTests
       , testGroup "Nagare.Dsl.Types scoped env" scopedEnvTests
       , testGroup "Nagare.Dsl extended model (EP-29)" extendedModelTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
@@ -256,6 +257,23 @@ unitTests =
             Right sn -> EnvSecretRef sn @?= EnvSecretRef sn
             Left e -> assertFailure ("mkSecretName failed: " <> Text.unpack e)
       ]
+  , testGroup
+      "mkVolumeName"
+      [ testCase "accepts data" $ assertRight (mkVolumeName "data")
+      , testCase "accepts hyphenated" $ assertRight (mkVolumeName "uploads-1")
+      , testCase "rejects empty" $ assertLeftContains "empty" (mkVolumeName "")
+      , testCase "rejects uppercase" $ assertLeftContains "invalid" (mkVolumeName "Data")
+      , testCase "rejects leading hyphen" $ assertLeftContains "hyphen" (mkVolumeName "-x")
+      , testCase "rejects 64 chars" $ assertLeftContains "long" (mkVolumeName (Text.replicate 64 "a"))
+      ]
+  , testGroup
+      "mkMountPath"
+      [ testCase "accepts /data" $ assertRight (mkMountPath "/data")
+      , testCase "accepts nested" $ assertRight (mkMountPath "/var/lib/app")
+      , testCase "rejects relative" $ assertLeftContains "absolute" (mkMountPath "data")
+      , testCase "rejects parent segment" $ assertLeftContains ".." (mkMountPath "/a/../b")
+      , testCase "rejects empty" $ assertLeftContains "empty" (mkMountPath "")
+      ]
   ]
 
 goldenTests :: [TestTree]
@@ -317,6 +335,7 @@ helloDep =
             }
     , scale = Just (unsafe (mkScale 0 3))
     , healthCheck = Nothing
+    , volumes = []
     }
 
 -- | 'helloDep' with a Runtime variable and a Build-only variable, used to prove
@@ -330,6 +349,68 @@ buildOnlyDep =
           , (unsafe (mkEnvName "BUILD_TOKEN"), unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "abc123")))
           ]
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-34: typed volumes — attachVolume, JSON round-trip, load-time uniqueness,
+-- and the PVC / volumeMount / volume render goldens (IP1/IP2/IP3).
+
+-- | 'helloDep' with one durable volume @data@ (1Gi at @/data@), built through
+-- the 'attachVolume' overlay. Kept separate from 'helloDep' so the stateless
+-- goldens are unaffected.
+volumeDep :: Deployment
+volumeDep = unsafe (attachVolume "data" "1Gi" "/data" helloDep)
+
+volumeTests :: [TestTree]
+volumeTests =
+  [ testCase "attachVolume appends exactly one volume" $
+      length (volumes volumeDep) @?= 1
+  , testCase "deployment with a volume survives emit -> decode round-trip" $
+      decodeDeployment (toStrict (encodeDeployment volumeDep)) @?= Right volumeDep
+  , testCase "duplicate volume name rejected as MarshalError volumes" $
+      case decodeDeployment
+        (jsonWithVolumes "[{\"name\":\"d\",\"size\":\"1Gi\",\"mountPath\":\"/a\"},{\"name\":\"d\",\"size\":\"1Gi\",\"mountPath\":\"/b\"}]") of
+        Left (MarshalError "volumes" msg) -> assertContains "duplicate volume name" msg
+        other -> assertFailure ("expected MarshalError volumes, got: " <> show other)
+  , testCase "duplicate mount path rejected as MarshalError volumes" $
+      case decodeDeployment
+        (jsonWithVolumes "[{\"name\":\"a\",\"size\":\"1Gi\",\"mountPath\":\"/x\"},{\"name\":\"b\",\"size\":\"1Gi\",\"mountPath\":\"/x\"}]") of
+        Left (MarshalError "volumes" msg) -> assertContains "duplicate mount path" msg
+        other -> assertFailure ("expected MarshalError volumes, got: " <> show other)
+  , testCase "relative mount path rejected as MarshalError volumes.mountPath" $
+      case decodeDeployment
+        (jsonWithVolumes "[{\"name\":\"a\",\"size\":\"1Gi\",\"mountPath\":\"data\"}]") of
+        Left (MarshalError "volumes.mountPath" msg) -> assertContains "absolute" msg
+        other -> assertFailure ("expected MarshalError volumes.mountPath, got: " <> show other)
+  , testCase "bad size rejected as MarshalError volumes.size" $
+      case decodeDeployment
+        (jsonWithVolumes "[{\"name\":\"a\",\"size\":\"1Gigs\",\"mountPath\":\"/a\"}]") of
+        Left (MarshalError "volumes.size" _) -> pure ()
+        other -> assertFailure ("expected MarshalError volumes.size, got: " <> show other)
+  , testCase "unknown retention rejected as MarshalError volumes.retention" $
+      case decodeDeployment
+        (jsonWithVolumes "[{\"name\":\"a\",\"size\":\"1Gi\",\"mountPath\":\"/a\",\"retention\":\"Forever\"}]") of
+        Left (MarshalError "volumes.retention" _) -> pure ()
+        other -> assertFailure ("expected MarshalError volumes.retention, got: " <> show other)
+  , goldenVsString
+      "renderService hello with volume"
+      "test/golden/hello-volume.service.yaml"
+      (pure (fromStrict (renderService volumeDep "20260602-120000")))
+  , goldenVsString
+      "renderVolumeClaims hello volume"
+      "test/golden/hello-volume.pvc.yaml"
+      (pure (fromStrict (BS.intercalate "---\n" (renderVolumeClaims volumeDep))))
+  ]
+  where
+    jsonWithVolumes volsArr =
+      TE.encodeUtf8 $
+        "{\"name\":\"hello\",\"namespace\":\"personal\""
+          <> ",\"image\":\"gcr.io/foo/bar\",\"port\":8080,\"env\":[]"
+          <> ",\"volumes\":"
+          <> volsArr
+          <> "}"
+    assertContains needle haystack
+      | needle `Text.isInfixOf` haystack = pure ()
+      | otherwise = assertFailure ("expected " <> show needle <> " in: " <> Text.unpack haystack)
 
 -- ---------------------------------------------------------------------------
 -- EP-23: scoped env — the scope set survives the JSON emit -> decode round-trip

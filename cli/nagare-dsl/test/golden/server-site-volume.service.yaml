@@ -1,0 +1,41 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notes-app
+  namespace: personal
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: '1'
+        autoscaling.knative.dev/max-scale: '1'
+        serving.knative.dev/rollout-duration: 0s
+    spec:
+      containers:
+      - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes-app:20260607-120000
+        ports:
+        - containerPort: 8080
+        env:
+        - name: API_BASE
+          value: https://api.example.com
+        - name: HOSTNAME
+          value: 0.0.0.0
+        envFrom:
+        - configMapRef:
+            name: nagare-env-notes-app-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-notes-app-runtime
+            optional: true
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: uploads
+          mountPath: /data/uploads
+          readOnly: false
+      volumes:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: nagare-vol-notes-app-uploads

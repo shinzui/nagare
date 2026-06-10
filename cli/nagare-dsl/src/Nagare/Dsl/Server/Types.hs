@@ -42,6 +42,7 @@ import Nagare.Dsl.Types
   , Resources
   , Scale
   , ScopedEnvVar
+  , Volume
   )
 
 -- | A base image reference for the runtime, e.g. @"node:22-alpine"@. Unlike
@@ -118,5 +119,8 @@ data ServerSite = ServerSite
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
   , domains :: ![Domain]
+  -- | Durable disks attached to the site (same model as
+  -- 'Nagare.Dsl.Types.Deployment'). Empty means a stateless site.
+  , volumes :: ![Volume]
   }
   deriving stock (Generic, Eq, Show)

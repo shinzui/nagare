@@ -80,6 +80,25 @@ module Nagare.Dsl.Types
   , mkDomains
   , canonicalDomain
 
+    -- * VolumeName
+  , VolumeName
+  , mkVolumeName
+  , volumeNameText
+
+    -- * MountPath
+  , MountPath
+  , mkMountPath
+  , mountPathText
+
+    -- * AccessMode
+  , AccessMode (..)
+
+    -- * RetentionPolicy
+  , RetentionPolicy (..)
+
+    -- * Volume
+  , Volume (..)
+
     -- * Deployment
   , Deployment (..)
   ) where
@@ -453,6 +472,75 @@ canonicalDomain specs = domain <$> find canonical specs
   where
     find p = foldr (\x acc -> if p x then Just x else acc) Nothing
 
+-- | A durable-disk volume name: a DNS-1123 label (same character rules as
+-- 'ServiceName'), unique within an app. Constructor hidden; use 'mkVolumeName'.
+newtype VolumeName = VolumeName Text
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | Validate and construct a 'VolumeName': 1–63 characters of lowercase
+-- letters, digits, and hyphens, not starting or ending with a hyphen.
+mkVolumeName :: Text -> Either Text VolumeName
+mkVolumeName t
+  | Text.null t = Left "volume name must not be empty"
+  | Text.length t > 63 =
+      Left ("volume name too long (" <> tshow (Text.length t) <> " chars, max 63)")
+  | Text.isPrefixOf "-" t = Left "volume name must not start with a hyphen"
+  | Text.isSuffixOf "-" t = Left "volume name must not end with a hyphen"
+  | not (Text.all validLabelChar t) =
+      Left ("volume name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
+  | otherwise = Right (VolumeName t)
+
+volumeNameText :: VolumeName -> Text
+volumeNameText (VolumeName t) = t
+
+-- | An in-container mount path. Unlike 'Nagare.Dsl.Path.FilePathText' (which
+-- models a path inside the build context and so /rejects/ a leading @/@), a
+-- mount path must be /absolute/: Kubernetes requires @volumeMounts[].mountPath@
+-- to start with @/@. The @..@ and NUL guards are kept. Constructor hidden; use
+-- 'mkMountPath'.
+newtype MountPath = MountPath Text
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | Validate and construct a 'MountPath': absolute (leading @/@), no @..@
+-- segment, no NUL.
+mkMountPath :: Text -> Either Text MountPath
+mkMountPath t
+  | Text.null t = Left "mount path must not be empty"
+  | not (Text.isPrefixOf "/" t) = Left ("mount path must be absolute (start with '/'): " <> t)
+  | "\NUL" `Text.isInfixOf` t = Left ("mount path must not contain NUL characters: " <> t)
+  | ".." `elem` Text.split (== '/') t = Left ("mount path must not contain a '..' segment: " <> t)
+  | otherwise = Right (MountPath t)
+
+mountPathText :: MountPath -> Text
+mountPathText (MountPath t) = t
+
+-- | Single-node access mode. Only 'ReadWriteOnce' today (Nagare is single-node;
+-- @ReadWriteMany@ is out of scope). Modelled as a one-constructor sum so the
+-- field is present in the type and JSON for forward-compatibility and a future
+-- mode can be added without breaking exhaustive call sites.
+data AccessMode = ReadWriteOnce
+  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
+
+-- | What happens to the underlying disk when the app is deleted. 'Retain' keeps
+-- it (the default, safest); 'Delete' removes it. Read by EP-36 (backup
+-- ownership) to drive retention and the include/exclude backup decision.
+data RetentionPolicy = Retain | Delete
+  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
+
+-- | A durable disk attached to an app. Every constrained field goes through a
+-- smart constructor, so an illegal mount path or size cannot be written down.
+-- Uniqueness of names and mount paths /within an app/ is a cross-field
+-- invariant enforced at load time (see 'Nagare.Dsl.Load'), not here.
+data Volume = Volume
+  { volName :: !VolumeName
+  , size :: !Quantity
+  , mountPath :: !MountPath
+  , accessMode :: !AccessMode
+  , readOnly :: !Bool
+  , retention :: !RetentionPolicy
+  }
+  deriving stock (Generic, Eq, Show)
+
 -- | A fully-specified Nagare deployment. Assemble with a record literal after
 -- constructing each field through its smart constructor. There is no hidden
 -- constructor for 'Deployment' — the safety guarantee comes from the field
@@ -479,6 +567,11 @@ data Deployment = Deployment
   -- | An optional HTTP health check, rendered as Knative readiness/liveness/
   -- startup probes (see 'HealthCheck').
   , healthCheck :: !(Maybe HealthCheck)
+  -- | Durable disks attached to the app. Empty (the backward-compatible
+  -- default) means a stateless app. Each 'Volume' renders to a
+  -- 'PersistentVolumeClaim' plus a container @volumeMount@ and pod @volume@
+  -- (see 'Nagare.Dsl.Render'). Name/mount-path uniqueness is enforced at load.
+  , volumes :: ![Volume]
   }
   deriving stock (Generic, Eq, Show)
 

@@ -99,6 +99,31 @@ instance FromJSON JsonEnvEntry where
       <*> o .:? "secretName"
       <*> o .:? "scopes"
 
+-- | One entry of the @volumes@ array (mirrors 'Nagare.Dsl.Config'). Every
+-- accessor is optional except the three required fields so a partial object is
+-- reported as a precise 'MarshalError' rather than an aeson parse error; the
+-- defaults mirror 'Nagare.Dsl.Presets.attachVolume' (RWO, not read-only,
+-- Retain).
+data JsonVolume = JsonVolume
+  { jvName :: !Text
+  , jvSize :: !Text
+  , jvMountPath :: !Text
+  , jvAccessMode :: !(Maybe Text)
+  , jvReadOnly :: !Bool
+  , jvRetention :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonVolume where
+  parseJSON = withObject "Volume" $ \o ->
+    JsonVolume
+      <$> o .: "name"
+      <*> o .: "size"
+      <*> o .: "mountPath"
+      <*> o .:? "accessMode"
+      <*> o .:? "readOnly" .!= False
+      <*> o .:? "retention"
+
 -- | The @build@ sub-object: a @"kind"@ discriminator plus the per-kind fields.
 -- A 'PrebuiltImage' carries @tag@; a @DockerfileBuild@ carries
 -- @dockerfile@/@context@/@buildArgs@; a @NixpacksBuild@ carries
@@ -185,6 +210,7 @@ data JsonDeployment = JsonDeployment
   , jdScaleMin :: !(Maybe Int)
   , jdScaleMax :: !(Maybe Int)
   , jdHealthCheck :: !(Maybe JsonHealthCheck)
+  , jdVolumes :: ![JsonVolume]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -205,6 +231,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "scaleMin"
       <*> o .:? "scaleMax"
       <*> o .:? "healthCheck"
+      <*> o .:? "volumes" .!= []
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonDeployment -> Deployment (re-runs EP-9 smart constructors)
@@ -224,6 +251,7 @@ toDeployment jd = do
   env' <- mapM toEnvEntry (jdEnv jd)
   res' <- toResources jd
   hc' <- toHealthCheck (jdHealthCheck jd)
+  vols' <- toVolumes (jdVolumes jd)
   scale' <- case (jdScaleMin jd, jdScaleMax jd) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
@@ -245,6 +273,7 @@ toDeployment jd = do
       , resources = res'
       , scale = scale'
       , healthCheck = hc'
+      , volumes = vols'
       }
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
@@ -345,6 +374,55 @@ toHealthCheck (Just jhc) = do
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
+
+-- | Re-validate one decoded @volumes@ entry back into a 'Volume', re-running the
+-- leaf smart constructors and decoding the access-mode / retention enums. Any
+-- failure is a precise 'MarshalError' keyed by the sub-field.
+toVolume :: JsonVolume -> Either LoadError Volume
+toVolume jv = do
+  vn <- mapLeft (MarshalError "volumes.name") $ mkVolumeName (jvName jv)
+  sz <- mapLeft (MarshalError "volumes.size") $ mkQuantity (jvSize jv)
+  mp <- mapLeft (MarshalError "volumes.mountPath") $ mkMountPath (jvMountPath jv)
+  am <- case fromMaybe "ReadWriteOnce" (jvAccessMode jv) of
+    "ReadWriteOnce" -> Right ReadWriteOnce
+    other -> Left (MarshalError "volumes.accessMode" ("unknown access mode: " <> other))
+  rp <- case fromMaybe "Retain" (jvRetention jv) of
+    "Retain" -> Right Retain
+    "Delete" -> Right Delete
+    other -> Left (MarshalError "volumes.retention" ("unknown retention policy: " <> other))
+  Right
+    Volume
+      { volName = vn
+      , size = sz
+      , mountPath = mp
+      , accessMode = am
+      , readOnly = jvReadOnly jv
+      , retention = rp
+      }
+
+-- | Re-validate the @volumes@ array and enforce the two cross-field uniqueness
+-- invariants (no duplicate volume name, no duplicate mount path) that the pure
+-- 'Volume' constructor cannot — producing a precise 'MarshalError "volumes"' on
+-- a clash. This is the load-time check 'Nagare.Dsl.Presets.attachVolume' defers.
+toVolumes :: [JsonVolume] -> Either LoadError [Volume]
+toVolumes jvs = do
+  vols <- traverse toVolume jvs
+  let names = map (volumeNameText . volName) vols
+      paths = map (mountPathText . mountPath) vols
+  ensureUnique "duplicate volume name" names
+  ensureUnique "duplicate mount path" paths
+  Right vols
+  where
+    ensureUnique msg xs =
+      case firstDup xs of
+        Nothing -> Right ()
+        Just d -> Left (MarshalError "volumes" (msg <> ": " <> d))
+    firstDup = go Set.empty
+      where
+        go _ [] = Nothing
+        go seen (x : xs)
+          | Set.member x seen = Just x
+          | otherwise = go (Set.insert x seen) xs
 
 -- ---------------------------------------------------------------------------
 -- Decoding and loading
@@ -629,6 +707,7 @@ data JsonServerSite = JsonServerSite
   , jsvScaleMin :: !(Maybe Int)
   , jsvScaleMax :: !(Maybe Int)
   , jsvDomains :: ![Text]
+  , jsvVolumes :: ![JsonVolume]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -647,6 +726,7 @@ instance FromJSON JsonServerSite where
       <*> o .:? "scaleMin"
       <*> o .:? "scaleMax"
       <*> o .:? "domains" .!= []
+      <*> o .:? "volumes" .!= []
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonServerSite -> ServerSite (re-runs the smart constructors)
@@ -666,6 +746,7 @@ toServerSite j = do
     (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
     _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
   domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jsvDomains j)
+  vols' <- toVolumes (jsvVolumes j)
   Right
     ServerSite
       { name = name'
@@ -678,6 +759,7 @@ toServerSite j = do
       , resources = res'
       , scale = scale'
       , domains = domains'
+      , volumes = vols'
       }
 
 toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild

@@ -40,6 +40,7 @@ serverSite = do
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
       , domains = [dom']
+      , volumes = []
       }
   where
     mapLeft f = either (Left . f) Right

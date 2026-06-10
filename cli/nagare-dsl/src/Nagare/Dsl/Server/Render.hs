@@ -17,6 +17,7 @@ module Nagare.Dsl.Server.Render
   , renderServerDockerfile
   , renderServerService
   , renderServerDomainMappings
+  , renderServerVolumeClaims
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -33,7 +34,14 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
-import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
+import Nagare.Dsl.Render
+  ( managedConfigMapName
+  , managedSecretName
+  , renderPersistentVolumeClaims
+  , volumeAnnotationPairs
+  , volumeMountsField
+  , volumesField
+  )
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (siteNameText)
 import Nagare.Dsl.Types
@@ -42,7 +50,6 @@ import Nagare.Dsl.Types
   , EnvScope (..)
   , EnvVar (..)
   , Resources
-  , Scale
   , ScopedEnvVar
   , domainText
   , envNameText
@@ -101,6 +108,18 @@ renderServerDomainMappings :: ServerSite -> ServerDeployContext -> [ByteString]
 renderServerDomainMappings site ctx =
   map (YP.encodePretty knativeConfig . domainMappingValue site ctx) (site ^. #domains)
 
+-- | Render one 'PersistentVolumeClaim' manifest per declared volume (MasterPlan
+-- IP2/IP3), delegating to 'Nagare.Dsl.Render.renderPersistentVolumeClaims' so a
+-- 'ServerSite' and a 'Nagare.Dsl.Types.Deployment' emit byte-identical PVC YAML.
+-- The app name is the (possibly preview) Service name, matching the @claimName@
+-- the Service references.
+renderServerVolumeClaims :: ServerSite -> ServerDeployContext -> [ByteString]
+renderServerVolumeClaims site ctx =
+  renderPersistentVolumeClaims
+    (serviceNameFor site ctx)
+    (namespaceText (site ^. #namespace))
+    (site ^. #volumes)
+
 serviceValue :: ServerSite -> ServerDeployContext -> Value
 serviceValue site ctx =
   object
@@ -113,23 +132,33 @@ serviceValue site ctx =
 
 templateValue :: ServerSite -> ServerDeployContext -> Value
 templateValue site ctx =
-  case site ^. #scale of
-    Nothing -> object ["spec" .= specValue site ctx]
-    Just sc ->
+  case annotationPairs site of
+    [] -> object ["spec" .= specValue site ctx]
+    pairs ->
       object
-        [ "metadata" .= object ["annotations" .= annotationsValue sc]
+        [ "metadata" .= object ["annotations" .= object pairs]
         , "spec" .= specValue site ctx
         ]
 
-annotationsValue :: Scale -> Value
-annotationsValue sc =
-  object
-    [ "autoscaling.knative.dev/min-scale" .= (Text.pack (show (sc ^. #minScale)) :: Text)
-    , "autoscaling.knative.dev/max-scale" .= (Text.pack (show (sc ^. #maxScale)) :: Text)
-    ]
+-- | Pod-template annotations: a storage-backed site uses EP-33's verified
+-- rollout-safety set (which replaces the author's scale annotations); a
+-- stateless site uses its 'Scale' (or none). Mirrors 'Nagare.Dsl.Render'.
+annotationPairs :: ServerSite -> [Pair]
+annotationPairs site
+  | not (null (site ^. #volumes)) = volumeAnnotationPairs (site ^. #volumes)
+  | otherwise = case site ^. #scale of
+      Nothing -> []
+      Just sc ->
+        [ "autoscaling.knative.dev/min-scale" .= (Text.pack (show (sc ^. #minScale)) :: Text)
+        , "autoscaling.knative.dev/max-scale" .= (Text.pack (show (sc ^. #maxScale)) :: Text)
+        ]
 
 specValue :: ServerSite -> ServerDeployContext -> Value
-specValue site ctx = object ["containers" .= toJSON [containerValue site ctx]]
+specValue site ctx =
+  object
+    ( ["containers" .= toJSON [containerValue site ctx]]
+        <> volumesField (serviceNameFor site ctx) (site ^. #volumes)
+    )
 
 containerValue :: ServerSite -> ServerDeployContext -> Value
 containerValue site ctx =
@@ -145,6 +174,7 @@ containerValue site ctx =
       envField (site ^. #env)
         <> envFromField (serviceNameFor site ctx)
         <> resourcesField (site ^. #resources)
+        <> volumeMountsField (site ^. #volumes)
 
 -- | The inline @env:@ block, restricted to Runtime-scoped entries (see
 -- 'Nagare.Dsl.Render.envField' for the rationale). Build/Preview-only entries
@@ -238,6 +268,7 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("spec", 5)
       , ("autoscaling.knative.dev/min-scale", 0)
       , ("autoscaling.knative.dev/max-scale", 1)
+      , ("serving.knative.dev/rollout-duration", 2)
       , ("annotations", 0)
       , ("template", 0)
       , ("containers", 0)
@@ -250,9 +281,17 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("env", 2)
       , ("envFrom", 3)
       , ("resources", 4)
+      , ("volumeMounts", 8)
+      , ("volumes", 1)
       , ("cpu", 0)
       , ("memory", 1)
       , ("optional", 4)
       , ("configMapRef", 0)
       , ("secretRef", 1)
+      , -- volumeMount entry keys: name(2) < mountPath < readOnly
+        ("mountPath", 3)
+      , ("readOnly", 4)
+      , -- pod volume entry: name(2) < persistentVolumeClaim
+        ("persistentVolumeClaim", 3)
+      , ("claimName", 0)
       ]

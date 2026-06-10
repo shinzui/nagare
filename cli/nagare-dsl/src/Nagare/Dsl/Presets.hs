@@ -24,6 +24,9 @@ module Nagare.Dsl.Presets
   , development
   , production
 
+    -- * Storage overlays
+  , attachVolume
+
     -- * Helpers
   , secretEnv
   , stdResources
@@ -61,6 +64,7 @@ webService nameText imageText = do
       , resources = Just res
       , scale = Just sc
       , healthCheck = Nothing
+      , volumes = []
       }
 
 -- | Development overlay: scale @0..1@ (still scale-to-zero, at most one
@@ -80,6 +84,28 @@ production dep = do
   memQ <- mkQuantity "256Mi"
   let res = Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
   pure (dep & #scale .~ Just sc & #resources .~ Just res)
+
+-- | Attach a durable volume to a deployment. Validates the volume name, size,
+-- and mount path through the smart constructors; defaults @accessMode@ to
+-- 'ReadWriteOnce', @readOnly@ to 'False', and @retention@ to 'Retain' (safest).
+-- Appends to any existing volumes; the load-time uniqueness check
+-- ('Nagare.Dsl.Load') is what finally rejects a duplicate name or mount path,
+-- mirroring how 'mkScale' rejects @max < min@ only at construction.
+attachVolume :: Text -> Text -> Text -> Deployment -> Either Text Deployment
+attachVolume nameText sizeText mountText dep = do
+  vn <- mkVolumeName nameText
+  sz <- mkQuantity sizeText
+  mp <- mkMountPath mountText
+  let v =
+        Volume
+          { volName = vn
+          , size = sz
+          , mountPath = mp
+          , accessMode = ReadWriteOnce
+          , readOnly = False
+          , retention = Retain
+          }
+  pure (dep & #volumes %~ (<> [v]))
 
 -- | Add a Kubernetes Secret reference as an environment variable, preserving
 -- existing entries. Returns 'Left' if the variable or secret name is empty.
