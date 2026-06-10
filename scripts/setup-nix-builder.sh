@@ -23,23 +23,23 @@
 
 set -euo pipefail
 
-PROJECT=tan-nb-exp
-REGION=us-west1
-ZONE=us-west1-a
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
+source "$(dirname "$0")/lib/target.sh"
+_require_target_project
+PROJECT="$TARGET_PROJECT"
+REGION="$TARGET_REGION"
+ZONE="$TARGET_ZONE"
 
-# Project-isolation guard: fail closed if anything has misconfigured
-# gcloud's active project. See CLAUDE.md for the policy.
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  echo "fix: 'direnv allow' in the repo root, or 'export CLOUDSDK_CORE_PROJECT=$PROJECT'." >&2
-  exit 1
-fi
-NETWORK=nix-builder-net
-SUBNET=nix-builder-subnet
-SUBNET_CIDR=10.10.0.0/24
-FIREWALL=nix-builder-iap-ssh
-INSTANCE=nix-builder-x86
+# Builder resource names. These are NOT target-profile fields — they name
+# resources this script creates inside $PROJECT. They are env-overridable so a
+# second operator sharing a project can avoid name collisions without editing
+# this file; the defaults preserve today's behavior.
+NETWORK="${NIX_BUILDER_NETWORK:-nix-builder-net}"
+SUBNET="${NIX_BUILDER_SUBNET:-nix-builder-subnet}"
+SUBNET_CIDR="${NIX_BUILDER_SUBNET_CIDR:-10.10.0.0/24}"
+FIREWALL="${NIX_BUILDER_FIREWALL:-nix-builder-iap-ssh}"
+INSTANCE="${NIX_BUILDER_INSTANCE:-nix-builder-x86}"
 MACHINE_TYPE=n2-standard-2
 DISK_SIZE=200GB
 DISK_TYPE=pd-balanced

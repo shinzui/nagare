@@ -9,20 +9,17 @@
 # therefore a new name, so old and new images coexist.
 set -euo pipefail
 
-PROJECT=tan-nb-exp
-# IP-9 project-isolation guard: fail closed if gcloud's active project is wrong.
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  echo "fix: 'direnv allow' in the repo root, or 'export CLOUDSDK_CORE_PROJECT=$PROJECT'." >&2
-  exit 1
-fi
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/target.sh"
+_require_target_project
+PROJECT="$TARGET_PROJECT"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NIXOS_DIR="${REPO_ROOT}/nixos"
 PULUMI_DIR="${REPO_ROOT}/infra/pulumi"
 IAP_SSH="${REPO_ROOT}/scripts/iap-ssh.sh"
-REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
+REGION="${TARGET_REGION}"
 BUILDER_INSTANCE="${BUILDER_INSTANCE:-nix-builder-x86}"
 OUTPUT="nagare-image"
 ATTR="packages.x86_64-linux.${OUTPUT}"
@@ -130,6 +127,10 @@ upload_if_missing "${tarball}" "${gs_uri}"
 register_if_missing "${image_name}" "${gs_uri}"
 
 self_link="$(gcloud --project="${PROJECT}" compute images describe "${image_name}" --format='value(selfLink)')"
+# The self-link embeds the project (.../projects/<project>/global/images/...), so it
+# is target-specific: it must be regenerated per target and never committed for a
+# foreign project (MasterPlan-12 Integration Point 3). `pulumi config set` writes it
+# into the local stack config, which is a derived projection of the profile.
 log "pulumi config set nagareImageSelfLink ${self_link}"
 pulumi --cwd "${PULUMI_DIR}" config set nagareImageSelfLink "${self_link}"
 log "Done."

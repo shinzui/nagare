@@ -70,17 +70,17 @@ This section must always reflect the actual current state of the work.
 - [x] M1: Reconcile the backup bucket name: change the three backup/restore scripts to read
       `BUCKET="${BACKUP_BUCKET:-${NAGARE_BACKUP_BUCKET:?...}}"` so the profile's
       `NAGARE_BACKUP_BUCKET` is honored while `BACKUP_BUCKET` still wins if set. (2026-06-10)
-- [ ] M2: Rewrite `scripts/setup-nix-builder.sh`: source the helper for project/region/zone;
+- [x] M2: Rewrite `scripts/setup-nix-builder.sh`: source the helper for project/region/zone;
       replace `REGION`/`ZONE` literals with `TARGET_REGION`/`TARGET_ZONE`; make
       `NETWORK`/`SUBNET`/`FIREWALL`/`INSTANCE`/`SUBNET_CIDR` env-overridable with current
-      defaults; change every `--project="$PROJECT"` to `--project="$TARGET_PROJECT"`.
-- [ ] M2: Rewrite `scripts/upload-images.sh`: source the helper; replace `PROJECT` and the
-      `${CLOUDSDK_COMPUTE_REGION:-us-west1}` fallback with `TARGET_PROJECT`/`TARGET_REGION`;
-      keep the `pulumi config get imageBucket` / `pulumi config set nagareImageSelfLink`
-      logic unchanged but document why the self-link must be regenerated per target.
-- [ ] M2: Confirm the builder startup template `scripts/nix-builder-startup.sh.tpl` contains
-      no project literal (it does not — see Surprises & Discoveries); leave the pubkey
-      substitution untouched. No `@TARGET_PROJECT@` marker is needed.
+      defaults; bind `PROJECT=$TARGET_PROJECT` so every `--project="$PROJECT"` call site works
+      unchanged. (2026-06-10)
+- [x] M2: Rewrite `scripts/upload-images.sh`: source the helper (via `${BASH_SOURCE[0]}`);
+      bind `PROJECT=$TARGET_PROJECT` and set `REGION="${TARGET_REGION}"`; kept the
+      `pulumi config get imageBucket` / `pulumi config set nagareImageSelfLink` logic and added
+      the per-target self-link note at the write site. (2026-06-10)
+- [x] M2: Confirmed `scripts/nix-builder-startup.sh.tpl` contains no project literal (grep clean);
+      pubkey substitution untouched; no `@TARGET_PROJECT@` marker added. (2026-06-10)
 - [ ] M3: Parameterize the in-cluster manifest in `scripts/restore-volume.sh`: source the
       helper and interpolate `${TARGET_PROJECT}` into the Job's `CLOUDSDK_CORE_PROJECT` env
       value; fix the two `tan-nb-exp` comments.
