@@ -16,6 +16,8 @@ module Nagare.Dsl.Load
   , decodeStaticSite
   , loadServerSite
   , decodeServerSite
+  , loadTask
+  , decodeTask
   , SiteConfig (..)
   , loadSite
   ) where
@@ -34,6 +36,7 @@ import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
@@ -534,6 +537,142 @@ decodeDatabase bs =
         Right jdb -> toDatabase jdb
       Just other -> Left (UnexpectedKind "Database" other)
       Nothing -> Left (UnexpectedKind "Database" "<none>")
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for tasks (mirrors Nagare.Dsl.Config's emitted shape)
+
+-- | The intermediate decode shape for a 'Task' (mirrors 'Nagare.Dsl.Config'\'s
+-- @taskJSON@). Optional fields carry their model defaults so a partial object
+-- is a precise 'MarshalError', not an aeson parse error.
+data JsonTask = JsonTask
+  { jtName :: !Text
+  , jtNamespace :: !Text
+  , jtSchedule :: !Text
+  , jtImage :: !(Maybe Text)
+  , jtApp :: !(Maybe Text)
+  , jtCommand :: ![Text]
+  , jtArgs :: ![Text]
+  , jtEnv :: ![JsonEnvEntry]
+  , jtCpuRequest :: !(Maybe Text)
+  , jtMemoryRequest :: !(Maybe Text)
+  , jtCpuLimit :: !(Maybe Text)
+  , jtMemoryLimit :: !(Maybe Text)
+  , jtTimeoutSeconds :: !(Maybe Int)
+  , jtConcurrencyPolicy :: !(Maybe Text)
+  , jtRestartPolicy :: !(Maybe Text)
+  , jtBackoffLimit :: !(Maybe Int)
+  , jtSuccessfulJobsHistoryLimit :: !(Maybe Int)
+  , jtFailedJobsHistoryLimit :: !(Maybe Int)
+  , jtStartingDeadlineSeconds :: !(Maybe Int)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonTask where
+  parseJSON = withObject "Task" $ \o ->
+    JsonTask
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "schedule"
+      <*> o .:? "image"
+      <*> o .:? "app"
+      <*> o .:? "command" .!= []
+      <*> o .:? "args" .!= []
+      <*> o .:? "env" .!= []
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
+      <*> o .:? "timeoutSeconds"
+      <*> o .:? "concurrencyPolicy"
+      <*> o .:? "restartPolicy"
+      <*> o .:? "backoffLimit"
+      <*> o .:? "successfulJobsHistoryLimit"
+      <*> o .:? "failedJobsHistoryLimit"
+      <*> o .:? "startingDeadlineSeconds"
+
+-- | Re-validate a decoded task: re-run every smart constructor, decode the
+-- enum tokens, default the numeric fields, and finally re-check the assembled
+-- record with 'mkTask' (which enforces the bounds and the command-or-app
+-- cross-field invariant). Any failure is a precise 'MarshalError' keyed by the
+-- field.
+toTask :: JsonTask -> Either LoadError Task
+toTask j = do
+  name' <- mapLeft (MarshalError "name") $ mkServiceName (jtName j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jtNamespace j)
+  sched' <- mapLeft (MarshalError "schedule") $ mkSchedule (jtSchedule j)
+  img' <- traverse (mapLeft (MarshalError "image") . mkImageRef) (jtImage j)
+  app' <- traverse (mapLeft (MarshalError "app") . mkServiceName) (jtApp j)
+  env' <- mapM toEnvEntry (jtEnv j)
+  res' <- toTaskResources j
+  cp' <- case parseConcurrencyPolicy (fromMaybe "Forbid" (jtConcurrencyPolicy j)) of
+    Just p -> Right p
+    Nothing ->
+      Left
+        ( MarshalError
+            "concurrencyPolicy"
+            ("unknown concurrency policy: " <> fromMaybe "" (jtConcurrencyPolicy j))
+        )
+  rp' <- case parseRestartPolicy (fromMaybe "Never" (jtRestartPolicy j)) of
+    Just p -> Right p
+    Nothing ->
+      Left
+        ( MarshalError
+            "restartPolicy"
+            ("unknown restart policy: " <> fromMaybe "" (jtRestartPolicy j))
+        )
+  mapLeft (MarshalError "task") $
+    mkTask
+      Task
+        { taskName = name'
+        , taskNamespace = ns'
+        , taskSchedule = sched'
+        , taskImage = img'
+        , taskApp = app'
+        , taskCommand = jtCommand j
+        , taskArgs = jtArgs j
+        , taskEnv = Map.fromList env'
+        , taskResources = res'
+        , taskTimeoutSeconds = jtTimeoutSeconds j
+        , taskConcurrencyPolicy = cp'
+        , taskRestartPolicy = rp'
+        , taskBackoffLimit = fromMaybe 0 (jtBackoffLimit j)
+        , taskSuccessfulJobsHistoryLimit = fromMaybe 3 (jtSuccessfulJobsHistoryLimit j)
+        , taskFailedJobsHistoryLimit = fromMaybe 1 (jtFailedJobsHistoryLimit j)
+        , taskStartingDeadlineSeconds = jtStartingDeadlineSeconds j
+        }
+
+toTaskResources :: JsonTask -> Either LoadError (Maybe Resources)
+toTaskResources j =
+  case (jtCpuRequest j, jtMemoryRequest j, jtCpuLimit j, jtMemoryLimit j) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (c, m, cl, ml) -> do
+      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
+
+-- | Decode the JSON a task config emits (via 'Nagare.Dsl.Config.emitTask') into
+-- a validated 'Task'. The top-level @kind@ is checked first: a missing or
+-- non-@Task@ kind is 'UnexpectedKind'.
+decodeTask :: ByteString -> Either LoadError Task
+decodeTask bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Task" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode task: " <> Text.pack perr))
+        Right jt -> toTask jt
+      Just other -> Left (UnexpectedKind "Task" other)
+      Nothing -> Left (UnexpectedKind "Task" "<none>")
+
+-- | Load a 'Task' from a Haskell config-as-program source file. The config must
+-- print its JSON via 'Nagare.Dsl.Config.emitTask'. A config that emits a
+-- different shape is reported as 'UnexpectedKind'. Used by EP-51's @task@ CLI.
+loadTask :: FilePath -> IO (Either LoadError Task)
+loadTask path = fmap (>>= decodeTask) (runConfig path)
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for static sites (mirrors Nagare.Dsl.Config's emitted shape)

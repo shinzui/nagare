@@ -14,6 +14,8 @@ module Nagare.Dsl.Config
   , encodeDatabase
   , emitStaticSite
   , emitServerSite
+  , emitTask
+  , encodeTask
   ) where
 
 import "generic-lens" Data.Generics.Labels ()
@@ -30,6 +32,7 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
+import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
@@ -77,6 +80,61 @@ databaseJSON db =
     res = db ^. #resources
     retentionToken Retain = "Retain" :: Text
     retentionToken Delete = "Delete"
+
+-- | Serialize a 'Task' to JSON and write it to stdout. Call this as the last
+-- line of a task project's @Config.hs@ @main@. The top-level @"kind": "Task"@
+-- discriminator lets the loader dispatch and report a precise
+-- 'Nagare.Dsl.Load.UnexpectedKind' if a Task config is run under the wrong
+-- command.
+emitTask :: Task -> IO ()
+emitTask t = LBS.putStr (encodeTask t)
+
+-- | The exact JSON bytes 'emitTask' writes (exposed for the round-trip test).
+encodeTask :: Task -> LBS.ByteString
+encodeTask = encode . taskJSON
+
+-- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeTask').
+taskJSON :: Task -> Value
+taskJSON t =
+  object
+    [ "kind" .= ("Task" :: Text)
+    , "name" .= serviceNameText (taskName t)
+    , "namespace" .= namespaceText (taskNamespace t)
+    , "schedule" .= scheduleText (taskSchedule t)
+    , "image" .= fmap imageRefText (taskImage t)
+    , "app" .= fmap serviceNameText (taskApp t)
+    , "command" .= taskCommand t
+    , "args" .= taskArgs t
+    , "env" .= map taskEnvJSON (Map.toAscList (taskEnv t))
+    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+    , "timeoutSeconds" .= taskTimeoutSeconds t
+    , "concurrencyPolicy" .= concurrencyPolicyToken (taskConcurrencyPolicy t)
+    , "restartPolicy" .= restartPolicyToken (taskRestartPolicy t)
+    , "backoffLimit" .= taskBackoffLimit t
+    , "successfulJobsHistoryLimit" .= taskSuccessfulJobsHistoryLimit t
+    , "failedJobsHistoryLimit" .= taskFailedJobsHistoryLimit t
+    , "startingDeadlineSeconds" .= taskStartingDeadlineSeconds t
+    ]
+  where
+    res = taskResources t
+    taskEnvJSON (n, sev) = case sev ^. #value of
+      EnvLiteral lit ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("Literal" :: Text)
+          , "value" .= lit
+          , "scopes" .= scopeTokensJSON sev
+          ]
+      EnvSecretRef sn ->
+        object
+          [ "varName" .= envNameText n
+          , "kind" .= ("SecretRef" :: Text)
+          , "secretName" .= secretNameText sn
+          , "scopes" .= scopeTokensJSON sev
+          ]
 
 -- | The JSON shape of one 'Volume', shared by 'Deployment' and 'ServerSite'
 -- emission. The loader reads it back in 'Nagare.Dsl.Load.toVolume'; @accessMode@

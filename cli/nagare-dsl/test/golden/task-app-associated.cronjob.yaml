@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nagare-task-sync
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/task: sync
+    nagare.dev/app: notes
+spec:
+  schedule: '*/15 * * * *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            nagare.dev/managed-by: nagarectl
+            nagare.dev/task: sync
+            nagare.dev/app: notes
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: sync
+            command:
+            - python
+            - manage.py
+            - sync
+            envFrom:
+            - configMapRef:
+                name: nagare-env-notes-runtime
+                optional: true
+            - secretRef:
+                name: nagare-secret-notes-runtime
+                optional: true

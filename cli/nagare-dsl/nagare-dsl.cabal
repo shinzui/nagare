@@ -39,6 +39,8 @@ library
     Nagare.Dsl.Server.Types
     Nagare.Dsl.Static.Render
     Nagare.Dsl.Static.Types
+    Nagare.Dsl.Task
+    Nagare.Dsl.Task.Render
     Nagare.Dsl.Types
 
   build-depends:
