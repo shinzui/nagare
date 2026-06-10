@@ -44,6 +44,16 @@ import Nagare.Ops.Doctor
   , gradeChecks
   , remediationFor
   )
+import Nagare.Ops.Cleanup
+  ( CleanupReport (..)
+  , ImagePlan (..)
+  , PreviewInfo (..)
+  , formatCleanupReport
+  , parseCrictlImages
+  , pruneReleases
+  , selectStalePreviews
+  , sumReclaimableBytes
+  )
 import Nagare.Ops.Domains
   ( CertState (..)
   , DnsExpectation (..)
@@ -150,6 +160,7 @@ main =
       , testGroup "Nagare.Ops" opsTests
       , testGroup "Nagare.Ops.Doctor" doctorTests
       , testGroup "Nagare.Ops.Domains" domainsTests
+      , testGroup "Nagare.Ops.Cleanup" cleanupTests
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
@@ -229,6 +240,83 @@ opsTests =
         , "/dev/sda1       100G   24G   76G  24% /"
         , "/dev/sdb        100G   12G   88G  12% /var/lib/nagare"
         ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Ops.Cleanup (MasterPlan 8, EP-41): the pure selectors, image parsers,
+-- and report formatter (every selector deterministic — `now`/keep passed in).
+
+cleanupTests :: [TestTree]
+cleanupTests =
+  [ testCase "pruneReleases: 14-entry log, keep 10 -> 10 kept, 4 removed" $
+      let logv = StaticReleaseLog (Just "r14") (map mkRel [14, 13 .. 1])
+          (trimmed, removed) = pruneReleases 10 logv
+       in (length (releases trimmed), length removed) @?= (10, 4)
+  , testCase "pruneReleases: keeps current even when it is the oldest record" $
+      let logv = StaticReleaseLog (Just "r1") (map mkRel [14, 13 .. 1])
+          (trimmed, removed) = pruneReleases 3 logv
+       in do
+            assertBool "current kept" ("r1" `elem` map releaseId (releases trimmed))
+            assertBool "current not removed" ("r1" `notElem` map releaseId removed)
+            length removed @?= 10
+  , testCase "pruneReleases: nothing to trim when keep >= length" $
+      let logv = StaticReleaseLog (Just "r3") (map mkRel [3, 2, 1])
+       in snd (pruneReleases 10 logv) @?= []
+  , testCase "selectStalePreviews: picks exactly entries past the TTL" $
+      let now = UTCTime (fromGregorian 2026 6 9) 0
+          ttl = 7 * 86400
+          ps =
+            [ mkPreview "site-pr-fresh" (fromGregorian 2026 6 8) -- 1d
+            , mkPreview "site-pr-stale9" (fromGregorian 2026 5 31) -- 9d
+            , mkPreview "site-pr-stale21" (fromGregorian 2026 5 19) -- 21d
+            ]
+       in map previewName (selectStalePreviews now ttl ps) @?= ["site-pr-stale9", "site-pr-stale21"]
+  , testCase "parseCrictlImages: parses rows, skips header/blank" $
+      parseCrictlImages crictlFixture
+        @?= [ ImagePlan "docker.io/library/nginx" 142000000
+            , ImagePlan "registry.k8s.io/pause" 744000
+            ]
+  , testCase "sumReclaimableBytes: totals the rows" $
+      sumReclaimableBytes (parseCrictlImages crictlFixture) @?= 142744000
+  , testCase "formatCleanupReport: dry run ends with the dry-run notice" $ do
+      let out = formatCleanupReport (dryReport False)
+      assertBool "dry header" ("cleanup (dry run)" `T.isInfixOf` out)
+      assertBool "dry-run notice" ("re-run with --confirm to apply" `T.isInfixOf` out)
+      assertBool "no done." (not ("done." `T.isInfixOf` out))
+  , testCase "formatCleanupReport: confirmed ends with done., no dry-run notice" $ do
+      let out = formatCleanupReport (dryReport True)
+      assertBool "applied header" ("cleanup (applied)" `T.isInfixOf` out)
+      assertBool "done." ("done." `T.isInfixOf` out)
+      assertBool "no dry-run notice" (not ("re-run with --confirm" `T.isInfixOf` out))
+  ]
+  where
+    mkRel :: Int -> StaticRelease
+    mkRel n =
+      StaticRelease
+        { releaseId = "r" <> T.pack (show n)
+        , siteName = "notes"
+        , namespace = "personal"
+        , image = "img"
+        , imageTag = "r" <> T.pack (show n)
+        , url = "http://x"
+        , source = Nothing
+        , createdAt = UTCTime (fromGregorian 2026 6 1) 0
+        }
+    mkPreview nm day = PreviewInfo nm "personal" (UTCTime day 0)
+    crictlFixture =
+      TE.encodeUtf8 $
+        T.unlines
+          [ "IMAGE                          TAG       IMAGE ID       SIZE"
+          , "docker.io/library/nginx        latest    abc            142MB"
+          , "registry.k8s.io/pause          3.9       def            744kB"
+          , ""
+          ]
+    dryReport confirmed =
+      CleanupReport
+        { reportImages = Just (12, 3650722201)
+        , reportStalePreviews = [mkPreview "site-pr-old" (fromGregorian 2026 5 1)]
+        , reportTrimmedReleases = [("notes", [mkRel 1])]
+        , reportConfirmed = confirmed
+        }
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops.Domains (MasterPlan 8, EP-40): the pure DomainMapping/Certificate

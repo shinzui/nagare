@@ -77,18 +77,34 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Pure `Nagare.Ops.Cleanup` module — the `CleanupOpts`/`CleanupReport` types, `pruneReleases :: Int -> StaticReleaseLog -> (StaticReleaseLog, [StaticRelease])`, `selectStalePreviews :: UTCTime -> NominalDiffTime -> [PreviewInfo] -> [PreviewInfo]`, the image-prune output parsers (`parseCrictlImages`, `sumReclaimableBytes`), and `formatCleanupReport` — added to the cabal library; `testGroup "Nagare.Ops.Cleanup"` covering every selector deterministically (with `now` passed as a parameter).
-- [ ] M2: Execution wiring — the IAP-SSH `crictl` image-prune step (dry-run = `crictl images`; confirm = `crictl rmi --prune`), the preview-delete step (reuse `Nagare.Static.Preview.deletePreview`), and the release-trim step (reuse `Nagare.Static.Release.writeReleaseLog`), all gated behind dry-run/`--confirm`.
-- [ ] M3: `cleanup` command registered in `cli/nagarectl/app/Main.hs` (a single top-level command + `cleanupOptsParser` + `runCleanup` + dispatch arm).
-- [ ] M4: `nagarectl-test` green + `cleanup --help` transcript captured below; live destructive run deferred (no real images/previews/releases removed during implementation — must be exercised against disposable resources).
+- [x] M1 (2026-06-10): Pure `Nagare.Ops.Cleanup` module — the `CleanupOpts`/`CleanupReport`/`ImagePlan`/`PreviewInfo` types, `pruneReleases :: Int -> StaticReleaseLog -> (StaticReleaseLog, [StaticRelease])`, `selectStalePreviews :: UTCTime -> NominalDiffTime -> [PreviewInfo] -> [PreviewInfo]`, the image parsers (`parseCrictlImages`, `sumReclaimableBytes`), and `formatCleanupReport` — added to the cabal library; `testGroup "Nagare.Ops.Cleanup"` (8 cases) covering every selector deterministically (`now`/keep passed in) — all green.
+- [x] M2 (2026-06-10): Execution wiring `executeCleanup` (in the library) — the IAP-SSH `crictl` image step (dry-run = `crictl images` via `captureTool`; confirm = `crictl rmi --prune`), the preview-delete step (`kubectl delete ksvc --ignore-not-found` for stale previews matched by the `-pr-` pattern), and the release-trim step (enumerate `nagare-static-releases-*` ConfigMaps, `pruneReleases`, and under `--confirm` `Nagare.Static.Release.writeReleaseLogWith`), all gated behind dry-run/`--confirm`.
+- [x] M3 (2026-06-10): `cleanup` command registered in `cli/nagarectl/app/Main.hs` (a single top-level command + `cleanupOptsParser` + `runCleanup` + dispatch arm).
+- [x] M4 (2026-06-10): `nagarectl-test` green (171 tests) + `cleanup --help` transcript captured below (`--confirm` off-by-default); dry-run-by-default + degradation proven on an empty PATH (reports `0 / none`, mutates nothing, exit 0); live destructive run deferred (must be exercised against disposable resources).
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
-(None yet.)
+- 2026-06-10 (M2): Like EP-40, the kubectl/crictl IO had to live in the **library**, not
+  `app/Main.hs`, because the `nagarectl` executable has no `cradle` dependency. So `executeCleanup ::
+  CleanupOpts -> IO CleanupReport` lives in `Nagare.Ops.Cleanup` and `Main.hs`'s `runCleanup` is a
+  two-line `executeCleanup >>= putStr . formatCleanupReport`. Read-only listing reuses EP-38's
+  `captureTool` (IP4) so a missing `kubectl`/unreachable VM degrades the category to empty rather than
+  crashing; the confirmed deletions use `cradle` `run_` directly.
+- 2026-06-10 (M1): `Nagare.Static.Release` was imported **qualified** (`as Rel`) to avoid
+  duplicate-record-field clashes — `StaticRelease` exports `namespace`/`image`/`url`/etc., and
+  `CleanupOpts` also has a `namespace` field; a bare-selector use would be ambiguous under
+  `DuplicateRecordFields`. Qualifying (`Rel.releases`, `Rel.releaseId`, `Rel.current`,
+  `Rel.readReleaseLogWith`, `Rel.writeReleaseLogWith`) and using qualified record-update
+  (`logv {Rel.releases = …}`) sidesteps it cleanly.
+- 2026-06-10 (M2): Previews are discovered generically (any Service whose name contains `-pr-`, with
+  `.metadata.creationTimestamp` parsed via `iso8601ParseM`) rather than per-site, since `cleanup` is
+  not given a site argument. `selectStalePreviews` stays pure (the `now` is read once in the IO step
+  and threaded in), so the staleness rule is unit-tested deterministically.
+- 2026-06-10 (M4): Dry-run-by-default verified end to end — on an empty PATH `nagarectl cleanup`
+  prints `IMAGES 0 unused`, `PREVIEWS none stale`, `RELEASES none to trim`, the dry-run notice, and
+  exits 0, having issued no mutation. The destructive `--confirm` path is exercised live only against
+  disposable resources (deferred).
 
 
 ## Decision Log
@@ -141,10 +157,62 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+Delivered `nagarectl cleanup`: the pure `Nagare.Ops.Cleanup` module (the
+`CleanupOpts`/`CleanupReport`/`ImagePlan`/`PreviewInfo` types, `pruneReleases`,
+`selectStalePreviews`, `parseCrictlImages`/`sumReclaimableBytes`, and
+`formatCleanupReport`), the library IO `executeCleanup`, and the single
+top-level `cleanup` command in `cli/nagarectl/app/Main.hs` (a `Cleanup
+CleanupOpts` constructor, `cleanupOptsParser`, `command "cleanup" cleanupCmd`,
+`runCleanup`, and the `main` dispatch arm). It is the only mutating command in
+MasterPlan 8 and is dry-run-by-default: `--confirm` is required to delete. All
+171 tests pass, including the new 8-case `testGroup "Nagare.Ops.Cleanup"`.
 
-(To be filled during and after implementation.)
+Captured transcript (2026-06-10):
+
+```text
+$ nagarectl cleanup --help
+Usage: nagarectl cleanup [--images] [--previews] [--releases] [--confirm]
+                         [--preview-ttl-days N] [--keep-releases N]
+                         [-n|--namespace NS]
+
+  Reclaim disk: prune unused images, stale previews, old releases (dry-run by
+  default)
+
+Available options:
+  --images                 Limit cleanup to the containerd image store
+  --previews               Limit cleanup to stale static-site previews
+  --releases               Limit cleanup to old release-history entries
+  --confirm                REQUIRED to delete; without it cleanup is a dry run
+  --preview-ttl-days N     Previews older than N days are stale (default: 7)
+  --keep-releases N        Keep the most recent N releases per log (current
+                           always kept) (default: 10)
+  -n,--namespace NS        Namespace to scan for previews/releases
+  -h,--help                Show this help text
+```
+
+Dry-run-by-default + degradation (empty PATH — no kubectl/iap-ssh reachable;
+reports, mutates nothing, exits 0):
+
+```text
+$ PATH=/var/empty nagarectl cleanup
+cleanup (dry run)
+
+  IMAGES     0 unused images (~0 B reclaimable)
+  PREVIEWS   none stale
+  RELEASES   none to trim
+
+(dry run — nothing removed; re-run with --confirm to apply)
+$ echo $?
+0
+```
+
+What changed from the plan: the IO lives in the library (Main.hs is cradle-free),
+`Nagare.Static.Release` is imported qualified to dodge field clashes, and previews
+are matched generically by the `-pr-` pattern. The destructive `--confirm` live run
+(actually pruning images, deleting previews, trimming logs, then a no-op re-run) is
+deferred to disposable resources per the plan's M4 convention; the pure selectors,
+parsers, and the dry-run/confirmed report shapes are fully unit-tested, and the
+dry-run-by-default safety is proven by the empty-PATH run above.
 
 
 ## Context and Orientation

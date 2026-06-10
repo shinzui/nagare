@@ -40,6 +40,7 @@ library
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
     Nagare.Image
+    Nagare.Ops.Cleanup
     Nagare.Ops.Doctor
     Nagare.Ops.Domains
     Nagare.Ops.Probe

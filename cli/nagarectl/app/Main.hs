@@ -98,6 +98,13 @@ import Nagare.Image
   , imageRef
   , pushImage
   )
+import Nagare.Ops.Cleanup
+  ( CleanupOpts (..)
+  , defaultKeepReleases
+  , defaultPreviewTtlDays
+  , executeCleanup
+  , formatCleanupReport
+  )
 import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecks)
 import Nagare.Ops.Domains
   ( DomainRow (..)
@@ -269,6 +276,7 @@ data Command
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Domains DomainsCommand
+  | Cleanup CleanupOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -358,6 +366,24 @@ domainsListOptsParser =
     <$> namespaceOpt
     <*> switch (long "all-namespaces" <> help "List domains across all namespaces")
     <*> baseDomainOpt
+
+-- | Options for @cleanup@ (MasterPlan 8, EP-41). @--confirm@ defaults 'False', so
+-- a plain run is the dry run; when none of @--images/--previews/--releases@ is
+-- given, all three categories are acted on.
+cleanupOptsParser :: Parser CleanupOpts
+cleanupOptsParser =
+  CleanupOpts
+    <$> switch (long "images" <> help "Limit cleanup to the containerd image store")
+    <*> switch (long "previews" <> help "Limit cleanup to stale static-site previews")
+    <*> switch (long "releases" <> help "Limit cleanup to old release-history entries")
+    <*> switch (long "confirm" <> help "REQUIRED to delete; without it cleanup is a dry run")
+    <*> option
+      auto
+      (long "preview-ttl-days" <> value defaultPreviewTtlDays <> showDefault <> metavar "N" <> help "Previews older than N days are stale")
+    <*> option
+      auto
+      (long "keep-releases" <> value defaultKeepReleases <> showDefault <> metavar "N" <> help "Keep the most recent N releases per log (current always kept)")
+    <*> optional (T.pack <$> strOption (long "namespace" <> short 'n' <> metavar "NS" <> help "Namespace to scan for previews/releases"))
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -631,6 +657,7 @@ opts =
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "domains" domainsCmd
+            <> command "cleanup" cleanupCmd
         )
     doctorCmd =
       info
@@ -649,6 +676,10 @@ opts =
                 (progDesc "List the base domain and per-app DomainMappings with DNS and cert state")
             )
         )
+    cleanupCmd =
+      info
+        (Cleanup <$> cleanupOptsParser <**> helper)
+        (fullDesc <> progDesc "Reclaim disk: prune unused images, stale previews, old releases (dry-run by default)")
     serverCmd =
       info
         (serverSubparser <**> helper)
@@ -957,6 +988,7 @@ main =
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Domains (DomainsList o) -> runDomainsList o
+    Cleanup o -> runCleanup o
 
 -- | @server status@: gather the platform inventory and print the aligned
 -- report. Read-only and always exits 0 — graceful degradation is the probes'
@@ -1008,6 +1040,13 @@ resolveDomainsBase Nothing = do
   case mp of
     Just d | not (T.null d) -> pure d
     _ -> resolveBaseDomain Nothing
+
+-- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
+-- images/previews/releases, then print the report. Dry-run by default.
+runCleanup :: CleanupOpts -> IO ()
+runCleanup o = do
+  report <- executeCleanup o
+  TIO.putStr (formatCleanupReport report)
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do

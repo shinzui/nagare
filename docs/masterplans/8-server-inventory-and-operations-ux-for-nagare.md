@@ -164,7 +164,7 @@ solves this while keeping the foundation as the dependency root.
 | EP-38 | Server inventory probe layer and `nagarectl server status` | docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md | None | None | Complete |
 | EP-39 | `nagarectl doctor` health checks with remediation hints | docs/plans/39-nagarectl-doctor-health-checks-with-remediation-hints.md | EP-38 | None | Complete |
 | EP-40 | `nagarectl domains list` with DNS and certificate readiness | docs/plans/40-nagarectl-domains-list-with-dns-and-certificate-readiness.md | None | EP-38 | Complete |
-| EP-41 | `nagarectl cleanup` for images, previews, and releases | docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md | None | EP-38 | Not Started |
+| EP-41 | `nagarectl cleanup` for images, previews, and releases | docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md | None | EP-38 | Complete |
 | EP-42 | Server and operations UX docs and runbook integration | docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md | None | EP-38, EP-39, EP-40, EP-41 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -281,8 +281,8 @@ later plans reuse them.
 - [x] EP-39: `nagarectl doctor` checklist rendering with `OK`/`WARN`/`FAIL` and a non-zero exit code on failure.
 - [x] EP-40: DomainMapping + Certificate inventory and DNS-expectation computation, with pure parsers tested.
 - [x] EP-40: `nagarectl domains list` command registered and rendering domains with readiness.
-- [ ] EP-41: Reclaimable-image, stale-preview, and old-release detection with pure selectors tested.
-- [ ] EP-41: `nagarectl cleanup` command with `--dry-run` default and `--confirm` to act.
+- [x] EP-41: Reclaimable-image, stale-preview, and old-release detection with pure selectors tested.
+- [x] EP-41: `nagarectl cleanup` command with `--dry-run` default and `--confirm` to act.
 - [ ] EP-42: Runbooks updated to invoke the new commands; end-to-end operator walkthrough documented.
 
 
