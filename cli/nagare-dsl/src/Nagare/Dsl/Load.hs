@@ -26,6 +26,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
+import Nagare.Dsl.Build
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Prelude
@@ -95,10 +96,35 @@ instance FromJSON JsonEnvEntry where
       <*> o .:? "value"
       <*> o .:? "secretName"
 
+-- | The @build@ sub-object: a @"kind"@ discriminator plus the per-kind fields.
+-- A 'PrebuiltImage' carries @tag@; a @DockerfileBuild@ carries
+-- @dockerfile@/@context@/@buildArgs@; a @NixpacksBuild@ carries
+-- @context@/@buildArgs@. All field accessors are optional so a precise
+-- 'MarshalError' (rather than an aeson parse error) is produced when a required
+-- field for a given kind is missing.
+data JsonBuildSpec = JsonBuildSpec
+  { jbKind :: !Text
+  , jbTag :: !(Maybe Text)
+  , jbDockerfile :: !(Maybe Text)
+  , jbContext :: !(Maybe Text)
+  , jbBuildArgs :: !(Map.Map Text Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonBuildSpec where
+  parseJSON = withObject "BuildSpec" $ \o ->
+    JsonBuildSpec
+      <$> o .: "kind"
+      <*> o .:? "tag"
+      <*> o .:? "dockerfile"
+      <*> o .:? "context"
+      <*> o .:? "buildArgs" .!= mempty
+
 data JsonDeployment = JsonDeployment
   { jdName :: !Text
   , jdNamespace :: !Text
   , jdImage :: !Text
+  , jdBuild :: !(Maybe JsonBuildSpec)
   , jdDomain :: !(Maybe Text)
   , jdPort :: !Int
   , jdEnv :: ![JsonEnvEntry]
@@ -115,6 +141,7 @@ instance FromJSON JsonDeployment where
       <$> o .: "name"
       <*> o .: "namespace"
       <*> o .: "image"
+      <*> o .:? "build"
       <*> o .:? "domain"
       <*> o .: "port"
       <*> o .: "env"
@@ -131,6 +158,9 @@ toDeployment jd = do
   name' <- mapLeft (MarshalError "name") $ mkServiceName (jdName jd)
   ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jdNamespace jd)
   img' <- mapLeft (MarshalError "image") $ mkImageRef (jdImage jd)
+  build' <- case jdBuild jd of
+    Nothing -> mapLeft (MarshalError "build") defaultBuild
+    Just jb -> toBuildSpec jb
   dom' <- case jdDomain jd of
     Nothing -> Right Nothing
     Just t -> fmap Just . mapLeft (MarshalError "domain") $ mkDomain t
@@ -151,12 +181,42 @@ toDeployment jd = do
       { name = name'
       , namespace = ns'
       , image = img'
+      , build = build'
       , domain = dom'
       , port = port'
       , env = Map.fromList env'
       , resources = res'
       , scale = scale'
       }
+
+-- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
+-- on its @kind@ and re-running the smart constructors. A missing per-kind field
+-- or an unknown kind is reported as a precise 'MarshalError' (mirroring
+-- 'toStaticBuild').
+toBuildSpec :: JsonBuildSpec -> Either LoadError BuildSpec
+toBuildSpec jb = case jbKind jb of
+  "PrebuiltImage" -> do
+    tag <-
+      maybe (Left (MarshalError "build" "PrebuiltImage entry missing 'tag' field")) Right $
+        jbTag jb
+    fmap PrebuiltImage . mapLeft (MarshalError "build.tag") $ mkTag tag
+  "DockerfileBuild" -> do
+    df <-
+      maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'dockerfile' field")) Right $
+        jbDockerfile jb
+    ctx <-
+      maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'context' field")) Right $
+        jbContext jb
+    df' <- mapLeft (MarshalError "build.dockerfile") $ mkFilePathText df
+    ctx' <- mapLeft (MarshalError "build.context") $ mkFilePathText ctx
+    Right (DockerfileBuild {dockerfile = df', context = ctx', buildArgs = jbBuildArgs jb})
+  "NixpacksBuild" -> do
+    ctx <-
+      maybe (Left (MarshalError "build" "NixpacksBuild entry missing 'context' field")) Right $
+        jbContext jb
+    ctx' <- mapLeft (MarshalError "build.context") $ mkFilePathText ctx
+    Right (NixpacksBuild {context = ctx', buildArgs = jbBuildArgs jb})
+  other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
 toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, EnvVar)
 toEnvEntry e = do

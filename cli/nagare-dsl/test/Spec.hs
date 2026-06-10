@@ -1,11 +1,15 @@
 module Main (main) where
 
-import Data.ByteString.Lazy (fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 import LoadSpec (loadTests)
-import Nagare.Dsl.Load (loadDeployment)
+import Nagare.Dsl.Build
+import Nagare.Dsl.Config (encodeDeployment)
+import Nagare.Dsl.Load (LoadError (..), decodeDeployment, loadDeployment)
+import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
 import Nagare.Dsl.Types
@@ -23,6 +27,7 @@ main =
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
       , testGroup "Nagare.Dsl.Render" goldenTests
+      , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
@@ -231,6 +236,7 @@ helloDep =
     { name = unsafe (mkServiceName "hello")
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
+    , build = unsafe defaultBuild
     , domain = Just (unsafe (mkDomain "hello.example.com"))
     , port = unsafe (mkPort 8080)
     , env = Map.fromList [(unsafe (mkEnvName "TARGET"), EnvLiteral "Nagare")]
@@ -242,6 +248,120 @@ helloDep =
             }
     , scale = Just (unsafe (mkScale 0 3))
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-19: BuildSpec model — emit/decode round-trips, helpers, renderer, failures
+
+-- | 'helloDep' with its build mode swapped for the given 'BuildSpec'.
+depWithBuild :: BuildSpec -> Deployment
+depWithBuild b = helloDep {build = b}
+
+prebuiltSpec :: BuildSpec
+prebuiltSpec = PrebuiltImage (unsafe (mkTag "v1.2.3"))
+
+dockerfileSpec :: BuildSpec
+dockerfileSpec =
+  DockerfileBuild
+    { dockerfile = unsafe (mkFilePathText "docker/Dockerfile.prod")
+    , context = unsafe (mkFilePathText "app")
+    , buildArgs = Map.fromList [("MODE", "release"), ("VERSION", "1.0")]
+    }
+
+nixpacksSpec :: BuildSpec
+nixpacksSpec =
+  NixpacksBuild
+    { context = unsafe (mkFilePathText ".")
+    , buildArgs = Map.fromList [("NIXPACKS_NODE_VERSION", "20")]
+    }
+
+prebuiltDep, dockerfileDep, nixpacksDep :: Deployment
+prebuiltDep = depWithBuild prebuiltSpec
+dockerfileDep = depWithBuild dockerfileSpec
+nixpacksDep = depWithBuild nixpacksSpec
+
+buildSpecTests :: [TestTree]
+buildSpecTests =
+  [ testGroup
+      "mkTag"
+      [ testCase "accepts v1.2.3" $ assertRight (mkTag "v1.2.3")
+      , testCase "accepts 20260609-000000" $ assertRight (mkTag "20260609-000000")
+      , testCase "rejects empty" $ assertLeftContains "empty" (mkTag "")
+      , testCase "rejects leading hyphen" $ assertLeftContains "'-'" (mkTag "-bad")
+      , testCase "rejects leading dot" $ assertLeftContains "'.'" (mkTag ".bad")
+      , testCase "rejects whitespace" $ assertLeftContains "whitespace" (mkTag "v1 2")
+      , testCase "rejects colon (digest/tag separator)" $
+          assertLeftContains "invalid" (mkTag "v1:2")
+      ]
+  , testGroup
+      "resolveImageTag / requiresBuild"
+      [ testCase "prebuilt resolves to its own tag" $
+          resolveImageTag prebuiltSpec "deploytag" @?= "v1.2.3"
+      , testCase "dockerfile build resolves to deploy tag" $
+          resolveImageTag dockerfileSpec "deploytag" @?= "deploytag"
+      , testCase "nixpacks build resolves to deploy tag" $
+          resolveImageTag nixpacksSpec "deploytag" @?= "deploytag"
+      , testCase "prebuilt does not require build" $ requiresBuild prebuiltSpec @?= False
+      , testCase "dockerfile requires build" $ requiresBuild dockerfileSpec @?= True
+      , testCase "nixpacks requires build" $ requiresBuild nixpacksSpec @?= True
+      ]
+  , testGroup
+      "emit -> decode round-trip"
+      [ testCase "prebuilt image round-trips" $ assertRoundTrips prebuiltDep
+      , testCase "dockerfile build round-trips" $ assertRoundTrips dockerfileDep
+      , testCase "nixpacks build round-trips" $ assertRoundTrips nixpacksDep
+      , testCase "default (Dockerfile) build round-trips" $ assertRoundTrips helloDep
+      ]
+  , testGroup
+      "renderer respects prebuilt tag"
+      [ testCase "prebuilt renders with its own tag, not the deploy tag" $ do
+          let yaml = TE.decodeUtf8 (renderService prebuiltDep "20260609-000000")
+          assertBool
+            ("expected ':v1.2.3' in rendered YAML, got:\n" <> Text.unpack yaml)
+            ("helloworld-go:v1.2.3" `Text.isInfixOf` yaml)
+          assertBool
+            "deploy tag must not appear for a prebuilt image"
+            (not ("20260609-000000" `Text.isInfixOf` yaml))
+      , testCase "dockerfile build renders with the deploy tag" $ do
+          let yaml = TE.decodeUtf8 (renderService dockerfileDep "20260609-000000")
+          assertBool
+            ("expected ':20260609-000000' in rendered YAML, got:\n" <> Text.unpack yaml)
+            ("helloworld-go:20260609-000000" `Text.isInfixOf` yaml)
+      ]
+  , testGroup
+      "decode failure cases"
+      [ testCase "unknown build.kind reports MarshalError build.kind" $
+          case decodeDeployment (jsonWithBuild "{\"kind\":\"Bogus\"}") of
+            Left (MarshalError "build.kind" msg) -> assertContains "unknown build kind" msg
+            other -> assertFailure ("expected MarshalError build.kind, got: " <> show other)
+      , testCase "PrebuiltImage missing tag reports MarshalError build" $
+          case decodeDeployment (jsonWithBuild "{\"kind\":\"PrebuiltImage\"}") of
+            Left (MarshalError "build" msg) -> assertContains "tag" msg
+            other -> assertFailure ("expected MarshalError build, got: " <> show other)
+      , testCase "invalid prebuilt tag reports MarshalError build.tag" $
+          case decodeDeployment (jsonWithBuild "{\"kind\":\"PrebuiltImage\",\"tag\":\"-bad\"}") of
+            Left (MarshalError "build.tag" _) -> pure ()
+            other -> assertFailure ("expected MarshalError build.tag, got: " <> show other)
+      , testCase "absolute context reports MarshalError build.context" $
+          case decodeDeployment
+            (jsonWithBuild "{\"kind\":\"NixpacksBuild\",\"context\":\"/abs\"}") of
+            Left (MarshalError "build.context" msg) -> assertContains "absolute" msg
+            other -> assertFailure ("expected MarshalError build.context, got: " <> show other)
+      ]
+  ]
+  where
+    assertRoundTrips d =
+      decodeDeployment (toStrict (encodeDeployment d)) @?= Right d
+    -- A minimal valid Deployment JSON whose "build" object is the given literal.
+    jsonWithBuild buildObj =
+      TE.encodeUtf8 $
+        "{\"name\":\"hello\",\"namespace\":\"personal\""
+          <> ",\"image\":\"gcr.io/foo/bar\",\"port\":8080,\"env\":[]"
+          <> ",\"build\":"
+          <> buildObj
+          <> "}"
+    assertContains needle haystack
+      | needle `Text.isInfixOf` haystack = pure ()
+      | otherwise = assertFailure ("expected " <> show needle <> " in: " <> Text.unpack haystack)
 
 -- | Unwrap a smart-constructor result in test fixtures (the inputs are all
 -- known-valid). Errors loudly if a fixture is mistyped.

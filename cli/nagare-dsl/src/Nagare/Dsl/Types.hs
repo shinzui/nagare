@@ -70,6 +70,7 @@ import Nagare.Dsl.Prelude
 import Data.Char (isDigit, isLower)
 import Data.Map (Map)
 import Data.Text qualified as Text
+import Nagare.Dsl.Build (BuildSpec)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
 -- The constructor is hidden; use 'mkServiceName'.
@@ -292,6 +293,9 @@ data Deployment = Deployment
   { name :: !ServiceName
   , namespace :: !Namespace
   , image :: !ImageRef
+  -- | How the container image at 'image' is produced: a prebuilt image, a
+  -- Dockerfile build, or a Nixpacks build. See 'Nagare.Dsl.Build.BuildSpec'.
+  , build :: !BuildSpec
   , domain :: !(Maybe Domain)
   , port :: !Port
   -- | Env entries are stored by 'EnvName' so 'Data.Map.toAscList' yields a

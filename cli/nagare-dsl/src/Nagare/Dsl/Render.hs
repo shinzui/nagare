@@ -35,6 +35,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Types
 
 -- | Render a 'Deployment' to a Knative Service YAML document. The second
@@ -138,7 +139,7 @@ containerValue :: Deployment -> Text -> Value
 containerValue dep tag =
   object (required <> optionals)
   where
-    imageStr = imageRefText (dep ^. #image) <> ":" <> tag
+    imageStr = imageRefText (dep ^. #image) <> ":" <> resolveImageTag (dep ^. #build) tag
     portN = portInt (dep ^. #port)
     required =
       [ "image" .= imageStr

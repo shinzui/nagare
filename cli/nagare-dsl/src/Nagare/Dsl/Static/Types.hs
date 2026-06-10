@@ -54,6 +54,7 @@ import Nagare.Dsl.Prelude
 
 import Data.Char (isControl, isDigit, isLower, isSpace)
 import Data.Text qualified as Text
+import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
 import Nagare.Dsl.Types (Domain, ImageRef, Namespace)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the static site's Knative Service
@@ -77,29 +78,6 @@ mkSiteName t
 
 siteNameText :: SiteName -> Text
 siteNameText (SiteName t) = t
-
--- | A relative filesystem path inside the project: a build output directory
--- (e.g. @"dist"@), a nested directory (@"build/client"@), or a file the site
--- references (@"404.html"@). Constructor hidden; use 'mkFilePathText'.
---
--- Rejects empty paths, absolute paths (a leading @/@), any @..@ path segment,
--- and embedded NUL characters, so a path can never escape the project root or
--- the image build context.
-newtype FilePathText = FilePathText Text
-  deriving stock (Generic, Eq, Ord, Show)
-
--- | Validate and construct a 'FilePathText'.
-mkFilePathText :: Text -> Either Text FilePathText
-mkFilePathText t
-  | Text.null t = Left "path must not be empty"
-  | Text.isPrefixOf "/" t = Left ("path must be relative, not absolute: " <> t)
-  | "\NUL" `Text.isInfixOf` t = Left ("path must not contain NUL characters: " <> t)
-  | ".." `elem` Text.split (== '/') t =
-      Left ("path must not contain a '..' segment: " <> t)
-  | otherwise = Right (FilePathText t)
-
-filePathText :: FilePathText -> Text
-filePathText (FilePathText t) = t
 
 -- | How the static files are produced. Either the files already exist in a
 -- directory (@NoBuild dir@), or a build command produces them into an output

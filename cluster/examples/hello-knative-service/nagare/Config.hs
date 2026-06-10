@@ -11,6 +11,7 @@
 module Main (main) where
 
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Types
 
@@ -25,11 +26,13 @@ deployment = do
   sc <- mapLeft show (mkScale 0 3)
   cpuQ <- mapLeft show (mkQuantity "250m")
   memQ <- mapLeft show (mkQuantity "128Mi")
+  bld <- mapLeft show defaultBuild
   Right
     Deployment
       { name = name'
       , namespace = ns'
       , image = img'
+      , build = bld
       , domain = Just dom'
       , port = port'
       , env = Map.singleton target (EnvLiteral "Nagare")

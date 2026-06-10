@@ -9,6 +9,7 @@
 -- constructors as defence in depth.
 module Nagare.Dsl.Config
   ( emitDeployment
+  , encodeDeployment
   , emitStaticSite
   , emitServerSite
   ) where
@@ -21,6 +22,7 @@ import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Build
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types
@@ -28,7 +30,13 @@ import Nagare.Dsl.Types
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.
 emitDeployment :: Deployment -> IO ()
-emitDeployment dep = LBS.putStr (encode (deploymentJSON dep))
+emitDeployment dep = LBS.putStr (encodeDeployment dep)
+
+-- | The exact JSON bytes 'emitDeployment' writes. Exposed so the emit→decode
+-- round-trip can be exercised in-process (without capturing stdout or spawning
+-- @runghc@).
+encodeDeployment :: Deployment -> LBS.ByteString
+encodeDeployment = encode . deploymentJSON
 
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load').
 deploymentJSON :: Deployment -> Value
@@ -37,6 +45,7 @@ deploymentJSON dep =
     [ "name" .= serviceNameText (dep ^. #name)
     , "namespace" .= namespaceText (dep ^. #namespace)
     , "image" .= imageRefText (dep ^. #image)
+    , "build" .= buildJSON (dep ^. #build)
     , "domain" .= fmap domainText (dep ^. #domain)
     , "port" .= portInt (dep ^. #port)
     , "env" .= map envJSON (Map.toAscList (dep ^. #env))
@@ -48,6 +57,25 @@ deploymentJSON dep =
   where
     resources = dep ^. #resources
     scale = dep ^. #scale
+
+    buildJSON (PrebuiltImage t) =
+      object
+        [ "kind" .= ("PrebuiltImage" :: Text)
+        , "tag" .= tagText t
+        ]
+    buildJSON (DockerfileBuild df ctx args) =
+      object
+        [ "kind" .= ("DockerfileBuild" :: Text)
+        , "dockerfile" .= filePathText df
+        , "context" .= filePathText ctx
+        , "buildArgs" .= args
+        ]
+    buildJSON (NixpacksBuild ctx args) =
+      object
+        [ "kind" .= ("NixpacksBuild" :: Text)
+        , "context" .= filePathText ctx
+        , "buildArgs" .= args
+        ]
 
     envJSON (n, EnvLiteral lit) =
       object

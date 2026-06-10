@@ -33,6 +33,7 @@ module Nagare.Dsl.Presets
 import "generic-lens" Data.Generics.Labels ()
 
 import Data.Map qualified as Map
+import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 
@@ -47,11 +48,13 @@ webService nameText imageText = do
   img <- mkImageRef imageText
   sc <- mkScale 0 3
   res <- stdResources
+  bld <- defaultBuild
   pure
     Deployment
       { name = name'
       , namespace = defaultNamespace
       , image = img
+      , build = bld
       , domain = Nothing
       , port = defaultPort
       , env = Map.empty
