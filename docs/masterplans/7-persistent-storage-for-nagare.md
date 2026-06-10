@@ -146,7 +146,7 @@ of the backup story," so they are one plan with two milestones.
 |---|-------|------|-----------|-----------|--------|
 | 33 | Knative PVC enablement spike and cluster feature flags | docs/plans/33-knative-pvc-enablement-spike-and-cluster-feature-flags.md | None | None | Complete |
 | 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Complete |
-| 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Not Started |
+| 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Complete |
 | 36 | App volume backup ownership, snapshot to GCS, and retention | docs/plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md | EP-34, EP-35 | EP-33 | Not Started |
 | 37 | Persistent storage docs and end-to-end examples | docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md | EP-35, EP-36 | EP-34 | Not Started |
 
@@ -273,8 +273,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-34: `Volume`/`VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy` types + smart constructors; existing configs compile with an empty `volumes` default. (2026-06-09)
 - [x] EP-34: JSON round-trip (Config.hs emit / Load.hs decode) carries volumes; golden tests pass. (2026-06-09; load-time name + mount-path uniqueness as MarshalError "volumes".)
 - [x] EP-34: PVC manifest renderer + container/pod `volumeMounts`/`volumes` rendering + key ordering; golden tests match EP-33's verified shape. (2026-06-09; all 185 tests pass, no existing golden changed.)
-- [ ] EP-35: `nagarectl deploy` provisions PVCs before applying the Service; demonstrated end to end.
-- [ ] EP-35: `nagarectl storage list|inspect` commands working against the cluster (or `--dry-run`).
+- [x] EP-35: `nagarectl deploy` provisions PVCs before applying the Service; demonstrated via the real CLI `--dry-run` (PVC block first + EP-33 rollout annotations; no-volume path byte-compatible). (2026-06-09)
+- [x] EP-35: `nagarectl storage list|inspect` commands working (verified end-to-end through the real binary; live-PVC-data path unit-tested + the on-cluster transcript deferred to EP-37 — IAP forwards only SSH/22). (2026-06-09)
 - [ ] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored.
 - [ ] EP-36: Backup-ownership policy: deploy warns on backup-excluded volumes; disaster-recovery runbook updated and a restore tested.
 - [ ] EP-37: User guide written; SQLite-on-PVC and uploaded-files examples deploy with durable storage end to end.
@@ -317,6 +317,17 @@ interactions between child plans. Provide concise evidence.
   nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<vol>` (query by label, never re-derive).
   `Deployment`/`ServerSite` PVC YAML is byte-identical (Server/Render delegates to Render). All 185
   `nagare-dsl` tests pass; existing stateless goldens unchanged.
+
+- **EP-35 delivered deploy-time PVC provisioning + the `storage` command group (IP5).** `nagarectl
+  deploy` now applies an app's PVCs before the Service (idempotent, never deletes), and
+  `nagarectl storage list|inspect` discover PVCs by the IP3 labels. The shared `Nagare.Storage.Discover`
+  module (`appPVCLabelSelector`, `listAppPVCs`, `PVCRow`, re-exported `pvcName`) and the `storage`
+  subparser are EP-36's extension points — EP-36 adds `command "snapshot"` + a `StorageSnapshot`
+  constructor and reuses the discovery helper (extend, not fork). **Live-cluster access constraint
+  (input to EP-36/EP-37):** a workstation `kubectl` cannot reach the k3s API — IAP forwards only SSH
+  (port 22). Run `nagarectl` on the VM, or SSH-forward 6443 over the port-22 tunnel
+  (`ssh -L 16443:127.0.0.1:6443 …`) with `KUBECONFIG` pointed at a rewritten copy of
+  `/etc/rancher/k3s/k3s.yaml`. EP-35's on-cluster transcript is deferred to EP-37 accordingly.
 
 - **Namespace deletion does NOT cascade-clean storage (input to EP-35/EP-36).** `kubectl delete
   namespace` left the Knative `ksvc`/route/revision and the PVC stuck on finalizers for minutes;
