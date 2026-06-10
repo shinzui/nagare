@@ -53,7 +53,7 @@ running revision.
 
 ## Progress
 
-- [ ] M1: per-app deployment history store (reuse/generalize `Nagare.Static.Release`) with pure-layer unit tests.
+- [x] M1: per-app deployment history store (reuse/generalize `Nagare.Static.Release`) with pure-layer unit tests. (2026-06-10)
 - [ ] M2: `runDeploy` records a deployment on success; verified by reading back the ConfigMap.
 - [ ] M3: `deployments list NAME` prints the table; `deployments logs NAME [ID]` streams logs.
 - [ ] M4: `nagarectl-test` green; end-to-end transcript captured.

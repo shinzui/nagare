@@ -34,6 +34,7 @@ import Nagare.App
   , parseServiceNames
   , restartPatch
   )
+import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
@@ -96,7 +97,32 @@ main =
       , testGroup "Nagare.Env.BuildArgs" buildArgsTests
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
       , testGroup "Nagare.App" appTests
+      , testGroup "Nagare.App.Deployments" deploymentsTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.App.Deployments (EP-31)
+
+deploymentsTests :: [TestTree]
+deploymentsTests =
+  [ testCase "appConfigMapName prefixes the app name" $
+      appConfigMapName "notes" @?= "nagare-app-deployments-notes"
+  , testCase "revisionForTag matches the revision whose image ends with :tag" $
+      revisionForTag "20260610-110000" revisionsJSON @?= Just "notes-00002"
+  , testCase "revisionForTag returns Nothing when no revision carries the tag" $
+      revisionForTag "20260101-000000" revisionsJSON @?= Nothing
+  , testCase "revisionForTag returns Nothing on malformed JSON" $
+      revisionForTag "x" "{not json" @?= Nothing
+  ]
+  where
+    revisionsJSON =
+      BC.pack $
+        concat
+          [ "{\"items\":["
+          , "{\"metadata\":{\"name\":\"notes-00001\"},\"spec\":{\"containers\":[{\"image\":\"gcr.io/p/notes:20260610-100000\"}]}},"
+          , "{\"metadata\":{\"name\":\"notes-00002\"},\"spec\":{\"containers\":[{\"image\":\"gcr.io/p/notes:20260610-110000\"}]}}"
+          , "]}"
+          ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.App (EP-30)

@@ -31,6 +31,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Nagare.App
+    Nagare.App.Deployments
     Nagare.Build
     Nagare.Deploy
     Nagare.Env.BuildArgs

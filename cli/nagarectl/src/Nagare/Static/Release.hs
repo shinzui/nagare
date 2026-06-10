@@ -21,13 +21,18 @@ module Nagare.Static.Release
   , addRelease
   , findRelease
   , configMapName
+  , configMapNameWith
   , releaseDataKey
   , renderReleaseConfigMap
+  , renderReleaseConfigMapWith
   , extractReleaseLog
   , formatReleasesTable
   , readReleaseLog
+  , readReleaseLogWith
   , writeReleaseLog
+  , writeReleaseLogWith
   , recordReleaseFor
+  , recordReleaseForWith
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -146,26 +151,34 @@ findRelease rid = find ((== rid) . releaseId) . releases
 -- ---------------------------------------------------------------------------
 -- ConfigMap shape
 
+-- | The ConfigMap name for a history store, given a name @prefix@ and the
+-- subject (site or app), e.g.
+-- @configMapNameWith "nagare-static-releases-" "notes" == "nagare-static-releases-notes"@.
+-- Generalized (EP-31) so the same release-log machinery can back both static
+-- sites and apps under distinct ConfigMap names.
+configMapNameWith :: Text -> Text -> Text
+configMapNameWith prefix subject = prefix <> subject
+
 -- | The ConfigMap name holding a site's release history, e.g.
 -- @"nagare-static-releases-notes"@.
 configMapName :: Text -> Text
-configMapName site = "nagare-static-releases-" <> site
+configMapName = configMapNameWith "nagare-static-releases-"
 
 -- | The ConfigMap data key the release-log JSON is stored under.
 releaseDataKey :: Text
 releaseDataKey = "releases.json"
 
 -- | Render the ConfigMap (as JSON bytes, which @kubectl apply -f@ accepts) that
--- stores @logv@ for @site@ in @ns@.
-renderReleaseConfigMap :: Text -> Text -> StaticReleaseLog -> ByteString
-renderReleaseConfigMap site ns logv =
+-- stores @logv@ for @subject@ in @ns@ under the ConfigMap named by @prefix@.
+renderReleaseConfigMapWith :: Text -> Text -> Text -> StaticReleaseLog -> ByteString
+renderReleaseConfigMapWith prefix subject ns logv =
   LBS.toStrict . encode $
     object
       [ "apiVersion" .= ("v1" :: Text)
       , "kind" .= ("ConfigMap" :: Text)
       , "metadata"
           .= object
-            [ "name" .= configMapName site
+            [ "name" .= configMapNameWith prefix subject
             , "namespace" .= ns
             ]
       , "data"
@@ -173,6 +186,11 @@ renderReleaseConfigMap site ns logv =
             [ Key.fromText releaseDataKey .= TE.decodeUtf8 (LBS.toStrict (encode logv))
             ]
       ]
+
+-- | Render the ConfigMap (as JSON bytes, which @kubectl apply -f@ accepts) that
+-- stores @logv@ for @site@ in @ns@.
+renderReleaseConfigMap :: Text -> Text -> StaticReleaseLog -> ByteString
+renderReleaseConfigMap = renderReleaseConfigMapWith "nagare-static-releases-"
 
 -- | Extract the release log from the JSON @kubectl get configmap -o json@ prints.
 -- A ConfigMap with no @data@ or no @releases.json@ key yields an empty log;
@@ -223,18 +241,19 @@ formatReleasesTable logv
 -- ---------------------------------------------------------------------------
 -- kubectl IO
 
--- | Read the release log for @site@ in @ns@ via
--- @kubectl get configmap <name> -n <ns> -o json@. A missing ConfigMap (non-zero
--- exit) is an empty log; a present-but-malformed one is a 'Left' error.
-readReleaseLog :: Text -> Text -> IO (Either Text StaticReleaseLog)
-readReleaseLog site ns = do
+-- | Read the history log for @subject@ in @ns@ from the ConfigMap named by
+-- @prefix@ via @kubectl get configmap <name> -n <ns> -o json@. A missing
+-- ConfigMap (non-zero exit) is an empty log; a present-but-malformed one is a
+-- 'Left' error.
+readReleaseLogWith :: Text -> Text -> Text -> IO (Either Text StaticReleaseLog)
+readReleaseLogWith prefix subject ns = do
   (exitCode, StdoutRaw out) <-
     run $
       cmd "kubectl"
         & addArgs
           [ "get"
           , "configmap"
-          , T.unpack (configMapName site)
+          , T.unpack (configMapNameWith prefix subject)
           , "-n"
           , T.unpack ns
           , "-o"
@@ -245,18 +264,28 @@ readReleaseLog site ns = do
     ExitFailure _ -> Right emptyReleaseLog
     ExitSuccess -> extractReleaseLog out
 
+-- | Read the release log for @site@ in @ns@. A missing ConfigMap is an empty
+-- log; a present-but-malformed one is a 'Left' error.
+readReleaseLog :: Text -> Text -> IO (Either Text StaticReleaseLog)
+readReleaseLog = readReleaseLogWith "nagare-static-releases-"
+
+-- | Persist the history log for @subject@ in @ns@ under the ConfigMap named by
+-- @prefix@ by @kubectl apply@-ing the rendered ConfigMap.
+writeReleaseLogWith :: Text -> Text -> Text -> StaticReleaseLog -> IO ()
+writeReleaseLogWith prefix subject ns logv =
+  applyManifests [renderReleaseConfigMapWith prefix subject ns logv]
+
 -- | Persist the release log for @site@ in @ns@ by @kubectl apply@-ing the
 -- rendered ConfigMap (reusing 'Nagare.Deploy.applyManifests').
 writeReleaseLog :: Text -> Text -> StaticReleaseLog -> IO ()
-writeReleaseLog site ns logv =
-  applyManifests [renderReleaseConfigMap site ns logv]
+writeReleaseLog = writeReleaseLogWith "nagare-static-releases-"
 
--- | Runtime-agnostic release recording: read the site's history, append a record
--- for @(image, tag, url, name, ns, source)@, and write it back. Used by both the
--- static and server deploy paths. A malformed existing history is reported as
+-- | Runtime-agnostic history recording under the ConfigMap named by @prefix@:
+-- read the @subject@'s history, append a record for @(image, tag, url, name, ns,
+-- source)@, and write it back. A malformed existing history is reported as
 -- 'Left' (and not overwritten); success returns @()@.
-recordReleaseFor :: Text -> Text -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
-recordReleaseFor image tag url name ns src = do
+recordReleaseForWith :: Text -> Text -> Text -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
+recordReleaseForWith prefix image tag url name ns src = do
   now <- getCurrentTime
   let rel =
         StaticRelease
@@ -269,10 +298,17 @@ recordReleaseFor image tag url name ns src = do
           , source = src
           , createdAt = now
           }
-  elog <- readReleaseLog name ns
+  elog <- readReleaseLogWith prefix name ns
   case elog of
     Left err ->
       pure (Left ("deploy succeeded but release history is unreadable (not overwritten): " <> err))
     Right logv -> do
-      writeReleaseLog name ns (addRelease rel logv)
+      writeReleaseLogWith prefix name ns (addRelease rel logv)
       pure (Right ())
+
+-- | Runtime-agnostic release recording: read the site's history, append a record
+-- for @(image, tag, url, name, ns, source)@, and write it back. Used by both the
+-- static and server deploy paths. A malformed existing history is reported as
+-- 'Left' (and not overwritten); success returns @()@.
+recordReleaseFor :: Text -> Text -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
+recordReleaseFor = recordReleaseForWith "nagare-static-releases-"
