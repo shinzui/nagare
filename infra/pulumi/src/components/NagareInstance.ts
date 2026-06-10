@@ -25,6 +25,13 @@ export class NagareInstance extends pulumi.ComponentResource {
             name,                       // GCE instance name == resource name == "nagare-01"
             zone: args.zone,
             machineType: args.machineType,
+            // GCP cannot change machineType on a running VM. Without this,
+            // bumping `machineType` (a vertical resize to a bigger machine)
+            // fails on `pulumi up`. With it, Pulumi stops the VM, changes the
+            // type, and restarts it — the boot disk, data disk, and static IP
+            // all persist, so the only cost is a brief stop/start window. See
+            // docs/user/resizing-the-vm.md.
+            allowStoppingForUpdate: true,
             // Boot disk holds NixOS /nix/store AND the containerd image store, so
             // it must be sized for the cluster's images, not just the OS. The image's
             // default (~6 GB) tripped DiskPressure during the EP-5 observability
