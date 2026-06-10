@@ -43,6 +43,17 @@ import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
+import Nagare.Cdn.Provision
+  ( CdnResult (..)
+  , CdnTarget (..)
+  , GcpStackRefs (..)
+  , planCdn
+  , provisionCdn
+  , renderCdnPlan
+  )
+import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
+import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
@@ -88,6 +99,7 @@ import Nagare.App.Deployments
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
+  , Domain
   , EnvName
   , EnvScope (..)
   , Namespace
@@ -136,7 +148,7 @@ import Nagare.Ops.Domains
   , listNamespaces
   , queryDomainRows
   )
-import Nagare.Ops.Probe (InventoryOpts (..), renderInventory)
+import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.Status (defaultInventoryOpts, gatherInventory)
 import Nagare.Static.Deploy
@@ -300,6 +312,7 @@ data Command
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Domains DomainsCommand
+  | CdnCmd CdnCommand
   | Cleanup CleanupOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
@@ -503,6 +516,74 @@ domainsListOptsParser =
     <$> namespaceOpt
     <*> switch (long "all-namespaces" <> help "List domains across all namespaces")
     <*> baseDomainOpt
+
+-- | MasterPlan 11 / EP-58: the @cdn@ command group. The constructor is named
+-- 'CdnCmd' (not @Cdn@) to avoid clashing with the 'Cdn' type from
+-- 'Nagare.Dsl.Cdn.Types', mirroring the 'Domains'/'DomainsCommand' split.
+data CdnCommand
+  = CdnList CdnListOpts
+  | CdnStatus CdnStatusOpts
+  | CdnPurge CdnPurgeOpts
+  | CdnDisable CdnDisableOpts
+  deriving stock (Generic, Show)
+
+data CdnListOpts = CdnListOpts
+  { cloNamespace :: !(Maybe String)
+  , cloAllNamespaces :: !Bool
+  , cloBaseDomain :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+data CdnStatusOpts = CdnStatusOpts
+  { csoHost :: !String
+  , csoNamespace :: !(Maybe String)
+  , csoBaseDomain :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+data CdnPurgeOpts = CdnPurgeOpts
+  { cpoHost :: !String
+  , cpoPaths :: ![String]
+  , cpoNamespace :: !(Maybe String)
+  , cpoDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+data CdnDisableOpts = CdnDisableOpts
+  { cdoHost :: !String
+  , cdoNamespace :: !(Maybe String)
+  , cdoDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+cdnHostArg :: Parser String
+cdnHostArg = strArgument (metavar "HOST" <> help "CDN-fronted hostname (e.g. blog.example.com)")
+
+cdnListOptsParser :: Parser CdnListOpts
+cdnListOptsParser =
+  CdnListOpts
+    <$> namespaceOpt
+    <*> switch (long "all-namespaces" <> help "List CDN-fronted hostnames across all namespaces")
+    <*> baseDomainOpt
+
+cdnStatusOptsParser :: Parser CdnStatusOpts
+cdnStatusOptsParser =
+  CdnStatusOpts <$> cdnHostArg <*> namespaceOpt <*> baseDomainOpt
+
+cdnPurgeOptsParser :: Parser CdnPurgeOpts
+cdnPurgeOptsParser =
+  CdnPurgeOpts
+    <$> cdnHostArg
+    <*> many
+      ( strOption
+          (long "path" <> metavar "PATH" <> help "Purge only this path (repeatable; default: purge everything)")
+      )
+    <*> namespaceOpt
+    <*> dryRunOpt
+
+cdnDisableOptsParser :: Parser CdnDisableOpts
+cdnDisableOptsParser =
+  CdnDisableOpts <$> cdnHostArg <*> namespaceOpt <*> dryRunOpt
 
 -- | Options for @cleanup@ (MasterPlan 8, EP-41). @--confirm@ defaults 'False', so
 -- a plain run is the dry run; when none of @--images/--previews/--releases@ is
@@ -902,6 +983,7 @@ opts =
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "domains" domainsCmd
+            <> command "cdn" cdnCmd
             <> command "cleanup" cleanupCmd
         )
     doctorCmd =
@@ -920,6 +1002,37 @@ opts =
                 (Domains . DomainsList <$> domainsListOptsParser <**> helper)
                 (progDesc "List the base domain and per-app DomainMappings with DNS and cert state")
             )
+        )
+    cdnCmd =
+      info
+        (cdnSubparser <**> helper)
+        (fullDesc <> progDesc "Inspect and manage CDN-fronted hostnames (list, status, purge, disable)")
+    cdnSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (CdnCmd . CdnList <$> cdnListOptsParser <**> helper)
+                (progDesc "List CDN-fronted sites/apps, provider, and edge status")
+            )
+            <> command
+              "status"
+              ( info
+                  (CdnCmd . CdnStatus <$> cdnStatusOptsParser <**> helper)
+                  (progDesc "Show one hostname's provider, DNS target, cache config, and readiness")
+              )
+            <> command
+              "purge"
+              ( info
+                  (CdnCmd . CdnPurge <$> cdnPurgeOptsParser <**> helper)
+                  (progDesc "Purge the edge cache for a hostname (optionally specific --path values)")
+              )
+            <> command
+              "disable"
+              ( info
+                  (CdnCmd . CdnDisable <$> cdnDisableOptsParser <**> helper)
+                  (progDesc "Revert a hostname's DNS back to the VM (un-proxy / delete the A record)")
+              )
         )
     cleanupCmd =
       info
@@ -1328,6 +1441,7 @@ main =
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Domains (DomainsList o) -> runDomainsList o
+    CdnCmd ccmd -> runCdn ccmd
     Cleanup o -> runCleanup o
 
 -- | @server status@: gather the platform inventory and print the aligned
@@ -1380,6 +1494,94 @@ resolveDomainsBase Nothing = do
   case mp of
     Just d | not (T.null d) -> pure d
     _ -> resolveBaseDomain Nothing
+
+-- | MasterPlan 11 / EP-58: the @nagarectl cdn@ command group dispatcher.
+runCdn :: CdnCommand -> IO ()
+runCdn = \case
+  CdnList o -> runCdnList o
+  CdnStatus o -> runCdnStatus o
+  CdnPurge o -> runCdnPurge o
+  CdnDisable o -> runCdnDisable o
+
+-- | @cdn list@: enumerate CDN-fronted hostnames and their provider/DNS/cache/
+-- readiness. Discovery degrades gracefully to the empty sentinel when the
+-- cluster / cloud tools are unavailable (VM off, no token) — see
+-- 'Nagare.Cdn.Status.queryCdnRows'.
+runCdnList :: CdnListOpts -> IO ()
+runCdnList o = do
+  base <- resolveDomainsBase (cloBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  nss <-
+    if cloAllNamespaces o
+      then listNamespaces
+      else pure [appNamespace (cloNamespace o)]
+  rows <- concat <$> traverse (queryCdnRows base ip) nss
+  TIO.putStr (formatCdnList rows)
+
+-- | @cdn status HOST@: show one hostname's CDN state, or an "unknown / not
+-- discovered" block when the live discovery cannot run yet.
+runCdnStatus :: CdnStatusOpts -> IO ()
+runCdnStatus o = do
+  base <- resolveDomainsBase (csoBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  let ns = appNamespace (csoNamespace o)
+      host = T.pack (csoHost o)
+  rows <- queryCdnRows base ip ns
+  case filter ((== host) . cdnRowHost) rows of
+    (r : _) -> TIO.putStr (formatCdnStatus r)
+    [] -> TIO.putStr (formatCdnStatus (CdnRow host "unknown" DnsUnknown "(not discovered)" False))
+
+-- | @cdn purge HOST [--path P]...@: purge the Cloudflare edge cache. @--dry-run@
+-- prints the planned purge; live needs @CF_API_TOKEN@.
+runCdnPurge :: CdnPurgeOpts -> IO ()
+runCdnPurge o = do
+  let host = T.pack (cpoHost o)
+      paths = map T.pack (cpoPaths o)
+      pathsDesc = if null paths then "everything" else T.intercalate ", " paths
+  if cpoDryRun o
+    then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
+    else do
+      ecreds <- loadCloudflareCreds
+      case ecreds of
+        Left e -> dieT ("cdn purge needs Cloudflare credentials: " <> e)
+        Right creds -> do
+          r <- purgeHostname creds host paths
+          case r of
+            Left e -> dieT ("cdn purge failed: " <> e)
+            Right () -> TIO.putStrLn ("Purged edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
+
+-- | @cdn disable HOST@: revert a hostname's DNS to the VM. For the Google
+-- provider this deletes the more-specific Cloud DNS A record so the
+-- @*.<baseDomain>@ wildcard (which points at the VM) wins again. @--dry-run@
+-- prints the planned revert without making it.
+runCdnDisable :: CdnDisableOpts -> IO ()
+runCdnDisable o = do
+  let host = T.pack (cdoHost o)
+  refs <- gatherGcpStackRefs
+  let gArgs =
+        [ "dns"
+        , "record-sets"
+        , "delete"
+        , host <> "."
+        , "--type=A"
+        , "--zone=" <> gsrDnsZone refs
+        , "--project=tan-nb-exp"
+        ]
+  if cdoDryRun o
+    then do
+      TIO.putStrLn ("Would revert " <> host <> " DNS to the VM:")
+      TIO.putStrLn ("  Google: gcloud " <> T.unwords gArgs)
+      TIO.putStrLn "  Cloudflare: re-point the proxied record to DNS-only (un-proxy)"
+    else do
+      m <- captureTool "gcloud" (map T.unpack gArgs)
+      case m of
+        Just _ -> TIO.putStrLn ("Reverted " <> host <> " to the VM (deleted the more-specific A record).")
+        Nothing ->
+          dieT
+            ( "cdn disable: could not delete the Cloud DNS record for "
+                <> host
+                <> " (is it a Google-CDN hostname? is gcloud configured for tan-nb-exp?)"
+            )
 
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
 -- images/previews/releases, then print the report. Dry-run by default.
@@ -1480,6 +1682,7 @@ runDeploy dopts = do
         BC.putStr tb
       TIO.putStrLn ("Build mode: " <> describeBuild spec)
       TIO.putStrLn ("URL: " <> url)
+      cdnDeployStep True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
     else do
       if requiresBuild spec
         then do
@@ -1511,6 +1714,7 @@ runDeploy dopts = do
         Left warn -> TIO.hPutStrLn stderr ("nagarectl: " <> warn)
         Right () -> pure ()
       TIO.putStrLn ("Deployed: " <> url)
+      cdnDeployStep False (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
 
 -- | After a live deploy, print one informational line per declared volume
 -- reporting its PVC's bound phase (EP-35). A no-op when the app has no volumes,
@@ -1558,15 +1762,21 @@ deployStatic sopts site bd = do
   imageTag <- resolveTag (sopts ^. #tag)
   let inputs = siteDeployInputs sopts site imageTag bd
       m = productionManifests inputs
+      cdnHosts = siteHostnames (site ^. #domains)
+      cdnNs = namespaceText (site ^. #namespace)
+      cdnSvc = siteNameText (site ^. #name)
   if sopts ^. #dryRun
     then do
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       TIO.putStrLn ("Release: " <> imageTag)
+      cdnDeployStep True (site ^. #cdn) cdnHosts cdnNs cdnSvc
     else do
       result <- deployStaticProduction inputs (T.pack <$> sopts ^. #source)
       case result of
         Left err -> dieT err
-        Right u -> TIO.putStrLn ("Deployed static site: " <> u)
+        Right u -> do
+          TIO.putStrLn ("Deployed static site: " <> u)
+          cdnDeployStep False (site ^. #cdn) cdnHosts cdnNs cdnSvc
 
 -- | The server (Node) deploy path.
 deployServer :: SiteDeployOpts -> ServerSite -> Text -> IO ()
@@ -1605,11 +1815,51 @@ deployServer sopts site0 bd = do
         BC.putStr dm
       TIO.putStrLn ("URL: " <> (m ^. #url))
       TIO.putStrLn ("Release: " <> imageTag)
+      cdnDeployStep True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
     else do
       result <- deployServerProduction inputs (T.pack <$> sopts ^. #source)
       case result of
         Left err -> dieT err
-        Right u -> TIO.putStrLn ("Deployed server site: " <> u)
+        Right u -> do
+          TIO.putStrLn ("Deployed server site: " <> u)
+          cdnDeployStep False (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
+
+-- | MasterPlan 11 / EP-58: the CDN provisioning step, run as the last step of a
+-- deploy (after the origin is Ready) or printed under @--dry-run@. A 'Nothing'
+-- CDN is a no-op, so a non-CDN deploy is byte-for-byte unchanged. In the live
+-- branch a provisioning failure is reported to stderr and never fails the
+-- already-successful origin deploy. The reusable @deploy*Production@ effects and
+-- the @nagared@ webhook stay free of CDN/Pulumi coupling — orchestration lives
+-- here in the CLI handler, where @--dry-run@ already lives.
+cdnDeployStep :: Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
+cdnDeployStep _ Nothing _ _ _ = pure ()
+cdnDeployStep dry (Just c) hostnames ns service = do
+  originIp <- fromMaybe "<publicIp>" <$> stackOutput "infra/pulumi" "publicIp"
+  refs <- gatherGcpStackRefs
+  let target = CdnTarget {cdnHostnames = hostnames, cdnOriginIp = originIp, cdnNamespace = ns, cdnService = service}
+  if dry
+    then TIO.putStr (renderCdnPlan (planCdn c target refs))
+    else do
+      res <- provisionCdn c target refs
+      case res of
+        Left e -> TIO.hPutStrLn stderr ("nagarectl: CDN provisioning failed (origin is up): " <> e)
+        Right r -> TIO.putStrLn (cdnSummary r)
+
+-- | Read the four EP-56 Google stack outputs, with a clear placeholder when an
+-- output is absent (the CDN load balancer is disabled, or Pulumi is unavailable).
+gatherGcpStackRefs :: IO GcpStackRefs
+gatherGcpStackRefs = do
+  let so name = fromMaybe ("<" <> name <> ">") <$> stackOutput "infra/pulumi" name
+  GcpStackRefs
+    <$> so "cdnGlobalIp"
+    <*> so "cdnBackendService"
+    <*> so "cdnUrlMap"
+    <*> so "dnsZoneName"
+
+-- | The custom-domain hostnames of a site (in declaration order) — the hostnames
+-- a CDN fronts.
+siteHostnames :: [Domain] -> [Text]
+siteHostnames = map domainText
 
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).

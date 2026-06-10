@@ -119,6 +119,8 @@ import Nagare.Ops.Probe
   )
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Cdn.Cloudflare
+import Nagare.Cdn.Provision
+import Nagare.Cdn.Status
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
@@ -216,6 +218,8 @@ main = do
       , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
       , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
       , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
+      , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
+      , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -1985,3 +1989,110 @@ cloudflareTests =
                         (ttlParams 3600)
                      ]
         ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Cdn.Provision (MasterPlan 11, EP-58): the pure deploy-time planner,
+-- the gcloud-arg builders, and the dry-run renderer.
+
+cdnProvisionTests :: [TestTree]
+cdnProvisionTests =
+  [ testCase "planCdn Cloudflare: DNS/OriginTls/Cache actions, no GcloudCmd" $ do
+      let p = planCdn cfCdn cfTarget noRefs
+      planProvider p @?= CloudflareCdn
+      assertBool "no gcloud action" (not (any isGcloud (planActions p)))
+      assertBool "one DnsUpsert per host" (length [() | DnsUpsert{} <- planActions p] == 1)
+  , testCase "planCdn Gcp: all GcloudCmd, every argv pins --project=tan-nb-exp" $ do
+      let p = planCdn gcpCdn gcpTarget gcpRefs
+      planProvider p @?= GcpCloudCdn
+      assertBool "all actions are gcloud" (all isGcloud (planActions p))
+      assertBool
+        "every gcloud argv has --project=tan-nb-exp"
+        (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- planActions p])
+  , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
+      gcloudDnsUpsertArgs "nagare-zone" "app.example.com" "203.0.113.20"
+        @?= [ "dns"
+            , "record-sets"
+            , "create"
+            , "app.example.com."
+            , "--type=A"
+            , "--ttl=300"
+            , "--rrdatas=203.0.113.20"
+            , "--zone=nagare-zone"
+            , "--project=tan-nb-exp"
+            ]
+  , testCase "gcloudBackendCacheArgs: exact argv (cache mode + default ttl + project)" $
+      gcloudBackendCacheArgs "nagare-cdn-backend" gcpCdn
+        @?= [ "compute"
+            , "backend-services"
+            , "update"
+            , "nagare-cdn-backend"
+            , "--cache-mode=USE_ORIGIN_HEADERS"
+            , "--default-ttl=3600"
+            , "--project=tan-nb-exp"
+            ]
+  , testCase "renderCdnPlan: Cloudflare dry-run block" $
+      renderCdnPlan (planCdn cfCdn cfTarget noRefs)
+        @?= T.unlines
+          [ "--- CDN plan (Cloudflare) ---"
+          , "DNS: blog.example.com -> 203.0.113.10 (proxied)"
+          , "Origin TLS: Flexible"
+          , "Cache: /assets/ -> 31536000s"
+          , "Cache: /api/ -> never"
+          , "Cache: (default) -> 3600s"
+          ]
+  , testCase "renderCdnPlan: Google dry-run block (gcloud lines pinned to the project)" $
+      renderCdnPlan (planCdn gcpCdn gcpTarget gcpRefs)
+        @?= T.unlines
+          [ "--- CDN plan (GcpCloudCdn) ---"
+          , "gcloud dns record-sets create app.example.com. --type=A --ttl=300 --rrdatas=203.0.113.20 --zone=nagare-zone --project=tan-nb-exp"
+          , "gcloud compute backend-services update nagare-cdn-backend --cache-mode=USE_ORIGIN_HEADERS --default-ttl=3600 --project=tan-nb-exp"
+          ]
+  ]
+  where
+    isGcloud (GcloudCmd _) = True
+    isGcloud _ = False
+    cfCdn =
+      Cdn
+        { provider = CloudflareCdn
+        , defaultTtlSeconds = Just 3600
+        , cacheStaticAssets = False
+        , cacheRules = [CdnCacheRule "/assets/" (Just 31536000), CdnCacheRule "/api/" Nothing]
+        }
+    cfTarget = CdnTarget ["blog.example.com"] "203.0.113.10" "personal" "blog"
+    gcpCdn =
+      Cdn
+        { provider = GcpCloudCdn
+        , defaultTtlSeconds = Just 3600
+        , cacheStaticAssets = False
+        , cacheRules = []
+        }
+    gcpTarget = CdnTarget ["app.example.com"] "203.0.113.20" "personal" "app"
+    gcpRefs = GcpStackRefs "203.0.113.20" "nagare-cdn-backend" "nagare-cdn-urlmap" "nagare-zone"
+    noRefs = GcpStackRefs "" "" "" ""
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Cdn.Status (EP-58): the cdn list/status formatters.
+
+cdnStatusTests :: [TestTree]
+cdnStatusTests =
+  [ testCase "formatCdnList []: empty sentinel" $
+      formatCdnList [] @?= "(no CDN-fronted hostnames)\n"
+  , testCase "formatCdnList: header + edge/VM rows are present and aligned" $ do
+      let out = formatCdnList [edgeRow, vmRow]
+      assertBool "HOST header" ("HOST" `T.isInfixOf` out)
+      assertBool "edge host" ("blog.example.com" `T.isInfixOf` out)
+      assertBool "points at edge" ("points at edge (203.0.113.30)" `T.isInfixOf` out)
+      assertBool "points at VM" ("points at VM (203.0.113.10)" `T.isInfixOf` out)
+  , testCase "formatCdnStatus: one host's field block" $
+      formatCdnStatus edgeRow
+        @?= T.unlines
+          [ "Host:     blog.example.com"
+          , "Provider: Cloudflare"
+          , "DNS:      points at edge (203.0.113.30)"
+          , "Cache:    default 3600s, 2 rules"
+          , "Ready:    ready"
+          ]
+  ]
+  where
+    edgeRow = CdnRow "blog.example.com" "Cloudflare" (PointsAtEdge "203.0.113.30") "default 3600s, 2 rules" True
+    vmRow = CdnRow "old.example.com" "GcpCloudCdn" (PointsAtVm "203.0.113.10") "default 3600s" False

@@ -34,6 +34,8 @@ library
     Nagare.App.Deployments
     Nagare.Build
     Nagare.Cdn.Cloudflare
+    Nagare.Cdn.Provision
+    Nagare.Cdn.Status
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
