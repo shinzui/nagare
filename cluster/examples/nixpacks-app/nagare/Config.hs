@@ -23,7 +23,7 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "nixpacks-app" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/nixpacks-app")
+  base <- mapLeft show (webService "nixpacks-app" "nixpacks-app")
   ctx <- mapLeft show (mkFilePathText ".")
   Right (base {build = NixpacksBuild {context = ctx, buildArgs = Map.empty}})
   where

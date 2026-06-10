@@ -12,7 +12,7 @@ import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
 
 deployment :: Either String Deployment
 deployment = do
-  dep <- mapLeft show (webService "clickhouse-analytics" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/clickhouse-analytics")
+  dep <- mapLeft show (webService "clickhouse-analytics" "clickhouse-analytics")
   db <- mapLeft show (mkDatabaseName "events")
   pure dep {databases = [db]}
   where

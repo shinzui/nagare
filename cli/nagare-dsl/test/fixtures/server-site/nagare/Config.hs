@@ -18,7 +18,7 @@ serverSite :: Either String ServerSite
 serverSite = do
   name' <- mapLeft show (mkSiteName "notes-app")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes-app")
+  img' <- mapLeft show (mkImageRef "notes-app")
   dom' <- mapLeft show (mkDomain "notes-app.example.com")
   host <- mapLeft show (mkEnvName "HOSTNAME")
   apiBase <- mapLeft show (mkEnvName "API_BASE")

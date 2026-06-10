@@ -30,7 +30,7 @@ import Nagare.Dsl.Types (Deployment (..), mkDatabaseName, mkNamespace, mkService
 
 deployment :: Either String Deployment
 deployment = mapLeft show $ do
-  dep <- webService "postgres-app" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/postgres-app"
+  dep <- webService "postgres-app" "postgres-app"
   db <- mkDatabaseName "pg-main"
   app <- mkServiceName "postgres-app"
   taskN <- mkServiceName "cleanup"

@@ -29,7 +29,7 @@ import Nagare.Dsl.Types (Deployment (..), mkNamespace, mkServiceName)
 
 deployment :: Either String Deployment
 deployment = mapLeft show $ do
-  dep <- webService "heartbeat-app" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/heartbeat-app"
+  dep <- webService "heartbeat-app" "heartbeat-app"
   app <- mkServiceName "heartbeat-app"
   taskN <- mkServiceName "heartbeat"
   ns <- mkNamespace "personal"

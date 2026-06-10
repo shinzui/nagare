@@ -24,7 +24,7 @@ serverSite :: Either String ServerSite
 serverSite = do
   name' <- mapLeft show (mkSiteName "tanstack-start-cdn")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/tanstack-start-cdn")
+  img' <- mapLeft show (mkImageRef "tanstack-start-cdn")
   host <- mapLeft show (mkEnvName "HOSTNAME")
   app <- mapLeft show (mkDomain "app.apps.example.com")
   -- Google Cloud CDN: a 10-minute default edge TTL, a 1-year cache for

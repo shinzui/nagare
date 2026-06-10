@@ -13,7 +13,7 @@ import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
 
 deployment :: Either String Deployment
 deployment = do
-  dep <- mapLeft show (webService "postgres-app" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/postgres-app")
+  dep <- mapLeft show (webService "postgres-app" "postgres-app")
   db <- mapLeft show (mkDatabaseName "pg-main")
   pure dep {databases = [db]}
   where

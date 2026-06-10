@@ -31,6 +31,7 @@ library
     Nagare.Dsl.Config
     Nagare.Dsl.Database
     Nagare.Dsl.Database.Render
+    Nagare.Dsl.Image
     Nagare.Dsl.Load
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude

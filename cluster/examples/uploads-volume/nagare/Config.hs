@@ -18,7 +18,7 @@ import Nagare.Dsl.Types (Deployment)
 deployment :: Either String Deployment
 deployment =
   mapLeft show $
-    webService "uploads-volume" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/uploads-volume"
+    webService "uploads-volume" "uploads-volume"
       >>= attachVolume "uploads" "1Gi" "/uploads"
   where
     mapLeft f = either (Left . f) Right

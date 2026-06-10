@@ -23,7 +23,7 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "dockerfile-app" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/dockerfile-app")
+  base <- mapLeft show (webService "dockerfile-app" "dockerfile-app")
   df <- mapLeft show (mkFilePathText "Dockerfile")
   ctx <- mapLeft show (mkFilePathText ".")
   let buildArgs' = Map.fromList [("SITE_MESSAGE", "hello from a Dockerfile build with a build arg")]

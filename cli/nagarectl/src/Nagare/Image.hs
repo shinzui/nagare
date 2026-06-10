@@ -17,6 +17,7 @@ module Nagare.Image
   , pushImage
   , imageRef
   , taggedImageRef
+  , qualifyImage
   ) where
 
 import Nagare.Dsl.Prelude
@@ -26,8 +27,8 @@ import "generic-lens" Data.Generics.Labels ()
 import Cradle
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
-import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText, mkImageRef)
+import Nagare.Target (TargetProfile, registryPrefix, resolveTargetProfile, tpRegistryHost)
 
 -- | Compute a deploy tag: UTC timestamp in @YYYYMMDD-HHMMSS@ format.
 computeTag :: IO Text
@@ -107,3 +108,17 @@ configureDockerAuth = do
 pushImage :: Text -> IO ()
 pushImage ref =
   run_ $ cmd "docker" & addArgs ["push", T.unpack ref]
+
+-- | Qualify a loaded image reference against the resolved target profile (EP-62
+-- M3, MasterPlan 12 Integration Point 4). A bare NAME (no @\/@) — what a
+-- name-only @Config.hs@ emits — is prefixed with @registryPrefix tp@
+-- (@\<host>/\<project>/\<repo-id>@). An already-qualified ref (one containing a
+-- @\/@, e.g. a public @gcr.io/...@ image or a pre-prefixed Artifact Registry
+-- path) is returned unchanged, preserving back-compat. Apply this once at the
+-- deploy load boundary so the build/push/render sites see the qualified ref.
+qualifyImage :: TargetProfile -> ImageRef -> Either Text ImageRef
+qualifyImage tp ref =
+  let t = imageRefText ref
+   in if T.any (== '/') t
+        then Right ref
+        else mkImageRef (registryPrefix tp <> "/" <> t)

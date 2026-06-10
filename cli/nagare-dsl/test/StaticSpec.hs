@@ -42,7 +42,7 @@ notesSite =
   StaticSite
     { name = unsafe (mkSiteName "notes")
     , namespace = unsafe (mkNamespace "personal")
-    , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+    , image = unsafe (mkImageRef "notes")
     , build =
         BuildCommand
           { command = "npm run build"

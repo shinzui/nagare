@@ -167,7 +167,7 @@ import Nagare.Env.Generated (generatedEnv, mergeGenerated)
 import Nagare.Env.Generated qualified as Gen
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Env.Store
-import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
+import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Nagare.Server.Build
@@ -225,7 +225,31 @@ main = do
       , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
       , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
       , testGroup "EP-62 rendered Job project" backupProjectTests
+      , testGroup "EP-62 qualifyImage" qualifyImageTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- EP-62 M3: the CLI-side image normalizer. A bare name (no '/') is prefixed
+-- with the resolved registry prefix; an already-qualified ref is unchanged.
+
+qualifyImageTests :: [TestTree]
+qualifyImageTests =
+  [ testCase "bare name is prefixed with the registry prefix" $
+      qualifyImage tnbProfile (unsafe (mkImageRef "notes"))
+        @?= Right (unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"))
+  , testCase "bare name follows a different profile prefix" $
+      qualifyImage acmeProfile (unsafe (mkImageRef "notes"))
+        @?= Right (unsafe (mkImageRef "europe-west1-docker.pkg.dev/acme-prod/nagare/notes"))
+  , testCase "already-qualified public ref is left untouched" $
+      qualifyImage tnbProfile (unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go"))
+        @?= Right (unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go"))
+  ]
+  where
+    acmeProfile =
+      tnbProfile
+        { tpProject = "acme-prod"
+        , tpRegistryHost = "europe-west1-docker.pkg.dev"
+        }
 
 -- ---------------------------------------------------------------------------
 -- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows 'bjiProject'

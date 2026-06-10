@@ -11,7 +11,7 @@ import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
 
 deployment :: Either String Deployment
 deployment = do
-  dep <- mapLeft show (webService "redis-cache" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/redis-cache")
+  dep <- mapLeft show (webService "redis-cache" "redis-cache")
   db <- mapLeft show (mkDatabaseName "cache")
   pure dep {databases = [db]}
   where

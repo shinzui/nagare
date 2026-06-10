@@ -26,7 +26,7 @@ serverSite :: Either String ServerSite
 serverSite = do
   name' <- mapLeft show (mkSiteName "tanstack-start")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/tanstack-start")
+  img' <- mapLeft show (mkImageRef "tanstack-start")
   host <- mapLeft show (mkEnvName "HOSTNAME")
   Right
     ServerSite
@@ -36,7 +36,7 @@ serverSite = do
       , build = tanstackStartBuild
       , runtime = defaultServerRuntime
       , port = defaultPort
-      , env = Map.fromList [(host, EnvLiteral "0.0.0.0")]
+      , env = Map.fromList [(host, runtimeScoped (EnvLiteral "0.0.0.0"))]
       , resources = Nothing
       , scale = Nothing
       , domains = []

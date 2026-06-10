@@ -11,7 +11,7 @@ spec:
         autoscaling.knative.dev/max-scale: '3'
     spec:
       containers:
-      - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes-app:20260607-120000
+      - image: notes-app:20260607-120000
         ports:
         - containerPort: 8080
         env:

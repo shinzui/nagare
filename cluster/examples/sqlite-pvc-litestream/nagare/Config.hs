@@ -23,7 +23,7 @@ import Nagare.Dsl.Types (Deployment)
 deployment :: Either String Deployment
 deployment =
   mapLeft show $
-    webService "sqlite-pvc-litestream" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/sqlite-pvc-litestream"
+    webService "sqlite-pvc-litestream" "sqlite-pvc-litestream"
       >>= attachVolume "data" "1Gi" "/data"
   where
     mapLeft f = either (Left . f) Right

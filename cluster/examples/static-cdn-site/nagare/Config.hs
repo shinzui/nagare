@@ -20,7 +20,7 @@ staticSite :: Either String StaticSite
 staticSite = do
   name' <- mapLeft show (mkSiteName "static-cdn-site")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/static-cdn-site")
+  img' <- mapLeft show (mkImageRef "static-cdn-site")
   dir' <- mapLeft show (mkFilePathText "public")
   blog <- mapLeft show (mkDomain "blog.apps.example.com")
   header' <- mapLeft show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")

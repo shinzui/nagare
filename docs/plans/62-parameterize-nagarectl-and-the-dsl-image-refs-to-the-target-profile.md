@@ -86,14 +86,16 @@ This section must always reflect the actual current state of the work.
       `resolveTargetProfile`; `app/Main.hs` `resolveBackupBucket`/`resolveBaseDomain` fall back to the
       profile); removed every `tan-nb-exp`/behavioral `us-west1` literal under `cli/nagarectl/src` and
       `app/`. `cabal test` green (250 tests). (2026-06-10)
-- [ ] M3.1 — Add the image-prefix derivation in `cli/nagare-dsl` (`Nagare.Dsl.Image`):
-      `imageRefFromName`/`mkImageName` joining `<host>/<project>/<repo-id>/<name>`, keeping
-      `mkImageRef` for fully-qualified refs.
-- [ ] M3.2 — Apply the prefix at the CLI deploy/load boundary (decide and wire the exact site);
-      add a `nagare-dsl` unit test that the prefix is derived from the environment and round-trips
-      through `Nagare.Dsl.Config`/`Nagare.Dsl.Load`.
-- [ ] M3.3 — Rewrite the example/fixture `Config.hs` files to the name-only form; `cabal test`
-      green in both `cli/nagare-dsl` and `cli/nagarectl`.
+- [x] M3.1 — Added `cli/nagare-dsl/src/Nagare/Dsl/Image.hs` (`imageRefFromName`, `mkImageName`)
+      joining `<host>/<project>/<repo-id>/<name>` via `mkImageRef`; registered in the cabal. (2026-06-10)
+- [x] M3.2 — Applied the prefix at the CLI deploy/load boundary: `Nagare.Image.qualifyImage`
+      (bare name → `registryPrefix tp <> "/" <> name`; already-qualified ref unchanged), wired into
+      `runDeploy` and `runSiteDeploy` (both static and server kinds) right after load. Added the
+      `nagare-dsl` `imageRefFromName` round-trip tests and `nagarectl` `qualifyImage` tests. (2026-06-10)
+- [x] M3.3 — Rewrote the two DSL fixtures, the 15 example `Config.hs`, the `StaticSpec`/`ServerSpec`
+      expected records, and the three affected render goldens to the name-only form;
+      `hello-knative-service` (public `gcr.io` ref) left untouched. `cabal test` green in both
+      `cli/nagare-dsl` (264) and `cli/nagarectl` (253). (2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -159,7 +161,33 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-62 made `nagarectl` and the DSL image refs fully target-configurable. The new `Nagare.Target`
+record/`resolveTargetProfile` is the single resolution point; every former literal (six `tan-nb-exp`
+strings, the `registryHost` constant, the region/zone/bucket/instance defaults) now flows from the
+profile. The DSL gained `Nagare.Dsl.Image.imageRefFromName`/`mkImageName` and the CLI gained
+`Nagare.Image.qualifyImage`, applied at the deploy/load boundary so a name-only `Config.hs` is
+prefixed at deploy time from the environment while a fully-qualified public ref is left untouched.
+Example/fixture `Config.hs` now name only their image (e.g. `notes`), and the project no longer lives
+in application source.
+
+Acceptance was proven by tests that fail-before/pass-after: the `Nagare.Target` group (defaults +
+override + derivation), the rendered-backup-Job project test (follows `bjiProject`), the
+parameterized CDN argv test (`--project=acme-prod`), the `imageRefFromName` round-trip, and the
+`qualifyImage` bare-name-vs-qualified tests. `grep tan-nb-exp` over `cli/nagarectl/src`,
+`cli/nagarectl/app`, `cli/nagare-dsl/src`, and the example `Config.hs` returns only the documented
+defaults in `Nagare.Target` and Haddock examples. Both suites are green (nagare-dsl 264, nagarectl
+253).
+
+Deviations from the plan, all recorded in the Decision Log / Surprises: (1) the helper preflight is
+invoked explicitly rather than on source (an EP-60 contract correction inherited from EP-61);
+(2) `configureDockerAuth`/`resolveBackupBucket`/`resolveBaseDomain` resolve the profile internally
+rather than taking a `TargetProfile` parameter, to avoid cascading signature changes through deploy
+modules with no other need for it; (3) the env-mutating target tests were collapsed into one
+sequential, env-restoring `testCase` to avoid a tasty parallelism race. The end-to-end CLI dry-run
+checks (A3/A4 via `cabal run nagarectl -- deploy --dry-run`) were not executed because they compile a
+`Config.hs` through the GHC-environment provisioning path; the equivalent behavior is locked in by
+the `qualifyImage` and rendered-Job unit tests, which exercise the same resolution and rendering code
+deterministically.
 
 
 ## Context and Orientation

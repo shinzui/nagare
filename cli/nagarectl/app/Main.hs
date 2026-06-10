@@ -131,6 +131,7 @@ import Nagare.Image
   , configureDockerAuth
   , imageRef
   , pushImage
+  , qualifyImage
   )
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
@@ -1616,9 +1617,14 @@ runDeploy dopts = do
   provisionGhcEnv (dopts ^. #ghcEnv)
 
   edep <- Load.loadDeployment (dopts ^. #file)
+  tp <- resolveTargetProfile
   dep <- case edep of
     Left err -> dieT (Load.renderLoadError err)
-    Right d -> pure d
+    -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
+    -- registry prefix; a fully-qualified ref is left untouched.
+    Right d -> case qualifyImage tp (d ^. #image) of
+      Left e -> dieT ("nagarectl deploy: " <> e)
+      Right qimg -> pure (d & #image %~ const qimg)
 
   imageTag <- resolveTag (dopts ^. #tag)
   spec <- resolveBuildSpec dopts (dep ^. #build)
@@ -1750,11 +1756,19 @@ runSiteDeploy :: SiteDeployOpts -> IO ()
 runSiteDeploy sopts = do
   bd <- resolveBaseDomain (sopts ^. #baseDomain)
   provisionGhcEnv (sopts ^. #ghcEnv)
+  tp <- resolveTargetProfile
   esite <- Load.loadSite (sopts ^. #file)
+  -- EP-62 M3: qualify a name-only image with the resolved registry prefix; a
+  -- fully-qualified ref is left untouched. Inlined per kind because the static
+  -- and server site records are distinct types.
   case esite of
     Left err -> dieT (Load.renderLoadError err)
-    Right (Load.SiteStatic s) -> deployStatic sopts s bd
-    Right (Load.SiteServer s) -> deployServer sopts s bd
+    Right (Load.SiteStatic s) -> case qualifyImage tp (s ^. #image) of
+      Left e -> dieT ("nagarectl deploy: " <> e)
+      Right qimg -> deployStatic sopts (s & #image %~ const qimg) bd
+    Right (Load.SiteServer s) -> case qualifyImage tp (s ^. #image) of
+      Left e -> dieT ("nagarectl deploy: " <> e)
+      Right qimg -> deployServer sopts (s & #image %~ const qimg) bd
 
 -- | The static (Nginx) deploy path.
 --

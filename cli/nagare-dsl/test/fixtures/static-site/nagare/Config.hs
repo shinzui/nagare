@@ -17,7 +17,7 @@ staticSite :: Either String StaticSite
 staticSite = do
   name' <- mapLeft show (mkSiteName "notes")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+  img' <- mapLeft show (mkImageRef "notes")
   outDir <- mapLeft show (mkFilePathText "dist")
   dom' <- mapLeft show (mkDomain "notes.example.com")
   redirect' <- mapLeft show (mkRedirectRule "/old" "/new" 301)

@@ -44,7 +44,7 @@ notesApp =
   ServerSite
     { name = unsafe (mkSiteName "notes-app")
     , namespace = unsafe (mkNamespace "personal")
-    , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes-app")
+    , image = unsafe (mkImageRef "notes-app")
     , build = tanstackStartBuild
     , runtime = defaultServerRuntime
     , port = defaultPort

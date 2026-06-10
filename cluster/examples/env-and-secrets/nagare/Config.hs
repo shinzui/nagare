@@ -23,7 +23,7 @@ deployment :: Either String Deployment
 deployment = do
   name' <- mapLeft show (mkServiceName "envdemo")
   ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/envdemo")
+  img' <- mapLeft show (mkImageRef "envdemo")
   port' <- mapLeft show (mkPort 8080)
   sc <- mapLeft show (mkScale 0 2)
   bld <- mapLeft show defaultBuild
@@ -55,6 +55,7 @@ deployment = do
       , healthCheck = Nothing
       , volumes = []
       , databases = []
+      , tasks = []
       , cdn = Nothing
       }
   where

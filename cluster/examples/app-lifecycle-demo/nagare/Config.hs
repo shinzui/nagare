@@ -24,7 +24,7 @@ deployment = do
   base <-
     mapLeft
       show
-      (webService "lifecycle-demo" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/lifecycle-demo")
+      (webService "lifecycle-demo" "lifecycle-demo")
 
   -- Two public domains; exactly one is canonical and drives the reported URL.
   doms <- mapLeft show (mkDomains [("demo.example.com", True), ("www.demo.example.com", False)])

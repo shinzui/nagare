@@ -19,6 +19,7 @@ import Nagare.Dsl.Database.Render
   , renderStatefulSet
   )
 import Nagare.Dsl.Load (LoadError (..), decodeDatabase, decodeDeployment, decodeTask, loadDeployment)
+import Nagare.Dsl.Image (imageRefFromName, mkImageName)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
@@ -47,12 +48,33 @@ main =
       , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
+      , testGroup "Nagare.Dsl.Image (EP-62)" imageDerivationTests
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
       , serverTests
       , cdnTests
       ]
+
+-- | EP-62 M3: the registry-prefix derivation that turns a short image NAME plus
+-- a deploy-time prefix into a fully-qualified 'ImageRef'. The prefix is supplied
+-- by nagarectl from the target profile; the DSL stays environment-agnostic.
+imageDerivationTests :: [TestTree]
+imageDerivationTests =
+  [ testCase "imageRefFromName joins <prefix>/<name>" $
+      fmap imageRefText (imageRefFromName "us-west1-docker.pkg.dev/tan-nb-exp/nagare" "notes")
+        @?= Right "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
+  , testCase "imageRefFromName tolerates a trailing slash on the prefix" $
+      fmap imageRefText (imageRefFromName "host/proj/repo/" "app")
+        @?= Right "host/proj/repo/app"
+  , testCase "imageRefFromName derives a different prefix purely from inputs" $
+      fmap imageRefText (imageRefFromName "europe-west1-docker.pkg.dev/acme-prod/nagare" "notes")
+        @?= Right "europe-west1-docker.pkg.dev/acme-prod/nagare/notes"
+  , testCase "mkImageName accepts a bare name (deferring the prefix)" $
+      fmap imageRefText (mkImageName "notes") @?= Right "notes"
+  , testCase "mkImageName rejects a tagged name (no ':' allowed)" $
+      assertBool "Left on a tag" (isLeft (mkImageName "notes:tag"))
+  ]
 
 -- | EP-10: the hello config-as-program file loads to the very same
 -- 'Deployment' EP-9 constructs, and renders to the same golden Service YAML.
