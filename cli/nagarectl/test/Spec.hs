@@ -25,6 +25,7 @@ import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (EnvScope (..), defaultPort, mkImageRef, mkNamespace)
+import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Store
 import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
 import Crypto.Hash (SHA256)
@@ -54,7 +55,55 @@ main =
       , testGroup "Nagare.Server.Build" serverBuildTests
       , testGroup "Nagare.Build" buildModeTests
       , testGroup "Nagare.Env.Store" envStoreTests
+      , testGroup "Nagare.Env.Dotenv" dotenvTests
+      , testGroup "Nagare.Env reconcile mode" reconcileModeTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Env.Dotenv (EP-25 M1)
+
+dotenvTests :: [TestTree]
+dotenvTests =
+  [ testCase "parses KEY=VALUE lines" $
+      parseDotenv "A=1\nB=2"
+        @?= Right (Map.fromList [("A", "1"), ("B", "2")])
+  , testCase "ignores blank lines and # comments" $
+      parseDotenv "# a comment\n\nA=1\n   \n# another\nB=2"
+        @?= Right (Map.fromList [("A", "1"), ("B", "2")])
+  , testCase "strips a leading export" $
+      parseDotenv "export A=1"
+        @?= Right (Map.fromList [("A", "1")])
+  , testCase "trims whitespace around key and unquoted value" $
+      parseDotenv "  A =  hello "
+        @?= Right (Map.fromList [("A", "hello")])
+  , testCase "double-quoted value keeps inner # and spaces" $
+      parseDotenv "A=\"a # b c\""
+        @?= Right (Map.fromList [("A", "a # b c")])
+  , testCase "single-quoted value is literal" $
+      parseDotenv "A='x y'"
+        @?= Right (Map.fromList [("A", "x y")])
+  , testCase "multiline quoted value spans lines" $
+      parseDotenv "A=\"line1\nline2\"\nB=2"
+        @?= Right (Map.fromList [("A", "line1\nline2"), ("B", "2")])
+  , testCase "a line with no = is an error" $
+      assertLeftText (parseDotenv "A=1\nNOEQUALS\nB=2")
+  , testCase "an empty key is an error" $
+      assertLeftText (parseDotenv "=value")
+  ]
+
+-- ---------------------------------------------------------------------------
+-- Reconcile-mode selection (EP-25 M2): the behavior env sync --merge vs
+-- --reconcile-exact selects, proven against the exact function the CLI calls.
+
+reconcileModeTests :: [TestTree]
+reconcileModeTests =
+  [ testCase "merge keeps a key absent from the incoming set" $
+      reconcile Merge (Map.fromList [("KEEP", "1")]) (Map.fromList [("NEW", "2")])
+        @?= Map.fromList [("KEEP", "1"), ("NEW", "2")]
+  , testCase "reconcile-exact drops a key absent from the incoming set" $
+      reconcile ReconcileExact (Map.fromList [("DROP", "1")]) (Map.fromList [("NEW", "2")])
+        @?= Map.fromList [("NEW", "2")]
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Env.Store (EP-24)
