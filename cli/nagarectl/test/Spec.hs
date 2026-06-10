@@ -13,11 +13,13 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Nagare.Build (applyBuildOverrides, describeBuild)
@@ -29,19 +31,23 @@ import Nagare.Dsl.Types
   ( Deployment (..)
   , EnvName
   , EnvScope (..)
-  , EnvVar (EnvLiteral)
+  , EnvVar (..)
   , ScopedEnvVar (..)
   , defaultPort
   , envNameText
   , mkEnvName
   , mkImageRef
   , mkNamespace
+  , mkSecretName
   , mkServiceName
   , runtimeScoped
+  , scopedEnv
   )
+import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
 import Nagare.Env.Generated qualified as Gen
+import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Env.Store
 import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
 import Crypto.Hash (SHA256)
@@ -75,7 +81,111 @@ main =
       , testGroup "Nagare.Env reconcile mode" reconcileModeTests
       , testGroup "Nagare.Env.Generated" generatedEnvTests
       , testGroup "EP-26 render demonstration" renderDemonstrationTests
+      , testGroup "Nagare.Env.BuildArgs" buildArgsTests
+      , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Env.PreviewOverlay (EP-27 M2)
+
+-- | A minimal static preview Service (no env/envFrom), as the static renderer
+-- emits it. The overlay must add the four envFrom entries to its container.
+staticServiceYaml :: ByteString
+staticServiceYaml =
+  BC.pack $
+    unlines
+      [ "apiVersion: serving.knative.dev/v1"
+      , "kind: Service"
+      , "metadata:"
+      , "  name: demo-pr-42"
+      , "  namespace: personal"
+      , "spec:"
+      , "  template:"
+      , "    spec:"
+      , "      containers:"
+      , "      - image: gcr.io/p/demo:20260609-120000"
+      , "        ports:"
+      , "        - containerPort: 8080"
+      ]
+
+previewOverlayTests :: [TestTree]
+previewOverlayTests =
+  [ testCase "preview Service gains four envFrom entries in runtime-then-preview order" $ do
+      let out = withPreviewEnvFrom "demo" staticServiceYaml
+      assertInfix "nagare-env-demo-runtime" out
+      assertInfix "nagare-secret-demo-runtime" out
+      assertInfix "nagare-env-demo-preview" out
+      assertInfix "nagare-secret-demo-preview" out
+      assertBefore "nagare-env-demo-runtime" "nagare-secret-demo-runtime" out
+      assertBefore "nagare-secret-demo-runtime" "nagare-env-demo-preview" out
+      assertBefore "nagare-env-demo-preview" "nagare-secret-demo-preview" out
+  , testCase "overlaid Service carries envFrom with optional: true" $ do
+      let out = withPreviewEnvFrom "demo" staticServiceYaml
+      assertInfix "envFrom" out
+      assertInfix "optional: true" out
+      assertInfix "image: gcr.io/p/demo:20260609-120000" out -- container preserved
+  , testCase "the un-overlaid (production) Service carries no preview envFrom" $
+      assertBool
+        "preview pair absent from production"
+        (not ("nagare-env-demo-preview" `BC.isInfixOf` staticServiceYaml))
+  ]
+
+-- | Assert needle @a@ appears before needle @b@ in @hay@.
+assertBefore :: ByteString -> ByteString -> ByteString -> Assertion
+assertBefore a b hay =
+  assertBool
+    (show a <> " must appear before " <> show b)
+    (idx a < idx b)
+  where
+    idx n = BS.length (fst (BS.breakSubstring n hay))
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Env.BuildArgs (EP-27 M1)
+
+buildArgsTests :: [TestTree]
+buildArgsTests =
+  [ testCase "inline Build overrides managed; Runtime-only excluded" $
+      let (args, _) =
+            assembleBuildArgs
+              (Map.fromList [("A", "1")])
+              (Map.fromList [("B", "2")])
+              ( Map.fromList
+                  [ (unsafe (mkEnvName "A"), unsafe (scopedEnv (Set.fromList [Build]) (EnvLiteral "9")))
+                  , (unsafe (mkEnvName "C"), runtimeScoped (EnvLiteral "x"))
+                  ]
+              )
+       in args @?= [("A", "9"), ("B", "2")]
+  , testCase "managed-only when no inline Build" $
+      let (args, _) = assembleBuildArgs (Map.fromList [("A", "1")]) Map.empty Map.empty
+       in args @?= [("A", "1")]
+  , testCase "managed secret value passed; config value kept" $
+      let (args, _) =
+            assembleBuildArgs
+              (Map.fromList [("CFG", "c")])
+              (Map.fromList [("SEC", "s")])
+              Map.empty
+       in args @?= [("CFG", "c"), ("SEC", "s")]
+  , testCase "build-scoped secret-ref warns" $
+      let (_, warns) =
+            assembleBuildArgs
+              Map.empty
+              (Map.fromList [("TOKEN", "s3cr3t")])
+              ( Map.singleton
+                  (unsafe (mkEnvName "TOKEN"))
+                  (unsafe (scopedEnv (Set.fromList [Build]) (EnvSecretRef (unsafe (mkSecretName "tok")))))
+              )
+       in warns @?= [BuildArgSecretRef "TOKEN"]
+  , testCase "build-scoped secret-ref resolves to its stored value" $
+      let (args, _) =
+            assembleBuildArgs
+              Map.empty
+              (Map.fromList [("TOKEN", "s3cr3t")])
+              ( Map.singleton
+                  (unsafe (mkEnvName "TOKEN"))
+                  (unsafe (scopedEnv (Set.fromList [Build]) (EnvSecretRef (unsafe (mkSecretName "tok")))))
+              )
+       in args @?= [("TOKEN", "s3cr3t")]
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Env.Generated (EP-26)

@@ -32,8 +32,10 @@ library
   exposed-modules:
     Nagare.Build
     Nagare.Deploy
+    Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated
+    Nagare.Env.PreviewOverlay
     Nagare.Env.Store
     Nagare.Image
     Nagare.Server.Build
@@ -63,6 +65,8 @@ library
     temporary,
     text,
     time,
+    vector,
+    yaml,
 
 executable nagarectl
   import: common

@@ -73,32 +73,34 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M0: Confirm EP-23 and EP-24 are merged: `nagare-dsl` exports `EnvScope`,
-      `ScopedEnvVar`, `scopeToken`, `managedConfigMapName`, `managedSecretName`; and
-      `Nagare.Env.Store` exports `readEnvStore`/`readSecretStore` (grep checks below).
-- [ ] M1: Change `Nagare.Image.buildImage` to take a build-arg list:
-      `buildImage :: Text -> FilePath -> [(Text, Text)] -> IO ()`; emit
-      `--build-arg K=V` flags before `-t`.
-- [ ] M1: Update every `buildImage` call site (app deploy in `app/Main.hs`, static and
-      server deploy in `Nagare.Static.Deploy` / `Nagare.Server.Deploy`) to pass build args.
-- [ ] M1: Add `Nagare.Env.BuildArgs` (new module) with the pure assembler
-      `assembleBuildArgs` and the IO gatherer `gatherBuildArgs`; export them.
-- [ ] M1: Wire `gatherBuildArgs` into the app/static/server deploy paths so build-scoped
-      inline + managed env reach `docker build`; print a warning for any build-scoped
-      secret-ref passed as a `--build-arg`.
-- [ ] M1: Unit test: `assembleBuildArgs` over Build-scoped inline + managed env yields the
-      expected `--build-arg` flags in deterministic (name-sorted) order; managed overridden
-      by inline.
-- [ ] M1: Unit test / behavior: a build-scoped secret-ref produces the documented warning.
-- [ ] M2: Add a preview-overlay envFrom to the preview render path
-      (`Nagare.Static.Deploy.previewManifests`, and the server preview path if present),
-      keyed by the **production** app name, runtime-then-preview order.
-- [ ] M2: Golden/render test: the preview Service carries all four `envFrom` entries in
-      runtime-then-preview order; the production Service carries only the two runtime ones.
-- [ ] M2: Confirm previews still do not record a production release and do not mutate the
-      production Service (existing isolation preserved).
-- [ ] Wire both new test groups into the `nagarectl-test` (and, if used, `nagare-dsl-test`)
-      suites; `cabal test` green in both packages.
+- [x] M0: Confirmed EP-23 and EP-24 are merged (both marked Complete; `nagare-dsl`
+      exports the scope types/helpers and `Nagare.Env.Store` the read functions). (2026-06-09)
+- [x] M1 (ADAPTED — see Surprises): the build path was reworked by EP-19–22 into
+      `BuildSpec`/`performBuild`, so instead of widening `buildImage`, build-scoped env is
+      injected into the `BuildSpec`'s `buildArgs` via a new pure `Nagare.Build.addBuildArgs`
+      before `performBuild`. `buildImage` and the static/server paths are unchanged (static
+      has no env; the server runtime-image build consumes no ARGs, its site build is out of
+      scope). (2026-06-09)
+- [x] M1: Added `Nagare.Env.BuildArgs` with `assembleBuildArgs` (pure), `gatherBuildArgs`
+      (IO), `BuildArgWarning`, and `printBuildArgWarnings`; registered in cabal
+      `exposed-modules`. (2026-06-09)
+- [x] M1: Wired `gatherBuildArgs` + `addBuildArgs` into `runDeploy`'s build branch (only
+      when actually building); prints the secret-ref warning. (2026-06-09)
+- [x] M1: Unit tests (5): inline Build overrides managed and Runtime-only is excluded,
+      name-sorted output; managed-only; managed secret + config value; build-scoped
+      secret-ref warns; secret-ref resolves to its stored value. (2026-06-09)
+- [x] M2: Added `Nagare.Env.PreviewOverlay.withPreviewEnvFrom` (decode Service YAML →
+      inject the four-entry `envFrom` into container[0] → re-encode with a Knative key
+      comparator) and wired it into `Nagare.Static.Deploy.previewManifests`, keyed by the
+      **production** app name, runtime-then-preview order. (2026-06-09)
+- [x] M2: Render tests (3): the preview Service carries the four `envFrom` entries in
+      runtime-then-preview order with `optional: true` and the container preserved; the
+      production (un-overlaid) Service carries none. (2026-06-09)
+- [x] M2: Confirmed previews still do not record a production release
+      (`deployStaticPreview` calls no `recordRelease`) and production manifests are
+      untouched (production static `--dry-run` shows no `envFrom`). (2026-06-09)
+- [x] Both new test groups wired into `nagarectl-test`; `cabal test` green (89 tests). No
+      `nagare-dsl` source touched, so its suite is unaffected. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -106,7 +108,34 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The build path was reworked by MasterPlan-4 (EP-19–22) before this plan ran**, exactly
+  the seam this plan flagged. The app deploy no longer calls
+  `buildImage :: Text -> FilePath -> IO ()`; it calls `Nagare.Build.performBuild spec ref`
+  where `spec :: Nagare.Dsl.Build.BuildSpec` already carries `buildArgs :: Map Text Text`
+  for `DockerfileBuild`/`NixpacksBuild` (`Nagare.Image.buildDockerfile`/`buildNixpacks`
+  emit `--build-arg`/`--env`). So M1's "widen `buildImage` + update three call sites" no
+  longer fits. **Adaptation:** the pure `assembleBuildArgs`/`gatherBuildArgs` (the real,
+  tested deliverable) are implemented as written; the wiring injects the gathered
+  build-scoped env into the `BuildSpec`'s `buildArgs` via a new pure
+  `Nagare.Build.addBuildArgs :: [(Text,Text)] -> BuildSpec -> BuildSpec` (config-declared
+  build args win on collision), called in `runDeploy`'s build branch. `buildImage` and the
+  static/server `buildImage` call sites are left unchanged: static sites carry no env, and
+  the server runtime-image build runs a generated Dockerfile with no `ARG` lines (its
+  `npm run build` site-build, where build env would matter, is explicitly out of scope per
+  Context). This delivers the user-facing behavior (a Dockerfile-built app's `{Build}` env
+  reaches `docker build --build-arg`) without dead code. `assembleBuildArgs` stays
+  builder-agnostic, so a future Nixpacks/other build mode reuses it unchanged.
+
+- The build-args gather is placed **inside the `requiresBuild` branch** (not before the
+  dry-run check), so `--dry-run` and prebuilt-image deploys make no `kubectl` read for the
+  Build store — build-scoped env never affects the rendered Service (it is not runtime), so
+  there is nothing to show in dry-run.
+
+- `Data.Aeson.KeyMap` exports no `adjust`; the preview overlay's `modifyKey` uses
+  `lookup`+`insert`. Re-encoding the overlaid Service needs `yaml` and `vector` — both were
+  absent from `nagarectl.cabal` but are already in the nix flake (transitively via `aeson`
+  and directly via `nagare-dsl`), so adding them resolved cleanly (cf. EP-24's lesson about
+  preferring flake-present packages).
 
 
 ## Decision Log
@@ -181,7 +210,32 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete, both milestones.**
+
+M1 — build-time env: `Nagare.Env.BuildArgs.assembleBuildArgs` (pure, name-sorted,
+managed-then-inline precedence, secret-ref warnings) and `gatherBuildArgs` (reads the
+managed Build ConfigMap/Secret) feed `Nagare.Build.addBuildArgs` into the `BuildSpec`'s
+`buildArgs`, so a Dockerfile-built app's `{Build}`-scoped env reaches
+`docker build --build-arg` and never the runtime container. A build-scoped secret-ref
+prints a loud, non-fatal "NOT confidential" warning. 5 unit tests.
+
+M2 — preview overlay: `Nagare.Env.PreviewOverlay.withPreviewEnvFrom` injects the four
+`envFrom` entries (`nagare-env/secret-<app>-runtime` then `-preview`, `optional: true`)
+into a preview Service, keyed by the production app name, applied in
+`previewManifests`. Verified end-to-end: a `site preview deploy --dry-run` of the
+example static site renders all four entries in order on `static-site-pr-pr-42` (keyed
+`static-site`); the production deploy renders none. 3 render tests. Previews still record
+no production release and leave the production Service untouched.
+
+**Against the purpose:** both unmet needs are met — build-only secrets reach the build
+without being baked into the runtime image, and a preview can point at staging backends
+via the Preview store without touching production.
+
+**Notes / lessons:** the single material deviation is the build-path adaptation (see
+Surprises) forced by MasterPlan-4 having already landed; the plan anticipated this seam,
+and the pure assembler design made the pivot small. The preview overlay was kept in the
+nagarectl render path (not the DSL renderer) exactly as the Decision Log chose, which is
+what made adding `envFrom` to an otherwise env-less static Service possible.
 
 
 ## Context and Orientation

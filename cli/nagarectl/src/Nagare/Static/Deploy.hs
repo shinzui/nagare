@@ -36,6 +36,7 @@ import Nagare.Dsl.Static.Render
   )
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (domainText, imageRefText, mkDomain, namespaceText)
+import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Image (buildImage, configureDockerAuth, pushImage, taggedImageRef)
 import Nagare.Static.Build (PreparedStaticOutput, prepareStaticOutput, renderStaticBuildError)
 import Nagare.Static.Image (withStaticImageContext)
@@ -95,7 +96,9 @@ previewManifests inputs raw = do
   Right
     StaticManifests
       { nginxConf = renderNginxConfig s
-      , service = renderStaticService previewSite ctx
+      , -- EP-27 M2: overlay the preview env onto the rendered Service, keyed by the
+        -- production name (preview env is shared across all previews of one app).
+        service = withPreviewEnvFrom prodName (renderStaticService previewSite ctx)
       , domainMappings = renderStaticDomainMappings previewSite ctx
       , url = "https://" <> pdomText
       , serviceName = svcName

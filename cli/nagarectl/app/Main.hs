@@ -42,7 +42,7 @@ import System.Environment (lookupEnv, setEnv)
 import System.Exit (exitFailure)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
-import Nagare.Build (applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
@@ -51,6 +51,7 @@ import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (EnvScope (..), namespaceText, serviceNameText)
+import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
 import Nagare.Env.Generated qualified as Gen
@@ -583,8 +584,13 @@ runDeploy dopts = do
     else do
       if requiresBuild spec
         then do
+          -- EP-27: gather the app's Build-scoped env (inline {Build} + the managed
+          -- Build store) and pass it to docker build as --build-arg flags. Done only
+          -- when actually building (Build-scoped env never reaches the runtime container).
+          (bargs, warns) <- gatherBuildArgs name ns (dep ^. #env)
+          printBuildArgWarnings warns
           configureDockerAuth
-          performBuild spec ref
+          performBuild (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       applyManifests (svcBytes : dmBytes)

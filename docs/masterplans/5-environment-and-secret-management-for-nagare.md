@@ -110,7 +110,7 @@ grows.
 | 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Complete |
 | 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Complete |
 | 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Complete |
-| 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Not Started |
+| 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Complete |
 | 28 | Env and secret management docs and end-to-end example | docs/plans/28-env-and-secret-management-docs-and-end-to-end-example.md | EP-25, EP-27 | EP-26 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -261,8 +261,8 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`). (2026-06-09)
 - [x] EP-25: `nagarectl secret set|list|delete` commands; `.env` parsing with reconcile modes. (2026-06-09)
 - [x] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them. (2026-06-09)
-- [ ] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end.
-- [ ] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay.
+- [x] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end. (2026-06-09)
+- [x] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay. (2026-06-09)
 - [ ] EP-28: User guide written; end-to-end example deploys with managed env and a secret.
 
 
@@ -282,6 +282,16 @@ documents the table. Because they are injected as inline `env:`, they override m
   external package and Cabal hides `other-modules` from external consumers. Any future
   library module the test suite imports must be `exposed-modules`. (EP-25's `Nagare.Env.Dotenv`
   and EP-26's `Nagare.Env.Generated` followed this.)
+
+- EP-27 build-path seam realized (2026-06-09): the MasterPlan-4 build-modes rework
+  (EP-19–22) had already landed, so the app deploy flows through `performBuild`/`BuildSpec`
+  rather than the `buildImage` EP-27 was written against. EP-27 adapted: build-scoped env is
+  injected into the `BuildSpec`'s `buildArgs` via a new `Nagare.Build.addBuildArgs` before
+  `performBuild`, leaving `buildImage`/static/server build calls untouched (static has no
+  env; the server runtime-image build consumes no `ARG`s). The pure `assembleBuildArgs`
+  stays builder-agnostic. **For EP-28:** document build-time env against the `BuildSpec`
+  flow (a Dockerfile-built app's `{Build}` env becomes `docker build --build-arg`), not a
+  `buildImage` signature, and note build-time env does not apply to prebuilt images.
 
 - EP-26 record-field ambiguities (2026-06-09): `GeneratedContext`'s field names
   (`namespace`/`releaseId`/`source`/`serviceUrl`/`baseDomain`) collide under

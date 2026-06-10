@@ -20,6 +20,7 @@ module Nagare.Build
   ( performBuild
   , describeBuild
   , applyBuildOverrides
+  , addBuildArgs
   ) where
 
 import Data.Map qualified as Map
@@ -58,6 +59,20 @@ ensureNixpacks = do
   case found of
     Just _ -> pure ()
     Nothing -> die "nixpacks not found on PATH; see docs/user/build-modes.md"
+
+-- | Merge extra build args (e.g. EP-27 @Build@-scoped env) into a build spec's
+-- @buildArgs@. The spec's own (config-declared) build args take precedence on a
+-- key collision — they are the most explicit, in-code declaration. A
+-- 'PrebuiltImage' has no build, so extra args do not apply. An empty list leaves
+-- the spec unchanged.
+addBuildArgs :: [(Text, Text)] -> BuildSpec -> BuildSpec
+addBuildArgs [] spec = spec
+addBuildArgs extra spec = case spec of
+  PrebuiltImage t -> PrebuiltImage t
+  DockerfileBuild df ctx args ->
+    DockerfileBuild df ctx (Map.union args (Map.fromList extra))
+  NixpacksBuild ctx args ->
+    NixpacksBuild ctx (Map.union args (Map.fromList extra))
 
 -- | A one-line, human-readable description of the build action, for @--dry-run@.
 describeBuild :: BuildSpec -> Text
