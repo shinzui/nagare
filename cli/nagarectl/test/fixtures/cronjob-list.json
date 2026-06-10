@@ -1,0 +1,41 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "batch/v1",
+      "kind": "CronJob",
+      "metadata": {
+        "name": "nagare-task-cleanup",
+        "namespace": "personal",
+        "labels": {
+          "nagare.dev/managed-by": "nagarectl",
+          "nagare.dev/task": "cleanup",
+          "nagare.dev/app": "notes"
+        }
+      },
+      "spec": { "schedule": "0 3 * * *" },
+      "status": {
+        "lastScheduleTime": "2026-06-10T03:00:00Z",
+        "lastSuccessfulTime": "2026-06-10T03:00:12Z",
+        "active": []
+      }
+    },
+    {
+      "apiVersion": "batch/v1",
+      "kind": "CronJob",
+      "metadata": {
+        "name": "nagare-task-nightly-report",
+        "namespace": "personal",
+        "labels": {
+          "nagare.dev/managed-by": "nagarectl",
+          "nagare.dev/task": "nightly-report"
+        }
+      },
+      "spec": { "schedule": "30 2 * * *" },
+      "status": {
+        "active": [ { "name": "nagare-task-nightly-report-28999999" } ]
+      }
+    }
+  ]
+}

@@ -149,7 +149,7 @@ Alternatives considered and rejected:
 |---|-------|------|-----------|-----------|--------|
 | 49 | Scheduled-task substrate spike and one-off-run feasibility | docs/plans/49-scheduled-task-substrate-spike-and-one-off-run-feasibility.md | None | None | Complete |
 | 50 | Typed Task model and CronJob/Job renderer | docs/plans/50-typed-task-model-and-cronjob-job-renderer.md | None | EP-49 | Complete |
-| 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | Not Started |
+| 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | In Progress |
 | 52 | App-task association and runtime env/image/secret inheritance | docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md | EP-50 | EP-51 | Not Started |
 | 53 | Scheduled-tasks docs and end-to-end examples | docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md | EP-50 | EP-51, EP-52 | Not Started |
 
@@ -299,8 +299,8 @@ the milestone. This section provides an at-a-glance view of the entire initiativ
 - [x] EP-49: A task pod inherits an app's runtime env/secret via `envFrom`, and its logs appear in VictoriaLogs/Grafana; findings + verified YAML recorded.
 - [x] EP-50: `Nagare.Dsl.Task` typed model with smart constructors and `Schedule` validation; JSON round-trip via `emitTask`/`decodeTask`.
 - [x] EP-50: `Nagare.Dsl.Task.Render` produces deterministic CronJob/Job YAML; golden tests pass; no existing golden changed.
-- [ ] EP-51: `nagarectl task list/delete` discover and remove CronJobs by label selector.
-- [ ] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs; deploy-time provisioning applies declared CronJobs.
+- [x] EP-51: `nagarectl task list/delete` discover and remove CronJobs by label selector.
+- [~] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs (both done); deploy-time provisioning of declared CronJobs is implemented in EP-52 (which owns the `Deployment.tasks` field — see Surprises).
 - [ ] EP-52: `Deployment`/`Task` carry the app association; deploy-time resolution injects the app's image tag and `envFrom` managed env/secret; predefined task vars injected.
 - [ ] EP-53: `docs/user/scheduled-tasks.md` written and cross-linked; runnable `cluster/examples/` task examples; VictoriaLogs/Grafana logs walkthrough; runbook integration.
 
@@ -328,6 +328,20 @@ interactions between child plans. Provide concise evidence.
   or rely on `kubectl wait --for=condition=complete|failed`, never read `conditions[0]`.
   Separately, `kubectl get cronjob` now prints a `TIMEZONE` column, so EP-51 should discover via
   `-o json`/`-o jsonpath` (as `Database/Discover.hs` does) rather than parsing table columns.
+  Both honoured: EP-51 discovers with `kubectl get cronjob -o json` and runs `kubectl wait
+  --for=condition=complete`.
+
+- **Ownership reconciliation — `Deployment.tasks` belongs to EP-52, not EP-50; EP-51 M3 moves
+  to EP-52.** EP-51's plan text assumed EP-50 would add a `tasks :: [Task]` field to the
+  `Deployment` record for deploy-time provisioning. It does not: EP-50 shipped `Nagare.Dsl.Task`
+  as a standalone model/renderer and left `Deployment` untouched. EP-52's M1 actually adds the
+  field, *and* EP-52 owns the resolved `runDeploy` wiring (image-tag + `envFrom` injection +
+  predefined task vars). Decision: EP-51 ships M1+M2 (the four operational CLI verbs, which do
+  not touch the field) and EP-51's M3 (deploy-time provisioning) is implemented **once, in
+  EP-52**, against the field EP-52 introduces — avoiding a naive render-and-apply in EP-51 that
+  EP-52 would immediately rewrite. EP-51 stays In Progress until EP-52's provisioning lands;
+  then both complete together. This mirrors the EP-50/EP-52 "shape vs. semantics" split already
+  recorded in the Decision Log.
 
 
 ## Decision Log

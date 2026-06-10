@@ -51,6 +51,15 @@ import Nagare.Database.Backup
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
+import Nagare.Task.Discover
+  ( AppScope (..)
+  , TaskRow (..)
+  , extractTaskRows
+  , formatTaskTable
+  , taskLabelSelector
+  )
+import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
+import Nagare.Task.Run (oneOffJobName, runArgs)
 import Nagare.Database.Restore (isGsUrl, renderRestoreJob, resolveBackupObject, RestoreJobInputs (..))
 import Nagare.Database.Secret
   ( ConnectionParts (..)
@@ -162,7 +171,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 main :: IO ()
-main =
+main = do
+  taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
   defaultMain $
     testGroup
       "nagarectl"
@@ -191,7 +201,101 @@ main =
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
+      , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
+      , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Task (MasterPlan 10, EP-51): the pure discovery/run/logs helpers.
+
+taskDiscoverTests :: ByteString -> [TestTree]
+taskDiscoverTests fixture =
+  [ testCase "taskLabelSelector AnyApp omits the app term" $
+      taskLabelSelector AnyApp
+        @?= "nagare.dev/managed-by=nagarectl,nagare.dev/task"
+  , testCase "taskLabelSelector (App notes) appends the app term" $
+      taskLabelSelector (App "notes")
+        @?= "nagare.dev/managed-by=nagarectl,nagare.dev/task,nagare.dev/app=notes"
+  , testCase "taskLabelSelector NoApp appends the not-exists term" $
+      taskLabelSelector NoApp
+        @?= "nagare.dev/managed-by=nagarectl,nagare.dev/task,!nagare.dev/app"
+  , testCase "extractTaskRows parses both managed tasks" $
+      case extractTaskRows fixture of
+        Left e -> assertFailure (T.unpack e)
+        Right rows -> map trName rows @?= ["cleanup", "nightly-report"]
+  , testCase "extractTaskRows reads schedule, app, and active count" $
+      case extractTaskRows fixture of
+        Left e -> assertFailure (T.unpack e)
+        Right rows -> do
+          let byName n = head (filter ((== n) . trName) rows)
+          trApp (byName "cleanup") @?= "notes"
+          trSchedule (byName "cleanup") @?= "0 3 * * *"
+          trActive (byName "cleanup") @?= 0
+          trApp (byName "nightly-report") @?= "-"
+          trLastRun (byName "nightly-report") @?= "never"
+          trActive (byName "nightly-report") @?= 1
+  , testCase "extractTaskRows on empty shape is Right []" $
+      extractTaskRows "{\"items\":[]}" @?= Right []
+  , testCase "formatTaskTable empty prints the placeholder" $
+      formatTaskTable [] @?= "(no scheduled tasks)\n"
+  ]
+
+taskRunTests :: [TestTree]
+taskRunTests =
+  [ testCase "oneOffJobName is deterministic and prefixed" $
+      oneOffJobName "cleanup" fixedTime
+        @?= "nagare-task-cleanup-manual-20260610030012"
+  , testCase "oneOffJobName lower-cases and truncates to 63 chars" $
+      let n = oneOffJobName (T.replicate 80 "A") fixedTime
+       in (T.length n <= 63 && n == T.toLower n) @?= True
+  , testCase "runArgs builds the --from=cronjob create-job vector" $
+      runArgs "personal" "cleanup" "nagare-task-cleanup-manual-20260610030012"
+        @?= [ "create"
+            , "job"
+            , "nagare-task-cleanup-manual-20260610030012"
+            , "--from=cronjob/nagare-task-cleanup"
+            , "-n"
+            , "personal"
+            ]
+  , testCase "taskLogArgs scopes by app and honours --tail/--follow" $
+      taskLogArgs
+        TaskLogTarget
+          { tltNamespace = "personal"
+          , tltTask = "cleanup"
+          , tltScope = App "notes"
+          , tltFollow = True
+          , tltTail = Just 20
+          }
+        @?= [ "logs"
+            , "-l"
+            , "nagare.dev/task=cleanup,nagare.dev/app=notes"
+            , "-n"
+            , "personal"
+            , "--tail"
+            , "20"
+            , "--follow"
+            ]
+  , testCase "taskLogArgs NoApp uses the not-exists term, no tail/follow" $
+      taskLogArgs
+        TaskLogTarget
+          { tltNamespace = "personal"
+          , tltTask = "nightly-report"
+          , tltScope = NoApp
+          , tltFollow = False
+          , tltTail = Nothing
+          }
+        @?= [ "logs"
+            , "-l"
+            , "nagare.dev/task=nightly-report,!nagare.dev/app"
+            , "-n"
+            , "personal"
+            ]
+  , testCase "grafanaHint embeds the task label query" $
+      grafanaHint "cleanup"
+        @?= "For older runs, query VictoriaLogs in Grafana with: {nagare_dev_task=\"cleanup\"}"
+  ]
+  where
+    fixedTime = UTCTime (fromGregorian 2026 6 10) (secondsToDiffTime (3 * 3600 + 12))
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops (MasterPlan 8, EP-38): the pure probe parsers and the formatter.

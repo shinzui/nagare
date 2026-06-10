@@ -53,6 +53,11 @@ import Nagare.Database.Get (runDbGet)
 import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
 import Nagare.Database.Shell (runDbShell)
+import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
+import Nagare.Task.Discover (AppScope (..))
+import Nagare.Task.List (runTaskList)
+import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
+import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Database (Engine (..))
@@ -290,6 +295,7 @@ data Command
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
   | Db DbCommand
+  | Task TaskCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Domains DomainsCommand
@@ -353,6 +359,50 @@ data DbCommand
   | DbDelete DbDeleteOpts -- ^ nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
   | DbBackup DbBackupOpts -- ^ nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
   | DbRestore DbRestoreOpts -- ^ nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
+
+-- | The @task@ subcommands (MasterPlan 10, EP-51, Integration Point IP4). One
+-- constructor per subcommand, mirroring 'DbCommand'. EP-52 may add app-scoping
+-- flags but must extend, not fork, this group.
+data TaskCommand
+  = TaskList TaskListOpts -- ^ nagarectl task list [APP] [-n NS]
+  | TaskRun TaskRunOpts -- ^ nagarectl task run APP TASK [-n NS] [--dry-run]
+  | TaskLogs TaskLogsOpts -- ^ nagarectl task logs APP TASK [-n NS] [--follow] [--tail N]
+  | TaskDelete TaskDeleteOpts -- ^ nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run]
+
+-- | Options for @task list [APP]@: an optional positional APP (scopes by the
+-- @nagare.dev/app@ label; @-@ means app-less) and a namespace.
+data TaskListOpts = TaskListOpts
+  { tlsApp :: !(Maybe String)
+  , tlsNamespace :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | The positional APP + TASK plus a namespace, shared by run.
+data TaskRunOpts = TaskRunOpts
+  { troApp :: !String
+  , troTask :: !String
+  , troNamespace :: !(Maybe String)
+  , troDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+data TaskLogsOpts = TaskLogsOpts
+  { tlgApp :: !String
+  , tlgTask :: !String
+  , tlgNamespace :: !(Maybe String)
+  , tlgFollow :: !Bool
+  , tlgTail :: !(Maybe Int)
+  }
+  deriving stock (Generic, Show)
+
+data TaskDeleteOpts = TaskDeleteOpts
+  { tdoApp :: !String
+  , tdoTask :: !String
+  , tdoNamespace :: !(Maybe String)
+  , tdoYes :: !Bool
+  , tdoDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
 
 -- | Options for @db list@: just a namespace (default @personal@).
 newtype DbListOpts = DbListOpts {dbloNamespace :: Maybe String}
@@ -710,6 +760,45 @@ engineReader = eitherReader $ \case
 dbNameArg :: Parser String
 dbNameArg = strArgument (metavar "NAME" <> help "Managed database name (DNS label)")
 
+-- Scheduled-task option fragments (MasterPlan 10, EP-51).
+
+-- | The positional TASK argument every @task ... TASK@ command takes.
+taskNameArg :: Parser String
+taskNameArg = strArgument (metavar "TASK" <> help "Scheduled task name (DNS label)")
+
+-- | The positional APP argument: scopes by the @nagare.dev/app@ label. @-@ means
+-- "tasks with no app association".
+taskAppArg :: Parser String
+taskAppArg = strArgument (metavar "APP" <> help "Owning app (or - for app-less tasks)")
+
+taskListOptsParser :: Parser TaskListOpts
+taskListOptsParser =
+  TaskListOpts
+    <$> optional (strArgument (metavar "APP" <> help "Owning app to scope to (or - for app-less; omit for all)"))
+    <*> namespaceOpt
+
+taskRunOptsParser :: Parser TaskRunOpts
+taskRunOptsParser =
+  TaskRunOpts <$> taskAppArg <*> taskNameArg <*> namespaceOpt <*> dryRunOpt
+
+taskLogsOptsParser :: Parser TaskLogsOpts
+taskLogsOptsParser =
+  TaskLogsOpts
+    <$> taskAppArg
+    <*> taskNameArg
+    <*> namespaceOpt
+    <*> switch (long "follow" <> help "Stream logs until interrupted")
+    <*> optional (option auto (long "tail" <> metavar "N" <> help "Show only the last N lines"))
+
+taskDeleteOptsParser :: Parser TaskDeleteOpts
+taskDeleteOptsParser =
+  TaskDeleteOpts
+    <$> taskAppArg
+    <*> taskNameArg
+    <*> namespaceOpt
+    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
+    <*> dryRunOpt
+
 dbListOptsParser :: Parser DbListOpts
 dbListOptsParser = DbListOpts <$> namespaceOpt
 
@@ -808,6 +897,7 @@ opts =
             <> command "deployments" deploymentsCmd
             <> command "storage" storageCmd
             <> command "db" dbCmd
+            <> command "task" taskCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "domains" domainsCmd
@@ -1157,6 +1247,37 @@ opts =
                   (progDesc "Restore a backup into a scratch target (or --into-live); --dry-run prints the Job")
               )
         )
+    taskCmd =
+      info
+        (taskSubparser <**> helper)
+        (fullDesc <> progDesc "List, run, view logs for, and delete scheduled tasks (CronJobs)")
+    taskSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (Task . TaskList <$> taskListOptsParser <**> helper)
+                (progDesc "List scheduled tasks (optionally scoped to one app)")
+            )
+            <> command
+              "run"
+              ( info
+                  (Task . TaskRun <$> taskRunOptsParser <**> helper)
+                  (progDesc "Run a task once, now: create a Job from its CronJob and wait; --dry-run prints the command")
+              )
+            <> command
+              "logs"
+              ( info
+                  (Task . TaskLogs <$> taskLogsOptsParser <**> helper)
+                  (progDesc "Show a task's most recent pod logs (--follow to tail); prints a Grafana history hint")
+              )
+            <> command
+              "delete"
+              ( info
+                  (Task . TaskDelete <$> taskDeleteOptsParser <**> helper)
+                  (progDesc "Delete a task's CronJob (guarded by --yes)")
+              )
+        )
     deploymentsCmd =
       info
         (deploymentsSubparser <**> helper)
@@ -1202,6 +1323,7 @@ main =
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
     Db dcmd -> runDb dcmd
+    Task tcmd -> runTask tcmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Domains (DomainsList o) -> runDomainsList o
@@ -1877,6 +1999,48 @@ runDb = \case
     runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
+
+-- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
+-- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is
+-- that app; for @task list@ an omitted @APP@ means "any app".
+runTask :: TaskCommand -> IO ()
+runTask = \case
+  TaskList o -> runTaskList (nsOf (tlsNamespace o)) (scopeOfMaybe (tlsApp o))
+  TaskRun o ->
+    runTaskRun
+      TaskRunParams
+        { trpApp = T.pack (troApp o)
+        , trpTask = T.pack (troTask o)
+        , trpNamespace = nsOf (troNamespace o)
+        , trpScope = scopeOf (troApp o)
+        , trpDryRun = troDryRun o
+        }
+  TaskLogs o ->
+    runTaskLogs
+      TaskLogTarget
+        { tltNamespace = nsOf (tlgNamespace o)
+        , tltTask = T.pack (tlgTask o)
+        , tltScope = scopeOf (tlgApp o)
+        , tltFollow = tlgFollow o
+        , tltTail = tlgTail o
+        }
+  TaskDelete o ->
+    runTaskDelete
+      TaskDeleteParams
+        { tdpName = T.pack (tdoTask o)
+        , tdpNamespace = nsOf (tdoNamespace o)
+        , tdpScope = scopeOf (tdoApp o)
+        , tdpYes = tdoYes o
+        , tdpDryRun = tdoDryRun o
+        }
+  where
+    nsOf = maybe "personal" T.pack
+    -- A required APP positional: "-" means app-less, anything else is that app.
+    scopeOf "-" = NoApp
+    scopeOf a = App (T.pack a)
+    -- An optional APP positional (task list): absent means "any app".
+    scopeOfMaybe Nothing = AnyApp
+    scopeOfMaybe (Just a) = scopeOf a
 
 -- | Resolve the GCS backup bucket: @--bucket@, then @NAGARE_BACKUP_BUCKET@,
 -- defaulting to @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).

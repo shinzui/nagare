@@ -73,40 +73,42 @@ This section must always reflect the actual current state of the work.
 
 Milestone M1 — `task list` / `task delete` + `Nagare.Task.Discover`:
 
-- [ ] Create `cli/nagarectl/src/Nagare/Task/Discover.hs` with `taskLabelSelector`,
+- [x] Create `cli/nagarectl/src/Nagare/Task/Discover.hs` with `taskLabelSelector`,
       `TaskRow (..)`, `extractTaskRows`, `listTasks`, `getTask`, `formatTaskTable`.
-- [ ] Create `cli/nagarectl/src/Nagare/Task/List.hs` with `runTaskList`.
-- [ ] Create `cli/nagarectl/src/Nagare/Task/Delete.hs` with `TaskDeleteParams (..)` and
+- [x] Create `cli/nagarectl/src/Nagare/Task/List.hs` with `runTaskList`.
+- [x] Create `cli/nagarectl/src/Nagare/Task/Delete.hs` with `TaskDeleteParams (..)` and
       `runTaskDelete`.
-- [ ] Add the `TaskCommand` ADT and the `Task` constructor to `Command` in `app/Main.hs`.
-- [ ] Add `taskCmd`/`taskSubparser`, the option parsers, and the `runTask` dispatcher for
-      `list`/`delete` in `app/Main.hs`; wire `Task` into `main`.
-- [ ] Register `Nagare.Task.Discover`, `Nagare.Task.List`, `Nagare.Task.Delete` in
-      `nagarectl.cabal`.
-- [ ] Add the captured fixture `cli/nagarectl/test/fixtures/cronjob-list.json` and unit
+- [x] Add the `TaskCommand` ADT and the `Task` constructor to `Command` in `app/Main.hs`.
+- [x] Add `taskCmd`/`taskSubparser`, the option parsers, and the `runTask` dispatcher for
+      `list`/`delete` in `app/Main.hs`; wire `Task` into `main` and the top-level subparser.
+- [x] Register `Nagare.Task.Discover`, `Nagare.Task.List`, `Nagare.Task.Delete` (and the M2
+      modules) in `nagarectl.cabal`.
+- [x] Add the captured fixture `cli/nagarectl/test/fixtures/cronjob-list.json` and unit
       tests for `taskLabelSelector`, `extractTaskRows`, `formatTaskTable`.
-- [ ] `cabal build` and `cabal test nagarectl-test` pass; document the on-VM live check.
+- [x] `cabal build` and `cabal test nagarectl-test` pass (220 tests); live check deferred
+      (workstation kubectl cannot reach the IAP-only cluster; see Surprises).
 
 Milestone M2 — `task run` (one-off) + `task logs`:
 
-- [ ] Create `cli/nagarectl/src/Nagare/Task/Run.hs` with `oneOffJobName`, `runArgs`,
+- [x] Create `cli/nagarectl/src/Nagare/Task/Run.hs` with `oneOffJobName`, `runArgs`,
       `TaskRunParams (..)`, `runTaskRun`.
-- [ ] Create `cli/nagarectl/src/Nagare/Task/Logs.hs` with `TaskLogTarget (..)`,
+- [x] Create `cli/nagarectl/src/Nagare/Task/Logs.hs` with `TaskLogTarget (..)`,
       `taskLogArgs`, `grafanaHint`, `runTaskLogs`.
-- [ ] Add the `TaskRun`/`TaskLogs` constructors, parsers, and dispatch arms.
-- [ ] Register `Nagare.Task.Run`, `Nagare.Task.Logs` in `nagarectl.cabal`.
-- [ ] Unit-test `oneOffJobName` (deterministic given a `UTCTime`), `runArgs`, and
+- [x] Add the `TaskRun`/`TaskLogs` constructors, parsers, and dispatch arms.
+- [x] Register `Nagare.Task.Run`, `Nagare.Task.Logs` in `nagarectl.cabal`.
+- [x] Unit-test `oneOffJobName` (deterministic given a `UTCTime`), `runArgs`, and
       `taskLogArgs`.
-- [ ] `cabal test nagarectl-test` passes; capture a `task run --dry-run` transcript;
-      document the live run on the VM with the expected transcript.
+- [x] `cabal test nagarectl-test` passes; captured a fully-offline `task run --dry-run`
+      transcript; live run deferred (Surprises).
 
 Milestone M3 — deploy-time provisioning:
 
-- [ ] Extend `Nagare.Deploy` (or `app/Main.hs:runDeploy`) so declared tasks are rendered
-      with EP-50's `renderTask` and applied alongside the Service/PVCs/databases.
-- [ ] Show each rendered CronJob in `deploy --dry-run`.
-- [ ] `cabal build` passes; capture a `deploy --dry-run` transcript showing the CronJob;
-      document the live provisioning check on the VM.
+- [~] **Deferred to EP-52.** M3 reads `dep ^. #tasks`, but the `Deployment.tasks` field is
+      introduced by EP-52's M1 (not EP-50, as this plan originally assumed — see Surprises),
+      and EP-52 also owns the *resolved* `runDeploy` wiring (image-tag + envFrom injection).
+      Implementing a naive render-and-apply here would be immediately rewritten by EP-52, so
+      the deploy-time provisioning is implemented once, in EP-52, against the field it adds.
+      M1/M2 (the operational CLI) do not depend on the field and are complete.
 
 
 ## Surprises & Discoveries
@@ -114,7 +116,36 @@ Milestone M3 — deploy-time provisioning:
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The `Deployment.tasks` field is owned by EP-52, not EP-50.** This plan's M3 context said
+  "EP-50 adds the field that carries declared tasks." It does not: EP-50 shipped `Nagare.Dsl.Task`
+  as a standalone model and renderer and left `Deployment` untouched. EP-52's M1 (see
+  `docs/plans/52-...`, "Add `tasks :: ![Task]` to the `Deployment` record") introduces the
+  field, *and* EP-52 wires the resolved task provisioning (image-tag + envFrom) into
+  `runDeploy`. Consequence: M3 here is deferred to EP-52 to avoid implementing a naive
+  render-and-apply that EP-52 would immediately rewrite. M1/M2 are independent of the field and
+  shipped fully. Recorded in the MasterPlan Surprises too.
+- **`--dry-run` for `task run` is now fully offline.** The plan's `runTaskRun` skeleton called
+  `getTask` (which shells `kubectl`) *before* the dry-run branch, contradicting the plan's own
+  acceptance criterion that `task run ... --dry-run` "contacts no cluster." Resolved by checking
+  `trpDryRun` first: in dry-run we build and print the `kubectl create job ... --from=cronjob`
+  command (and the follow-up `wait`) without any cluster call; the existence check runs only on
+  a live run. Evidence: `nagarectl task run notes cleanup --dry-run` prints
+  `kubectl create job nagare-task-cleanup-manual-<ts> --from=cronjob/nagare-task-cleanup -n personal`
+  with no kubectl context configured.
+- **Opts-record field-prefix collision.** The plan reused the `tlo` field prefix for *both*
+  `TaskListOpts` and `TaskLogsOpts`. With `DuplicateRecordFields` on but no `OverloadedRecordDot`,
+  selector *use* (`tloApp o`) is ambiguous. Renamed to unique prefixes: `TaskListOpts` →
+  `tls*`, `TaskLogsOpts` → `tlg*` (mirroring the db code's distinct `dblo`/`dbn`/`dbd`
+  prefixes). `TaskRunOpts` (`tro*`) and `TaskDeleteOpts` (`tdo*`) were already unique.
+- **`tShow` is a private helper in `app/Main.hs`, not exported.** `Nagare.Task.Discover`
+  defines its own local `tShow = T.pack . show` (the one place it is needed,
+  `formatTaskTable`), exactly as the plan's fallback note anticipated.
+- **Live check deferred (EP-48 precedent).** `nagarectl` shells `kubectl` against the active
+  context, but the `tan-nb-exp` k3s API is reachable only on the VM (IAP forwards SSH only).
+  The offline unit suite (220 tests) plus the offline `--dry-run`/`--help` transcripts are the
+  acceptance here; the EP-49 spike already proved the exact `kubectl create job --from=cronjob`
+  → `wait --for=condition=complete` → `logs -l nagare.dev/task` mechanisms on the live cluster,
+  so the CLI's IO paths shell verified commands.
 
 
 ## Decision Log
@@ -185,7 +216,32 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome: the four operational `nagarectl task` verbs ship (M1+M2); deploy-time provisioning
+moves to EP-52 (M3).** Against the original purpose:
+
+- **`task list [APP]`, `task run APP TASK`, `task logs APP TASK`, `task delete APP TASK`** are
+  registered (`nagarectl task --help` lists all four) and dispatch into five new library
+  modules under `Nagare/Task/` (`Discover`, `List`, `Run`, `Logs`, `Delete`). Discovery is
+  label-based (`nagare.dev/managed-by=nagarectl,nagare.dev/task`, narrowed by `AppScope`),
+  mirroring `Nagare.Database.Discover`. The `-` sentinel reaches app-less tasks via the
+  `!nagare.dev/app` selector term.
+- **IP4 (the command-group plumbing) and IP6 (one-off run + logs):** `task run` builds a
+  deterministic `nagare-task-<task>-manual-<ts>` Job name and shells `kubectl create job
+  --from=cronjob/nagare-task-<task>` → `kubectl wait --for=condition=complete` → log-on-failure;
+  `task logs` streams pods by the IP3 label and prints a Grafana/VictoriaLogs hint. Both the
+  one-off-run command vector and the logs vector match the EP-49-verified mechanisms.
+- **Offline proof (220 tests pass):** the three label-selector strings, the CronJob-list JSON
+  parser against the checked-in fixture (schedule/app/active-count/last-run read correctly,
+  empty-shape `Right []`), the deterministic `oneOffJobName` (lower-cased, ≤63 chars), the
+  `runArgs` create-job vector, and the `taskLogArgs` logs vector (app scoping + `--tail`/`--follow`).
+  `task run --dry-run` prints the exact command fully offline.
+
+**Gaps / deferred.** M3 (deploy-time provisioning) is implemented in EP-52, which owns the
+`Deployment.tasks` field and the resolved `runDeploy` wiring (see Surprises). The live on-VM
+check is deferred per the EP-48 precedent (the cluster API is reachable only on the VM); the
+offline suite plus the EP-49 spike's live verification of the same kubectl mechanisms cover the
+behavior. The optional per-task run-history ConfigMap remains a documented, unimplemented
+extension point (Decision Log).
 
 
 ## Context and Orientation

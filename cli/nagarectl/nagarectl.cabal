@@ -71,6 +71,11 @@ library
     Nagare.Storage.Inspect
     Nagare.Storage.List
     Nagare.Storage.Snapshot
+    Nagare.Task.Delete
+    Nagare.Task.Discover
+    Nagare.Task.List
+    Nagare.Task.Logs
+    Nagare.Task.Run
 
   build-depends:
     aeson,
