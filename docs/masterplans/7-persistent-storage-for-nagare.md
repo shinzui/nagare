@@ -144,7 +144,7 @@ of the backup story," so they are one plan with two milestones.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 33 | Knative PVC enablement spike and cluster feature flags | docs/plans/33-knative-pvc-enablement-spike-and-cluster-feature-flags.md | None | None | Not Started |
+| 33 | Knative PVC enablement spike and cluster feature flags | docs/plans/33-knative-pvc-enablement-spike-and-cluster-feature-flags.md | None | None | Complete |
 | 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Not Started |
 | 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Not Started |
 | 36 | App volume backup ownership, snapshot to GCS, and retention | docs/plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md | EP-34, EP-35 | EP-33 | Not Started |
@@ -268,8 +268,8 @@ EP-36 must extend, not fork, them.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-33: Knative `config-features` patch committed enabling PVC volume + write flags.
-- [ ] EP-33: Raw-YAML proof that a Knative Service mounts a `local-path` RWO PVC and data survives a revision roll; rollout knob determined and documented.
+- [x] EP-33: Knative `config-features` patch committed enabling PVC volume + write flags. (2026-06-09)
+- [x] EP-33: Raw-YAML proof that a Knative Service mounts a `local-path` RWO PVC and data survives a revision roll; rollout knob determined and documented. (2026-06-09; min-scale=1/max-scale=1/rollout-duration=0s, no Multi-Attach.)
 - [ ] EP-34: `Volume`/`VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy` types + smart constructors; existing configs compile with an empty `volumes` default.
 - [ ] EP-34: JSON round-trip (Config.hs emit / Load.hs decode) carries volumes; golden tests pass.
 - [ ] EP-34: PVC manifest renderer + container/pod `volumeMounts`/`volumes` rendering + key ordering; golden tests match EP-33's verified shape.
@@ -285,7 +285,38 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- **EP-33 cleared the gating feasibility risk — and reframed it.** The feared deadlock (old + new
+  revision both mounting a single-node RWO `local-path` PVC during a roll) does **not** occur:
+  RWO is per-*node* and Nagare is single-node, so same-node pods co-mount freely. Live proof: new
+  revisions reached Ready in 5–9s across rolls with zero `Multi-Attach`/`FailedMount` events, and
+  the marker survived a revision roll, a full Service delete+recreate (different image), and a
+  scale-to-zero → scale-from-zero cycle. The residual risk is a brief **concurrent-writer overlap**
+  during Knative's create-before-delete roll — an *application* concern (SQLite needs WAL /
+  Litestream), which **EP-37's SQLite example and user docs must call out**. Evidence:
+  `docs/plans/33-…`, Surprises + Outcomes.
+
+- **IP2 verified shape is final (input to EP-34).** The renderer in EP-34 must stamp, on any `ksvc`
+  with a volume, the annotations `autoscaling.knative.dev/min-scale: "1"`,
+  `autoscaling.knative.dev/max-scale: "1"`, `serving.knative.dev/rollout-duration: "0s"`, plus the
+  `persistentVolumeClaim` `volumes` entry, the container `volumeMounts` (with `readOnly`), and a
+  standalone PVC manifest (`storageClassName: local-path`, `accessModes: [ReadWriteOnce]`, requested
+  size). Verbatim YAML is in EP-33's *Interfaces and Dependencies*.
+
+- **Cluster access reality (operational).** The `config-features` ConfigMap already existed (only an
+  `_example` key) — EP-33 patches it, it is not absent. The `nagare-01` VM is often `TERMINATED`;
+  reach the cluster as the `deploy` user with `~/.ssh/id_ed25519` via `scripts/iap-ssh.sh` and run
+  `sudo k3s kubectl` on the node (the workstation's default kubectl context points at an unrelated
+  GKE cluster). Documented in `docs/runbooks/cluster-access.md`. EP-35/EP-36 live deploys need the
+  VM started and the EP-33 flags applied (already enabled on the live cluster).
+
+- **Namespace deletion does NOT cascade-clean storage (input to EP-35/EP-36).** `kubectl delete
+  namespace` left the Knative `ksvc`/route/revision and the PVC stuck on finalizers for minutes;
+  explicit `delete ksvc` + `delete pvc` finalized it in ~85s, after which the `local-path` host
+  directory was reclaimed (reclaimPolicy `Delete`). App/volume deletion in EP-35/EP-36 must delete
+  the `ksvc` and PVCs **explicitly and in order**, and honor `RetentionPolicy` (`Retain` ⇒ do not
+  delete the PVC). local-path PV node-path: `kubectl get pv <name> -o
+  jsonpath='{.spec.local.path}'`; host dir naming `pvc-<uid>_<ns>_<pvc>` (feeds EP-35
+  `storage list`/`inspect` node-path column).
 
 
 ## Decision Log
