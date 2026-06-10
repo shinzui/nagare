@@ -345,4 +345,48 @@ plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+All five child plans are **Complete** (2026-06-10). The initiative delivered its vision: a new
+operator can take a clean GCP project and a domain and bring nagare up end to end without editing any
+tracked source file to replace `tan-nb-exp` — it has become the default worked example, not a hard
+constraint.
+
+What shipped, by layer:
+
+- **EP-60 (contract):** the git-ignored `nagare.target.env` + tracked `nagare.target.env.example`
+  (nine canonical variables), the sourced guardrail helper `scripts/lib/target.sh`
+  (`TARGET_PROJECT/REGION/ZONE` + fail-closed `_require_target_project`), the `.envrc` rewrite with
+  `tan-nb-exp` fallbacks, and the `CLAUDE.md` policy rewrite to the configurable model.
+- **EP-61 (scripts):** all eight `scripts/` files plus the two cdn-spike example scripts source the
+  helper instead of inlining the literal preflight; the in-cluster `restore-volume.sh` Job manifest
+  interpolates `$TARGET_PROJECT`; the nix-builder resource names became env-overridable.
+- **EP-62 (CLI + DSL):** `Nagare.Target`/`resolveTargetProfile` is the single resolution point;
+  every former literal, the `registryHost` constant, and the region/zone/bucket defaults are gone;
+  the DSL gained `imageRefFromName`/`qualifyImage` so an app's `Config.hs` names only its image and
+  the registry prefix derives from the profile at deploy time; example/fixture `Config.hs` are
+  name-only.
+- **EP-63 (product surface):** `scripts/enable-apis.sh` and six `gcp.projects.Service` resources
+  codify API enablement; `nagarectl init` preflights auth + operator IAM, writes the profile, enables
+  the APIs, and seeds the eight Pulumi keys — the one command allowed to drive Pulumi/gcloud.
+- **EP-64 (docs):** the GCP-prerequisites page and the zero-to-running onboarding runbook, plus six
+  revised pages, all project-agnostic; build-state badges reconciled to MasterPlan-1.
+
+Outcome vs. the two stated acceptance gates: (1) `nagarectl init` writes a correct profile, enables
+APIs, and seeds Pulumi config (verified by dry-run/real-write/preflight-failure transcripts and unit
+tests); (2) the configurable guardrail is preserved fail-closed against the *configured* project. The
+single-project isolation invariant held throughout — switching projects means changing the profile,
+never running two at once. Three Haskell test suites stayed green at every step (nagare-dsl 264,
+nagarectl 258, plus the Pulumi `tsc` typecheck).
+
+Cross-plan lessons recorded in Surprises & Discoveries: (a) EP-60's helper *defines* the guardrail
+but does not auto-run it on source, so consumers (EP-61, EP-63) call `_require_target_project`
+explicitly; (b) because `TARGET_PROJECT` derives from `CLOUDSDK_CORE_PROJECT`, the guard bites the
+"env unset + divergent gcloud config" case, not an explicitly-set wrong env var — documented for
+EP-64; (c) several plans resolved the profile internally in IO helpers rather than threading a
+`TargetProfile` parameter, to avoid cascading signature changes — equally correct and lower-churn.
+
+Gaps / deferred (none blocking the vision): the live `gcloud services enable` and the real `pulumi
+config get` round-trip were not run against a foreign project (none available this session) — the
+dry-run argv and unit tests stand in; the stale per-page badges on `cluster-bootstrap.md` /
+`observability.md` were left for a later reconciliation (the runbook surfaces the authoritative
+status inline). Out-of-scope items (simultaneous multi-project, changing the provisioned topology,
+non-GCP/public registries) were held out as planned.
