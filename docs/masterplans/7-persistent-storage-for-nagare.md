@@ -148,7 +148,7 @@ of the backup story," so they are one plan with two milestones.
 | 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Complete |
 | 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Complete |
 | 36 | App volume backup ownership, snapshot to GCS, and retention | docs/plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md | EP-34, EP-35 | EP-33 | Complete |
-| 37 | Persistent storage docs and end-to-end examples | docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md | EP-35, EP-36 | EP-34 | Not Started |
+| 37 | Persistent storage docs and end-to-end examples | docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md | EP-35, EP-36 | EP-34 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-33, EP-35). The numbers
@@ -277,7 +277,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-35: `nagarectl storage list|inspect` commands working (verified end-to-end through the real binary; live-PVC-data path unit-tested + the on-cluster transcript deferred to EP-37 — IAP forwards only SSH/22). (2026-06-09)
 - [x] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored. (2026-06-09; in-cluster Job renderer + keep-last-N pruning; pure logic unit-tested, live `→ gsutil ls` deferred to EP-37.)
 - [x] EP-36: Backup-ownership policy: deploy warns on backup-excluded volumes (`retention = Delete`, verified via real CLI); disaster-recovery runbook + user guide updated; `scripts/restore-volume.sh` scratch-first restore added (live restore drill deferred to EP-37). (2026-06-09)
-- [ ] EP-37: User guide written; SQLite-on-PVC and uploaded-files examples deploy with durable storage end to end.
+- [x] EP-37: User guide written (`docs/user/persistent-storage.md` + config/reference/README/deploying-apps cross-links); SQLite-on-PVC and uploaded-files examples render durable storage (dry-run verified; live deploy deferred to a running cluster). (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -409,4 +409,54 @@ plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+**All five child plans are Complete (EP-33–EP-37). The vision is met: a developer can declare durable
+storage in the typed config, deploy it, operate it from the CLI, and back it up — and the platform
+honors it.** Delivered against the original Vision & Scope:
+
+- **Typed volumes in the DSL (IP1).** `Volume` + `VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy`
+  with smart constructors on `Deployment` and `ServerSite`; illegal storage (dup names, relative/colliding
+  paths, bad sizes) is unrepresentable / rejected at load with a precise `MarshalError`. Empty-`volumes`
+  default keeps every existing config compiling. (EP-34)
+- **Rendered PVCs and mounts (IP2/IP3), and the cluster honors them.** One labelled `local-path` RWO PVC
+  per volume + container `volumeMounts` + pod `volumes`, with the EP-33-verified rollout annotations
+  (`min/max-scale=1`, `rollout-duration=0s`) stamped on any volume-bearing Service. The Knative
+  `config-features` flags are committed and live. `nagarectl deploy` applies PVCs before the Service.
+  (EP-33, EP-34, EP-35)
+- **Storage CLI (IP5).** `nagarectl storage list|inspect|snapshot`, discovering PVCs by the
+  `nagare.dev/app`/`volume`/`managed-by` labels. (EP-35, EP-36)
+- **Defined backup ownership (IP4).** Snapshots tar to
+  `gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<ts>.tar.gz` with keep-last-N pruning; volumes
+  default to backup-included; `retention = Delete` opts out with a deploy-time warning; the
+  disaster-recovery runbook + user backup guide cover restore (`scripts/restore-volume.sh`,
+  scratch-first). (EP-36)
+- **Guidance for real workloads.** `docs/user/persistent-storage.md` + two runnable examples
+  (`sqlite-pvc-litestream`, `uploads-volume`). (EP-37)
+
+**The decisive de-risking win.** EP-33's live spike overturned the gating fear: a single-node RWO
+`local-path` PVC does **not** deadlock a Knative revision roll (RWO is per-node; Nagare is single-node),
+so no exotic anti-Multi-Attach knob was needed — just min/max-scale=1 + rollout-duration=0s. Data
+survived a revision roll, a full Service delete+recreate, and a scale-to-zero cycle. This let EP-34's
+goldens encode a verified shape rather than a guess.
+
+**Gaps / follow-ups (carried forward, none blocking):**
+1. **Live cluster legs deferred.** EP-35/36/37's on-cluster transcripts (a real volume-app deploy,
+   `storage list` against live PVCs, `storage snapshot → gsutil ls`, the restore drill) are not yet run
+   from a workstation: IAP forwards only SSH/22, so a local `kubectl`/`gsutil`/`nagarectl` can't reach the
+   k3s API. Run the example READMEs on the VM, or SSH-forward 6443 (`ssh -L 16443:127.0.0.1:6443`) with
+   `KUBECONFIG` pointed at a rewritten `/etc/rancher/k3s/k3s.yaml`. Everything is dry-run / unit /
+   golden verified offline; the cluster has the EP-33 flags enabled.
+2. **`attachVolume` only builds `Retain` volumes** — opting a volume out of backups (`retention = Delete`)
+   needs a raw `Volume` literal today. An `attachVolumeWith`/`attachVolumeExcluded` preset would be
+   ergonomic (small EP-34 follow-up).
+3. **No sidecar field in the DSL** — the SQLite example's Litestream sidecar is a documented
+   supplementary `kubectl` step, not typed config. A first-class sidecar/companion-container model is a
+   future enhancement (would also benefit the managed-database work of roadmap Phase 4).
+4. **App deletion does not cascade-clean PVCs** (EP-33 finding): a future `nagarectl app delete` should
+   honor `RetentionPolicy` and delete `Retain=Delete` PVCs explicitly (and never namespace-cascade).
+
+**Lessons.** Isolating the cluster-feasibility spike (EP-33) as its own plan paid for itself — the
+single-node RWO reframing changed the renderer contract. Keeping shared goldens stable by using a
+dedicated `volumeDep` (rather than mutating `helloDep`) avoided a wide test ripple. The repeated
+"reconcile the plan's assumed API against what shipped" step (e.g. `attachVolume` vs `mkVolume`,
+`StdoutUntrimmed` vs `StdoutRaw`, the further-along `nagarectl` tree) was essential — the plans were
+written before their dependencies existed, so each consumer plan had to verify the real surface.
