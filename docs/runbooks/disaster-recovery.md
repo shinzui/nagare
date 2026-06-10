@@ -8,6 +8,12 @@ observation that confirms it worked. Run everything from the repo root
 `sops`, `age`, `jq`, and `just`. All cloud work targets project **`tan-nb-exp`**,
 region **`us-west1`**, zone **`us-west1-a`**.
 
+> For routine (non-rebuild) health checks and day-2 operations, use `nagarectl
+> server status` / `nagarectl doctor` — see
+> [`server-operations.md`](server-operations.md). This runbook is the full
+> rebuild-from-scratch sequence; `doctor` automates many of its per-step
+> "Observe:" assertions, noted inline below.
+
 ## The one thing that is NOT in Git or the bucket
 
 The **age private key** (`~/.config/sops/age/keys.txt`; on the host
@@ -37,6 +43,10 @@ Victoria metrics/logs/traces  NOT backed up (non-critical;
                             re-derived from live workloads)           -> nothing to restore
 age PRIVATE key ........... NOT in Git, NOT in the bucket; offline    -> restore from your vault
 ```
+
+`nagarectl server status` reports the **freshness** (newest-object age) of each
+`gs://tan-nb-exp-nagare-backups/` prefix (`postgres`, `litestream`, `volumes`),
+so you can confirm backups are current without a manual `gsutil ls -l`.
 
 ## Rebuild sequence
 
@@ -116,6 +126,12 @@ curl returns `200` / `Hello Nagare!`. (v1 is HTTP-first; Let's Encrypt wildcard
 TLS is enabled with `just cluster-enable-tls` once a real `baseDomain` is
 delegated — see EP-4.)
 
+> `nagarectl doctor` now checks these same assertions automatically — the
+> Knative/Kourier/cert-manager rollouts and the `letsencrypt-dns` ClusterIssuer
+> readiness — so after this step you can run `nagarectl doctor` to confirm them
+> in one graded command. The manual `kubectl`/`curl` assertions above remain the
+> ground-truth fallback when the CLI is unavailable mid-rebuild.
+
 > On a cold cluster, cert-manager/Knative images take a few minutes to pull. If a
 > rollout times out, wait and re-run `just cluster-bootstrap` (idempotent). If
 > pods are stuck `ImagePullBackOff`, confirm DNS (step 2 note) and delete the
@@ -134,6 +150,10 @@ to `local-path`. Reach Grafana with
 `kubectl port-forward -n monitoring svc/vmks-grafana 3000:80`. Dashboards under
 `cluster/observability/grafana/dashboards/` load via the sidecar. (Log search
 uses the stream selector `{kubernetes.pod_namespace="<ns>"}`.)
+
+> `nagarectl server status` reports boot- and data-disk usage (the
+> `/var/lib/nagare` data disk backs these PVCs over `local-path`), so you can spot
+> disk pressure here without an SSH `df -h`.
 
 ### 6. Restore secrets (EP-7 M1)
 
@@ -213,6 +233,12 @@ survive a reboot:
   iptables -t nat -A POSTROUTING -d 169.254.169.254/32 -j MASQUERADE
   kubectl -n kube-system rollout restart deploy/coredns
   ```
+  After a plain `start`, `nagarectl doctor` will flag the resulting downstream
+  failures (cert-manager / control-plane not ready, `Artifact Registry`
+  unreachable, stale backups) — re-apply the three commands above, then re-run
+  `nagarectl doctor` until every line is `OK`. The end-to-end walkthrough is the
+  day-2 recovery scenario in
+  [`server-operations.md`](server-operations.md#day-2-recovery-scenario-terminated--green).
 
 **Replace the VM onto the fixed image (clean boot, recommended).** A `pulumi up`
 that recreates the instance boots from `nagareImageSelfLink`

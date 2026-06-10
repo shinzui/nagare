@@ -65,24 +65,39 @@ The guide is the acceptance test.
 
 ## Progress
 
-- [ ] M1: `docs/runbooks/server-operations.md` written — one section per command (`server
-  status`, `doctor`, `domains list`, `cleanup`) with real `--help`-matched transcripts, plus
-  the end-to-end day-2 "TERMINATED → green" recovery scenario.
-- [ ] M2: `docs/runbooks/cluster-access.md` and `docs/runbooks/disaster-recovery.md` updated
-  in place to reference the new commands (health-check pointer in cluster-access; per-step
-  "doctor checks this" notes + backup-freshness pointer in disaster-recovery), cross-linked
-  to the new guide.
-- [ ] M3: every documented command and flag verified against the real `nagarectl ... --help`;
-  transcripts captured from the binary (degraded/partial form labelled as such if no cluster
-  is reachable); newcomer read-through; no bare ``` fences; links resolve.
+- [x] M1 (2026-06-10): `docs/runbooks/server-operations.md` written — a status box, "Commands at a
+  glance", one section per command (`server status`, `doctor`, `domains list`, `cleanup`) with real
+  `--help`-matched transcripts and both healthy and labelled-degraded output, the end-to-end day-2
+  "TERMINATED → green" recovery scenario, and a "How it works" callout.
+- [x] M2 (2026-06-10): `docs/runbooks/cluster-access.md` and `docs/runbooks/disaster-recovery.md`
+  updated in place — health-check pointer + top cross-link in cluster-access; in disaster-recovery a
+  top cross-link, a backup-freshness pointer, `nagarectl doctor` "checks this automatically" notes on
+  the step-4 rollout/ClusterIssuer and step-5 disk assertions, and a power-management note linking the
+  post-reboot workarounds to the day-2 scenario. All four commands now cross-link coherently.
+- [x] M3 (2026-06-10): every documented command/flag verified against the real `nagarectl ... --help`
+  (`server status`, `doctor`, `domains list`, `cleanup` — copied verbatim from the binary); transcripts
+  captured from the binary in healthy-shape + labelled degraded/partial form (VM `TERMINATED`, no tools
+  on PATH); every opening fence carries a language tag; intra-doc links and anchors resolve.
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
-(None yet.)
+- 2026-06-10 (M1): The shipped probe/command names differ from the plan's illustrative ones, so the
+  docs follow the binary: `server status` shows 18 checks with the display labels `VM` / `k3s node` /
+  `Knative controller` / `cert-manager` / `ClusterIssuer` / `Kourier ingress` / `base domain` /
+  `external-domain-tls` / `Artifact Registry` / `backup <prefix>` / `boot disk` / `data disk`, and the
+  table is a `STATUS / CHECK / DETAIL` grid (not the `....` leader-dot mock in the plan body). All
+  transcripts were copied verbatim from the real binary.
+- 2026-06-10 (M3): `nagarectl doctor` does **not** have a dedicated probe for the post-reboot host
+  workarounds (metadata route / MASQUERADE / coredns) — EP-38 ships no such probe. The day-2 scenario
+  was written truthfully: `doctor` flags the *downstream symptoms* (control planes not ready, Artifact
+  Registry unreachable, stale backups) and the guide cross-links the actual root-cause fixes to
+  `disaster-recovery.md`'s power-management section, rather than claiming `doctor` detects the
+  workarounds directly.
+- 2026-06-10 (M3): The naive bare-fence lint (`grep -n '^```$'`) flags every **closing** fence (closers
+  are always bare in GFM), so it reports false positives on all three runbooks. A state-tracking check
+  (only *opening* fences must carry a language tag) is the correct lint and passes — every opening fence
+  is tagged.
 
 
 ## Decision Log
@@ -126,10 +141,27 @@ implementation. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+Delivered the operator documentation for MasterPlan 8 and folded the four commands into
+the existing runbooks. New: `docs/runbooks/server-operations.md` — the day-2 operations
+guide with a section per command (`server status`, `doctor`, `domains list`, `cleanup`),
+real `--help`-matched transcripts, healthy + labelled-degraded output, the end-to-end
+"TERMINATED → green" recovery scenario (the plan's acceptance test), and a "How it works"
+callout. Edited in place: `docs/runbooks/cluster-access.md` now points "is it healthy?" at
+`server status` / `doctor` while keeping the SSH/kubeconfig/wrong-context access mechanics;
+`docs/runbooks/disaster-recovery.md` keeps its full rebuild sequence and manual fallbacks
+but notes where `nagarectl doctor` now checks a step's assertions, points at `server
+status` for backup freshness and disk usage, and links the post-reboot workarounds to the
+day-2 scenario. The three runbooks cross-link each other coherently.
 
-(To be filled during and after implementation.)
+Verification: every documented command and flag matches the real `nagarectl ... --help`
+(verified against the built binary); every opening code fence carries a language tag; the
+intra-doc links and section anchors resolve. The live healthy-cluster transcripts are
+shown as expected-shape blocks alongside the truthfully-labelled degraded captures (VM
+`TERMINATED`, no tools on PATH), matching how EP-32's guide handled a powered-down box.
+
+With EP-42 complete, all five child plans of MasterPlan 8 are done: an operator can now
+answer "is my platform healthy, what is wrong, what are my domains, and how do I reclaim
+disk?" entirely from `nagarectl`, with the runbooks pointing at those commands.
 
 
 ## Context and Orientation

@@ -5,6 +5,10 @@ Every step is a command plus the observation that confirms it worked. All cloud
 work targets project **`tan-nb-exp`**, region **`us-west1`**, zone
 **`us-west1-a`** (see `CLAUDE.md` — no other project, even for reads).
 
+> Once access is established, drive day-2 platform operations (health, diagnosis,
+> domains, disk cleanup) from `nagarectl` — see
+> [`server-operations.md`](server-operations.md).
+
 ## The cluster
 
 Nagare runs on one GCE VM, **`nagare-01`** (NixOS + k3s). To save cost the VM is
@@ -21,6 +25,13 @@ up. Confirm the API is live (see SSH below):
 NAME        STATUS   ROLES           AGE   VERSION
 nagare-01   Ready    control-plane   ...   v1.35.x+k3s1
 ```
+
+The fast way to answer "is the platform healthy after it boots?" is now
+`nagarectl server status` (one aligned report) or `nagarectl doctor` (a graded
+checklist with a fix command on each non-OK line), instead of eyeballing
+`kubectl get nodes` and four `kubectl rollout status` calls by hand. The
+`kubectl get nodes` confirmation above remains the low-level check; see
+[`server-operations.md`](server-operations.md) for the full command set.
 
 ## SSH access — the `deploy` user
 

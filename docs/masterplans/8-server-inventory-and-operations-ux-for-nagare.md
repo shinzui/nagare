@@ -165,7 +165,7 @@ solves this while keeping the foundation as the dependency root.
 | EP-39 | `nagarectl doctor` health checks with remediation hints | docs/plans/39-nagarectl-doctor-health-checks-with-remediation-hints.md | EP-38 | None | Complete |
 | EP-40 | `nagarectl domains list` with DNS and certificate readiness | docs/plans/40-nagarectl-domains-list-with-dns-and-certificate-readiness.md | None | EP-38 | Complete |
 | EP-41 | `nagarectl cleanup` for images, previews, and releases | docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md | None | EP-38 | Complete |
-| EP-42 | Server and operations UX docs and runbook integration | docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md | None | EP-38, EP-39, EP-40, EP-41 | Not Started |
+| EP-42 | Server and operations UX docs and runbook integration | docs/plans/42-server-and-operations-ux-docs-and-runbook-integration.md | None | EP-38, EP-39, EP-40, EP-41 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their `EP-<#>` prefix, where the number is
@@ -283,7 +283,7 @@ later plans reuse them.
 - [x] EP-40: `nagarectl domains list` command registered and rendering domains with readiness.
 - [x] EP-41: Reclaimable-image, stale-preview, and old-release detection with pure selectors tested.
 - [x] EP-41: `nagarectl cleanup` command with `--dry-run` default and `--confirm` to act.
-- [ ] EP-42: Runbooks updated to invoke the new commands; end-to-end operator walkthrough documented.
+- [x] EP-42: Runbooks updated to invoke the new commands; end-to-end operator walkthrough documented.
 
 
 ## Surprises & Discoveries
@@ -392,4 +392,49 @@ later plans reuse them.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All five child ExecPlans are complete (EP-38 → EP-42); the initiative is delivered.
+Roadmap Phase 9 / the Gap Matrix "Server inventory" row is closed: an operator now answers
+"is my platform healthy, what is wrong and how do I fix it, what are my domains, and how do
+I reclaim disk?" entirely from `nagarectl`, instead of stitching together Pulumi outputs,
+NixOS docs, `kubectl`, Grafana, `gsutil`, and runbook steps.
+
+What shipped:
+
+- **EP-38** — the reusable `Nagare.Ops.*` probe layer (`Nagare.Ops.Probe` typed model +
+  IP4 `captureTool`/`runMaybe` wrappers + seven pure parsers; `Nagare.Ops.Pulumi.stackOutput`;
+  `Nagare.Ops.Status.gatherInventory`) and `nagarectl server status` — an 18-line
+  `STATUS/CHECK/DETAIL` inventory that degrades every unreachable source to `UNKNOWN`.
+- **EP-39** — `nagarectl doctor`: `Nagare.Ops.Doctor` re-grades the same probes into an
+  `OK/WARN/FAIL` checklist with a repo-accurate fix command on each non-OK line, and exits 1
+  on any `FAIL` (scriptable).
+- **EP-40** — `nagarectl domains list`: `Nagare.Ops.Domains` with the DomainMapping/Certificate
+  extractors, computed wildcard DNS expectation, cert grader, and table; graceful TLS-disabled
+  and no-cluster handling.
+- **EP-41** — `nagarectl cleanup`: `Nagare.Ops.Cleanup` with the pure release-trim/preview-staleness/
+  image-parse selectors and `executeCleanup`; the only mutating command, dry-run by default,
+  `--confirm` to act.
+- **EP-42** — `docs/runbooks/server-operations.md` (the day-2 guide + "TERMINATED → green"
+  recovery scenario) and the `cluster-access.md` / `disaster-recovery.md` integrations.
+
+Integration points held as designed: IP1 (the `Probe`/`ProbeStatus` types) was consumed
+verbatim by EP-39/40/41 with no breaking change; IP3 (the shared `subparser` block in
+`cli/nagarectl/app/Main.hs`) accreted four new top-level commands (`server`, `doctor`,
+`domains`, `cleanup`) with no removals; IP4 (the `captureTool` degradation convention) was
+reused by EP-40 and EP-41 for missing-binary tolerance.
+
+Cross-plan lessons (see each plan's Surprises): (1) `cli/nagarectl/app/Main.hs` has no
+`cradle` dependency, so all subprocess IO for the new commands lives in library modules and
+`Main.hs` stays thin — EP-40 and EP-41 both followed this. (2) EP-38 shipped display-name
+probe keys and no separate machine key, so EP-39 keyed its knowledge base off `probeName`
+with a generic fallback (no bare red lines). (3) The CHECK column width was widened to 25 so
+`cert-manager-cainjector` fits. (4) `doctor` has no probe for the post-reboot host workarounds,
+so EP-42's recovery scenario documents it flagging the downstream symptoms and cross-links
+the root-cause fixes rather than overclaiming.
+
+Verification posture: 171 unit tests pass (pure parsers, selectors, graders, and formatters
+across all four `Nagare.Ops.*` modules). The mutating/live paths were proven deterministically
+without touching real infrastructure — `doctor`'s FAIL/exit-1 via a `gcloud` stub, graceful
+degradation via an empty PATH, `cleanup`'s dry-run-by-default — and every `--help`/transcript
+in the docs was captured from the built binary. Per the GCP project-isolation rule and because
+`nagare-01` is commonly `TERMINATED`, the live healthy-cluster runs are deferred (recorded in
+each child plan); the pure contracts and the degraded transcripts are the evidence.
