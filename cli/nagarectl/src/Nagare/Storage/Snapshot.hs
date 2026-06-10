@@ -117,6 +117,8 @@ data SnapshotJobInputs = SnapshotJobInputs
   -- ^ the @gs://@ URL from 'snapshotGsUrl'
   , sjiMountPath :: !Text
   -- ^ in-Job mount path, e.g. @/vol@
+  , sjiProject :: !Text
+  -- ^ the GCP project for the snapshot container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -124,7 +126,8 @@ data SnapshotJobInputs = SnapshotJobInputs
 -- the PVC read-only by @claimName@ (single-node RWO co-mount, proven by EP-33),
 -- runs @google/cloud-sdk:slim@ (ships @tar@/@gzip@/@gsutil@), points ADC at the
 -- node metadata IP (@GCE_METADATA_HOST@, as the Litestream example does), pins
--- the project to @tan-nb-exp@ (the in-cluster analogue of the shell preflight),
+-- the project to the configured target project (the in-cluster analogue of the
+-- shell preflight),
 -- and streams @tar … | gsutil cp - "$DEST"@ with no large temp file.
 -- @restartPolicy: Never@ + @backoffLimit: 0@ surface a failure instead of looping.
 renderSnapshotJob :: SnapshotJobInputs -> ByteString
@@ -160,7 +163,7 @@ jobValue i =
                                     .= toJSON
                                       [ envVar "DEST" (sjiDestUrl i)
                                       , envVar "GCE_METADATA_HOST" "169.254.169.254"
-                                      , envVar "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
+                                      , envVar "CLOUDSDK_CORE_PROJECT" (sjiProject i)
                                       ]
                                 , "volumeMounts"
                                     .= toJSON
@@ -200,8 +203,8 @@ jobValue i =
 -- ('pvcName'); errors if the config declares no such volume. The @timestamp@ is
 -- read from the wall clock here (the pure helpers take it as an argument so they
 -- stay deterministic).
-runSnapshot :: Deployment -> Text -> Text -> Int -> IO ()
-runSnapshot dep volume bucket keep = do
+runSnapshot :: Deployment -> Text -> Text -> Int -> Text -> IO ()
+runSnapshot dep volume bucket keep project = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       declared = map (volumeNameText . (^. #volName)) (dep ^. #volumes)
@@ -220,6 +223,7 @@ runSnapshot dep volume bucket keep = do
               , sjiClaimName = claim
               , sjiDestUrl = dest
               , sjiMountPath = "/vol"
+              , sjiProject = project
               }
       applyJob (renderSnapshotJob job)
       waitForJob ns jobName

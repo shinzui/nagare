@@ -2,7 +2,7 @@
 
 -- | @nagarectl db backup NAME@ and the scheduled-backup CronJob (MasterPlan 9,
 -- EP-47, Integration Point IP6): an engine-appropriate logical dump of a managed
--- database, uploaded to @gs://tan-nb-exp-nagare-backups/databases/\<name\>/\<ts\>.\<ext\>@,
+-- database, uploaded to @gs://\<backup-bucket>/databases/\<name\>/\<ts\>.\<ext\>@,
 -- with keep-last-N retention reusing EP-36's pure @snapshotsToPrune@.
 --
 -- The dump runs in a short-lived in-cluster Job with two containers sharing an
@@ -112,6 +112,8 @@ data BackupJobInputs = BackupJobInputs
   , bjiKeep :: !Int
   , bjiSelfPrune :: !Bool
   -- ^ when True (the CronJob), the upload container prunes inline after upload
+  , bjiProject :: !Text
+  -- ^ the GCP project for the upload container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -193,7 +195,7 @@ uploadContainer i =
           , plainEnv "PREFIX" (bjiPrefix i)
           , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
           , plainEnv "GCE_METADATA_HOST" "169.254.169.254"
-          , plainEnv "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
+          , plainEnv "CLOUDSDK_CORE_PROJECT" (bjiProject i)
           ]
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -300,8 +302,8 @@ renderBackupCronJob i =
 -- | Convenience renderer for the scheduled-backup CronJob of a database, from
 -- its identity (the values EP-45's @db create@ has on hand). Self-pruning, daily
 -- default schedule. EP-45 applies this at create time unless retention = Delete.
-renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> Text -> Int -> ByteString
-renderDbBackupCronJob ns name eng version bucket keep =
+renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> Text -> Int -> Text -> ByteString
+renderDbBackupCronJob ns name eng version bucket keep project =
   renderBackupCronJob
     BackupCronInputs
       { bciSchedule = defaultBackupSchedule
@@ -319,6 +321,7 @@ renderDbBackupCronJob ns name eng version bucket keep =
             , bjiPrefix = dbBackupPrefix bucket name
             , bjiKeep = keep
             , bjiSelfPrune = True
+            , bjiProject = project
             }
       }
 
@@ -329,8 +332,8 @@ renderDbBackupCronJob ns name eng version bucket keep =
 -- the one-shot backup Job, wait for completion, prune to keep-last-N (reusing
 -- 'snapshotsToPrune'), and (unless @--dry-run@) report the destination. With
 -- @--dry-run@, print the Job (and the CronJob) manifests and apply nothing.
-runDbBackup :: Text -> Text -> Text -> Int -> Bool -> IO ()
-runDbBackup ns name bucket keep dryRun = do
+runDbBackup :: Text -> Text -> Text -> Int -> Text -> Bool -> IO ()
+runDbBackup ns name bucket keep project dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
@@ -358,6 +361,7 @@ runDbBackup ns name bucket keep dryRun = do
                 , bjiPrefix = prefix
                 , bjiKeep = keep
                 , bjiSelfPrune = False
+                , bjiProject = project
                 }
             cronInputs =
               BackupCronInputs

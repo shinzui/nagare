@@ -53,7 +53,7 @@ import Nagare.Dsl.Types
   , quantityText
   )
 import Nagare.Env.Store (extractSecretData)
-import System.Environment (lookupEnv)
+import Nagare.Target (TargetProfile (..), resolveTargetProfile)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -135,8 +135,9 @@ runDbCreate eng nameT params = do
       -- EP-47: a managed database is backup-included by default — a daily,
       -- self-pruning CronJob — unless retention = Delete (treated as throwaway).
       backsUp = (db ^. #retention) /= Delete
-  bucket <- resolveBackupBucket
-  let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) bucket 7
+  tp <- resolveTargetProfile
+  let bucket = tpBackupBucket tp
+      cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) bucket 7 (tpProject tp)
   if dcpDryRun params
     then do
       pw <- generatePassword
@@ -178,13 +179,6 @@ readOrGeneratePassword ns name eng = do
     ExitSuccess -> case extractSecretData out of
       Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> pure pw
       _ -> generatePassword
-
--- | The GCS backup bucket for the scheduled CronJob: @NAGARE_BACKUP_BUCKET@ or
--- the default @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).
-resolveBackupBucket :: IO Text
-resolveBackupBucket = do
-  menv <- lookupEnv "NAGARE_BACKUP_BUCKET"
-  pure (maybe "tan-nb-exp-nagare-backups" T.pack menv)
 
 -- | Generate a strong password via @openssl rand -base64 24@ (~192 bits).
 generatePassword :: IO Text

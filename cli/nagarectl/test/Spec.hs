@@ -224,13 +224,48 @@ main = do
       , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
       , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
       , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
+      , testGroup "EP-62 rendered Job project" backupProjectTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows 'bjiProject'
+-- (fail-before/pass-after evidence: before M2 the value was the literal
+-- @tan-nb-exp@ regardless of inputs).
+
+backupProjectTests :: [TestTree]
+backupProjectTests =
+  [ testCase "backup Job CLOUDSDK_CORE_PROJECT defaults to tan-nb-exp" $
+      assertBool "tan-nb-exp present" ("tan-nb-exp" `T.isInfixOf` rendered "tan-nb-exp")
+  , testCase "backup Job CLOUDSDK_CORE_PROJECT follows the resolved project" $ do
+      assertBool "acme-prod present" ("acme-prod" `T.isInfixOf` rendered "acme-prod")
+      assertBool "no tan-nb-exp project leaked"
+        (not ("value: tan-nb-exp" `T.isInfixOf` rendered "acme-prod"))
+  ]
+  where
+    rendered project =
+      TE.decodeUtf8 (renderBackupJob (backupJobInputsPg {bjiProject = project}))
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Target (MasterPlan 12, EP-62): the single GCP-target resolution layer.
 -- These assertions mutate the process environment, so they run as ONE sequential
 -- testCase (tasty runs cases in parallel) and restore the original environment at
 -- the end so no other group observes the mutation.
+
+-- | A fixed 'TargetProfile' carrying the tan-nb-exp worked-example values, for
+-- tests that need a profile but assert against the historic defaults (EP-62).
+tnbProfile :: TargetProfile
+tnbProfile =
+  TargetProfile
+    { tpProject = "tan-nb-exp"
+    , tpRegion = "us-west1"
+    , tpZone = "us-west1-a"
+    , tpRegistryHost = "us-west1-docker.pkg.dev"
+    , tpArtifactRegistryId = "nagare"
+    , tpImageBucket = "tan-nb-exp-nagare-images"
+    , tpBackupBucket = "tan-nb-exp-nagare-backups"
+    , tpBaseDomain = "apps.example.com"
+    , tpInstanceName = "nagare-01"
+    }
 
 targetProfileTests :: TestTree
 targetProfileTests =
@@ -655,7 +690,7 @@ domainsTests =
 doctorTests :: [TestTree]
 doctorTests =
   [ testCase "remediationFor: OK probe has no hint" $
-      remediationFor (Probe "VM" StatusOk "RUNNING") @?= Nothing
+      remediationFor tnbProfile (Probe "VM" StatusOk "RUNNING") @?= Nothing
   , testCase "remediationFor: VM FAIL -> gcloud start" $
       cmdOf (Probe "VM" StatusFail "TERMINATED")
         `containsT` "gcloud compute instances start nagare-01 --zone=us-west1-a"
@@ -689,21 +724,21 @@ doctorTests =
   , testCase "remediationFor: uncatalogued non-OK probe gets a generic hint" $
       cmdOf (Probe "mystery" StatusFail "boom") @?= "see docs/runbooks/"
   , testCase "doctorExitOk: False iff any FAIL" $
-      doctorExitOk (gradeChecks [Probe "VM" StatusOk "RUNNING", Probe "k3s node" StatusFail "NotReady"])
+      doctorExitOk (gradeChecks tnbProfile [Probe "VM" StatusOk "RUNNING", Probe "k3s node" StatusFail "NotReady"])
         @?= False
   , testCase "doctorExitOk: True when only OK/WARN" $
-      doctorExitOk (gradeChecks [Probe "VM" StatusOk "RUNNING", Probe "backup postgres" StatusWarn "9d ago"])
+      doctorExitOk (gradeChecks tnbProfile [Probe "VM" StatusOk "RUNNING", Probe "backup postgres" StatusWarn "9d ago"])
         @?= True
   , testCase "formatDoctor: header, FAIL tag, fix line, and summary" $ do
-      let out = formatDoctor (gradeChecks [Probe "VM" StatusFail "TERMINATED", Probe "k3s node" StatusOk "Ready"])
+      let out = formatDoctor (gradeChecks tnbProfile [Probe "VM" StatusFail "TERMINATED", Probe "k3s node" StatusOk "Ready"])
       assertBool "header" ("nagare doctor — 2 checks" `T.isInfixOf` out)
       assertBool "FAIL tag" ("[FAIL]" `T.isInfixOf` out)
       assertBool "fix line" ("fix: gcloud compute instances start" `T.isInfixOf` out)
       assertBool "summary" ("1 failed, 0 warnings, 1 ok." `T.isInfixOf` out)
   ]
   where
-    cmdOf p = maybe "" remCommand (remediationFor p)
-    whyOf p = maybe "" remWhy (remediationFor p)
+    cmdOf p = maybe "" remCommand (remediationFor tnbProfile p)
+    whyOf p = maybe "" remWhy (remediationFor tnbProfile p)
     containsT hay needle = assertBool (T.unpack needle) (needle `T.isInfixOf` hay)
     startsWithT hay needle = assertBool (T.unpack needle) (needle `T.isPrefixOf` hay)
 
@@ -1870,6 +1905,7 @@ backupJobInputsPg =
     , bjiPrefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
     , bjiKeep = 7
     , bjiSelfPrune = False
+    , bjiProject = "tan-nb-exp"
     }
 
 restoreJobInputsPg :: RestoreJobInputs
@@ -1884,6 +1920,7 @@ restoreJobInputsPg =
     , rjiName = "mydb"
     , rjiSrcUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
     , rjiLiveTarget = False
+    , rjiProject = "tan-nb-exp"
     }
 
 backupRestoreTests :: [TestTree]
@@ -2062,7 +2099,7 @@ cdnProvisionTests =
         "every gcloud argv has --project=tan-nb-exp"
         (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- planActions p])
   , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
-      gcloudDnsUpsertArgs "nagare-zone" "app.example.com" "203.0.113.20"
+      gcloudDnsUpsertArgs "tan-nb-exp" "nagare-zone" "app.example.com" "203.0.113.20"
         @?= [ "dns"
             , "record-sets"
             , "create"
@@ -2073,8 +2110,12 @@ cdnProvisionTests =
             , "--zone=nagare-zone"
             , "--project=tan-nb-exp"
             ]
+  , testCase "gcloudDnsUpsertArgs: project is parameterized (EP-62)" $
+      assertBool
+        "--project follows the supplied project"
+        ("--project=acme-prod" `elem` gcloudDnsUpsertArgs "acme-prod" "z" "h" "ip")
   , testCase "gcloudBackendCacheArgs: exact argv (cache mode + default ttl + project)" $
-      gcloudBackendCacheArgs "nagare-cdn-backend" gcpCdn
+      gcloudBackendCacheArgs "tan-nb-exp" "nagare-cdn-backend" gcpCdn
         @?= [ "compute"
             , "backend-services"
             , "update"
@@ -2120,8 +2161,8 @@ cdnProvisionTests =
         , cacheRules = []
         }
     gcpTarget = CdnTarget ["app.example.com"] "203.0.113.20" "personal" "app"
-    gcpRefs = GcpStackRefs "203.0.113.20" "nagare-cdn-backend" "nagare-cdn-urlmap" "nagare-zone"
-    noRefs = GcpStackRefs "" "" "" ""
+    gcpRefs = GcpStackRefs "203.0.113.20" "nagare-cdn-backend" "nagare-cdn-urlmap" "nagare-zone" "tan-nb-exp"
+    noRefs = GcpStackRefs "" "" "" "" "tan-nb-exp"
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Cdn.Status (EP-58): the cdn list/status formatters.

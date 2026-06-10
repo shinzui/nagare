@@ -60,6 +60,8 @@ data RestoreJobInputs = RestoreJobInputs
   , rjiName :: !Text
   , rjiSrcUrl :: !Text
   , rjiLiveTarget :: !Bool
+  , rjiProject :: !Text
+  -- ^ the GCP project for the download container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -114,7 +116,7 @@ downloadContainer i =
         .= toJSON
           [ plainEnv "SRC" (rjiSrcUrl i)
           , plainEnv "GCE_METADATA_HOST" "169.254.169.254"
-          , plainEnv "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
+          , plainEnv "CLOUDSDK_CORE_PROJECT" (rjiProject i)
           ]
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -202,8 +204,8 @@ warn True = "echo 'WARNING: restoring into the LIVE database'; "
 warn False = ""
 
 -- | Run @db restore NAME BACKUP_ID@.
-runDbRestore :: Text -> Text -> Text -> Bool -> Text -> Bool -> IO ()
-runDbRestore ns name backupId live bucket dryRun = do
+runDbRestore :: Text -> Text -> Text -> Bool -> Text -> Text -> Bool -> IO ()
+runDbRestore ns name backupId live bucket project dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
@@ -226,6 +228,7 @@ runDbRestore ns name backupId live bucket dryRun = do
                 , rjiName = name
                 , rjiSrcUrl = src
                 , rjiLiveTarget = live
+                , rjiProject = project
                 }
         if dryRun
           then do

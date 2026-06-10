@@ -13,7 +13,7 @@
 -- pure and unit-tested.
 module Nagare.Ops.Status
   ( gatherInventory
-  , defaultInventoryOpts
+  , inventoryOptsFor
   ) where
 
 import Nagare.Dsl.Prelude
@@ -30,31 +30,29 @@ import Data.Time.Format.ISO8601 (iso8601ParseM)
 
 import Nagare.Ops.Probe
 import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Target (TargetProfile (..), registryPrefix)
 
--- | The default inventory knobs: zone @us-west1-a@, instance @nagare-01@,
--- Pulumi project @infra/pulumi@, disk probe enabled.
-defaultInventoryOpts :: InventoryOpts
-defaultInventoryOpts =
+-- | The inventory knobs derived from a resolved 'TargetProfile' (EP-62): the zone
+-- and instance come from the profile; the Pulumi project dir is fixed and the
+-- disk probe is enabled.
+inventoryOptsFor :: TargetProfile -> InventoryOpts
+inventoryOptsFor tp =
   InventoryOpts
-    { ioZone = "us-west1-a"
-    , ioInstance = "nagare-01"
+    { ioZone = tpZone tp
+    , ioInstance = tpInstanceName tp
     , ioPulumiDir = "infra/pulumi"
     , ioSkipVm = False
     }
 
--- | The GCS backup bucket fallback (the Pulumi @backupBucket@ output is read
--- first; this is used only when Pulumi is unreachable).
-defaultBackupBucket :: Text
-defaultBackupBucket = "tan-nb-exp-nagare-backups"
-
 -- | Run every probe in report order and assemble the inventory. The Pulumi
 -- stack outputs (@publicIp@, @baseDomain@, @backupBucket@) are read once up
--- front and threaded into the probes that cross-check against them.
-gatherInventory :: InventoryOpts -> IO [Probe]
-gatherInventory o = do
+-- front and threaded into the probes that cross-check against them. The backup
+-- bucket falls back to the resolved profile's bucket when Pulumi is unreachable.
+gatherInventory :: TargetProfile -> InventoryOpts -> IO [Probe]
+gatherInventory tp o = do
   publicIp <- stackOutput (ioPulumiDir o) "publicIp"
   baseDomain <- stackOutput (ioPulumiDir o) "baseDomain"
-  bucket <- maybe defaultBackupBucket id <$> stackOutput (ioPulumiDir o) "backupBucket"
+  bucket <- maybe (tpBackupBucket tp) id <$> stackOutput (ioPulumiDir o) "backupBucket"
   core <-
     sequence
       [ probeVm o
@@ -70,7 +68,7 @@ gatherInventory o = do
       , probeKourierIp publicIp
       , probeBaseDomain baseDomain
       , probeTls
-      , probeRegistryAuth
+      , probeRegistryAuth tp
       , probeBackup bucket "postgres"
       , probeBackup bucket "litestream"
       , probeBackup bucket "volumes"
@@ -161,12 +159,21 @@ probeTls = do
       then Probe "external-domain-tls" StatusOk "Enabled"
       else Probe "external-domain-tls" StatusWarn (val <> " (HTTP-first until base domain is real)")
 
--- | Artifact Registry push auth via @gcloud artifacts repositories describe@.
-probeRegistryAuth :: IO Probe
-probeRegistryAuth = do
-  m <- captureTool "gcloud" ["artifacts", "repositories", "describe", "nagare", "--location=us-west1"]
+-- | Artifact Registry push auth via @gcloud artifacts repositories describe@,
+-- against the resolved profile's registry id and region (EP-62).
+probeRegistryAuth :: TargetProfile -> IO Probe
+probeRegistryAuth tp = do
+  m <-
+    captureTool
+      "gcloud"
+      [ "artifacts"
+      , "repositories"
+      , "describe"
+      , T.unpack (tpArtifactRegistryId tp)
+      , "--location=" <> T.unpack (tpRegion tp)
+      ]
   pure $ case m of
-    Just _ -> Probe "Artifact Registry" StatusOk "us-west1-docker.pkg.dev/tan-nb-exp/nagare reachable"
+    Just _ -> Probe "Artifact Registry" StatusOk (registryPrefix tp <> " reachable")
     Nothing -> Probe "Artifact Registry" StatusUnknown "gcloud unavailable or no access"
 
 -- | The age of the newest object in a backup prefix via @gsutil ls -l@.

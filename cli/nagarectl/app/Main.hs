@@ -150,7 +150,8 @@ import Nagare.Ops.Domains
   )
 import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
-import Nagare.Ops.Status (defaultInventoryOpts, gatherInventory)
+import Nagare.Ops.Status (inventoryOptsFor, gatherInventory)
+import Nagare.Target (TargetProfile (..), resolveTargetProfile)
 import Nagare.Static.Deploy
   ( DeployInputs (..)
   , StaticManifests (..)
@@ -912,7 +913,7 @@ dbBackupBucketOpt =
     ( strOption
         ( long "bucket"
             <> metavar "BUCKET"
-            <> help "GCS backup bucket (overrides NAGARE_BACKUP_BUCKET, default tan-nb-exp-nagare-backups)"
+            <> help "GCS backup bucket (overrides the target profile NAGARE_BACKUP_BUCKET / <project>-nagare-backups)"
         )
     )
 
@@ -1282,7 +1283,7 @@ opts =
                                 ( strOption
                                     ( long "bucket"
                                         <> metavar "BUCKET"
-                                        <> help "GCS backup bucket (overrides NAGARE_BACKUP_BUCKET, default tan-nb-exp-nagare-backups)"
+                                        <> help "GCS backup bucket (overrides the target profile NAGARE_BACKUP_BUCKET / <project>-nagare-backups)"
                                     )
                                 )
                               <*> option
@@ -1451,8 +1452,9 @@ main =
 -- @doctor@).
 runServerStatus :: ServerStatusOpts -> IO ()
 runServerStatus o = do
-  let invOpts = defaultInventoryOpts {ioSkipVm = ssSkipVm o}
-  probes <- gatherInventory invOpts
+  tp <- resolveTargetProfile
+  let invOpts = (inventoryOptsFor tp) {ioSkipVm = ssSkipVm o}
+  probes <- gatherInventory tp invOpts
   TIO.putStr (renderInventory probes)
 
 -- | @doctor@: gather EP-38's probes, re-grade them into a remediation checklist,
@@ -1462,9 +1464,10 @@ runServerStatus o = do
 -- always printed; only the exit code varies).
 runDoctor :: DoctorOpts -> IO ()
 runDoctor o = do
-  let invOpts = defaultInventoryOpts {ioSkipVm = dSkipVm o}
-  probes <- gatherInventory invOpts
-  let checks = gradeChecks probes
+  tp <- resolveTargetProfile
+  let invOpts = (inventoryOptsFor tp) {ioSkipVm = dSkipVm o}
+  probes <- gatherInventory tp invOpts
+  let checks = gradeChecks tp probes
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
@@ -1557,7 +1560,8 @@ runCdnPurge o = do
 runCdnDisable :: CdnDisableOpts -> IO ()
 runCdnDisable o = do
   let host = T.pack (cdoHost o)
-  refs <- gatherGcpStackRefs
+  tp <- resolveTargetProfile
+  refs <- gatherGcpStackRefs tp
   let gArgs =
         [ "dns"
         , "record-sets"
@@ -1565,7 +1569,7 @@ runCdnDisable o = do
         , host <> "."
         , "--type=A"
         , "--zone=" <> gsrDnsZone refs
-        , "--project=tan-nb-exp"
+        , "--project=" <> tpProject tp
         ]
   if cdoDryRun o
     then do
@@ -1580,7 +1584,7 @@ runCdnDisable o = do
           dieT
             ( "cdn disable: could not delete the Cloud DNS record for "
                 <> host
-                <> " (is it a Google-CDN hostname? is gcloud configured for tan-nb-exp?)"
+                <> " (is it a Google-CDN hostname? is gcloud configured for " <> tpProject tp <> "?)"
             )
 
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
@@ -1835,7 +1839,8 @@ cdnDeployStep :: Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
 cdnDeployStep _ Nothing _ _ _ = pure ()
 cdnDeployStep dry (Just c) hostnames ns service = do
   originIp <- fromMaybe "<publicIp>" <$> stackOutput "infra/pulumi" "publicIp"
-  refs <- gatherGcpStackRefs
+  tp <- resolveTargetProfile
+  refs <- gatherGcpStackRefs tp
   let target = CdnTarget {cdnHostnames = hostnames, cdnOriginIp = originIp, cdnNamespace = ns, cdnService = service}
   if dry
     then TIO.putStr (renderCdnPlan (planCdn c target refs))
@@ -1847,14 +1852,15 @@ cdnDeployStep dry (Just c) hostnames ns service = do
 
 -- | Read the four EP-56 Google stack outputs, with a clear placeholder when an
 -- output is absent (the CDN load balancer is disabled, or Pulumi is unavailable).
-gatherGcpStackRefs :: IO GcpStackRefs
-gatherGcpStackRefs = do
+gatherGcpStackRefs :: TargetProfile -> IO GcpStackRefs
+gatherGcpStackRefs tp = do
   let so name = fromMaybe ("<" <> name <> ">") <$> stackOutput "infra/pulumi" name
   GcpStackRefs
     <$> so "cdnGlobalIp"
     <*> so "cdnBackendService"
     <*> so "cdnUrlMap"
     <*> so "dnsZoneName"
+    <*> pure (tpProject tp)
 
 -- | The custom-domain hostnames of a site (in declaration order) — the hostnames
 -- a CDN fronts.
@@ -2228,8 +2234,9 @@ runStorage = \case
     runStorageInspect dep (T.pack vol)
   StorageSnapshot copts vol bucket keep -> do
     dep <- resolveStorageDep copts
+    tp <- resolveTargetProfile
     b <- resolveBackupBucket bucket
-    runSnapshot dep (T.pack vol) b keep
+    runSnapshot dep (T.pack vol) b keep (tpProject tp)
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
@@ -2262,11 +2269,13 @@ runDb = \case
         , ddpDryRun = dbdDryRun o
         }
   DbBackup o -> do
+    tp <- resolveTargetProfile
     bucket <- resolveBackupBucket (dbbBucket o)
-    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) bucket (dbbKeep o) (dbbDryRun o)
+    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) bucket (dbbKeep o) (tpProject tp) (dbbDryRun o)
   DbRestore o -> do
+    tp <- resolveTargetProfile
     bucket <- resolveBackupBucket (dbrBucket o)
-    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (dbrDryRun o)
+    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (tpProject tp) (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
 
@@ -2312,13 +2321,12 @@ runTask = \case
     scopeOfMaybe Nothing = AnyApp
     scopeOfMaybe (Just a) = scopeOf a
 
--- | Resolve the GCS backup bucket: @--bucket@, then @NAGARE_BACKUP_BUCKET@,
--- defaulting to @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).
+-- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
+-- the resolved target profile's backup bucket (EP-62; honors
+-- @NAGARE_BACKUP_BUCKET@ and the @\<project>-nagare-backups@ derivation).
 resolveBackupBucket :: Maybe String -> IO Text
 resolveBackupBucket (Just b) = pure (T.pack b)
-resolveBackupBucket Nothing = do
-  menv <- lookupEnv "NAGARE_BACKUP_BUCKET"
-  pure (maybe "tan-nb-exp-nagare-backups" T.pack menv)
+resolveBackupBucket Nothing = tpBackupBucket <$> resolveTargetProfile
 
 runEnv :: EnvCommand -> IO ()
 runEnv = \case
@@ -2480,13 +2488,12 @@ dieT msg = do
   TIO.hPutStrLn stderr ("nagarectl: " <> msg)
   exitFailure
 
--- | Resolve the apps base domain from @--base-domain@, then
--- @NAGARE_BASE_DOMAIN@, defaulting to @"apps.example.com"@.
+-- | Resolve the apps base domain: an explicit @--base-domain@ flag wins;
+-- otherwise the resolved target profile's base domain (EP-62; honors
+-- @NAGARE_BASE_DOMAIN@, default @"apps.example.com"@).
 resolveBaseDomain :: Maybe String -> IO Text
 resolveBaseDomain (Just bd) = pure (T.pack bd)
-resolveBaseDomain Nothing = do
-  menv <- lookupEnv "NAGARE_BASE_DOMAIN"
-  pure $ maybe "apps.example.com" T.pack menv
+resolveBaseDomain Nothing = tpBaseDomain <$> resolveTargetProfile
 
 -- | If a GHC package-environment file is given (via @--ghc-env@ or
 -- @NAGARE_GHC_ENVIRONMENT@), export it as @GHC_ENVIRONMENT@ (absolute) so the

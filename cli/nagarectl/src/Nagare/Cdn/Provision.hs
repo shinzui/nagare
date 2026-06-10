@@ -68,6 +68,8 @@ data GcpStackRefs = GcpStackRefs
   , gsrBackendService :: !Text
   , gsrUrlMap :: !Text
   , gsrDnsZone :: !Text
+  , gsrProject :: !Text
+  -- ^ the GCP project the gcloud argv target (EP-62; from 'Nagare.Target.tpProject')
   }
   deriving stock (Generic, Eq, Show)
 
@@ -97,7 +99,7 @@ data CdnAction
 -- the origin-TLS mode, and applies the cache rules. Google writes a more-specific
 -- Cloud DNS A record at the anycast IP (so the hostname wins over the wildcard)
 -- and updates the backend service's cache behaviour — both as @gcloud@ argv that
--- already carry @--project=tan-nb-exp@.
+-- already carry @--project=\<target-project>@ (EP-62: from 'gsrProject').
 planCdn :: Cdn -> CdnTarget -> GcpStackRefs -> CdnPlan
 planCdn cdn target refs =
   case provider cdn of
@@ -114,10 +116,10 @@ cloudflareActions cdn target =
 
 gcpActions :: Cdn -> CdnTarget -> GcpStackRefs -> [CdnAction]
 gcpActions cdn target refs =
-  [ GcloudCmd (gcloudDnsUpsertArgs (gsrDnsZone refs) h (gsrGlobalIp refs))
+  [ GcloudCmd (gcloudDnsUpsertArgs (gsrProject refs) (gsrDnsZone refs) h (gsrGlobalIp refs))
   | h <- cdnHostnames target
   ]
-    ++ [GcloudCmd (gcloudBackendCacheArgs (gsrBackendService refs) cdn)]
+    ++ [GcloudCmd (gcloudBackendCacheArgs (gsrProject refs) (gsrBackendService refs) cdn)]
 
 -- | The description of an edge TTL for a plan line: @Just n@ -> @"<n>s"@,
 -- @Nothing@ -> @"never"@ (a never-cache / bypass rule).
@@ -126,11 +128,11 @@ ttlDesc Nothing = "never"
 ttlDesc (Just n) = tshow n <> "s"
 
 -- | The exact @gcloud dns record-sets create@ argv for a more-specific A record
--- pointing @hostname@ at @ip@ in @zone@. Carries @--project=tan-nb-exp@ per the
--- repo isolation policy. @disable@ later deletes this exact record so the
+-- pointing @hostname@ at @ip@ in @zone@. Carries @--project=\<project>@ per the
+-- repo isolation policy (EP-62). @disable@ later deletes this exact record so the
 -- hostname falls back to the @*.<baseDomain>@ wildcard / VM.
-gcloudDnsUpsertArgs :: Text -> Text -> Text -> [Text]
-gcloudDnsUpsertArgs zone hostname ip =
+gcloudDnsUpsertArgs :: Text -> Text -> Text -> Text -> [Text]
+gcloudDnsUpsertArgs project zone hostname ip =
   [ "dns"
   , "record-sets"
   , "create"
@@ -139,15 +141,15 @@ gcloudDnsUpsertArgs zone hostname ip =
   , "--ttl=300"
   , "--rrdatas=" <> ip
   , "--zone=" <> zone
-  , "--project=tan-nb-exp"
+  , "--project=" <> project
   ]
 
 -- | The exact @gcloud compute backend-services update@ argv applying this site's
 -- cache behaviour on top of EP-56's standing backend service. @cacheStaticAssets@
 -- selects @CACHE_ALL_STATIC@ (else @USE_ORIGIN_HEADERS@); a default TTL adds
--- @--default-ttl@. Carries @--project=tan-nb-exp@.
-gcloudBackendCacheArgs :: Text -> Cdn -> [Text]
-gcloudBackendCacheArgs backendService cdn =
+-- @--default-ttl@. Carries @--project=\<project>@ (EP-62).
+gcloudBackendCacheArgs :: Text -> Text -> Cdn -> [Text]
+gcloudBackendCacheArgs project backendService cdn =
   [ "compute"
   , "backend-services"
   , "update"
@@ -155,7 +157,7 @@ gcloudBackendCacheArgs backendService cdn =
   , "--cache-mode=" <> cacheMode
   ]
     ++ maybe [] (\t -> ["--default-ttl=" <> tshow t]) (defaultTtlSeconds cdn)
-    ++ ["--project=tan-nb-exp"]
+    ++ ["--project=" <> project]
   where
     cacheMode
       | cacheStaticAssets cdn = "CACHE_ALL_STATIC"

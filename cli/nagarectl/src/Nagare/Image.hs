@@ -27,10 +27,7 @@ import Cradle
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText)
-
--- | Artifact Registry host for Docker credential configuration.
-registryHost :: String
-registryHost = "us-west1-docker.pkg.dev"
+import Nagare.Target (TargetProfile (..), resolveTargetProfile)
 
 -- | Compute a deploy tag: UTC timestamp in @YYYYMMDD-HHMMSS@ format.
 computeTag :: IO Text
@@ -94,14 +91,17 @@ buildNixpacks :: Text -> FilePath -> [(Text, Text)] -> IO ()
 buildNixpacks ref context args =
   run_ $ cmd "nixpacks" & addArgs (nixpacksBuildArgs ref context args)
 
--- | Run @gcloud auth configure-docker us-west1-docker.pkg.dev --quiet@. This
+-- | Run @gcloud auth configure-docker \<host> --quiet@ for the resolved Artifact
+-- Registry host (EP-62; the host comes from 'Nagare.Target.tpRegistryHost', so an
+-- operator's configured target retargets Docker auth without code edits). This
 -- writes a Docker credential-helper entry so subsequent pushes authenticate
 -- automatically against Artifact Registry.
 configureDockerAuth :: IO ()
-configureDockerAuth =
+configureDockerAuth = do
+  tp <- resolveTargetProfile
   run_ $
     cmd "gcloud"
-      & addArgs ["auth", "configure-docker", registryHost, "--quiet"]
+      & addArgs ["auth", "configure-docker", T.unpack (tpRegistryHost tp), "--quiet"]
 
 -- | Run @docker push \<image:tag\>@.
 pushImage :: Text -> IO ()

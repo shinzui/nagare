@@ -33,6 +33,7 @@ import Nagare.Dsl.Prelude
 import Data.Text qualified as T
 
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
+import Nagare.Target (TargetProfile (..))
 
 -- ---------------------------------------------------------------------------
 -- Model
@@ -58,35 +59,35 @@ data Check = Check
 
 -- | Grade probes into checks, preserving EP-38's probe order so the checklist
 -- reads top-down exactly like @server status@.
-gradeChecks :: [Probe] -> [Check]
-gradeChecks = map (\p -> Check p (remediationFor p))
+gradeChecks :: TargetProfile -> [Probe] -> [Check]
+gradeChecks tp = map (\p -> Check p (remediationFor tp p))
 
 -- | The knowledge base: map a probe to a remediation hint. 'Nothing' for an
 -- @OK@ probe. A 'StatusUnknown' probe always yields a @"could not check; …"@
 -- hint (it renders as @WARN@, never @FAIL@). All other non-OK probes get the
 -- catalogued /why/ and command, falling back to a generic pointer for any probe
 -- name not yet catalogued.
-remediationFor :: Probe -> Maybe Remediation
-remediationFor p = case probeStatus p of
+remediationFor :: TargetProfile -> Probe -> Maybe Remediation
+remediationFor tp p = case probeStatus p of
   StatusOk -> Nothing
   StatusUnknown ->
     Just
       Remediation
         { remWhy = "could not check; " <> probeDetail p
-        , remCommand = command (probeName p)
+        , remCommand = command tp (probeName p)
         }
   _ ->
     Just
       Remediation
-        { remWhy = why (probeName p) (probeDetail p)
-        , remCommand = command (probeName p)
+        { remWhy = why tp (probeName p) (probeDetail p)
+        , remCommand = command tp (probeName p)
         }
 
 -- | The catalogued plain-language /why/ for a non-OK probe name. Falls back to
 -- echoing the live detail when the name is not catalogued.
-why :: Text -> Text -> Text
-why name detail
-  | name == "VM" = "The VM nagare-01 is powered off."
+why :: TargetProfile -> Text -> Text -> Text
+why tp name detail
+  | name == "VM" = "The VM " <> tpInstanceName tp <> " is powered off."
   | name == "k3s node" = "kubectl cannot reach the k3s cluster (or your context points at the wrong cluster)."
   | isDeploy name = "The " <> name <> " control plane is not ready."
   | name == "ClusterIssuer" = "TLS issuance is not ready."
@@ -100,9 +101,10 @@ why name detail
 
 -- | The catalogued remediation command for a probe name (used for both @FAIL@
 -- and @UNKNOWN@ — the fix is the same: make the source reachable / healthy).
-command :: Text -> Text
-command name
-  | name == "VM" = "gcloud compute instances start nagare-01 --zone=us-west1-a"
+command :: TargetProfile -> Text -> Text
+command tp name
+  | name == "VM" =
+      "gcloud compute instances start " <> tpInstanceName tp <> " --zone=" <> tpZone tp
   | name == "k3s node" =
       "point kubectl at the k3s cluster — the workstation default context often points at the unrelated "
         <> "GKE cluster tan-cluster; retrieve the k3s kubeconfig per docs/runbooks/cluster-access.md"
@@ -122,7 +124,7 @@ command name
       "expected while the base domain is the placeholder apps.example.com; "
         <> "enable once a real DNS-01-capable domain is set (cluster/bootstrap/net-certmanager/README.md)"
   | name == "Artifact Registry" =
-      "gcloud auth configure-docker us-west1-docker.pkg.dev; "
+      "gcloud auth configure-docker " <> tpRegistryHost tp <> "; "
         <> "verify the nagare-node service account holds roles/artifactregistry.writer"
   | isDisk name =
       "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 scripts/iap-ssh.sh ssh nagare-01 -- 'df -h'; "

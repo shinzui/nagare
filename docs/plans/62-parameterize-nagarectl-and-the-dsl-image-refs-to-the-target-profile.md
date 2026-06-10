@@ -70,16 +70,22 @@ This section must always reflect the actual current state of the work.
 - [x] M1.3 — Added the `Nagare.Target (EP-62)` group to `cli/nagarectl/test/Spec.hs` (one
       sequential, env-restoring `testCase` covering defaults, project/region override + derivation,
       and explicit-derived-wins); `cabal test` green (247 tests). (2026-06-10)
-- [ ] M2.1 — Thread `TargetProfile` (or its fields) through `Nagare.Image` (remove `registryHost`),
-      `Nagare.Ops.Status` (remove `defaultInventoryOpts` literals + `defaultBackupBucket`),
-      `Nagare.Ops.Probe.InventoryOpts` consumers, and `Nagare.Ops.Doctor` remediation strings.
-- [ ] M2.2 — Remove the two `--project=tan-nb-exp` literals in `Nagare.Cdn.Provision` by adding a
-      project field to `GcpStackRefs`, and the one in `app/Main.hs`'s `runCdnDisable`.
-- [ ] M2.3 — Parameterize the rendered Job env (`CLOUDSDK_CORE_PROJECT`) in
-      `Nagare.Database.Backup`, `Nagare.Database.Restore`, and `Nagare.Storage.Snapshot`.
-- [ ] M2.4 — Unify the two `resolveBackupBucket` functions (`app/Main.hs` and
-      `Nagare.Database.Create`) and the registry strings on the profile; remove every remaining
-      `tan-nb-exp`/`us-west1` literal under `cli/nagarectl/src` and `app/`. `cabal test` green.
+- [x] M2.1 — Threaded `TargetProfile` through `Nagare.Image` (`registryHost` constant removed;
+      `configureDockerAuth` resolves the profile internally), `Nagare.Ops.Status`
+      (`defaultInventoryOpts`→`inventoryOptsFor tp`, `defaultBackupBucket` removed, `gatherInventory`/
+      `probeRegistryAuth` take `tp`), and `Nagare.Ops.Doctor` (`gradeChecks`/`remediationFor`/`why`/
+      `command` take `tp`; instance/zone/registry-host interpolated). (2026-06-10)
+- [x] M2.2 — Removed the two `--project=tan-nb-exp` literals in `Nagare.Cdn.Provision` via a new
+      `gsrProject` field + leading project args on `gcloudDnsUpsertArgs`/`gcloudBackendCacheArgs`, and
+      the `runCdnDisable` literals in `app/Main.hs`. (2026-06-10)
+- [x] M2.3 — Parameterized the rendered Job env (`CLOUDSDK_CORE_PROJECT`) in
+      `Nagare.Database.Backup` (`bjiProject`), `Nagare.Database.Restore` (`rjiProject`), and
+      `Nagare.Storage.Snapshot` (`sjiProject`); threaded through `runDbBackup`/`runDbRestore`/
+      `runSnapshot`/`renderDbBackupCronJob`. (2026-06-10)
+- [x] M2.4 — Unified backup-bucket/base-domain resolution on the profile (`Database.Create` resolves
+      `resolveTargetProfile`; `app/Main.hs` `resolveBackupBucket`/`resolveBaseDomain` fall back to the
+      profile); removed every `tan-nb-exp`/behavioral `us-west1` literal under `cli/nagarectl/src` and
+      `app/`. `cabal test` green (250 tests). (2026-06-10)
 - [ ] M3.1 — Add the image-prefix derivation in `cli/nagare-dsl` (`Nagare.Dsl.Image`):
       `imageRefFromName`/`mkImageName` joining `<host>/<project>/<repo-id>/<name>`, keeping
       `mkImageRef` for fully-qualified refs.
@@ -95,7 +101,24 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Deviation from the plan's stated signatures for three IO helpers, recorded as an autonomous
+  decision: `configureDockerAuth :: IO ()`, `resolveBackupBucket :: Maybe String -> IO Text`, and
+  `resolveBaseDomain :: Maybe String -> IO Text` **resolve the profile internally** (via
+  `resolveTargetProfile`) instead of taking a `TargetProfile` parameter. Rationale: the plan proposed
+  threading `tp` into these, but `configureDockerAuth` is called from three deploy modules
+  (`Nagare.Server.Deploy`, `Nagare.Static.Deploy`, `app/Main.hs`) and `resolveBaseDomain` from six
+  handlers; threading a parameter would cascade signature changes through deploy functions that have
+  no other need for the profile. Internal resolution keeps every call site unchanged, is equally
+  correct (a few extra `lookupEnv` calls per command — negligible), and the plan itself sanctions
+  this pattern for `Database.Create` ("OR call `resolveTargetProfile` directly in the create
+  handler"). The job renderers and `gatherInventory`/`gradeChecks`/the CDN argv builders still take
+  the project/profile explicitly as the plan specifies, because those are pure and their callers
+  already resolve `tp`. (2026-06-10)
+- The `Spec.hs` env-mutating `Nagare.Target` test group plus the new env-backed helpers exposed a
+  parallelism hazard: `tasty` runs cases concurrently and these mutate global process env. Mitigated
+  by collapsing the target tests into one sequential, env-restoring `testCase` (saves/restores all
+  nine vars via `finally`). The new `backupProjectTests` build records directly (no env), so they are
+  race-free. (2026-06-10)
 
 
 ## Decision Log
