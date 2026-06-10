@@ -182,6 +182,9 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
+import Nagare.Target (TargetProfile (..), resolveTargetProfile, registryPrefix)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
+import Control.Exception (finally)
 
 main :: IO ()
 main = do
@@ -220,6 +223,56 @@ main = do
       , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
       , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
       , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
+      , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
+      ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Target (MasterPlan 12, EP-62): the single GCP-target resolution layer.
+-- These assertions mutate the process environment, so they run as ONE sequential
+-- testCase (tasty runs cases in parallel) and restore the original environment at
+-- the end so no other group observes the mutation.
+
+targetProfileTests :: TestTree
+targetProfileTests =
+  testCase "resolveTargetProfile honors env vars and falls back to defaults" $ do
+    saved <- traverse (\v -> (,) v <$> lookupEnv v) allTargetVars
+    let restore =
+          mapM_
+            (\(v, m) -> maybe (unsetEnv v) (setEnv v) m)
+            saved
+    flip finally restore $ do
+      -- (1) nothing set: defaults reproduce the tan-nb-exp worked example.
+      mapM_ unsetEnv allTargetVars
+      tp0 <- resolveTargetProfile
+      tpProject tp0 @?= "tan-nb-exp"
+      tpRegion tp0 @?= "us-west1"
+      tpZone tp0 @?= "us-west1-a"
+      tpRegistryHost tp0 @?= "us-west1-docker.pkg.dev"
+      tpImageBucket tp0 @?= "tan-nb-exp-nagare-images"
+      tpBackupBucket tp0 @?= "tan-nb-exp-nagare-backups"
+      registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
+      -- (2) project + region override; host derives from region, buckets from project.
+      mapM_ unsetEnv allTargetVars
+      setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
+      setEnv "CLOUDSDK_COMPUTE_REGION" "europe-west1"
+      tp1 <- resolveTargetProfile
+      tpProject tp1 @?= "acme-prod"
+      tpRegistryHost tp1 @?= "europe-west1-docker.pkg.dev"
+      tpBackupBucket tp1 @?= "acme-prod-nagare-backups"
+      registryPrefix tp1 @?= "europe-west1-docker.pkg.dev/acme-prod/nagare"
+      -- (3) explicit derived vars win over the derivation.
+      mapM_ unsetEnv allTargetVars
+      setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
+      setEnv "NAGARE_REGISTRY_HOST" "custom.registry.example"
+      setEnv "NAGARE_BACKUP_BUCKET" "my-bucket"
+      tp2 <- resolveTargetProfile
+      tpRegistryHost tp2 @?= "custom.registry.example"
+      tpBackupBucket tp2 @?= "my-bucket"
+  where
+    allTargetVars =
+      [ "CLOUDSDK_CORE_PROJECT", "CLOUDSDK_COMPUTE_REGION", "CLOUDSDK_COMPUTE_ZONE"
+      , "NAGARE_REGISTRY_HOST", "NAGARE_ARTIFACT_REGISTRY_ID", "NAGARE_IMAGE_BUCKET"
+      , "NAGARE_BACKUP_BUCKET", "NAGARE_BASE_DOMAIN", "NAGARE_INSTANCE_NAME"
       ]
 
 -- ---------------------------------------------------------------------------
