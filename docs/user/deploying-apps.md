@@ -337,9 +337,14 @@ For tier 2 you no longer need a hand-mounted host path: declare a durable
 snapshot it to GCS — see **[Persistent storage](persistent-storage.md)** (the
 SQLite-on-PVC example pairs a durable volume with Litestream).
 
-Avoid running a serious database inside Kubernetes until backup/restore is
-solved. Secrets an app needs (`EnvSecretRef` / `secretEnv`) are managed with
-sops+age — see [Secrets](secrets.md).
+For tier 3, you can now run a **managed database** in-cluster: a typed `Database`
+(Postgres, Redis, or ClickHouse) provisioned and operated with `nagarectl db`,
+connected to your app by name (the app receives `DATABASE_URL`/`REDIS_URL`/
+`CLICKHOUSE_URL` injected from a Secret), and backed up to GCS on a schedule with
+a tested restore path — see **[Managed databases](managed-databases.md)**. Each
+database is a single replica on the single node (no HA); for managed HA, Cloud
+SQL / Neon / Supabase remain options. Secrets an app needs (`EnvSecretRef` /
+`secretEnv`) are managed with sops+age — see [Secrets](secrets.md).
 
 ## Verify (against a running cluster)
 

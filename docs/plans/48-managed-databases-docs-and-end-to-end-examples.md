@@ -127,20 +127,23 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: `docs/user/managed-databases.md` written (concepts → typed `Database` config → `nagarectl db`
-  lifecycle → connecting an app + per-engine connection-env table → backups/restore + restore drill →
-  the single-node/single-replica/ClickHouse-memory/ClusterIP constraints); linked from
-  `docs/user/README.md`, `docs/user/deploying-apps.md`, and cross-linked with
-  `docs/user/backups-and-disaster-recovery.md`. Every command and variable name reconciled against what
-  EP-44/45/46/47 actually shipped (verify the real CLI `--help` and the real `--dry-run` output).
-- [ ] M2: Three example directories created — `cluster/examples/postgres-app/`,
-  `cluster/examples/redis-cache/`, and `cluster/examples/clickhouse-analytics/` — each with a
-  `nagare/Config.hs` (a `Database` and an app `Deployment` that references it) and a `README.md`. Each
-  renders via `nagarectl db create ... --dry-run` and `nagarectl deploy --dry-run` (Config valid,
-  manifests render, connection env injected). READMEs complete.
-- [ ] M3: One live end-to-end run plus a restore drill on a disposable database on the VM — or
-  deferred-with-explicit-instructions per the EP-37 precedent, capturing transcripts into the docs and
-  example READMEs.
+- [x] M1 (2026-06-10): `docs/user/managed-databases.md` written (concepts → typed `Database` config →
+  `nagarectl db` lifecycle → connecting an app + per-engine connection-env table → backups/restore +
+  restore drill → single-node/ClickHouse-memory/ClusterIP constraints), reconciled against the shipped
+  surface (modern versions 18/8/25.8; ClickHouse connection port 9000; the real IP5 env table; the
+  GCS-routing blocker). Linked from `docs/user/README.md` (index sub-bullet + status row),
+  `docs/user/deploying-apps.md` (data-tier section), and cross-linked with
+  `docs/user/backups-and-disaster-recovery.md`. Every opening fence tagged.
+- [x] M2 (2026-06-10): Three example directories created — `postgres-app`, `redis-cache`,
+  `clickhouse-analytics` — each with `nagare/Database.hs` (typed `Database`), `nagare/Config.hs` (app
+  `Deployment` referencing the db), `app.py`, `Dockerfile`, and `README.md`. All `Database.hs`/`Config.hs`
+  emit valid JSON via `runghc`; `db create <engine> <name> --dry-run` renders the
+  StatefulSet/Service/PVC/Secret/CronJob (the ClickHouse one with the `2Gi` limit + dual ports + memory
+  ConfigMap). READMEs complete.
+- [x] M3 (2026-06-10): Live end-to-end + restore drill **deferred-with-instructions** (per the EP-37
+  precedent): the exact on-VM commands are in the user guide and each example README, with the explicit
+  note that the live **backup** leg is additionally blocked by the EP-43 in-pod-ADC routing regression
+  until the node route is fixed. Offline `db create --dry-run` renders (mandatory) all pass.
 
 
 ## Surprises & Discoveries
@@ -148,7 +151,23 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **Engine versions are the modern majors, not the plan's drafts.** The plan's snippets named
+  `16`/`7`/`24.3`; the shipped defaults (per user direction + EP-43 verification) are Postgres **18**,
+  Redis **8**, ClickHouse **25.8** (LTS). The guide and all three examples use the modern tags.
+
+- **ClickHouse connection port is 9000 (native), not 8123.** EP-46 injects `CLICKHOUSE_PORT=9000` (the
+  `clickhouse://` URL uses the native protocol); the Service also exposes 8123 (HTTP). The example app
+  uses `clickhouse-driver` on 9000 to match the injected env.
+
+- **`db backup`/`deploy --dry-run` for a db-referencing app need a reachable cluster** to resolve the
+  engine/identity, so a fully-offline `deploy --dry-run` of an app that references a database errors
+  cleanly rather than rendering. The offline proof is `db create --dry-run` (engine is an argument) and
+  the pure renderers' unit tests; documented in the READMEs.
+
+- **The live leg is not just deferred — the backup upload is blocked.** EP-43's flannel/metadata routing
+  regression means in-pod GCS auth fails cluster-wide, so the live `db backup` upload will not work until
+  the node route is fixed. The guide and READMEs say so plainly rather than implying a working live
+  backup. `db create`/`deploy`/`db restart` are unaffected.
 
 
 ## Decision Log
@@ -214,7 +233,19 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-48 is complete. `docs/user/managed-databases.md` documents the whole story (concepts, typed
+`Database` config, the `nagarectl db` lifecycle, connecting an app with the per-engine connection-env
+table, backups/restore + drill, and the hard constraints), reconciled against the shipped surface and
+cross-linked from the docs index, the deploy guide, and the backups guide. Three runnable examples
+(`postgres-app`, `redis-cache`, `clickhouse-analytics`) each carry a typed `Database`, an app that
+references it, a minimal app + Dockerfile, and a README; all configs emit valid JSON and render via
+`db create --dry-run` (the ClickHouse one with its memory limit and dual ports).
+
+Against the purpose: the managed-database capability is now discoverable and learnable without reading
+Haskell or the plans. Gaps, honestly flagged: the live end-to-end + restore drill is
+deferred-with-instructions and the live **backup upload** is blocked by the EP-43 cluster routing
+regression until the node route is fixed; the example apps' Dockerfiles/`app.py` are written but not
+live-built. The dry-run renders (the mandatory offline acceptance) all pass.
 
 
 ## Context and Orientation

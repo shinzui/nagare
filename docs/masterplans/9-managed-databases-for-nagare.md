@@ -197,7 +197,7 @@ schedule/restore milestones.
 | 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | Complete |
 | 46 | Generated database connection env injection for apps | docs/plans/46-generated-database-connection-env-injection-for-apps.md | EP-44 | EP-45 | Complete |
 | 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | Complete |
-| 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | In Progress |
+| 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-43, EP-45). The numbers
@@ -363,7 +363,7 @@ milestone. This section provides an at-a-glance view of the entire initiative.
 - [x] EP-46 (2026-06-10): An app declares `databases`; `nagarectl deploy` injects the per-engine connection env — host/port/user/db literals + `*_PASSWORD`/`*_URL` Secret refs to `nagare-db-<name>` — merged via `mergeGenerated` (generated wins over user env); collision + missing-db errors clear; verified via render-demonstration + unit tests (195 nagarectl tests). Server sites deferred (no `ServerSite.databases` field in v1).
 - [x] EP-47 (2026-06-10): `nagarectl db backup NAME` renders+applies a two-container dump Job to the GCS layout `databases/<name>/<ts>.<ext>`; keep-last-N retention reuses `snapshotsToPrune`; daily self-pruning CronJob renders and is provisioned at `db create` (unless `retention = Delete`). **Live upload blocked by the EP-43 flannel/metadata routing regression** (renderers unit-tested; live leg deferred to EP-48).
 - [x] EP-47 (2026-06-10): `nagarectl db restore NAME BACKUP_ID` renders a scratch-first restore Job (`--into-live` opt-in); restore drill documented; disaster-recovery runbook + user backup guide updated (incl. the routing caveat). 207 nagarectl tests pass.
-- [ ] EP-48: User guide written; one end-to-end example per engine (Postgres-backed app, Redis cache, ClickHouse analytics store) renders and deploys; restore drill exercised.
+- [x] EP-48 (2026-06-10): User guide `docs/user/managed-databases.md` written + cross-linked; one end-to-end example per engine (`postgres-app`, `redis-cache`, `clickhouse-analytics`) renders via `db create --dry-run` (configs emit valid JSON; ClickHouse shows its memory limit + dual ports). Live deploy/restore drill deferred-with-instructions (live backup additionally blocked by the flannel/metadata routing regression).
 
 
 ## Surprises & Discoveries
@@ -494,4 +494,48 @@ Record every decomposition or coordination decision made while working on the ma
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion. Compare the result
 against the original vision.
 
-(To be filled during and after implementation.)
+**All six child plans (EP-43–EP-48) are Complete (2026-06-10).** Managed databases — the roadmap's
+"biggest remaining PaaS gap" — are delivered as designed:
+
+- **EP-43 (spike):** Postgres 18.4, Redis 8.8.0, and ClickHouse 25.8.24.21 (LTS) each verified on the
+  live single-node k3s cluster as single-replica StatefulSets with a `local-path` PVC + ClusterIP
+  Service + managed Secret, surviving a pod restart, reachable in-cluster, and producing a backup
+  artifact. ClickHouse fits the `e2-standard-2` with a `2Gi` limit + `max_server_memory_usage` cap.
+- **EP-44 (model + renderer):** the typed `Database`/`Engine`/`EngineVersion`/`DatabaseName` model, its
+  JSON round-trip with a `"Database"` kind discriminator, and the StatefulSet/Service/PVC(/ConfigMap)
+  renderer reproducing EP-43's verified shapes; the `databases` reference field on `Deployment`.
+- **EP-45 (CLI):** `nagarectl db list|create|get|shell|restart|delete` with create-time credential
+  generation (IP3) and ordered provisioning.
+- **EP-46 (env injection):** apps reference a database by name and receive the per-engine connection env
+  (literals + Secret refs) at deploy time.
+- **EP-47 (backups):** `db backup`/`db restore`, a daily self-pruning CronJob provisioned at create,
+  keep-last-N retention reusing `snapshotsToPrune`, runbook + user-guide integration.
+- **EP-48 (docs + examples):** the user guide and three per-engine end-to-end examples.
+
+**Compared to the vision:** the typed-database DSL, generated stateful resources, generated-secret +
+app-env injection, the `db` CLI, and scheduled backups with a documented restore drill all landed.
+Engine versions were bumped to modern majors (Postgres 18 / Redis 8 / ClickHouse 25.8) per user
+direction during implementation.
+
+**The one material gap — flagged, not hidden:** in-pod GCS auth is currently broken cluster-wide (the
+metadata IP `169.254.169.254` is routed into the `flannel.1` overlay and is unreachable from pods; the
+pre-existing litestream sidecar fails identically). So EP-47's **live backup/restore upload leg is
+blocked** until a node-route fix lands (a more-specific `169.254.169.254/32` route via the primary NIC,
+or a host-side upload step). Every backup/restore renderer, the GCS layout, retention, and the CLI are
+built and unit-tested; only the live upload is gated. This is an infrastructure fix (an `infra/`/NixOS
+change), tracked here and in the disaster-recovery runbook, and is the recommended first follow-up.
+
+**Other deferred legs (cluster-access reality, EP-37 precedent):** the live `db create`/`deploy`/restart
+end-to-end runs are deferred-with-instructions because the workstation cannot reach the k3s API (IAP
+forwards only SSH/22); the exact on-VM commands are in the user guide and example READMEs. The example
+apps' images are authored but not live-built.
+
+**Test posture:** 214 `nagare-dsl-test` + 207 `nagarectl-test` pass; all pure model/renderer/CLI/backup
+logic is covered offline; no pre-existing golden changed.
+
+**Lessons:** (1) verify live infrastructure assumptions early — the spike (EP-43) caught the metadata
+routing regression that would otherwise have surfaced only at EP-47's live backup; (2) the "engine as a
+typed dimension" decomposition held up — one model, one renderer, one CLI, one backup mechanism absorbed
+all three engines with per-engine data, not parallel code; (3) reconciling later plans against what
+earlier siblings *actually shipped* (not their drafts) mattered repeatedly (PGDATA, Redis `--requirepass`,
+ClickHouse dual ports + memory cap, the version bump).

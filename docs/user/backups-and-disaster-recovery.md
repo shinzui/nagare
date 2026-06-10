@@ -49,8 +49,10 @@ snapshot into a disposable scratch PVC — never over live data — with
 
 ### Managed databases: backed up by default
 
-A managed database (`nagarectl db create postgres|redis|clickhouse NAME`, EP-47)
-is backup-included from the moment it is created. `db create` provisions a daily
+See **[Managed databases](managed-databases.md)** for the full guide (declaring a
+`Database`, connecting an app, the per-engine connection env). A managed database
+(`nagarectl db create postgres|redis|clickhouse NAME`, EP-47) is backup-included
+from the moment it is created. `db create` provisions a daily
 **CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a native dump (ClickHouse) — gzips it, and uploads it to
 `gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`, keeping the

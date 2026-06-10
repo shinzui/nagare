@@ -43,6 +43,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | App env & secrets (`nagarectl env`/`secret`) | MP-5 (EP-23–28) | 🟡 Built; live deploy pending |
 | Application lifecycle (`nagarectl app`/`deployments`) | MP-6 (EP-29–32) | 🟡 Built; live verbs pending |
 | Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37) | 🟡 Built; live deploy/snapshot pending |
+| Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48) | 🟡 Built; live deploy pending |
 | Backups, secrets, disaster recovery | EP-7 | 🔭 Planned |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -92,6 +93,10 @@ you can observe.
    - [Persistent storage](persistent-storage.md) — attach a durable disk to an app
      with a typed `volumes` declaration: PVC provisioning, `nagarectl storage
      list/inspect/snapshot`, and the backup-ownership policy. 🟡
+   - [Managed databases](managed-databases.md) — run a Postgres, Redis, or
+     ClickHouse database with `nagarectl db`, connect an app to it by name
+     (`DATABASE_URL`/`REDIS_URL`/`CLICKHOUSE_URL` injected from a Secret), and back
+     it up to GCS on a schedule. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
