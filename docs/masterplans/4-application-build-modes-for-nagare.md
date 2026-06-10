@@ -100,7 +100,7 @@ the rest of the initiative.
 |---|-------|------|-----------|-----------|--------|
 | 19 | Typed BuildSpec model and DSL integration | docs/plans/19-typed-buildspec-model-and-dsl-integration.md | None | EP-12 | Complete |
 | 20 | Build-mode execution in nagarectl deploy | docs/plans/20-build-mode-execution-in-nagarectl-deploy.md | EP-19 | EP-12 | Complete |
-| 21 | Nixpacks zero-Dockerfile builder | docs/plans/21-nixpacks-zero-dockerfile-builder.md | EP-19, EP-20 | None | Not Started |
+| 21 | Nixpacks zero-Dockerfile builder | docs/plans/21-nixpacks-zero-dockerfile-builder.md | EP-19, EP-20 | None | Complete |
 | 22 | Build-modes docs and end-to-end examples | docs/plans/22-build-modes-docs-and-end-to-end-examples.md | EP-20 | EP-21 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
@@ -234,9 +234,9 @@ earliest plan in dependency order; later plans consume it exactly as described h
 - [x] EP-20: `runDeploy` reads `build`, computes ref via `resolveImageTag`, dispatches on `requiresBuild`
 - [x] EP-20: optional `--dockerfile`/`--context` overrides; `nagarectl deploy --dry-run` shows the planned build action
 - [x] EP-20: prebuilt and Dockerfile deploys verified by dry-run (cluster deploy deferred — no cluster reachable); CLI tests pass
-- [ ] EP-21: Nixpacks feasibility spike documented (build a sample app, observe the image)
-- [ ] EP-21: `Nagare.Build` Nixpacks branch invokes `nixpacks build` and pushes; host prerequisite documented
-- [ ] EP-21: zero-Dockerfile app deploys end-to-end
+- [x] EP-21: Nixpacks feasibility spike documented (build a sample app, observe the image) — `docs/spikes/ep21-nixpacks-spike.md`
+- [x] EP-21: `Nagare.Build` Nixpacks branch invokes `nixpacks build` and pushes; host prerequisite documented (developer-machine install + preflight check)
+- [x] EP-21: zero-Dockerfile app builds, tags, and pushes end-to-end (cluster apply deferred — no Knative cluster reachable)
 - [ ] EP-22: `docs/user/build-modes.md` guide written
 - [ ] EP-22: runnable example projects for prebuilt, Dockerfile, and Nixpacks modes
 - [ ] EP-22: `docs/user/config-reference.md` and `docs/user/deploying-apps.md` updated

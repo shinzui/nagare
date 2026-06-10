@@ -11,6 +11,8 @@ module Nagare.Image
   , buildImage
   , dockerBuildArgs
   , buildDockerfile
+  , nixpacksBuildArgs
+  , buildNixpacks
   , configureDockerAuth
   , pushImage
   , imageRef
@@ -72,6 +74,25 @@ dockerBuildArgs ref dockerfile context args =
 buildDockerfile :: Text -> FilePath -> FilePath -> [(Text, Text)] -> IO ()
 buildDockerfile ref dockerfile context args =
   run_ $ cmd "docker" & addArgs (dockerBuildArgs ref dockerfile context args)
+
+-- | The argument vector for @nixpacks build@: build the @context@ directory and
+-- locally tag the result @ref@, passing each build arg as a Nixpacks build-time
+-- environment variable (@--env KEY=VALUE@ — Nixpacks has no @--build-arg@). Pure
+-- so it can be unit-tested without Nixpacks. The exact flags (@--name@/@--env@)
+-- were validated by the EP-21 feasibility spike (see
+-- @docs/spikes/ep21-nixpacks-spike.md@). @nixpacks build@ builds and tags but
+-- does not push — the caller pushes @ref@ afterward, exactly like the Dockerfile
+-- path.
+nixpacksBuildArgs :: Text -> FilePath -> [(Text, Text)] -> [String]
+nixpacksBuildArgs ref context args =
+  ["build", context, "--name", T.unpack ref]
+    <> concatMap (\(k, v) -> ["--env", T.unpack (k <> "=" <> v)]) args
+
+-- | Run @nixpacks build@ to produce and locally tag the image @ref@ from a
+-- Dockerfile-free source tree (see 'nixpacksBuildArgs').
+buildNixpacks :: Text -> FilePath -> [(Text, Text)] -> IO ()
+buildNixpacks ref context args =
+  run_ $ cmd "nixpacks" & addArgs (nixpacksBuildArgs ref context args)
 
 -- | Run @gcloud auth configure-docker us-west1-docker.pkg.dev --quiet@. This
 -- writes a Docker credential-helper entry so subsequent pushes authenticate

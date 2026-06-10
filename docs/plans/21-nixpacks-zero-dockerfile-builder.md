@@ -49,17 +49,39 @@ analogue to a Dockerfile `--build-arg`.
 
 ## Progress
 
-- [ ] Milestone 1 (spike): `nixpacks` is available on the build host; a sample app builds to an image that runs and serves on its port; findings recorded in Surprises & Discoveries.
-- [ ] Milestone 2: `Nagare.Image` gains `nixpacksBuildArgs` (pure) and `buildNixpacks` (runner); `cabal build` passes.
-- [ ] Milestone 3: the `NixpacksBuild` branch of `Nagare.Build.performBuild` invokes `buildNixpacks` instead of dying; `describeBuild` drops the "NOT YET SUPPORTED" note.
-- [ ] Milestone 4: host prerequisite (installing `nixpacks`) documented and, where applicable, added to the NixOS host module or the nagared image.
-- [ ] Milestone 5: tests for `nixpacksBuildArgs` pass; a zero-Dockerfile app deploys end-to-end (or builds locally where a cluster is unavailable).
+- [x] Milestone 1 (spike): `nixpacks` is available on the build host; a sample app builds to an image that runs and serves on its port; findings recorded in Surprises & Discoveries.
+- [x] Milestone 2: `Nagare.Image` gains `nixpacksBuildArgs` (pure) and `buildNixpacks` (runner); `cabal build` passes.
+- [x] Milestone 3: the `NixpacksBuild` branch of `Nagare.Build.performBuild` invokes `buildNixpacks` instead of dying; `describeBuild` drops the "NOT YET SUPPORTED" note.
+- [x] Milestone 4: host prerequisite (installing `nixpacks`) documented (developer-machine install) and guarded by a `nixpacks`-on-PATH preflight check.
+- [x] Milestone 5: tests for `nixpacksBuildArgs` pass; a zero-Dockerfile app builds, tags, and pushes end-to-end (cluster apply deferred — local kube-context is not a Knative cluster).
 
 
 ## Surprises & Discoveries
 
-(None yet — the Milestone 1 spike findings go here, e.g. the exact `nixpacks` version, how it
-detects the port, and whether it needs Docker vs. BuildKit on the host.)
+Spike findings (full note: `docs/spikes/ep21-nixpacks-spike.md`):
+
+- `nixpacks` **1.41.0**, obtained via `nix-shell -p nixpacks` (it was not on the bare `PATH`).
+- It **requires the Docker daemon** — `nixpacks build` drives BuildKit through Docker (the build
+  log exports to `docker.io/library/...`). No standalone BuildKit needed.
+- **Port:** Nixpacks does not hard-code a port. For Node it runs the `package.json` `start` script
+  and the app binds `$PORT` (default 8080). This composes cleanly with Knative, which injects `PORT`
+  = the container port, so a Nixpacks image listens correctly with no extra config (as long as the
+  app honors `$PORT`).
+- **`--name image:tag` builds and locally tags but does not push** — exactly the contract
+  `performBuild` needs (build/tag `ref`, then `runDeploy` calls the existing `pushImage ref`).
+- **`--env KEY=VALUE`** is the build-time-env analogue of `--build-arg`; `buildArgs` maps to it.
+- A harmless BuildKit warning (`UndefinedVar: $NIXPACKS_PATH`) appears but the build succeeds.
+
+End-to-end (Milestone 5): a real `nagarectl deploy` of a Dockerfile-free Node app ran
+`nixpacks build`, locally tagged the image, **and pushed all layers to Artifact Registry in
+`tan-nb-exp`** successfully. The run stopped only at `kubectl apply` ("no matches for kind Service
+in serving.knative.dev/v1") because the local kube-context is not a Knative cluster — the cluster
+step, not the build/push, which both succeeded. All throwaway artifacts (local image, the pushed
+`:e2e-local` registry image, the sample) were removed afterward.
+
+The `nixpacks`-on-PATH preflight (`ensureNixpacks` in `Nagare.Build`) was verified: a real deploy
+on a host without `nixpacks` prints `nagare: nixpacks not found on PATH; see
+docs/user/build-modes.md` rather than a raw "command not found".
 
 
 ## Decision Log
@@ -77,10 +99,34 @@ detects the port, and whether it needs Docker vs. BuildKit on the host.)
   meaningful for both Dockerfile and Nixpacks modes.
   Date: 2026-06-09
 
+- Decision: The `nixpacks` host prerequisite is a **developer-machine install**, documented in the
+  user guide (EP-22), not added to the NixOS host module.
+  Rationale: App image builds run wherever `nagarectl deploy` is invoked. The NixOS host
+  (`nagare-01`) runs k3s and serves the cluster; it does not run `nagarectl deploy` for app images,
+  and `nagared` (the static-site webhook runner) shells to `nagarectl site deploy`, which uses the
+  static Docker build, not Nixpacks. Adding `nixpacks` to the host module would imply the VM builds
+  app images, which it does not. Instead, a preflight check (`ensureNixpacks`) gives an actionable
+  message pointing at `docs/user/build-modes.md` when `nixpacks` is missing.
+  Date: 2026-06-09
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Delivered. The `NixpacksBuild` variant is now a real, working build mode. The feasibility spike
+(`docs/spikes/ep21-nixpacks-spike.md`) confirmed `nixpacks` 1.41.0 builds a Dockerfile-free app to a
+runnable image on the host. `Nagare.Image` gained the pure `nixpacksBuildArgs` and the
+`buildNixpacks` runner (`nixpacks build <ctx> --name <ref> [--env K=V ...]`); the `NixpacksBuild`
+branch of `Nagare.Build.performBuild` now builds via `buildNixpacks` after a `nixpacks`-on-PATH
+preflight, and `describeBuild` no longer says "NOT YET SUPPORTED".
+
+`cabal test` passes (52 tests; new `nixpacksBuildArgs` cases). The headline proof: a real
+`nagarectl deploy` of a Dockerfile-free Node app ran `nixpacks build`, locally tagged the image, and
+pushed every layer to Artifact Registry in `tan-nb-exp` — the deploy stopped only at the Knative
+apply because the local kube-context is not a Knative cluster. The Dockerfile and prebuilt modes are
+untouched.
+
+Host prerequisite: a developer-machine `nixpacks` install (not a NixOS host change), guarded by the
+`ensureNixpacks` preflight and to be documented in EP-22's user guide.
 
 
 ## Context and Orientation

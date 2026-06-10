@@ -7,10 +7,10 @@
 --     entirely (it checks 'Nagare.Dsl.Build.requiresBuild' first).
 --   * 'DockerfileBuild' — @docker build@ with the configured Dockerfile path,
 --     build context, and @--build-arg@s (via 'Nagare.Image.buildDockerfile').
---   * 'NixpacksBuild' — not yet supported; 'performBuild' exits with a clear
---     message. The real @nixpacks build@ invocation lands in
---     @docs/plans/21-nixpacks-zero-dockerfile-builder.md@ (EP-21), which replaces
---     only that one branch and must not change 'performBuild' \'s signature.
+--   * 'NixpacksBuild' — @nixpacks build@ on the (Dockerfile-free) context, with
+--     build args passed as build-time env vars (via 'Nagare.Image.buildNixpacks',
+--     EP-21). 'performBuild' first checks @nixpacks@ is on @PATH@ and fails with
+--     an actionable message if not.
 --
 -- 'describeBuild' produces the one-line @--dry-run@ description, and
 -- 'applyBuildOverrides' is the pure core of the @--context@/@--dockerfile@
@@ -28,7 +28,8 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Build (BuildSpec (..), tagText)
 import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
-import Nagare.Image (buildDockerfile)
+import Nagare.Image (buildDockerfile, buildNixpacks)
+import System.Directory (findExecutable)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -45,9 +46,18 @@ performBuild spec ref = case spec of
       (T.unpack (filePathText df))
       (T.unpack (filePathText ctx))
       (Map.toList args)
-  NixpacksBuild _ _ ->
-    die
-      "nixpacks build mode is not yet supported (see docs/plans/21-nixpacks-zero-dockerfile-builder.md)"
+  NixpacksBuild ctx args -> do
+    ensureNixpacks
+    buildNixpacks ref (T.unpack (filePathText ctx)) (Map.toList args)
+
+-- | Fail with an actionable message if the @nixpacks@ CLI is not on @PATH@,
+-- rather than letting the shell-out die with a raw "command not found".
+ensureNixpacks :: IO ()
+ensureNixpacks = do
+  found <- findExecutable "nixpacks"
+  case found of
+    Just _ -> pure ()
+    Nothing -> die "nixpacks not found on PATH; see docs/user/build-modes.md"
 
 -- | A one-line, human-readable description of the build action, for @--dry-run@.
 describeBuild :: BuildSpec -> Text
@@ -57,7 +67,7 @@ describeBuild = \case
   DockerfileBuild df ctx _ ->
     "docker build -f " <> filePathText df <> " " <> filePathText ctx
   NixpacksBuild ctx _ ->
-    "nixpacks build " <> filePathText ctx <> " — NOT YET SUPPORTED"
+    "nixpacks build " <> filePathText ctx
 
 -- | Apply CLI overrides to the config's build spec. The first argument is a
 -- @--context@ override, the second a @--dockerfile@ override; either may be

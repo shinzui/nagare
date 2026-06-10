@@ -22,7 +22,7 @@ import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (defaultPort, mkImageRef, mkNamespace)
-import Nagare.Image (dockerBuildArgs)
+import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Nagare.Server.Build
@@ -375,13 +375,25 @@ buildModeTests =
                 ]
       ]
   , testGroup
+      "nixpacksBuildArgs"
+      [ testCase "builds the context and tags with --name" $
+          nixpacksBuildArgs "ref:tag" "." []
+            @?= ["build", ".", "--name", "ref:tag"]
+      , testCase "build args become --env KEY=VALUE" $
+          nixpacksBuildArgs "r" "app" [("A", "1")]
+            @?= ["build", "app", "--name", "r", "--env", "A=1"]
+      , testCase "multiple build args each get their own --env" $
+          nixpacksBuildArgs "r" "." [("A", "1"), ("B", "2")]
+            @?= ["build", ".", "--name", "r", "--env", "A=1", "--env", "B=2"]
+      ]
+  , testGroup
       "describeBuild"
       [ testCase "prebuilt mentions no local build and the tag" $
           describeBuild prebuiltSpec @?= "prebuilt image (no local build), tag v1.2.3"
       , testCase "dockerfile shows the docker build command" $
           describeBuild dockerfileSpec @?= "docker build -f Dockerfile ."
-      , testCase "nixpacks is marked not yet supported" $
-          describeBuild nixpacksSpec @?= "nixpacks build . — NOT YET SUPPORTED"
+      , testCase "nixpacks shows the nixpacks build command" $
+          describeBuild nixpacksSpec @?= "nixpacks build ."
       ]
   , testGroup
       "applyBuildOverrides"
