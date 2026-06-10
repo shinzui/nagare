@@ -123,18 +123,68 @@ instance FromJSON JsonBuildSpec where
       <*> o .:? "context"
       <*> o .:? "buildArgs" .!= mempty
 
+-- | One entry of the @domains@ array: a hostname and its canonical marker.
+-- @canonical@ defaults to 'False' when absent (an old single-domain config that
+-- has been migrated, or hand-written JSON).
+data JsonDomainSpec = JsonDomainSpec
+  { jdsDomain :: !Text
+  , jdsCanonical :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonDomainSpec where
+  parseJSON = withObject "DomainSpec" $ \o ->
+    JsonDomainSpec
+      <$> o .: "domain"
+      <*> o .:? "canonical" .!= False
+
+-- | The @healthCheck@ sub-object (see 'Nagare.Dsl.Config'). Every field is
+-- optional so a partial object is reported as a precise 'MarshalError' by
+-- 'mkHealthCheck' rather than an aeson parse error; the defaults mirror
+-- 'httpHealthCheck'.
+data JsonHealthCheck = JsonHealthCheck
+  { jhcPath :: !Text
+  , jhcCheckPort :: !(Maybe Int)
+  , jhcScheme :: !Text
+  , jhcExpectedStatus :: !Int
+  , jhcInitialDelay :: !Int
+  , jhcPeriod :: !Int
+  , jhcTimeout :: !Int
+  , jhcFailureThreshold :: !Int
+  , jhcAsLiveness :: !Bool
+  , jhcAsStartup :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonHealthCheck where
+  parseJSON = withObject "HealthCheck" $ \o ->
+    JsonHealthCheck
+      <$> o .: "path"
+      <*> o .:? "checkPort"
+      <*> o .:? "scheme" .!= "HTTP"
+      <*> o .:? "expectedStatus" .!= 200
+      <*> o .:? "initialDelay" .!= 0
+      <*> o .:? "period" .!= 10
+      <*> o .:? "timeout" .!= 1
+      <*> o .:? "failureThreshold" .!= 3
+      <*> o .:? "asLiveness" .!= False
+      <*> o .:? "asStartup" .!= False
+
 data JsonDeployment = JsonDeployment
   { jdName :: !Text
   , jdNamespace :: !Text
   , jdImage :: !Text
   , jdBuild :: !(Maybe JsonBuildSpec)
-  , jdDomain :: !(Maybe Text)
+  , jdDomains :: ![JsonDomainSpec]
   , jdPort :: !Int
   , jdEnv :: ![JsonEnvEntry]
   , jdCpuRequest :: !(Maybe Text)
   , jdMemoryRequest :: !(Maybe Text)
+  , jdCpuLimit :: !(Maybe Text)
+  , jdMemoryLimit :: !(Maybe Text)
   , jdScaleMin :: !(Maybe Int)
   , jdScaleMax :: !(Maybe Int)
+  , jdHealthCheck :: !(Maybe JsonHealthCheck)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -145,13 +195,16 @@ instance FromJSON JsonDeployment where
       <*> o .: "namespace"
       <*> o .: "image"
       <*> o .:? "build"
-      <*> o .:? "domain"
+      <*> o .:? "domains" .!= []
       <*> o .: "port"
       <*> o .: "env"
       <*> o .:? "cpuRequest"
       <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
       <*> o .:? "scaleMin"
       <*> o .:? "scaleMax"
+      <*> o .:? "healthCheck"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonDeployment -> Deployment (re-runs EP-9 smart constructors)
@@ -164,12 +217,13 @@ toDeployment jd = do
   build' <- case jdBuild jd of
     Nothing -> mapLeft (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
-  dom' <- case jdDomain jd of
-    Nothing -> Right Nothing
-    Just t -> fmap Just . mapLeft (MarshalError "domain") $ mkDomain t
+  domains' <-
+    mapLeft (MarshalError "domains") $
+      mkDomains [(jdsDomain ds, jdsCanonical ds) | ds <- jdDomains jd]
   port' <- mapLeft (MarshalError "port") $ mkPort (jdPort jd)
   env' <- mapM toEnvEntry (jdEnv jd)
   res' <- toResources jd
+  hc' <- toHealthCheck (jdHealthCheck jd)
   scale' <- case (jdScaleMin jd, jdScaleMax jd) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
@@ -185,11 +239,12 @@ toDeployment jd = do
       , namespace = ns'
       , image = img'
       , build = build'
-      , domain = dom'
+      , domains = domains'
       , port = port'
       , env = Map.fromList env'
       , resources = res'
       , scale = scale'
+      , healthCheck = hc'
       }
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
@@ -252,12 +307,41 @@ toEnvEntry e = do
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
 toResources jd =
-  case (jdCpuRequest jd, jdMemoryRequest jd) of
-    (Nothing, Nothing) -> Right Nothing
-    (c, m) -> do
+  case (jdCpuRequest jd, jdMemoryRequest jd, jdCpuLimit jd, jdMemoryLimit jd) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (c, m, cl, ml) -> do
       c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
       m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      Right (Just Resources {cpu = c', memory = m'})
+      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
+
+-- | Re-validate a decoded @healthCheck@ sub-object back into a 'HealthCheck'.
+-- The scheme string and probe port go through their constructors; the assembled
+-- record is then re-checked by 'mkHealthCheck'. Any failure is a precise
+-- 'MarshalError "healthCheck"'.
+toHealthCheck :: Maybe JsonHealthCheck -> Either LoadError (Maybe HealthCheck)
+toHealthCheck Nothing = Right Nothing
+toHealthCheck (Just jhc) = do
+  scheme' <- case jhcScheme jhc of
+    "HTTP" -> Right HTTP
+    "HTTPS" -> Right HTTPS
+    other -> Left (MarshalError "healthCheck.scheme" ("unknown scheme: " <> other))
+  checkPort' <- traverse (mapLeft (MarshalError "healthCheck.checkPort") . mkPort) (jhcCheckPort jhc)
+  fmap Just . mapLeft (MarshalError "healthCheck") $
+    mkHealthCheck
+      HealthCheck
+        { path = jhcPath jhc
+        , checkPort = checkPort'
+        , scheme = scheme'
+        , expectedStatus = jhcExpectedStatus jhc
+        , initialDelay = jhcInitialDelay jhc
+        , period = jhcPeriod jhc
+        , timeout = jhcTimeout jhc
+        , failureThreshold = jhcFailureThreshold jhc
+        , asLiveness = jhcAsLiveness jhc
+        , asStartup = jhcAsStartup jhc
+        }
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
@@ -615,7 +699,7 @@ toServerResources mc mm =
     (c, m) -> do
       c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
       m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      Right (Just Resources {cpu = c', memory = m'})
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = Nothing, memoryLimit = Nothing})
 
 -- | Decode the JSON a config emits (via 'Nagare.Dsl.Config.emitServerSite') into
 -- a validated 'ServerSite', re-running the smart constructors. The top-level

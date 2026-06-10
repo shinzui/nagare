@@ -273,11 +273,12 @@ mkDemoDep envMap =
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
     , build = unsafe defaultBuild
-    , domain = Nothing
+    , domains = []
     , port = defaultPort
     , env = envMap
     , resources = Nothing
     , scale = Nothing
+    , healthCheck = Nothing
     }
 
 renderDemonstrationTests :: [TestTree]

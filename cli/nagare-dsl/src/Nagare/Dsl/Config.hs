@@ -56,17 +56,44 @@ deploymentJSON dep =
     , "namespace" .= namespaceText (dep ^. #namespace)
     , "image" .= imageRefText (dep ^. #image)
     , "build" .= buildJSON (dep ^. #build)
-    , "domain" .= fmap domainText (dep ^. #domain)
+    , "domains" .= map domainSpecJSON (dep ^. #domains)
     , "port" .= portInt (dep ^. #port)
     , "env" .= map envJSON (Map.toAscList (dep ^. #env))
     , "cpuRequest" .= fmap quantityText (resources >>= (^. #cpu))
     , "memoryRequest" .= fmap quantityText (resources >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (resources >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (resources >>= (^. #memoryLimit))
     , "scaleMin" .= fmap (^. #minScale) scale
     , "scaleMax" .= fmap (^. #maxScale) scale
+    , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
     ]
   where
     resources = dep ^. #resources
     scale = dep ^. #scale
+
+    domainSpecJSON ds =
+      object
+        [ "domain" .= domainText (ds ^. #domain)
+        , "canonical" .= (ds ^. #canonical)
+        ]
+
+    healthCheckJSON hc =
+      object
+        [ "path" .= (hc ^. #path)
+        , "checkPort" .= fmap portInt (hc ^. #checkPort)
+        , "scheme" .= schemeText (hc ^. #scheme)
+        , "expectedStatus" .= (hc ^. #expectedStatus)
+        , "initialDelay" .= (hc ^. #initialDelay)
+        , "period" .= (hc ^. #period)
+        , "timeout" .= (hc ^. #timeout)
+        , "failureThreshold" .= (hc ^. #failureThreshold)
+        , "asLiveness" .= (hc ^. #asLiveness)
+        , "asStartup" .= (hc ^. #asStartup)
+        ]
+
+    schemeText :: HealthScheme -> Text
+    schemeText HTTP = "HTTP"
+    schemeText HTTPS = "HTTPS"
 
     buildJSON (PrebuiltImage t) =
       object

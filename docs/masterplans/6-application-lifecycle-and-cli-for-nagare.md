@@ -136,7 +136,7 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Not Started |
+| 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
 | 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Not Started |
 | 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Not Started |
 | 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Not Started |
@@ -278,10 +278,10 @@ before Phase 2, so the expectation is EP-29 lands first; EP-23 then extends the 
 
 Track milestone-level progress across all child plans. Each entry names the child plan and milestone.
 
-- [ ] EP-29: `HealthCheck` type and `Resources` limits added to the model; smart constructors with tests.
-- [ ] EP-29: `domain → domains :: [DomainSpec]` with canonical marker; preset/fixtures/examples updated.
-- [ ] EP-29: JSON round-trip (Config emit / Load decode) carries the new fields; golden + round-trip tests pass.
-- [ ] EP-29: Renderer emits probes, `resources.limits`, per-domain DomainMappings, and the managed-by label; `serviceUrl` uses canonical domain; deploy call sites updated; `cabal test` green in `cli/nagare-dsl`.
+- [x] EP-29: `HealthCheck` type and `Resources` limits added to the model; smart constructors with tests. (2026-06-10)
+- [x] EP-29: `domain → domains :: [DomainSpec]` with canonical marker; preset/fixtures/examples updated. (2026-06-10)
+- [x] EP-29: JSON round-trip (Config emit / Load decode) carries the new fields; golden + round-trip tests pass. (2026-06-10)
+- [x] EP-29: Renderer emits probes, `resources.limits`, per-domain DomainMappings, and the managed-by label; `serviceUrl` uses canonical domain; deploy call sites updated; `cabal test` green in `cli/nagare-dsl`. (2026-06-10)
 - [ ] EP-30: `Nagare.App` module with `appIdentityOrDie` and `streamServiceLogs`; unit tests for pure helpers.
 - [ ] EP-30: `app list` and `app get` working against the cluster (label-filtered list, formatted get).
 - [ ] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` working; `nagarectl-test` green.
@@ -294,7 +294,26 @@ Track milestone-level progress across all child plans. Each entry names the chil
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **IP5 resolved in the opposite order than expected.** EP-23 (env scopes, MasterPlan 5's child)
+  had already landed before EP-29 started, so `Deployment.env` is already
+  `Map EnvName ScopedEnvVar` and EP-29 rebased onto it rather than the other way around. The two
+  changes were fully orthogonal as IP5 predicted — no semantic conflict — but the EP-23-first
+  ordering means EP-29's Context section (which described `env :: Map EnvName EnvVar`) was already
+  stale on arrival. No action needed for downstream plans; recorded so the history is clear.
+  (EP-29, 2026-06-10)
+
+- **The `nagare.dev/managed-by: nagarectl` label is rendered unconditionally on every Deployment
+  Service** (IP1). This changed all four existing Deployment service goldens — each gained exactly
+  the `labels:` block and nothing else. **EP-30's `app list` must match this exact string**; it is
+  now committed in `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` (`serviceValue`) and proved by the
+  `rich.service.yaml` golden and a dedicated `renderService emits the managed-by label` test.
+  Server-site and static-site Services are rendered by separate renderers and do **not** carry the
+  label, so `app list` filtering by it will correctly exclude them. (EP-29, 2026-06-10)
+
+- **`Nagare.Dsl.Render.renderDomainMapping :: Deployment -> Maybe ByteString` is now
+  `renderDomainMappings :: Deployment -> [ByteString]`** (IP1). Any sibling plan that renders a
+  Deployment's DomainMappings must use the plural list form; `cli/nagarectl/app/Main.hs`'s
+  `runDeploy` already does. (EP-29, 2026-06-10)
 
 
 ## Decision Log

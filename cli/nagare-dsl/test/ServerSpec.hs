@@ -52,7 +52,7 @@ notesApp =
           , (unsafe (mkEnvName "API_BASE"), runtimeScoped (EnvLiteral "https://api.example.com"))
           ]
     , resources =
-        Just Resources {cpu = Just (unsafe (mkQuantity "500m")), memory = Just (unsafe (mkQuantity "256Mi"))}
+        Just Resources {cpu = Just (unsafe (mkQuantity "500m")), memory = Just (unsafe (mkQuantity "256Mi")), cpuLimit = Nothing, memoryLimit = Nothing}
     , scale = Just (unsafe (mkScale 1 3))
     , domains = [unsafe (mkDomain "notes-app.example.com")]
     }

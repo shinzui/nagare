@@ -20,7 +20,7 @@ deployment = do
   name' <- mapLeft show (mkServiceName "hello")
   ns' <- mapLeft show (mkNamespace "personal")
   img' <- mapLeft show (mkImageRef "gcr.io/knative-samples/helloworld-go")
-  dom' <- mapLeft show (mkDomain "hello.example.com")
+  doms <- mapLeft show (mkDomains [("hello.example.com", True)])
   port' <- mapLeft show (mkPort 8080)
   target <- mapLeft show (mkEnvName "TARGET")
   sc <- mapLeft show (mkScale 0 3)
@@ -33,11 +33,12 @@ deployment = do
       , namespace = ns'
       , image = img'
       , build = bld
-      , domain = Just dom'
+      , domains = doms
       , port = port'
       , env = Map.singleton target (runtimeScoped (EnvLiteral "Nagare"))
-      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
+      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
+      , healthCheck = Nothing
       }
   where
     mapLeft f = either (Left . f) Right

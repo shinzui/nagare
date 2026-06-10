@@ -21,7 +21,7 @@
 -- Log.)
 module Nagare.Dsl.Render
   ( renderService
-  , renderDomainMapping
+  , renderDomainMappings
     -- * Managed-resource naming helpers (IP2)
   , scopeToken
   , managedConfigMapName
@@ -48,11 +48,13 @@ import Nagare.Dsl.Types
 renderService :: Deployment -> Text -> ByteString
 renderService dep tag = YP.encodePretty knativeConfig (serviceValue dep tag)
 
--- | Render a DomainMapping YAML document, or 'Nothing' when the deployment has
--- no custom @domain@.
-renderDomainMapping :: Deployment -> Maybe ByteString
-renderDomainMapping dep =
-  fmap (YP.encodePretty knativeConfig . domainMappingValue dep) (dep ^. #domain)
+-- | Render one DomainMapping YAML document per configured custom domain. An app
+-- with no custom domains renders an empty list (the Knative wildcard URL is used
+-- instead). The canonical marker affects only URL reporting
+-- ('Nagare.Deploy.serviceUrl'), not which mappings are rendered.
+renderDomainMappings :: Deployment -> [ByteString]
+renderDomainMappings dep =
+  map (YP.encodePretty knativeConfig . domainMappingValue dep . (^. #domain)) (dep ^. #domains)
 
 -- ---------------------------------------------------------------------------
 -- Managed-resource naming helpers (MasterPlan IP2)
@@ -107,6 +109,7 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("key", 3)
       , ("value", 3)
       , ("valueFrom", 3)
+      , ("labels", 4)
       , ("metadata", 4)
       , ("spec", 5)
       , ("autoscaling.knative.dev/min-scale", 0)
@@ -117,17 +120,31 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("containerPort", 0)
       , ("secretKeyRef", 0)
       , ("requests", 0)
+      , ("limits", 1)
       , ("ref", 0)
       , ("image", 0)
       , ("ports", 1)
       , ("env", 2)
       , ("envFrom", 3)
       , ("resources", 4)
+      , ("readinessProbe", 5)
+      , ("livenessProbe", 6)
+      , ("startupProbe", 7)
       , ("cpu", 0)
       , ("memory", 1)
       , ("optional", 4)
       , ("configMapRef", 0)
       , ("secretRef", 1)
+      , -- probe sub-object keys: httpGet first, then timings in document order
+        ("httpGet", 0)
+      , ("initialDelaySeconds", 1)
+      , ("periodSeconds", 2)
+      , ("timeoutSeconds", 3)
+      , ("failureThreshold", 4)
+      , -- httpGet sub-object keys
+        ("path", 0)
+      , ("port", 1)
+      , ("scheme", 2)
       ]
 
 -- ---------------------------------------------------------------------------
@@ -139,9 +156,14 @@ serviceValue dep tag =
     [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
     , "kind" .= ("Service" :: Text)
     , "metadata"
-        .= namespacedMeta
-          (serviceNameText (dep ^. #name))
-          (namespaceText (dep ^. #namespace))
+        .= object
+          [ "name" .= serviceNameText (dep ^. #name)
+          , "namespace" .= namespaceText (dep ^. #namespace)
+          , -- IP1: every Nagare-managed Service carries this label so other
+            -- commands (e.g. @nagarectl app list@) can recognise it. The exact
+            -- string is an integration contract — do not change it.
+            "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
+          ]
     , "spec" .= object ["template" .= templateValue dep tag]
     ]
 
@@ -182,6 +204,7 @@ containerValue dep tag =
       envField (dep ^. #env)
         <> envFromField (serviceNameText (dep ^. #name))
         <> resourcesField (dep ^. #resources)
+        <> probesField (dep ^. #healthCheck) (dep ^. #port)
 
 -- | The inline @env:@ block, restricted to entries whose scope set contains
 -- 'Runtime'. A @{Build}@- or @{Preview}@-only entry is excluded from the running
@@ -229,13 +252,53 @@ envEntryValue n (EnvSecretRef sn) =
           ]
     ]
 
+-- | The @resources:@ block, with @requests@ and/or @limits@ sub-blocks, each
+-- omitted when it has no quantities. The whole block is omitted when no
+-- quantity at all is present.
 resourcesField :: Maybe Resources -> [Pair]
 resourcesField Nothing = []
-resourcesField (Just res) =
-  ["resources" .= object ["requests" .= object (cpuF <> memF)]]
+resourcesField (Just res)
+  | null reqs && null lims = []
+  | otherwise = ["resources" .= object (reqBlock <> limBlock)]
   where
-    cpuF = maybe [] (\q -> ["cpu" .= quantityText q]) (res ^. #cpu)
-    memF = maybe [] (\q -> ["memory" .= quantityText q]) (res ^. #memory)
+    reqs = quantities (res ^. #cpu) (res ^. #memory)
+    lims = quantities (res ^. #cpuLimit) (res ^. #memoryLimit)
+    reqBlock = if null reqs then [] else ["requests" .= object reqs]
+    limBlock = if null lims then [] else ["limits" .= object lims]
+    quantities mc mm =
+      maybe [] (\q -> ["cpu" .= quantityText q]) mc
+        <> maybe [] (\q -> ["memory" .= quantityText q]) mm
+
+-- | The probe keys for the container object. A 'HealthCheck' always emits a
+-- @readinessProbe@, plus a @livenessProbe@ when 'asLiveness' and a
+-- @startupProbe@ when 'asStartup'. The container 'Port' is the default probe
+-- port when the check does not pin its own 'checkPort'. Knative's @httpGet@
+-- probe does not assert a status, so 'expectedStatus' is intentionally not
+-- rendered.
+probesField :: Maybe HealthCheck -> Port -> [Pair]
+probesField Nothing _ = []
+probesField (Just hc) containerPort =
+  ["readinessProbe" .= probe]
+    <> (if hc ^. #asLiveness then ["livenessProbe" .= probe] else [])
+    <> (if hc ^. #asStartup then ["startupProbe" .= probe] else [])
+  where
+    probePort = maybe (portInt containerPort) portInt (hc ^. #checkPort)
+    schemeStr = case hc ^. #scheme of
+      HTTP -> "HTTP" :: Text
+      HTTPS -> "HTTPS"
+    probe =
+      object
+        [ "httpGet"
+            .= object
+              [ "path" .= (hc ^. #path)
+              , "port" .= probePort
+              , "scheme" .= schemeStr
+              ]
+        , "initialDelaySeconds" .= (hc ^. #initialDelay)
+        , "periodSeconds" .= (hc ^. #period)
+        , "timeoutSeconds" .= (hc ^. #timeout)
+        , "failureThreshold" .= (hc ^. #failureThreshold)
+        ]
 
 domainMappingValue :: Deployment -> Domain -> Value
 domainMappingValue dep d =

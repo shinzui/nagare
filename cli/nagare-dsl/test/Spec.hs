@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -12,7 +13,7 @@ import Nagare.Dsl.Config (encodeDeployment)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (development, production, secretEnv, webService)
-import Nagare.Dsl.Render (renderDomainMapping, renderService)
+import Nagare.Dsl.Render (renderDomainMappings, renderService)
 import Nagare.Dsl.Types
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
@@ -29,6 +30,7 @@ main =
       [ testGroup "Nagare.Dsl.Types" unitTests
       , testGroup "Nagare.Dsl.Render" goldenTests
       , testGroup "Nagare.Dsl.Types scoped env" scopedEnvTests
+      , testGroup "Nagare.Dsl extended model (EP-29)" extendedModelTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
       , loadTests
@@ -206,6 +208,47 @@ unitTests =
       , testCase "rejects uri scheme" $ assertLeftContains "scheme" (mkDomain "https://foo.com")
       ]
   , testGroup
+      "mkHealthCheck / httpHealthCheck"
+      [ testCase "httpHealthCheck accepts a slash path with defaults" $
+          case httpHealthCheck "/healthz" of
+            Right hc -> do
+              path hc @?= "/healthz"
+              period hc @?= 10
+              timeout hc @?= 1
+              failureThreshold hc @?= 3
+              expectedStatus hc @?= 200
+              asLiveness hc @?= False
+              asStartup hc @?= False
+            Left e -> assertFailure ("expected Right, got Left: " <> Text.unpack e)
+      , testCase "rejects path without leading slash" $
+          assertLeftContains "/" (httpHealthCheck "healthz")
+      , testCase "rejects empty path" $
+          assertLeftContains "empty" (httpHealthCheck "")
+      , testCase "rejects period of 0" $
+          assertLeftContains "period" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {period = 0})
+      , testCase "rejects timeout of 0" $
+          assertLeftContains "timeout" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {timeout = 0})
+      , testCase "rejects out-of-range expectedStatus" $
+          assertLeftContains "expectedStatus" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {expectedStatus = 99})
+      ]
+  , testGroup
+      "mkDomains / canonicalDomain"
+      [ testCase "empty list is allowed" $ mkDomains [] @?= Right []
+      , testCase "single canonical domain accepted" $
+          assertRight (mkDomains [("a.example.com", True)])
+      , testCase "rejects non-empty list with no canonical" $
+          assertLeftContains "exactly one" (mkDomains [("a.example.com", False)])
+      , testCase "rejects two canonical domains" $
+          assertLeftContains "exactly one" (mkDomains [("a.example.com", True), ("b.example.com", True)])
+      , testCase "rejects an invalid hostname" $
+          assertLeftContains "space" (mkDomains [("bad host.com", True)])
+      , testCase "canonicalDomain returns the canonical entry" $
+          fmap domainText (canonicalDomain (unsafe (mkDomains [("a.example.com", False), ("b.example.com", True)])))
+            @?= Just "b.example.com"
+      , testCase "canonicalDomain of empty list is Nothing" $
+          canonicalDomain [] @?= Nothing
+      ]
+  , testGroup
       "EnvVar sum type"
       [ testCase "EnvLiteral constructs" $ EnvLiteral "info" @?= EnvLiteral "info"
       , testCase "EnvSecretRef constructs" $
@@ -222,11 +265,15 @@ goldenTests =
       "test/golden/hello.service.yaml"
       (pure (fromStrict (renderService helloDep "20260602-120000")))
   , goldenVsString
-      "renderDomainMapping hello"
+      "renderDomainMappings hello"
       "test/golden/hello.domainmapping.yaml"
-      ( case renderDomainMapping helloDep of
-          Just bs -> pure (fromStrict bs)
-          Nothing -> fail "renderDomainMapping returned Nothing for hello (expected Just)"
+      ( case renderDomainMappings helloDep of
+          [bs] -> pure (fromStrict bs)
+          other ->
+            fail
+              ( "renderDomainMappings hello expected exactly one document, got "
+                  <> show (length other)
+              )
       )
   , -- EP-23 M3: a {Build}-only variable is excluded from the inline env: of the
     -- running container, while a Runtime variable and the envFrom references to
@@ -235,6 +282,17 @@ goldenTests =
       "renderService build-only exclusion"
       "test/golden/build-only.service.yaml"
       (pure (fromStrict (renderService buildOnlyDep "20260602-120000")))
+  , -- EP-29: a config that declares a health check (liveness+startup), resource
+    -- limits, and two domains renders probe/limits/label YAML and one mapping
+    -- per domain. See 'richDep'.
+    goldenVsString
+      "renderService rich (health check + limits + domains)"
+      "test/golden/rich.service.yaml"
+      (pure (fromStrict (renderService richDep "20260602-120000")))
+  , goldenVsString
+      "renderDomainMappings rich (one document per domain)"
+      "test/golden/rich.domainmapping.yaml"
+      (pure (fromStrict (BS.intercalate "---\n" (renderDomainMappings richDep))))
   ]
 
 -- | The canonical hello deployment, assembled entirely through smart
@@ -246,7 +304,7 @@ helloDep =
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
     , build = unsafe defaultBuild
-    , domain = Just (unsafe (mkDomain "hello.example.com"))
+    , domains = unsafe (mkDomains [("hello.example.com", True)])
     , port = unsafe (mkPort 8080)
     , env = Map.fromList [(unsafe (mkEnvName "TARGET"), runtimeScoped (EnvLiteral "Nagare"))]
     , resources =
@@ -254,8 +312,11 @@ helloDep =
           Resources
             { cpu = Just (unsafe (mkQuantity "250m"))
             , memory = Just (unsafe (mkQuantity "128Mi"))
+            , cpuLimit = Nothing
+            , memoryLimit = Nothing
             }
     , scale = Just (unsafe (mkScale 0 3))
+    , healthCheck = Nothing
     }
 
 -- | 'helloDep' with a Runtime variable and a Build-only variable, used to prove
@@ -285,6 +346,56 @@ scopedEnvTests =
   , testCase "default runtimeScoped env round-trips" $
       decodeDeployment (toStrict (encodeDeployment helloDep)) @?= Right helloDep
   ]
+
+-- ---------------------------------------------------------------------------
+-- EP-29: extended model — health check, resource limits, multiple domains
+
+-- | 'helloDep' enriched with a liveness/startup health check, resource limits
+-- on top of requests, and two custom domains (one canonical). Exercises every
+-- new field at once.
+richDep :: Deployment
+richDep =
+  helloDep
+    { domains =
+        unsafe (mkDomains [("notes.example.com", True), ("www.example.com", False)])
+    , resources =
+        Just
+          Resources
+            { cpu = Just (unsafe (mkQuantity "250m"))
+            , memory = Just (unsafe (mkQuantity "128Mi"))
+            , cpuLimit = Just (unsafe (mkQuantity "500m"))
+            , memoryLimit = Just (unsafe (mkQuantity "512Mi"))
+            }
+    , healthCheck =
+        Just
+          (unsafe (httpHealthCheck "/healthz")) {asLiveness = True, asStartup = True}
+    }
+
+extendedModelTests :: [TestTree]
+extendedModelTests =
+  [ testCase "rich deployment (health check + limits + two domains) round-trips" $
+      decodeDeployment (toStrict (encodeDeployment richDep)) @?= Right richDep
+  , testCase "renderService emits the managed-by label" $
+      assertInfix "nagare.dev/managed-by: nagarectl" (renderService helloDep "20260602-120000")
+  , testCase "renderService emits a resources.limits block when limits are set" $ do
+      let yaml = renderService richDep "20260602-120000"
+      assertInfix "limits:" yaml
+      assertInfix "readinessProbe:" yaml
+      assertInfix "livenessProbe:" yaml
+      assertInfix "startupProbe:" yaml
+      assertInfix "/healthz" yaml
+  , testCase "renderDomainMappings emits one document per domain" $
+      length (renderDomainMappings richDep) @?= 2
+  , testCase "a deployment with no new fields renders no probe or limits YAML" $ do
+      let yaml = renderService helloDep "20260602-120000"
+      assertBool "no readinessProbe" (not ("readinessProbe" `Text.isInfixOf` TE.decodeUtf8 yaml))
+      assertBool "no limits" (not ("limits:" `Text.isInfixOf` TE.decodeUtf8 yaml))
+  ]
+  where
+    assertInfix needle hay =
+      assertBool
+        ("expected " <> show needle <> " in rendered YAML:\n" <> Text.unpack (TE.decodeUtf8 hay))
+        (needle `Text.isInfixOf` TE.decodeUtf8 hay)
 
 -- ---------------------------------------------------------------------------
 -- EP-19: BuildSpec model — emit/decode round-trips, helpers, renderer, failures

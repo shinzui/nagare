@@ -20,6 +20,7 @@ import Data.ByteString qualified as BS
 import Data.Text qualified as T
 import Nagare.Dsl.Types
   ( Deployment
+  , canonicalDomain
   , domainText
   , namespaceText
   , serviceNameText
@@ -62,7 +63,7 @@ waitForReady name namespace =
 -- or the @NAGARE_BASE_DOMAIN@ env var, defaulting to @"apps.example.com"@.
 serviceUrl :: Deployment -> Text -> Text
 serviceUrl dep baseDomain =
-  case dep ^. #domain of
+  case canonicalDomain (dep ^. #domains) of
     Just d -> "https://" <> domainText d
     Nothing ->
       "https://"

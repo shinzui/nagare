@@ -55,11 +55,12 @@ webService nameText imageText = do
       , namespace = defaultNamespace
       , image = img
       , build = bld
-      , domain = Nothing
+      , domains = []
       , port = defaultPort
       , env = Map.empty
       , resources = Just res
       , scale = Just sc
+      , healthCheck = Nothing
       }
 
 -- | Development overlay: scale @0..1@ (still scale-to-zero, at most one
@@ -77,7 +78,7 @@ production dep = do
   sc <- mkScale 1 5
   cpuQ <- mkQuantity "500m"
   memQ <- mkQuantity "256Mi"
-  let res = Resources {cpu = Just cpuQ, memory = Just memQ}
+  let res = Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
   pure (dep & #scale .~ Just sc & #resources .~ Just res)
 
 -- | Add a Kubernetes Secret reference as an environment variable, preserving
@@ -93,7 +94,7 @@ stdResources :: Either Text Resources
 stdResources = do
   cpuQ <- mkQuantity "250m"
   memQ <- mkQuantity "128Mi"
-  pure Resources {cpu = Just cpuQ, memory = Just memQ}
+  pure Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
 
 -- | Team-wide defaults applied on top of any preset: namespace @personal@ and
 -- no custom domain. Extend as conventions evolve.
@@ -101,4 +102,4 @@ teamDefaults :: Deployment -> Deployment
 teamDefaults dep =
   dep
     & #namespace .~ defaultNamespace
-    & #domain .~ Nothing
+    & #domains .~ []

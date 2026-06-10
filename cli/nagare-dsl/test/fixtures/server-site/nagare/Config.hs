@@ -37,7 +37,7 @@ serverSite = do
             [ (host, runtimeScoped (EnvLiteral "0.0.0.0"))
             , (apiBase, runtimeScoped (EnvLiteral "https://api.example.com"))
             ]
-      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
+      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
       , domains = [dom']
       }

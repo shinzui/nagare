@@ -32,7 +32,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (maybeToList)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -46,7 +45,7 @@ import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBu
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
-import Nagare.Dsl.Render (renderDomainMapping, renderService, scopeToken)
+import Nagare.Dsl.Render (renderDomainMappings, renderService, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
@@ -568,7 +567,7 @@ runDeploy dopts = do
   let effTag = resolveImageTag spec imageTag
       ref = imageRef dep' effTag
       svcBytes = renderService dep' imageTag -- renderer resolves the tag itself
-      dmBytes = maybeToList (renderDomainMapping dep')
+      dmBytes = renderDomainMappings dep'
       name = serviceNameText (dep' ^. #name)
       ns = namespaceText (dep' ^. #namespace)
 

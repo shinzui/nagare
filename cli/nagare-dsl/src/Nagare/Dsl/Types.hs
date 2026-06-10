@@ -60,6 +60,12 @@ module Nagare.Dsl.Types
     -- * Resources
   , Resources (..)
 
+    -- * HealthCheck
+  , HealthCheck (..)
+  , HealthScheme (..)
+  , mkHealthCheck
+  , httpHealthCheck
+
     -- * Scale
   , Scale (..)
   , mkScale
@@ -68,6 +74,11 @@ module Nagare.Dsl.Types
   , Domain
   , mkDomain
   , domainText
+
+    -- * DomainSpec
+  , DomainSpec (..)
+  , mkDomains
+  , canonicalDomain
 
     -- * Deployment
   , Deployment (..)
@@ -281,12 +292,94 @@ mkQuantity t
 quantityText :: Quantity -> Text
 quantityText (Quantity t) = t
 
--- | CPU and memory resource requests for the container.
+-- | CPU and memory resource quantities for the container. The 'cpu' and
+-- 'memory' fields are the /requests/ (the guaranteed amount the pod is
+-- scheduled against); 'cpuLimit' and 'memoryLimit' are the optional /limits/
+-- (the ceiling the container may not exceed). All four are optional; the
+-- renderer emits @requests@ and/or @limits@ sub-blocks only for the quantities
+-- present.
 data Resources = Resources
   { cpu :: !(Maybe Quantity)
   , memory :: !(Maybe Quantity)
+  , cpuLimit :: !(Maybe Quantity)
+  , memoryLimit :: !(Maybe Quantity)
   }
   deriving stock (Generic, Eq, Show)
+
+-- | The HTTP scheme an HTTP probe uses.
+data HealthScheme = HTTP | HTTPS
+  deriving stock (Generic, Eq, Show, Enum, Bounded)
+
+-- | An HTTP health check applied to the container. Rendered as a Knative
+-- @readinessProbe@ always, and additionally as @livenessProbe@/@startupProbe@
+-- when 'asLiveness'/'asStartup' are set. All timings are in seconds.
+--
+-- Note: Knative's @httpGet@ probe does not assert a response status — any 2xx/3xx
+-- is considered healthy. 'expectedStatus' is retained in the model for
+-- documentation and future use and is deliberately /not/ rendered.
+data HealthCheck = HealthCheck
+  { path :: !Text
+  -- ^ HTTP path, e.g. @"/healthz"@. Must be non-empty and start with @"/"@.
+  , checkPort :: !(Maybe Port)
+  -- ^ Port to probe; 'Nothing' means the container port.
+  , scheme :: !HealthScheme
+  -- ^ HTTP or HTTPS.
+  , expectedStatus :: !Int
+  -- ^ Expected HTTP status, default 200. Not rendered (see note above).
+  , initialDelay :: !Int
+  -- ^ Seconds before the first probe. Must be @>= 0@.
+  , period :: !Int
+  -- ^ Seconds between probes. Must be @>= 1@.
+  , timeout :: !Int
+  -- ^ Per-probe timeout seconds. Must be @>= 1@.
+  , failureThreshold :: !Int
+  -- ^ Consecutive failures before unhealthy. Must be @>= 1@.
+  , asLiveness :: !Bool
+  -- ^ Also emit a @livenessProbe@.
+  , asStartup :: !Bool
+  -- ^ Also emit a @startupProbe@.
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Validate an assembled 'HealthCheck': 'path' non-empty and starting with
+-- @"/"@; 'expectedStatus' in 100–599; 'initialDelay' @>= 0@; 'period',
+-- 'timeout', 'failureThreshold' all @>= 1@.
+mkHealthCheck :: HealthCheck -> Either Text HealthCheck
+mkHealthCheck hc
+  | Text.null (path hc) = Left "health check path must not be empty"
+  | not (Text.isPrefixOf "/" (path hc)) =
+      Left ("health check path must start with '/': " <> path hc)
+  | expectedStatus hc < 100 || expectedStatus hc > 599 =
+      Left ("health check expectedStatus must be in 100-599, got: " <> tshow (expectedStatus hc))
+  | initialDelay hc < 0 =
+      Left ("health check initialDelay must be >= 0, got: " <> tshow (initialDelay hc))
+  | period hc < 1 =
+      Left ("health check period must be >= 1, got: " <> tshow (period hc))
+  | timeout hc < 1 =
+      Left ("health check timeout must be >= 1, got: " <> tshow (timeout hc))
+  | failureThreshold hc < 1 =
+      Left ("health check failureThreshold must be >= 1, got: " <> tshow (failureThreshold hc))
+  | otherwise = Right hc
+
+-- | Build a 'HealthCheck' from just a path, filling sensible defaults:
+-- @scheme = HTTP@, @expectedStatus = 200@, @initialDelay = 0@, @period = 10@,
+-- @timeout = 1@, @failureThreshold = 3@, @asLiveness = False@,
+-- @asStartup = False@, @checkPort = Nothing@. Validates via 'mkHealthCheck'.
+httpHealthCheck :: Text -> Either Text HealthCheck
+httpHealthCheck p =
+  mkHealthCheck
+    HealthCheck
+      { path = p
+      , checkPort = Nothing
+      , scheme = HTTP
+      , expectedStatus = 200
+      , initialDelay = 0
+      , period = 10
+      , timeout = 1
+      , failureThreshold = 3
+      , asLiveness = False
+      , asStartup = False
+      }
 
 -- | Knative autoscaling bounds: 'minScale' (minimum pods; 0 means
 -- scale-to-zero) and 'maxScale' (maximum pods). Use 'mkScale' to construct;
@@ -324,6 +417,42 @@ mkDomain t
 domainText :: Domain -> Text
 domainText (Domain t) = t
 
+-- | A custom domain plus whether it is the canonical (advertised) one. Used in
+-- 'Deployment.domains'. Construct lists through 'mkDomains', which enforces the
+-- "exactly one canonical" invariant for a non-empty list.
+data DomainSpec = DomainSpec
+  { domain :: !Domain
+  , canonical :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Build a domain list from @(hostname, isCanonical)@ pairs. An empty list is
+-- allowed (no custom domain). A non-empty list must mark /exactly one/ entry
+-- canonical. Each hostname is validated through 'mkDomain'.
+mkDomains :: [(Text, Bool)] -> Either Text [DomainSpec]
+mkDomains [] = Right []
+mkDomains pairs = do
+  specs <- traverse toSpec pairs
+  let canonicalCount = length (filter canonical specs)
+  if canonicalCount == 1
+    then Right specs
+    else
+      Left
+        ( "a non-empty domain list must mark exactly one domain canonical, found "
+            <> tshow canonicalCount
+        )
+  where
+    toSpec (host, isCanon) = do
+      d <- mkDomain host
+      Right (DomainSpec {domain = d, canonical = isCanon})
+
+-- | The canonical entry's domain, or 'Nothing' for an empty list. For a list
+-- built by 'mkDomains' there is at most one canonical entry.
+canonicalDomain :: [DomainSpec] -> Maybe Domain
+canonicalDomain specs = domain <$> find canonical specs
+  where
+    find p = foldr (\x acc -> if p x then Just x else acc) Nothing
+
 -- | A fully-specified Nagare deployment. Assemble with a record literal after
 -- constructing each field through its smart constructor. There is no hidden
 -- constructor for 'Deployment' — the safety guarantee comes from the field
@@ -335,7 +464,10 @@ data Deployment = Deployment
   -- | How the container image at 'image' is produced: a prebuilt image, a
   -- Dockerfile build, or a Nixpacks build. See 'Nagare.Dsl.Build.BuildSpec'.
   , build :: !BuildSpec
-  , domain :: !(Maybe Domain)
+  -- | Custom domains for the app, each with a canonical marker. An empty list
+  -- means "no custom domain" (the Knative wildcard URL is used). Construct
+  -- through 'mkDomains'.
+  , domains :: ![DomainSpec]
   , port :: !Port
   -- | Env entries are stored by 'EnvName' so 'Data.Map.toAscList' yields a
   -- deterministic, name-sorted order for the renderer. Each value carries the
@@ -344,6 +476,9 @@ data Deployment = Deployment
   , env :: !(Map EnvName ScopedEnvVar)
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
+  -- | An optional HTTP health check, rendered as Knative readiness/liveness/
+  -- startup probes (see 'HealthCheck').
+  , healthCheck :: !(Maybe HealthCheck)
   }
   deriving stock (Generic, Eq, Show)
 

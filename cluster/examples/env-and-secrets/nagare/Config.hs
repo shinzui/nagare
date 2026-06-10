@@ -47,11 +47,12 @@ deployment = do
       , namespace = ns'
       , image = img'
       , build = bld
-      , domain = Nothing
+      , domains = []
       , port = port'
       , env = env'
       , resources = Nothing
       , scale = Just sc
+      , healthCheck = Nothing
       }
   where
     mapLeft f = either (Left . f) Right
