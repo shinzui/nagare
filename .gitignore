@@ -3,6 +3,11 @@
 .seihou/manifest.json.tmp
 CLAUDE.local.md
 
+# Per-operator GCP target profile (EP-60). The tracked schema/example is
+# nagare.target.env.example; the real, per-operator file is never committed so
+# the repository stays project-agnostic.
+nagare.target.env
+
 # Nix build outputs
 result
 result-*
