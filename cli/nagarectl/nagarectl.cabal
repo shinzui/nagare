@@ -41,6 +41,7 @@ library
     Nagare.Env.Store
     Nagare.Image
     Nagare.Ops.Doctor
+    Nagare.Ops.Domains
     Nagare.Ops.Probe
     Nagare.Ops.Pulumi
     Nagare.Ops.Status

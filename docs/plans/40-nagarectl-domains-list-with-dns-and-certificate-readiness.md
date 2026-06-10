@@ -64,25 +64,43 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Pure module `Nagare.Ops.Domains` — `DomainRow`/`DnsExpectation`/`CertState` types, the
-  `DomainMapping` and `Certificate` JSON extractors (`extractDomainMappings`,
-  `extractCertReadiness`), the DNS-expectation computation (`dnsExpectationFor`), and the
-  `formatDomainList` table formatter. Added to the cabal library `exposed-modules`. Covered by
-  `testGroup "Nagare.Ops.Domains"` in `test/Spec.hs`.
-- [ ] M2: `nagarectl domains list` wired in `app/Main.hs` — `domains` command group with a `list`
+- [x] M1 (2026-06-10): Pure module `Nagare.Ops.Domains` — `DomainRow`/`DnsExpectation`/`CertState`/`DomainMapping`
+  types, the `DomainMapping` and `Certificate` JSON extractors (`extractDomainMappings`,
+  `extractCertReadiness`), the DNS-expectation computation (`dnsExpectationFor`), the cert grader
+  (`certStateFor`), and the `formatDomainList` table formatter. Added to the cabal library `exposed-modules`.
+  Covered by `testGroup "Nagare.Ops.Domains"` (15 cases) in `test/Spec.hs` — all green.
+- [x] M2 (2026-06-10): `nagarectl domains list` wired — `domains` command group with a `list`
   subcommand, namespace selection (`-n` / `--all-namespaces`, default `personal`), base-domain
-  resolution (Pulumi-then-ConfigMap-then-fallback), and graceful TLS-disabled handling so a missing
-  `Certificate` (or a TLS-off cluster) shows `disabled`, not an error.
-- [ ] M3: Tests green (`cabal build && cabal test`) and a captured `nagarectl domains list --help`
-  transcript. Live cluster run deferred (pure parsers/formatters validated by unit tests).
+  resolution (Pulumi `baseDomain` → flag/env/literal fallback), and graceful TLS-disabled handling so a
+  missing `Certificate` (or a TLS-off cluster) shows `disabled`, not an error. The thin kubectl IO
+  (`queryDomainRows`/`listNamespaces`) lives in the library and reuses EP-38's `captureTool` (IP4) so a
+  missing `kubectl` degrades to the base row, not a crash.
+- [x] M3 (2026-06-10): Tests green (`cabal build && cabal test`, 163 tests) and a captured
+  `nagarectl domains list --help` transcript (below). Degradation proven with an empty PATH (base row
+  with `(unknown)` IP, exit 0). Live cluster run deferred (pure parsers/formatters validated by unit tests).
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
-(None yet.)
+- 2026-06-10 (M2): `cli/nagarectl/app/Main.hs` does **not** depend on `cradle` (the executable's
+  cabal `build-depends` omits it; every existing command delegates subprocess work to library
+  modules). The plan sketched `runDomainsList` doing the kubectl IO inline in `Main.hs`, which would
+  require adding `cradle` to the executable. Instead the thin kubectl IO (`queryDomainRows`,
+  `listNamespaces`) lives in the library module `Nagare.Ops.Domains`, and `Main.hs`'s `runDomainsList`
+  just resolves the base/IP (via the library `Nagare.Ops.Pulumi.stackOutput`), calls those library IO
+  functions, and prints `formatDomainList`. This keeps `Main.hs` cradle-free and matches the existing
+  codebase convention.
+- 2026-06-10 (M2): The kubectl queries must tolerate `kubectl` being **entirely absent**, not just a
+  non-zero exit. A first cut using raw `cradle` `run` threw an uncaught `IOException` (`posix_spawnp:
+  does not exist`) when `kubectl` was off PATH. Switched `queryDomainRows`/`listNamespaces` to reuse
+  EP-38's `captureTool` (the IP4 wrapper, which catches the missing-binary `IOException` and returns
+  `Nothing`), so `domains list` prints just the base row (`*.<base> A -> (unknown) disabled`) and exits
+  0 when no tooling is reachable — exactly the plan's "no cluster reachable" shape.
+- 2026-06-10 (M1): The DNS column follows the spec (computed wildcard membership), not the loose
+  illustrative example in Purpose — an unrelated domain like `app.nadeem.dev` renders
+  `(outside wildcard)`, while apex and single-label subdomains of the base render
+  `*.<base> A -> <publicIp>`. Two-label subdomains (`a.b.<base>`) are correctly outside the
+  single-label wildcard.
 
 
 ## Decision Log
@@ -135,10 +153,52 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+Delivered `nagarectl domains list`: the pure `Nagare.Ops.Domains` module (the
+`DomainRow`/`DnsExpectation`/`CertState`/`DomainMapping` types, the
+`extractDomainMappings`/`extractCertReadiness` extractors, `dnsExpectationFor`,
+`certStateFor`, and `formatDomainList`) plus a thin library IO layer
+(`queryDomainRows`, `listNamespaces`) and the `domains` command group in
+`cli/nagarectl/app/Main.hs` (a `Domains DomainsCommand` constructor with
+`DomainsCommand = DomainsList DomainsListOpts`, `domainsListOptsParser`,
+`command "domains" domainsCmd`, the `runDomainsList` handler, and the `main`
+dispatch arm). All 163 tests pass, including the new 15-case
+`testGroup "Nagare.Ops.Domains"`.
 
-(To be filled during and after implementation.)
+Captured transcript (2026-06-10):
+
+```text
+$ nagarectl domains list --help
+Usage: nagarectl domains list [-n|--namespace NS] [--all-namespaces]
+                              [--base-domain DOMAIN]
+
+  List the base domain and per-app DomainMappings with DNS and cert state
+
+Available options:
+  -n,--namespace NS        Kubernetes namespace (default: personal)
+  --all-namespaces         List domains across all namespaces
+  --base-domain DOMAIN     Apps base domain (overrides NAGARE_BASE_DOMAIN,
+                           default apps.example.com)
+  -h,--help                Show this help text
+```
+
+Degradation (empty PATH — no kubectl/pulumi reachable; base row still prints,
+exit 0):
+
+```text
+$ PATH=/var/empty nagarectl domains list
+  DOMAIN                          SERVICE         DNS                               CERT
+  apps.example.com                (base)          *.apps.example.com A -> (unknown) disabled
+$ echo $?
+0
+```
+
+What changed from the plan: the kubectl IO lives in the library (Main.hs has no
+`cradle` dep) and reuses EP-38's `captureTool` for missing-binary tolerance; the
+DNS column follows the computed-wildcard spec. The live cluster run (with a
+deployed app owning a DomainMapping, and the TLS-on `Ready`/`pending` cert path)
+is deferred per the plan's M3 convention; the pure extractors, DNS expectation,
+cert grader, and formatter are fully unit-tested, and the graceful TLS-disabled /
+no-cluster paths are proven by the empty-PATH run above.
 
 
 ## Context and Orientation

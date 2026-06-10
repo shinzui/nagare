@@ -16,6 +16,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
@@ -42,6 +43,17 @@ import Nagare.Ops.Doctor
   , formatDoctor
   , gradeChecks
   , remediationFor
+  )
+import Nagare.Ops.Domains
+  ( CertState (..)
+  , DnsExpectation (..)
+  , DomainMapping (..)
+  , DomainRow (..)
+  , certStateFor
+  , dnsExpectationFor
+  , extractCertReadiness
+  , extractDomainMappings
+  , formatDomainList
   )
 import Nagare.Ops.Probe
   ( Probe (..)
@@ -137,6 +149,7 @@ main =
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
       , testGroup "Nagare.Ops" opsTests
       , testGroup "Nagare.Ops.Doctor" doctorTests
+      , testGroup "Nagare.Ops.Domains" domainsTests
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
@@ -216,6 +229,72 @@ opsTests =
         , "/dev/sda1       100G   24G   76G  24% /"
         , "/dev/sdb        100G   12G   88G  12% /var/lib/nagare"
         ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Ops.Domains (MasterPlan 8, EP-40): the pure DomainMapping/Certificate
+-- extractors, the computed DNS expectation, and the table formatter.
+
+domainsTests :: [TestTree]
+domainsTests =
+  [ testCase "extractDomainMappings decodes host/service/ready" $
+      extractDomainMappings domainMappingJson
+        @?= Right
+          [ DomainMapping "blog.apps.example.com" (Just "blog") (Just True)
+          , DomainMapping "app.nadeem.dev" (Just "shop") (Just False)
+          ]
+  , testCase "extractDomainMappings malformed -> Left" $
+      assertBool "Left" (isLeft (extractDomainMappings "{not json"))
+  , testCase "extractDomainMappings empty list -> Right []" $
+      extractDomainMappings "{\"items\":[]}" @?= Right []
+  , testCase "extractCertReadiness pulls (dnsName, ready) per name" $
+      extractCertReadiness certJson
+        @?= Right [("*.personal.apps.example.com", True), ("apps.example.com", True)]
+  , testCase "extractCertReadiness absent/empty -> Right []" $
+      extractCertReadiness "{\"items\":[]}" @?= Right []
+  , testCase "dnsExpectationFor: apex is under the wildcard" $
+      dnsExpectationFor "apps.example.com" "34.83.0.1" "apps.example.com"
+        @?= UnderWildcard "34.83.0.1"
+  , testCase "dnsExpectationFor: one-label subdomain is under the wildcard" $
+      dnsExpectationFor "apps.example.com" "34.83.0.1" "blog.apps.example.com"
+        @?= UnderWildcard "34.83.0.1"
+  , testCase "dnsExpectationFor: two-label subdomain is outside" $
+      dnsExpectationFor "apps.example.com" "34.83.0.1" "a.b.apps.example.com"
+        @?= OutsideWildcard
+  , testCase "dnsExpectationFor: unrelated domain is outside" $
+      dnsExpectationFor "apps.example.com" "34.83.0.1" "app.nadeem.dev"
+        @?= OutsideWildcard
+  , testCase "certStateFor: wildcard cert matches a subdomain (ready)" $
+      certStateFor [("*.personal.apps.example.com", True)] "blog.personal.apps.example.com"
+        @?= CertReady
+  , testCase "certStateFor: matching but not ready -> pending" $
+      certStateFor [("app.nadeem.dev", False)] "app.nadeem.dev"
+        @?= CertPending
+  , testCase "certStateFor: no match -> disabled" $
+      certStateFor [] "app.nadeem.dev" @?= CertDisabled
+  , testCase "formatDomainList: aligned base + app rows golden" $
+      formatDomainList
+        [ DomainRow "apps.example.com" Nothing Nothing (UnderWildcard "34.83.0.1") CertDisabled
+        , DomainRow "blog.apps.example.com" (Just "blog") (Just True) (UnderWildcard "34.83.0.1") CertReady
+        , DomainRow "app.nadeem.dev" (Just "shop") (Just True) OutsideWildcard CertPending
+        ]
+        @?= T.unlines
+          [ "  DOMAIN                          SERVICE         DNS                               CERT"
+          , "  apps.example.com                (base)          *.apps.example.com A -> 34.83.0.1 disabled"
+          , "  blog.apps.example.com           blog            *.apps.example.com A -> 34.83.0.1 Ready"
+          , "  app.nadeem.dev                  shop            (outside wildcard)                pending"
+          ]
+  , testCase "formatDomainList: empty -> (no domains)" $
+      formatDomainList [] @?= "(no domains)\n"
+  ]
+  where
+    domainMappingJson =
+      "{\"items\":[\
+      \{\"metadata\":{\"name\":\"blog.apps.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}},\
+      \{\"metadata\":{\"name\":\"app.nadeem.dev\"},\"spec\":{\"ref\":{\"name\":\"shop\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"False\"}]}}\
+      \]}"
+    certJson =
+      "{\"items\":[{\"spec\":{\"dnsNames\":[\"*.personal.apps.example.com\",\"apps.example.com\"]},\
+      \\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops.Doctor (MasterPlan 8, EP-39): the pure remediation knowledge base,

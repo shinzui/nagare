@@ -99,7 +99,16 @@ import Nagare.Image
   , pushImage
   )
 import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecks)
+import Nagare.Ops.Domains
+  ( DomainRow (..)
+  , DnsExpectation (..)
+  , CertState (..)
+  , formatDomainList
+  , listNamespaces
+  , queryDomainRows
+  )
 import Nagare.Ops.Probe (InventoryOpts (..), renderInventory)
+import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.Status (defaultInventoryOpts, gatherInventory)
 import Nagare.Static.Deploy
   ( DeployInputs (..)
@@ -259,6 +268,7 @@ data Command
   | Storage StorageCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
+  | Domains DomainsCommand
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -328,6 +338,26 @@ doctorOptsParser :: Parser DoctorOpts
 doctorOptsParser =
   DoctorOpts
     <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
+
+-- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
+-- group leaves room for future @domains add@/@remove@.
+newtype DomainsCommand = DomainsList DomainsListOpts
+
+-- | Options for @domains list@: namespace selection and an optional base-domain
+-- override (matching the deploy path's @--base-domain@).
+data DomainsListOpts = DomainsListOpts
+  { dloNamespace :: !(Maybe String)
+  , dloAllNamespaces :: !Bool
+  , dloBaseDomain :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+domainsListOptsParser :: Parser DomainsListOpts
+domainsListOptsParser =
+  DomainsListOpts
+    <$> namespaceOpt
+    <*> switch (long "all-namespaces" <> help "List domains across all namespaces")
+    <*> baseDomainOpt
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -600,11 +630,25 @@ opts =
             <> command "storage" storageCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
+            <> command "domains" domainsCmd
         )
     doctorCmd =
       info
         (Doctor <$> doctorOptsParser <**> helper)
         (fullDesc <> progDesc "Health-check the platform and print remediation hints (exit 1 on any FAIL)")
+    domainsCmd =
+      info
+        (domainsSubparser <**> helper)
+        (fullDesc <> progDesc "Inspect platform domains, DNS expectation, and certificate readiness")
+    domainsSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (Domains . DomainsList <$> domainsListOptsParser <**> helper)
+                (progDesc "List the base domain and per-app DomainMappings with DNS and cert state")
+            )
+        )
     serverCmd =
       info
         (serverSubparser <**> helper)
@@ -912,6 +956,7 @@ main =
     Storage scmd -> runStorage scmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
+    Domains (DomainsList o) -> runDomainsList o
 
 -- | @server status@: gather the platform inventory and print the aligned
 -- report. Read-only and always exits 0 — graceful degradation is the probes'
@@ -936,6 +981,33 @@ runDoctor o = do
   let checks = gradeChecks probes
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
+
+-- | @domains list@: print the base domain plus every per-app DomainMapping with
+-- its owning Service, computed DNS expectation, and certificate readiness.
+-- Read-only; degrades gracefully when Pulumi/kubectl are unreachable (base row
+-- still prints, per-app rows empty, cert column @disabled@).
+runDomainsList :: DomainsListOpts -> IO ()
+runDomainsList o = do
+  base <- resolveDomainsBase (dloBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  nss <-
+    if dloAllNamespaces o
+      then listNamespaces
+      else pure [appNamespace (dloNamespace o)]
+  rows <- concat <$> traverse (queryDomainRows base ip) nss
+  let baseRow = DomainRow base Nothing Nothing (UnderWildcard ip) CertDisabled
+  TIO.putStr (formatDomainList (baseRow : rows))
+
+-- | Resolve the platform base domain for @domains list@: the @--base-domain@
+-- override, else the authoritative Pulumi @baseDomain@ output, else the existing
+-- flag/env/literal fallback chain ('resolveBaseDomain').
+resolveDomainsBase :: Maybe String -> IO Text
+resolveDomainsBase (Just b) = pure (T.pack b)
+resolveDomainsBase Nothing = do
+  mp <- stackOutput "infra/pulumi" "baseDomain"
+  case mp of
+    Just d | not (T.null d) -> pure d
+    _ -> resolveBaseDomain Nothing
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
