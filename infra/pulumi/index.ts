@@ -1,4 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
+import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { buildSshCommand } from "./src/outputs";
 
@@ -31,20 +32,50 @@ const imageSelfLink = cfg.get("nagareImageSelfLink");
 // unchanged and the billable load balancer is never created implicitly.
 const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
 
-const perimeter = new NagarePerimeter("nagare", {
-    gcpProject,
-    region,
-    zone,
-    instanceName: instanceNameCfg,
-    machineType: machineTypeCfg,
-    dataDiskSizeGb: dataDiskSizeGbCfg,
-    baseDomain: baseDomainCfg,
-    artifactRegistryId: artifactRegistryIdCfg,
-    backupBucketName: backupBucketNameCfg,
-    imageBucketName: imageBucketNameCfg,
-    imageSelfLink,
-    enableCdn: enableCdnCfg,
-});
+// EP-63: codify the GCP service APIs the topology needs. On a brand-new project
+// these may be off; declaring them here makes `pulumi up` self-enable them, and
+// the `dependsOn` below sequences enablement before any resource that uses them.
+// `scripts/enable-apis.sh` enables the identical set out-of-band before the very
+// first `pulumi up` (solving the EP-2 bootstrap chicken-and-egg); these resources
+// make every subsequent `pulumi up` self-asserting. disableDependentServices /
+// disableOnDestroy are false so `pulumi destroy` never turns an API off under
+// another workload in a shared project (MasterPlan 12, EP-63 Decision Log).
+const requiredApis = [
+    "compute.googleapis.com",
+    "dns.googleapis.com",
+    "storage.googleapis.com",
+    "artifactregistry.googleapis.com",
+    "iam.googleapis.com",
+    "servicenetworking.googleapis.com",
+];
+const apiServices = requiredApis.map(
+    (api) =>
+        new gcp.projects.Service(`api-${api.split(".")[0]}`, {
+            project: gcpProject,
+            service: api,
+            disableDependentServices: false,
+            disableOnDestroy: false,
+        }),
+);
+
+const perimeter = new NagarePerimeter(
+    "nagare",
+    {
+        gcpProject,
+        region,
+        zone,
+        instanceName: instanceNameCfg,
+        machineType: machineTypeCfg,
+        dataDiskSizeGb: dataDiskSizeGbCfg,
+        baseDomain: baseDomainCfg,
+        artifactRegistryId: artifactRegistryIdCfg,
+        backupBucketName: backupBucketNameCfg,
+        imageBucketName: imageBucketNameCfg,
+        imageSelfLink,
+        enableCdn: enableCdnCfg,
+    },
+    { dependsOn: apiServices },
+);
 
 // Integration Point 1 — the nine exact stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these
