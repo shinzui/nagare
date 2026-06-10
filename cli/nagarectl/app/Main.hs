@@ -36,7 +36,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Options.Applicative
-import System.Directory (makeAbsolute)
+import Data.Maybe (catMaybes)
+import System.Directory (doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (exitFailure)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
@@ -49,7 +50,19 @@ import Nagare.Dsl.Render (renderDomainMappings, renderService, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
-import Nagare.Dsl.Types (EnvScope (..), namespaceText, serviceNameText)
+import Nagare.App
+  ( AppSummary (..)
+  , LogTarget (..)
+  , appDomains
+  , deleteApp
+  , formatAppList
+  , getAppSummary
+  , listAppSummaries
+  , restartApp
+  , stopApp
+  , streamServiceLogs
+  )
+import Nagare.Dsl.Types (EnvScope (..), domainText, namespaceText, quantityText, serviceNameText)
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Dotenv (parseDotenv)
 import Nagare.Env.Generated (generatedEnv, mergeGenerated)
@@ -135,6 +148,53 @@ data SiteCommonOpts = SiteCommonOpts
   }
   deriving stock (Generic, Show)
 
+-- | Options for @app list@: a namespace (default @personal@) and @--all@ to drop
+-- the Nagare-managed label filter (EP-30).
+data AppListOpts = AppListOpts
+  { namespace :: !(Maybe String)
+  , allApps :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @app get@: a positional @NAME@, optional namespace, and a
+-- @--file@ config used only to enrich the output with EP-29's configured
+-- domains/health check/limits (skipped when the config is absent).
+data AppGetOpts = AppGetOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  , file :: !FilePath
+  , ghcEnv :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @app logs@: a positional @NAME@, optional namespace, @--follow@,
+-- and an optional @--tail N@ (default 200 when not following).
+data AppLogsOpts = AppLogsOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  , follow :: !Bool
+  , tailN :: !(Maybe Int)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for the @app NAME@ commands that need only a name and namespace
+-- (@restart@, @stop@).
+data AppNameOpts = AppNameOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @app delete@: like 'AppNameOpts' plus an optional @--file@ config
+-- whose declared domains are deleted (falling back to a cluster query).
+data AppDeleteOpts = AppDeleteOpts
+  { nameArg :: !String
+  , namespace :: !(Maybe String)
+  , file :: !FilePath
+  , ghcEnv :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
 -- | Everything @nagarectl@ can be asked to do.
 data Command
   = Deploy DeployOpts
@@ -146,6 +206,12 @@ data Command
   | SitePreviewDelete SiteCommonOpts String
   | Env EnvCommand
   | Secret SecretCommand
+  | AppList AppListOpts
+  | AppGet AppGetOpts
+  | AppLogs AppLogsOpts
+  | AppRestart AppNameOpts
+  | AppStop AppNameOpts
+  | AppDelete AppDeleteOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -290,6 +356,64 @@ siteCommonOptsParser :: FilePath -> Parser SiteCommonOpts
 siteCommonOptsParser defaultFile =
   SiteCommonOpts <$> fileOpt defaultFile <*> baseDomainOpt <*> ghcEnvOpt
 
+-- App lifecycle option fragments (EP-30).
+
+-- | @-n/--namespace@ for the @app@ commands; 'Nothing' means @personal@.
+namespaceOpt :: Parser (Maybe String)
+namespaceOpt =
+  optional
+    ( strOption
+        ( long "namespace"
+            <> short 'n'
+            <> metavar "NS"
+            <> help "Kubernetes namespace (default: personal)"
+        )
+    )
+
+-- | The positional @NAME@ (Knative Service name) every @app NAME@ command takes.
+appNameArg :: Parser String
+appNameArg = strArgument (metavar "NAME" <> help "App (Knative Service) name")
+
+appListOptsParser :: Parser AppListOpts
+appListOptsParser =
+  AppListOpts
+    <$> namespaceOpt
+    <*> switch (long "all" <> help "List every Knative Service, not only Nagare-managed apps")
+
+appGetOptsParser :: Parser AppGetOpts
+appGetOptsParser =
+  AppGetOpts
+    <$> appNameArg
+    <*> namespaceOpt
+    <*> fileOpt defaultConfigFile
+    <*> ghcEnvOpt
+
+appLogsOptsParser :: Parser AppLogsOpts
+appLogsOptsParser =
+  AppLogsOpts
+    <$> appNameArg
+    <*> namespaceOpt
+    <*> switch (long "follow" <> help "Stream logs until interrupted")
+    <*> optional
+      ( option
+          auto
+          ( long "tail"
+              <> metavar "N"
+              <> help "Lines of recent logs to show (default: 200; ignored with --follow)"
+          )
+      )
+
+appNameOptsParser :: Parser AppNameOpts
+appNameOptsParser = AppNameOpts <$> appNameArg <*> namespaceOpt
+
+appDeleteOptsParser :: Parser AppDeleteOpts
+appDeleteOptsParser =
+  AppDeleteOpts
+    <$> appNameArg
+    <*> namespaceOpt
+    <*> fileOpt defaultConfigFile
+    <*> ghcEnvOpt
+
 previewNameOpt :: Parser String
 previewNameOpt =
   strOption
@@ -365,6 +489,7 @@ opts =
             <> command "site" siteCmd
             <> command "env" envCmd
             <> command "secret" secretCmd
+            <> command "app" appCmd
         )
     deployCmd =
       info
@@ -519,6 +644,49 @@ opts =
                   (progDesc "Delete one secret key")
               )
         )
+    appCmd =
+      info
+        (appSubparser <**> helper)
+        (fullDesc <> progDesc "Application lifecycle: list, get, logs, restart, stop, delete")
+    appSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (AppList <$> appListOptsParser <**> helper)
+                (progDesc "List Nagare-managed apps in a namespace")
+            )
+            <> command
+              "get"
+              ( info
+                  (AppGet <$> appGetOptsParser <**> helper)
+                  (progDesc "Show one app's image, revision, URL, and readiness")
+              )
+            <> command
+              "logs"
+              ( info
+                  (AppLogs <$> appLogsOptsParser <**> helper)
+                  (progDesc "Stream an app's container logs")
+              )
+            <> command
+              "restart"
+              ( info
+                  (AppRestart <$> appNameOptsParser <**> helper)
+                  (progDesc "Roll a fresh revision (also brings a stopped app back online)")
+              )
+            <> command
+              "stop"
+              ( info
+                  (AppStop <$> appNameOptsParser <**> helper)
+                  (progDesc "Take the app offline, recoverably")
+              )
+            <> command
+              "delete"
+              ( info
+                  (AppDelete <$> appDeleteOptsParser <**> helper)
+                  (progDesc "Delete the app, its DomainMappings, and its deployment history")
+              )
+        )
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -535,6 +703,12 @@ main =
     SitePreviewDelete copts pname -> runPreviewDelete copts (T.pack pname)
     Env ecmd -> runEnv ecmd
     Secret scmd -> runSecret scmd
+    AppList o -> runAppList o
+    AppGet o -> runAppGet o
+    AppLogs o -> runAppLogs o
+    AppRestart o -> runAppRestart o
+    AppStop o -> runAppStop o
+    AppDelete o -> runAppDelete o
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
@@ -790,13 +964,158 @@ runPreviewDelete copts pname = do
   TIO.putStrLn ("Deleted preview: " <> svcName)
 
 -- ---------------------------------------------------------------------------
+-- app lifecycle handlers (EP-30)
+
+-- | Resolve the namespace for an @app@ command: the @-n@ value, or @personal@.
+appNamespace :: Maybe String -> Text
+appNamespace = maybe "personal" T.pack
+
+-- | @app list@: print a table of apps in a namespace (Nagare-managed unless
+-- @--all@). An empty managed list prints a hint to try @--all@.
+runAppList :: AppListOpts -> IO ()
+runAppList o = do
+  let ns = appNamespace (o ^. #namespace)
+  esummaries <- listAppSummaries ns (o ^. #allApps)
+  case esummaries of
+    Left err -> dieT err
+    Right [] ->
+      if o ^. #allApps
+        then TIO.putStrLn "(no Knative Services in this namespace)"
+        else TIO.putStrLn "(no Nagare-managed apps; pass --all to list every Knative Service)"
+    Right summaries -> TIO.putStr (formatAppList summaries)
+
+-- | @app get NAME@: print one app's live state, enriched with the config's
+-- declared domains/health check/limits when a readable config is present.
+runAppGet :: AppGetOpts -> IO ()
+runAppGet o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+  esummary <- getAppSummary ns name
+  case esummary of
+    Left err -> dieT err
+    Right s -> do
+      printAppSummary s
+      enrichFromConfig (o ^. #file) (o ^. #ghcEnv)
+
+-- | Print the aligned @app get@ field block.
+printAppSummary :: AppSummary -> IO ()
+printAppSummary s = do
+  TIO.putStrLn ("Name:     " <> asName s)
+  TIO.putStrLn ("Ready:    " <> maybe "?" boolText (asReady s))
+  TIO.putStrLn ("URL:      " <> fromMaybe "-" (asUrl s))
+  TIO.putStrLn ("Revision: " <> fromMaybe "-" (asLatestRevision s))
+  TIO.putStrLn ("Image:    " <> fromMaybe "-" (asImage s))
+  where
+    boolText True = "True"
+    boolText False = "False"
+
+-- | When @file@ exists and loads as a 'Deployment', print its configured
+-- domains, health check, and resource limits (EP-29's richer model). Any
+-- absence or load failure is silently skipped — @app get@ works without a config.
+enrichFromConfig :: FilePath -> Maybe FilePath -> IO ()
+enrichFromConfig file ghc = do
+  exists <- doesFileExist file
+  when exists $ do
+    provisionGhcEnv ghc
+    edep <- Load.loadDeployment file
+    case edep of
+      Left _ -> pure ()
+      Right dep -> do
+        let doms = dep ^. #domains
+        unless (null doms) $
+          TIO.putStrLn ("Domains:  " <> T.intercalate ", " (map domainLabel doms))
+        forM_ (dep ^. #healthCheck) $ \hc ->
+          TIO.putStrLn ("Health:   " <> (hc ^. #path) <> " (" <> T.pack (show (hc ^. #scheme)) <> ")")
+        forM_ (dep ^. #resources) $ \res ->
+          let lims =
+                catMaybes
+                  [ ("cpu " <>) . quantityText <$> (res ^. #cpuLimit)
+                  , ("memory " <>) . quantityText <$> (res ^. #memoryLimit)
+                  ]
+           in unless (null lims) $ TIO.putStrLn ("Limits:   " <> T.intercalate ", " lims)
+  where
+    domainLabel d =
+      domainText (d ^. #domain) <> if d ^. #canonical then " (canonical)" else ""
+
+-- | @app logs NAME [--follow] [--tail N]@: stream the app's user-container logs.
+runAppLogs :: AppLogsOpts -> IO ()
+runAppLogs o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+      following = o ^. #follow
+      target =
+        LogTarget
+          { ltNamespace = ns
+          , ltService = name
+          , ltRevision = Nothing
+          , ltFollow = following
+          , ltTail = if following then Nothing else Just (fromMaybe 200 (o ^. #tailN))
+          }
+  streamServiceLogs target
+
+-- | @app restart NAME@: roll a fresh revision (also clears the cluster-local
+-- label, so a stopped app comes back online), then wait for readiness.
+runAppRestart :: AppNameOpts -> IO ()
+runAppRestart o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+  stamp <- computeTag
+  restartApp ns name stamp
+  waitForReady name ns
+  TIO.putStrLn ("Restarted: " <> name)
+
+-- | @app stop NAME@: take the app offline recoverably.
+runAppStop :: AppNameOpts -> IO ()
+runAppStop o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+  stopApp ns name
+  TIO.putStrLn
+    ( "Stopped "
+        <> name
+        <> " (run 'nagarectl deploy' or 'nagarectl app restart "
+        <> name
+        <> "' to restore public serving)"
+    )
+
+-- | @app delete NAME@: remove the Service, its DomainMappings, and its history.
+-- Domains come from the config when @--file@ resolves to a 'Deployment',
+-- otherwise from a cluster query of DomainMappings pointing at the Service.
+runAppDelete :: AppDeleteOpts -> IO ()
+runAppDelete o = do
+  let ns = appNamespace (o ^. #namespace)
+      name = T.pack (o ^. #nameArg)
+  domains <- resolveDeleteDomains o ns name
+  deleteApp ns name domains
+  TIO.putStrLn ("Deleted " <> name)
+
+-- | The DomainMapping hostnames to delete with an app: the config's declared
+-- domains when a readable 'Deployment' config is present, else the cluster's
+-- DomainMappings that reference the Service.
+resolveDeleteDomains :: AppDeleteOpts -> Text -> Text -> IO [Text]
+resolveDeleteDomains o ns name = do
+  exists <- doesFileExist (o ^. #file)
+  if exists
+    then do
+      provisionGhcEnv (o ^. #ghcEnv)
+      edep <- Load.loadDeployment (o ^. #file)
+      case edep of
+        Right dep -> pure (map (\d -> domainText (d ^. #domain)) (dep ^. #domains))
+        Left _ -> appDomains ns name
+    else appDomains ns name
+
+-- ---------------------------------------------------------------------------
 -- env / secret handlers (EP-25)
 
 -- | Resolve @(name, namespace)@ from a config of any kind: a plain Deployment, a
 -- StaticSite, or a ServerSite. Tries the Deployment loader first; on an
 -- 'Load.UnexpectedKind' (the config is a site) falls back to the site loader.
-appIdentityOrDie :: FilePath -> IO (Text, Text)
-appIdentityOrDie file = do
+--
+-- (Distinct from 'Nagare.App.appIdentityOrDie', which is Deployment-only and is
+-- the IP2 helper the @app@/@deployments@ commands use. This site-aware resolver
+-- is the env/secret path, which must accept site configs too.)
+configIdentityOrDie :: FilePath -> IO (Text, Text)
+configIdentityOrDie file = do
   edep <- Load.loadDeployment file
   case edep of
     Right dep ->
@@ -810,7 +1129,7 @@ appIdentityOrDie file = do
 resolveAppOrDie :: StoreCommonOpts -> IO (Text, Text)
 resolveAppOrDie copts = do
   provisionGhcEnv (copts ^. #ghcEnv)
-  (name, ns) <- appIdentityOrDie (copts ^. #file)
+  (name, ns) <- configIdentityOrDie (copts ^. #file)
   let typed = T.pack (copts ^. #app)
   if typed /= name
     then

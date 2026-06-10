@@ -55,14 +55,39 @@ subsequent `app list` no longer shows it.
 ## Progress
 
 - [x] M1: `Nagare.App` module with `appIdentityOrDie`, `streamServiceLogs`, and the pure helpers; added to the cabal library; unit tests for the pure helpers. (2026-06-10)
-- [ ] M2: `app list` and `app get` wired into the CLI parser and working against the cluster.
-- [ ] M3: `app logs [--follow]`, `app restart`, `app stop`, `app delete` wired and working.
-- [ ] M4: `nagarectl-test` green; manual end-to-end transcript captured in this plan.
+- [x] M2: `app list` and `app get` wired into the CLI parser; handlers implemented (`runAppList`/`runAppGet`/`printAppSummary`/`enrichFromConfig`); `--help` surfaces verified. (2026-06-10)
+- [x] M3: `app logs [--follow]`, `app restart`, `app stop`, `app delete` wired; handlers implemented; `--help` surfaces verified. (2026-06-10)
+- [x] M4: `nagarectl-test` green (102 tests); `--help` transcripts captured below; live cluster run deferred (no cluster mutated during implementation), as M4 permits. (2026-06-10)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **`appIdentityOrDie` already existed in `cli/nagarectl/app/Main.hs`** before this plan started —
+  EP-25 (env/secret, MasterPlan 5) added it as a *site-aware* resolver: it tries the Deployment
+  loader and falls back to the site loader on `Load.UnexpectedKind`, so `env`/`secret` commands work
+  on app, static-site, and server-site configs. The IP2 contract, however, specifies a
+  *Deployment-only* `appIdentityOrDie` living in the new `Nagare.App` module. To satisfy both without
+  a name clash, the pre-existing Main-local function was **renamed to `configIdentityOrDie`** (its
+  behaviour unchanged; it is the more accurate name — it resolves identity from a config of *any*
+  kind) and the IP2 `Nagare.App.appIdentityOrDie` was added fresh. `Nagare.App` is the canonical home
+  for the Deployment-only helper that EP-31's `deployments` commands consume. (2026-06-10)
+
+- **The `app` commands need no config file.** Lifecycle operations target a *deployed* app by name +
+  namespace and read live Knative state via `kubectl`, so they compile and run with no DSL dependency
+  beyond `appDomains`/`extractAppSummary`. The only config touch points are the optional `--file`
+  enrichment in `app get` (EP-29's domains/health/limits) and `--file` domain discovery in
+  `app delete` — both guarded by `doesFileExist` and silently skipped when absent. This confirms the
+  MasterPlan's "soft, not hard" EP-29 dependency: EP-30 is fully functional without EP-29, gaining
+  only richer `app get` output and label-filtered `app list` once EP-29's label is present (it now is).
+  (2026-06-10)
+
+- **Live cluster run deferred.** Implementing this plan does not require mutating the cluster, and
+  creating real Knative Services / DomainMappings in `tan-nb-exp` is an outward-facing action outside
+  the scope of "implement the plan". Per M4's explicit provision (mirroring
+  `docs/masterplans/4-application-build-modes-for-nagare.md`), the `kubectl` paths are validated by
+  the pure-helper unit tests (arg builders, JSON extractors, formatters) and `--help`/argument
+  inspection; the end-to-end live transcript is left for a follow-up against a reachable cluster.
+  (2026-06-10)
 
 
 ## Decision Log
@@ -108,6 +133,61 @@ subsequent `app list` no longer shows it.
   live app would be friction. Defaulting the namespace to `personal` matches `defaultNamespace` in the
   DSL.
   Date: 2026-06-10
+
+- Decision: Place the IP2 `appIdentityOrDie` (Deployment-only) in `Nagare.App`, and rename the
+  pre-existing site-aware resolver in `cli/nagarectl/app/Main.hs` (added by EP-25) to
+  `configIdentityOrDie`. The `app` handlers do not call either (they take `NAME` positionally); the
+  Deployment-only helper exists in `Nagare.App` for the sibling `deployments` commands (EP-31) per the
+  IP2 contract.
+  Rationale: The contract fixes the name `appIdentityOrDie` and its Deployment-only behaviour in
+  `Nagare.App`; the env/secret path genuinely needs the site fallback, so the two cannot be the same
+  function. Renaming the env/secret one to `configIdentityOrDie` frees the contract name and is the
+  more accurate description (it resolves identity from a config of any kind). See Surprises.
+  Date: 2026-06-10
+
+- Decision: Keep the `app stop` mechanism as the `networking.knative.dev/visibility: cluster-local`
+  label patch (the MasterPlan's recoverable-offline semantics), and `app restart`'s
+  `nagare.dev/restartedAt` annotation that also clears that label (a `null` in the merge patch). The
+  exact cluster-local label key was *not* confirmed against a live single-node Kourier cluster during
+  implementation (no cluster was mutated); the documented fallback (delete the Service while keeping
+  the history ConfigMap) remains available if the label proves unsuitable. The patch JSON and the
+  label-clearing `null` are unit-tested via `restartPatch`.
+  Rationale: M4's live run is deferred (see Surprises); the mechanism is implemented and unit-tested
+  at the arg/patch level, and the MasterPlan-fixed semantics are preserved. A future live run confirms
+  or triggers the documented fallback without changing the command surface.
+  Date: 2026-06-10
+
+
+## Outcomes & Retrospective
+
+Completed 2026-06-10. `cli/nagarectl` builds and `nagarectl-test` is green (102 tests).
+
+What exists now that did not before:
+
+- `cli/nagarectl/src/Nagare/App.hs` — the `Nagare.App` library module (IP2): `appIdentityOrDie`
+  (Deployment identity), `LogTarget`/`streamServiceLogs`/`logArgs` (kubectl log streaming),
+  `AppSummary` + `listAppSummaries`/`getAppSummary`/`listManagedApps` (live-state queries) with the
+  pure extractors `extractAppSummary`/`extractAppSummaries`/`extractDomainsFor`/`parseServiceNames`/
+  `formatAppList`, and the lifecycle ops `restartApp`/`restartPatch`/`stopApp`/`deleteApp`/
+  `appDomains`. Registered in `nagarectl.cabal`.
+- Six new CLI commands under `nagarectl app`: `list` (label-filtered, `--all` to widen), `get`
+  (live state + optional EP-29 config enrichment), `logs` (`--follow`/`--tail`), `restart`
+  (annotation bump + label clear + wait), `stop` (cluster-local label), `delete` (Service +
+  DomainMappings + history ConfigMap).
+- 13 new unit tests for the pure helpers (arg builders, JSON extractors, patch JSON, formatter).
+
+Verification: `cabal test` green; `--help` transcripts for every subcommand captured in Concrete
+Steps. The live cluster lifecycle run is deferred (no cluster mutated) per M4.
+
+Notes for downstream:
+
+- EP-31 (`docs/plans/31-application-deployment-history-and-deployments-commands.md`) reuses
+  `Nagare.App.streamServiceLogs` (passing `ltRevision`) and `appIdentityOrDie`, and must delete its
+  history ConfigMap under the name `nagare-app-deployments-<app>` (which `deleteApp` already removes
+  with `--ignore-not-found`).
+- The env/secret site-aware identity resolver was renamed `appIdentityOrDie → configIdentityOrDie`
+  in `app/Main.hs`; future edits to env/secret should use `configIdentityOrDie`, and the
+  Deployment-only `Nagare.App.appIdentityOrDie` for app/deployments paths.
 
 
 ## Context and Orientation
@@ -456,6 +536,45 @@ URL:      https://notes.personal.apps.example.com
 Revision: notes-00003
 Image:    us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes:20260610-120000
 ```
+
+### Implementation evidence (2026-06-10)
+
+`cabal test` in `cli/nagarectl` is green (102 tests, including the new `Nagare.App` pure-helper
+group). The `app` command tree parses as designed (captured from `cabal run -v0 nagarectl -- app …
+--help`):
+
+```text
+$ nagarectl app --help
+Usage: nagarectl app COMMAND
+  Application lifecycle: list, get, logs, restart, stop, delete
+Available commands:
+  list      List Nagare-managed apps in a namespace
+  get       Show one app's image, revision, URL, and readiness
+  logs      Stream an app's container logs
+  restart   Roll a fresh revision (also brings a stopped app back online)
+  stop      Take the app offline, recoverably
+  delete    Delete the app, its DomainMappings, and its deployment history
+
+$ nagarectl app list --help
+Usage: nagarectl app list [-n|--namespace NS] [--all]
+
+$ nagarectl app get --help
+Usage: nagarectl app get NAME [-n|--namespace NS] [-f|--file FILE] [--ghc-env FILE]
+
+$ nagarectl app logs --help
+Usage: nagarectl app logs NAME [-n|--namespace NS] [--follow] [--tail N]
+
+$ nagarectl app restart --help
+Usage: nagarectl app restart NAME [-n|--namespace NS]
+
+$ nagarectl app stop --help
+Usage: nagarectl app stop NAME [-n|--namespace NS]
+
+$ nagarectl app delete NAME [-n|--namespace NS] [-f|--file FILE] [--ghc-env FILE]
+```
+
+The live cluster lifecycle transcript (`deploy → list → get → logs → restart → stop → delete`) is
+deferred (no cluster was mutated during implementation); see the Surprises & Discoveries note.
 
 
 ## Validation and Acceptance

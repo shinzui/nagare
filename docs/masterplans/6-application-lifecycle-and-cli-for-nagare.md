@@ -137,7 +137,7 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
-| 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | In Progress |
+| 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Complete |
 | 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Not Started |
 | 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Not Started |
 
@@ -282,9 +282,9 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - [x] EP-29: `domain → domains :: [DomainSpec]` with canonical marker; preset/fixtures/examples updated. (2026-06-10)
 - [x] EP-29: JSON round-trip (Config emit / Load decode) carries the new fields; golden + round-trip tests pass. (2026-06-10)
 - [x] EP-29: Renderer emits probes, `resources.limits`, per-domain DomainMappings, and the managed-by label; `serviceUrl` uses canonical domain; deploy call sites updated; `cabal test` green in `cli/nagare-dsl`. (2026-06-10)
-- [ ] EP-30: `Nagare.App` module with `appIdentityOrDie` and `streamServiceLogs`; unit tests for pure helpers.
-- [ ] EP-30: `app list` and `app get` working against the cluster (label-filtered list, formatted get).
-- [ ] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` working; `nagarectl-test` green.
+- [x] EP-30: `Nagare.App` module with `appIdentityOrDie` and `streamServiceLogs`; unit tests for pure helpers. (2026-06-10)
+- [x] EP-30: `app list` and `app get` implemented (label-filtered list, formatted get with EP-29 enrichment); `--help` verified, live run deferred. (2026-06-10)
+- [x] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` implemented; `nagarectl-test` green (102). (2026-06-10)
 - [ ] EP-31: `recordReleaseFor`-style recording wired into `runDeploy`; per-app history ConfigMap.
 - [ ] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs.
 - [ ] EP-31: pure-layer unit tests (record/round-trip/find/format) green.
@@ -314,6 +314,22 @@ Track milestone-level progress across all child plans. Each entry names the chil
   `renderDomainMappings :: Deployment -> [ByteString]`** (IP1). Any sibling plan that renders a
   Deployment's DomainMappings must use the plural list form; `cli/nagarectl/app/Main.hs`'s
   `runDeploy` already does. (EP-29, 2026-06-10)
+
+- **IP2 is live: `Nagare.App` now exists** (`cli/nagarectl/src/Nagare/App.hs`) with the exact
+  signatures the Integration Points section names — `appIdentityOrDie :: FilePath -> IO (Text, Text)`
+  (Deployment-only) and `streamServiceLogs :: LogTarget -> IO ()` (with `data LogTarget = LogTarget {
+  ltNamespace, ltService, ltRevision :: Maybe Text, ltFollow :: Bool, ltTail :: Maybe Int }`). **EP-31
+  consumes these as-is** — pass a `Just <revision>` `ltRevision` for `deployments logs`. EP-31 must
+  *not* re-derive them. (EP-30, 2026-06-10)
+
+- **A pre-existing `appIdentityOrDie` in `app/Main.hs` (added by EP-25, site-aware) was renamed to
+  `configIdentityOrDie`** so the IP2 Deployment-only `Nagare.App.appIdentityOrDie` could own the name.
+  Nothing outside `app/Main.hs`'s env/secret handlers used the old one. EP-31 should use
+  `Nagare.App.appIdentityOrDie`. (EP-30, 2026-06-10)
+
+- **`deleteApp` (EP-30) already removes the history ConfigMap named `nagare-app-deployments-<app>`**
+  with `--ignore-not-found` (IP3). EP-31 must use exactly that ConfigMap name so the two agree; the
+  name is now committed in `cli/nagarectl/src/Nagare/App.hs`. (EP-30, 2026-06-10)
 
 
 ## Decision Log
