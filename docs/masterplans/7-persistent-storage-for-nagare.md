@@ -145,7 +145,7 @@ of the backup story," so they are one plan with two milestones.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 33 | Knative PVC enablement spike and cluster feature flags | docs/plans/33-knative-pvc-enablement-spike-and-cluster-feature-flags.md | None | None | Complete |
-| 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Not Started |
+| 34 | Typed volume and mount model with PVC and volumeMount renderer | docs/plans/34-typed-volume-and-mount-model-with-pvc-and-volumemount-renderer.md | None | EP-33 | Complete |
 | 35 | Deploy-time PVC provisioning and nagarectl storage list and inspect commands | docs/plans/35-deploy-time-pvc-provisioning-and-nagarectl-storage-list-and-inspect-commands.md | EP-34 | EP-33 | Not Started |
 | 36 | App volume backup ownership, snapshot to GCS, and retention | docs/plans/36-app-volume-backup-ownership-snapshot-to-gcs-and-retention.md | EP-34, EP-35 | EP-33 | Not Started |
 | 37 | Persistent storage docs and end-to-end examples | docs/plans/37-persistent-storage-docs-and-end-to-end-examples.md | EP-35, EP-36 | EP-34 | Not Started |
@@ -270,9 +270,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 
 - [x] EP-33: Knative `config-features` patch committed enabling PVC volume + write flags. (2026-06-09)
 - [x] EP-33: Raw-YAML proof that a Knative Service mounts a `local-path` RWO PVC and data survives a revision roll; rollout knob determined and documented. (2026-06-09; min-scale=1/max-scale=1/rollout-duration=0s, no Multi-Attach.)
-- [ ] EP-34: `Volume`/`VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy` types + smart constructors; existing configs compile with an empty `volumes` default.
-- [ ] EP-34: JSON round-trip (Config.hs emit / Load.hs decode) carries volumes; golden tests pass.
-- [ ] EP-34: PVC manifest renderer + container/pod `volumeMounts`/`volumes` rendering + key ordering; golden tests match EP-33's verified shape.
+- [x] EP-34: `Volume`/`VolumeName`/`MountPath`/`AccessMode`/`RetentionPolicy` types + smart constructors; existing configs compile with an empty `volumes` default. (2026-06-09)
+- [x] EP-34: JSON round-trip (Config.hs emit / Load.hs decode) carries volumes; golden tests pass. (2026-06-09; load-time name + mount-path uniqueness as MarshalError "volumes".)
+- [x] EP-34: PVC manifest renderer + container/pod `volumeMounts`/`volumes` rendering + key ordering; golden tests match EP-33's verified shape. (2026-06-09; all 185 tests pass, no existing golden changed.)
 - [ ] EP-35: `nagarectl deploy` provisions PVCs before applying the Service; demonstrated end to end.
 - [ ] EP-35: `nagarectl storage list|inspect` commands working against the cluster (or `--dry-run`).
 - [ ] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored.
@@ -308,6 +308,15 @@ interactions between child plans. Provide concise evidence.
   `sudo k3s kubectl` on the node (the workstation's default kubectl context points at an unrelated
   GKE cluster). Documented in `docs/runbooks/cluster-access.md`. EP-35/EP-36 live deploys need the
   VM started and the EP-33 flags applied (already enabled on the live cluster).
+
+- **EP-34 delivered IP1/IP2/IP3; the renderer overrides `scale` for volume-bearing apps.** Any
+  Service with ≥1 volume is stamped with min-scale=1/max-scale=1/rollout-duration=0s
+  (`volumeAnnotationPairs`), **replacing** the author's `Scale` — required by EP-33 (single writer +
+  stay warm). EP-37's docs must state that attaching a volume pins scaling. PVC discovery contract for
+  EP-35/EP-36: `pvcName app vol == "nagare-vol-<app>-<vol>"`, labels `nagare.dev/managed-by:
+  nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<vol>` (query by label, never re-derive).
+  `Deployment`/`ServerSite` PVC YAML is byte-identical (Server/Render delegates to Render). All 185
+  `nagare-dsl` tests pass; existing stateless goldens unchanged.
 
 - **Namespace deletion does NOT cascade-clean storage (input to EP-35/EP-36).** `kubectl delete
   namespace` left the Knative `ksvc`/route/revision and the PVC stuck on finalizers for minutes;
