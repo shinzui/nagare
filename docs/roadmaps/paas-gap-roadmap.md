@@ -1,11 +1,35 @@
 # PaaS Capability Roadmap for Nagare
 
 Created: 2026-06-07
+Last updated: 2026-06-10
 
 This roadmap compares Nagare's current and planned capability set against common self-hosted and
 developer-platform PaaS capabilities, then turns the gaps into future Nagare initiatives. It is not
 an implementation plan. Each major roadmap phase below is intentionally shaped so it can become its
 own MasterPlan or ExecPlan later.
+
+## Implementation status (2026-06-10)
+
+Status legend used throughout: ✅ **Done**, 🟡 **Partial**, ⬜ **Not started**, ⛔ **Out of scope**.
+
+Delivered so far, each by a completed MasterPlan under `docs/masterplans/`:
+
+- ✅ Static sites, previews, rollbacks, and Git webhook automation — MasterPlan 3.
+- ✅ Application build modes (typed `BuildSpec`: `DockerfileBuild`, `PrebuiltImage`, `NixpacksBuild`)
+  — MasterPlan 4.
+- ✅ Environment and secret management (`nagarectl env` / `nagarectl secret`, runtime/build/preview
+  scopes, `.env` sync) — MasterPlan 5.
+- ✅ Application model and CLI lifecycle (health checks, resource limits, multiple domains, and the
+  `nagarectl app …` / `nagarectl deployments …` commands) — MasterPlan 6.
+- ✅ Persistent storage (typed volumes, PVC renderer, `nagarectl storage …`, app-volume snapshots to
+  GCS with retention) — MasterPlan 7.
+- ✅ Server and operations UX (`nagarectl server status` / `doctor` / `domains list` / `cleanup`) —
+  MasterPlan 8.
+
+Still missing (future initiatives): managed databases and their backups (Phase 4), scheduled tasks
+(Phase 5), curated service templates (Phase 6), dynamic-app previews (Phase 7), a general control API
+and CLI contexts (Phase 8 — only the static webhook runner `nagared` exists today), and an optional
+dashboard (Phase 10).
 
 Sources used for the initial comparison. This list is intentionally incomplete and should be updated
 as more PaaS platforms are researched:
@@ -17,26 +41,23 @@ as more PaaS platforms are researched:
 
 ## Current Baseline
 
-Nagare already has a strong narrow core: one typed Haskell config produces one Knative Service, and
+Nagare already has a strong core: one typed Haskell config produces one Knative Service, and
 `nagarectl deploy` builds, pushes, applies, waits, and prints a URL. The type-safe DSL initiative
 eliminated the old YAML surface and made illegal app deployment states much harder to write down.
-The static hosting MasterPlan adds the Cloudflare Pages/Netlify-style side of the platform:
-static-site config, generated Nginx image packaging, releases, rollback, previews, and Git webhook
-automation.
+On top of that, six capability initiatives have now landed (see *Implementation status* above):
+static hosting (Cloudflare Pages/Netlify-style static-site config, generated Nginx image packaging,
+releases, rollback, previews, and Git webhook automation), typed application build modes, environment
+and secret management, the application model and CLI lifecycle, persistent storage with app-volume
+backups, and the operator-facing server/operations UX.
 
-That leaves these broader PaaS gaps outside static hosting:
+That leaves these broader PaaS gaps:
 
-- project/environment organization,
-- richer application build/deploy modes,
-- lifecycle and log commands,
-- first-class env and secret management,
-- persistent storage,
-- managed databases with backups,
-- Docker Compose-style services and one-click templates,
-- scheduled tasks,
-- server/resource inventory and operational maintenance,
-- API/control-plane automation,
-- and a dashboard or equivalent operator UI.
+- managed databases with backups (Phase 4),
+- scheduled tasks (Phase 5),
+- curated service templates, and optionally Docker Compose-style services (Phase 6),
+- dynamic-app preview deployments (Phase 7),
+- a general control-plane API and CLI contexts beyond today's static webhook runner (Phase 8),
+- and an optional dashboard or equivalent operator UI (Phase 10).
 
 The roadmap below orders these by leverage for a single-node personal PaaS. It does not try to clone
 any one platform's architecture. Nagare should stay Kubernetes/Knative-native and typed-config-first.
@@ -44,29 +65,35 @@ any one platform's architecture. Nagare should stay Kubernetes/Knative-native an
 
 ## Gap Matrix
 
-| PaaS capability | Nagare status | Recommended Nagare shape | Priority |
-|---|---|---|---|
-| Static sites, previews, rollbacks | Planned in `docs/masterplans/3-static-hosting-for-nagare.md` | Containerized Nginx image deployed as Knative Service | Already planned |
-| Application build modes | Partial: Docker build only | Typed `BuildSpec`: Dockerfile, prebuilt image, buildpacks/Nixpacks-style builder later | High |
-| App lifecycle commands | Minimal: deploy only | `nagarectl app list/get/logs/restart/stop/delete` | High |
-| Deployment history/logs | Partial through Kubernetes/Grafana | Release/deployment records plus `nagarectl deployments ...` | High |
-| Env vars and secrets | Partial in DSL, no management commands | `nagarectl env` and `nagarectl secret`, build/runtime/preview scopes | High |
-| Persistent storage | Examples only | Typed volume mounts and PVC renderer | High |
-| Managed databases | Backup scripts and examples, not productized | First-class Postgres and Redis resources, generated env injection | High |
-| Database backups | Scripts exist, no app-level UX | Scheduled backup resources, restore commands, retention policy | High |
-| Services/templates | Not present | Curated Kubernetes/Helm/Compose-derived templates with typed inputs | Medium |
-| Docker Compose apps | Not present | Either decompose to typed resources or run Compose-compatible services in a constrained namespace | Medium |
-| Scheduled tasks | Not present | Kubernetes CronJob renderer and `nagarectl task` commands | Medium |
-| Preview deployments for dynamic apps | Not present | Branch/PR suffixes over existing Knative Service renderer | Medium |
-| Git provider integration | Planned for static only | Generalize webhook receiver for app and database workflows | Medium |
-| Server inventory | Mostly Pulumi/NixOS docs | `nagarectl server status`, disk, cluster, ingress, domain, backup health | Medium |
-| API automation | Not present | Small `nagared` API exposing typed operations, initially local/cluster-authenticated | Low-to-medium |
-| Dashboard UI | Not present | Optional thin UI over `nagared`; not needed before CLI/API maturity | Low |
-| Multi-server management | Out of scope today | Defer; Nagare is intentionally single-node | Low |
-| One-click 200+ service marketplace | Not present | Start with 5-10 high-value curated templates; avoid large marketplace early | Low-to-medium |
+| PaaS capability | Recommended Nagare shape | Status |
+|---|---|---|
+| Static sites, previews, rollbacks | Containerized Nginx image deployed as Knative Service | ✅ Done — MasterPlan 3 |
+| Application build modes | Typed `BuildSpec`: `DockerfileBuild`, `PrebuiltImage`, `NixpacksBuild` | ✅ Done — MasterPlan 4 |
+| App lifecycle commands | `nagarectl app list/get/logs/restart/stop/delete` | ✅ Done — MasterPlan 6 |
+| Deployment history/logs | Release/deployment records plus `nagarectl deployments ...` | ✅ Done — MasterPlan 6 |
+| App model knobs (health checks, limits, domains) | `HealthCheck`, request+limit `Resources`, multiple `DomainSpec` | ✅ Done — MasterPlan 6 |
+| Env vars and secrets | `nagarectl env` and `nagarectl secret`, build/runtime/preview scopes, `.env` sync | ✅ Done — MasterPlan 5 |
+| Persistent storage | Typed volume mounts and PVC renderer, `nagarectl storage ...` | ✅ Done — MasterPlan 7 |
+| App-volume backups | Snapshot to GCS with retention and backup ownership | ✅ Done — MasterPlan 7 |
+| Server inventory & operations UX | `nagarectl server status` / `doctor` / `domains list` / `cleanup` | ✅ Done — MasterPlan 8 |
+| Managed databases | First-class Postgres and Redis resources, generated env injection | ⬜ Not started — Phase 4 |
+| Managed-database backups | Scheduled backup resources, restore commands, retention policy | ⬜ Not started — Phase 4 (app-volume snapshots exist; DB-level UX does not) |
+| Scheduled tasks | Kubernetes CronJob renderer and `nagarectl task` commands | ⬜ Not started — Phase 5 |
+| Service templates | Curated typed templates (Postgres admin, MinIO, etc.) | ⬜ Not started — Phase 6 |
+| Docker Compose apps | Decompose to typed resources, or run in a constrained namespace | ⬜ Not started — Phase 6 (low interest) |
+| Preview deployments for dynamic apps | Branch/PR suffixes over the Knative Service renderer | ⬜ Not started — Phase 7 (static-site previews already done) |
+| Git provider integration | Generalize the webhook receiver beyond static deploys | 🟡 Partial — `nagared` webhook runner does static production/preview deploys |
+| Control API and contexts | `nagared` control API + `nagarectl context ...` | 🟡 Partial — `nagared` exists as a static webhook runner; no general API or contexts — Phase 8 |
+| Dashboard UI | Optional thin UI over `nagared` | ⬜ Not started — Phase 10 |
+| Multi-server management | Defer; Nagare is intentionally single-node | ⛔ Out of scope |
 
 
-## Phase 1: Application Model and CLI Lifecycle
+## Phase 1: Application Model and CLI Lifecycle — ✅ Done
+
+**Status: delivered by MasterPlan 4 (build modes) and MasterPlan 6 (app model + CLI lifecycle).** The
+typed `BuildSpec` (`DockerfileBuild` / `PrebuiltImage` / `NixpacksBuild`), `HealthCheck`, request+limit
+`Resources`, multiple `DomainSpec`, and the `nagarectl app …` / `nagarectl deployments …` commands all
+shipped. The original deliverables below are retained for historical context.
 
 General-purpose PaaS application models expose more knobs than Nagare's current `Deployment`: build
 command, start command, base directory, publish directory, Dockerfile path/content, pre/post deploy
@@ -102,7 +129,12 @@ CLI lifecycle commands, and user docs.
 Why first: it improves every app workflow and creates the vocabulary that later phases reuse.
 
 
-## Phase 2: Environment and Secret Management
+## Phase 2: Environment and Secret Management — ✅ Done
+
+**Status: delivered by MasterPlan 5.** Typed env scopes (runtime/build/preview), literal/multiline
+semantics, generated/predefined variables, `.env` sync, deterministic Secret/ConfigMap rendering with
+reconcile modes, and the `nagarectl env …` / `nagarectl secret …` commands all shipped. The original
+deliverables below are retained for historical context.
 
 Modern PaaS environment-variable surfaces are broader than Nagare's current `EnvLiteral` versus
 `EnvSecretRef`: they commonly include build-time flags, preview flags, literal/multiline options,
@@ -138,7 +170,12 @@ Why second: apps and databases become much more usable once configuration can be
 editing Haskell and redeploying everything.
 
 
-## Phase 3: Persistent Storage
+## Phase 3: Persistent Storage — ✅ Done
+
+**Status: delivered by MasterPlan 7.** Typed `Volume`/`Mount` types with retention policy, the PVC and
+Knative volume-mount renderer, the `nagarectl storage list/inspect/snapshot` commands, app-volume
+snapshots to GCS with retention, and the backup-ownership rule (included or explicitly excluded with a
+warning) all shipped. The original deliverables below are retained for historical context.
 
 PaaS platforms commonly let applications and databases attach persistent storage. Nagare has k3s
 local-path storage and examples, but no typed app-level storage surface.
@@ -165,7 +202,11 @@ Suggested plan shape: one MasterPlan if backup integration is included; otherwis
 Why third: persistent storage is a prerequisite for many "service" and "database" templates.
 
 
-## Phase 4: Managed Databases and Backups
+## Phase 4: Managed Databases and Backups — ⬜ Not started
+
+**Status: not started.** App-volume snapshots to GCS exist (MasterPlan 7), but there are no
+first-class `Database` resources, no generated `DATABASE_URL`/`REDIS_URL` injection, and no
+database-level backup/restore UX. This is the largest remaining gap.
 
 PaaS platforms commonly provide managed or semi-managed databases such as PostgreSQL, MySQL/MariaDB,
 MongoDB, Redis-compatible stores, and analytical databases. Nagare should start smaller and make the
@@ -208,7 +249,9 @@ Why fourth: this is the biggest remaining PaaS gap after app lifecycle and env m
 not be started until storage and secrets have a stable shape.
 
 
-## Phase 5: Scheduled Tasks and One-Off Jobs
+## Phase 5: Scheduled Tasks and One-Off Jobs — ⬜ Not started
+
+**Status: not started.** No `Task` model, CronJob renderer, or `nagarectl task` commands exist yet.
 
 Scheduled tasks are a common PaaS feature for applications and services. Nagare can map this cleanly
 to Kubernetes CronJobs and one-off Jobs.
@@ -235,11 +278,12 @@ Why fifth: scheduled jobs are important, but they depend on env, secrets, storag
 connections being stable.
 
 
-## Phase 6: Service Templates
+## Phase 6: Service Templates — ⬜ Not started
 
-Many PaaS platforms offer user-defined service stacks and one-click service templates. Nagare should
-not chase a large template marketplace early. It should start with a small curated set that matches
-personal infrastructure needs.
+**Status: not started.** No template schema, registry, or `nagarectl service …` commands exist yet.
+
+Nagare offers a small, curated set of service templates that match personal infrastructure needs —
+deliberately a handful of high-value, version-pinned templates, not a sprawling catalog.
 
 Initial template candidates:
 
@@ -277,7 +321,10 @@ Why sixth: templates are attractive, but without storage, secrets, domains, and 
 they become brittle copy-paste.
 
 
-## Phase 7: Preview Deployments for Dynamic Apps
+## Phase 7: Preview Deployments for Dynamic Apps — ⬜ Not started
+
+**Status: not started.** Static-site previews shipped with MasterPlan 3 (`nagarectl site preview …`),
+but dynamic applications have no preview model yet (no `PreviewPolicy`, no `nagarectl app preview …`).
 
 The static hosting plan adds previews for static sites. Dynamic applications should gain the same
 branch and pull-request preview model, including separate preview env. Nagare should generalize the
@@ -298,7 +345,12 @@ lifecycle MasterPlan.
 Why seventh: valuable for Git workflows, but not essential before core app lifecycle is solid.
 
 
-## Phase 8: Control API and Contexts
+## Phase 8: Control API and Contexts — 🟡 Partial
+
+**Status: partial.** The `nagared` service exists today as a **static-hosting webhook runner** (it
+verifies GitHub HMAC signatures and drives the static production/preview deploy path; introduced with
+MasterPlan 3). There is no general control API exposing typed operations, no authentication model
+beyond the webhook secret, and no `nagarectl context …` management yet.
 
 Many platforms expose an API and a CLI context model. Nagare is currently CLI-first with direct
 shell-outs to Docker, gcloud, and kubectl. A small API becomes useful once webhooks, dashboards, or
@@ -327,7 +379,14 @@ Suggested plan shape: one MasterPlan with security and API design up front.
 Why later: an API before stable app/db/service primitives would freeze immature shapes.
 
 
-## Phase 9: Server and Operations UX
+## Phase 9: Server and Operations UX — ✅ Done
+
+**Status: delivered by MasterPlan 8.** `nagarectl server status` (one-screen inventory), `nagarectl
+doctor` (graded checklist with remediation hints, non-zero exit on FAIL), `nagarectl domains list`
+(DNS + certificate readiness), and `nagarectl cleanup` (dry-run-by-default disk reclamation) all
+shipped, with the `docs/runbooks/server-operations.md` guide and the cluster-access /
+disaster-recovery runbook integration. The original deliverables below are retained for historical
+context.
 
 PaaS operator interfaces commonly surface servers, resources, domains, proxy status, and
 update/cleanup actions. Nagare's operator story is currently spread across Pulumi outputs, NixOS
@@ -348,7 +407,10 @@ inspection.
 Why later: it is easiest to build good health checks once the resources they inspect are standardized.
 
 
-## Phase 10: Optional Dashboard
+## Phase 10: Optional Dashboard — ⬜ Not started
+
+**Status: not started** (and intentionally deferred until the control API and most core resources are
+stable).
 
 A web UI is a common advantage of mature PaaS products. Nagare can remain CLI-first for a long time,
 but a small single-tenant dashboard could eventually improve day-2 operations.
@@ -367,17 +429,18 @@ Why last: a dashboard built too early would either duplicate CLI logic or force 
 
 ## Recommended Initiative Order
 
-1. Finish `docs/masterplans/3-static-hosting-for-nagare.md`.
-2. Application model and CLI lifecycle.
-3. Environment and secret management.
-4. Persistent storage.
-5. Managed PostgreSQL and Redis with backups.
-6. Scheduled tasks.
-7. Service templates.
-8. Dynamic app previews.
-9. Control API and contexts.
-10. Server/operator UX.
-11. Optional dashboard.
+1. ✅ Finish `docs/masterplans/3-static-hosting-for-nagare.md`.
+2. ✅ Application model and CLI lifecycle (MasterPlans 4 & 6).
+3. ✅ Environment and secret management (MasterPlan 5).
+4. ✅ Persistent storage (MasterPlan 7).
+5. ✅ Server/operator UX (MasterPlan 8) — pulled forward ahead of the items below, since its health
+   checks are useful now and the resources they inspect are already standardized.
+6. ⬜ Managed PostgreSQL and Redis with backups. ← **next**
+7. ⬜ Scheduled tasks.
+8. ⬜ Service templates.
+9. ⬜ Dynamic app previews.
+10. 🟡 Control API and contexts (today only the static webhook runner `nagared` exists).
+11. ⬜ Optional dashboard.
 
 This order keeps Nagare pragmatic: first make individual apps and static sites pleasant, then add
 stateful resources, then templates, then automation and UI. It also preserves the existing principle
@@ -386,12 +449,20 @@ that Nagare is a typed, Kubernetes-native personal PaaS rather than a clone of a
 
 ## Candidate MasterPlans to Create Next
 
-The next useful planning artifacts would be:
+Already created and completed: **Application Lifecycle** (MasterPlan 6), **Environment and Secret
+Management** (MasterPlan 5), **Application Build Modes** (MasterPlan 4), **Persistent Storage**
+(MasterPlan 7), and **Server Inventory and Operations UX** (MasterPlan 8).
 
-1. **Application Lifecycle for Nagare**: app model, build modes, health checks, lifecycle CLI,
-   deployment logs.
-2. **Nagare Environment and Secret Management**: env scopes, `.env` sync, Kubernetes Secret/ConfigMap
-   rendering, secret CLI.
-3. **Stateful Resources for Nagare**: persistent volumes, Postgres, Redis, backups, restores.
-4. **Scheduled Tasks and Service Templates**: CronJobs, one-off Jobs, curated service registry.
-5. **Nagare Control Plane API**: `nagared`, contexts, auth, read-only API, mutation API.
+The next useful planning artifacts to create would be:
+
+1. **Managed Databases for Nagare**: first-class Postgres and Redis resources, generated env
+   injection (`DATABASE_URL`/`REDIS_URL`), scheduled backups, restore commands, and restore drills.
+   (Persistent volumes already shipped in MasterPlan 7; this builds the database layer on top.)
+2. **Scheduled Tasks for Nagare**: a typed `Task` model, the Kubernetes CronJob/one-off Job renderer,
+   and `nagarectl task` commands.
+3. **Service Templates for Nagare**: a curated typed template schema and registry, with
+   `nagarectl service …` commands — a small, version-pinned curated set.
+4. **Dynamic App Previews for Nagare**: `PreviewPolicy` on the app DSL, `nagarectl app preview …`,
+   reusing the static-hosting webhook automation.
+5. **Nagare Control Plane API**: generalize `nagared` beyond the static webhook runner — contexts,
+   auth, a read-only API, then mutation endpoints.
