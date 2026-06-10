@@ -8,6 +8,11 @@ developer-platform PaaS capabilities, then turns the gaps into future Nagare ini
 an implementation plan. Each major roadmap phase below is intentionally shaped so it can become its
 own MasterPlan or ExecPlan later.
 
+Companion roadmaps under `docs/roadmaps/`: `kubernetes-controller-roadmap.md` (whether and when to
+add a Kubernetes controller) and `ingress-networking-layer-roadmap.md` (whether and when to migrate
+the Knative networking layer from Kourier to Envoy Gateway via the Gateway API — currently
+postponed, Knative kept as a hard requirement).
+
 ## Implementation status (2026-06-10)
 
 Status legend used throughout: ✅ **Done**, 🟡 **Partial**, ⬜ **Not started**, ⛔ **Out of scope**.
