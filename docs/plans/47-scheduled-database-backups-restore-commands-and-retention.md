@@ -125,14 +125,15 @@ Milestone 4 — runbook + user-guide integration:
 
 ## Surprises & Discoveries
 
-- **The live backup/restore leg is blocked, not just deferred.** EP-43 found that in-pod GCS auth via
-  `GCE_METADATA_HOST=169.254.169.254` is broken cluster-wide — the metadata IP is routed into the
-  `flannel.1` overlay and is unreachable from pods (the existing litestream sidecar fails identically).
-  Every Job/CronJob this plan renders uses that exact ADC pattern (mirroring EP-36's snapshot Job), so
-  the upload/download will not work until the node route is fixed (a more-specific `169.254.169.254/32`
-  route via the primary NIC, or a host-side upload step). The renderers, path/ext helpers, retention
-  reuse, and CLI are all in place and unit-tested; only the *live* upload is gated. Flagged in the
-  runbook and the MasterPlan.
+- **The live backup/restore leg was blocked by a node routing bug — now FIXED (2026-06-10).** EP-43
+  found in-pod GCS auth broken cluster-wide: k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the
+  GCE metadata IP into the VXLAN overlay. The fix (in `nixos/hosts/nagare-01/networking.nix`): a `/32`
+  metadata route on the primary NIC (beats the `/16`) + the MASQUERADE for pod SNAT; **and** this plan's
+  backup/restore Job renderers now emit a `hostAliases` entry mapping `metadata.google.internal` to the
+  metadata IP, because gcloud/gsutil look the canonical name up (just reaching the IP via
+  `GCE_METADATA_HOST` was not enough for gsutil — it returned "401 Anonymous caller" until the name
+  resolved). Verified live: in-pod `gsutil ls` reaches the bucket and the litestream sidecar resumed.
+  Applied live + committed to NixOS; `just host-switch` persists it across reboots.
 
 - **`db backup`/`db restore --dry-run` resolve the engine from the cluster.** Unlike `db create
   --dry-run` (engine is an argument), `db backup NAME` has only the name, so rendering the Job needs the

@@ -37,10 +37,10 @@ shows `POSTGRES_HOST` as a literal and `DATABASE_URL`/`POSTGRES_PASSWORD` as
 > **on the VM** via `scripts/iap-ssh.sh`, after `gcloud compute instances start
 > nagare-01 --project=tan-nb-exp --zone=us-west1-a`.
 >
-> **Backups are currently blocked** by a cluster routing regression (the in-pod
-> metadata IP is unreachable — see the user guide); `db create`/`deploy`/`db
-> restart` work, but `db backup`'s GCS upload will not until the node route is
-> fixed.
+> In-pod GCS auth (which `db backup` needs) is **fixed** — a `/32` metadata route
+> + MASQUERADE on the node and `hostAliases` on the backup Jobs (see the user
+> guide). It's applied live and committed to NixOS; `just host-switch` persists it
+> across reboots.
 
 ```bash
 nagarectl db create postgres pg-main --size 10Gi
@@ -49,7 +49,7 @@ URL=$(nagarectl app get postgres-app | sed -n 's/^URL:[[:space:]]*//p')
 curl -fsS "$URL/add"          # -> rows: 1
 nagarectl db restart pg-main  # roll the database pod
 curl -fsS "$URL/"             # -> rows: 1  (data survived the restart)
-nagarectl db backup pg-main   # (blocked: GCS upload, see above)
+nagarectl db backup pg-main   # uploads to GCS (in-pod auth fixed)
 gsutil ls "gs://tan-nb-exp-nagare-backups/databases/pg-main/"
 ```
 

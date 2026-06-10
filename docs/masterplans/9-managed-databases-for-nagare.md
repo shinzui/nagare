@@ -517,13 +517,19 @@ app-env injection, the `db` CLI, and scheduled backups with a documented restore
 Engine versions were bumped to modern majors (Postgres 18 / Redis 8 / ClickHouse 25.8) per user
 direction during implementation.
 
-**The one material gap — flagged, not hidden:** in-pod GCS auth is currently broken cluster-wide (the
-metadata IP `169.254.169.254` is routed into the `flannel.1` overlay and is unreachable from pods; the
-pre-existing litestream sidecar fails identically). So EP-47's **live backup/restore upload leg is
-blocked** until a node-route fix lands (a more-specific `169.254.169.254/32` route via the primary NIC,
-or a host-side upload step). Every backup/restore renderer, the GCS layout, retention, and the CLI are
-built and unit-tested; only the live upload is gated. This is an infrastructure fix (an `infra/`/NixOS
-change), tracked here and in the disaster-recovery runbook, and is the recommended first follow-up.
+**The one material gap discovered during the work — now FIXED (2026-06-10):** in-pod GCS auth was broken
+cluster-wide because k3s/flannel's IPv4LL `169.254.0.0/16` addresses (on `flannel.1` and the per-pod
+veths) hijacked the GCE metadata IP `169.254.169.254` into the VXLAN overlay, black-holing it (the
+pre-existing litestream sidecar failed identically). Root cause: the node runs the baked GCE image
+(generation 1), so a prior committed `networking.nix` fix had never been deployed, and that fix also
+wrongly assumed GCE leaves a `/32` metadata route on `eth0`. The proper fix (this change):
+`nixos/hosts/nagare-01/networking.nix` now pins an explicit **`/32` metadata route on the primary NIC**
+(which always beats the overlay's `/16`) alongside the existing MASQUERADE (pod-SNAT), and EP-47's
+backup/restore Job renderers carry a **`hostAliases`** entry mapping `metadata.google.internal` to the
+metadata IP so gcloud/gsutil (which look the name up) authenticate. Verified live: host + in-pod `gsutil`
+reach the bucket and the litestream sidecar resumed writing WAL segments. The route + MASQUERADE are
+applied on the running node now; persisting them across a reboot needs `just host-switch` (or an image
+rebuild) since the node is on the baked image — that operator step is the only remaining action.
 
 **Other deferred legs (cluster-access reality, EP-37 precedent):** the live `db create`/`deploy`/restart
 end-to-end runs are deferred-with-instructions because the workstation cannot reach the k3s API (IAP

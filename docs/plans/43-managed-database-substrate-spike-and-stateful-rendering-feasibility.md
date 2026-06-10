@@ -80,8 +80,10 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-- **In-pod GCS auth is currently broken cluster-wide — a flannel routing bug black-holes the
-  metadata server (HARD INPUT TO EP-47 / IP6).** The MasterPlan assumes the in-pod ADC pattern
+- **In-pod GCS auth was broken cluster-wide — a flannel routing bug black-holed the metadata server.
+  RESOLVED 2026-06-10** (the fix landed while finishing MasterPlan 9: a `/32` metadata route on the
+  primary NIC + MASQUERADE in `nixos/hosts/nagare-01/networking.nix`, plus `hostAliases` on the EP-47
+  backup Jobs; verified live, litestream resumed). The original finding, preserved below for the record: The MasterPlan assumes the in-pod ADC pattern
   `GCE_METADATA_HOST=169.254.169.254` works (it is how `cluster/examples/sqlite-litestream/` and
   EP-47's backup CronJob authenticate to GCS). The spike's optional GCS probe failed; investigation
   showed the failure is **not** spike-specific and **not** pod-specific — the metadata IP is

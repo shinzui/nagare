@@ -31,6 +31,7 @@ module Nagare.Database.Backup
   , BackupCronInputs (..)
   , renderBackupCronJob
   , renderDbBackupCronJob
+  , metadataHostAliases
 
     -- * Command driver
   , runDbBackup
@@ -137,6 +138,10 @@ backupJobSpecValue i =
           , "spec"
               .= object
                 [ "restartPolicy" .= ("Never" :: Text)
+                , -- gcloud/gsutil resolve the metadata server by name; pods can't
+                  -- resolve metadata.google.internal via cluster DNS, so map it to
+                  -- the metadata IP (which the node's /32 route makes reachable).
+                  "hostAliases" .= metadataHostAliases
                 , "initContainers" .= toJSON [dumpContainer i]
                 , "containers" .= toJSON [uploadContainer i]
                 , "volumes"
@@ -195,6 +200,19 @@ uploadContainer i =
 
 dumpMount :: Value
 dumpMount = object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
+
+-- | A @hostAliases@ entry mapping @metadata.google.internal@ to the GCE metadata
+-- IP, so gcloud/gsutil (which look up the canonical name) find the metadata
+-- server. Pods cannot resolve that name via cluster DNS; the node's /32 route
+-- (nixos networking.nix) makes the IP reachable, and this maps the name to it.
+metadataHostAliases :: Value
+metadataHostAliases =
+  toJSON
+    [ object
+        [ "ip" .= ("169.254.169.254" :: Text)
+        , "hostnames" .= toJSON (["metadata.google.internal"] :: [Text])
+        ]
+    ]
 
 plainEnv :: Text -> Text -> Value
 plainEnv n v = object ["name" .= n, "value" .= v]

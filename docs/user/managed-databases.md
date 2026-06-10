@@ -2,10 +2,10 @@
 
 > 🟡 **In progress.** Built and dry-run-verified end to end (typed model,
 > renderer, `nagarectl db` CLI, app connection-env injection, backups/restore).
-> The **live** run is pending: `nagare-01` is often `TERMINATED`, and in-pod GCS
-> upload is currently blocked by a cluster routing regression (see
-> [Backups and restore](#backups-and-restore)). Provisioning, connecting an app,
-> and the dry-run renders all work today.
+> The full **live** end-to-end run is pending only because `nagare-01` is often
+> `TERMINATED`. The in-pod GCS auth that backups depend on is **fixed** (a `/32`
+> metadata route + MASQUERADE on the node, and `hostAliases` on the backup Jobs —
+> verified live, with the litestream sidecar resumed).
 
 For **app developers** whose app needs a database — PostgreSQL, Redis, or
 ClickHouse. You declare a database in typed config; Nagare provisions a durable,
@@ -274,13 +274,16 @@ See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [disaster-recovery runbook](../runbooks/disaster-recovery.md) for the full restore
 drill and procedure.
 
-> **Known constraint (2026-06-10).** In-pod GCS upload via the `GCE_METADATA_HOST`
-> ADC pattern is currently blocked by a cluster routing regression — the metadata
-> IP `169.254.169.254` is routed into the `flannel.1` overlay and is unreachable
-> from pods (the existing litestream sidecar fails the same way). The backup and
-> restore commands and manifests are in place and unit-tested, but the live
-> upload/download leg will not work until that node route is fixed. The dumps
-> themselves (inside the database) are produced correctly.
+> **In-pod GCS auth (fixed 2026-06-10).** Earlier, in-pod GCS upload was blocked
+> because k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the GCE
+> metadata IP `169.254.169.254` into the VXLAN overlay (the litestream sidecar
+> failed the same way). The fix, in `nixos/hosts/nagare-01/networking.nix`, pins a
+> `/32` metadata route to the primary NIC (which always beats the `/16`) plus a
+> MASQUERADE so pod traffic is SNAT'd to the node; the backup/restore Jobs also
+> carry a `hostAliases` entry so gcloud/gsutil resolve `metadata.google.internal`.
+> Verified live (host + in-pod `gsutil`; litestream resumed). The route is applied
+> on the running node and committed to NixOS — a `just host-switch` (or the next
+> image rebuild) persists it across reboots.
 
 
 ## Constraints and limits

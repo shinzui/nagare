@@ -226,14 +226,14 @@ nagarectl db restore drilldb "$(gsutil ls gs://$BACKUP_BUCKET/databases/drilldb/
 nagarectl db delete drilldb --yes
 ```
 
-> **Known constraint (2026-06-10):** in-pod GCS upload via the
-> `GCE_METADATA_HOST` ADC pattern is currently blocked by a cluster routing
-> regression — the metadata IP `169.254.169.254` is routed into the `flannel.1`
-> overlay and is unreachable from pods (the existing litestream sidecar fails the
-> same way). The backup/restore *renderers and commands* are in place and
-> unit-tested, but the live upload leg will not work until that node route is
-> fixed (a more-specific `169.254.169.254/32` route via the primary NIC, or a
-> host-side upload step). See MasterPlan 9 Surprises and EP-43.
+> **In-pod GCS auth (fixed 2026-06-10):** in-pod GCS upload was blocked because
+> k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the GCE metadata IP
+> `169.254.169.254` into the VXLAN overlay (the litestream sidecar failed the same
+> way). Fixed in `nixos/hosts/nagare-01/networking.nix`: a `/32` metadata route on
+> the primary NIC (beats the `/16`) + a MASQUERADE for pod SNAT; the backup/restore
+> Jobs also set `hostAliases` so gcloud/gsutil resolve `metadata.google.internal`.
+> Applied live on the node and committed to NixOS — run `just host-switch` (or
+> rebuild the image) to persist across reboots. See MasterPlan 9 and EP-43.
 
 ### 8. Redeploy the apps (EP-6)
 

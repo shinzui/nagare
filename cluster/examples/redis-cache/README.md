@@ -30,7 +30,8 @@ mounting `/data`, a ClusterIP Service on 6379, a `2Gi` PVC, and the Secret. The
 ## Live run (on `nagare-01`)
 
 > Run on the VM via `scripts/iap-ssh.sh` (the workstation cannot reach the k3s
-> API). Backups' GCS upload is currently blocked (see the user guide).
+> API). In-pod GCS auth for backups is fixed (node `/32` metadata route +
+> `hostAliases`; see the user guide).
 
 ```bash
 nagarectl db create redis cache --size 2Gi

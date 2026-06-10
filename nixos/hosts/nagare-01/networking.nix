@@ -13,15 +13,34 @@
   networking.nameservers = [ "8.8.8.8" "8.8.4.4" ];
   networking.dhcpcd.extraConfig = "nohook resolv.conf";
 
-  # Stop dhcpcd from assigning IPv4 link-local (169.254.0.0/16) addresses to the
-  # k3s/flannel/CNI interfaces. Without this, flannel.1 (and the per-pod veths)
-  # self-assign a 169.254/16 address whose on-link route HIJACKS the GCE metadata
-  # server 169.254.169.254 into the VXLAN overlay (`ip route get 169.254.169.254`
-  # -> dev flannel.1). The host and pods then cannot reach the metadata server, so
-  # keyless Application Default Credentials break for in-cluster GCP access —
-  # Litestream backups (EP-7) and cert-manager's DNS-01 wildcard TLS (EP-4) both
-  # fail with "no route to host" / "could not find default credentials". Denying
-  # these interfaces leaves the GCE-provided /32 metadata route on eth0 intact.
+  # Pin the GCE metadata server (169.254.169.254) to the primary NIC with a
+  # /32 host route. This is the robust fix for the IPv4LL hijack: k3s/flannel
+  # self-assigns a 169.254.0.0/16 address to flannel.1 and the per-pod veths,
+  # whose on-link /16 route otherwise captures the metadata IP into the VXLAN
+  # overlay (`ip route get 169.254.169.254` -> dev flannel.1), black-holing it.
+  # A /32 always beats any /16, so this guarantees metadata reachability from the
+  # host (and, with the MASQUERADE below, from pods) regardless of what dhcpcd or
+  # flannel do to the link-local addresses. Without it, keyless Application
+  # Default Credentials break for every in-cluster GCP client — Litestream backups
+  # (EP-7), managed-database backups (MP-9 EP-47), and cert-manager DNS-01
+  # wildcard TLS (EP-4) all fail with "no route to host" / "could not find default
+  # credentials". (The earlier assumption that DHCP leaves a /32 metadata route on
+  # eth0 was wrong — GCE hands out only the default route, so the /16 always won;
+  # MP-9 EP-43 caught this. Verified live: this route restores host + in-pod
+  # metadata access and the litestream sidecar resumed writing WAL segments.)
+  networking.interfaces.eth0.ipv4.routes = [
+    {
+      address = "169.254.169.254";
+      prefixLength = 32;
+      # No `via`: GCE answers ARP for the metadata IP on the primary link, so a
+      # scope-link route out eth0 reaches it without depending on the subnet
+      # gateway address.
+    }
+  ];
+
+  # Also stop dhcpcd from assigning the spurious IPv4LL /16 addresses in the first
+  # place (defense in depth — the /32 above already wins, but this keeps the
+  # routing table clean of dozens of bogus 169.254.0.0/16 entries).
   networking.dhcpcd.denyInterfaces = [ "veth*" "flannel*" "cni*" "kube*" "datapath*" ];
 
   # Pods reach the metadata server via the node; SNAT their traffic to the node's

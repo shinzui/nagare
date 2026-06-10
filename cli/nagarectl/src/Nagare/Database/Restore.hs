@@ -31,7 +31,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupGsUrl)
+import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupGsUrl, metadataHostAliases)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
@@ -85,6 +85,7 @@ renderRestoreJob i =
                   , "spec"
                       .= object
                         [ "restartPolicy" .= ("Never" :: Text)
+                        , "hostAliases" .= metadataHostAliases
                         , "initContainers" .= toJSON [downloadContainer i]
                         , "containers" .= toJSON [restoreContainer i]
                         , "volumes" .= toJSON [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]

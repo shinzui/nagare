@@ -36,8 +36,8 @@ a `5Gi` PVC, the Secret, and the backup CronJob. The `deploy --dry-run` shows
 
 ## Live run (on `nagare-01`)
 
-> Run on the VM via `scripts/iap-ssh.sh`. Backups' GCS upload is currently
-> blocked (see the user guide).
+> Run on the VM via `scripts/iap-ssh.sh`. In-pod GCS auth for backups is fixed
+> (node `/32` metadata route + `hostAliases`; see the user guide).
 
 ```bash
 nagarectl db create clickhouse events --size 5Gi --memory 2Gi

@@ -1668,6 +1668,7 @@ backupRestoreTests =
           assertBool "dump container" ("pg_dump" `T.isInfixOf` y)
           assertBool "upload image" ("google/cloud-sdk:slim" `T.isInfixOf` y)
           assertBool "metadata host" ("169.254.169.254" `T.isInfixOf` y)
+          assertBool "hostAliases for metadata.google.internal" ("metadata.google.internal" `T.isInfixOf` y)
           assertBool "no self-prune for on-demand" (not ("pruning" `T.isInfixOf` y))
       , testCase "renderBackupCronJob wraps the body on a schedule and self-prunes" $ do
           let cron = BackupCronInputs {bciSchedule = defaultBackupSchedule, bciBase = backupJobInputsPg {bjiSelfPrune = True}}
