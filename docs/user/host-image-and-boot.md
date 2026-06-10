@@ -23,10 +23,11 @@ aarch64-darwin workstation
 x86_64-linux Nix builder (on-demand GCP VM)
    │  produces  result/nixos.raw.tar.gz
    ▼
-GCS image-staging bucket (tan-nb-exp-nagare-images)
+GCS image-staging bucket ($NAGARE_IMAGE_BUCKET = <project>-nagare-images;
+   │  default example tan-nb-exp-nagare-images)
    │  gcloud compute images create --source-uri …
    ▼
-GCE image  →  Pulumi config  nagareImageSelfLink
+GCE image  →  Pulumi config  nagareImageSelfLink (embeds the project; regenerated per target)
    │  pulumi up
    ▼
 nagare-01 boots the baked image
@@ -81,6 +82,12 @@ Before the host can boot cleanly, sops-nix needs to decrypt
 The one secret managed at this stage is `tailscale/authkey` (a Tailscale
 pre-auth key), consumed by `tailscale.nix`. See [Secrets](secrets.md) for how
 the age key is generated, where it's stored, and how to add/rotate secrets.
+
+> On the from-zero path these are Steps 3–4 of the
+> [bring-your-own-project onboarding](onboarding-bring-your-own-project.md):
+> the operator SSH key (`users.nix`), the host age key, and the Tailscale key all
+> go in **before first boot**, in that order. This page is the "how"; the runbook
+> fixes the "when."
 
 ## Build and register the image
 

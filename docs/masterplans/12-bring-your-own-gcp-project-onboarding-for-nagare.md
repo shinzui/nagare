@@ -116,7 +116,7 @@ first-class `nagarectl init` command for a testable, guided UX, so the orchestra
 | 61 | Parameterize shell scripts and .envrc to the target profile | docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md | EP-60 | None | Complete |
 | 62 | Parameterize nagarectl and the DSL image refs to the target profile | docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md | EP-60 | None | Complete |
 | 63 | GCP bootstrap automation and nagarectl init onboarding command | docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md | EP-60, EP-62 | EP-61 | Complete |
-| 64 | Bring-your-own-project onboarding documentation | docs/plans/64-bring-your-own-project-onboarding-documentation.md | None | EP-60, EP-61, EP-62, EP-63 | In Progress |
+| 64 | Bring-your-own-project onboarding documentation | docs/plans/64-bring-your-own-project-onboarding-documentation.md | None | EP-60, EP-61, EP-62, EP-63 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference other
 rows by their `EP-<#>` prefix.
@@ -235,7 +235,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-61: all eight `scripts/` files source `scripts/lib/target.sh` (no literal `tan-nb-exp`/`us-west1` preflight remains); the one in-cluster project literal (`restore-volume.sh` Job manifest) is interpolated from `$TARGET_PROJECT`; the cdn-spike example scripts are reconciled; scripts run green against the default profile. (Note: `nix-builder-startup.sh.tpl` was found to carry no project literal, so it needs no change — see EP-61 Surprises.) (2026-06-10)
 - [x] EP-62: `nagarectl` resolves a `TargetProfile` from the environment; the six literal `tan-nb-exp` refs, the `registryHost` constant, and the region/zone/bucket defaults are gone; DSL image refs derive their prefix from the profile; example/fixture `Config.hs` no longer bake project/region; CLI test suite green (nagare-dsl 264, nagarectl 253). (2026-06-10)
 - [x] EP-63: `scripts/enable-apis.sh` **and** `gcp.projects.Service` codify API enablement; `nagarectl init` preflights gcloud auth + operator IAM, prompts and writes `nagare.target.env`, enables APIs, and seeds Pulumi config; verified by a simulated (dry-run + real-write + preflight-failure) onboarding and the `Nagare.Init` unit group (258 tests). (2026-06-10)
-- [ ] EP-64: `docs/user/gcp-prerequisites.md` and `docs/user/onboarding-bring-your-own-project.md` exist; getting-started / provisioning / host-image docs are project-agnostic; the configurable-guardrail model and the documented onboarding gaps (auth, IAM, age key, Tailscale, Docker auth) are covered.
+- [x] EP-64: `docs/user/gcp-prerequisites.md` and `docs/user/onboarding-bring-your-own-project.md` exist; README / getting-started / provisioning / host-image / reference / config-reference docs are project-agnostic; the configurable-guardrail model and the documented onboarding gaps (auth, IAM, age key, Tailscale, Docker auth) are covered; grep gates clean; build-state badges reconciled to MasterPlan-1. (2026-06-10)
 
 
 ## Surprises & Discoveries

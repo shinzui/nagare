@@ -94,9 +94,27 @@ imageRefText :: ImageRef -> Text
 ```
 
 Non-empty and **must not contain a colon** — the tag is appended separately at
-deploy time (`nagarectl` computes a UTC timestamp tag, or you pass `--tag`). For
-a real Nagare app the path is
-`us-west1-docker.pkg.dev/tan-nb-exp/nagare/<app>`.
+deploy time (`nagarectl` computes a UTC timestamp tag, or you pass `--tag`).
+
+You now supply only the app's **image name**, not the full registry path. Write
+`mkImageRef "notes"` (or pass the bare name as `webService`'s second argument). At
+deploy time `nagarectl` derives the registry prefix from your target profile —
+`<NAGARE_REGISTRY_HOST>/<CLOUDSDK_CORE_PROJECT>/<NAGARE_ARTIFACT_REGISTRY_ID>` — and
+prefixes the bare name, so the pushed/pulled image is e.g.
+`us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes` for the default-example target. A
+name that already contains a `/` (e.g. a public image like
+`gcr.io/knative-samples/helloworld-go`) is treated as fully qualified and left
+untouched.
+
+```haskell
+-- before (project + region baked into application source):
+mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
+-- after (just the name; the prefix comes from the target profile at deploy time):
+mkImageRef "notes"
+```
+
+See [MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md)
+Integration Point 4 (the registry-host derivation) and EP-62 for the mechanism.
 
 ### `Port`
 

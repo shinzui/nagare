@@ -12,6 +12,13 @@ data disk, the service account and its IAM, the DNS zone and wildcard record,
 the Artifact Registry, the GCS buckets, and finally the VM. The program lives in
 `infra/pulumi/`.
 
+> New to nagare? Start at
+> [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md); this
+> page is the provisioning detail it links. The stack config below is a **derived
+> projection of the target profile** — `nagarectl init` writes it from
+> `nagare.target.env`, so you normally don't hand-edit `Pulumi.dev.yaml` for a new
+> project.
+
 ---
 
 ## What gets created
@@ -31,8 +38,13 @@ One Pulumi component, `NagarePerimeter`, declares the whole perimeter:
 | **Image-staging bucket** | `tan-nb-exp-nagare-images`, where the NixOS `*.raw.tar.gz` is uploaded before image registration. |
 | **VM** (`nagare-01`) | `e2-standard-2`, boots the registered NixOS image, attaches the static IP and data disk, runs as the service account. **Only declared once `nagareImageSelfLink` config is set.** |
 
+The resource **names derive from your project/region**: the registry host is
+`<region>-docker.pkg.dev`, the buckets are `<project>-nagare-images` /
+`<project>-nagare-backups`, and the service account is `nagare-node@<project>…`.
+The `tan-nb-exp` / `us-west1` values shown above are the worked default example.
+
 IAM uses the **non-authoritative** `*IAMMember` variants so it never clobbers
-existing bindings on the shared `tan-nb-exp` project.
+existing bindings on the target project (which may be a shared project).
 
 ## Configuration
 
@@ -40,7 +52,7 @@ Config is in `infra/pulumi/Pulumi.dev.yaml` (stack `dev`). The keys:
 
 | Key | Required? | Default | Notes |
 | --- | --- | --- | --- |
-| `gcp:project` | yes | `tan-nb-exp` | Never change. |
+| `gcp:project` | yes | `tan-nb-exp` | Your target project (the default example is `tan-nb-exp`). Seeded from the target profile by `nagarectl init`. |
 | `gcp:region` | yes | `us-west1` | |
 | `gcp:zone` | yes | `us-west1-a` | |
 | `nagare:imageBucket` | yes | `tan-nb-exp-nagare-images` | Image-staging bucket. |

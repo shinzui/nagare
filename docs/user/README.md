@@ -35,8 +35,8 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Repo scaffolding, dev shell | EP-1 | ✅ Working |
 | Cloud provisioning (Pulumi) | EP-2 | 🟡 In progress |
 | Host image + k3s (NixOS) | EP-3 | 🟡 In progress |
-| Cluster bootstrap (Knative/Kourier/cert-manager) | EP-4 | 🔭 Planned |
-| Observability (Victoria stack + Grafana) | EP-5 | 🔭 Planned |
+| Cluster bootstrap (Knative/Kourier/cert-manager) | EP-4 | ✅ Working (verified live) |
+| Observability (Victoria stack + Grafana) | EP-5 | ✅ Working (verified live) |
 | Deploy CLI (`nagarectl`) + typed config DSL | MP-2 (EP-8–12) | 🟡 Built; live deploy pending |
 | Static & full-stack site hosting (`nagarectl site`) | MP-3 (EP-13–18) | 🟡 Built; live deploy pending |
 | CDN integration (Cloudflare / Google Cloud CDN) | MP-11 (EP-54–59) | 🟡 Built; live edge deploy pending |
@@ -46,7 +46,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37) | 🟡 Built; live deploy/snapshot pending |
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48) | 🟡 Built; live deploy pending |
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
-| Backups, secrets, disaster recovery | EP-7 | 🔭 Planned |
+| Backups, secrets, disaster recovery | EP-7 | ✅ Working (full DR drill deferred) |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
 deployment DSL ([MasterPlan 2](../masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md))
@@ -64,8 +64,15 @@ section; if this table and the MasterPlan disagree, the MasterPlan wins.
 A first-time bring-up follows these pages top to bottom. Each ends in something
 you can observe.
 
+**Before you begin (bring your own GCP project):**
+
+- [GCP prerequisites](gcp-prerequisites.md) — gcloud auth + ADC, operator IAM
+  roles, project + billing, service-API enablement, DNS delegation. ✅
+- [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
+  single ordered zero-to-running runbook centered on `nagarectl init`. ✅
+
 1. [Getting started](getting-started.md) — prerequisites, the Nix dev shell,
-   `direnv`, and the hard rule that every cloud call targets `tan-nb-exp`. ✅
+   `direnv`, and the configurable target profile and fail-closed guardrail. ✅
 2. [Provisioning with Pulumi](provisioning-with-pulumi.md) — create the cloud
    perimeter: VPC, static IP, DNS, disks, service account, registry, buckets. 🟡
 3. [Host image and first boot](host-image-and-boot.md) — build the NixOS GCE
@@ -78,9 +85,9 @@ you can observe.
      type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
      persist. 🟡
 6. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
-   cert-manager, and wildcard DNS/TLS wiring. 🔭
+   cert-manager, and wildcard DNS/TLS wiring. ✅
 7. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
-   Collector, and Grafana. 🔭
+   Collector, and Grafana. ✅
 8. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
    `nagare/Config.hs`, with the [Config reference](config-reference.md) for the
    full field/constructor catalogue. 🟡
@@ -113,7 +120,7 @@ you can observe.
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
-    back up, and the "rebuild from zero" runbook. 🔭
+    back up, and the "rebuild from zero" runbook. ✅
 
 Plus two references you'll return to:
 
@@ -125,11 +132,20 @@ Plus two references you'll return to:
 
 ---
 
-## The one rule that overrides everything
+## One target at a time — and it's yours to choose
 
-**Every cloud resource and every read targets the `tan-nb-exp` GCP project,
-region `us-west1`, zone `us-west1-a`.** No command in this repo may touch
-another project — not even a `list` or `describe`. This is enforced by `.envrc`,
-a preflight check in each script, and an explicit `--project` flag on every
-`gcloud` call. See [`CLAUDE.md`](../../CLAUDE.md) for the full policy and
-[Getting started](getting-started.md) for how it's wired.
+Nagare acts on **one** GCP project at a time, but **which** project is
+configurable, not hard-coded. The target lives in a git-ignored **target
+profile**, `nagare.target.env` (schema in the tracked `nagare.target.env.example`,
+which ships `tan-nb-exp` / `us-west1` / `us-west1-a` / `apps.example.com` as the
+worked default example). `.envrc` sources it; every script's preflight and
+`nagarectl` read it; the guardrail still **fail-closes** — it refuses to run
+unless gcloud's active project equals your *configured* target.
+
+To bring your own project from scratch, start at
+**[GCP prerequisites](gcp-prerequisites.md)** and
+**[Bring-your-own-project onboarding](onboarding-bring-your-own-project.md)**. See
+[`CLAUDE.md`](../../CLAUDE.md) for the full configurable-isolation policy,
+[Getting started](getting-started.md) for how it's wired, and
+[MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md)
+for the decision.

@@ -6,9 +6,13 @@
 
 ---
 
-## Fixed identifiers
+## Default-example identifiers (derived from the target profile)
 
-| Thing | Value |
+These are the values for the default-example target (`tan-nb-exp` / `us-west1`).
+For your own project they **derive from `nagare.target.env`**: registry host
+`<region>-docker.pkg.dev`, buckets `<project>-nagare-*`, SA `nagare-node@<project>…`.
+
+| Thing | Value (default example) |
 | --- | --- |
 | GCP project | `tan-nb-exp` |
 | Region | `us-west1` |
@@ -23,6 +27,27 @@
 | Host age key (on host) | `/var/lib/sops-nix/age-key.txt` |
 | k3s kubeconfig (on host) | `/etc/rancher/k3s/k3s.yaml` (mode `0644`) |
 | NixOS `stateVersion` | `26.05` |
+
+## Target profile variables (`nagare.target.env`)
+
+The git-ignored `nagare.target.env` (schema in `nagare.target.env.example`) is the
+single source of truth for the GCP target; `nagarectl init` writes it. Precedence:
+**environment > profile > built-in default**.
+
+| Variable | Default | Derivation |
+| --- | --- | --- |
+| `CLOUDSDK_CORE_PROJECT` | `tan-nb-exp` | the GCP project id |
+| `CLOUDSDK_COMPUTE_REGION` | `us-west1` | compute region |
+| `CLOUDSDK_COMPUTE_ZONE` | `us-west1-a` | compute zone |
+| `NAGARE_REGISTRY_HOST` | `us-west1-docker.pkg.dev` | `<region>-docker.pkg.dev` |
+| `NAGARE_ARTIFACT_REGISTRY_ID` | `nagare` | the Artifact Registry repo id |
+| `NAGARE_IMAGE_BUCKET` | `tan-nb-exp-nagare-images` | `<project>-nagare-images` |
+| `NAGARE_BACKUP_BUCKET` | `tan-nb-exp-nagare-backups` | `<project>-nagare-backups` |
+| `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
+| `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
+
+See [Getting started](getting-started.md) and [`CLAUDE.md`](../../CLAUDE.md) for the
+configurable-isolation model.
 
 ## `justfile` recipes
 
@@ -40,9 +65,13 @@
 
 ## Pulumi config keys (`infra/pulumi/Pulumi.dev.yaml`)
 
+These keys are a **derived projection of the target profile** — `nagarectl init`
+writes them from `nagare.target.env` with `pulumi config set`; you normally don't
+hand-edit `Pulumi.dev.yaml` for a new project.
+
 | Key | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `gcp:project` | yes | `tan-nb-exp` | Never change. |
+| `gcp:project` | yes | `tan-nb-exp` | Your target project (default example `tan-nb-exp`). Seeded from the profile by `nagarectl init`. |
 | `gcp:region` | yes | `us-west1` | |
 | `gcp:zone` | yes | `us-west1-a` | |
 | `nagare:imageBucket` | yes | `tan-nb-exp-nagare-images` | |
@@ -102,10 +131,21 @@ it. Only Traefik is disabled.
 
 | Script | Purpose |
 | --- | --- |
+| `lib/target.sh` | Sourced helper: loads `nagare.target.env`, sets `TARGET_PROJECT`/`REGION`/`ZONE`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
+| `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
 | `upload-images.sh` | Build the NixOS image on the remote builder, upload to GCS, register as a GCE image, write `nagareImageSelfLink`. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
-| `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM. |
+| `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
 | `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe). |
+
+### `nagarectl init` (onboarding)
+
+`nagarectl init` is the guided onboarding command (the one command permitted to
+drive Pulumi/gcloud). Flags: `--project`, `--region`, `--zone`, `--base-domain`,
+`--force`, `--skip-preflight`, `--skip-enable`, `--skip-seed`, `--dry-run`. It
+preflights gcloud auth + the six operator IAM roles, writes `nagare.target.env`,
+runs `enable-apis.sh`, and seeds the eight Pulumi keys. See
+[Bring-your-own-project onboarding](onboarding-bring-your-own-project.md).
 
 ## IAM granted to `nagare-node`
 

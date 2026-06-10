@@ -24,7 +24,11 @@ You need, on your workstation:
   — `pulumi`, `node`/`tsc`, `gcloud`, `kubectl`, `helm`, `ghc`/`cabal`, `sops`,
   `age`, etc. — so you should **not** install those globally.
 - **`direnv`** (recommended) to auto-load the dev shell on `cd`.
-- A **Google Cloud identity** with access to the `tan-nb-exp` project.
+- A **Google Cloud identity** with access to *your* GCP project (the default
+  example is `tan-nb-exp`); see [GCP prerequisites](gcp-prerequisites.md) for the
+  auth, IAM roles, project, and API setup, and
+  [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) for the
+  from-zero runbook.
 - An **SSH key** (`~/.ssh/id_ed25519`). The operator public key baked into
   `nagare-01` is in `nixos/hosts/nagare-01/users.nix`; if your key differs,
   see [Day-2 host changes](day-2-host-changes.md) to add it.
@@ -61,29 +65,42 @@ just --list      # the available operator recipes
 
 ## Project isolation (read this once, internalize it)
 
-`.envrc` exports:
+Nagare acts on **one** GCP project at a time, but **which** project is
+*configurable*. The target lives in a git-ignored **target profile**,
+`nagare.target.env` (copy the tracked `nagare.target.env.example` to create one,
+or let [`nagarectl init`](onboarding-bring-your-own-project.md) write it). `.envrc`
+sources that file if present, then exports the three Cloud SDK variables with the
+`tan-nb-exp` / `us-west1` / `us-west1-a` values as **fallback defaults**:
 
 ```bash
-export CLOUDSDK_CORE_PROJECT=tan-nb-exp
-export CLOUDSDK_COMPUTE_REGION=us-west1
-export CLOUDSDK_COMPUTE_ZONE=us-west1-a
+[ -f "$PWD/nagare.target.env" ] && source_env "$PWD/nagare.target.env"
+export CLOUDSDK_CORE_PROJECT="${CLOUDSDK_CORE_PROJECT:-tan-nb-exp}"
+export CLOUDSDK_COMPUTE_REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
+export CLOUDSDK_COMPUTE_ZONE="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 ```
 
-So any bare `gcloud …` you type inside the repo defaults to the right project,
-region, and zone. This is **defense in depth, not a license to omit flags**:
+Precedence everywhere: **a value already in your environment > `nagare.target.env`
+> the built-in default**. So any bare `gcloud …` you type inside the repo defaults
+to the configured project, region, and zone — and an operator who does nothing
+keeps the original `tan-nb-exp` behavior. This is **defense in depth, not a license
+to omit flags**:
 
-- Scripts under `scripts/` run a preflight assertion that aborts if the active
-  project isn't `tan-nb-exp`.
-- Scripts also pass `--project=tan-nb-exp` explicitly on every call.
+- The guardrail lives in one place, `scripts/lib/target.sh`. Scripts source it and
+  call `_require_target_project`, which aborts unless gcloud's active project equals
+  the configured `$TARGET_PROJECT`. It is still **fail-closed** — only the compared
+  value is now configurable.
+- Scripts also pass `--project="$TARGET_PROJECT"` explicitly on every call.
 
 If you ever see a script refuse to run with *"refusing to run: gcloud active
-project is …"*, you're outside the dev shell or your `gcloud` config overrides
-the env var. Re-enter the shell (`direnv allow` / `nix develop`) and retry.
+project is '…', expected '\<your target>'."*, you're outside the dev shell or your
+`gcloud` config overrides the env var. Re-enter the shell (`direnv allow` /
+`nix develop`) and retry.
 
-**Never** point any command in this repo at another GCP project — including
-read-only `list`/`describe`. Changing that is an architectural decision that
-must be recorded in the MasterPlan Decision Log *first*
-([`CLAUDE.md`](../../CLAUDE.md)).
+**One target per checkout** — to point at a different GCP project, change the
+profile (or run `nagarectl init --force`), don't run two at once. The full
+configurable-isolation policy is in [`CLAUDE.md`](../../CLAUDE.md); the architectural
+decision is
+[MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md).
 
 ## Pulumi state is in-repo
 

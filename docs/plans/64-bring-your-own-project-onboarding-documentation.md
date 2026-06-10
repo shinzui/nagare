@@ -70,18 +70,18 @@ Milestone 1 — the two new documents:
 
 Milestone 2 — revise existing docs project-agnostic + the image-ref authoring story:
 
-- [ ] Revise `docs/user/README.md` (replace "The one rule that overrides everything" and the `tan-nb-exp` framing with the configurable target-profile model; correct the EP-4/EP-5/EP-7 status rows to match MasterPlan-1; link the two new docs).
-- [ ] Revise `docs/user/getting-started.md` (target profile, `nagare.target.env` / `nagare.target.env.example`, the configurable-but-fail-closed guardrail, `tan-nb-exp` as substitutable default).
-- [ ] Revise `docs/user/provisioning-with-pulumi.md` (Pulumi config is a derived projection of the profile; bucket/registry/SA names derive from the project; drop "Never change").
-- [ ] Revise `docs/user/host-image-and-boot.md` (image bucket name derives from the project; cross-link the age-key/secrets prerequisite to the onboarding runbook).
-- [ ] Revise `docs/user/reference.md` (re-frame the "Fixed identifiers" table as "default-example identifiers, derived from the target profile"; document the nine target-profile variables).
-- [ ] Revise `docs/user/config-reference.md` (the new image-ref authoring story from EP-62: an app's `nagare/Config.hs` supplies only the image *name*; the registry prefix derives from the profile at deploy time).
+- [x] Revised `docs/user/README.md` (replaced "The one rule that overrides everything" with the configurable target-profile model; corrected the EP-4/EP-5/EP-7 status rows and "Read in this order" badges to match MasterPlan-1; added the two new docs as a "Before you begin" pair). (2026-06-10)
+- [x] Revised `docs/user/getting-started.md` (target profile, `nagare.target.env` / `.example`, the configurable-but-fail-closed `scripts/lib/target.sh` guardrail, `tan-nb-exp` as substitutable default; prerequisites bullet + new-docs links). (2026-06-10)
+- [x] Revised `docs/user/provisioning-with-pulumi.md` (Pulumi config = derived projection of the profile; registry/bucket/SA names derive from project/region; dropped "Never change"; shared-project language generalized). (2026-06-10)
+- [x] Revised `docs/user/host-image-and-boot.md` (image bucket = `$NAGARE_IMAGE_BUCKET`; self-link embeds the project / regenerated per target; cross-linked the age-key/SSH/Tailscale prereqs to onboarding Steps 3–4). (2026-06-10)
+- [x] Revised `docs/user/reference.md` (re-framed "Fixed identifiers" → "Default-example identifiers, derived from the target profile"; added the "Target profile variables" table; dropped "Never change"; added `enable-apis.sh` / `lib/target.sh` / `nagarectl init`). (2026-06-10)
+- [x] Revised `docs/user/config-reference.md` (EP-62 image-ref authoring: `Config.hs` supplies only the image *name*; the prefix derives from the profile at deploy time; before/after snippet). (2026-06-10)
 
 Milestone 3 — cross-linking, consistency, and the end-to-end walkthrough check:
 
-- [ ] Cross-link the two new docs from `README.md` and from `getting-started.md`; cross-link to `CLAUDE.md`'s revised isolation policy and to MasterPlan 12 as the architectural decision.
-- [ ] Run the consistency grep checks (see Validation and Acceptance) and fix every residual `tan-nb-exp` mandate.
-- [ ] Do the top-to-bottom forward-reference walkthrough of `onboarding-bring-your-own-project.md`.
+- [x] Cross-linked the two new docs from `README.md` and `getting-started.md`; both new docs and the revised pages link `CLAUDE.md` and MasterPlan 12 where the "why" belongs. (2026-06-10)
+- [x] Ran the consistency grep gates: no mandate phrasing remains (`must use/target tan-nb-exp` / `never change` / `overrides everything` — the sole "never change**s**" hit is about the deploy command shape, not project isolation); the onboarding doc uses the exact EP-63 flags and explicitly notes there is no `--yes`/`--non-interactive`. (2026-06-10)
+- [x] Forward-reference walkthrough of `onboarding-bring-your-own-project.md`: all 13 ordered steps present; the SSH-key (Step 3), age/Tailscale (Step 4), and configure-docker (Step 7) steps each precede the step that needs them; DNS delegation (Step 6) sits after the zone exists (Step 5) and before HTTPS (Step 10). No forward reference found. (2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -146,7 +146,31 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-64 brought the docs in line with the configurable target-profile model the four sibling plans
+shipped. Two new pages were created — `docs/user/gcp-prerequisites.md` (auth + ADC, the six operator
+IAM roles, project/billing, the six service APIs with the manual fallback, DNS delegation) and
+`docs/user/onboarding-bring-your-own-project.md` (the single ordered zero-to-running runbook centered
+on `nagarectl init`, with the four manual prerequisites `init` does NOT handle made explicit and in
+execution order). Six existing pages (README, getting-started, provisioning-with-pulumi,
+host-image-and-boot, reference, config-reference) were revised to present `tan-nb-exp` as the
+substitutable default example rather than a mandate, to document the nine target-profile variables
+and their derivations, to frame Pulumi config as a derived projection seeded by `init`, and to
+document EP-62's name-only image-ref authoring story.
+
+Acceptance: the grep gates pass — no `must use/target tan-nb-exp` / `never change` / `overrides
+everything` mandate remains (the lone "never changes" match is the deploy-command-shape sentence in
+deploying-apps.md, untouched); the onboarding doc uses exactly the EP-63 flags and explicitly states
+there is no `--yes`; both new files exist, are linked from the index and getting-started, and
+cross-link `CLAUDE.md` and MasterPlan 12; and the forward-reference walkthrough finds every required
+step in order with each prerequisite before its dependent step. The honesty correction landed too:
+the README status table and the runbook mark EP-4/EP-5 as verified-live (per MasterPlan-1) instead of
+the stale "🔭 Planned" page badges, and EP-7 as working with the DR drill deferred.
+
+Result vs. purpose: a newcomer with an empty GCP project and a domain can now read
+`onboarding-bring-your-own-project.md` top to bottom and reach a running nagare without editing any
+tracked source file to replace `tan-nb-exp`. Per the plan's scope, the stale per-page badges on
+`cluster-bootstrap.md`/`observability.md` themselves were left for a later reconciliation; the
+runbook surfaces the authoritative status inline so onboarding never over-promises.
 
 
 ## Context and Orientation
