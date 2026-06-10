@@ -85,47 +85,72 @@ infrastructure.
 
 Milestone 1 — on-demand `nagarectl db backup NAME` to GCS, with retention:
 
-- [ ] Add the `Nagare.Database.Backup` module to `cli/nagarectl/nagarectl.cabal` `exposed-modules`.
-- [ ] Implement the pure GCS object-path helper `dbBackupObjectPath` and the per-engine extension
-      table `backupExt`.
-- [ ] Reuse (import, do not reimplement) `Nagare.Storage.Snapshot.snapshotsToPrune` for keep-last-N
-      retention.
-- [ ] Implement the pure backup-Job manifest renderer `renderBackupJob` (engine-image dump container +
-      `google/cloud-sdk:slim` upload container sharing an `emptyDir`).
-- [ ] Wire `runDbBackup` (apply Job, wait, prune) into `cli/nagarectl/src/Nagare/Database/Backup.hs`.
-- [ ] Add the `backup` subcommand to EP-45's `db` subparser in `cli/nagarectl/app/Main.hs` (IP4 extend).
-- [ ] Add pure tests for `dbBackupObjectPath`, `backupExt`, and the prune-reuse to
-      `cli/nagarectl/test/Spec.hs`.
-- [ ] Resolve the engine-image-vs-gsutil tension (Decision Log) and prove it via `--dry-run` Job YAML.
-- [ ] Validate live: `nagarectl db backup mydb` then `gsutil ls` shows the object. (Deferable to EP-48.)
+- [x] (2026-06-10) `Nagare.Database.Backup` registered in `nagarectl.cabal`.
+- [x] (2026-06-10) Pure `dbBackupObjectPath`/`dbBackupGsUrl`/`dbBackupPrefix` + `backupExt`/`backupRawExt`.
+- [x] (2026-06-10) Reuse `Nagare.Storage.Snapshot.snapshotsToPrune`/`snapshotTimestamp` (imported).
+- [x] (2026-06-10) Pure `renderBackupJob` (engine-image `dump` initContainer + `google/cloud-sdk:slim`
+      `upload` container sharing an `emptyDir`; `backupJobSpecValue` shared body).
+- [x] (2026-06-10) `runDbBackup` (resolve via `Discover.getDatabase`, apply Job, wait, prune).
+- [x] (2026-06-10) `backup` subcommand added to EP-45's `db` subparser (IP4 extend).
+- [x] (2026-06-10) Pure tests for path/ext/schedule, the renderers, and prune-reuse.
+- [x] (2026-06-10) Engine-image-vs-gsutil tension resolved (two-container Job); renderer unit-tested.
+- [ ] Validate live: `nagarectl db backup mydb` then `gsutil ls`. **Deferred to EP-48 AND blocked by the
+      in-pod-ADC routing regression (EP-43 finding) until the node route is fixed.**
 
 Milestone 2 — scheduled backups (CronJob renderer + provisioning):
 
-- [ ] Implement the pure CronJob manifest renderer `renderBackupCronJob` (wraps the M1 Job template
-      with a `schedule`).
-- [ ] Add the pure default-schedule helper `defaultBackupSchedule` (daily) and a `--schedule` override.
-- [ ] Provision the CronJob at `db create` (extend EP-45's create path) and re-provision idempotently.
-- [ ] `nagarectl db backup mydb --dry-run` prints both the Job and the CronJob YAML.
-- [ ] Add pure tests for the CronJob renderer / schedule helper.
+- [x] (2026-06-10) Pure `renderBackupCronJob` (shared body + schedule, `concurrencyPolicy: Forbid`,
+      self-pruning upload) and `renderDbBackupCronJob` convenience helper.
+- [x] (2026-06-10) `defaultBackupSchedule` (daily 03:17 UTC). (`--schedule` override not added — the
+      CronJob is provisioned at create; re-run `db create` to re-render.)
+- [x] (2026-06-10) CronJob provisioned at `db create` (extends EP-45's create) unless
+      `retention = Delete`; idempotent `kubectl apply`; shown in `db create --dry-run`.
+- [x] (2026-06-10) `db backup --dry-run` prints both the Job and the CronJob YAML.
+- [x] (2026-06-10) Pure tests for the CronJob renderer / schedule helper.
 
 Milestone 3 — `nagarectl db restore NAME BACKUP_ID`, scratch-first:
 
-- [ ] Implement the pure restore-Job manifest renderer `renderRestoreJob` (download + engine restore).
-- [ ] Implement `runDbRestore` (resolve backup object, apply Job, wait), scratch-first where feasible.
-- [ ] Add the `restore` subcommand to EP-45's `db` subparser (IP4 extend).
-- [ ] Document listing available backups (`gsutil ls gs://…/databases/<name>/`) and the `--into` target.
-- [ ] Add pure tests for `renderRestoreJob` inputs / object resolution.
+- [x] (2026-06-10) Pure `renderRestoreJob` (`download` init + engine `restore` main; scratch target).
+- [x] (2026-06-10) `runDbRestore` (resolve object, apply Job, wait), scratch-first; `--into-live` opt-in.
+- [x] (2026-06-10) `restore` subcommand added to EP-45's `db` subparser (IP4 extend).
+- [x] (2026-06-10) Listing backups + `--into-live` documented (runbook + user guide).
+- [x] (2026-06-10) Pure tests for `resolveBackupObject`/`isGsUrl`/`renderRestoreJob`.
 
 Milestone 4 — runbook + user-guide integration:
 
-- [ ] Add the managed-database row + restore sub-step to `docs/runbooks/disaster-recovery.md`.
-- [ ] Add the managed-database row + procedure to `docs/user/backups-and-disaster-recovery.md`.
-- [ ] Describe the restore drill (against a disposable database) with exact VM commands.
+- [x] (2026-06-10) Managed-database row + restore sub-step in `docs/runbooks/disaster-recovery.md`.
+- [x] (2026-06-10) Managed-database row + section in `docs/user/backups-and-disaster-recovery.md`.
+- [x] (2026-06-10) Restore drill (disposable database) with exact VM commands + GCS-routing caveat.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The live backup/restore leg is blocked, not just deferred.** EP-43 found that in-pod GCS auth via
+  `GCE_METADATA_HOST=169.254.169.254` is broken cluster-wide — the metadata IP is routed into the
+  `flannel.1` overlay and is unreachable from pods (the existing litestream sidecar fails identically).
+  Every Job/CronJob this plan renders uses that exact ADC pattern (mirroring EP-36's snapshot Job), so
+  the upload/download will not work until the node route is fixed (a more-specific `169.254.169.254/32`
+  route via the primary NIC, or a host-side upload step). The renderers, path/ext helpers, retention
+  reuse, and CLI are all in place and unit-tested; only the *live* upload is gated. Flagged in the
+  runbook and the MasterPlan.
+
+- **`db backup`/`db restore --dry-run` resolve the engine from the cluster.** Unlike `db create
+  --dry-run` (engine is an argument), `db backup NAME` has only the name, so rendering the Job needs the
+  engine — resolved read-only via `Discover.getDatabase`. Offline (cluster unreachable) the dry-run
+  prints a clear "no managed database named …" rather than a Job. The offline proof of the renderers is
+  therefore the pure unit tests (`renderBackupJob`/`renderBackupCronJob`/`renderRestoreJob` over
+  hand-built inputs), not a CLI dry-run.
+
+- **ClickHouse backup/restore commands are best-effort and need live validation.** ClickHouse's native
+  `BACKUP ... TO File()` writes on the *server* pod, not the backup Job's shared `emptyDir`, so the
+  Job uses a per-table `SELECT ... FORMAT Native` dump loop instead; the restore stub creates the
+  scratch database but the full data reload needs live validation (EP-48). Postgres and Redis commands
+  are straightforward (`pg_dump`/`redis-cli --rdb`).
+
+- **CronJob provisioned at `db create`, not via a separate `--schedule` enable/disable.** A managed
+  database is backup-included by default (a daily self-pruning CronJob), matching EP-36's volume policy;
+  `retention = Delete` opts out. The `--schedule` override the plan sketched was dropped to keep the
+  surface small — re-running `db create` re-renders the (idempotent) CronJob.
 
 
 ## Decision Log
@@ -238,7 +263,19 @@ Milestone 4 — runbook + user-guide integration:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-47 is complete for its offline-provable scope. `nagarectl db backup NAME` renders and applies a
+two-container Job (engine-client `dump` initContainer + `google/cloud-sdk:slim` `upload`), prunes to
+keep-last-N reusing EP-36's pure `snapshotsToPrune`, and writes to the IP6 layout
+`databases/<name>/<ts>.<ext>`. Each `db create` provisions a daily self-pruning CronJob (unless
+`retention = Delete`). `nagarectl db restore NAME BACKUP_ID` renders a download+restore Job targeting a
+scratch database by default (`--into-live` to override). The `db` subparser was extended (not forked)
+with `backup`/`restore` per IP4. The runbook and user guide document the flow, the restore drill, and
+the routing caveat. 12 new pure tests; 207 `nagarectl-test` pass.
+
+Gaps / deferred: the **live** backup→`gsutil ls`→restore drill is deferred to EP-48 and is additionally
+**blocked** by the cluster's in-pod-ADC routing regression (EP-43) until the node route is fixed; the
+ClickHouse dump/restore commands are best-effort pending live validation. These are recorded in
+Surprises and flagged in the runbook and MasterPlan.
 
 
 ## Context and Orientation

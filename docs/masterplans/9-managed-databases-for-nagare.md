@@ -196,8 +196,8 @@ schedule/restore milestones.
 | 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | Complete |
 | 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | Complete |
 | 46 | Generated database connection env injection for apps | docs/plans/46-generated-database-connection-env-injection-for-apps.md | EP-44 | EP-45 | Complete |
-| 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | In Progress |
-| 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | Not Started |
+| 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | Complete |
+| 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-43, EP-45). The numbers
@@ -361,8 +361,8 @@ milestone. This section provides an at-a-glance view of the entire initiative.
 - [x] EP-45 (2026-06-10): `nagarectl db create ENGINE NAME` generates the credential Secret (IP3) and provisions the resources in order (Secret, then PVC/ConfigMap/Service/StatefulSet, then wait for rollout); idempotent password; demonstrated via the real CLI `--dry-run` for all three engines. Live leg deferred to EP-48.
 - [x] EP-45 (2026-06-10): `nagarectl db list|get|shell|restart|delete` implemented; delete honors `RetentionPolicy` (read from a stamped annotation) behind `--yes`; pure helpers unit-tested (186 nagarectl tests pass).
 - [x] EP-46 (2026-06-10): An app declares `databases`; `nagarectl deploy` injects the per-engine connection env — host/port/user/db literals + `*_PASSWORD`/`*_URL` Secret refs to `nagare-db-<name>` — merged via `mergeGenerated` (generated wins over user env); collision + missing-db errors clear; verified via render-demonstration + unit tests (195 nagarectl tests). Server sites deferred (no `ServerSite.databases` field in v1).
-- [ ] EP-47: `nagarectl db backup NAME` writes an engine-appropriate dump to the GCS backup bucket; keep-last-N retention honored; scheduled CronJob renders.
-- [ ] EP-47: `nagarectl db restore NAME BACKUP_ID` restores a chosen backup; restore drill documented; disaster-recovery runbook + user backup guide updated.
+- [x] EP-47 (2026-06-10): `nagarectl db backup NAME` renders+applies a two-container dump Job to the GCS layout `databases/<name>/<ts>.<ext>`; keep-last-N retention reuses `snapshotsToPrune`; daily self-pruning CronJob renders and is provisioned at `db create` (unless `retention = Delete`). **Live upload blocked by the EP-43 flannel/metadata routing regression** (renderers unit-tested; live leg deferred to EP-48).
+- [x] EP-47 (2026-06-10): `nagarectl db restore NAME BACKUP_ID` renders a scratch-first restore Job (`--into-live` opt-in); restore drill documented; disaster-recovery runbook + user backup guide updated (incl. the routing caveat). 207 nagarectl tests pass.
 - [ ] EP-48: User guide written; one end-to-end example per engine (Postgres-backed app, Redis cache, ClickHouse analytics store) renders and deploys; restore drill exercised.
 
 

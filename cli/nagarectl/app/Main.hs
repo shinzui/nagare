@@ -43,10 +43,12 @@ import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
 import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
 import Nagare.Database.Discover (lookupConnection)
+import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Get (runDbGet)
 import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
@@ -349,6 +351,8 @@ data DbCommand
   | DbShell DbNameOpts -- ^ nagarectl db shell NAME [-n NS]
   | DbRestart DbNameOpts Bool -- ^ nagarectl db restart NAME [-n NS] [--dry-run]
   | DbDelete DbDeleteOpts -- ^ nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
+  | DbBackup DbBackupOpts -- ^ nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
+  | DbRestore DbRestoreOpts -- ^ nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
 
 -- | Options for @db list@: just a namespace (default @personal@).
 newtype DbListOpts = DbListOpts {dbloNamespace :: Maybe String}
@@ -380,6 +384,28 @@ data DbDeleteOpts = DbDeleteOpts
   , dbdNamespace :: !(Maybe String)
   , dbdYes :: !Bool
   , dbdDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @db backup NAME@ (EP-47): namespace, --bucket, --keep, --dry-run.
+data DbBackupOpts = DbBackupOpts
+  { dbbName :: !String
+  , dbbNamespace :: !(Maybe String)
+  , dbbBucket :: !(Maybe String)
+  , dbbKeep :: !Int
+  , dbbDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @db restore NAME BACKUP_ID@ (EP-47): namespace, --bucket,
+-- --into live (default scratch), --dry-run.
+data DbRestoreOpts = DbRestoreOpts
+  { dbrName :: !String
+  , dbrBackupId :: !String
+  , dbrNamespace :: !(Maybe String)
+  , dbrBucket :: !(Maybe String)
+  , dbrLive :: !Bool
+  , dbrDryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -707,6 +733,35 @@ dbDeleteOptsParser =
     <$> dbNameArg
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
+    <*> dryRunOpt
+
+dbBackupBucketOpt :: Parser (Maybe String)
+dbBackupBucketOpt =
+  optional
+    ( strOption
+        ( long "bucket"
+            <> metavar "BUCKET"
+            <> help "GCS backup bucket (overrides NAGARE_BACKUP_BUCKET, default tan-nb-exp-nagare-backups)"
+        )
+    )
+
+dbBackupOptsParser :: Parser DbBackupOpts
+dbBackupOptsParser =
+  DbBackupOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> option auto (long "keep" <> metavar "N" <> value 7 <> showDefault <> help "Backups to keep per database (older are pruned)")
+    <*> dryRunOpt
+
+dbRestoreOptsParser :: Parser DbRestoreOpts
+dbRestoreOptsParser =
+  DbRestoreOpts
+    <$> dbNameArg
+    <*> strArgument (metavar "BACKUP_ID" <> help "Backup timestamp (or full gs:// URL) to restore")
+    <*> namespaceOpt
+    <*> dbBackupBucketOpt
+    <*> switch (long "into-live" <> help "Restore into the LIVE database (default: a scratch target)")
     <*> dryRunOpt
 
 scopeSelectionParser :: Parser ScopeSelection
@@ -1088,6 +1143,18 @@ opts =
               ( info
                   (Db . DbDelete <$> dbDeleteOptsParser <**> helper)
                   (progDesc "Delete a database, honoring its retention policy (guarded by --yes)")
+              )
+            <> command
+              "backup"
+              ( info
+                  (Db . DbBackup <$> dbBackupOptsParser <**> helper)
+                  (progDesc "Back up a database to GCS (keep-last-N retention); --dry-run prints the Job/CronJob")
+              )
+            <> command
+              "restore"
+              ( info
+                  (Db . DbRestore <$> dbRestoreOptsParser <**> helper)
+                  (progDesc "Restore a backup into a scratch target (or --into-live); --dry-run prints the Job")
               )
         )
     deploymentsCmd =
@@ -1802,6 +1869,12 @@ runDb = \case
         , ddpYes = dbdYes o
         , ddpDryRun = dbdDryRun o
         }
+  DbBackup o -> do
+    bucket <- resolveBackupBucket (dbbBucket o)
+    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) bucket (dbbKeep o) (dbbDryRun o)
+  DbRestore o -> do
+    bucket <- resolveBackupBucket (dbrBucket o)
+    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
 

@@ -37,6 +37,8 @@ Postgres data ............. pg_dump in
                             gcs://<backupBucket>/postgres/            -> scripts/restore-postgres.sh (scratch)
 App volume data ........... tar.gz snapshots in
                             gcs://<backupBucket>/volumes/<app>/<volume>/ -> scripts/restore-volume.sh (scratch)
+Managed database data ..... pg_dump/.rdb/.native logical dumps in
+                            gcs://<backupBucket>/databases/<name>/      -> nagarectl db restore <name> <id> (scratch)
 Grafana dashboards ........ Git (cluster/observability/grafana/
                             dashboards/)                              -> provisioned by EP-5 sidecar
 Victoria metrics/logs/traces  NOT backed up (non-critical;
@@ -177,6 +179,8 @@ sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
 scripts/restore-postgres.sh gs://$BACKUP_BUCKET/postgres/<latest>.sql.gz
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
 scripts/restore-volume.sh gs://$BACKUP_BUCKET/volumes/<app>/<volume>/<latest>.tar.gz
+# Managed database (EP-47) into a SCRATCH target, compare, then promote manually:
+nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
 ```
 
 Observe: the scratch row counts (or, for an app volume, the restored file tree
@@ -195,6 +199,41 @@ databases that are written while live. Uploaded files / generated assets / a
 stopped app's DB snapshot cleanly. Volumes declared with `retention = Delete` are
 treated as throwaway and are **excluded** from backups (and `nagarectl deploy`
 warns about them).
+
+**Managed databases (EP-47) are backed up by default.** Each `nagarectl db
+create` provisions a daily, self-pruning **CronJob** that runs an
+engine-appropriate logical dump (`pg_dump` for Postgres, an RDB dump for Redis, a
+native dump for ClickHouse), gzips it, and uploads it to
+`gs://<backupBucket>/databases/<name>/<ts>.<ext>` (keep-last-N, default 7). Take
+one on demand with `nagarectl db backup <name>`; list them with `gsutil ls
+gs://<backupBucket>/databases/<name>/`. **Restore is scratch-first**: `nagarectl
+db restore <name> <backup-id>` loads the dump into a disposable target
+(`<db>_restore_scratch` for Postgres/ClickHouse) so live data is untouched until
+you promote manually; pass `--into-live` to target the live database. A database
+declared `retention = Delete` is treated as throwaway and gets **no** scheduled
+backup.
+
+**Restore drill (against a disposable database).** Prove the path end to end
+without risking live data — run on the VM (`scripts/iap-ssh.sh`) or through a
+forwarded kube-API port (IAP forwards only SSH/22):
+
+```bash
+nagarectl db create postgres drilldb
+# write a known row, then:
+nagarectl db backup drilldb
+nagarectl db restore drilldb "$(gsutil ls gs://$BACKUP_BUCKET/databases/drilldb/ | tail -1)"
+# the restore Job's logs print the scratch db's table list / row count to compare
+nagarectl db delete drilldb --yes
+```
+
+> **Known constraint (2026-06-10):** in-pod GCS upload via the
+> `GCE_METADATA_HOST` ADC pattern is currently blocked by a cluster routing
+> regression — the metadata IP `169.254.169.254` is routed into the `flannel.1`
+> overlay and is unreachable from pods (the existing litestream sidecar fails the
+> same way). The backup/restore *renderers and commands* are in place and
+> unit-tested, but the live upload leg will not work until that node route is
+> fixed (a more-specific `169.254.169.254/32` route via the primary NIC, or a
+> host-side upload step). See MasterPlan 9 Surprises and EP-43.
 
 ### 8. Redeploy the apps (EP-6)
 

@@ -33,9 +33,11 @@ library
     Nagare.App
     Nagare.App.Deployments
     Nagare.Build
+    Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
     Nagare.Database.Delete
+    Nagare.Database.Restore
     Nagare.Database.Discover
     Nagare.Database.Get
     Nagare.Database.List

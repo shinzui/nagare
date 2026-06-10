@@ -28,6 +28,7 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Database.Secret
 import Nagare.Deploy (applyManifests, waitForRollout)
 import Nagare.Dsl.Database
@@ -52,6 +53,7 @@ import Nagare.Dsl.Types
   , quantityText
   )
 import Nagare.Env.Store (extractSecretData)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -130,6 +132,11 @@ runDbCreate eng nameT params = do
           , cpDb = sanitizeDbName name
           }
       manifests = renderDatabase db
+      -- EP-47: a managed database is backup-included by default — a daily,
+      -- self-pruning CronJob — unless retention = Delete (treated as throwaway).
+      backsUp = (db ^. #retention) /= Delete
+  bucket <- resolveBackupBucket
+  let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) bucket 7
   if dcpDryRun params
     then do
       pw <- generatePassword
@@ -139,6 +146,10 @@ runDbCreate eng nameT params = do
       TIO.putStr (TE.decodeUtf8 secret)
       TIO.putStrLn ""
       mapM_ printManifest manifests
+      when backsUp $ do
+        TIO.putStrLn "--- Backup CronJob manifest ---"
+        TIO.putStr (TE.decodeUtf8 cronJob)
+        TIO.putStrLn ""
       TIO.putStrLn
         ( "Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host )
     else do
@@ -148,6 +159,7 @@ runDbCreate eng nameT params = do
       applyManifests [secret]
       applyManifests manifests
       stampMetadata ns name db
+      when backsUp (applyManifests [cronJob])
       waitForRollout ns (statefulSetName name)
       TIO.putStrLn
         ( "Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host )
@@ -166,6 +178,13 @@ readOrGeneratePassword ns name eng = do
     ExitSuccess -> case extractSecretData out of
       Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> pure pw
       _ -> generatePassword
+
+-- | The GCS backup bucket for the scheduled CronJob: @NAGARE_BACKUP_BUCKET@ or
+-- the default @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).
+resolveBackupBucket :: IO Text
+resolveBackupBucket = do
+  menv <- lookupEnv "NAGARE_BACKUP_BUCKET"
+  pure (maybe "tan-nb-exp-nagare-backups" T.pack menv)
 
 -- | Generate a strong password via @openssl rand -base64 24@ (~192 bits).
 generatePassword :: IO Text

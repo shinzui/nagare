@@ -28,6 +28,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | SQLite app data | **Litestream → GCS** (`/var/lib/nagare/sqlite`) | 🔭 EP-7 |
 | Postgres | `pg_dump` / WAL archive → GCS (`/var/lib/nagare/postgres`) | 🔭 EP-7 |
 | App volumes (PVCs) | `nagarectl storage snapshot` → GCS (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ EP-36 |
+| Managed databases | `nagarectl db backup` / daily CronJob → GCS (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ EP-47 |
 | Grafana dashboards | **Git** (exported as code) | 🔭 EP-5/EP-7 |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 
@@ -45,6 +46,23 @@ short-lived in-cluster Job mounts the PVC read-only and streams the archive to
 GCS), and keeps the last N snapshots per volume (`--keep`, default 7). Restore a
 snapshot into a disposable scratch PVC — never over live data — with
 `scripts/restore-volume.sh gs://…/<ts>.tar.gz`.
+
+### Managed databases: backed up by default
+
+A managed database (`nagarectl db create postgres|redis|clickhouse NAME`, EP-47)
+is backup-included from the moment it is created. `db create` provisions a daily
+**CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
+an RDB dump (Redis), a native dump (ClickHouse) — gzips it, and uploads it to
+`gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`, keeping the
+last N (`--keep`, default 7). Take one on demand with `nagarectl db backup NAME`;
+list them with `gsutil ls gs://tan-nb-exp-nagare-backups/databases/<name>/`.
+
+Restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
+chosen dump into a disposable target (`<db>_restore_scratch` for
+Postgres/ClickHouse) so your live database is untouched until you compare and
+promote manually; pass `--into-live` to target the live database directly. A
+database declared `retention = Delete` is treated as throwaway and gets **no**
+scheduled backup.
 
 A volume you don't want backed up (a cache, scratch space) is opted out by
 declaring it with `retention = Delete` in the typed config: such a volume is

@@ -38,8 +38,20 @@ import Nagare.App
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
+import Nagare.Database.Backup
+  ( BackupCronInputs (..)
+  , BackupJobInputs (..)
+  , backupExt
+  , backupRawExt
+  , dbBackupGsUrl
+  , dbBackupObjectPath
+  , defaultBackupSchedule
+  , renderBackupCronJob
+  , renderBackupJob
+  )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
+import Nagare.Database.Restore (isGsUrl, renderRestoreJob, resolveBackupObject, RestoreJobInputs (..))
 import Nagare.Database.Secret
   ( ConnectionParts (..)
   , composeConnectionUrl
@@ -178,6 +190,7 @@ main =
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
+      , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -1597,3 +1610,90 @@ connectionEnvTests =
         (unsafe (mkDatabaseName "other-db"))
         (unsafe (mkNamespace "personal"))
         (ConnIdentity {connUser = Just "app", connDb = Just "other"})
+
+-- ---------------------------------------------------------------------------
+-- EP-47: database backups, retention, restore.
+
+backupJobInputsPg :: BackupJobInputs
+backupJobInputsPg =
+  BackupJobInputs
+    { bjiNamespace = "personal"
+    , bjiJobName = "nagare-dbbackup-mydb-20260610t141503z"
+    , bjiEngine = Postgres
+    , bjiClientImage = "postgres:18"
+    , bjiSvcHost = "mydb"
+    , bjiSecretName = "nagare-db-mydb"
+    , bjiName = "mydb"
+    , bjiDestUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
+    , bjiPrefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
+    , bjiKeep = 7
+    , bjiSelfPrune = False
+    }
+
+restoreJobInputsPg :: RestoreJobInputs
+restoreJobInputsPg =
+  RestoreJobInputs
+    { rjiNamespace = "personal"
+    , rjiJobName = "nagare-dbrestore-mydb-20260610t141503z"
+    , rjiEngine = Postgres
+    , rjiClientImage = "postgres:18"
+    , rjiSvcHost = "mydb"
+    , rjiSecretName = "nagare-db-mydb"
+    , rjiName = "mydb"
+    , rjiSrcUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
+    , rjiLiveTarget = False
+    }
+
+backupRestoreTests :: [TestTree]
+backupRestoreTests =
+  [ testGroup
+      "pure path / extension / schedule"
+      [ testCase "dbBackupObjectPath builds databases/<name>/<ts>.<ext>" $
+          dbBackupObjectPath "mydb" "20260610T141503Z" "sql.gz" @?= "databases/mydb/20260610T141503Z.sql.gz"
+      , testCase "dbBackupGsUrl prepends gs://<bucket>/" $
+          dbBackupGsUrl "b" "mydb" "20260610T141503Z" "sql.gz" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
+      , testCase "backupExt per engine" $
+          map backupExt [Postgres, Redis, ClickHouse] @?= ["sql.gz", "rdb.gz", "native.gz"]
+      , testCase "backupRawExt per engine" $
+          map backupRawExt [Postgres, Redis, ClickHouse] @?= ["sql", "rdb", "native"]
+      , testCase "defaultBackupSchedule is daily 03:17 UTC" $
+          defaultBackupSchedule @?= "17 3 * * *"
+      ]
+  , testGroup
+      "Job / CronJob renderers"
+      [ testCase "renderBackupJob is a two-container Job" $ do
+          let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
+          assertBool "kind Job" ("kind: Job" `T.isInfixOf` y)
+          assertBool "initContainers" ("initContainers" `T.isInfixOf` y)
+          assertBool "dump container" ("pg_dump" `T.isInfixOf` y)
+          assertBool "upload image" ("google/cloud-sdk:slim" `T.isInfixOf` y)
+          assertBool "metadata host" ("169.254.169.254" `T.isInfixOf` y)
+          assertBool "no self-prune for on-demand" (not ("pruning" `T.isInfixOf` y))
+      , testCase "renderBackupCronJob wraps the body on a schedule and self-prunes" $ do
+          let cron = BackupCronInputs {bciSchedule = defaultBackupSchedule, bciBase = backupJobInputsPg {bjiSelfPrune = True}}
+              y = TE.decodeUtf8 (renderBackupCronJob cron)
+          assertBool "kind CronJob" ("kind: CronJob" `T.isInfixOf` y)
+          assertBool "schedule" ("17 3 * * *" `T.isInfixOf` y)
+          assertBool "no overlap" ("Forbid" `T.isInfixOf` y)
+          assertBool "self-prune" ("pruning" `T.isInfixOf` y)
+      ]
+  , testGroup
+      "restore"
+      [ testCase "isGsUrl" $ do
+          isGsUrl "gs://b/x" @?= True
+          isGsUrl "20260610T141503Z" @?= False
+      , testCase "resolveBackupObject composes a bare timestamp" $
+          resolveBackupObject "b" "mydb" "sql.gz" "20260610T141503Z" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
+      , testCase "resolveBackupObject passes a full URL through" $
+          resolveBackupObject "b" "mydb" "sql.gz" "gs://other/x.sql.gz" @?= "gs://other/x.sql.gz"
+      , testCase "renderRestoreJob targets a scratch database by default" $ do
+          let y = TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg)
+          assertBool "kind Job" ("kind: Job" `T.isInfixOf` y)
+          assertBool "download init" ("gunzip" `T.isInfixOf` y)
+          assertBool "scratch target" ("_restore_scratch" `T.isInfixOf` y)
+      , testCase "renderRestoreJob into live drops the scratch suffix" $ do
+          let y = TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg {rjiLiveTarget = True})
+          assertBool "live warning" ("LIVE database" `T.isInfixOf` y)
+          assertBool "no scratch suffix" (not ("_restore_scratch" `T.isInfixOf` y))
+      ]
+  ]
