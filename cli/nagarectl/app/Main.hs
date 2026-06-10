@@ -52,6 +52,8 @@ import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (EnvScope (..), namespaceText, serviceNameText)
 import Nagare.Env.Dotenv (parseDotenv)
+import Nagare.Env.Generated (generatedEnv, mergeGenerated)
+import Nagare.Env.Generated qualified as Gen
 import Nagare.Env.Store
   ( ReconcileMode (..)
   , readEnvStore
@@ -81,6 +83,7 @@ import Nagare.Server.Deploy
   , ServerManifests (..)
   , deployServerProduction
   , serverManifests
+  , serverUrl
   )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Static.Release
@@ -546,13 +549,27 @@ runDeploy dopts = do
   imageTag <- resolveTag (dopts ^. #tag)
   spec <- resolveBuildSpec dopts (dep ^. #build)
 
+  -- EP-26: inject the generated NAGARE_* identity variables as inline {Runtime}
+  -- env before rendering, so they appear in the Service and override the managed
+  -- envFrom store. The prebuilt-image deploy has no --source flag, so source=Nothing.
+  let url = serviceUrl dep bd
+      gctx =
+        Gen.GeneratedContext
+          { Gen.serviceName = serviceNameText (dep ^. #name)
+          , Gen.namespace = namespaceText (dep ^. #namespace)
+          , Gen.serviceUrl = url
+          , Gen.baseDomain = bd
+          , Gen.releaseId = imageTag
+          , Gen.source = Nothing
+          }
+      dep' = dep & #env %~ mergeGenerated (generatedEnv gctx)
+
   let effTag = resolveImageTag spec imageTag
-      ref = imageRef dep effTag
-      svcBytes = renderService dep imageTag -- renderer resolves the tag itself
-      dmBytes = maybeToList (renderDomainMapping dep)
-      url = serviceUrl dep bd
-      name = serviceNameText (dep ^. #name)
-      ns = namespaceText (dep ^. #namespace)
+      ref = imageRef dep' effTag
+      svcBytes = renderService dep' imageTag -- renderer resolves the tag itself
+      dmBytes = maybeToList (renderDomainMapping dep')
+      name = serviceNameText (dep' ^. #name)
+      ns = namespaceText (dep' ^. #namespace)
 
   if dopts ^. #dryRun
     then do
@@ -596,6 +613,10 @@ runSiteDeploy sopts = do
     Right (Load.SiteServer s) -> deployServer sopts s bd
 
 -- | The static (Nginx) deploy path.
+--
+-- NOTE (EP-26): static sites have no env field and serve files via Nginx, so the
+-- generated NAGARE_* runtime variables do not apply here and are intentionally not
+-- injected. See docs/plans/26-generated-and-predefined-environment-variables.md.
 deployStatic :: SiteDeployOpts -> StaticSite -> Text -> IO ()
 deployStatic sopts site bd = do
   imageTag <- resolveTag (sopts ^. #tag)
@@ -613,9 +634,22 @@ deployStatic sopts site bd = do
 
 -- | The server (Node) deploy path.
 deployServer :: SiteDeployOpts -> ServerSite -> Text -> IO ()
-deployServer sopts site bd = do
+deployServer sopts site0 bd = do
   imageTag <- resolveTag (sopts ^. #tag)
-  let inputs =
+  -- EP-26: inject the generated NAGARE_* identity variables into the ServerSite's
+  -- env before rendering. The server path carries --source, so NAGARE_SOURCE is
+  -- present when provided. serverUrl matches the URL serverManifests renders.
+  let gctx =
+        Gen.GeneratedContext
+          { Gen.serviceName = siteNameText (site0 ^. #name)
+          , Gen.namespace = namespaceText (site0 ^. #namespace)
+          , Gen.serviceUrl = serverUrl site0 bd
+          , Gen.baseDomain = bd
+          , Gen.releaseId = imageTag
+          , Gen.source = T.pack <$> sopts ^. #source
+          }
+      site = site0 & #env %~ mergeGenerated (generatedEnv gctx)
+      inputs =
         ServerDeployInputs
           { site = site
           , imageTag = imageTag

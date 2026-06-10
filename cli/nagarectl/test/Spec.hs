@@ -21,11 +21,27 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Nagare.Build (applyBuildOverrides, describeBuild)
-import Nagare.Dsl.Build (BuildSpec (..), mkTag)
+import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (EnvScope (..), defaultPort, mkImageRef, mkNamespace)
+import Nagare.Dsl.Render (renderService)
+import Nagare.Dsl.Types
+  ( Deployment (..)
+  , EnvName
+  , EnvScope (..)
+  , EnvVar (EnvLiteral)
+  , ScopedEnvVar (..)
+  , defaultPort
+  , envNameText
+  , mkEnvName
+  , mkImageRef
+  , mkNamespace
+  , mkServiceName
+  , runtimeScoped
+  )
 import Nagare.Env.Dotenv (parseDotenv)
+import Nagare.Env.Generated (generatedEnv, mergeGenerated)
+import Nagare.Env.Generated qualified as Gen
 import Nagare.Env.Store
 import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs)
 import Crypto.Hash (SHA256)
@@ -57,7 +73,120 @@ main =
       , testGroup "Nagare.Env.Store" envStoreTests
       , testGroup "Nagare.Env.Dotenv" dotenvTests
       , testGroup "Nagare.Env reconcile mode" reconcileModeTests
+      , testGroup "Nagare.Env.Generated" generatedEnvTests
+      , testGroup "EP-26 render demonstration" renderDemonstrationTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Env.Generated (EP-26)
+
+sampleCtx :: Gen.GeneratedContext
+sampleCtx =
+  Gen.GeneratedContext
+    { Gen.serviceName = "notes"
+    , Gen.namespace = "personal"
+    , Gen.serviceUrl = "https://notes.personal.apps.example.com"
+    , Gen.baseDomain = "apps.example.com"
+    , Gen.releaseId = "20260602-120000"
+    , Gen.source = Just "main"
+    }
+
+-- | Look up a generated value by name, as plain Text (asserts it is a literal).
+genLit :: Map.Map EnvName ScopedEnvVar -> Text -> Maybe Text
+genLit m name = do
+  en <- either (const Nothing) Just (mkEnvName name)
+  ScopedEnvVar {value = v} <- Map.lookup en m
+  case v of
+    EnvLiteral t -> Just t
+    _ -> Nothing
+
+generatedEnvTests :: [TestTree]
+generatedEnvTests =
+  [ testCase "produces the six NAGARE_* keys when source is Just" $ do
+      let m = generatedEnv sampleCtx
+      map envNameText (Map.keys m)
+        @?= [ "NAGARE_BASE_DOMAIN"
+            , "NAGARE_NAMESPACE"
+            , "NAGARE_RELEASE_ID"
+            , "NAGARE_SERVICE_NAME"
+            , "NAGARE_SERVICE_URL"
+            , "NAGARE_SOURCE"
+            ]
+  , testCase "values match the context" $ do
+      let m = generatedEnv sampleCtx
+      genLit m "NAGARE_SERVICE_URL" @?= Just "https://notes.personal.apps.example.com"
+      genLit m "NAGARE_SERVICE_NAME" @?= Just "notes"
+      genLit m "NAGARE_NAMESPACE" @?= Just "personal"
+      genLit m "NAGARE_BASE_DOMAIN" @?= Just "apps.example.com"
+      genLit m "NAGARE_RELEASE_ID" @?= Just "20260602-120000"
+      genLit m "NAGARE_SOURCE" @?= Just "main"
+  , testCase "omits NAGARE_SOURCE when source is Nothing" $ do
+      let m = generatedEnv sampleCtx {Gen.source = Nothing}
+      genLit m "NAGARE_SOURCE" @?= Nothing
+      length (Map.keys m) @?= 5
+  , testCase "every generated entry is Runtime-scoped" $ do
+      let m = generatedEnv sampleCtx
+      mapM_ (\sev -> scopes sev @?= scopes (runtimeScoped (EnvLiteral "x"))) (Map.elems m)
+  , testCase "mergeGenerated overrides a user var of the same name" $ do
+      let user =
+            Map.singleton
+              (unsafe (mkEnvName "NAGARE_SERVICE_URL"))
+              (runtimeScoped (EnvLiteral "https://evil.example"))
+          merged = mergeGenerated (generatedEnv sampleCtx) user
+      genLit merged "NAGARE_SERVICE_URL" @?= Just "https://notes.personal.apps.example.com"
+  , testCase "mergeGenerated keeps unrelated user vars" $ do
+      let user =
+            Map.singleton
+              (unsafe (mkEnvName "API_BASE"))
+              (runtimeScoped (EnvLiteral "https://api.example.com"))
+          merged = mergeGenerated (generatedEnv sampleCtx) user
+      genLit merged "API_BASE" @?= Just "https://api.example.com"
+  ]
+
+-- ---------------------------------------------------------------------------
+-- EP-26 render demonstration: the generated vars actually appear in a
+-- deployed Service's inline env: (mirrors what runDeploy does).
+
+demoEnv :: Map.Map EnvName ScopedEnvVar
+demoEnv =
+  Map.singleton
+    (unsafe (mkEnvName "API_BASE"))
+    (runtimeScoped (EnvLiteral "https://api.example.com"))
+
+-- | A demo Deployment carrying the given env map. Built via record construction
+-- (the constructor names the type, so the 'env' field is unambiguous, unlike a
+-- record /update/ which clashes with ServerSite.env).
+mkDemoDep :: Map.Map EnvName ScopedEnvVar -> Deployment
+mkDemoDep envMap =
+  Deployment
+    { name = unsafe (mkServiceName "notes")
+    , namespace = unsafe (mkNamespace "personal")
+    , image = unsafe (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+    , build = unsafe defaultBuild
+    , domain = Nothing
+    , port = defaultPort
+    , env = envMap
+    , resources = Nothing
+    , scale = Nothing
+    }
+
+renderDemonstrationTests :: [TestTree]
+renderDemonstrationTests =
+  [ testCase "deployed Service inline env contains the generated NAGARE_* vars" $ do
+      let dep' = mkDemoDep (mergeGenerated (generatedEnv sampleCtx) demoEnv)
+          yaml = renderService dep' "20260602-120000"
+      assertInfix "NAGARE_SERVICE_URL" yaml
+      assertInfix "https://notes.personal.apps.example.com" yaml
+      assertInfix "NAGARE_RELEASE_ID" yaml
+      assertInfix "NAGARE_SOURCE" yaml
+      assertInfix "main" yaml
+      assertInfix "API_BASE" yaml -- user var preserved
+  , testCase "without --source, NAGARE_SOURCE is absent from the rendered Service" $ do
+      let gctx = sampleCtx {Gen.source = Nothing}
+          dep' = mkDemoDep (mergeGenerated (generatedEnv gctx) demoEnv)
+          yaml = renderService dep' "20260602-120000"
+      assertBool "NAGARE_SOURCE absent" (not ("NAGARE_SOURCE" `BC.isInfixOf` yaml))
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Env.Dotenv (EP-25 M1)

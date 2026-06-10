@@ -33,6 +33,7 @@ library
     Nagare.Build
     Nagare.Deploy
     Nagare.Env.Dotenv
+    Nagare.Env.Generated
     Nagare.Env.Store
     Nagare.Image
     Nagare.Server.Build

@@ -83,27 +83,32 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Create `cli/nagarectl/src/Nagare/Env/Generated.hs` with `GeneratedContext`,
-      `generatedEnv`, and `mergeGenerated`; add it to `nagarectl.cabal` `other-modules`.
-- [ ] M1: Add a `containers` dependency to the `nagarectl` library stanza if not already
-      present (it is needed for `Data.Map`/`Data.Set` in the new module).
-- [ ] M1: Add a pure unit-test module to `cli/nagarectl/test/Spec.hs` asserting
-      `generatedEnv` produces the six fixed keys (and `NAGARE_SOURCE` only when `source`
-      is `Just`), that each value is an inline `EnvLiteral` scoped `{Runtime}`, and that
-      `mergeGenerated` is left-biased (generated overrides user).
-- [ ] M1: `cd cli/nagarectl && cabal build && cabal test` is green.
-- [ ] M2: Wire `generatedEnv`/`mergeGenerated` into `runDeploy` (the prebuilt-image path)
-      in `cli/nagarectl/app/Main.hs`, merging into `dep`'s `env` before `renderService`.
-- [ ] M2: Wire it into the server deploy path: thread a `GeneratedContext` into
-      `Nagare.Server.Deploy.serverManifests` (or merge into `site ^. #env` before
-      `renderServerService`) so server Services carry the generated vars.
-- [ ] M2: Document (in code comments and this plan) that the **static** deploy path is
-      skipped — `StaticSite` has no `env` field and serves files, so generated runtime
-      vars do not apply.
-- [ ] M2: Add a render-level demonstration test (golden or HUnit) proving a deployed
-      Service's inline `env:` contains `NAGARE_SERVICE_URL` etc.; wire it into a test suite.
-- [ ] M2: `cd cli/nagarectl && cabal test` is green; a `--dry-run` deploy shows the injected
-      `NAGARE_*` env block.
+- [x] M1: Created `cli/nagarectl/src/Nagare/Env/Generated.hs` with `GeneratedContext`,
+      `generatedEnv`, and `mergeGenerated`; added it to `nagarectl.cabal`
+      `exposed-modules` (not `other-modules` — the test suite imports it). (2026-06-09)
+- [x] M1: `containers` already present in the `nagarectl` library stanza (no change
+      needed). (2026-06-09)
+- [x] M1: Added a pure unit-test group `Nagare.Env.Generated` to
+      `cli/nagarectl/test/Spec.hs` (6 cases): the six keys + alphabetical order,
+      `NAGARE_SOURCE` only when `source` is `Just`, every value an `EnvLiteral` scoped
+      `{Runtime}`, and `mergeGenerated` left-biased (generated overrides user; unrelated
+      user vars kept). (2026-06-09)
+- [x] M1: `cabal build && cabal test` green. (2026-06-09)
+- [x] M2: Wired `generatedEnv`/`mergeGenerated` into `runDeploy` (prebuilt-image path),
+      merging into `dep`'s `env` to form `dep'` before `renderService`. (2026-06-09)
+- [x] M2: Wired into `deployServer`: merge generated env into the `ServerSite`'s `env`
+      before building `ServerDeployInputs`; `serverUrl site0 bd` is reused so the
+      generated `NAGARE_SERVICE_URL` matches the rendered Service URL, and `--source`
+      flows into `NAGARE_SOURCE`. (2026-06-09)
+- [x] M2: Documented (code comment on `deployStatic` + Decision Log) that the **static**
+      deploy path is skipped — `StaticSite` has no `env`. (2026-06-09)
+- [x] M2: Added a render-level demonstration group `EP-26 render demonstration`
+      (2 HUnit cases) proving a rendered Service's inline `env:` contains the
+      `NAGARE_*` vars and the preserved user var, and that `NAGARE_SOURCE` is absent
+      without a source. (2026-06-09)
+- [x] M2: `cabal test` green (81 tests); `--dry-run` deploy shows the injected
+      `NAGARE_*` block on both the app path (no `NAGARE_SOURCE`) and the server path
+      (`NAGARE_SOURCE=main` with `--source main`). (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -111,7 +116,21 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- `GeneratedContext`'s field names (`namespace`, `releaseId`, `source`, `serviceUrl`,
+  `baseDomain`) collide, under `DuplicateRecordFields`, with existing bare selectors and
+  a top-level function in the consuming modules: in `Spec.hs` the static-release tests
+  use `releaseId`/`source` as bare selectors, and in `Main.hs` `Nagare.Deploy.serviceUrl`
+  is a function. Importing `GeneratedContext (..)` made those ambiguous (GHC-87543). Fix:
+  import the type/functions plainly but construct the record through a qualified alias
+  (`import Nagare.Env.Generated qualified as Gen`; `Gen.GeneratedContext { Gen.serviceUrl
+  = ... }`), so the field labels never enter the bare namespace. EP-28 (and any other
+  consumer) should construct `GeneratedContext` the same qualified way.
+
+- A record *update* on `env` (`dep { env = ... }` / `site { env = ... }`) is ambiguous
+  because both `Deployment` and `ServerSite` have an `env` field. In `Main.hs` the
+  generic-lens form `dep & #env %~ f` sidesteps it; in `Spec.hs` (no generic-lens) the
+  demo Deployment is built by a constructor function `mkDemoDep envMap` (record
+  *construction* names the type and is unambiguous) instead of a record update.
 
 
 ## Decision Log
@@ -160,7 +179,29 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete, both milestones.** `Nagare.Env.Generated` produces
+the reserved `NAGARE_*` identity variables as inline `{Runtime}` `EnvLiteral`s and
+`mergeGenerated` (a left-biased `Map.union`) makes them authoritative over user and
+managed env. Both deploy paths that have an `env` field inject them: `runDeploy`
+(prebuilt-image, `source=Nothing`) and `deployServer` (server, `--source` →
+`NAGARE_SOURCE`). The static path is intentionally untouched.
+
+**Against the purpose:** verified end-to-end via `--dry-run`:
+- App: the hello deploy renders inline `env:` with `NAGARE_BASE_DOMAIN`,
+  `NAGARE_NAMESPACE`, `NAGARE_RELEASE_ID`, `NAGARE_SERVICE_NAME`, `NAGARE_SERVICE_URL`
+  (alphabetical, before `envFrom`), the user's `TARGET` preserved, and no
+  `NAGARE_SOURCE`.
+- Server: the server fixture with `--source main` additionally renders
+  `NAGARE_SOURCE: main`, with user vars `API_BASE`/`HOSTNAME` preserved.
+The reserved-prefix override and the `NAGARE_SOURCE`-only-when-`Just` rules are proven
+by unit tests; 81 tests pass.
+
+**Notes / lessons:** see Surprises & Discoveries for the two
+`DuplicateRecordFields` ambiguities (field-name collisions and `env` record-update) and
+their fixes — qualified `GeneratedContext` construction and a constructor function for
+the demo Deployment. `NAGARE_SERVICE_URL` correctly honors a config's custom domain
+(e.g. `https://hello.example.com`) because it is computed from `serviceUrl`/`serverUrl`,
+which prefer the custom domain over the wildcard.
 
 
 ## Context and Orientation

@@ -109,7 +109,7 @@ grows.
 | 23 | Scoped env model and scoped Knative renderer | docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md | None | None | Complete |
 | 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Complete |
 | 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Complete |
-| 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Not Started |
+| 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Complete |
 | 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Not Started |
 | 28 | Env and secret management docs and end-to-end example | docs/plans/28-env-and-secret-management-docs-and-end-to-end-example.md | EP-25, EP-27 | EP-26 | Not Started |
 
@@ -260,7 +260,7 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-24: kubectl read/write IO for the per-app stores. (2026-06-09)
 - [x] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`). (2026-06-09)
 - [x] EP-25: `nagarectl secret set|list|delete` commands; `.env` parsing with reconcile modes. (2026-06-09)
-- [ ] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them.
+- [x] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them. (2026-06-09)
 - [ ] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end.
 - [ ] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay.
 - [ ] EP-28: User guide written; end-to-end example deploys with managed env and a secret.
@@ -280,7 +280,17 @@ documents the table. Because they are injected as inline `env:`, they override m
 - EP-24 module visibility (2026-06-09): `Nagare.Env.Store` had to be `exposed-modules`
   (not `other-modules`) because the `nagarectl-test` suite consumes the library as an
   external package and Cabal hides `other-modules` from external consumers. Any future
-  library module the test suite imports must be `exposed-modules`.
+  library module the test suite imports must be `exposed-modules`. (EP-25's `Nagare.Env.Dotenv`
+  and EP-26's `Nagare.Env.Generated` followed this.)
+
+- EP-26 record-field ambiguities (2026-06-09): `GeneratedContext`'s field names
+  (`namespace`/`releaseId`/`source`/`serviceUrl`/`baseDomain`) collide under
+  `DuplicateRecordFields` with existing bare selectors and `Nagare.Deploy.serviceUrl`, and
+  a record *update* on `env` is ambiguous between `Deployment` and `ServerSite`. The fix —
+  construct `GeneratedContext` through a qualified alias (`import Nagare.Env.Generated
+  qualified as Gen`; `Gen.GeneratedContext { Gen.serviceUrl = ... }`) and update env via
+  the generic-lens form `x & #env %~ f` — is the pattern **EP-28** should reuse when it
+  exercises generated vars in code/examples.
 
 
 ## Decision Log
