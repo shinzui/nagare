@@ -132,6 +132,27 @@ project's existing bindings).
 See the [Static & full-stack site hosting](static-hosting.md) guide. The webhook
 runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.
 
+## `nagarectl env` / `nagarectl secret` commands (app env & secrets)
+
+The app identity comes from the loaded config (`-f/--config`, default
+`nagare/Config.hs`), not the literal `APP`. Scope defaults to `runtime`
+(`--runtime`/`--build`/`--preview` may be combined). Every mutating command takes
+`--dry-run` (prints the would-be ConfigMap/Secret manifest; no side effects).
+
+| Command | Does |
+| --- | --- |
+| `nagarectl env list APP [--all]` | List managed env keys/values (runtime scope; `--all` = all scopes). |
+| `nagarectl env set APP KEY VALUE [scope] [--dry-run]` | Set one managed env key in the per-app ConfigMap. |
+| `nagarectl env delete APP KEY [scope] [--dry-run]` | Remove one managed env key. |
+| `nagarectl env sync APP --file FILE [--merge \| --reconcile-exact] [scope] [--dry-run]` | Bulk-import a dotenv file (`--merge` keeps other keys; `--reconcile-exact` replaces the store). |
+| `nagarectl secret set APP KEY [scope] [--dry-run]` | Set one secret (value read from **stdin**, never argv) in the per-app Secret. |
+| `nagarectl secret list APP [--all]` | List secret key **names** only (never values). |
+| `nagarectl secret delete APP KEY [scope] [--dry-run]` | Remove one secret key. |
+
+Managed values live in `nagare-env-<app>-<scope>` (ConfigMap) and
+`nagare-secret-<app>-<scope>` (Secret); the running Service reads the runtime pair via
+`envFrom`. See the [Environment and secrets](env-and-secrets.md) guide.
+
 ## Domain model
 
 ```text

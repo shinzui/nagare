@@ -111,7 +111,7 @@ grows.
 | 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Complete |
 | 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Complete |
 | 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Complete |
-| 28 | Env and secret management docs and end-to-end example | docs/plans/28-env-and-secret-management-docs-and-end-to-end-example.md | EP-25, EP-27 | EP-26 | Not Started |
+| 28 | Env and secret management docs and end-to-end example | docs/plans/28-env-and-secret-management-docs-and-end-to-end-example.md | EP-25, EP-27 | EP-26 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-23).
@@ -263,7 +263,7 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them. (2026-06-09)
 - [x] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end. (2026-06-09)
 - [x] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay. (2026-06-09)
-- [ ] EP-28: User guide written; end-to-end example deploys with managed env and a secret.
+- [x] EP-28: User guide written; end-to-end example deploys with managed env and a secret. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -348,6 +348,51 @@ documents the table. Because they are injected as inline `env:`, they override m
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Status (2026-06-09): COMPLETE.** All six child ExecPlans (EP-23–28) are implemented,
+tested, and committed. The initiative delivers, end to end:
+
+- **Scoped env model (EP-23).** `EnvScope = Runtime | Build | Preview` and
+  `ScopedEnvVar` in `nagare-dsl`; the env map of `Deployment`/`ServerSite` is
+  `Map EnvName ScopedEnvVar`; scopes survive the JSON round-trip; the renderer
+  scope-filters inline `env:` to `{Runtime}` and emits the `envFrom` block to the managed
+  store with `optional: true`; naming helpers (`managedConfigMapName`/`managedSecretName`/
+  `scopeToken`) are the single owner of the resource-name format.
+- **Per-app store (EP-24).** `Nagare.Env.Store` — pure `reconcile` (Merge/ReconcileExact),
+  ConfigMap/Secret rendering (base64 for secrets), strict extraction, and a thin kubectl
+  IO layer.
+- **CLI (EP-25).** `nagarectl env list|set|delete|sync` and `secret set|list|delete`, with
+  config-derived app identity, scope flags, `.env` import, stdin-only `secret set`, and
+  `--dry-run` on every mutation.
+- **Generated variables (EP-26).** Inline `{Runtime}` `NAGARE_*` identity vars injected at
+  deploy on the app and server paths, authoritative over the managed store.
+- **Build/preview application (EP-27).** Build-scoped env into `docker build --build-arg`
+  (via the `BuildSpec`/`performBuild` path) with a secret-as-build-arg warning; a
+  four-entry preview `envFrom` overlay (runtime then preview) keyed by the production name.
+- **Docs + example (EP-28).** `docs/user/env-and-secrets.md` and
+  `cluster/examples/env-and-secrets/`, with real `--dry-run` transcripts; the live
+  walkthrough deferred behind the shared 🟡 `nagare-01` caveat.
+
+**Tests:** `nagare-dsl` 143 tests green; `nagarectl` 89 tests green; both executables
+build.
+
+**Key lessons / deviations (all recorded in the child plans' Surprises and above):**
+- Prefer dependencies already in the nix flake over adding new ones: EP-24 used `memory`
+  for base64 (not `base64`); EP-27 added `yaml`/`vector` only after confirming they are
+  flake-present.
+- `DuplicateRecordFields` requires care: construct records like `GeneratedContext` through
+  a qualified alias, and update the `env` field via the generic-lens `& #env %~` form, to
+  avoid field-name/selector ambiguities (EP-26).
+- The build-modes rework (MasterPlan 4, EP-19–22) had already landed, so EP-27 injected
+  build-scoped env into the `BuildSpec`'s `buildArgs` before `performBuild` rather than
+  widening `buildImage` — the seam the plan anticipated.
+- Library modules consumed by the external test suite must be `exposed-modules`, not
+  `other-modules` (EP-24).
+- A docs-and-example capstone (EP-28) is where the written contract meets shipped
+  behaviour: it caught the compact-JSON store output and the required `build` field, both
+  corrected against real output.
+
+**Integration points held:** IP1 (scope type + env-map change), IP2 (naming helpers), IP3
+(`envFrom` wiring + precedence), IP4 (reconcile/store schema), and IP5 (generated vars)
+were delivered as specified and consumed unchanged by downstream plans.
 </content>
 </invoke>

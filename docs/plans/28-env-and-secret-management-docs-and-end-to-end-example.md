@@ -55,27 +55,29 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Write the user guide `docs/user/env-and-secrets.md` covering the scope model and
+- [x] M1: Wrote the user guide `docs/user/env-and-secrets.md` covering the scope model and
       precedence, the full `env`/`secret` CLI with copy-pasteable examples, `.env` sync
-      (merge vs. reconcile-exact), the generated `NAGARE_*` table, build-time env + its security
-      caveat, preview env overlays, and a troubleshooting section.
-- [ ] M1: Link the new guide from `docs/user/README.md` (status table row + read-in-order
-      sub-bullet under "Deploying apps") and add a `nagarectl env`/`nagarectl secret` command
-      table to `docs/user/reference.md`.
-- [ ] M1: Verify no untagged opening code fence was introduced (fence-parity check in
-      Concrete Steps).
-- [ ] M2: Create the example project `cluster/examples/env-and-secrets/` — a typed
-      `nagare/Config.hs` declaring a Runtime literal, a Build-scoped var, and a secret-ref; a
-      tiny app (`app.js` + `Dockerfile`) that prints its `NAGARE_*` vars and a managed var; a
-      `.env.production` and `.env.preview`; and a `README.md`.
-- [ ] M2: Capture the `nagarectl deploy --dry-run` transcript for the example into the guide and
-      the example README (showing the inline `env:`, the `NAGARE_*` block, and the `envFrom`).
-- [ ] M2: Capture the `nagarectl env set --dry-run`, `secret set --dry-run` (value via stdin),
-      and `env sync --reconcile-exact --dry-run` transcripts into the guide.
-- [ ] M2: Run (or document deferral of) the live walkthrough against `tan-nb-exp`/`us-west1`:
-      deploy, env set + curl, secret set + curl, reconcile-exact sync + curl (key disappears),
-      preview overlay + curl. Record cleanup commands.
-- [ ] Fill in Outcomes & Retrospective.
+      (merge vs. reconcile-exact), the generated `NAGARE_*` table, build-time env + its
+      security caveat, preview env overlays, and a troubleshooting section. (2026-06-09)
+- [x] M1: Linked the guide from `docs/user/README.md` (status-table row + read-in-order
+      sub-bullet under "Deploying apps") and added a `nagarectl env`/`secret` command table
+      to `docs/user/reference.md`. (2026-06-09)
+- [x] M1: Fence-parity verified — both new docs have even fence counts and zero bare
+      opening fences (Python check in place of `rg`). (2026-06-09)
+- [x] M2: Created `cluster/examples/env-and-secrets/` — `nagare/Config.hs` (Runtime literal
+      `GREETING`, Build-scoped `BUILD_STAMP`, Runtime secret-ref `API_KEY`; with the now-
+      required `build = defaultBuild`), `app.js`, `Dockerfile`, `.env.production`,
+      `.env.preview`, and `README.md`. (2026-06-09)
+- [x] M2: Captured the **real** `deploy --dry-run` transcript into the guide and README
+      (inline `env:` with `GREETING`+`API_KEY`+`NAGARE_*`, the runtime `envFrom`; `BUILD_STAMP`
+      absent — `grep -c BUILD_STAMP` == 0). (2026-06-09)
+- [x] M2: Captured the **real** `env set`/`secret set` (stdin)/`env sync --reconcile-exact`
+      `--dry-run` transcripts (compact JSON, see Surprises) into the guide and README. (2026-06-09)
+- [x] M2: Live walkthrough **deferred** (🟡 badge), matching `deploying-apps.md`/
+      `static-hosting.md`: `nagare-01` is powered down. Every `--dry-run` leg is exercised;
+      the live legs are written as intended behaviour against `tan-nb-exp`/`us-west1` with
+      cleanup commands. (2026-06-09)
+- [x] Filled in Outcomes & Retrospective. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -83,7 +85,30 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The `env`/`secret` `--dry-run` prints compact JSON, not pretty YAML.** EP-24's
+  `renderEnvConfigMap`/`renderEnvSecret` serialize with `Data.Aeson.encode` (compact,
+  single-line JSON), and the CLI prints those bytes verbatim. The plan's idealized
+  transcripts showed multi-line YAML; the real output is e.g.
+  `{"apiVersion":"v1","data":{"REGION":"us-west1"},"kind":"ConfigMap","metadata":{...}}`.
+  This is valid YAML (JSON ⊂ YAML) and `kubectl apply -f` accepts it, so it is correct —
+  the guide and README use the **real** compact-JSON form and note it once. (The Knative
+  *Service* dry-run, by contrast, is pretty YAML because the DSL renderer uses
+  `Data.Yaml.Pretty`.)
+
+- **The example `Config.hs` needed a `build` field.** The plan's `Config.hs` sketch
+  predated the EP-19–22 build-modes rework, which added `build :: BuildSpec` to
+  `Deployment`. The example uses `bld <- mapLeft show defaultBuild` (a `docker build -f
+  Dockerfile .`), which suits the example's bundled `Dockerfile` and `ARG BUILD_STAMP`.
+
+- **`NAGARE_RELEASE_ID` renders unquoted** (`value: 20260602-120000`), not quoted as the
+  plan sketched — the tag contains a hyphen so YAML treats it as a plain scalar string;
+  no quoting is needed. The guide uses the real output.
+
+- The config loader's `runghc` resolves `nagare-dsl` from the `.ghc.environment.*` in
+  `cli/nagarectl`, so the `--dry-run` commands must run from that directory (or set
+  `--ghc-env`/`NAGARE_GHC_ENVIRONMENT`). Running from the repo root with
+  `--project-dir=cli/nagarectl` fails the config load. Documented in the guide's
+  troubleshooting table and the README.
 
 
 ## Decision Log
@@ -137,7 +162,27 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete, both milestones.** A newcomer now has one guide
+(`docs/user/env-and-secrets.md`) and one deployable example
+(`cluster/examples/env-and-secrets/`) that together explain and demonstrate the whole
+env/secret surface: the scope model and the precedence ladder, the full `env`/`secret`
+CLI with real copy-pasteable transcripts, `.env` sync (merge vs reconcile-exact), the
+generated `NAGARE_*` table, build-time env with its `docker history` security caveat,
+preview overlays, and a troubleshooting table. The guide is linked from both
+`docs/user/README.md` (status row + read-in-order bullet) and `docs/user/reference.md`
+(CLI table). Fence parity verified.
+
+**Against the purpose:** every surface is demonstrable on a laptop with `--dry-run`, and
+all embedded transcripts are the **real** output of the bundled example (not idealized) —
+the deploy render shows the `NAGARE_*` block and runtime `envFrom` while excluding the
+Build-scoped `BUILD_STAMP`; the `env set`/`secret set`/`env sync --reconcile-exact`
+dry-runs show the exact ConfigMap/Secret manifests. The live walkthrough is written and
+deferred behind the shared 🟡 `nagare-01` caveat.
+
+**Notes / lessons:** the only deviations from the plan were forced by the codebase having
+moved on (compact-JSON store output, the required `build` field) — recorded in Surprises
+and corrected against real output, which is exactly what a docs-and-example capstone is
+for: catching where the written contract and the shipped behaviour diverge.
 
 
 ## Context and Orientation
