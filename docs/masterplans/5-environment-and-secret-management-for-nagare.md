@@ -108,7 +108,7 @@ grows.
 |---|-------|------|-----------|-----------|--------|
 | 23 | Scoped env model and scoped Knative renderer | docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md | None | None | Complete |
 | 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Complete |
-| 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Not Started |
+| 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Complete |
 | 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Not Started |
 | 27 | Build-time and preview-scoped env application | docs/plans/27-build-time-and-preview-scoped-env-application.md | EP-23, EP-24 | EP-25 | Not Started |
 | 28 | Env and secret management docs and end-to-end example | docs/plans/28-env-and-secret-management-docs-and-end-to-end-example.md | EP-25, EP-27 | EP-26 | Not Started |
@@ -258,8 +258,8 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-23: Scope-filtered inline render + `envFrom` wiring + naming helpers; golden tests pass. (2026-06-09)
 - [x] EP-24: Pure `reconcile` + ConfigMap/Secret rendering with unit tests. (2026-06-09)
 - [x] EP-24: kubectl read/write IO for the per-app stores. (2026-06-09)
-- [ ] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`).
-- [ ] EP-25: `nagarectl secret set|list|delete` commands; `.env` parsing with reconcile modes.
+- [x] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`). (2026-06-09)
+- [x] EP-25: `nagarectl secret set|list|delete` commands; `.env` parsing with reconcile modes. (2026-06-09)
 - [ ] EP-26: Generated `NAGARE_*` variables injected at deploy; golden/render test shows them.
 - [ ] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end.
 - [ ] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay.

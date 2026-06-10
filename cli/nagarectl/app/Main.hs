@@ -26,27 +26,42 @@ import Nagare.Dsl.Prelude
 
 import "generic-lens" Data.Generics.Labels ()
 
-import Control.Monad (forM_)
+import Control.Exception (bracket_)
+import Control.Monad (forM, forM_, unless)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.Map (Map)
+import Data.Map qualified as Map
 import Data.Maybe (maybeToList)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Options.Applicative
 import System.Directory (makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (exitFailure)
-import System.IO (stderr)
+import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
-import Nagare.Dsl.Render (renderDomainMapping, renderService)
+import Nagare.Dsl.Render (renderDomainMapping, renderService, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
-import Nagare.Dsl.Types (namespaceText, serviceNameText)
+import Nagare.Dsl.Types (EnvScope (..), namespaceText, serviceNameText)
+import Nagare.Env.Dotenv (parseDotenv)
+import Nagare.Env.Store
+  ( ReconcileMode (..)
+  , readEnvStore
+  , readSecretStore
+  , reconcile
+  , renderEnvConfigMap
+  , renderEnvSecret
+  , writeEnvStore
+  , writeSecretStore
+  )
 import Nagare.Image
   ( computeTag
   , configureDockerAuth
@@ -126,6 +141,44 @@ data Command
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts
   | SitePreviewDelete SiteCommonOpts String
+  | Env EnvCommand
+  | Secret SecretCommand
+
+-- | Options shared by every @env@/@secret@ subcommand: enough to load the config
+-- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
+-- config file uses @-f/--config@ here (not @--file@) so @env sync@'s dotenv
+-- argument can use @--file@.
+data StoreCommonOpts = StoreCommonOpts
+  { app :: !String
+  -- ^ positional APP (informational; identity comes from the loaded config)
+  , file :: !FilePath
+  -- ^ -f/--config, default nagare/Config.hs
+  , ghcEnv :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+-- | Which scope store(s) an operation targets. When none of
+-- @--runtime/--build/--preview@ is given, 'Runtime' is the default.
+data ScopeSelection = ScopeSelection
+  { runtime :: !Bool
+  , build :: !Bool
+  , preview :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | The @env@ subcommands. The trailing 'Bool' on the mutating variants is
+-- @--dry-run@.
+data EnvCommand
+  = EnvList StoreCommonOpts Bool -- ^ Bool = --all (show all three scopes)
+  | EnvSet StoreCommonOpts ScopeSelection Bool String String -- ^ dryRun, KEY, VALUE
+  | EnvDelete StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY
+  | EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath -- ^ dryRun, reconcileExact, dotenv file
+
+-- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
+data SecretCommand
+  = SecretSet StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY (value from stdin)
+  | SecretList StoreCommonOpts Bool -- ^ Bool = --all
+  | SecretDelete StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -247,6 +300,54 @@ previewNameOpt =
 defaultConfigFile :: FilePath
 defaultConfigFile = "nagare/Config.hs"
 
+-- Env / secret option fragments (EP-25).
+
+appArg :: Parser String
+appArg = strArgument (metavar "APP" <> help "App whose env/secret store to manage")
+
+-- | The config-file option for @env@/@secret@: @-f/--config@ (not @--file@), so
+-- @env sync@'s dotenv argument can use the @--file@ long name.
+configFileOpt :: Parser FilePath
+configFileOpt =
+  strOption
+    ( long "config"
+        <> short 'f'
+        <> metavar "FILE"
+        <> value defaultConfigFile
+        <> showDefault
+        <> help "Typed config file; its name/namespace identify the app"
+    )
+
+storeCommonOptsParser :: Parser StoreCommonOpts
+storeCommonOptsParser =
+  StoreCommonOpts <$> appArg <*> configFileOpt <*> ghcEnvOpt
+
+scopeSelectionParser :: Parser ScopeSelection
+scopeSelectionParser =
+  ScopeSelection
+    <$> switch (long "runtime" <> help "Target the runtime scope (default if no scope flag is given)")
+    <*> switch (long "build" <> help "Target the build scope")
+    <*> switch (long "preview" <> help "Target the preview scope")
+
+-- | Resolve the selected scopes; with none chosen, default to @[Runtime]@.
+selectedScopes :: ScopeSelection -> [EnvScope]
+selectedScopes (ScopeSelection r b p)
+  | not r && not b && not p = [Runtime]
+  | otherwise = [Runtime | r] <> [Build | b] <> [Preview | p]
+
+-- | @--reconcile-exact@ => 'True', @--merge@ (or default) => 'False'. The two
+-- flags are mutually exclusive.
+reconcileExactParser :: Parser Bool
+reconcileExactParser =
+  flag' True (long "reconcile-exact" <> help "Make the store exactly the file (drop keys not present)")
+    <|> flag' False (long "merge" <> help "Keep existing keys not in the file (default)")
+    <|> pure False
+
+-- | The reconcile mode for a sync.
+reconcileModeFrom :: Bool -> ReconcileMode
+reconcileModeFrom True = ReconcileExact
+reconcileModeFrom False = Merge
+
 opts :: ParserInfo Command
 opts =
   info
@@ -259,6 +360,8 @@ opts =
       subparser
         ( command "deploy" deployCmd
             <> command "site" siteCmd
+            <> command "env" envCmd
+            <> command "secret" secretCmd
         )
     deployCmd =
       info
@@ -317,6 +420,102 @@ opts =
             <**> helper
         )
         (fullDesc <> progDesc "Delete a preview deployment")
+    envCmd =
+      info
+        (Env <$> envSubparser <**> helper)
+        (fullDesc <> progDesc "Manage an app's environment variables (managed ConfigMap store)")
+    envSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                ( EnvList
+                    <$> storeCommonOptsParser
+                    <*> switch (long "all" <> help "Show all scopes, grouped")
+                    <**> helper
+                )
+                (progDesc "List env keys/values for an app")
+            )
+            <> command
+              "set"
+              ( info
+                  ( EnvSet
+                      <$> storeCommonOptsParser
+                      <*> scopeSelectionParser
+                      <*> dryRunOpt
+                      <*> strArgument (metavar "KEY")
+                      <*> strArgument (metavar "VALUE")
+                      <**> helper
+                  )
+                  (progDesc "Set one env key (single-key merge)")
+              )
+            <> command
+              "delete"
+              ( info
+                  ( EnvDelete
+                      <$> storeCommonOptsParser
+                      <*> scopeSelectionParser
+                      <*> dryRunOpt
+                      <*> strArgument (metavar "KEY")
+                      <**> helper
+                  )
+                  (progDesc "Delete one env key")
+              )
+            <> command
+              "sync"
+              ( info
+                  ( EnvSync
+                      <$> storeCommonOptsParser
+                      <*> scopeSelectionParser
+                      <*> dryRunOpt
+                      <*> reconcileExactParser
+                      <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
+                      <**> helper
+                  )
+                  (progDesc "Bulk-import a dotenv file into the env store")
+              )
+        )
+    secretCmd =
+      info
+        (Secret <$> secretSubparser <**> helper)
+        (fullDesc <> progDesc "Manage an app's secrets (managed Secret store)")
+    secretSubparser =
+      subparser
+        ( command
+            "set"
+            ( info
+                ( SecretSet
+                    <$> storeCommonOptsParser
+                    <*> scopeSelectionParser
+                    <*> dryRunOpt
+                    <*> strArgument (metavar "KEY")
+                    <**> helper
+                )
+                (progDesc "Set one secret key; the value is read from stdin")
+            )
+            <> command
+              "list"
+              ( info
+                  ( SecretList
+                      <$> storeCommonOptsParser
+                      <*> switch (long "all" <> help "Show all scopes")
+                      <**> helper
+                  )
+                  (progDesc "List secret key names (never values)")
+              )
+            <> command
+              "delete"
+              ( info
+                  ( SecretDelete
+                      <$> storeCommonOptsParser
+                      <*> scopeSelectionParser
+                      <*> dryRunOpt
+                      <*> strArgument (metavar "KEY")
+                      <**> helper
+                  )
+                  (progDesc "Delete one secret key")
+              )
+        )
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -331,6 +530,8 @@ main =
     SitePreviewDeploy sopts pname -> runPreviewDeploy sopts (T.pack pname)
     SitePreviewList copts -> runPreviewList copts
     SitePreviewDelete copts pname -> runPreviewDelete copts (T.pack pname)
+    Env ecmd -> runEnv ecmd
+    Secret scmd -> runSecret scmd
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
@@ -548,6 +749,154 @@ runPreviewDelete copts pname = do
   pdomText <- orDie (previewDomain prodName pname bd)
   deletePreview ns svcName pdomText
   TIO.putStrLn ("Deleted preview: " <> svcName)
+
+-- ---------------------------------------------------------------------------
+-- env / secret handlers (EP-25)
+
+-- | Resolve @(name, namespace)@ from a config of any kind: a plain Deployment, a
+-- StaticSite, or a ServerSite. Tries the Deployment loader first; on an
+-- 'Load.UnexpectedKind' (the config is a site) falls back to the site loader.
+appIdentityOrDie :: FilePath -> IO (Text, Text)
+appIdentityOrDie file = do
+  edep <- Load.loadDeployment file
+  case edep of
+    Right dep ->
+      pure (serviceNameText (dep ^. #name), namespaceText (dep ^. #namespace))
+    Left (Load.UnexpectedKind _ _) -> siteIdentityOrDie file
+    Left err -> dieT (Load.renderLoadError err)
+
+-- | Resolve @(name, namespace)@ from the loaded config and reconcile it against
+-- the positional @APP@: the config's name is authoritative; a mismatch is a hard
+-- error so the operator is told rather than silently surprised.
+resolveAppOrDie :: StoreCommonOpts -> IO (Text, Text)
+resolveAppOrDie copts = do
+  provisionGhcEnv (copts ^. #ghcEnv)
+  (name, ns) <- appIdentityOrDie (copts ^. #file)
+  let typed = T.pack (copts ^. #app)
+  if typed /= name
+    then
+      dieT
+        ( "config names app '"
+            <> name
+            <> "' but the command names '"
+            <> typed
+            <> "'; they must match (the config's name is what the Service references)"
+        )
+    else pure (name, ns)
+
+runEnv :: EnvCommand -> IO ()
+runEnv = \case
+  EnvList copts allScopes -> do
+    (name, ns) <- resolveAppOrDie copts
+    let scopes = if allScopes then [minBound .. maxBound] else [Runtime]
+    runEnvListBody name ns scopes
+  EnvSet copts sel dry key val -> do
+    (name, ns) <- resolveAppOrDie copts
+    forM_ (selectedScopes sel) $ \scope -> do
+      existing <- orDie =<< readEnvStore name ns scope
+      let desired = reconcile Merge existing (Map.singleton (T.pack key) (T.pack val))
+      applyOrDryRunEnv dry name ns scope desired
+    unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in env for " <> name <> ".")
+  EnvDelete copts sel dry key -> do
+    (name, ns) <- resolveAppOrDie copts
+    forM_ (selectedScopes sel) $ \scope -> do
+      existing <- orDie =<< readEnvStore name ns scope
+      let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
+      applyOrDryRunEnv dry name ns scope desired
+    unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from env for " <> name <> ".")
+  EnvSync copts sel dry exact dotenvPath -> do
+    (name, ns) <- resolveAppOrDie copts
+    raw <- TIO.readFile dotenvPath
+    incoming <- orDie (parseDotenv raw)
+    let mode = reconcileModeFrom exact
+    forM_ (selectedScopes sel) $ \scope -> do
+      existing <- orDie =<< readEnvStore name ns scope
+      let desired = reconcile mode existing incoming
+      applyOrDryRunEnv dry name ns scope desired
+    unless dry $
+      TIO.putStrLn ("Synced " <> tShow (Map.size incoming) <> " key(s) into env for " <> name <> ".")
+
+runSecret :: SecretCommand -> IO ()
+runSecret = \case
+  SecretSet copts sel dry key -> do
+    (name, ns) <- resolveAppOrDie copts
+    val <- readSecretValue
+    forM_ (selectedScopes sel) $ \scope -> do
+      existing <- orDie =<< readSecretStore name ns scope
+      let desired = reconcile Merge existing (Map.singleton (T.pack key) val)
+      applyOrDryRunSecret dry name ns scope desired
+    unless dry $ TIO.putStrLn ("Set " <> T.pack key <> " in secret for " <> name <> ".")
+  SecretList copts allScopes -> do
+    (name, ns) <- resolveAppOrDie copts
+    let scopes = if allScopes then [minBound .. maxBound] else [Runtime]
+    keys <- fmap concat $ forM scopes $ \scope -> do
+      m <- orDie =<< readSecretStore name ns scope
+      pure (Map.keys m)
+    if null keys then TIO.putStrLn "(no secrets set)" else mapM_ TIO.putStrLn keys
+  SecretDelete copts sel dry key -> do
+    (name, ns) <- resolveAppOrDie copts
+    forM_ (selectedScopes sel) $ \scope -> do
+      existing <- orDie =<< readSecretStore name ns scope
+      let desired = reconcile ReconcileExact mempty (Map.delete (T.pack key) existing)
+      applyOrDryRunSecret dry name ns scope desired
+    unless dry $ TIO.putStrLn ("Deleted " <> T.pack key <> " from secret for " <> name <> ".")
+
+-- | Print the rendered ConfigMap (dry-run) or write the store (otherwise).
+applyOrDryRunEnv :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()
+applyOrDryRunEnv dry name ns scope desired
+  | dry = do
+      BC.putStrLn ("--- ConfigMap (" <> TE.encodeUtf8 (scopeToken scope) <> ") ---")
+      BC.putStrLn (renderEnvConfigMap name ns scope desired)
+  | otherwise = writeEnvStore name ns scope desired
+
+-- | Print the rendered Secret (dry-run) or write the store (otherwise). Under
+-- dry-run the manifest carries base64-encoded values (the wire format); the
+-- operator already holds the plaintext, so this is not a secrecy regression.
+applyOrDryRunSecret :: Bool -> Text -> Text -> EnvScope -> Map Text Text -> IO ()
+applyOrDryRunSecret dry name ns scope desired
+  | dry = do
+      BC.putStrLn ("--- Secret (" <> TE.encodeUtf8 (scopeToken scope) <> ") ---")
+      BC.putStrLn (renderEnvSecret name ns scope desired)
+  | otherwise = writeSecretStore name ns scope desired
+
+-- | Read each requested scope's env store and print an aligned table.
+runEnvListBody :: Text -> Text -> [EnvScope] -> IO ()
+runEnvListBody name ns scopes = do
+  rows <- fmap concat $ forM scopes $ \scope -> do
+    m <- orDie =<< readEnvStore name ns scope
+    pure [(scopeToken scope, k, v) | (k, v) <- Map.toAscList m]
+  if null rows
+    then TIO.putStrLn "(no env set)"
+    else TIO.putStr (formatEnvRows rows)
+
+formatEnvRows :: [(Text, Text, Text)] -> Text
+formatEnvRows rows = T.unlines (header : map row rows)
+  where
+    header = "  SCOPE    KEY                 VALUE"
+    row (s, k, v) = T.concat ["  ", pad 9 s, pad 20 k, v]
+    pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
+
+-- | Read one secret value. If stdin is a TTY, prompt with echo off; otherwise
+-- read all of stdin and strip a single trailing newline (so a piped
+-- @printf '%s' v@ and an interactive line both work). The value never appears in
+-- @argv@.
+readSecretValue :: IO Text
+readSecretValue = do
+  isTty <- hIsTerminalDevice stdin
+  if isTty
+    then do
+      TIO.hPutStr stderr "Value (input hidden): "
+      hFlush stderr
+      bracket_
+        (hSetEcho stdin False)
+        (hSetEcho stdin True >> TIO.hPutStrLn stderr "")
+        TIO.getLine
+    else do
+      raw <- TIO.getContents
+      pure (fromMaybe raw (T.stripSuffix "\n" raw))
+
+tShow :: (Show a) => a -> Text
+tShow = T.pack . show
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers

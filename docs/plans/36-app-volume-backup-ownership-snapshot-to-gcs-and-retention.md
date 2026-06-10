@@ -65,10 +65,6 @@ A note on terms used throughout, defined here so the rest of the plan needs no o
 
 ## Progress
 
-Use a checklist to summarize granular steps. Every stopping point must be documented here,
-even if it requires splitting a partially completed task into two ("done" vs. "remaining").
-This section must always reflect the actual current state of the work.
-
 Milestone 1 — `storage snapshot` writes a verified tar.gz to GCS, plus retention pruning:
 
 - [ ] Add the `Nagare.Storage.Snapshot` module to `cli/nagarectl/nagarectl.cabal` `exposed-modules`.
@@ -93,15 +89,10 @@ Milestone 2 — backup-ownership policy + runbook + tested restore:
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
 (None yet.)
 
 
 ## Decision Log
-
-Record every decision made while working on the plan.
 
 - Decision: Snapshot a volume by `tar`-ing its file contents and streaming the archive to GCS,
   rather than using a CSI/block-level disk snapshot.
@@ -195,9 +186,6 @@ Record every decision made while working on the plan.
 
 
 ## Outcomes & Retrospective
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
 

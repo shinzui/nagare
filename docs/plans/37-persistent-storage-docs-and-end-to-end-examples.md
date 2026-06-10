@@ -110,15 +110,10 @@ Terms used throughout this plan, defined once here in plain language:
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
 (None yet.)
 
 
 ## Decision Log
-
-Record every decision made while working on the plan.
 
 - Decision: Ship exactly two end-to-end examples — a SQLite-on-PVC app with Litestream continuous backup,
   and an uploaded-files app on a durable volume.
@@ -161,9 +156,6 @@ Record every decision made while working on the plan.
 
 
 ## Outcomes & Retrospective
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
 

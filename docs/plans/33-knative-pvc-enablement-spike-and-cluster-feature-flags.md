@@ -68,10 +68,6 @@ make its renderer emit exactly this shape.
 
 ## Progress
 
-Use a checklist to summarize granular steps. Every stopping point must be documented here,
-even if it requires splitting a partially completed task into two ("done" vs. "remaining").
-This section must always reflect the actual current state of the work.
-
 - [ ] M1: Hand-write the scratch PVC YAML and the scratch Knative Service YAML (throwaway spike artifacts).
 - [ ] M1: Confirm the cluster *rejects* a PVC-bearing `ksvc` while `config-features` flags are off (capture the rejection message as the "before" evidence).
 - [ ] M1: Temporarily enable the two flags by live `kubectl patch`, apply the scratch `ksvc`, write a file into the volume.
@@ -88,15 +84,10 @@ This section must always reflect the actual current state of the work.
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
 (None yet.)
 
 
 ## Decision Log
-
-Record every decision made while working on the plan.
 
 - Decision: Run a throwaway, hand-applied spike (M1) to prove Knative can durably mount a
   `local-path` RWO PVC across a revision roll *before* committing the typed model in EP-34.
@@ -149,9 +140,6 @@ Record every decision made while working on the plan.
 
 
 ## Outcomes & Retrospective
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
 

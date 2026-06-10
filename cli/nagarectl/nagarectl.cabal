@@ -70,6 +70,7 @@ executable nagarectl
   build-depends:
     base,
     bytestring,
+    containers,
     directory,
     generic-lens ^>=2.2,
     lens ^>=5.3,

@@ -55,10 +55,6 @@ they do now: no PVC step, no extra output, identical deploy. This plan preserves
 
 ## Progress
 
-Use a checklist to summarize granular steps. Every stopping point must be documented here,
-even if it requires splitting a partially completed task into two ("done" vs. "remaining").
-This section must always reflect the actual current state of the work.
-
 - [ ] M1.1: Confirm EP-34's renderer/discovery interface is available (the function that renders an
       app's PVC manifests, the deterministic PVC-name helper, and the label keys); if EP-34 is not yet
       merged, stub against the agreed signatures recorded in Interfaces and Dependencies and revisit.
@@ -84,15 +80,10 @@ This section must always reflect the actual current state of the work.
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
 (None yet.)
 
 
 ## Decision Log
-
-Record every decision made while working on the plan.
 
 - Decision: Apply PVC manifests *before* the Knative Service, then wait for the Service to become
   Ready — do **not** block on the PVCs becoming `Bound` before the Service exists.
@@ -144,9 +135,6 @@ Record every decision made while working on the plan.
 
 
 ## Outcomes & Retrospective
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
 

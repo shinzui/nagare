@@ -96,34 +96,35 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Confirm hard dependency EP-24 is merged: `Nagare.Env.Store` exists and
-      exports `ReconcileMode (..)`, `reconcile`, `readEnvStore`, `readSecretStore`,
-      `writeEnvStore`, `writeSecretStore`, and the render functions; confirm
-      `nagare-dsl` exports `EnvScope (..)` (transitively or directly). If not,
-      stop and coordinate (see Interfaces and Dependencies).
-- [ ] M1: Create `cli/nagarectl/src/Nagare/Env/Dotenv.hs` with
-      `parseDotenv :: Text -> Either Text (Map Text Text)`.
-- [ ] M1: Register `Nagare.Env.Dotenv` in `cli/nagarectl/nagarectl.cabal`
-      (`exposed-modules` of the `library` stanza).
-- [ ] M1: Add a tasty test group `Nagare.Env.Dotenv` to
-      `cli/nagarectl/test/Spec.hs` covering comments, blanks, quoting, multiline,
-      and malformed lines.
-- [ ] M1: `cd cli/nagarectl && cabal test` is green.
-- [ ] M2: Add the `Env` command and its subparsers (`list`/`set`/`delete`/`sync`)
-      to `cli/nagarectl/app/Main.hs`; implement `runEnv*` handlers; all mutating
-      handlers honor `--dry-run`.
-- [ ] M2: Add a pure helper `reconcileModeFrom :: Bool -> Bool -> ReconcileMode`
-      (or equivalent) and unit-test it.
-- [ ] M2: `cd cli/nagarectl && cabal build` is green; `nagarectl env set/list/
-      delete/sync --dry-run` produce the expected manifests.
-- [ ] M3: Add the `Secret` command and its subparsers (`set`/`list`/`delete`) to
-      `cli/nagarectl/app/Main.hs`; `secret set` reads the value from stdin;
-      `secret list` prints key names only.
-- [ ] M3: `cd cli/nagarectl && cabal build` is green; manual stdin/list/delete
-      checks via `--dry-run` pass.
-- [ ] Perform (or document skipping) the manual live-cluster check against GCP
-      project `tan-nb-exp`, region `us-west1`.
-- [ ] Fill in Outcomes & Retrospective.
+- [x] Confirmed hard dependency EP-24 is merged: `Nagare.Env.Store` exists and
+      exports the store API; `nagare-dsl` exports `EnvScope (..)`/`scopeToken`. (2026-06-09)
+- [x] M1: Created `cli/nagarectl/src/Nagare/Env/Dotenv.hs` with
+      `parseDotenv :: Text -> Either Text (Map Text Text)`. (2026-06-09)
+- [x] M1: Registered `Nagare.Env.Dotenv` in `cli/nagarectl/nagarectl.cabal`
+      (`exposed-modules` of the `library` stanza). (2026-06-09)
+- [x] M1: Added a tasty test group `Nagare.Env.Dotenv` (9 cases) covering
+      comments, blanks, `export`, quoting, multiline, and malformed lines. (2026-06-09)
+- [x] M1: `cd cli/nagarectl && cabal test` is green (73 tests). (2026-06-09)
+- [x] M2: Added the `Env` command and its subparsers (`list`/`set`/`delete`/`sync`)
+      to `cli/nagarectl/app/Main.hs`; implemented `runEnv` handlers; all mutating
+      handlers honor `--dry-run`. Used `configFileOpt` (`-f/--config`) so `sync`'s
+      dotenv uses `--file`. (2026-06-09)
+- [x] M2: Added the pure helper `reconcileModeFrom :: Bool -> ReconcileMode`;
+      its selection behavior is unit-tested via `reconcile` in the
+      `Nagare.Env reconcile mode` group (2 cases). (2026-06-09)
+- [x] M2: `cabal build` green; `env set`/`sync --dry-run` produce the expected
+      ConfigMap manifests with the IP2 name (verified, no cluster). (2026-06-09)
+- [x] M3: Added the `Secret` command and its subparsers (`set`/`list`/`delete`)
+      to `cli/nagarectl/app/Main.hs`; `secret set` reads the value from stdin
+      (TTY: no-echo prompt; pipe: whole stdin minus one trailing newline);
+      `secret list` prints key names only. (2026-06-09)
+- [x] M3: `cabal build` green; `printf 'topsecret' | secret set --dry-run`
+      prints a Secret whose `data.API_KEY` is `dG9wc2VjcmV0` (base64 of
+      `topsecret`), proving the value came from stdin. (2026-06-09)
+- [x] Manual live-cluster check **skipped** — optional; the whole surface is
+      demonstrated cluster-free via `--dry-run`. EP-28 exercises it end to end
+      against `tan-nb-exp`. (2026-06-09)
+- [x] Filled in Outcomes & Retrospective. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -208,7 +209,36 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete, all three milestones.** `nagarectl` now has the
+full `env list|set|delete|sync` and `secret set|list|delete` surface, a tested
+dotenv parser, and the identity/scope/dry-run glue, all as a thin layer over EP-24's
+`Nagare.Env.Store`. The command grammar committed in Interfaces and Dependencies is
+implemented verbatim. Verified cluster-free via `--dry-run`:
+- `env set hello LOG_LEVEL info --dry-run` →
+  `{"data":{"LOG_LEVEL":"info"},...,"metadata":{"name":"nagare-env-hello-runtime",...}}`.
+- `env sync hello --file demo.env --dry-run` → `data` `{"A":"1","B":"2","C":"x y"}`
+  (comment ignored, quoted `x y` preserved).
+- `printf 'topsecret' | secret set hello API_KEY --dry-run` → a Secret typed
+  `Opaque` whose `data.API_KEY` is `dG9wc2VjcmV0` (base64 of `topsecret`), proving
+  the value flowed from stdin, never argv.
+- A positional `APP` that disagrees with the loaded config's name is a hard error.
+
+**Against the purpose:** the day-2 operation now exists — an operator changes a
+running app's environment by writing the managed ConfigMap/Secret the Service
+already references, with no Haskell edit and no image rebuild.
+
+**Notes / lessons:**
+- The `--file` collision (config file vs dotenv file) was resolved by giving the
+  `env`/`secret` config option `-f/--config` (via a new `configFileOpt`), freeing
+  `--file` for `env sync`'s dotenv argument exactly as the roadmap spells it.
+- `containers` had to be added to the **executable** stanza's `build-depends` (it was
+  only in the library and test stanzas) because `Main.hs` now uses `Data.Map`.
+- `appIdentityOrDie` tries `loadDeployment` first and falls back to `loadSite` on
+  `UnexpectedKind`, so `env`/`secret` work for plain apps, static sites, and server
+  sites alike.
+- `secret set` reads stdin (no-echo TTY prompt or piped value minus one trailing
+  newline); `secret list` prints only `Map.keys`, never values.
+- The live-cluster check was skipped (optional); EP-28 covers end to end.
 
 
 ## Context and Orientation

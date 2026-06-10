@@ -62,10 +62,6 @@ backup tooling (EP-36) build on.
 
 ## Progress
 
-Use a checklist to summarize granular steps. Every stopping point must be documented here,
-even if it requires splitting a partially completed task into two ("done" vs. "remaining").
-This section must always reflect the actual current state of the work.
-
 - [ ] M1: `VolumeName`, `MountPath`, `AccessMode`, `RetentionPolicy`, `Volume` types and their
       smart constructors added to `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`; exports updated.
 - [ ] M1: `volumes :: ![Volume]` field added to `Deployment` (and `ServerSite`) with an empty-list
@@ -87,15 +83,10 @@ This section must always reflect the actual current state of the work.
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
 (None yet.)
 
 
 ## Decision Log
-
-Record every decision made while working on the plan.
 
 - Decision: Reuse the existing `Quantity` newtype (from `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`)
   for a volume's requested size rather than introducing a new size type.
@@ -163,9 +154,6 @@ Record every decision made while working on the plan.
 
 
 ## Outcomes & Retrospective
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
 
