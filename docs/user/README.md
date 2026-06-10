@@ -74,6 +74,8 @@ you can observe.
 8. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
    `nagare/Config.hs`, with the [Config reference](config-reference.md) for the
    full field/constructor catalogue. 🟡
+   - [Build modes](build-modes.md) — choose how an app's image is produced:
+     prebuilt image, Dockerfile build, or a Dockerfile-free Nixpacks build. 🟡
    - [Static & full-stack site hosting](static-hosting.md) — host a website or a
      full-stack app (TanStack Start) the Cloudflare-Pages way: `nagarectl site
      deploy`, previews, rollbacks, redirects/headers, and Git webhooks. 🟡

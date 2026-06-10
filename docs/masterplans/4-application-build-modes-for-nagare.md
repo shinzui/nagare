@@ -101,7 +101,7 @@ the rest of the initiative.
 | 19 | Typed BuildSpec model and DSL integration | docs/plans/19-typed-buildspec-model-and-dsl-integration.md | None | EP-12 | Complete |
 | 20 | Build-mode execution in nagarectl deploy | docs/plans/20-build-mode-execution-in-nagarectl-deploy.md | EP-19 | EP-12 | Complete |
 | 21 | Nixpacks zero-Dockerfile builder | docs/plans/21-nixpacks-zero-dockerfile-builder.md | EP-19, EP-20 | None | Complete |
-| 22 | Build-modes docs and end-to-end examples | docs/plans/22-build-modes-docs-and-end-to-end-examples.md | EP-20 | EP-21 | Not Started |
+| 22 | Build-modes docs and end-to-end examples | docs/plans/22-build-modes-docs-and-end-to-end-examples.md | EP-20 | EP-21 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
@@ -237,9 +237,9 @@ earliest plan in dependency order; later plans consume it exactly as described h
 - [x] EP-21: Nixpacks feasibility spike documented (build a sample app, observe the image) — `docs/spikes/ep21-nixpacks-spike.md`
 - [x] EP-21: `Nagare.Build` Nixpacks branch invokes `nixpacks build` and pushes; host prerequisite documented (developer-machine install + preflight check)
 - [x] EP-21: zero-Dockerfile app builds, tags, and pushes end-to-end (cluster apply deferred — no Knative cluster reachable)
-- [ ] EP-22: `docs/user/build-modes.md` guide written
-- [ ] EP-22: runnable example projects for prebuilt, Dockerfile, and Nixpacks modes
-- [ ] EP-22: `docs/user/config-reference.md` and `docs/user/deploying-apps.md` updated
+- [x] EP-22: `docs/user/build-modes.md` guide written
+- [x] EP-22: runnable example projects for prebuilt, Dockerfile, and Nixpacks modes
+- [x] EP-22: `docs/user/config-reference.md` and `docs/user/deploying-apps.md` updated
 
 
 ## Surprises & Discoveries
@@ -312,4 +312,34 @@ earliest plan in dependency order; later plans consume it exactly as described h
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Complete.** All four child plans (EP-19 → EP-22) landed. Nagare now models how an
+application's container image is produced as a single typed `BuildSpec` field on
+`Deployment`, with three modes:
+
+- **Prebuilt image** — deploy an existing registry image by tag; no local build
+  or push. The renderer honors the embedded tag.
+- **Dockerfile build** — `docker build` with a configurable Dockerfile path,
+  build context, and `--build-arg`s; the historical default (`webService` sets
+  it), so existing preset-based apps are unchanged.
+- **Nixpacks build** — `nixpacks build` from source with no Dockerfile; verified
+  end-to-end (build → push to Artifact Registry in `tan-nb-exp`).
+
+Delivered across the stack: the `nagare-dsl` types, JSON marshalling, and renderer
+(EP-19); `nagarectl deploy` dispatch with `--dockerfile`/`--context` overrides and
+a `--dry-run` build-action line (EP-20); the real Nixpacks builder with a
+PATH preflight, preceded by a feasibility spike (EP-21); and a user guide plus
+three runnable `cluster/examples/` projects and reference updates (EP-22). Tests:
+`nagare-dsl` 135, `nagarectl` 52, all green.
+
+Notable deviations from the written plans (details in each plan's Decision Log /
+Surprises): `FilePathText` was extracted into a new leaf module `Nagare.Dsl.Path`
+to break a genuine `Types`↔`Build` import cycle the plan's fallback would not have
+resolved; the `build` field decodes optional-with-default for backward
+compatibility; and example/guide configs use a record update (`base {build = ...}`)
+rather than the `#build` lens because the loader's `runghc` runs under `-XGHC2024`
+without `OverloadedLabels`.
+
+Deferred (consistent with the rest of the project): the *live* Knative apply
+(`nagare-01` is powered down), and the future-work items the Vision deliberately
+left out — image references by digest, remote/cluster-side builds, and the broader
+app-lifecycle CLI.

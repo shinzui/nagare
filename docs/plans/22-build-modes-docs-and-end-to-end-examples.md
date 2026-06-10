@@ -43,16 +43,25 @@ typed constructor a `Config.hs` author can use.
 
 ## Progress
 
-- [ ] Milestone 1: `cluster/examples/prebuilt-image-app/` — a deployable prebuilt-image example.
-- [ ] Milestone 2: `cluster/examples/dockerfile-app/` — a deployable Dockerfile-build example with a real Dockerfile and a build arg.
-- [ ] Milestone 3: `cluster/examples/nixpacks-app/` — a deployable zero-Dockerfile example (depends on EP-21).
-- [ ] Milestone 4: `docs/user/build-modes.md` written, covering all three modes with copyable configs and commands.
-- [ ] Milestone 5: `docs/user/deploying-apps.md` and `docs/user/config-reference.md` updated; cross-links added; every example dry-run/deploy verified against the docs.
+- [x] Milestone 1: `cluster/examples/prebuilt-image-app/` — a deployable prebuilt-image example.
+- [x] Milestone 2: `cluster/examples/dockerfile-app/` — a deployable Dockerfile-build example with a real Dockerfile and a build arg.
+- [x] Milestone 3: `cluster/examples/nixpacks-app/` — a deployable zero-Dockerfile example (depends on EP-21).
+- [x] Milestone 4: `docs/user/build-modes.md` written, covering all three modes with copyable configs and commands.
+- [x] Milestone 5: `docs/user/deploying-apps.md` and `docs/user/config-reference.md` updated; cross-links added; every example dry-run/deploy verified against the docs.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- All three example configs use a **record update** on the `webService` result
+  (`base {build = ...}`) rather than the `#build` lens, because the loader runs
+  configs with `runghc -XGHC2024`, which does not enable `OverloadedLabels`
+  (carried over from EP-20's discovery). The migration note in `build-modes.md`
+  and the example comments call this out so readers don't reach for `#build`.
+
+- The Dockerfile example serves on **8080** with `python -m http.server 8080`
+  (the `python:3.12-alpine` base), so the built image matches the config's
+  `port 8080` with no extra nginx/port wiring — kept the example minimal while
+  still exercising a real `--build-arg` (verified by a local `docker build`).
 
 
 ## Decision Log
@@ -73,7 +82,24 @@ typed constructor a `Config.hs` author can use.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Delivered. Three runnable examples live under `cluster/examples/`:
+`prebuilt-image-app` (a public image deployed by tag), `dockerfile-app` (a real
+`Dockerfile` + a `SITE_MESSAGE` build arg), and `nixpacks-app` (a Dockerfile-free
+Node app). Each has a `README.md` with the deploy command and expected output. The
+user guide `docs/user/build-modes.md` documents all three modes with copyable
+configs, the `--dockerfile`/`--context` overrides, the Nixpacks prerequisite, and
+the migration note for the new `build` field. `docs/user/config-reference.md`
+gained a "Build modes" section (`BuildSpec`, `Tag`/`mkTag`, `FilePathText`,
+`defaultBuild`, the `build` field); `docs/user/deploying-apps.md` gained a "Build
+modes" subsection, an updated flags table (`--dockerfile`; `--context` is now an
+override), an updated deploy-steps description, and a corrected `hello` literal
+that includes `build`; and `docs/user/README.md` indexes the new page.
+
+Verification: all three examples dry-run with the exact `Build mode:` lines and
+image strings the guide shows (prebuilt renders `:latest`, Dockerfile and Nixpacks
+render the deploy timestamp). The Dockerfile example's build arg was confirmed by a
+local `docker build` (the message is baked into the served page). Every internal
+`build-modes.md` link resolves. Both test suites stay green (135 + 52).
 
 
 ## Context and Orientation

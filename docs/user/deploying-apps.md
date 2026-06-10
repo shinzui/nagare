@@ -56,6 +56,7 @@ through the `nagare-dsl` smart constructors and emits it as the last line of
 module Main (main) where
 
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Types
 
@@ -70,11 +71,13 @@ deployment = do
   sc <- mapLeft show (mkScale 0 3)
   cpuQ <- mapLeft show (mkQuantity "250m")
   memQ <- mapLeft show (mkQuantity "128Mi")
+  bld <- mapLeft show defaultBuild
   Right
     Deployment
       { name = name'
       , namespace = ns'
       , image = img'
+      , build = bld
       , domain = Just dom'
       , port = port'
       , env = Map.singleton target (EnvLiteral "Nagare")
@@ -103,6 +106,10 @@ The shape never changes:
   (`EnvLiteral "Nagare"`) *or* a secret reference (`EnvSecretRef …`) — never
   both. That mutual exclusion is the headline guarantee, enforced by the type,
   not a runtime check.
+- **`build` says how the image is produced.** Here it is `defaultBuild` — a
+  Dockerfile build from `./Dockerfile`, reproducing Nagare's classic behavior. It
+  can instead be a prebuilt image or a Dockerfile-free Nixpacks build; see
+  **[Build modes](build-modes.md)**. A preset (`webService`) sets `build` for you.
 
 > The registry path for a real app is
 > `us-west1-docker.pkg.dev/tan-nb-exp/nagare/<app>` — the Artifact Registry that
@@ -167,10 +174,21 @@ What it does, in order:
    A load failure prints one line to stderr and exits 1 — before anything else.
 3. Compute the image tag (a UTC timestamp YYYYMMDD-HHMMSS unless --tag is given).
 4. Render the Knative Service (and a DomainMapping if `domain:` is set).
-5. --dry-run? Print the manifests + URL and stop.
-   Otherwise: configure Docker auth, build the image, push it, apply the
-   manifests, wait for the Knative Ready condition, and print the live URL.
+5. --dry-run? Print the manifests, the planned build action, and URL, then stop.
+   Otherwise, dispatch on the config's build mode: a prebuilt image skips Docker
+   entirely; a Dockerfile or Nixpacks build configures Docker auth, builds the
+   image, and pushes it. Then apply the manifests, wait for the Knative Ready
+   condition, and print the live URL.
 ```
+
+### Build modes
+
+The `build` field in `nagare/Config.hs` selects how the image is produced, and
+`nagarectl deploy` dispatches on it: **prebuilt** (deploy an existing image, no
+build), **Dockerfile** (`docker build`), or **Nixpacks** (build from source with
+no Dockerfile). `--dry-run` prints the planned action as a `Build mode:` line, and
+`--dockerfile`/`--context` override the Dockerfile build's paths. See the full
+guide: **[Build modes](build-modes.md)**.
 
 ### Flags
 
@@ -179,7 +197,8 @@ What it does, in order:
 | `-f, --file FILE` | `nagare/Config.hs` | Path to the typed config file. |
 | `-t, --tag TAG` | UTC `YYYYMMDD-HHMMSS` | Image tag override. |
 | `--base-domain DOMAIN` | `$NAGARE_BASE_DOMAIN`, else `apps.example.com` | Apps base domain for the printed URL. |
-| `-c, --context DIR` | `.` | Docker build-context directory. |
+| `-c, --context DIR` | from the config | Override the build-context directory (build modes only). |
+| `--dockerfile FILE` | from the config | Override the Dockerfile path (Dockerfile build only). |
 | `--ghc-env FILE` | `$NAGARE_GHC_ENVIRONMENT` | GHC package-environment file for the loader (see below). |
 | `--dry-run` | off | Render and print only; no build/push/apply. |
 

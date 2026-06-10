@@ -1,0 +1,8 @@
+{
+  "name": "nixpacks-app",
+  "version": "1.0.0",
+  "description": "A Dockerfile-free Node app built by Nixpacks.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

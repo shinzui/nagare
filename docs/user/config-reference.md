@@ -19,6 +19,7 @@ All of this lives in the `nagare-dsl` library:
 | Module | What it gives you |
 | --- | --- |
 | `Nagare.Dsl.Types` | The `Deployment` type, every field type, and their `mk*` constructors. |
+| `Nagare.Dsl.Build` | The `build` field's `BuildSpec` modes and the `Tag` type / `mkTag`. |
 | `Nagare.Dsl.Presets` | Reusable building blocks: `webService`, overlays, helpers. |
 | `Nagare.Dsl.Config` | `emitDeployment` — the last line of your config's `main`. |
 
@@ -31,6 +32,7 @@ data Deployment = Deployment
   { name      :: ServiceName        -- required
   , namespace :: Namespace          -- required (use defaultNamespace for "personal")
   , image     :: ImageRef           -- required, no tag (the tag is added at deploy time)
+  , build     :: BuildSpec          -- required: how the image is produced (see Build modes)
   , domain    :: Maybe Domain       -- optional public hostname (DomainMapping)
   , port      :: Port               -- container port (defaultPort = 8080)
   , env       :: Map EnvName EnvVar -- environment variables (Map.empty for none)
@@ -38,6 +40,10 @@ data Deployment = Deployment
   , scale     :: Maybe Scale        -- autoscaling bounds (Nothing = omit)
   }
 ```
+
+> `webService` populates `build` with a default Dockerfile build, so preset-based
+> configs need not mention it. A hand-written record literal must set `build` —
+> see [Build modes](#build-modes) and the [migration note](build-modes.md).
 
 Fields are strict and **unprefixed** — `name`, not `depName`. You build a
 `Deployment` with a record literal after constructing each field through its
@@ -178,6 +184,66 @@ domainText :: Domain -> Text
 Non-empty, no spaces, and no URI scheme (`http://`/`https://`). When the
 `Deployment`'s `domain` is `Just`, `nagarectl` also renders a `DomainMapping`.
 
+## Build modes
+
+The `build` field (type `BuildSpec`, from `Nagare.Dsl.Build`) says **how** the
+container image at `image` is produced. The repository path is always the
+`Deployment`'s `image`; the mode only says what — if anything — to build and which
+tag to deploy. For a full walkthrough with copyable configs, see
+**[Build modes](build-modes.md)**.
+
+```haskell
+data BuildSpec
+  = PrebuiltImage Tag                        -- deploy an existing image; build nothing
+  | DockerfileBuild                          -- docker build from a Dockerfile, then push
+      { dockerfile :: FilePathText
+      , context    :: FilePathText
+      , buildArgs  :: Map Text Text
+      }
+  | NixpacksBuild                            -- nixpacks build from source (no Dockerfile), then push
+      { context   :: FilePathText
+      , buildArgs :: Map Text Text
+      }
+```
+
+| Constructor | Builds? | Fields |
+| --- | --- | --- |
+| `PrebuiltImage tag` | No | `tag :: Tag` — the tag to deploy (the cluster sees `image:tag`). |
+| `DockerfileBuild {dockerfile, context, buildArgs}` | Yes | Dockerfile path, build context, and `--build-arg`s. |
+| `NixpacksBuild {context, buildArgs}` | Yes | Build context and build-time env vars (`--env`). |
+
+### `Tag` — a Docker image tag
+
+```haskell
+mkTag   :: Text -> Either Text Tag
+tagText :: Tag -> Text
+```
+
+1–128 characters from `[A-Za-z0-9_.-]`, not starting with `.` or `-`, no
+whitespace. Digests (`@sha256:...`) are out of scope. Used by `PrebuiltImage`.
+
+### `FilePathText` — a relative project path
+
+```haskell
+mkFilePathText :: Text -> Either Text FilePathText   -- from Nagare.Dsl.Path
+filePathText   :: FilePathText -> Text
+```
+
+A relative path inside the project (a build context like `"."`, a Dockerfile path
+like `"docker/Dockerfile"`). Rejects empty, absolute (leading `/`), and
+`..`-escaping paths. Re-exported from `Nagare.Dsl.Static.Types` as well.
+
+### `defaultBuild` — the historical default
+
+```haskell
+defaultBuild :: Either Text BuildSpec   -- from Nagare.Dsl.Build
+```
+
+A `DockerfileBuild` with `dockerfile = "Dockerfile"`, `context = "."`, and no
+build args — exactly Nagare's pre-`BuildSpec` behavior. `webService` uses this, so
+a preset-based config already has it. Use it in a hand-written literal to keep the
+old behavior: `build <- defaultBuild` (in an `Either` block).
+
 ## Reusable presets
 
 `Nagare.Dsl.Presets` lets two apps share one definition. The pattern: start from
@@ -250,6 +316,7 @@ When `nagarectl` loads a config, each failure becomes a precise `LoadError`
 ## Related docs
 
 - [Deploying apps](deploying-apps.md) — the workflow and `nagarectl` commands.
+- [Build modes](build-modes.md) — prebuilt, Dockerfile, and Nixpacks builds.
 - [Secrets](secrets.md) — managing the Kubernetes Secrets that `EnvSecretRef`
   points at.
 - [Reference](reference.md) — platform identifiers, registry path, ports.
