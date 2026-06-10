@@ -99,7 +99,7 @@ the rest of the initiative.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 19 | Typed BuildSpec model and DSL integration | docs/plans/19-typed-buildspec-model-and-dsl-integration.md | None | EP-12 | Complete |
-| 20 | Build-mode execution in nagarectl deploy | docs/plans/20-build-mode-execution-in-nagarectl-deploy.md | EP-19 | EP-12 | Not Started |
+| 20 | Build-mode execution in nagarectl deploy | docs/plans/20-build-mode-execution-in-nagarectl-deploy.md | EP-19 | EP-12 | Complete |
 | 21 | Nixpacks zero-Dockerfile builder | docs/plans/21-nixpacks-zero-dockerfile-builder.md | EP-19, EP-20 | None | Not Started |
 | 22 | Build-modes docs and end-to-end examples | docs/plans/22-build-modes-docs-and-end-to-end-examples.md | EP-20 | EP-21 | Not Started |
 
@@ -230,10 +230,10 @@ earliest plan in dependency order; later plans consume it exactly as described h
 - [x] EP-19: `build` field added to `Deployment`; `webService` preset and all fixtures/examples updated
 - [x] EP-19: JSON emission and loading for all three build kinds; renderer uses `resolveImageTag`
 - [x] EP-19: golden and round-trip tests pass (`cabal test` in `cli/nagare-dsl`)
-- [ ] EP-20: `Nagare.Build` dispatch module (prebuilt skip, Dockerfile build with `-f`/`--build-arg`, Nixpacks stub)
-- [ ] EP-20: `runDeploy` reads `build`, computes ref via `resolveImageTag`, dispatches on `requiresBuild`
-- [ ] EP-20: optional `--dockerfile`/`--context` overrides; `nagarectl deploy --dry-run` shows the planned build action
-- [ ] EP-20: prebuilt and Dockerfile deploys verified against the cluster; CLI tests pass
+- [x] EP-20: `Nagare.Build` dispatch module (prebuilt skip, Dockerfile build with `-f`/`--build-arg`, Nixpacks stub)
+- [x] EP-20: `runDeploy` reads `build`, computes ref via `resolveImageTag`, dispatches on `requiresBuild`
+- [x] EP-20: optional `--dockerfile`/`--context` overrides; `nagarectl deploy --dry-run` shows the planned build action
+- [x] EP-20: prebuilt and Dockerfile deploys verified by dry-run (cluster deploy deferred — no cluster reachable); CLI tests pass
 - [ ] EP-21: Nixpacks feasibility spike documented (build a sample app, observe the image)
 - [ ] EP-21: `Nagare.Build` Nixpacks branch invokes `nixpacks build` and pushes; host prerequisite documented
 - [ ] EP-21: zero-Dockerfile app deploys end-to-end
@@ -257,6 +257,13 @@ earliest plan in dependency order; later plans consume it exactly as described h
   decodes to the standard Dockerfile build) for backward compatibility, and a new
   pure `encodeDeployment :: Deployment -> ByteString` was exported from
   `Nagare.Dsl.Config` to make the emit→decode round-trip testable in-process.
+
+- EP-20: A `Config.hs` run by the loader's `runghc` compiles under `-XGHC2024`
+  only, which does **not** enable `OverloadedLabels`. A config that overrides the
+  preset's `build` (e.g. to a `PrebuiltImage`) must use a record update
+  (`base {build = PrebuiltImage t}`) or declare `{-# LANGUAGE OverloadedLabels #-}`
+  itself — the `#build` lens is not available by default. EP-22's prebuilt example
+  must follow this.
 
 
 ## Decision Log

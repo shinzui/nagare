@@ -30,6 +30,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.Build
     Nagare.Deploy
     Nagare.Image
     Nagare.Server.Build
@@ -47,6 +48,7 @@ library
     aeson,
     base >=4.17 && <5,
     bytestring,
+    containers,
     cradle,
     crypton,
     directory,

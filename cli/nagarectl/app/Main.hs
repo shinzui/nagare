@@ -38,7 +38,9 @@ import System.Environment (lookupEnv, setEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
+import Nagare.Build (applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Deploy (applyManifests, serviceUrl, waitForReady)
+import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Render (renderDomainMapping, renderService)
 import Nagare.Dsl.Server.Types (ServerSite)
@@ -46,8 +48,7 @@ import Nagare.Dsl.Static.Render (StaticDeployContext (..))
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (namespaceText, serviceNameText)
 import Nagare.Image
-  ( buildImage
-  , computeTag
+  ( computeTag
   , configureDockerAuth
   , imageRef
   , pushImage
@@ -78,12 +79,15 @@ import Nagare.Static.Release
 -- ---------------------------------------------------------------------------
 -- CLI options
 
--- | Options for the @deploy@ subcommand.
+-- | Options for the @deploy@ subcommand. @contextOverride@ and
+-- @dockerfileOverride@ are optional overrides of the build mode declared in the
+-- config; both default to 'Nothing' (use the config's values).
 data DeployOpts = DeployOpts
   { file :: !FilePath
   , tag :: !(Maybe String)
   , baseDomain :: !(Maybe String)
-  , context :: !FilePath
+  , contextOverride :: !(Maybe FilePath)
+  , dockerfileOverride :: !(Maybe FilePath)
   , ghcEnv :: !(Maybe FilePath)
   , dryRun :: !Bool
   }
@@ -180,13 +184,20 @@ deployOptsParser defaultFile =
     <$> fileOpt defaultFile
     <*> tagOpt
     <*> baseDomainOpt
-    <*> strOption
-      ( long "context"
-          <> short 'c'
-          <> metavar "DIR"
-          <> value "."
-          <> showDefault
-          <> help "Docker build-context directory"
+    <*> optional
+      ( strOption
+          ( long "context"
+              <> short 'c'
+              <> metavar "DIR"
+              <> help "Override the build context directory from the config (build modes only)"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "dockerfile"
+              <> metavar "FILE"
+              <> help "Override the Dockerfile path from the config (Dockerfile build only)"
+          )
       )
     <*> ghcEnvOpt
     <*> dryRunOpt
@@ -332,9 +343,11 @@ runDeploy dopts = do
     Right d -> pure d
 
   imageTag <- resolveTag (dopts ^. #tag)
+  spec <- resolveBuildSpec dopts (dep ^. #build)
 
-  let ref = imageRef dep imageTag
-      svcBytes = renderService dep imageTag
+  let effTag = resolveImageTag spec imageTag
+      ref = imageRef dep effTag
+      svcBytes = renderService dep imageTag -- renderer resolves the tag itself
       dmBytes = maybeToList (renderDomainMapping dep)
       url = serviceUrl dep bd
       name = serviceNameText (dep ^. #name)
@@ -347,14 +360,26 @@ runDeploy dopts = do
       forM_ dmBytes $ \dm -> do
         BC.putStrLn "--- DomainMapping manifest ---"
         BC.putStr dm
+      TIO.putStrLn ("Build mode: " <> describeBuild spec)
       TIO.putStrLn ("URL: " <> url)
     else do
-      configureDockerAuth
-      buildImage ref (dopts ^. #context)
-      pushImage ref
+      if requiresBuild spec
+        then do
+          configureDockerAuth
+          performBuild spec ref
+          pushImage ref
+        else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       applyManifests (svcBytes : dmBytes)
       waitForReady name ns
       TIO.putStrLn ("Deployed: " <> url)
+
+-- | Apply the @--context@/@--dockerfile@ overrides to the config's build spec,
+-- exiting with a clear error if an override is invalid or misused (e.g. an
+-- override against a prebuilt-image config). With no overrides the spec is
+-- returned unchanged.
+resolveBuildSpec :: DeployOpts -> BuildSpec -> IO BuildSpec
+resolveBuildSpec dopts spec =
+  orDie (applyBuildOverrides (dopts ^. #contextOverride) (dopts ^. #dockerfileOverride) spec)
 
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share

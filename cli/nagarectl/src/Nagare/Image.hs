@@ -9,6 +9,8 @@
 module Nagare.Image
   ( computeTag
   , buildImage
+  , dockerBuildArgs
+  , buildDockerfile
   , configureDockerAuth
   , pushImage
   , imageRef
@@ -50,9 +52,26 @@ taggedImageRef ref tag = imageRefText ref <> ":" <> tag
 
 -- | Run @docker build -t \<image:tag\> \<context\>@.
 -- The @context@ argument is the build-context directory (typically @"."@).
+-- Retained for the static/server site deploy paths; the app deploy uses
+-- 'buildDockerfile' so it can honor a configured Dockerfile path and build args.
 buildImage :: Text -> FilePath -> IO ()
 buildImage ref context =
   run_ $ cmd "docker" & addArgs ["build", "-t", T.unpack ref, context]
+
+-- | The argument vector for @docker build@ with an explicit Dockerfile, build
+-- args, tag, and context. Pure so it can be unit-tested without Docker. Build
+-- args are emitted in the given order, each as @--build-arg KEY=VALUE@.
+dockerBuildArgs :: Text -> FilePath -> FilePath -> [(Text, Text)] -> [String]
+dockerBuildArgs ref dockerfile context args =
+  ["build", "-f", dockerfile, "-t", T.unpack ref]
+    <> concatMap (\(k, v) -> ["--build-arg", T.unpack (k <> "=" <> v)]) args
+    <> [context]
+
+-- | Run @docker build@ with an explicit Dockerfile path, build args, and
+-- context (see 'dockerBuildArgs' for the exact argument vector).
+buildDockerfile :: Text -> FilePath -> FilePath -> [(Text, Text)] -> IO ()
+buildDockerfile ref dockerfile context args =
+  run_ $ cmd "docker" & addArgs (dockerBuildArgs ref dockerfile context args)
 
 -- | Run @gcloud auth configure-docker us-west1-docker.pkg.dev --quiet@. This
 -- writes a Docker credential-helper entry so subsequent pushes authenticate

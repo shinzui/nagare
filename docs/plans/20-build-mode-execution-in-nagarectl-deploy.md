@@ -49,16 +49,32 @@ library; subcommands and flags are declared as `Parser` values in `Main.hs`.
 
 ## Progress
 
-- [ ] Milestone 1: `Nagare.Image` gains a pure `dockerBuildArgs` builder and a `buildDockerfile` runner; `cabal build` passes.
-- [ ] Milestone 2: new `Nagare.Build` dispatch module (prebuilt no-op, Dockerfile build, Nixpacks stub) exposed from the cabal file.
-- [ ] Milestone 3: `runDeploy` reads `dep ^. #build`, computes the ref via `resolveImageTag`, and dispatches on `requiresBuild`; dry-run prints the planned build action.
-- [ ] Milestone 4: `--dockerfile` and `--context` become optional overrides validated against the build mode.
-- [ ] Milestone 5: CLI tests for `dockerBuildArgs` and override resolution pass; a prebuilt and a Dockerfile deploy are verified end-to-end (or by dry-run where a cluster is unavailable).
+- [x] Milestone 1: `Nagare.Image` gains a pure `dockerBuildArgs` builder and a `buildDockerfile` runner; `cabal build` passes.
+- [x] Milestone 2: new `Nagare.Build` dispatch module (prebuilt no-op, Dockerfile build, Nixpacks stub) exposed from the cabal file.
+- [x] Milestone 3: `runDeploy` reads `dep ^. #build`, computes the ref via `resolveImageTag`, and dispatches on `requiresBuild`; dry-run prints the planned build action.
+- [x] Milestone 4: `--dockerfile` and `--context` become optional overrides validated against the build mode.
+- [x] Milestone 5: CLI tests for `dockerBuildArgs` and override resolution pass; a prebuilt and a Dockerfile deploy are verified end-to-end (or by dry-run where a cluster is unavailable).
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The override-misuse error reaches the user prefixed `nagarectl:` (via the CLI's
+  existing `dieT`/`orDie`), not `nagare:` as the plan's Concrete-Steps transcript
+  sketched. `resolveBuildSpec` calls `orDie (applyBuildOverrides ...)`, and `orDie`
+  goes through `dieT`, which is the established CLI convention. The `nagare:`
+  prefix is reserved for the in-`Nagare.Build` `die` used by the Nixpacks
+  not-yet-supported message (which is raised from inside `performBuild`, outside
+  the CLI's `dieT` path). Both are clear; no change made.
+
+- The CLI library did not previously depend on `containers`; `Nagare.Build` uses
+  `Data.Map.toList`, so `containers` was added to the library `build-depends`.
+
+- Relevant for EP-22's prebuilt example: a config run by the loader's `runghc`
+  compiles under `-XGHC2024` only (see `Nagare.Dsl.Load.runConfig`), which does
+  **not** enable `OverloadedLabels`. A prebuilt config that overrides the preset's
+  `build` field must therefore use a record update (`base {build = PrebuiltImage
+  t}`) or declare `{-# LANGUAGE OverloadedLabels #-}` itself — the `#build` lens is
+  not available by default. Verified by dry-run against a throwaway fixture.
 
 
 ## Decision Log
@@ -90,7 +106,25 @@ library; subcommands and flags are declared as `Parser` values in `Main.hs`.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Delivered. `nagarectl deploy` now reads the typed `build` field and dispatches:
+`Nagare.Image` gained the pure `dockerBuildArgs` and the `buildDockerfile` runner;
+a new `Nagare.Build` module provides `performBuild` (prebuilt no-op, Dockerfile
+build with `-f`/`--build-arg`, Nixpacks stub that exits with a pointer to EP-21),
+`describeBuild` (the `--dry-run` line), and the pure `applyBuildOverrides`. The
+`deploy` parser's `--context`/`-c` is now an optional override and a new
+`--dockerfile` override was added; `resolveBuildSpec` applies them and rejects
+misuse. `runDeploy` skips build/push for a prebuilt image and computes the push
+reference via `resolveImageTag`.
+
+`cabal test` passes (49 tests, new `Nagare.Build` group: `dockerBuildArgs`
+ordering, `describeBuild` strings, and `applyBuildOverrides` including the
+prebuilt-with-override and Nixpacks-`--dockerfile` errors). End-to-end dry-run
+verified for all four cases (prebuilt renders its own tag and reports "no local
+build"; Dockerfile reports the `docker build -f` line and honors `-c`; prebuilt +
+`-c` exits 1). The static/server deploy paths still pass — they keep using the
+retained `Nagare.Image.buildImage`. A real cluster deploy was not exercised in
+this session (no cluster reachable); the dry-run transcripts stand in per the
+plan's acceptance allowance.
 
 
 ## Context and Orientation

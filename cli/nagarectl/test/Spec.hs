@@ -17,9 +17,12 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import Nagare.Build (applyBuildOverrides, describeBuild)
+import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (defaultPort, mkImageRef, mkNamespace)
+import Nagare.Image (dockerBuildArgs)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Nagare.Server.Build
@@ -45,6 +48,7 @@ main =
       , testGroup "Nagare.Static.Preview" previewTests
       , testGroup "Nagare.Static.Webhook" webhookTests
       , testGroup "Nagare.Server.Build" serverBuildTests
+      , testGroup "Nagare.Build" buildModeTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -332,6 +336,80 @@ prOpened =
 prClosed :: ByteString
 prClosed =
   "{\"action\":\"closed\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
+
+-- ---------------------------------------------------------------------------
+-- Build modes (EP-20)
+
+dockerfileSpec :: BuildSpec
+dockerfileSpec =
+  DockerfileBuild
+    { dockerfile = unsafe (mkFilePathText "Dockerfile")
+    , context = unsafe (mkFilePathText ".")
+    , buildArgs = Map.fromList [("MODE", "release"), ("VERSION", "1.0")]
+    }
+
+nixpacksSpec :: BuildSpec
+nixpacksSpec =
+  NixpacksBuild
+    { context = unsafe (mkFilePathText ".")
+    , buildArgs = Map.empty
+    }
+
+prebuiltSpec :: BuildSpec
+prebuiltSpec = PrebuiltImage (unsafe (mkTag "v1.2.3"))
+
+buildModeTests :: [TestTree]
+buildModeTests =
+  [ testGroup
+      "dockerBuildArgs"
+      [ testCase "emits -f, -t, --build-arg, context in order" $
+          dockerBuildArgs "r" "Dockerfile" "." [("A", "1")]
+            @?= ["build", "-f", "Dockerfile", "-t", "r", "--build-arg", "A=1", "."]
+      , testCase "no build args omits --build-arg" $
+          dockerBuildArgs "ref:tag" "docker/Dockerfile" "svc" []
+            @?= ["build", "-f", "docker/Dockerfile", "-t", "ref:tag", "svc"]
+      , testCase "multiple build args each get their own --build-arg" $
+          dockerBuildArgs "r" "Dockerfile" "." [("A", "1"), ("B", "2")]
+            @?= [ "build", "-f", "Dockerfile", "-t", "r"
+                , "--build-arg", "A=1", "--build-arg", "B=2", "."
+                ]
+      ]
+  , testGroup
+      "describeBuild"
+      [ testCase "prebuilt mentions no local build and the tag" $
+          describeBuild prebuiltSpec @?= "prebuilt image (no local build), tag v1.2.3"
+      , testCase "dockerfile shows the docker build command" $
+          describeBuild dockerfileSpec @?= "docker build -f Dockerfile ."
+      , testCase "nixpacks is marked not yet supported" $
+          describeBuild nixpacksSpec @?= "nixpacks build . — NOT YET SUPPORTED"
+      ]
+  , testGroup
+      "applyBuildOverrides"
+      [ testCase "no overrides leaves the spec unchanged" $
+          applyBuildOverrides Nothing Nothing dockerfileSpec @?= Right dockerfileSpec
+      , testCase "context override substitutes the Dockerfile build context" $
+          case applyBuildOverrides (Just "services/web") Nothing dockerfileSpec of
+            Right (DockerfileBuild _ ctx _) -> filePathText ctx @?= "services/web"
+            other -> assertFailure ("expected DockerfileBuild, got: " <> show other)
+      , testCase "dockerfile override substitutes the Dockerfile path" $
+          case applyBuildOverrides Nothing (Just "docker/Dockerfile.prod") dockerfileSpec of
+            Right (DockerfileBuild df _ _) -> filePathText df @?= "docker/Dockerfile.prod"
+            other -> assertFailure ("expected DockerfileBuild, got: " <> show other)
+      , testCase "an invalid (absolute) override path is rejected" $
+          assertLeftText (applyBuildOverrides (Just "/abs") Nothing dockerfileSpec)
+      , testCase "context override applies to a Nixpacks build" $
+          case applyBuildOverrides (Just "app") Nothing nixpacksSpec of
+            Right (NixpacksBuild ctx _) -> filePathText ctx @?= "app"
+            other -> assertFailure ("expected NixpacksBuild, got: " <> show other)
+      , testCase "dockerfile override against a Nixpacks build is an error" $
+          assertLeftText (applyBuildOverrides Nothing (Just "Dockerfile") nixpacksSpec)
+      , testCase "any override against a prebuilt config is an error" $ do
+          assertLeftText (applyBuildOverrides (Just "x") Nothing prebuiltSpec)
+          assertLeftText (applyBuildOverrides Nothing (Just "Dockerfile") prebuiltSpec)
+      , testCase "no override against a prebuilt config is fine" $
+          applyBuildOverrides Nothing Nothing prebuiltSpec @?= Right prebuiltSpec
+      ]
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
