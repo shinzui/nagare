@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cache
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: redis-cache
+    nagare.dev/engine: redis
+spec:
+  serviceName: redis-cache
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/database: redis-cache
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/database: redis-cache
+        nagare.dev/engine: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:8
+        command:
+        - sh
+        - -c
+        args:
+        - exec redis-server --requirepass "$REDIS_PASSWORD" --dir /data --save 60
+          1 --appendonly no
+        ports:
+        - containerPort: 6379
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: nagare-db-redis-cache
+              key: REDIS_PASSWORD
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: nagare-db-redis-cache-data

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-db-analytics-mem
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: analytics
+    nagare.dev/engine: clickhouse
+data:
+  low-memory.xml: |
+    <clickhouse>
+      <max_server_memory_usage>1610612736</max_server_memory_usage>
+      <mark_cache_size>268435456</mark_cache_size>
+    </clickhouse>

@@ -10,6 +10,8 @@
 module Nagare.Dsl.Config
   ( emitDeployment
   , encodeDeployment
+  , emitDatabase
+  , encodeDatabase
   , emitStaticSite
   , emitServerSite
   ) where
@@ -25,6 +27,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
+import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types
@@ -39,6 +42,41 @@ emitDeployment dep = LBS.putStr (encodeDeployment dep)
 -- @runghc@).
 encodeDeployment :: Deployment -> LBS.ByteString
 encodeDeployment = encode . deploymentJSON
+
+-- | Serialize a 'Database' to JSON and write it to stdout. Call this as the last
+-- line of a database project's @Config.hs@ @main@. The top-level
+-- @"kind": "Database"@ discriminator lets the loader dispatch and report a
+-- precise 'Nagare.Dsl.Load.UnexpectedKind' if a Database config is run under
+-- @nagarectl deploy@.
+emitDatabase :: Database -> IO ()
+emitDatabase db = LBS.putStr (encodeDatabase db)
+
+-- | The exact JSON bytes 'emitDatabase' writes (exposed for the round-trip test).
+encodeDatabase :: Database -> LBS.ByteString
+encodeDatabase = encode . databaseJSON
+
+-- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeDatabase').
+-- The four flat resource keys mirror exactly how 'deploymentJSON' serializes
+-- 'Resources', so the loader reuses the same marshalling step.
+databaseJSON :: Database -> Value
+databaseJSON db =
+  object
+    [ "kind" .= ("Database" :: Text)
+    , "name" .= databaseNameText (db ^. #dbName)
+    , "engine" .= engineToken (db ^. #engine)
+    , "version" .= engineVersionText (db ^. #version)
+    , "namespace" .= namespaceText (db ^. #namespace)
+    , "size" .= quantityText (db ^. #size)
+    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+    , "retention" .= retentionToken (db ^. #retention)
+    ]
+  where
+    res = db ^. #resources
+    retentionToken Retain = "Retain" :: Text
+    retentionToken Delete = "Delete"
 
 -- | The JSON shape of one 'Volume', shared by 'Deployment' and 'ServerSite'
 -- emission. The loader reads it back in 'Nagare.Dsl.Load.toVolume'; @accessMode@
@@ -85,6 +123,7 @@ deploymentJSON dep =
     , "scaleMax" .= fmap (^. #maxScale) scale
     , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
     , "volumes" .= map volumeJSON (dep ^. #volumes)
+    , "databases" .= map databaseNameText (dep ^. #databases)
     ]
   where
     resources = dep ^. #resources

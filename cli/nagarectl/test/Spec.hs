@@ -888,6 +888,7 @@ mkDemoDep envMap =
     , scale = Nothing
     , healthCheck = Nothing
     , volumes = []
+    , databases = []
     }
 
 renderDemonstrationTests :: [TestTree]

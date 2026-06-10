@@ -193,8 +193,8 @@ schedule/restore milestones.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 43 | Managed-database substrate spike and stateful rendering feasibility | docs/plans/43-managed-database-substrate-spike-and-stateful-rendering-feasibility.md | None | None | Complete |
-| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | In Progress |
-| 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | Not Started |
+| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | Complete |
+| 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | In Progress |
 | 46 | Generated database connection env injection for apps | docs/plans/46-generated-database-connection-env-injection-for-apps.md | EP-44 | EP-45 | Not Started |
 | 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | Not Started |
 | 48 | Managed databases docs and end-to-end examples | docs/plans/48-managed-databases-docs-and-end-to-end-examples.md | EP-45, EP-46, EP-47 | EP-44 | Not Started |
@@ -355,9 +355,9 @@ milestone. This section provides an at-a-glance view of the entire initiative.
 
 - [x] EP-43 (2026-06-10): Postgres 18.4, Redis 8.8.0, and ClickHouse 25.8.24.21 each run on the live single-node cluster from raw manifests; data survives a pod restart; reachable over ClusterIP DNS.
 - [x] EP-43 (2026-06-10): Stateful substrate decided (single-replica **StatefulSet** + standalone `local-path` PVC, not `volumeClaimTemplates`); credential model settled (IP3: `nagare-db-<name>` Secret, `envFrom`, Redis `--requirepass` interpolation); ClickHouse limits fixed (`2Gi` container limit + `max_server_memory_usage: 1610612736`); per-engine verified YAML shapes recorded as the input to EP-44.
-- [ ] EP-44: `Database`/`Engine`/`EngineVersion`/`DatabaseName` types + smart constructors; existing configs compile unchanged; the `databases` reference field added to `Deployment` (for IP5).
-- [ ] EP-44: JSON round-trip (Config.hs emit / Load.hs decode) carries the `Database` config kind; golden tests pass.
-- [ ] EP-44: StatefulSet/Service/PVC/Secret renderer per engine matches EP-43's verified shapes; golden tests; deterministic key ordering.
+- [x] EP-44 (2026-06-10): `Database`/`Engine`/`EngineVersion`/`DatabaseName` types + smart constructors; existing configs compile (dsl + nagarectl literals updated); the `databases` reference field added to `Deployment` (IP5).
+- [x] EP-44 (2026-06-10): JSON round-trip (Config.hs emit / Load.hs decode) carries the `Database` config kind with `UnexpectedKind` cross-rejection; golden + round-trip tests pass.
+- [x] EP-44 (2026-06-10): StatefulSet/Service/PVC(/ConfigMap) renderer per engine reproduces EP-43's verified shapes (Postgres PGDATA, Redis `--requirepass`, ClickHouse dual ports + memory ConfigMap); 10 goldens; deterministic key ordering; no existing golden changed.
 - [ ] EP-45: `nagarectl db create ENGINE NAME` generates the credential Secret and provisions the resources in order (Secret + PVC before StatefulSet, then wait for ready); demonstrated via the real CLI `--dry-run` and live.
 - [ ] EP-45: `nagarectl db list|get|shell|restart|delete` working; delete honors `RetentionPolicy`.
 - [ ] EP-46: An app declares a database reference; `nagarectl deploy` injects the per-engine connection env (literals + Secret refs) into the app's runtime; verified via the real CLI `--dry-run`.
@@ -389,6 +389,17 @@ between child plans. Provide concise evidence.
   upload step (the engine dump via `kubectl exec`, then upload from the host where native ADC works,
   mirroring `scripts/backup-postgres.sh`). The per-engine *dump commands* are verified and unaffected;
   only the *upload* leg is gated. Evidence: EP-43 Surprises & Discoveries.
+
+- **EP-44 contract refinements EP-45/46/47 must consume (IP1/IP2/IP3 as built).** The renderer
+  reproduces EP-43's verified shapes, so the exported helpers EP-45/46 should use are: `enginePort`
+  (primary/URL port — ClickHouse is **9000** native, not 8123) and `enginePorts` (named Service ports;
+  ClickHouse = native 9000 + http 8123); `engineStartupSecretKeys` (Secret keys wired into the engine
+  container = `engineSecretKeys` minus the composed `*_URL`); `defaultEngineVersion` (18 / 8 / 25.8 for
+  EP-45 `db create`); `engineMemoryConfig` (ClickHouse `config.d` cap, drives a 4th rendered manifest —
+  a `nagare-db-<name>-mem` ConfigMap — so EP-45's apply step must apply the ConfigMap for ClickHouse).
+  Resource names: `statefulSetName`/`dbServiceName` = the db name; `dbPvcName` = `nagare-db-<name>-data`;
+  `dbConfigMapName` = `nagare-db-<name>-mem`; `dbSecretName` = `nagare-db-<name>`. Evidence: EP-44
+  Interfaces & Decision Log.
 
 - **No readinessProbe ⇒ "rollout complete" ≠ "engine ready" (affects EP-44/EP-45).** A connect right
   after `rollout status` returned raced Postgres `initdb` and got `Connection refused`. EP-44's renderer

@@ -89,25 +89,48 @@ to `Deployment`.
 
 ## Progress
 
-- [ ] M1: `Engine`, `Database`, `DatabaseName`, `EngineVersion` types and smart constructors in
-      a new module `Nagare.Dsl.Database`; module registered in `nagare-dsl.cabal`; package
-      builds; unit tests reject bad names, empty/`latest` versions, and an unsupported
-      engine/version.
-- [ ] M2: JSON round-trip — `emitDatabase`/`encodeDatabase` in `Config.hs`, `decodeDatabase` +
-      a new `"Database"` `kind` discriminator branch in `Load.hs`; a per-engine fixture under
-      `test/fixtures/database/<engine>/nagare/Config.hs`; round-trip and `UnexpectedKind`
-      tests pass.
-- [ ] M3: `renderDatabase` per engine producing StatefulSet/Service/PVC + Secret references that
-      match EP-43's verified shapes; golden files under `test/golden/` (one set per engine);
-      deterministic key ordering; no existing golden changed.
-- [ ] M4: `databases :: ![DatabaseName]` added to `Deployment` with an empty default; round-trips
-      through `emit`/`decode`; every existing fixture/example config still compiles and every
-      existing golden is byte-unchanged.
+- [x] M1 (2026-06-10): `Engine`, `Database`, `EngineVersion` in new module `Nagare.Dsl.Database`;
+      `DatabaseName` placed in `Nagare.Dsl.Types` (leaf newtype, avoids the import cycle) and
+      re-exported from `Nagare.Dsl.Database`; both modules registered in `nagare-dsl.cabal`;
+      package builds; unit tests reject bad names, empty/`latest`/`:`-bearing versions, unknown
+      engines.
+- [x] M2 (2026-06-10): JSON round-trip — `emitDatabase`/`encodeDatabase` in `Config.hs`,
+      `decodeDatabase` + a `"Database"` `kind` branch in `Load.hs`, and an envelope guard so
+      `decodeDeployment` rejects any kinded object with `UnexpectedKind`; per-engine fixtures under
+      `test/fixtures/database/{postgres,redis,clickhouse}/nagare/Config.hs`; round-trip, both
+      `UnexpectedKind`, and unknown-engine tests pass.
+- [x] M3 (2026-06-10): `renderDatabase` per engine → StatefulSet/Service/PVC (+ ConfigMap for
+      ClickHouse) with credential env wired from the managed Secret by `secretKeyRef`; 10 golden
+      files under `test/golden/db-*.yaml`; deterministic key ordering via a local `ranks` table; no
+      existing golden changed. **Reconciled against EP-43's verified shapes** — see Decision Log.
+- [x] M4 (2026-06-10): `databases :: ![DatabaseName]` added to `Deployment` (empty default);
+      round-trips through `emit`/`decode`; every dsl fixture/example and the two `nagarectl` test
+      Deployment literals updated; all 214 `nagare-dsl-test` + 171 `nagarectl-test` pass; every
+      existing golden byte-unchanged.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **The drafted renderer was a simplification; reconciling with EP-43's verified shapes required
+  per-engine specifics the draft omitted.** EP-43 proved each engine needs more than "env from
+  Secret": Postgres needs a literal `PGDATA` subdirectory env; Redis needs a `command`/`args`
+  override interpolating `--requirepass "$REDIS_PASSWORD"` (the image ignores a password env on its
+  own); ClickHouse needs two Service/container ports (native 9000 + HTTP 8123) and a mounted
+  `config.d` memory-cap ConfigMap. The renderer and goldens encode all of these (see Decision Log).
+  The result is engine-specific data inside one renderer — the intended shape — not three renderers.
+
+- **`enginePort ClickHouse` is 9000 (native), not 8123, and a new `enginePorts` lists both.** The
+  draft IP signature said `enginePort -> 8123`; that is the HTTP port, but the `clickhouse://` URL
+  and `clickhouse-client` use the native protocol on 9000 (EP-43's `CLICKHOUSE_URL`). So `enginePort`
+  returns the URL/primary port (9000 for ClickHouse) and `enginePorts :: Engine -> [(Text, Int)]`
+  drives the Service/container port list. EP-46 composes URLs against `enginePort`.
+
+- **Adding a required `databases` field to `Deployment` broke two `nagarectl` test Deployment
+  literals** (`cli/nagarectl/test/Spec.hs`), not just the dsl-package literals the plan listed. The
+  compiler `not initialised: databases` error named them; both were fixed with `databases = []`. A
+  sibling `ServerSite` literal in the same file looked similar (no `healthCheck`) but must NOT get
+  the field — `ServerSite` has no `databases`. Watch the discriminator (`runtime`/`healthCheck`) when
+  patching literals, not just field order.
 
 
 ## Decision Log
@@ -179,10 +202,57 @@ to `Deployment`.
   fixture compiles unchanged once `databases = []` is added to each full `Deployment` literal.
   Date: 2026-06-10
 
+- Decision (reconciliation with EP-43, implemented): the renderer reproduces EP-43's verified
+  per-engine shapes rather than the plan's simplified draft. Concretely: (a) Postgres container gets a
+  literal `PGDATA=/var/lib/postgresql/data/pgdata` env (fresh-PVC `lost+found` safety); (b) Redis gets
+  `command: [sh,-c]` + `args` running `redis-server --requirepass "$REDIS_PASSWORD" --dir /data --save
+  60 1 --appendonly no`, with `REDIS_PASSWORD` wired from the Secret (the image does not read a
+  password env on its own); (c) ClickHouse exposes both ports (native 9000 + HTTP 8123) and mounts a
+  `nagare-db-<name>-mem` ConfigMap at `/etc/clickhouse-server/config.d/low-memory.xml` capping
+  `max_server_memory_usage` at 1.5 GiB, so `renderDatabase` emits a 4th manifest (ConfigMap) for
+  ClickHouse only. The startup credential env is `engineStartupSecretKeys` (the Secret keys minus the
+  composed `*_URL`, which are for consuming apps).
+  Rationale: the draft "env from Secret" alone produces non-functional databases (Redis without auth,
+  Postgres tripping on `lost+found`, ClickHouse unreachable on its native port / starving the node).
+  EP-43 is the source of truth for the rendered contract (Idempotence & Recovery says so), so the
+  goldens encode the verified shapes.
+  Date: 2026-06-10
+
+- Decision (versions, per user direction + EP-43): default and golden versions are the modern majors
+  Postgres 18, Redis 8, ClickHouse 25.8 (LTS), not the `16`/`7`/`24` the plan was drafted against. A
+  `defaultEngineVersion :: Engine -> EngineVersion` exposes these for EP-45's `db create`. ClickHouse's
+  `YY.M` calendar versioning passes `mkEngineVersion` (starts with a digit); there is no bare `:25`
+  tag. See `docs/plans/43-...` Decision Log.
+  Date: 2026-06-10
+
+- Decision: `enginePort` returns the primary/URL port (ClickHouse → 9000 native), and a new
+  `enginePorts :: Engine -> [(Text, Int)]` carries the full named-port list the Service and container
+  expose (ClickHouse → native 9000 + http 8123). This refines the draft IP signature
+  (`enginePort -> 8123`); EP-46 composes connection URLs against `enginePort`.
+  Rationale: the `clickhouse://` URL and `clickhouse-client` use the native protocol (9000), so the
+  URL port must be 9000; the HTTP port (8123) is still exposed for HTTP clients.
+  Date: 2026-06-10
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-44 is complete. The typed `Database` model (`Nagare.Dsl.Database`), its JSON round-trip
+(`emitDatabase`/`decodeDatabase` with a `"kind":"Database"` discriminator and `UnexpectedKind`
+cross-rejection), and the StatefulSet/Service/PVC(/ConfigMap) renderer
+(`Nagare.Dsl.Database.Render`) are all in place and golden-tested. The `databases :: ![DatabaseName]`
+reference field is on `Deployment` (IP5) and round-trips. All 214 `nagare-dsl-test` and 171
+`nagarectl-test` tests pass; no pre-existing golden changed.
+
+What shipped vs. the plan: the model and JSON layer match the draft closely. The renderer is more
+engine-specific than the draft because it reproduces EP-43's *verified* shapes (Postgres `PGDATA`,
+Redis `--requirepass` command, ClickHouse dual ports + memory ConfigMap) rather than a generic
+"env-from-Secret" container — exactly the reconciliation the plan's Idempotence & Recovery section
+mandated. Versions are the modern majors (18 / 8 / 25.8) per user direction.
+
+Downstream contracts now fixed for EP-45/46/47: `Database`, its accessors, `dbSecretName`,
+`engineSecretKeys`/`engineStartupSecretKeys`, `enginePort`/`enginePorts`, `defaultEngineVersion`, the
+resource names (`statefulSetName`/`dbServiceName`/`dbPvcName`/`dbConfigMapName`), and `renderDatabase`.
+The credential **values** remain out of scope (EP-45 generates and writes the Secret).
 
 
 ## Context and Orientation
@@ -1358,12 +1428,16 @@ Module `cli/nagare-dsl/src/Nagare/Dsl/Database.hs`:
 data Engine = Postgres | Redis | ClickHouse
   deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
 
-engineToken      :: Engine -> Text          -- "postgres" | "redis" | "clickhouse"
-parseEngine      :: Text -> Maybe Engine
-engineImage      :: Engine -> Text          -- "postgres" | "redis" | "clickhouse/clickhouse-server"
-enginePort       :: Engine -> Int           -- 5432 | 6379 | 8123
-engineDataPath   :: Engine -> Text          -- "/var/lib/postgresql/data" | "/data" | "/var/lib/clickhouse"
-engineSecretKeys :: Engine -> [Text]        -- the managed-Secret key set per engine (IP3)
+engineToken             :: Engine -> Text          -- "postgres" | "redis" | "clickhouse"
+parseEngine             :: Text -> Maybe Engine
+engineImage             :: Engine -> Text          -- "postgres" | "redis" | "clickhouse/clickhouse-server"
+enginePort              :: Engine -> Int           -- primary/URL port: 5432 | 6379 | 9000 (ClickHouse native)
+enginePorts             :: Engine -> [(Text, Int)] -- named Service/container ports; ClickHouse = native 9000 + http 8123
+engineDataPath          :: Engine -> Text          -- "/var/lib/postgresql/data" | "/data" | "/var/lib/clickhouse"
+engineSecretKeys        :: Engine -> [Text]        -- the managed-Secret key set per engine (IP3)
+engineStartupSecretKeys :: Engine -> [Text]        -- Secret keys wired into the engine container (engineSecretKeys minus *_URL)
+engineMemoryConfig      :: Engine -> Maybe Text     -- ClickHouse config.d memory cap XML; Nothing for others
+defaultEngineVersion    :: Engine -> EngineVersion  -- modern defaults: Postgres 18, Redis 8, ClickHouse 25.8
 
 -- DatabaseName lives in Nagare.Dsl.Types after M4 and is re-exported here.
 mkDatabaseName    :: Text -> Either Text DatabaseName     -- DNS-1123 label

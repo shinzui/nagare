@@ -9,8 +9,15 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import LoadSpec (loadTests)
 import Nagare.Dsl.Build
-import Nagare.Dsl.Config (encodeDeployment)
-import Nagare.Dsl.Load (LoadError (..), decodeDeployment, loadDeployment)
+import Nagare.Dsl.Config (encodeDatabase, encodeDeployment)
+import Nagare.Dsl.Database
+import Nagare.Dsl.Database.Render
+  ( renderDatabaseConfigMap
+  , renderDatabasePvc
+  , renderDatabaseService
+  , renderStatefulSet
+  )
+import Nagare.Dsl.Load (LoadError (..), decodeDatabase, decodeDeployment, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
@@ -34,6 +41,7 @@ main =
       , testGroup "Nagare.Dsl extended model (EP-29)" extendedModelTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
+      , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
@@ -336,7 +344,125 @@ helloDep =
     , scale = Just (unsafe (mkScale 0 3))
     , healthCheck = Nothing
     , volumes = []
+    , databases = []
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-44: managed databases (model, JSON round-trip, renderer goldens).
+
+pgDb :: Database
+pgDb =
+  Database
+    { dbName = unsafe (mkDatabaseName "pg-main")
+    , engine = Postgres
+    , version = unsafe (mkEngineVersion Postgres "18")
+    , namespace = unsafe (mkNamespace "personal")
+    , size = unsafe (mkQuantity "10Gi")
+    , resources = Nothing
+    , retention = Retain
+    }
+
+redisDb :: Database
+redisDb =
+  Database
+    { dbName = unsafe (mkDatabaseName "redis-cache")
+    , engine = Redis
+    , version = unsafe (mkEngineVersion Redis "8")
+    , namespace = unsafe (mkNamespace "personal")
+    , size = unsafe (mkQuantity "2Gi")
+    , resources = Nothing
+    , retention = Retain
+    }
+
+clickhouseDb :: Database
+clickhouseDb =
+  Database
+    { dbName = unsafe (mkDatabaseName "analytics")
+    , engine = ClickHouse
+    , version = unsafe (mkEngineVersion ClickHouse "25.8")
+    , namespace = unsafe (mkNamespace "personal")
+    , size = unsafe (mkQuantity "5Gi")
+    , resources = Nothing
+    , retention = Retain
+    }
+
+databaseTests :: [TestTree]
+databaseTests =
+  [ testGroup
+      "mkDatabaseName"
+      [ testCase "accepts pg-main" $ assertRight (mkDatabaseName "pg-main")
+      , testCase "rejects empty" $ assertLeftContains "empty" (mkDatabaseName "")
+      , testCase "rejects uppercase" $ assertLeftContains "invalid" (mkDatabaseName "PG")
+      , testCase "rejects leading hyphen" $ assertLeftContains "hyphen" (mkDatabaseName "-x")
+      ]
+  , testGroup
+      "mkEngineVersion"
+      [ testCase "accepts 18 for Postgres" $ assertRight (mkEngineVersion Postgres "18")
+      , testCase "accepts 25.8 for ClickHouse" $ assertRight (mkEngineVersion ClickHouse "25.8")
+      , testCase "rejects empty" $ assertLeftContains "empty" (mkEngineVersion Postgres "")
+      , testCase "rejects latest" $ assertLeftContains "pinned" (mkEngineVersion Redis "latest")
+      , testCase "rejects a tag with a colon" $
+          assertLeftContains "':'" (mkEngineVersion Postgres "16:beta")
+      ]
+  , testGroup
+      "engine facts"
+      [ testCase "engineToken round-trips through parseEngine" $
+          mapM (\e -> parseEngine (engineToken e)) [minBound .. maxBound]
+            @?= Just [Postgres, Redis, ClickHouse]
+      , testCase "parseEngine rejects an unknown token" $
+          parseEngine "mysql" @?= Nothing
+      , testCase "ClickHouse exposes the native and HTTP ports" $
+          enginePorts ClickHouse @?= [("native", 9000), ("http", 8123)]
+      ]
+  , testGroup
+      "JSON round-trip and kind discrimination"
+      [ testCase "database survives emit -> decode round-trip" $
+          decodeDatabase (toStrict (encodeDatabase pgDb)) @?= Right pgDb
+      , testCase "redis database round-trips" $
+          decodeDatabase (toStrict (encodeDatabase redisDb)) @?= Right redisDb
+      , testCase "clickhouse database round-trips" $
+          decodeDatabase (toStrict (encodeDatabase clickhouseDb)) @?= Right clickhouseDb
+      , testCase "decoding a Database as a Deployment is UnexpectedKind" $
+          case decodeDeployment (toStrict (encodeDatabase pgDb)) of
+            Left (UnexpectedKind "Deployment" "Database") -> pure ()
+            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+      , testCase "decoding a Deployment as a Database is UnexpectedKind" $
+          case decodeDatabase (toStrict (encodeDeployment helloDep)) of
+            Left (UnexpectedKind "Database" "<none>") -> pure ()
+            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+      , testCase "unknown engine rejected as MarshalError engine" $
+          case decodeDatabase
+            "{\"kind\":\"Database\",\"name\":\"x\",\"engine\":\"mysql\",\"version\":\"8\",\"namespace\":\"personal\",\"size\":\"1Gi\"}" of
+            Left (MarshalError "engine" _) -> pure ()
+            other -> assertFailure ("expected MarshalError engine, got: " <> show other)
+      , testCase "deployment with a database reference round-trips (IP5)" $ do
+          let dep = helloDep {databases = [unsafe (mkDatabaseName "pg-main")]}
+          decodeDeployment (toStrict (encodeDeployment dep)) @?= Right dep
+      ]
+  , testGroup
+      "renderer goldens"
+      [ goldenVsString "renderStatefulSet postgres" "test/golden/db-postgres.statefulset.yaml" $
+          pure (fromStrict (renderStatefulSet pgDb))
+      , goldenVsString "renderDatabaseService postgres" "test/golden/db-postgres.service.yaml" $
+          pure (fromStrict (renderDatabaseService pgDb))
+      , goldenVsString "renderDatabasePvc postgres" "test/golden/db-postgres.pvc.yaml" $
+          pure (fromStrict (renderDatabasePvc pgDb))
+      , goldenVsString "renderStatefulSet redis" "test/golden/db-redis.statefulset.yaml" $
+          pure (fromStrict (renderStatefulSet redisDb))
+      , goldenVsString "renderDatabaseService redis" "test/golden/db-redis.service.yaml" $
+          pure (fromStrict (renderDatabaseService redisDb))
+      , goldenVsString "renderDatabasePvc redis" "test/golden/db-redis.pvc.yaml" $
+          pure (fromStrict (renderDatabasePvc redisDb))
+      , goldenVsString "renderStatefulSet clickhouse" "test/golden/db-clickhouse.statefulset.yaml" $
+          pure (fromStrict (renderStatefulSet clickhouseDb))
+      , goldenVsString "renderDatabaseService clickhouse" "test/golden/db-clickhouse.service.yaml" $
+          pure (fromStrict (renderDatabaseService clickhouseDb))
+      , goldenVsString "renderDatabasePvc clickhouse" "test/golden/db-clickhouse.pvc.yaml" $
+          pure (fromStrict (renderDatabasePvc clickhouseDb))
+      , goldenVsString "renderDatabaseConfigMap clickhouse" "test/golden/db-clickhouse.configmap.yaml" $
+          pure (fromStrict (renderDatabaseConfigMap clickhouseDb))
+      ]
+  ]
 
 -- | 'helloDep' with a Runtime variable and a Build-only variable, used to prove
 -- the M3 scope filter excludes the Build-only entry from the inline @env:@.

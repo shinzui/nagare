@@ -10,6 +10,7 @@ module Nagare.Dsl.Load
   , renderLoadError
   , loadDeployment
   , decodeDeployment
+  , decodeDatabase
   , loadStaticSite
   , decodeStaticSite
   , loadServerSite
@@ -28,6 +29,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
+import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Prelude
@@ -211,6 +213,7 @@ data JsonDeployment = JsonDeployment
   , jdScaleMax :: !(Maybe Int)
   , jdHealthCheck :: !(Maybe JsonHealthCheck)
   , jdVolumes :: ![JsonVolume]
+  , jdDatabases :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -232,6 +235,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "scaleMax"
       <*> o .:? "healthCheck"
       <*> o .:? "volumes" .!= []
+      <*> o .:? "databases" .!= []
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonDeployment -> Deployment (re-runs EP-9 smart constructors)
@@ -252,6 +256,7 @@ toDeployment jd = do
   res' <- toResources jd
   hc' <- toHealthCheck (jdHealthCheck jd)
   vols' <- toVolumes (jdVolumes jd)
+  dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
   scale' <- case (jdScaleMin jd, jdScaleMax jd) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
@@ -274,6 +279,7 @@ toDeployment jd = do
       , scale = scale'
       , healthCheck = hc'
       , volumes = vols'
+      , databases = dbRefs'
       }
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
@@ -436,7 +442,97 @@ decodeDeployment bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right jd -> toDeployment jd
+    Right envelope -> case jkeKind envelope of
+      -- A Deployment carries no top-level "kind"; any kinded object (Database,
+      -- StaticSite, ServerSite) loaded under `nagarectl deploy` fails precisely.
+      Nothing -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode deployment: " <> Text.pack perr))
+        Right jd -> toDeployment jd
+      Just other -> Left (UnexpectedKind "Deployment" other)
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for databases (mirrors Nagare.Dsl.Config's emitted shape)
+
+data JsonDatabase = JsonDatabase
+  { jdbName :: !Text
+  , jdbEngine :: !Text
+  , jdbVersion :: !Text
+  , jdbNamespace :: !Text
+  , jdbSize :: !Text
+  , jdbCpuRequest :: !(Maybe Text)
+  , jdbMemoryRequest :: !(Maybe Text)
+  , jdbCpuLimit :: !(Maybe Text)
+  , jdbMemoryLimit :: !(Maybe Text)
+  , jdbRetention :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonDatabase where
+  parseJSON = withObject "Database" $ \o ->
+    JsonDatabase
+      <$> o .: "name"
+      <*> o .: "engine"
+      <*> o .: "version"
+      <*> o .: "namespace"
+      <*> o .: "size"
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
+      <*> o .:? "retention"
+
+toDatabase :: JsonDatabase -> Either LoadError Database
+toDatabase j = do
+  name' <- mapLeft (MarshalError "name") $ mkDatabaseName (jdbName j)
+  eng' <- case parseEngine (jdbEngine j) of
+    Just e -> Right e
+    Nothing -> Left (MarshalError "engine" ("unknown engine: " <> jdbEngine j))
+  ver' <- mapLeft (MarshalError "version") $ mkEngineVersion eng' (jdbVersion j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jdbNamespace j)
+  size' <- mapLeft (MarshalError "size") $ mkQuantity (jdbSize j)
+  res' <- toDbResources j
+  ret' <- case fromMaybe "Retain" (jdbRetention j) of
+    "Retain" -> Right Retain
+    "Delete" -> Right Delete
+    other -> Left (MarshalError "retention" ("unknown retention policy: " <> other))
+  Right
+    Database
+      { dbName = name'
+      , engine = eng'
+      , version = ver'
+      , namespace = ns'
+      , size = size'
+      , resources = res'
+      , retention = ret'
+      }
+
+toDbResources :: JsonDatabase -> Either LoadError (Maybe Resources)
+toDbResources j =
+  case (jdbCpuRequest j, jdbMemoryRequest j, jdbCpuLimit j, jdbMemoryLimit j) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (c, m, cl, ml) -> do
+      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
+
+-- | Decode the JSON a database config emits (via
+-- 'Nagare.Dsl.Config.emitDatabase') into a validated 'Database'. The top-level
+-- @kind@ is checked first: a missing or non-@Database@ kind is 'UnexpectedKind'.
+decodeDatabase :: ByteString -> Either LoadError Database
+decodeDatabase bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Database" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode database: " <> Text.pack perr))
+        Right jdb -> toDatabase jdb
+      Just other -> Left (UnexpectedKind "Database" other)
+      Nothing -> Left (UnexpectedKind "Database" "<none>")
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for static sites (mirrors Nagare.Dsl.Config's emitted shape)

@@ -85,6 +85,11 @@ module Nagare.Dsl.Types
   , mkVolumeName
   , volumeNameText
 
+    -- * DatabaseName
+  , DatabaseName
+  , mkDatabaseName
+  , databaseNameText
+
     -- * MountPath
   , MountPath
   , mkMountPath
@@ -493,6 +498,31 @@ mkVolumeName t
 volumeNameText :: VolumeName -> Text
 volumeNameText (VolumeName t) = t
 
+-- | A managed-database name: a DNS-1123 label (same character rules as
+-- 'ServiceName'), unique within its namespace. Lives here (a leaf newtype with
+-- no dependency on the database 'Nagare.Dsl.Database.Engine'/'Database' types) so
+-- that 'Deployment' can carry a @databases@ reference field without a module
+-- import cycle; 'Nagare.Dsl.Database' re-exports it. Constructor hidden; use
+-- 'mkDatabaseName'.
+newtype DatabaseName = DatabaseName Text
+  deriving stock (Generic, Eq, Ord, Show)
+
+-- | Validate and construct a 'DatabaseName': 1–63 characters of lowercase
+-- letters, digits, and hyphens, not starting or ending with a hyphen.
+mkDatabaseName :: Text -> Either Text DatabaseName
+mkDatabaseName t
+  | Text.null t = Left "database name must not be empty"
+  | Text.length t > 63 =
+      Left ("database name too long (" <> tshow (Text.length t) <> " chars, max 63)")
+  | Text.isPrefixOf "-" t = Left "database name must not start with a hyphen"
+  | Text.isSuffixOf "-" t = Left "database name must not end with a hyphen"
+  | not (Text.all validLabelChar t) =
+      Left ("database name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
+  | otherwise = Right (DatabaseName t)
+
+databaseNameText :: DatabaseName -> Text
+databaseNameText (DatabaseName t) = t
+
 -- | An in-container mount path. Unlike 'Nagare.Dsl.Path.FilePathText' (which
 -- models a path inside the build context and so /rejects/ a leading @/@), a
 -- mount path must be /absolute/: Kubernetes requires @volumeMounts[].mountPath@
@@ -572,6 +602,11 @@ data Deployment = Deployment
   -- 'PersistentVolumeClaim' plus a container @volumeMount@ and pod @volume@
   -- (see 'Nagare.Dsl.Render'). Name/mount-path uniqueness is enforced at load.
   , volumes :: ![Volume]
+  -- | Names of managed databases this app connects to (MasterPlan 9, IP5).
+  -- Empty (the backward-compatible default) means the app uses no managed
+  -- database. EP-46 resolves each name to its in-cluster DNS and managed Secret
+  -- and injects the connection env at deploy time.
+  , databases :: ![DatabaseName]
   }
   deriving stock (Generic, Eq, Show)
 

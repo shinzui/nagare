@@ -28,6 +28,8 @@ library
   exposed-modules:
     Nagare.Dsl.Build
     Nagare.Dsl.Config
+    Nagare.Dsl.Database
+    Nagare.Dsl.Database.Render
     Nagare.Dsl.Load
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude
