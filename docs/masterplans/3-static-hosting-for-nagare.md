@@ -386,6 +386,30 @@ describe the server image only at the user-visible level; users never hand-write
   decomposition, the typed model, or the dependency graph.
   Date: 2026-06-09
 
+- Decision: Keep the per-release Nginx container as the static-site origin; do not serve static
+  files directly from the cluster's Envoy data plane (Kourier). The deeper question — whether a
+  pure-static site needs an origin server at all — is folded into
+  `docs/masterplans/11-cdn-integration-for-nagare.md` (CDN), not reopened here.
+  Rationale: Raised on revisiting "why Nginx when we already have Envoy via Kourier?". Kourier
+  (Envoy) and the Nginx image are not substitutes — they sit in series at different layers. Kourier
+  is the *shared cluster ingress*: one data plane, programmed by Knative's routing model, that
+  terminates 80/443 and routes by `Host` header *to* Knative Services. The Nginx image is the
+  *per-release origin* that actually serves the built files (`/usr/share/nginx/html` on port 8080;
+  `cli/nagarectl/src/Nagare/Static/Image.hs`). Three structural reasons keep them separate: (1) a
+  Knative Service must point at a container that serves HTTP — there is no "Service that is just a
+  folder", so something has to serve the bytes; (2) the central decision above (2026-06-07) is that
+  each release *is* an image, which the rollback/preview/scale-to-zero lifecycle (EP-15) depends on
+  — serving from the shared Envoy would move release identity into ingress config plus object
+  storage and require mutating the cluster-critical data plane via xDS/EnvoyFilter on every deploy;
+  (3) Envoy has no on-disk static-file serving (no `root`/`try_files`, SPA fallback, or disk MIME
+  handling) of the kind `renderNginxConfig` (EP-13) emits. The legitimate narrower question — *which*
+  file server runs inside the container (Nginx vs Caddy / static-web-server / busybox httpd) — is a
+  swappable implementation detail; Nginx was chosen as the boring universal default whose config maps
+  cleanly onto the typed redirect/header/cache rules. The deeper "does pure-static need an origin at
+  all?" question is answered by MasterPlan 11 (CDN), which fronts this Nginx origin with an edge
+  cache and explicitly keeps Kourier-on-the-VM as the origin with the Nginx image behind it.
+  Date: 2026-06-10
+
 
 ## Outcomes & Retrospective
 
@@ -445,3 +469,11 @@ the Decision Log if the in-cluster Docker daemon proves painful.
   raised in the same session — whether image building should be Nix-native — was resolved in favor of
   generated Dockerfile + `docker build` (see Decision Log, 2026-06-09); the JS build stays
   framework-native regardless.
+
+- 2026-06-10: Recorded the rationale for the per-release Nginx origin versus the cluster's Envoy
+  ingress (Kourier), after a request to revisit "why Nginx when we already have Envoy?". No design or
+  code change: Kourier (Envoy) is the shared ingress and the Nginx image is the per-release origin —
+  they sit in series, not as substitutes. The in-container file server (Nginx) is a swappable detail,
+  and the "does pure-static need an origin at all?" question is folded into
+  `docs/masterplans/11-cdn-integration-for-nagare.md` (CDN), which fronts the Nginx origin with an
+  edge cache. See the Decision Log entry of the same date.
