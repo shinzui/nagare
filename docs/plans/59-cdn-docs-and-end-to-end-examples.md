@@ -65,19 +65,20 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1 — write `docs/user/cdn.md` (the guide + the DNS/origin-TLS runbook chapter)
-      and wire it into the `docs/user/README.md` operator-guide index next to the
-      static-hosting entry.
-- [ ] Milestone 2 — create `cluster/examples/static-cdn-site/` (static site behind Cloudflare):
-      `public/` content, `nagare/Config.hs` with a Cloudflare `cdn`, and a `README.md` walking
+- [x] Milestone 1 — write `docs/user/cdn.md` (the guide + the DNS/origin-TLS runbook chapter)
+      and wire it into the `docs/user/README.md` operator-guide index (a "CDN (edge caching)"
+      bullet after the static-hosting entry and a `MP-11 (EP-54–59)` status-table row).
+- [x] Milestone 2 — create `cluster/examples/static-cdn-site/` (static site behind Cloudflare):
+      copied `public/`, `nagare/Config.hs` with a Cloudflare `cdn`, and a `README.md` walking
       through deploy + `nagarectl cdn status` + cache-purge + the deferred `CF-Cache-Status: HIT`
       curl.
-- [ ] Milestone 2 — create `cluster/examples/tanstack-start-cdn/` (TanStack Start behind Google
+- [x] Milestone 2 — create `cluster/examples/tanstack-start-cdn/` (TanStack Start behind Google
       Cloud CDN): `package.json`, `nagare/Config.hs` with a `gcpCloudCdn`, and a `README.md`
       walking through `pulumi config set nagare:enableCdn true && pulumi up`, deploy,
-      `nagarectl cdn status`, and the deferred cache-`Age:`/HIT curl.
-- [ ] Milestone 2 — verify the offline acceptance: `nagarectl site deploy --dry-run` renders the
-      expected Service/DomainMapping + planned CDN changes in each example dir.
+      `nagarectl cdn status`, and the deferred cache-`Age:` curl.
+- [x] Milestone 2 — verified the offline acceptance: `nagarectl site deploy --dry-run` (run from
+      `cli/nagarectl/`) renders nginx/Dockerfile + Knative Service + DomainMapping + the planned
+      CDN-changes block in each example, and a no-CDN config prints zero CDN banners (unchanged).
 
 
 ## Surprises & Discoveries
@@ -85,7 +86,24 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The actual EP-58 dry-run block is `--- CDN plan (Cloudflare) ---` / `--- CDN plan (GcpCloudCdn)
+  ---` with `DNS:` / `Origin TLS:` / `Cache:` lines (Cloudflare) and `gcloud …` lines (Google),
+  produced by `renderCdnPlan`. This plan's draft showed an illustrative `--- Planned CDN changes
+  ---` format; the guide and READMEs document the **real** output instead. The Google plan's
+  `gcloud` lines each carry `--project=tan-nb-exp`, and unresolved stack outputs render as
+  `<publicIp>`/`<cdnGlobalIp>`/`<dnsZoneName>`/`<cdnBackendService>` placeholders in the offline
+  dry-run (the real values substitute when the Pulumi stack is available).
+
+- The copied `tanstack-start` example config used a bare `EnvLiteral "0.0.0.0"` in the
+  `ServerSite.env` map, which no longer type-checks — that field is `Map EnvName ScopedEnvVar`, so
+  it needs `runtimeScoped (EnvLiteral "0.0.0.0")`. The pre-existing `tanstack-start` example shares
+  this staleness (it is not exercised by tests). The new `tanstack-start-cdn` config uses
+  `runtimeScoped` and dry-runs cleanly.
+
+- Verified offline: the static example dry-run prints `--- Generated nginx.conf ---`, `--- Knative
+  Service manifest ---`, `--- DomainMapping manifest ---` (`blog.apps.example.com`), the URL, and
+  the `--- CDN plan (Cloudflare) ---` block; the no-CDN `static-site` baseline prints **zero** CDN
+  banners (`grep -c "CDN plan"` → 0), confirming MasterPlan 11's "unchanged when no CDN" promise.
 
 
 ## Decision Log
@@ -138,7 +156,23 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Complete (2026-06-10).** The CDN initiative is proven end to end offline. `docs/user/cdn.md` is
+a self-contained guide + DNS/origin-TLS runbook (what a CDN buys you and which to choose, the typed
+`cdn` field, the cache model, the deploy flow with the real `--dry-run` block, the `nagarectl cdn`
+command surface, and the runbook covering proxied-vs-more-specific DNS, the `Flexible →
+Full (strict)` / Google-HTTPS origin-TLS modes, the cert-manager DNS-01 caveat, and provider
+credentials). It is linked from the operator-guide index and the status table. Two worked examples
+demonstrate both providers AND both runtimes — `static-cdn-site` (static + Cloudflare) and
+`tanstack-start-cdn` (TanStack Start + Google Cloud CDN) — each a clean diff over its no-CDN
+sibling (the same config plus a `cdn` field). Both dry-run cleanly from `cli/nagarectl/`, printing
+the rendered Service/DomainMapping and the planned CDN changes; the no-CDN baseline is unchanged.
+
+**Gaps / deferred.** The live cache-HIT proofs (Cloudflare `CF-Cache-Status: HIT`, Google Cloud CDN
+growing `Age:`) and the live `nagarectl cdn list`/`status` discovery are deferred until `nagare-01`
+is powered on, the base domain is delegated, and a real `CF_API_TOKEN` exists — documented in both
+READMEs and the guide as the intended behaviour, matching the powered-off-box gating MasterPlan 3's
+EP-17 and the database/task docs plans used. No code was changed by this plan; it consumes the
+EP-55/56/57/58 surfaces verbatim.
 
 
 ## Context and Orientation

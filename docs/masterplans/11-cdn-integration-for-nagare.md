@@ -184,7 +184,7 @@ call that belongs with the rest of the provider capability and the `cdn` command
 | 56 | GCP Cloud CDN load balancer provisioning in Pulumi | docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md | EP-54 | EP-55 | Complete |
 | 57 | Cloudflare CDN provisioning via API in nagarectl | docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md | EP-54 | EP-55 | Complete |
 | 58 | Deploy-time CDN wiring and nagarectl cdn command group | docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md | EP-55, EP-56, EP-57 | None | Complete |
-| 59 | CDN docs and end-to-end examples | docs/plans/59-cdn-docs-and-end-to-end-examples.md | EP-58 | EP-56, EP-57 | Not Started |
+| 59 | CDN docs and end-to-end examples | docs/plans/59-cdn-docs-and-end-to-end-examples.md | EP-58 | EP-56, EP-57 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference
 child plans by their `EP-<#>` prefix, where the number is the file number in `docs/plans/`.
@@ -407,8 +407,8 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
 - [x] EP-57: Add the `Nagare.Cdn.Cloudflare` HTTP-client module (creds, upsert proxied record, apply cache rules, set origin-TLS mode, purge) with unit tests and recorded API transcripts. *(nagarectl 237 tests, +11 `Nagare.Cdn`; live CF zone/token + VM-on leg deferred.)*
 - [x] EP-58: Wire `provisionCdn` into the static/server/app deploy paths with a dry-run, including per-hostname CDN DNS records and per-path cache application. *(`cdnDeployStep` in the CLI handlers; `renderCdnPlan` goldens prove the dry-run text; live legs deferred.)*
 - [x] EP-58: Ship the `nagarectl cdn` command group (`list`, `status`, `purge`, `disable`). *(`--help` verified; formatter tests green; live discovery deferred.)*
-- [ ] EP-59: Write the CDN user guide and the DNS/origin-TLS runbook.
-- [ ] EP-59: Add and validate the worked examples (static site behind Cloudflare; TanStack Start behind Google Cloud CDN), including a cache-purge demonstration.
+- [x] EP-59: Write the CDN user guide and the DNS/origin-TLS runbook. *(`docs/user/cdn.md`, linked from the operator-guide index + status table.)*
+- [x] EP-59: Add and validate the worked examples (static site behind Cloudflare; TanStack Start behind Google Cloud CDN), including a cache-purge demonstration. *(`cluster/examples/static-cdn-site/`, `tanstack-start-cdn/`; both dry-run clean; live cache-HIT curls deferred.)*
 
 
 ## Surprises & Discoveries
@@ -505,4 +505,39 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**All six child plans Complete (2026-06-10).** First-class CDN support is delivered end to end,
+offline-verified, with the live cloud legs deferred under the powered-off-VM constraint that
+governs the whole repo.
+
+- **EP-54 (spike).** Recorded the substrate decisions (Google LB topology, Cloudflare origin-TLS
+  `Full (strict)`, the DNS-authority resolution, the standing-infra-vs-deploy-time split, contract
+  sufficiency) and shipped the reusable `cluster/examples/cdn-spike/` scripts. Live `curl` evidence
+  deferred (VM off).
+- **EP-55 (typed model).** `Nagare.Dsl.Cdn.Types` (`Cdn`/`CdnProvider`/`CdnCacheRule`, presets,
+  combinators) and the `cdn :: Maybe Cdn` field on all three runtimes, with JSON transport and
+  loader round-trip. nagare-dsl 259 tests / nagarectl 226, green; `cdn = Nothing` is byte-for-byte
+  unchanged.
+- **EP-56 (Google infra).** The `NagareCdn` Pulumi component behind the opt-in `nagare:enableCdn`
+  flag, exposing `cdnGlobalIp`/`cdnBackendService`/`cdnUrlMap`. `pulumi preview` validated the
+  gating (13 resources on, only the firewall off); `pulumi up`/live curl deferred (billable + VM
+  off).
+- **EP-57 (Cloudflare client).** `Nagare.Cdn.Cloudflare`, the CLI's only outbound-HTTP surface,
+  with byte-exact unit tests for every request body and envelope parse.
+- **EP-58 (convergence).** `Nagare.Cdn.Provision` (one provider-dispatching `provisionCdn` + the
+  pure `planCdn`/`renderCdnPlan`), wired into the static/server/app deploy handlers with a dry-run,
+  and the `nagarectl cdn list|status|purge|disable` command group. 246 nagarectl tests; the
+  `renderCdnPlan` goldens pin the exact dry-run text.
+- **EP-59 (proof).** `docs/user/cdn.md` (guide + DNS/origin-TLS runbook) and the two worked
+  examples (`static-cdn-site` + Cloudflare, `tanstack-start-cdn` + Google Cloud CDN), both
+  dry-running clean.
+
+**Headline acceptance met.** A developer adds a `cdn` field to the same typed `nagare/Config.hs`,
+runs the same `nagarectl site deploy`, and `--dry-run` shows the planned edge changes — uniformly
+across both providers and all three runtimes, with the no-CDN path unchanged.
+
+**Deferred tail (one operator session, VM on + a delegated domain + a scoped `CF_API_TOKEN`).**
+Capture the live `CF-Cache-Status: HIT` (Cloudflare) and growing `Age:` (Google) proofs; run
+`pulumi up` for the billable Google load balancer; wire live `nagarectl cdn list`/`status`
+discovery (currently `queryCdnRows` returns `[]`); and confirm EP-54's proposed health-check
+host/path and the HTTPS origin hop once origin TLS is enabled. None of these block the typed
+contract, the deploy wiring, or the docs — they are the environment-gated proofs.

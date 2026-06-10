@@ -39,6 +39,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Observability (Victoria stack + Grafana) | EP-5 | 🔭 Planned |
 | Deploy CLI (`nagarectl`) + typed config DSL | MP-2 (EP-8–12) | 🟡 Built; live deploy pending |
 | Static & full-stack site hosting (`nagarectl site`) | MP-3 (EP-13–18) | 🟡 Built; live deploy pending |
+| CDN integration (Cloudflare / Google Cloud CDN) | MP-11 (EP-54–59) | 🟡 Built; live edge deploy pending |
 | Application build modes (Dockerfile/Nixpacks/prebuilt) | MP-4 (EP-19–22) | 🟡 Built; live deploy pending |
 | App env & secrets (`nagarectl env`/`secret`) | MP-5 (EP-23–28) | 🟡 Built; live deploy pending |
 | Application lifecycle (`nagarectl app`/`deployments`) | MP-6 (EP-29–32) | 🟡 Built; live verbs pending |
@@ -91,6 +92,10 @@ you can observe.
    - [Static & full-stack site hosting](static-hosting.md) — host a website or a
      full-stack app (TanStack Start) the Cloudflare-Pages way: `nagarectl site
      deploy`, previews, rollbacks, redirects/headers, and Git webhooks. 🟡
+   - [CDN (edge caching)](cdn.md) — front a static site, a TanStack Start app, or
+     any app with Cloudflare or Google Cloud CDN via a typed `cdn` field:
+     `nagarectl cdn list|status|purge|disable`, the cache model, and the DNS /
+     origin-TLS runbook. 🟡
    - [Environment and secrets](env-and-secrets.md) — manage an app's env vars and
      secrets as a day-2 operation with `nagarectl env`/`secret`: scopes, the managed
      store, `.env` sync, generated `NAGARE_*` vars, build-time and preview env. 🟡
