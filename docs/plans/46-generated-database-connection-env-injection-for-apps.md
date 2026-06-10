@@ -68,21 +68,26 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: New module `cli/nagarectl/src/Nagare/Database/Connection.hs` with the pure
-      `connectionEnv` function (engine + name + namespace + user/db → `Map EnvName ScopedEnvVar`)
-      and the per-engine literal/secret-ref split; added to `nagarectl.cabal` `exposed-modules`.
-- [ ] M1: Unit tests in `cli/nagarectl/test/Spec.hs` asserting, per engine, exactly which keys
-      are `EnvLiteral`s with the right values and which are
-      `EnvSecretRef (mkSecretName "nagare-db-<name>")`; all `{Runtime}`-scoped.
-- [ ] M2: `databases :: ![DatabaseName]` field added to `Deployment` by EP-44 is consumed in
-      `runDeploy`; engine lookup resolves each referenced database to its `Engine`; the
-      connection map is merged via `mergeGenerated`; `nagarectl deploy --dry-run` shows both the
-      inline literals and the `valueFrom.secretKeyRef` entries.
-- [ ] M2: The server-deploy analog (`deployServer`) injects the same connection env.
-- [ ] M3: Error handling — referencing an unknown/uncreated database fails with a clear
-      message; same-engine collision rule implemented and tested; precedence over user env
-      documented and verified.
-- [ ] M3: End-to-end `--dry-run` transcript captured; `cabal test` green.
+- [x] M1 (2026-06-10): New module `cli/nagarectl/src/Nagare/Database/Connection.hs` with the pure
+      `connectionEnv` (engine + name + namespace + identity → `Map EnvName ScopedEnvVar`) and the
+      per-engine literal/secret-ref split; `mergeConnectionEnvs` with collision detection; added to
+      `nagarectl.cabal`. Reuses EP-44's `dbSecretName` rather than redefining.
+- [x] M1 (2026-06-10): Unit tests assert, per engine, exactly which keys are `EnvLiteral`s (with the
+      right host/port/user/db) and which are `EnvSecretRef`s to `nagare-db-<name>`; all
+      `{Runtime}`-scoped.
+- [x] M2 (2026-06-10): `runDeploy` consumes `dep ^. #databases`; `resolveConnectionEnv` resolves each
+      to its engine + identity (via the new `Nagare.Database.Discover.lookupConnection`, which reads
+      the `nagare.dev/engine` label and the Secret's non-secret USER/DB keys) and merges the
+      connection map alongside the `NAGARE_*` env via `mergeGenerated`. Empty `databases` ⇒ no cluster
+      call (stateless apps unaffected). A render-demonstration test proves the Service carries both the
+      literals and a `DATABASE_URL` `secretKeyRef` to `nagare-db-notes-db`.
+- [x] M2 (2026-06-10): **Server-deploy skipped in v1** — EP-44 added `databases` only to `Deployment`,
+      not `ServerSite`, so server sites cannot reference databases yet (documented; a future plan can
+      add the field to `ServerSite`).
+- [x] M3 (2026-06-10): Unknown/uncreated database → `lookupConnection` `Left` → deploy `dieT`s with a
+      clear "run `nagarectl db create` first / check the namespace" message; same-engine collision →
+      `mergeConnectionEnvs` `Left` (tested); precedence (generated wins over user env) tested. All 195
+      `nagarectl-test` pass.
 
 
 ## Surprises & Discoveries
@@ -90,7 +95,22 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The IO engine lookup reused EP-45's `Discover` rather than adding a parallel `lookupEngine`.**
+  EP-45 already shipped `Nagare.Database.Discover` with `getDatabase` (engine from the StatefulSet
+  label). EP-46 added `lookupConnection` to that same module — it calls `getDatabase` for the engine
+  and reads the managed Secret's non-secret `*_USER`/`*_DB` keys for the `ConnIdentity` (the
+  authoritative values EP-45 wrote), so `POSTGRES_USER`/`POSTGRES_DB`/`CLICKHOUSE_USER` literals
+  reflect cluster truth rather than a re-derived default. Extends, does not fork, per IP4.
+
+- **`ServerSite` has no `databases` field**, so the server-deploy wiring the plan anticipated is
+  out of scope for v1 (EP-44 added the field only to `Deployment`). Recorded as a known limitation;
+  a follow-up can add `databases` to `ServerSite` and the same `resolveConnectionEnv` merge to
+  `deployServer`.
+
+- **`Nagare.Database.Connection` is pure (no IO) and reuses EP-44's `dbSecretName`.** The plan
+  sketched a local `dbSecretName :: DatabaseName -> Text`; instead it imports EP-44's
+  `dbSecretName :: Text -> Text` and applies it to `databaseNameText name`, keeping a single owner of
+  the Secret-name format.
 
 
 ## Decision Log
@@ -173,7 +193,19 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-46 is complete. An app declares `databases :: [DatabaseName]` (EP-44) and `nagarectl deploy`
+injects the per-engine connection env (IP5): host/port/user/db as inline literals, password and
+composed URL as `valueFrom.secretKeyRef` into `nagare-db-<name>`. The pure `connectionEnv` and
+`mergeConnectionEnvs` (collision-detecting) live in `Nagare.Database.Connection`; the IO engine+
+identity resolution is `Nagare.Database.Discover.lookupConnection`; the merge happens in `runDeploy`
+alongside the `NAGARE_*` env, generated winning over user env. 9 new tests; 195 `nagarectl-test`
+pass.
+
+Against the purpose: the "no `DATABASE_URL`/`REDIS_URL` injection" gap the MasterPlan named is
+closed for `Deployment` apps. Gaps: server sites can't reference databases yet (no `ServerSite.
+databases` field); the live "app reads a real database" end-to-end demonstration belongs to EP-48.
+The hard invariant (secretKeyRef key == env name == IP3 Secret key) holds by construction — the
+secret-ref env names match EP-45's Secret keys exactly.
 
 
 ## Context and Orientation

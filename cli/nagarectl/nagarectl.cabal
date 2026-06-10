@@ -33,6 +33,7 @@ library
     Nagare.App
     Nagare.App.Deployments
     Nagare.Build
+    Nagare.Database.Connection
     Nagare.Database.Create
     Nagare.Database.Delete
     Nagare.Database.Discover

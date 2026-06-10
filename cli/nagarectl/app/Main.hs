@@ -43,8 +43,10 @@ import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
 import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
+import Nagare.Database.Discover (lookupConnection)
 import Nagare.Database.Get (runDbGet)
 import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
@@ -76,8 +78,13 @@ import Nagare.App.Deployments
   , resolveRevisionForTag
   )
 import Nagare.Dsl.Types
-  ( Deployment
+  ( DatabaseName
+  , Deployment
+  , EnvName
   , EnvScope (..)
+  , Namespace
+  , ScopedEnvVar
+  , databaseNameText
   , domainText
   , imageRefText
   , namespaceText
@@ -1191,6 +1198,22 @@ runCleanup o = do
   report <- executeCleanup o
   TIO.putStr (formatCleanupReport report)
 
+-- | EP-46: resolve each referenced database to its engine + identity (read-only
+-- cluster lookup) and build the merged per-engine connection env. Empty list ⇒
+-- no cluster call and an empty map (stateless apps are unaffected). A missing
+-- database or a same-engine collision exits with a clear message.
+resolveConnectionEnv :: Namespace -> [DatabaseName] -> IO (Map EnvName ScopedEnvVar)
+resolveConnectionEnv _ [] = pure Map.empty
+resolveConnectionEnv ns dbs = do
+  maps <- forM dbs $ \name -> do
+    r <- lookupConnection (namespaceText ns) (databaseNameText name)
+    case r of
+      Left err -> dieT ("nagarectl deploy: " <> err)
+      Right (eng, ident) -> pure (connectionEnv eng name ns ident)
+  case mergeConnectionEnvs maps of
+    Left err -> dieT ("nagarectl deploy: " <> err)
+    Right m -> pure m
+
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
   bd <- resolveBaseDomain (dopts ^. #baseDomain)
@@ -1203,6 +1226,12 @@ runDeploy dopts = do
 
   imageTag <- resolveTag (dopts ^. #tag)
   spec <- resolveBuildSpec dopts (dep ^. #build)
+
+  -- EP-46: resolve each referenced managed database to its engine + identity and
+  -- build the per-engine connection env (literals + Secret refs). Empty when the
+  -- app references no databases (no cluster call), so stateless apps are
+  -- unaffected. Merged below alongside the NAGARE_* generated env.
+  connEnv <- resolveConnectionEnv (dep ^. #namespace) (dep ^. #databases)
 
   -- EP-26: inject the generated NAGARE_* identity variables as inline {Runtime}
   -- env before rendering, so they appear in the Service and override the managed
@@ -1218,7 +1247,9 @@ runDeploy dopts = do
           , Gen.releaseId = imageTag
           , Gen.source = srcText
           }
-      dep' = dep & #env %~ mergeGenerated (generatedEnv gctx)
+      -- EP-46 connection vars and EP-26 NAGARE_* both win over user env (disjoint
+      -- names; both left of the user map in the left-biased merge).
+      dep' = dep & #env %~ (mergeGenerated (generatedEnv gctx) . mergeGenerated connEnv)
 
   let effTag = resolveImageTag spec imageTag
       ref = imageRef dep' effTag

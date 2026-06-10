@@ -17,6 +17,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.List (sort)
 import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
@@ -37,13 +38,14 @@ import Nagare.App
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
+import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
 import Nagare.Database.Secret
   ( ConnectionParts (..)
   , composeConnectionUrl
   , secretKeysFor
   )
-import Nagare.Dsl.Database (Engine (..), engineToken)
+import Nagare.Dsl.Database (Engine (..), engineToken, mkDatabaseName)
 import Nagare.Ops.Doctor
   ( Check (..)
   , Remediation (..)
@@ -112,6 +114,7 @@ import Nagare.Dsl.Types
   , mkVolumeName
   , runtimeScoped
   , scopedEnv
+  , secretNameText
   )
 import Nagare.Storage.Discover
   ( PVCRow (..)
@@ -174,6 +177,7 @@ main =
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
+      , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -1509,3 +1513,87 @@ databaseTests =
     stsListJson =
       BC.pack
         "{\"items\":[{\"metadata\":{\"name\":\"pg-main\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/engine\":\"postgres\",\"nagare.dev/managed-by\":\"nagarectl\"},\"annotations\":{\"nagare.dev/version\":\"18\",\"nagare.dev/size\":\"10Gi\",\"nagare.dev/retention\":\"Retain\"}},\"status\":{\"readyReplicas\":1}}]}"
+
+-- ---------------------------------------------------------------------------
+-- EP-46: app -> database connection-env injection.
+
+connEnvTestPg :: Map.Map EnvName ScopedEnvVar
+connEnvTestPg =
+  connectionEnv
+    Postgres
+    (unsafe (mkDatabaseName "notes-db"))
+    (unsafe (mkNamespace "personal"))
+    (ConnIdentity {connUser = Just "app", connDb = Just "notes"})
+
+connEnvTestRedis :: Map.Map EnvName ScopedEnvVar
+connEnvTestRedis =
+  connectionEnv
+    Redis
+    (unsafe (mkDatabaseName "cache"))
+    (unsafe (mkNamespace "personal"))
+    (ConnIdentity {connUser = Nothing, connDb = Nothing})
+
+-- | Classify a generated entry: Left literal-value, or Right secret-name.
+classifyConn :: Map.Map EnvName ScopedEnvVar -> Text -> Maybe (Either Text Text)
+classifyConn m name = do
+  en <- either (const Nothing) Just (mkEnvName name)
+  ScopedEnvVar {value = v} <- Map.lookup en m
+  pure $ case v of
+    EnvLiteral t -> Left t
+    EnvSecretRef s -> Right (secretNameText s)
+
+connectionEnvTests :: [TestTree]
+connectionEnvTests =
+  [ testGroup
+      "connectionEnv per engine"
+      [ testCase "Postgres host/port/user/db are literals" $ do
+          classifyConn connEnvTestPg "POSTGRES_HOST" @?= Just (Left "notes-db.personal.svc.cluster.local")
+          classifyConn connEnvTestPg "POSTGRES_PORT" @?= Just (Left "5432")
+          classifyConn connEnvTestPg "POSTGRES_USER" @?= Just (Left "app")
+          classifyConn connEnvTestPg "POSTGRES_DB" @?= Just (Left "notes")
+      , testCase "Postgres password and DATABASE_URL are secret refs to nagare-db-notes-db" $ do
+          classifyConn connEnvTestPg "POSTGRES_PASSWORD" @?= Just (Right "nagare-db-notes-db")
+          classifyConn connEnvTestPg "DATABASE_URL" @?= Just (Right "nagare-db-notes-db")
+      , testCase "Postgres has exactly these six keys" $
+          sort (map envNameText (Map.keys connEnvTestPg))
+            @?= sort ["POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PASSWORD", "DATABASE_URL"]
+      , testCase "Redis host/port literals; password/URL secret refs" $ do
+          classifyConn connEnvTestRedis "REDIS_HOST" @?= Just (Left "cache.personal.svc.cluster.local")
+          classifyConn connEnvTestRedis "REDIS_PORT" @?= Just (Left "6379")
+          classifyConn connEnvTestRedis "REDIS_PASSWORD" @?= Just (Right "nagare-db-cache")
+          classifyConn connEnvTestRedis "REDIS_URL" @?= Just (Right "nagare-db-cache")
+      , testCase "every entry is Runtime-scoped" $
+          mapM_ (\sev -> scopes sev @?= scopes (runtimeScoped (EnvLiteral "x"))) (Map.elems connEnvTestPg)
+      ]
+  , testGroup
+      "mergeConnectionEnvs"
+      [ testCase "two same-engine maps collide" $
+          assertBool "should be Left" (isLeft (mergeConnectionEnvs [connEnvTestPg, pgOther]))
+      , testCase "different engines merge cleanly" $
+          case mergeConnectionEnvs [connEnvTestPg, connEnvTestRedis] of
+            Right m -> assertBool "has both" (Map.size m == Map.size connEnvTestPg + Map.size connEnvTestRedis)
+            Left e -> assertFailure (T.unpack e)
+      ]
+  , testGroup
+      "rendered Service carries DB env (IP5)"
+      [ testCase "literals and a DATABASE_URL secretKeyRef appear" $ do
+          let dep' = mkDemoDep connEnvTestPg
+              yaml = TE.decodeUtf8 (renderService dep' "20260602-120000")
+          assertBool "POSTGRES_HOST" ("POSTGRES_HOST" `T.isInfixOf` yaml)
+          assertBool "host literal" ("notes-db.personal.svc.cluster.local" `T.isInfixOf` yaml)
+          assertBool "DATABASE_URL" ("DATABASE_URL" `T.isInfixOf` yaml)
+          assertBool "secretKeyRef" ("secretKeyRef" `T.isInfixOf` yaml)
+          assertBool "secret name" ("nagare-db-notes-db" `T.isInfixOf` yaml)
+      , testCase "generated connection var overrides a user value (precedence)" $ do
+          let userUrl = Map.singleton (unsafe (mkEnvName "DATABASE_URL")) (runtimeScoped (EnvLiteral "user-wrote-this"))
+              merged = Map.union connEnvTestPg userUrl -- mergeGenerated is left-biased
+          classifyConn merged "DATABASE_URL" @?= Just (Right "nagare-db-notes-db")
+      ]
+  ]
+  where
+    pgOther =
+      connectionEnv
+        Postgres
+        (unsafe (mkDatabaseName "other-db"))
+        (unsafe (mkNamespace "personal"))
+        (ConnIdentity {connUser = Just "app", connDb = Just "other"})

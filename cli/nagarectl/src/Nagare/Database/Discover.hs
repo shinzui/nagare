@@ -22,6 +22,7 @@ module Nagare.Database.Discover
   , extractDbRows
   , listDatabases
   , getDatabase
+  , lookupConnection
   , formatDbTable
   ) where
 
@@ -34,8 +35,12 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.List (find)
+import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Database.Connection (ConnIdentity (..))
+import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
+import Nagare.Env.Store (extractSecretData)
 import System.Exit (ExitCode (..))
 
 -- | The label selector that finds every Nagare-managed database StatefulSet
@@ -143,6 +148,53 @@ getDatabase ns name = do
     Right rs -> case find ((== name) . drName) rs of
       Just r -> Right r
       Nothing -> Left ("no managed database named '" <> name <> "' in namespace " <> ns)
+
+-- | Resolve a referenced database (MasterPlan 9, EP-46) to its 'Engine' and the
+-- non-secret 'ConnIdentity' (application user and, for Postgres, the logical db),
+-- for connection-env injection. The engine comes from the StatefulSet's
+-- @nagare.dev/engine@ label (via 'getDatabase'); the user/db are read from the
+-- managed Secret's non-secret keys (the authoritative values EP-45 wrote). A
+-- 'Left' (not found / unreachable / unknown engine) makes the deploy fail with a
+-- clear message rather than render a half-wired Service.
+lookupConnection :: Text -> Text -> IO (Either Text (Engine, ConnIdentity))
+lookupConnection ns name = do
+  erow <- getDatabase ns name
+  case erow of
+    Left err ->
+      pure
+        ( Left
+            ( err
+                <> " (run `nagarectl db create <engine> "
+                <> name
+                <> "` first, or check the namespace)"
+            )
+        )
+    Right r -> case parseEngine (drEngine r) of
+      Nothing -> pure (Left ("database '" <> name <> "' has an unknown engine: " <> drEngine r))
+      Just eng -> do
+        kvs <- readSecretMap ns name
+        pure (Right (eng, identityFor eng kvs))
+
+-- | Build a 'ConnIdentity' from the engine and the Secret's decoded key/value
+-- map (absent keys fall back to 'Nothing').
+identityFor :: Engine -> Map.Map Text Text -> ConnIdentity
+identityFor Postgres kvs =
+  ConnIdentity {connUser = Map.lookup "POSTGRES_USER" kvs, connDb = Map.lookup "POSTGRES_DB" kvs}
+identityFor Redis _ = ConnIdentity {connUser = Nothing, connDb = Nothing}
+identityFor ClickHouse kvs =
+  ConnIdentity {connUser = Map.lookup "CLICKHOUSE_USER" kvs, connDb = Nothing}
+
+-- | Read the managed Secret's decoded data map (empty on any failure).
+readSecretMap :: Text -> Text -> IO (Map.Map Text Text)
+readSecretMap ns name = do
+  (code, StdoutRaw out) <-
+    run $
+      cmd "kubectl"
+        & addArgs ["get", "secret", T.unpack (dbSecretName name), "-n", T.unpack ns, "-o", "json"]
+        & silenceStderr
+  pure $ case code of
+    ExitFailure _ -> Map.empty
+    ExitSuccess -> either (const Map.empty) id (extractSecretData out)
 
 -- | Render the @db list@ table with @pad@-aligned columns.
 formatDbTable :: [DbRow] -> Text
