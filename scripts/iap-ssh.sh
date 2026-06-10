@@ -34,15 +34,14 @@
 #   SSH_KEY       Private SSH key path. Defaults to the first of
 #                 ~/.ssh/id_ed25519 or ~/.ssh/id_rsa that is readable.
 #
-# Project isolation: gcloud's active project must be tan-nb-exp (see CLAUDE.md).
+# Project isolation: gcloud's active project must equal the configured target
+# project (TARGET_PROJECT from the profile; see CLAUDE.md and EP-60).
 set -euo pipefail
 
-PROJECT=tan-nb-exp
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  exit 1
-fi
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Exports TARGET_PROJECT for the gcloud call sites below.
+source "$(dirname "$0")/lib/target.sh"
+_require_target_project
 
 # Resolve the operator's OS Login username from the active gcloud identity.
 # GCP's documented derivation: lowercase the account email, replace `@` and
@@ -109,7 +108,7 @@ start_tunnel() {
   local_port=$(( 30000 + (RANDOM % 30000) ))
   local logfile
   logfile="$(mktemp -t iap-tunnel.XXXXXX)"
-  gcloud --project="${PROJECT}" compute start-iap-tunnel "${instance}" "${remote_port}" \
+  gcloud --project="${TARGET_PROJECT}" compute start-iap-tunnel "${instance}" "${remote_port}" \
     --zone="${ZONE}" --local-host-port="localhost:${local_port}" \
     --quiet >"${logfile}" 2>&1 &
   local pid=$!
@@ -360,7 +359,7 @@ cmd_tunnel() {
   # Use the requested local port verbatim.
   local logfile
   logfile="$(mktemp -t iap-tunnel.XXXXXX)"
-  gcloud --project="${PROJECT}" compute start-iap-tunnel "${instance}" "${remote_port}" \
+  gcloud --project="${TARGET_PROJECT}" compute start-iap-tunnel "${instance}" "${remote_port}" \
     --zone="${ZONE}" --local-host-port="localhost:${want_local_port}" \
     --quiet >"${logfile}" 2>&1 &
   local pid=$!

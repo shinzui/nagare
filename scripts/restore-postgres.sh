@@ -2,13 +2,9 @@
 # scripts/restore-postgres.sh (EP-7 M2) — restore a pg_dump from GCS into a
 # SCRATCH database, never over the live db. Prints a row count to compare.
 set -euo pipefail
-PROJECT=tan-nb-exp
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  exit 1
-fi
-BUCKET="${BACKUP_BUCKET:?set BACKUP_BUCKET}"
+source "$(dirname "$0")/lib/target.sh"
+_require_target_project
+BUCKET="${BACKUP_BUCKET:-${NAGARE_BACKUP_BUCKET:?set BACKUP_BUCKET or NAGARE_BACKUP_BUCKET}}"
 OBJECT="${1:?usage: restore-postgres.sh gs://BUCKET/postgres/<dump>.sql.gz}"
 SCRATCH_DB="${SCRATCH_DB:-notes_restore_scratch}"
 TMP="$(mktemp --suffix=.sql.gz)"

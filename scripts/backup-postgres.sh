@@ -5,15 +5,13 @@
 # no key files.
 set -euo pipefail
 
-# --- Integration Point 9 preflight: refuse to run outside tan-nb-exp ---
-PROJECT=tan-nb-exp
-ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-  echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-  exit 1
-fi
+# Load the target profile and run the configurable, fail-closed project-isolation
+# preflight (EP-60). Refuses to run unless gcloud's active project equals the
+# configured TARGET_PROJECT.
+source "$(dirname "$0")/lib/target.sh"
+_require_target_project
 
-BUCKET="${BACKUP_BUCKET:?set BACKUP_BUCKET to the backupBucket stack output}"
+BUCKET="${BACKUP_BUCKET:-${NAGARE_BACKUP_BUCKET:?set BACKUP_BUCKET or NAGARE_BACKUP_BUCKET to the backup bucket name}}"
 DB="${PGDATABASE:-notes}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="/var/lib/nagare/backups/postgres-${DB}-${STAMP}.sql.gz"
