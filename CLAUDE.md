@@ -2,50 +2,64 @@
 
 ## GCP project isolation
 
-All GCP resources created, modified, or read by anything in this
-repository live in **`tan-nb-exp`**, region **`us-west1`**, default
-zone **`us-west1-a`**.
+This repository targets **one** GCP project at a time — but **which** project is
+**configurable**, not hard-coded. The target (project, region, zone, and the
+derived resource names) is read from a per-operator **target profile**: a
+git-ignored file `nagare.target.env` at the repo root, a sequence of
+`export VAR=value` lines. The tracked `nagare.target.env.example` documents the
+schema and ships the original **`tan-nb-exp`** / **`us-west1`** / **`us-west1-a`**
+values as the worked example. `tan-nb-exp` is the **default example, not a hard
+constraint**: with no profile present the defaults reproduce it, so the original
+setup is unchanged; with a profile, nagare acts on the operator's own project.
 
-No script, command, or instruction in this repository may target any
-other GCP project. This includes read operations: listing, describing,
-or querying state must be done against `tan-nb-exp`.
+The single-project isolation guardrail is **preserved and still fail-closed** —
+it now asserts against the **configured** target project rather than the literal
+`tan-nb-exp`. No script, command, or instruction may act on a project other than
+the configured target; that applies to reads (listing, describing, querying)
+too. Switching projects means editing the profile, never running two at once.
 
 ### How the policy is enforced
 
-1. **`.envrc`** at the repo root exports `CLOUDSDK_CORE_PROJECT`,
-   `CLOUDSDK_COMPUTE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` so any shell
-   entered here makes `tan-nb-exp` the default for unqualified `gcloud`
-   invocations. Run `direnv allow` once to enable it.
+1. **The target profile is canonical.** `nagare.target.env` is the single source
+   of truth for the GCP target. The canonical variables — read verbatim by every
+   consumer — are `CLOUDSDK_CORE_PROJECT`, `CLOUDSDK_COMPUTE_REGION`,
+   `CLOUDSDK_COMPUTE_ZONE` (the standard Cloud SDK names, so interactive `gcloud`
+   and the Pulumi GCP provider honor them), plus `NAGARE_REGISTRY_HOST`,
+   `NAGARE_ARTIFACT_REGISTRY_ID`, `NAGARE_IMAGE_BUCKET`, `NAGARE_BACKUP_BUCKET`,
+   `NAGARE_BASE_DOMAIN`, and `NAGARE_INSTANCE_NAME`. Precedence: environment >
+   profile > built-in default (the `tan-nb-exp` value).
 
-2. **Scripts under `scripts/`** must include the preflight assertion that
-   verifies the active project equals `tan-nb-exp` before they make any
-   gcloud call. The pattern is:
+2. **`.envrc`** at the repo root sources `nagare.target.env` (if present) and
+   exports the three `CLOUDSDK_*` variables with the `tan-nb-exp`/`us-west1`/
+   `us-west1-a` fallback defaults, so any shell entered here makes the configured
+   project the default for unqualified `gcloud`. Run `direnv allow` once.
 
-   ```bash
-   PROJECT=tan-nb-exp
-   ACTIVE_PROJECT="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-   if [ "$ACTIVE_PROJECT" != "$PROJECT" ]; then
-     echo "refusing to run: gcloud active project is '${ACTIVE_PROJECT:-<unset>}', expected '$PROJECT'." >&2
-     exit 1
-   fi
-   ```
+3. **The guardrail lives in one place:** `scripts/lib/target.sh`. Scripts
+   `source` it and call `_require_target_project`, which refuses to run unless
+   gcloud's active project equals the configured `TARGET_PROJECT`. This replaces
+   the six-line preflight that used to be copy-pasted into every script. No code
+   may weaken the fail-closed behavior; only the compared value is configurable.
 
-3. **Every gcloud invocation** in scripts passes `--project="$PROJECT"`
-   explicitly. The env-var fallback and the preflight check are defenses
-   in depth, not substitutes for the explicit flag.
+4. **Pulumi config is a derived projection** of the profile (written at
+   onboarding, not hand-edited). `.envrc` and the scripts never shell out to
+   Pulumi to learn the target; they read the profile, which is instant and works
+   before any stack exists.
 
-4. **Pulumi state is isolated in-repo** via
-   `pulumi login file://./infra/pulumi/.pulumi-state` with the passphrase
-   secrets provider (EP-2 configures this). `PULUMI_HOME` and
-   `PULUMI_CONFIG_PASSPHRASE` are set by `.envrc`.
+5. **Pulumi state is isolated in-repo** via
+   `pulumi login file://./infra/pulumi/.pulumi-state` with the passphrase secrets
+   provider (EP-2 configures this). `PULUMI_HOME` and `PULUMI_CONFIG_PASSPHRASE`
+   are set by `.envrc`.
 
-### When the policy might be revised
+### Decision Log basis
 
-Only when the work in this repository is intentionally extended to operate
-against a different or additional GCP project. That is a deliberate
-architectural change and must be recorded in the MasterPlan Decision Log
-(`docs/masterplans/1-bootstrap-nagare-personal-paas.md`) before any code
-targeting another project is written.
+The earlier policy made `tan-nb-exp` an immutable binding and required a
+MasterPlan Decision Log entry before any code targeted another project. That
+decision exists:
+`docs/masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md`
+("Bring-your-own GCP project onboarding for nagare") is the architectural
+decision that authorizes the configurable model and supersedes the single-project
+constraint. Any further change to the target model is recorded in that
+MasterPlan's Decision Log.
 
 ## Git conventions
 

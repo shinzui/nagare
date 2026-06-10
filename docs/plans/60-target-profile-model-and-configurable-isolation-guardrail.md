@@ -81,14 +81,15 @@ This section must always reflect the actual current state of the work.
       copying the example and editing the project changes `TARGET_PROJECT`; a forced active-project
       mismatch makes `_require_target_project` exit non-zero with the fix message. All three
       transcripts matched. (2026-06-10)
-- [ ] M2.1 — Rewrite `.envrc` to `source_env`/source the profile then export
+- [x] M2.1 — Rewrite `.envrc` to `source_env`/source the profile then export
       `CLOUDSDK_CORE_PROJECT`/`REGION`/`ZONE` with `${VAR:-default}` fallbacks, preserving the
-      Pulumi exports and `use flake`.
-- [ ] M2.2 — Rewrite the "GCP project isolation" section of `CLAUDE.md` to the configurable model
-      and cite MasterPlan 12 as the Decision-Log entry the old policy required.
-- [ ] M2.3 — Update the justfile header comment (line ~5) to describe the configurable target.
-- [ ] M2.4 — Verify M2: `direnv allow` then `echo $CLOUDSDK_CORE_PROJECT` is `tan-nb-exp` with no
-      profile; a profile with a different project flips the exported env var on re-entry.
+      Pulumi exports and `use flake`. (2026-06-10)
+- [x] M2.2 — Rewrite the "GCP project isolation" section of `CLAUDE.md` to the configurable model
+      and cite MasterPlan 12 as the Decision-Log entry the old policy required. (2026-06-10)
+- [x] M2.3 — Update the justfile header comment (line ~5) to describe the configurable target. (2026-06-10)
+- [x] M2.4 — Verify M2: `direnv allow` then `echo $CLOUDSDK_CORE_PROJECT` is `tan-nb-exp` with no
+      profile; a profile with a different project flips the exported env var on re-entry. Both
+      `direnv exec` transcripts matched (`tan-nb-exp` default, `acme-prod` with profile). (2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -144,7 +145,28 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-60 delivered the target-profile contract and the configurable isolation guardrail exactly as
+scoped. Both milestones are complete and all four acceptance criteria (A1–A4) were verified by
+observable behavior, not file presence:
+
+- **A1** — with no profile, `direnv` and the helper both report `tan-nb-exp` (defaults preserve
+  today's behavior).
+- **A2** — a `nagare.target.env` with `CLOUDSDK_CORE_PROJECT=acme-prod` flips both the shell
+  environment (`direnv exec`) and the guardrail's `TARGET_PROJECT`.
+- **A3** — the guardrail still fails closed: forcing a mismatched active project makes
+  `_require_target_project` print the refusal/fix message to stderr and return `1`.
+- **A4** — `nagare.target.env` is git-ignored (`git check-ignore` echoes the path); only the
+  tracked `nagare.target.env.example` and `scripts/lib/target.sh` were added.
+
+Result vs. purpose: the GCP target is now a single git-ignored file with a tracked schema, the
+guardrail is centralized in one sourced helper, and `tan-nb-exp` is a default example rather than a
+hard constraint — the exact foundation EP-61/EP-62/EP-63/EP-64 consume. No Haskell, Pulumi, or cloud
+call was touched, keeping the plan small as intended.
+
+Lessons: (1) the dev shell ships GNU sed, so the plan's BSD `sed -i ''` verification form fails —
+use a non-in-place redirect for the test (no shipped file uses `sed -i`). (2) Verify each downstream
+plan's claimed hard-coded sites against the live files before treating them as work (echoes the
+MasterPlan's `.tpl` correction).
 
 
 ## Context and Orientation

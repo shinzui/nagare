@@ -2,9 +2,11 @@
 # contents of each step are owned by the child plans referenced below,
 # under docs/plans/. Run `just --list` to see all recipes.
 #
-# All cloud commands target the tan-nb-exp GCP project (see .envrc and
-# CLAUDE.md). Enter the dev shell first with `nix develop`, or let direnv
-# load it automatically after `direnv allow`.
+# All cloud commands target the GCP project configured in the target profile
+# `nagare.target.env` (copy nagare.target.env.example to create one); with no
+# profile they default to tan-nb-exp / us-west1 / us-west1-a. See .envrc and
+# CLAUDE.md. Enter the dev shell first with `nix develop`, or let direnv load
+# it automatically after `direnv allow`.
 
 # Show all recipes.
 default:

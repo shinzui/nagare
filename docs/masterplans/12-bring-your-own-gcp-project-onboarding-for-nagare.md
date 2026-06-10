@@ -112,7 +112,7 @@ first-class `nagarectl init` command for a testable, guided UX, so the orchestra
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 60 | Target profile model and configurable isolation guardrail | docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md | None | None | In Progress |
+| 60 | Target profile model and configurable isolation guardrail | docs/plans/60-target-profile-model-and-configurable-isolation-guardrail.md | None | None | Complete |
 | 61 | Parameterize shell scripts and .envrc to the target profile | docs/plans/61-parameterize-shell-scripts-and-envrc-to-the-target-profile.md | EP-60 | None | Not Started |
 | 62 | Parameterize nagarectl and the DSL image refs to the target profile | docs/plans/62-parameterize-nagarectl-and-the-dsl-image-refs-to-the-target-profile.md | EP-60 | None | Not Started |
 | 63 | GCP bootstrap automation and nagarectl init onboarding command | docs/plans/63-gcp-bootstrap-automation-and-nagarectl-init-onboarding-command.md | EP-60, EP-62 | EP-61 | Not Started |
@@ -231,7 +231,7 @@ docs (`docs/user/`) with the same model. No other plan edits `CLAUDE.md`; they r
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-60: `nagare.target.env.example` + git-ignore entry exist; `scripts/lib/target.sh` loads the profile and runs the configurable fail-closed preflight; `.envrc` sources the profile with `tan-nb-exp` fallbacks; `CLAUDE.md` isolation section rewritten to the configurable model.
+- [x] EP-60: `nagare.target.env.example` + git-ignore entry exist; `scripts/lib/target.sh` loads the profile and runs the configurable fail-closed preflight; `.envrc` sources the profile with `tan-nb-exp` fallbacks; `CLAUDE.md` isolation section rewritten to the configurable model. (2026-06-10)
 - [ ] EP-61: all eight `scripts/` files source `scripts/lib/target.sh` (no literal `tan-nb-exp`/`us-west1` preflight remains); the one in-cluster project literal (`restore-volume.sh` Job manifest) is interpolated from `$TARGET_PROJECT`; the cdn-spike example scripts are reconciled; scripts run green against the default profile. (Note: `nix-builder-startup.sh.tpl` was found to carry no project literal, so it needs no change — see EP-61 Surprises.)
 - [ ] EP-62: `nagarectl` resolves a `TargetProfile` from the environment; the six literal `tan-nb-exp` refs, the `registryHost` constant, and the region/zone/bucket defaults are gone; DSL image refs derive their prefix from the profile; example/fixture `Config.hs` no longer bake project/region; CLI test suite green.
 - [ ] EP-63: `scripts/enable-apis.sh` (and/or `gcp.projects.Service`) codifies API enablement; `nagarectl init` preflights gcloud auth + operator IAM, prompts and writes `nagare.target.env`, enables APIs, and seeds Pulumi config; verified by onboarding a fresh (or simulated) project.
