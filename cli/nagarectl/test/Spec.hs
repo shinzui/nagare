@@ -36,6 +36,14 @@ import Nagare.App
   , restartPatch
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
+import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
+import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
+import Nagare.Database.Secret
+  ( ConnectionParts (..)
+  , composeConnectionUrl
+  , secretKeysFor
+  )
+import Nagare.Dsl.Database (Engine (..), engineToken)
 import Nagare.Ops.Doctor
   ( Check (..)
   , Remediation (..)
@@ -165,6 +173,7 @@ main =
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
+      , testGroup "Nagare.Database (EP-45)" databaseTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -1420,3 +1429,83 @@ baseSite b =
 unsafe :: Either Text a -> a
 unsafe (Right a) = a
 unsafe (Left e) = error ("test fixture invalid: " <> T.unpack e)
+
+-- ---------------------------------------------------------------------------
+-- EP-45: managed-database CLI pure helpers.
+
+databaseTests :: [TestTree]
+databaseTests =
+  [ testGroup
+      "Nagare.Database.Secret"
+      [ testCase "composeConnectionUrl postgres" $
+          composeConnectionUrl Postgres parts
+            @?= "postgresql://nagare:pw@pg-main.personal.svc.cluster.local:5432/pg_main"
+      , testCase "composeConnectionUrl redis" $
+          composeConnectionUrl Redis parts
+            @?= "redis://:pw@pg-main.personal.svc.cluster.local:6379"
+      , testCase "composeConnectionUrl clickhouse" $
+          composeConnectionUrl ClickHouse parts
+            @?= "clickhouse://nagare:pw@pg-main.personal.svc.cluster.local:9000"
+      , testCase "secretKeysFor postgres has the four keys" $
+          map fst (secretKeysFor Postgres parts)
+            @?= ["POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB", "DATABASE_URL"]
+      , testCase "secretKeysFor redis has two keys" $
+          map fst (secretKeysFor Redis parts) @?= ["REDIS_PASSWORD", "REDIS_URL"]
+      , testCase "engineToken maps the three engines" $
+          map engineToken [Postgres, Redis, ClickHouse] @?= ["postgres", "redis", "clickhouse"]
+      , testCase "passwordKey per engine" $
+          map passwordKey [Postgres, Redis, ClickHouse]
+            @?= ["POSTGRES_PASSWORD", "REDIS_PASSWORD", "CLICKHOUSE_PASSWORD"]
+      ]
+  , testGroup
+      "Nagare.Database.Create.buildDatabase"
+      [ testCase "builds postgres with defaults" $
+          case buildDatabase Postgres "pg-main" (mkParams Nothing Nothing) of
+            Right _ -> pure ()
+            Left e -> assertFailure (T.unpack e)
+      , testCase "rejects a bad name" $
+          assertBool "should reject" (isLeft (buildDatabase Postgres "Bad_Name" (mkParams Nothing Nothing)))
+      , testCase "rejects latest version" $
+          assertBool "should reject" (isLeft (buildDatabase Postgres "pg" (mkParams (Just "latest") Nothing)))
+      ]
+  , testGroup
+      "Nagare.Database.Discover"
+      [ testCase "dbLabelSelector" $
+          dbLabelSelector @?= "nagare.dev/managed-by=nagarectl,nagare.dev/database"
+      , testCase "extractDbRows parses a statefulset list" $
+          extractDbRows stsListJson
+            @?= Right [DbRow "pg-main" "postgres" "18" "10Gi" "Retain" "pg-main.personal.svc.cluster.local" True]
+      , testCase "extractDbRows on empty items is Right []" $
+          extractDbRows "{\"items\":[]}" @?= Right []
+      , testCase "extractDbRows on malformed JSON is Left" $
+          assertBool "should be Left" (isLeft (extractDbRows "not json"))
+      , testCase "formatDbTable renders a header" $
+          assertBool
+            "has NAME header"
+            ( "NAME"
+                `T.isInfixOf` formatDbTable
+                  [DbRow "pg-main" "postgres" "18" "10Gi" "Retain" "pg-main.personal.svc.cluster.local" True]
+            )
+      ]
+  ]
+  where
+    parts =
+      ConnectionParts
+        { cpUser = "nagare"
+        , cpPassword = "pw"
+        , cpHost = "pg-main.personal.svc.cluster.local"
+        , cpDb = "pg_main"
+        }
+    mkParams ver sz =
+      DbCreateParams
+        { dcpNamespace = "personal"
+        , dcpVersion = ver
+        , dcpSize = sz
+        , dcpCpu = Nothing
+        , dcpMemory = Nothing
+        , dcpConfig = Nothing
+        , dcpDryRun = True
+        }
+    stsListJson =
+      BC.pack
+        "{\"items\":[{\"metadata\":{\"name\":\"pg-main\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/engine\":\"postgres\",\"nagare.dev/managed-by\":\"nagarectl\"},\"annotations\":{\"nagare.dev/version\":\"18\",\"nagare.dev/size\":\"10Gi\",\"nagare.dev/retention\":\"Retain\"}},\"status\":{\"readyReplicas\":1}}]}"

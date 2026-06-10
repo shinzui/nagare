@@ -10,6 +10,7 @@ module Nagare.Deploy
   , applyPVCs
   , pvcPhases
   , waitForReady
+  , waitForRollout
   , serviceUrl
   ) where
 
@@ -95,6 +96,23 @@ waitForReady name namespace =
         , "ksvc/" <> T.unpack name
         , "-n"
         , T.unpack namespace
+        ]
+
+-- | Run @kubectl rollout status statefulset/\<name\> -n \<namespace\> --timeout=300s@.
+-- Blocks until the database StatefulSet's single replica is Ready or the timeout
+-- expires (MasterPlan 9, EP-45). Unlike 'waitForReady' (a Knative @ksvc@), a
+-- database is a StatefulSet, so the readiness gate is a rollout-status wait.
+waitForRollout :: Text -> Text -> IO ()
+waitForRollout namespace name =
+  run_ $
+    cmd "kubectl"
+      & addArgs
+        [ "rollout"
+        , "status"
+        , "statefulset/" <> T.unpack name
+        , "-n"
+        , T.unpack namespace
+        , "--timeout=300s"
         ]
 
 -- | Compute the service URL.

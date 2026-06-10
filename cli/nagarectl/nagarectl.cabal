@@ -33,6 +33,14 @@ library
     Nagare.App
     Nagare.App.Deployments
     Nagare.Build
+    Nagare.Database.Create
+    Nagare.Database.Delete
+    Nagare.Database.Discover
+    Nagare.Database.Get
+    Nagare.Database.List
+    Nagare.Database.Restart
+    Nagare.Database.Secret
+    Nagare.Database.Shell
     Nagare.Deploy
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv

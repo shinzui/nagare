@@ -83,24 +83,55 @@ This plan **owns** two MasterPlan Integration Points:
 
 ## Progress
 
-- [ ] M1: `db` subparser wired into `Main.hs`; `Command` gains `Db DbCommand`; `DbCommand` ADT
-      defined; `runDb` dispatcher; `Nagare.Database.Create` generates the password, renders+applies
-      the managed Secret, then provisions PVC → StatefulSet → Service in order, then waits Ready;
-      `--dry-run` prints the Secret (with a generated password), then PVC, StatefulSet, Service.
-      Pure helpers (`composeConnectionUrl`, `secretKeysFor`, `engineToken`) unit-tested.
-- [ ] M2: `Nagare.Database.Discover` (label discovery + pure `DbRow`/`formatDbTable`);
-      `nagarectl db list` and `nagarectl db get NAME` working; table formatter unit-tested.
-- [ ] M3: `nagarectl db shell NAME` (`kubectl exec -it` into the pod with the engine client) and
-      `nagarectl db restart NAME` (roll the StatefulSet, wait Ready).
-- [ ] M4: `nagarectl db delete NAME` honoring `RetentionPolicy` (Retain ⇒ keep the PVC and warn;
-      Delete ⇒ remove it) behind a `--yes` confirmation guard; deletes StatefulSet → Service →
-      Secret (and conditionally the PVC) explicitly and in order.
-- [ ] Live verification on `nagare-01` (deferred-with-instructions; see Validation and Acceptance).
+- [x] M1 (2026-06-10): `db` subparser wired into `Main.hs`; `Command` gains `Db DbCommand`;
+      `DbCommand` ADT + option records defined; `engineReader`; `runDb` dispatcher;
+      `Nagare.Database.Create.runDbCreate` builds the `Database` via EP-44 smart constructors,
+      generates the password (`openssl rand`), renders+applies the IP3 Secret, applies
+      `renderDatabase` (PVC, ClickHouse ConfigMap, Service, StatefulSet), stamps version/size/
+      retention annotations, and waits for rollout; `--dry-run` prints the Secret + manifests and
+      applies nothing. Pure helpers (`composeConnectionUrl`, `secretKeysFor`, `engineToken`,
+      `passwordKey`, `buildDatabase`) unit-tested. Verified all three engines via real-CLI `--dry-run`.
+- [x] M2 (2026-06-10): `Nagare.Database.Discover` (label selector, defensive `extractDbRows`,
+      `listDatabases`/`getDatabase`, pure `formatDbTable`); `Nagare.Database.List`/`Get`;
+      `db list` and `db get NAME` working (get shows Secret *key names* only). Discovery + table
+      tests pass.
+- [x] M3 (2026-06-10): `Nagare.Database.Shell` (`kubectl exec -it <name>-0 -- <engine client>`,
+      credentials read from the pod env) and `Nagare.Database.Restart` (`kubectl rollout restart` +
+      wait; `--dry-run` previews). Verified `db restart --dry-run`.
+- [x] M4 (2026-06-10): `Nagare.Database.Delete` honoring `RetentionPolicy` read from the
+      `nagare.dev/retention` annotation (Retain ⇒ keep PVC + warn; Delete ⇒ remove it), behind a
+      `--yes` guard; deletes StatefulSet → Service → Secret → ConfigMap (→ PVC if Delete) explicitly
+      with `--ignore-not-found`. All 186 `nagarectl-test` + 214 `nagare-dsl-test` pass.
+- [ ] Live verification on `nagare-01` (deferred-with-instructions; the live create/list/get/shell/
+      restart/delete transcripts belong to EP-48, which deploys real databases on the cluster).
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **EP-44 stamps only managed-by/database/engine labels — version/size/retention are not on any
+  rendered resource, so `db create` must stamp them itself.** The plan assumed the StatefulSet
+  carried engine/version/size labels; EP-44's renderer stamps only the three IP3 labels. Crucially,
+  **retention** is a policy that lives only in the typed `Database` at create time and is reflected
+  in no Kubernetes spec — so `db delete` cannot read it back unless `db create` persists it.
+  Resolution: after applying, `db create` runs one `kubectl annotate statefulset/<name> --overwrite
+  nagare.dev/version=… nagare.dev/size=… nagare.dev/retention=…`. `Discover.extractDbRows` reads
+  these annotations (version falls back to the container image tag, size to `?`, retention to
+  `Retain`); `db delete` reads `nagare.dev/retention`. Recorded as a Decision below.
+
+- **`engineToken`/`dbSecretName` are already exported by EP-44's `Nagare.Dsl.Database`**, so
+  `Nagare.Database.Secret` imports them rather than redefining (the plan listed them as new pure
+  helpers here). The Secret module owns only the value-side helpers (`composeConnectionUrl`,
+  `secretKeysFor`, `renderDbSecret`) and the base64 codec (Env.Store's `b64encode`/`b64decode` are
+  not exported, so they are reimplemented from the `memory` package — same codec choice).
+
+- **The managed Secret renders as compact JSON, not YAML** (like `Nagare.Env.Store.renderEnvSecret`),
+  while the EP-44 manifests render as YAML. Both are accepted by `kubectl apply -f`, so it is
+  correct; the dry-run Secret block is therefore one JSON line rather than a YAML block. Matches the
+  existing env-secret house pattern.
+
+- **`optparse-applicative`'s `argument` clashes with lens's `argument`** (both in scope via the
+  custom Prelude and the `Options.Applicative` import). Qualified as `Options.Applicative.argument`
+  for the `ENGINE` positional. `strArgument` (used elsewhere) is unambiguous.
 
 
 ## Decision Log
@@ -182,6 +213,22 @@ This plan **owns** two MasterPlan Integration Points:
   unreachable from a workstation (see Context and Orientation).
   Date: 2026-06-10
 
+- Decision: `db create` stamps `nagare.dev/version`, `nagare.dev/size`, and `nagare.dev/retention`
+  as annotations on the StatefulSet via a post-apply `kubectl annotate --overwrite`, because EP-44's
+  renderer stamps only the three IP3 labels and retention is reflected in no spec.
+  Rationale: `db list`/`get` need version/size for their tables and `db delete` needs the retention
+  policy; reading them back from the cluster requires persisting them. Annotating (idempotent,
+  `--overwrite`) keeps EP-44's renderer untouched and avoids manifest surgery. `extractDbRows`
+  reads the annotations with fallbacks (version → image tag, size → `?`, retention → `Retain`).
+  Date: 2026-06-10
+
+- Decision: `loadDatabase` (for the `db create --config` form) was added to `Nagare.Dsl.Load`
+  (exported) by this plan, since EP-44 shipped `decodeDatabase` but not the `runConfig`-based loader
+  (`runConfig` is private to `Load`). It mirrors `loadDeployment`/`loadStaticSite`.
+  Rationale: the `--config` form needs to compile-and-run a `Database` config; the one-line loader
+  belongs beside the others in `Load`, not duplicated in the CLI.
+  Date: 2026-06-10
+
 - Decision: Put the shared database-discovery logic in a new module `Nagare.Database.Discover` and
   design the `db` subparser so a new subcommand can be added without touching the existing ones.
   Rationale: EP-47 will add `nagarectl db backup` / `db restore`, which must discover the same
@@ -193,7 +240,24 @@ This plan **owns** two MasterPlan Integration Points:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-45 is complete (offline-provable scope). The `nagarectl db` command group
+(`list`/`create`/`get`/`shell`/`restart`/`delete`) is wired into `Main.hs` (IP4) with eight new
+`Nagare.Database.*` modules. `db create` generates the password (`openssl rand -base64 24`), writes
+the IP3 Secret (`nagare-db-<name>` with engine-specific keys + composed URL + IP3 labels — the
+create-time half of IP3), applies EP-44's rendered manifests in order, stamps version/size/retention
+annotations, and waits for the StatefulSet rollout; it is idempotent and never regenerates the
+password. `db delete` honors `RetentionPolicy` behind a `--yes` guard. All mutating commands support
+`--dry-run`. 15 new pure tests; 186 `nagarectl-test` + 214 `nagare-dsl-test` pass.
+
+Two coordination points with EP-44 surfaced (recorded in Surprises): EP-44 stamps only the three IP3
+labels, so `db create` annotates version/size/retention itself; and `loadDatabase` was added to
+`Nagare.Dsl.Load` for the `--config` form. The contracts EP-46/EP-47 consume are now fixed: the IP3
+Secret (name/keys/labels/values), `Nagare.Database.Discover.{dbLabelSelector,listDatabases,
+getDatabase}` (the IP4 discovery helper EP-47 extends), and the `db` subparser extension point.
+
+Deferred: the live create/list/get/shell/restart/delete transcripts on `nagare-01` (the cluster is
+unreachable from a workstation; the live leg is exercised by EP-48, which deploys the three example
+databases end to end).
 
 
 ## Context and Orientation

@@ -10,6 +10,7 @@ module Nagare.Dsl.Load
   , renderLoadError
   , loadDeployment
   , decodeDeployment
+  , loadDatabase
   , decodeDatabase
   , loadStaticSite
   , decodeStaticSite
@@ -728,6 +729,13 @@ runConfig path = do
 -- production-provisioning note handed to EP-12.
 loadDeployment :: FilePath -> IO (Either LoadError Deployment)
 loadDeployment path = fmap (>>= decodeDeployment) (runConfig path)
+
+-- | Load a 'Database' from a Haskell config-as-program source file (MasterPlan 9,
+-- EP-44/EP-45). The config must print its JSON via
+-- 'Nagare.Dsl.Config.emitDatabase'. A config that instead emits a 'Deployment' or
+-- a site is reported as 'UnexpectedKind'. Used by @nagarectl db create --config@.
+loadDatabase :: FilePath -> IO (Either LoadError Database)
+loadDatabase path = fmap (>>= decodeDatabase) (runConfig path)
 
 -- | Load a 'StaticSite' from a Haskell config-as-program source file. The config
 -- must print its JSON via 'Nagare.Dsl.Config.emitStaticSite'. A config that

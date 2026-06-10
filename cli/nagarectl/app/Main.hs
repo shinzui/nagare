@@ -43,8 +43,15 @@ import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
+import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
+import Nagare.Database.Get (runDbGet)
+import Nagare.Database.List (runDbList)
+import Nagare.Database.Restart (runDbRestart)
+import Nagare.Database.Shell (runDbShell)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
+import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
 import Nagare.Dsl.Server.Types (ServerSite)
@@ -273,6 +280,7 @@ data Command
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
+  | Db DbCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Domains DomainsCommand
@@ -322,6 +330,51 @@ data StorageCommand
   = StorageList StoreCommonOpts
   | StorageInspect StoreCommonOpts String -- ^ VOLUME
   | StorageSnapshot StoreCommonOpts String (Maybe String) Int -- ^ VOLUME, --bucket, --keep (EP-36)
+
+-- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
+-- constructor per subcommand. EP-47 extends this with @DbBackup@/@DbRestore@
+-- constructors and the matching @command "backup"@/@command "restore"@ in the
+-- subparser — extend, not fork.
+data DbCommand
+  = DbList DbListOpts -- ^ nagarectl db list [-n NS]
+  | DbCreate Engine String DbCreateOpts -- ^ nagarectl db create ENGINE NAME [flags]
+  | DbGet DbNameOpts -- ^ nagarectl db get NAME [-n NS]
+  | DbShell DbNameOpts -- ^ nagarectl db shell NAME [-n NS]
+  | DbRestart DbNameOpts Bool -- ^ nagarectl db restart NAME [-n NS] [--dry-run]
+  | DbDelete DbDeleteOpts -- ^ nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
+
+-- | Options for @db list@: just a namespace (default @personal@).
+newtype DbListOpts = DbListOpts {dbloNamespace :: Maybe String}
+  deriving stock (Generic, Show)
+
+-- | The positional NAME plus a namespace, shared by get/shell/restart.
+data DbNameOpts = DbNameOpts
+  { dbnName :: !String
+  , dbnNamespace :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @db create ENGINE NAME@. Engine and NAME are positionals on the
+-- 'DbCreate' constructor, not in this record.
+data DbCreateOpts = DbCreateOpts
+  { dbcNamespace :: !(Maybe String)
+  , dbcVersion :: !(Maybe String)
+  , dbcSize :: !(Maybe String)
+  , dbcCpu :: !(Maybe String)
+  , dbcMemory :: !(Maybe String)
+  , dbcConfig :: !(Maybe FilePath)
+  , dbcDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @db delete NAME@: namespace, the --yes guard, and --dry-run.
+data DbDeleteOpts = DbDeleteOpts
+  { dbdName :: !String
+  , dbdNamespace :: !(Maybe String)
+  , dbdYes :: !Bool
+  , dbdDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
 
 -- | Options for @server status@ (MasterPlan 8, EP-38). @--skip-vm@ skips the
 -- best-effort IAP-SSH disk probe (so the report needs no SSH setup).
@@ -611,6 +664,44 @@ storeCommonOptsParser :: Parser StoreCommonOpts
 storeCommonOptsParser =
   StoreCommonOpts <$> appArg <*> configFileOpt <*> ghcEnvOpt
 
+-- Managed-database option fragments (MasterPlan 9, EP-45).
+
+-- | Parse the positional ENGINE argument into the typed 'Engine'.
+engineReader :: ReadM Engine
+engineReader = eitherReader $ \case
+  "postgres" -> Right Postgres
+  "redis" -> Right Redis
+  "clickhouse" -> Right ClickHouse
+  other -> Left ("unknown engine '" <> other <> "' (expected postgres | redis | clickhouse)")
+
+dbNameArg :: Parser String
+dbNameArg = strArgument (metavar "NAME" <> help "Managed database name (DNS label)")
+
+dbListOptsParser :: Parser DbListOpts
+dbListOptsParser = DbListOpts <$> namespaceOpt
+
+dbNameOptsParser :: Parser DbNameOpts
+dbNameOptsParser = DbNameOpts <$> dbNameArg <*> namespaceOpt
+
+dbCreateOptsParser :: Parser DbCreateOpts
+dbCreateOptsParser =
+  DbCreateOpts
+    <$> namespaceOpt
+    <*> optional (strOption (long "version" <> metavar "TAG" <> help "Pinned engine image tag (per-engine default if absent)"))
+    <*> optional (strOption (long "size" <> metavar "QTY" <> help "Data volume size (default 10Gi, redis 2Gi)"))
+    <*> optional (strOption (long "cpu" <> metavar "QTY" <> help "CPU limit (e.g. 500m)"))
+    <*> optional (strOption (long "memory" <> metavar "QTY" <> help "Memory limit (e.g. 1Gi)"))
+    <*> optional (strOption (long "config" <> metavar "FILE" <> help "Load a typed Database from a Config.hs instead of building from flags"))
+    <*> dryRunOpt
+
+dbDeleteOptsParser :: Parser DbDeleteOpts
+dbDeleteOptsParser =
+  DbDeleteOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
+    <*> dryRunOpt
+
 scopeSelectionParser :: Parser ScopeSelection
 scopeSelectionParser =
   ScopeSelection
@@ -654,6 +745,7 @@ opts =
             <> command "app" appCmd
             <> command "deployments" deploymentsCmd
             <> command "storage" storageCmd
+            <> command "db" dbCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "domains" domainsCmd
@@ -941,6 +1033,56 @@ opts =
                   (progDesc "Snapshot a volume's contents to the GCS backup bucket")
               )
         )
+    dbCmd =
+      info
+        (dbSubparser <**> helper)
+        (fullDesc <> progDesc "Provision and operate managed databases (Postgres, Redis, ClickHouse)")
+    dbSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (Db . DbList <$> dbListOptsParser <**> helper)
+                (progDesc "List managed databases in a namespace")
+            )
+            <> command
+              "create"
+              ( info
+                  ( Db
+                      <$> ( DbCreate
+                              <$> Options.Applicative.argument engineReader (metavar "ENGINE" <> help "postgres | redis | clickhouse")
+                              <*> strArgument (metavar "NAME" <> help "Database name (DNS label)")
+                              <*> dbCreateOptsParser
+                          )
+                      <**> helper
+                  )
+                  (progDesc "Create a managed database: generate credentials and provision it")
+              )
+            <> command
+              "get"
+              ( info
+                  (Db . DbGet <$> dbNameOptsParser <**> helper)
+                  (progDesc "Show one database's detail and its Secret key names")
+              )
+            <> command
+              "shell"
+              ( info
+                  (Db . DbShell <$> dbNameOptsParser <**> helper)
+                  (progDesc "Open an interactive engine client inside the database pod")
+              )
+            <> command
+              "restart"
+              ( info
+                  (Db <$> (DbRestart <$> dbNameOptsParser <*> dryRunOpt) <**> helper)
+                  (progDesc "Roll the database StatefulSet and wait for Ready")
+              )
+            <> command
+              "delete"
+              ( info
+                  (Db . DbDelete <$> dbDeleteOptsParser <**> helper)
+                  (progDesc "Delete a database, honoring its retention policy (guarded by --yes)")
+              )
+        )
     deploymentsCmd =
       info
         (deploymentsSubparser <**> helper)
@@ -985,6 +1127,7 @@ main =
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
+    Db dcmd -> runDb dcmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Domains (DomainsList o) -> runDomainsList o
@@ -1597,6 +1740,39 @@ runStorage = \case
     dep <- resolveStorageDep copts
     b <- resolveBackupBucket bucket
     runSnapshot dep (T.pack vol) b keep
+
+-- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
+-- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
+runDb :: DbCommand -> IO ()
+runDb = \case
+  DbList o -> runDbList (nsOf (dbloNamespace o))
+  DbCreate eng name o -> do
+    when (isJust (dbcConfig o)) (provisionGhcEnv Nothing)
+    runDbCreate
+      eng
+      (T.pack name)
+      DbCreateParams
+        { dcpNamespace = nsOf (dbcNamespace o)
+        , dcpVersion = T.pack <$> dbcVersion o
+        , dcpSize = T.pack <$> dbcSize o
+        , dcpCpu = T.pack <$> dbcCpu o
+        , dcpMemory = T.pack <$> dbcMemory o
+        , dcpConfig = dbcConfig o
+        , dcpDryRun = dbcDryRun o
+        }
+  DbGet o -> runDbGet (nsOf (dbnNamespace o)) (T.pack (dbnName o))
+  DbShell o -> runDbShell (nsOf (dbnNamespace o)) (T.pack (dbnName o))
+  DbRestart o dry -> runDbRestart (nsOf (dbnNamespace o)) (T.pack (dbnName o)) dry
+  DbDelete o ->
+    runDbDelete
+      DbDeleteParams
+        { ddpName = T.pack (dbdName o)
+        , ddpNamespace = nsOf (dbdNamespace o)
+        , ddpYes = dbdYes o
+        , ddpDryRun = dbdDryRun o
+        }
+  where
+    nsOf = maybe "personal" T.pack
 
 -- | Resolve the GCS backup bucket: @--bucket@, then @NAGARE_BACKUP_BUCKET@,
 -- defaulting to @tan-nb-exp-nagare-backups@ (the Pulumi @backupBucket@ output).
