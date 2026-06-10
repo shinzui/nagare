@@ -30,6 +30,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.App
     Nagare.Build
     Nagare.Deploy
     Nagare.Env.BuildArgs

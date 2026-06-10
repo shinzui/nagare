@@ -54,7 +54,7 @@ subsequent `app list` no longer shows it.
 
 ## Progress
 
-- [ ] M1: `Nagare.App` module with `appIdentityOrDie`, `streamServiceLogs`, and the pure helpers; added to the cabal library; unit tests for the pure helpers.
+- [x] M1: `Nagare.App` module with `appIdentityOrDie`, `streamServiceLogs`, and the pure helpers; added to the cabal library; unit tests for the pure helpers. (2026-06-10)
 - [ ] M2: `app list` and `app get` wired into the CLI parser and working against the cluster.
 - [ ] M3: `app logs [--follow]`, `app restart`, `app stop`, `app delete` wired and working.
 - [ ] M4: `nagarectl-test` green; manual end-to-end transcript captured in this plan.

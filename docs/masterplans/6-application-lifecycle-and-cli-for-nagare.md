@@ -137,7 +137,7 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
-| 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Not Started |
+| 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | In Progress |
 | 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Not Started |
 | 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Not Started |
 

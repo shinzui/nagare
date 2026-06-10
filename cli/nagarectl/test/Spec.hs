@@ -21,7 +21,19 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import Nagare.App
+  ( AppSummary (..)
+  , LogTarget (..)
+  , extractAppSummaries
+  , extractAppSummary
+  , extractDomainsFor
+  , formatAppList
+  , logArgs
+  , parseServiceNames
+  , restartPatch
+  )
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Server.Types
@@ -83,7 +95,121 @@ main =
       , testGroup "EP-26 render demonstration" renderDemonstrationTests
       , testGroup "Nagare.Env.BuildArgs" buildArgsTests
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
+      , testGroup "Nagare.App" appTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.App (EP-30)
+
+appTests :: [TestTree]
+appTests =
+  [ testGroup
+      "parseServiceNames"
+      [ testCase "strips the resource prefix and drops blanks" $
+          parseServiceNames "service.serving.knative.dev/notes\n\nservice.serving.knative.dev/blog\n"
+            @?= ["notes", "blog"]
+      , testCase "tolerates already-bare names" $
+          parseServiceNames "notes\nblog\n" @?= ["notes", "blog"]
+      ]
+  , testGroup
+      "logArgs"
+      [ testCase "service selector, user-container, default no follow/tail" $
+          logArgs (LogTarget "personal" "notes" Nothing False Nothing)
+            @?= ["logs", "-l", "serving.knative.dev/service=notes", "-n", "personal", "-c", "user-container"]
+      , testCase "adds --tail and --follow" $
+          logArgs (LogTarget "personal" "notes" Nothing True (Just 50))
+            @?= [ "logs"
+                , "-l"
+                , "serving.knative.dev/service=notes"
+                , "-n"
+                , "personal"
+                , "-c"
+                , "user-container"
+                , "--tail"
+                , "50"
+                , "--follow"
+                ]
+      , testCase "pins the revision selector when given" $
+          logArgs (LogTarget "personal" "notes" (Just "notes-00003") False Nothing)
+            @?= [ "logs"
+                , "-l"
+                , "serving.knative.dev/service=notes,serving.knative.dev/revision=notes-00003"
+                , "-n"
+                , "personal"
+                , "-c"
+                , "user-container"
+                ]
+      ]
+  , testGroup
+      "restartPatch"
+      [ testCase "contains the stamp and is valid JSON" $ do
+          let p = restartPatch "20260610-120000"
+          assertBool "stamp present" ("20260610-120000" `T.isInfixOf` p)
+          assertBool "clears visibility label with null" ("\"networking.knative.dev/visibility\":null" `T.isInfixOf` p)
+          case eitherDecodeStrict (TE.encodeUtf8 p) :: Either String Aeson.Value of
+            Right _ -> pure ()
+            Left e -> assertFailure ("restartPatch is not valid JSON: " <> e)
+      ]
+  , testGroup
+      "extractAppSummary"
+      [ testCase "pulls name/url/ready/revision/image from a ksvc object" $
+          extractAppSummary ksvcJSON
+            @?= Right
+              AppSummary
+                { asName = "notes"
+                , asUrl = Just "https://notes.personal.apps.example.com"
+                , asReady = Just True
+                , asLatestRevision = Just "notes-00003"
+                , asImage = Just "gcr.io/p/notes:20260610-120000"
+                }
+      , testCase "missing .metadata.name is a Left" $
+          case extractAppSummary "{\"status\":{}}" of
+            Left _ -> pure ()
+            Right s -> assertFailure ("expected Left, got: " <> show s)
+      , testCase "a list response yields one summary per item" $
+          fmap (map asName) (extractAppSummaries ksvcListJSON) @?= Right ["notes"]
+      ]
+  , testGroup
+      "extractDomainsFor"
+      [ testCase "keeps only mappings whose spec.ref.name matches" $
+          extractDomainsFor "notes" domainMappingListJSON
+            @?= Right ["notes.example.com", "www.example.com"]
+      , testCase "no matches yields empty" $
+          extractDomainsFor "other" domainMappingListJSON @?= Right []
+      ]
+  , testGroup
+      "formatAppList"
+      [ testCase "aligns NAME/READY/URL and marks empty" $
+          formatAppList [] @?= "(no apps)\n"
+      , testCase "renders a row with ready and url" $ do
+          let out = formatAppList [AppSummary "notes" (Just "https://x") (Just True) Nothing Nothing]
+          assertBool "has header NAME" ("NAME" `T.isInfixOf` out)
+          assertBool "has the app name" ("notes" `T.isInfixOf` out)
+          assertBool "has ready True" ("True" `T.isInfixOf` out)
+          assertBool "has url" ("https://x" `T.isInfixOf` out)
+      ]
+  ]
+  where
+    ksvcJSON =
+      BC.pack $
+        concat
+          [ "{\"metadata\":{\"name\":\"notes\"},"
+          , "\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"gcr.io/p/notes:20260610-120000\"}]}}},"
+          , "\"status\":{\"url\":\"https://notes.personal.apps.example.com\","
+          , "\"latestReadyRevisionName\":\"notes-00003\","
+          , "\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
+          ]
+    ksvcListJSON =
+      BC.pack ("{\"items\":[" <> BC.unpack ksvcJSON <> "]}")
+    domainMappingListJSON =
+      BC.pack $
+        concat
+          [ "{\"items\":["
+          , "{\"metadata\":{\"name\":\"notes.example.com\"},\"spec\":{\"ref\":{\"name\":\"notes\"}}},"
+          , "{\"metadata\":{\"name\":\"www.example.com\"},\"spec\":{\"ref\":{\"name\":\"notes\"}}},"
+          , "{\"metadata\":{\"name\":\"blog.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}}}"
+          , "]}"
+          ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Env.PreviewOverlay (EP-27 M2)
