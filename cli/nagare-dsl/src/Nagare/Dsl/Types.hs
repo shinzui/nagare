@@ -116,6 +116,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build (BuildSpec)
+import Nagare.Dsl.Cdn.Types (Cdn)
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
@@ -614,6 +615,9 @@ data Deployment = Deployment
   -- inherits this app's resolved image tag and its managed runtime env/secret.
   -- EP-52 resolves the inherited values in @cli/nagarectl@.
   , tasks :: ![Task]
+  -- | An optional edge CDN fronting the app (MasterPlan 11, EP-55). 'Nothing'
+  -- (the backward-compatible default) means no CDN.
+  , cdn :: !(Maybe Cdn)
   }
   deriving stock (Generic, Eq, Show)
 

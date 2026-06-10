@@ -16,6 +16,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Load
 import Nagare.Dsl.Server.Render
 import Nagare.Dsl.Server.Types
@@ -57,6 +58,7 @@ notesApp =
     , scale = Just (unsafe (mkScale 1 3))
     , domains = [unsafe (mkDomain "notes-app.example.com")]
     , volumes = []
+    , cdn = Just (withDefaultTtl 600 gcpCloudCdn)
     }
 
 loadAndGoldenTests :: [TestTree]

@@ -13,7 +13,9 @@ module Nagare.Dsl.Config
   , emitDatabase
   , encodeDatabase
   , emitStaticSite
+  , encodeStaticSite
   , emitServerSite
+  , encodeServerSite
   , emitTask
   , encodeTask
   ) where
@@ -30,6 +32,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -155,6 +158,27 @@ volumeJSON v =
     retentionToken Retain = "Retain" :: Text
     retentionToken Delete = "Delete"
 
+-- | The nested @"cdn"@ object emitted inside a static site, server site, or
+-- deployment (MasterPlan 11, EP-55). Provider tokens are the wire contract
+-- EP-56/EP-57/EP-58 read: @"Cloudflare"@ and @"GcpCloudCdn"@. A per-path rule's
+-- @edgeTtlSeconds: null@ encodes the "never cache this path" case.
+cdnJSON :: Cdn -> Value
+cdnJSON c =
+  object
+    [ "provider" .= providerToken (c ^. #provider)
+    , "defaultTtlSeconds" .= (c ^. #defaultTtlSeconds)
+    , "cacheStaticAssets" .= (c ^. #cacheStaticAssets)
+    , "cacheRules" .= map ruleJSON (c ^. #cacheRules)
+    ]
+  where
+    providerToken CloudflareCdn = "Cloudflare" :: Text
+    providerToken GcpCloudCdn = "GcpCloudCdn"
+    ruleJSON r =
+      object
+        [ "pathPrefix" .= (r ^. #pathPrefix)
+        , "edgeTtlSeconds" .= (r ^. #edgeTtlSeconds)
+        ]
+
 -- | The scope set of a 'ScopedEnvVar' as a JSON-ready list of capitalized
 -- tokens matching the 'Show' 'EnvScope' names (@"Runtime"@, @"Build"@,
 -- @"Preview"@), sorted ascending for deterministic output. These capitalized
@@ -166,7 +190,7 @@ scopeTokensJSON sev = map (Text.pack . show) (Set.toAscList (sev ^. #scopes))
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load').
 deploymentJSON :: Deployment -> Value
 deploymentJSON dep =
-  object
+  object $
     [ "name" .= serviceNameText (dep ^. #name)
     , "namespace" .= namespaceText (dep ^. #namespace)
     , "image" .= imageRefText (dep ^. #image)
@@ -185,6 +209,7 @@ deploymentJSON dep =
     , "databases" .= map databaseNameText (dep ^. #databases)
     , "tasks" .= map taskJSON (sortOn taskName (dep ^. #tasks))
     ]
+      <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
   where
     resources = dep ^. #resources
     scale = dep ^. #scale
@@ -253,12 +278,17 @@ deploymentJSON dep =
 -- @"kind": "StaticSite"@ discriminator lets the loader report a precise error if
 -- a config emits the wrong shape under @nagarectl site deploy@.
 emitStaticSite :: StaticSite -> IO ()
-emitStaticSite site = LBS.putStr (encode (staticSiteJSON site))
+emitStaticSite site = LBS.putStr (encodeStaticSite site)
+
+-- | The exact JSON bytes 'emitStaticSite' writes (exposed for the round-trip
+-- test, mirroring 'encodeDeployment').
+encodeStaticSite :: StaticSite -> LBS.ByteString
+encodeStaticSite = encode . staticSiteJSON
 
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeStaticSite').
 staticSiteJSON :: StaticSite -> Value
 staticSiteJSON site =
-  object
+  object $
     [ "kind" .= ("StaticSite" :: Text)
     , "name" .= siteNameText (site ^. #name)
     , "namespace" .= namespaceText (site ^. #namespace)
@@ -270,6 +300,7 @@ staticSiteJSON site =
     , "cache" .= cacheJSON (site ^. #cache)
     , "notFound" .= fmap filePathText (site ^. #notFound)
     ]
+      <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (site ^. #cdn)
   where
     buildJSON (NoBuild dir) =
       object
@@ -308,11 +339,16 @@ staticSiteJSON site =
 -- @"kind": "ServerSite"@ discriminator lets the loader dispatch and report a
 -- precise error if the wrong shape is deployed.
 emitServerSite :: ServerSite -> IO ()
-emitServerSite site = LBS.putStr (encode (serverSiteJSON site))
+emitServerSite site = LBS.putStr (encodeServerSite site)
+
+-- | The exact JSON bytes 'emitServerSite' writes (exposed for the round-trip
+-- test, mirroring 'encodeDeployment').
+encodeServerSite :: ServerSite -> LBS.ByteString
+encodeServerSite = encode . serverSiteJSON
 
 serverSiteJSON :: ServerSite -> Value
 serverSiteJSON site =
-  object
+  object $
     [ "kind" .= ("ServerSite" :: Text)
     , "name" .= siteNameText (site ^. #name)
     , "namespace" .= namespaceText (site ^. #namespace)
@@ -328,6 +364,7 @@ serverSiteJSON site =
     , "domains" .= map domainText (site ^. #domains)
     , "volumes" .= map volumeJSON (site ^. #volumes)
     ]
+      <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (site ^. #cdn)
   where
     resources = site ^. #resources
     scale = site ^. #scale

@@ -69,6 +69,7 @@ dep = mapLeft show $ do
       , volumes = []
       , databases = []
       , tasks = [syncTask]
+      , cdn = Nothing
       }
 
 main :: IO ()

@@ -8,6 +8,7 @@
 module Main (main) where
 
 import Data.Map.Strict qualified as Map
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Config (emitServerSite)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (mkSiteName)
@@ -41,6 +42,9 @@ serverSite = do
       , scale = Just sc
       , domains = [dom']
       , volumes = []
+      , -- Front the origin with Google Cloud CDN (a global HTTP(S) load
+        -- balancer) with a 10-minute default edge TTL.
+        cdn = Just (withDefaultTtl 600 gcpCloudCdn)
       }
   where
     mapLeft f = either (Left . f) Right

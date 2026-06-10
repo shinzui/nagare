@@ -41,6 +41,7 @@ serverSite = do
       , scale = Nothing
       , domains = []
       , volumes = []
+      , cdn = Nothing
       }
   where
     mapLeft f = either (Left . f) Right

@@ -67,6 +67,7 @@ webService nameText imageText = do
       , volumes = []
       , databases = []
       , tasks = []
+      , cdn = Nothing
       }
 
 -- | Development overlay: scale @0..1@ (still scale-to-zero, at most one

@@ -40,6 +40,7 @@ staticSite = do
       , headers = [header']
       , cache = cache'
       , notFound = Just notFound'
+      , cdn = Nothing
       }
   where
     mapLeft f = either (Left . f) Right

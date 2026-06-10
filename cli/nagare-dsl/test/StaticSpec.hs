@@ -13,6 +13,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy (fromStrict)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Load
 import Nagare.Dsl.Static.Render
 import Nagare.Dsl.Static.Types
@@ -52,6 +53,13 @@ notesSite =
     , headers = [unsafe (mkHeaderRule "/assets/" "X-Frame-Options" "DENY")]
     , cache = unsafe (mkCachePolicy True (Just 3600))
     , notFound = Just (unsafe (mkFilePathText "404.html"))
+    , cdn =
+        Just
+          ( unsafe
+              ( withCacheRule "/api/" Nothing
+                  =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
+              )
+          )
     }
 
 -- ---------------------------------------------------------------------------

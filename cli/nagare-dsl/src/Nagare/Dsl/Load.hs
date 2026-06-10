@@ -32,6 +32,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -219,6 +220,7 @@ data JsonDeployment = JsonDeployment
   , jdVolumes :: ![JsonVolume]
   , jdDatabases :: ![Text]
   , jdTasks :: ![JsonTask]
+  , jdCdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -242,6 +244,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "tasks" .!= []
+      <*> o .:? "cdn"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonDeployment -> Deployment (re-runs EP-9 smart constructors)
@@ -283,6 +286,7 @@ toDeployment jd = do
             "scale"
             "scaleMin and scaleMax must both be present or both absent"
         )
+  cdn' <- traverse toCdn (jdCdn jd)
   Right
     Deployment
       { name = name'
@@ -298,6 +302,7 @@ toDeployment jd = do
       , volumes = vols'
       , databases = dbRefs'
       , tasks = tasks'
+      , cdn = cdn'
       }
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
@@ -721,6 +726,69 @@ loadTask :: FilePath -> IO (Either LoadError Task)
 loadTask path = fmap (>>= decodeTask) (runConfig path)
 
 -- ---------------------------------------------------------------------------
+-- JSON intermediate for the optional CDN block (mirrors Nagare.Dsl.Config.cdnJSON)
+
+-- | One entry of the @cdn.cacheRules@ array. @edgeTtlSeconds@ is read with
+-- @.:?@ so a missing key is 'Nothing'; the encoder always writes the key (as
+-- @null@ for the never-cache case), so the round-trip preserves 'Nothing'.
+data JsonCdnCacheRule = JsonCdnCacheRule
+  { jcrPathPrefix     :: !Text
+  , jcrEdgeTtlSeconds :: !(Maybe Int)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonCdnCacheRule where
+  parseJSON = withObject "CdnCacheRule" $ \o ->
+    JsonCdnCacheRule <$> o .: "pathPrefix" <*> o .:? "edgeTtlSeconds"
+
+-- | The decoded @"cdn"@ object. @cacheStaticAssets@ defaults to 'True' and
+-- @cacheRules@ to @[]@ so a hand-written partial object is forgiving, mirroring
+-- how 'JsonVolume'/'JsonHealthCheck' default their optional fields.
+data JsonCdn = JsonCdn
+  { jcProvider          :: !Text
+  , jcDefaultTtlSeconds :: !(Maybe Int)
+  , jcCacheStaticAssets :: !Bool
+  , jcCacheRules        :: ![JsonCdnCacheRule]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonCdn where
+  parseJSON = withObject "Cdn" $ \o ->
+    JsonCdn
+      <$> o .: "provider"
+      <*> o .:? "defaultTtlSeconds"
+      <*> o .:? "cacheStaticAssets" .!= True
+      <*> o .:? "cacheRules" .!= []
+
+-- | Re-validate a decoded @"cdn"@ object back into a 'Cdn', re-running the
+-- per-path smart constructor and decoding the provider token. The provider
+-- tokens are the wire contract fixed by EP-55 (@"Cloudflare"@ / @"GcpCloudCdn"@);
+-- a negative @defaultTtlSeconds@ is rejected here because neither the encoder
+-- nor 'Nagare.Dsl.Cdn.Types.withDefaultTtl' can catch a hand-written value.
+toCdn :: JsonCdn -> Either LoadError Cdn
+toCdn j = do
+  prov <- case jcProvider j of
+    "Cloudflare" -> Right CloudflareCdn
+    "GcpCloudCdn" -> Right GcpCloudCdn
+    other -> Left (MarshalError "cdn.provider" ("unknown cdn provider: " <> other))
+  case jcDefaultTtlSeconds j of
+    Just n | n < 0 ->
+      Left (MarshalError "cdn.defaultTtlSeconds" ("must be >= 0, got: " <> Text.pack (show n)))
+    _ -> Right ()
+  rules <- traverse toCdnCacheRule (jcCacheRules j)
+  Right
+    Cdn
+      { provider = prov
+      , defaultTtlSeconds = jcDefaultTtlSeconds j
+      , cacheStaticAssets = jcCacheStaticAssets j
+      , cacheRules = rules
+      }
+  where
+    toCdnCacheRule r =
+      mapLeft (MarshalError "cdn.cacheRules") $
+        mkCdnCacheRule (jcrPathPrefix r) (jcrEdgeTtlSeconds r)
+
+-- ---------------------------------------------------------------------------
 -- JSON intermediate for static sites (mirrors Nagare.Dsl.Config's emitted shape)
 
 -- | A minimal envelope used to read the top-level @kind@ discriminator before
@@ -789,6 +857,7 @@ data JsonStaticSite = JsonStaticSite
   , jssHeaders :: ![JsonHeader]
   , jssCache :: !JsonCache
   , jssNotFound :: !(Maybe Text)
+  , jssCdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -804,6 +873,7 @@ instance FromJSON JsonStaticSite where
       <*> o .: "headers"
       <*> o .: "cache"
       <*> o .:? "notFound"
+      <*> o .:? "cdn"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonStaticSite -> StaticSite (re-runs the smart constructors)
@@ -821,6 +891,7 @@ toStaticSite j = do
     mapLeft (MarshalError "cache") $
       mkCachePolicy (jcImmutableAssets cacheJ) (jcDefaultMaxAge cacheJ)
   notFound' <- traverse (mapLeft (MarshalError "notFound") . mkFilePathText) (jssNotFound j)
+  cdn' <- traverse toCdn (jssCdn j)
   Right
     StaticSite
       { name = name'
@@ -832,6 +903,7 @@ toStaticSite j = do
       , headers = headers'
       , cache = cache'
       , notFound = notFound'
+      , cdn = cdn'
       }
   where
     cacheJ = jssCache j
@@ -997,6 +1069,7 @@ data JsonServerSite = JsonServerSite
   , jsvScaleMax :: !(Maybe Int)
   , jsvDomains :: ![Text]
   , jsvVolumes :: ![JsonVolume]
+  , jsvCdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1016,6 +1089,7 @@ instance FromJSON JsonServerSite where
       <*> o .:? "scaleMax"
       <*> o .:? "domains" .!= []
       <*> o .:? "volumes" .!= []
+      <*> o .:? "cdn"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonServerSite -> ServerSite (re-runs the smart constructors)
@@ -1036,6 +1110,7 @@ toServerSite j = do
     _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
   domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jsvDomains j)
   vols' <- toVolumes (jsvVolumes j)
+  cdn' <- traverse toCdn (jsvCdn j)
   Right
     ServerSite
       { name = name'
@@ -1049,6 +1124,7 @@ toServerSite j = do
       , scale = scale'
       , domains = domains'
       , volumes = vols'
+      , cdn = cdn'
       }
 
 toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild

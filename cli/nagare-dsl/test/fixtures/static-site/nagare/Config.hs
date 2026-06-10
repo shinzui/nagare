@@ -8,6 +8,7 @@
 -- 404 page.
 module Main (main) where
 
+import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)
@@ -23,6 +24,12 @@ staticSite = do
   header' <- mapLeft show (mkHeaderRule "/assets/" "X-Frame-Options" "DENY")
   cache' <- mapLeft show (mkCachePolicy True (Just 3600))
   notFound' <- mapLeft show (mkFilePathText "404.html")
+  -- Front the origin with Cloudflare: a one-hour default edge TTL, cache
+  -- /assets/ for a year, and never cache /api/.
+  cdn' <-
+    mapLeft show $
+      withCacheRule "/api/" Nothing
+        =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
   Right
     StaticSite
       { name = name'
@@ -34,6 +41,7 @@ staticSite = do
       , headers = [header']
       , cache = cache'
       , notFound = Just notFound'
+      , cdn = Just cdn'
       }
   where
     mapLeft f = either (Left . f) Right

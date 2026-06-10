@@ -70,17 +70,22 @@ This section must always reflect the actual current state of the work.
   presets; register it in the `.cabal` test-suite `other-modules` and wire it into `Spec.hs`.
 - [x] Milestone 1 — `cd cli/nagare-dsl && cabal test` passes with the new `CdnSpec` group
   (248 tests, +13 in the `Nagare.Dsl.Cdn` group).
-- [ ] Milestone 2 — add `cdn :: !(Maybe Cdn)` to `StaticSite`, `ServerSite`, and `Deployment`.
-- [ ] Milestone 2 — emit a nested `"cdn"` object (omitted when `Nothing`) from `staticSiteJSON`,
-  `serverSiteJSON`, and `deploymentJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`.
-- [ ] Milestone 2 — add the `JsonCdn`/`JsonCdnCacheRule` mirrors and a `toCdn` validator to
+- [x] Milestone 2 — add `cdn :: !(Maybe Cdn)` to `StaticSite`, `ServerSite`, and `Deployment`.
+- [x] Milestone 2 — emit a nested `"cdn"` object (omitted when `Nothing`) from `staticSiteJSON`,
+  `serverSiteJSON`, and `deploymentJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs` via a shared
+  `cdnJSON`; also exposed `encodeStaticSite`/`encodeServerSite` for the in-process round-trip.
+- [x] Milestone 2 — add the `JsonCdn`/`JsonCdnCacheRule` mirrors and a `toCdn` validator to
   `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`, wired into `decodeStaticSite`, `decodeServerSite`,
   and `decodeDeployment`.
-- [ ] Milestone 2 — update the three fixture `Config.hs` files (and add CDN-bearing variants)
-  under `cli/nagare-dsl/test/fixtures/` to show real usage.
-- [ ] Milestone 2 — add golden and negative round-trip tests; confirm existing goldens still
-  pass (no `"cdn"` key appears when CDN is absent).
-- [ ] Milestone 2 — `cd cli/nagare-dsl && cabal test` passes; capture an emitted-JSON transcript.
+- [x] Milestone 2 — update the fixture `Config.hs` files: the static-site fixture carries a
+  Cloudflare CDN, the server-site fixture a Google Cloud CDN; the deployment fixture keeps
+  `cdn = Nothing` as the backward-compat proof. All in-repo construction sites across
+  `cli/nagare-dsl`, `cli/nagarectl`, and `cluster/examples` were given `cdn = Nothing`.
+- [x] Milestone 2 — add round-trip, negative, and backward-compat tests in `CdnSpec`; existing
+  Nginx/Knative goldens still pass (the inert field renders no infrastructure).
+- [x] Milestone 2 — `cd cli/nagare-dsl && cabal test` passes (259); the emitted-JSON transcript
+  reproduces exactly (static fixture `cdn` block + `has cdn key: False` for the deployment
+  fixture). Downstream `cli/nagarectl` also builds and tests green (226).
 
 
 ## Surprises & Discoveries
@@ -158,12 +163,44 @@ Record every decision made while working on the plan.
   Date: 2026-06-10
 
 
+- Decision: expose `encodeStaticSite`/`encodeServerSite` from `Nagare.Dsl.Config` rather than the
+  raw `staticSiteJSON`/`serverSiteJSON` `Value` builders.
+  Rationale: the round-trip test needs the exact emitted bytes; adding `encodeX` mirrors the
+  existing `encodeDeployment`/`encodeDatabase`/`encodeTask` house pattern and keeps the `*JSON`
+  builders private, so the public surface stays the small `emit*`/`encode*` set.
+  Date: 2026-06-10
+
+- Decision: drive `CdnSpec`'s round-trip and negative tests through the `Deployment` transport
+  (`encodeDeployment`/`decodeDeployment`) instead of the static-site one.
+  Rationale: with `DuplicateRecordFields`, importing the `cdn` selector for more than one of the
+  three records makes a bare `cdn x` application ambiguous. Routing through `Deployment` keeps a
+  single `cdn` selector in scope while still exercising the *shared* `cdnJSON`/`toCdn` path. The
+  static path is proven separately by `StaticSpec`'s load test against the CDN-bearing fixture.
+  Date: 2026-06-10
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-10).** The shared typed contract is delivered exactly as the spike (EP-54)
+fixed it. `Nagare.Dsl.Cdn.Types` defines `Cdn`/`CdnProvider`/`CdnCacheRule` with validating
+constructors, presets, and combinators; the three top-level shapes carry `cdn :: !(Maybe Cdn)`;
+the shared `cdnJSON` encoder and the `toCdn` loader validator round-trip the value with the wire
+tokens `"Cloudflare"`/`"GcpCloudCdn"` and `edgeTtlSeconds: null` for never-cache. `cabal test`:
+259 in `nagare-dsl` (+24), 226 in `nagarectl`, all green. The emitted-JSON transcripts reproduce
+exactly. Backward compatibility holds: a `cdn = Nothing` shape emits no `"cdn"` key and the
+existing Nginx-config / Knative-YAML goldens are unchanged (the field is inert until EP-56/EP-57/
+EP-58 render it).
+
+**Gaps / hand-offs.** Two interface refinements beyond the plan's letter, both additive and
+consistent with house style: (1) `encodeStaticSite`/`encodeServerSite` were added to
+`Nagare.Dsl.Config` (mirroring `encodeDeployment`) so the in-process round-trip needs no exposed
+`staticSiteJSON`. (2) The negative/round-trip tests route through the `Deployment` transport (the
+same shared `cdnJSON`/`toCdn`) to keep `CdnSpec` free of the three-record field-selector ambiguity;
+the static fixture's CDN-bearing load test in `StaticSpec` proves the static path end to end. No
+contract amendment was needed — EP-56/EP-57/EP-58 can consume the shape verbatim, and origin-TLS
+mode stays out of the model as the spike recommended.
 
 
 ## Context and Orientation

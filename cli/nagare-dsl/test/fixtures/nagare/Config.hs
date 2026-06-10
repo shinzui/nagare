@@ -39,6 +39,7 @@ deployment = do
       , volumes = []
       , databases = []
       , tasks = []
+      , cdn = Nothing
       }
   where
     mapLeft f = either (Left . f) Right

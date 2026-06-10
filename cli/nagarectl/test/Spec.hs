@@ -1094,6 +1094,7 @@ mkDemoDep envMap =
     , volumes = []
     , databases = []
     , tasks = []
+    , cdn = Nothing
     }
 
 renderDemonstrationTests :: [TestTree]
@@ -1421,6 +1422,7 @@ demoServerSiteWith buildCmd =
     , scale = Nothing
     , domains = []
     , volumes = []
+    , cdn = Nothing
     }
 
 unsafeS :: Either Text a -> a
@@ -1620,6 +1622,7 @@ baseSite b =
     , headers = []
     , cache = defaultCachePolicy
     , notFound = Nothing
+    , cdn = Nothing
     }
 
 unsafe :: Either Text a -> a

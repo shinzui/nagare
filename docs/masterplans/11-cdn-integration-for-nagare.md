@@ -180,7 +180,7 @@ call that belongs with the rest of the provider capability and the `cdn` command
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 54 | CDN substrate spike and origin-TLS feasibility | docs/plans/54-cdn-substrate-spike-and-origin-tls-feasibility.md | None | EP-2, EP-4 | Complete |
-| 55 | Typed CDN model and provider renderer | docs/plans/55-typed-cdn-model-and-provider-renderer.md | EP-54 | EP-13, EP-18 | Not Started |
+| 55 | Typed CDN model and provider renderer | docs/plans/55-typed-cdn-model-and-provider-renderer.md | EP-54 | EP-13, EP-18 | Complete |
 | 56 | GCP Cloud CDN load balancer provisioning in Pulumi | docs/plans/56-gcp-cloud-cdn-load-balancer-provisioning-in-pulumi.md | EP-54 | EP-55 | Not Started |
 | 57 | Cloudflare CDN provisioning via API in nagarectl | docs/plans/57-cloudflare-cdn-provisioning-via-api-in-nagarectl.md | EP-54 | EP-55 | Not Started |
 | 58 | Deploy-time CDN wiring and nagarectl cdn command group | docs/plans/58-deploy-time-cdn-wiring-and-nagarectl-cdn-command-group.md | EP-55, EP-56, EP-57 | None | Not Started |
@@ -401,8 +401,8 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
 - [x] EP-54: Stand up a minimal Google Cloud CDN load balancer in front of the VM and validate host-routing, edge TLS, and a cache hit. *(Scripts delivered in `cluster/examples/cdn-spike/gcp-cdn-up.sh`; live `curl` evidence deferred until `nagare-01` is powered on.)*
 - [x] EP-54: Stand up a minimal Cloudflare proxy in front of the VM and validate proxied routing, origin TLS mode, and a cache hit. *(Scripts delivered in `cluster/examples/cdn-spike/cf-cdn-up.sh`; live evidence deferred until VM up + a domain and `CF_API_TOKEN` are supplied.)*
 - [x] EP-54: Record the substrate decisions (origin-TLS mode per provider, health-check path, host-header/cache-key behaviour, DNS topology, standing-infra-vs-deploy-time split). *(Recorded as confirmable proposals in EP-54's Substrate Decisions + Decision Log.)*
-- [ ] EP-55: Define `Cdn`, `CdnProvider`, `CdnCacheRule`, smart constructors, and the `with*` combinators in `Nagare.Dsl.Cdn.Types`.
-- [ ] EP-55: Add `cdn :: Maybe Cdn` to `StaticSite`, `ServerSite`, and `Deployment` with JSON transport and loader support, plus golden and negative tests.
+- [x] EP-55: Define `Cdn`, `CdnProvider`, `CdnCacheRule`, smart constructors, and the `with*` combinators in `Nagare.Dsl.Cdn.Types`.
+- [x] EP-55: Add `cdn :: Maybe Cdn` to `StaticSite`, `ServerSite`, and `Deployment` with JSON transport and loader support, plus golden and negative tests. *(nagare-dsl 259 tests, nagarectl 226, all green; wire tokens `"Cloudflare"`/`"GcpCloudCdn"`, `edgeTtlSeconds: null` = never-cache.)*
 - [ ] EP-56: Add the `NagareCdn` Pulumi component (global IP, instance group, health check, CDN backend service, URL map, HTTP(S) proxies, managed cert, firewall) and the `cdnGlobalIp`/`cdnBackendService`/`cdnUrlMap` outputs; verify with `pulumi preview`.
 - [ ] EP-57: Add the `Nagare.Cdn.Cloudflare` HTTP-client module (creds, upsert proxied record, apply cache rules, set origin-TLS mode, purge) with unit tests and recorded API transcripts.
 - [ ] EP-58: Wire `provisionCdn` into the static/server/app deploy paths with a dry-run, including per-hostname CDN DNS records and per-path cache application.
