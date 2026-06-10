@@ -183,6 +183,13 @@ import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 import Nagare.Target (TargetProfile (..), resolveTargetProfile, registryPrefix)
+import Nagare.Init
+  ( renderTargetEnv
+  , pulumiConfigSetArgs
+  , seedKeys
+  , nextStepsText
+  , operatorRoles
+  )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import Control.Exception (finally)
 
@@ -226,7 +233,52 @@ main = do
       , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
       , testGroup "EP-62 rendered Job project" backupProjectTests
       , testGroup "EP-62 qualifyImage" qualifyImageTests
+      , initTests
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Init (MasterPlan 12, EP-63): the pure pieces of `nagarectl init` — the
+-- env-file rendering, the eight Pulumi seed keys, the config-set argv, the
+-- operator-role list, and the next-steps text.
+
+initProfile :: TargetProfile
+initProfile =
+  TargetProfile
+    { tpProject = "acme-prod"
+    , tpRegion = "us-west1"
+    , tpZone = "us-west1-a"
+    , tpRegistryHost = "us-west1-docker.pkg.dev"
+    , tpArtifactRegistryId = "nagare"
+    , tpImageBucket = "acme-prod-nagare-images"
+    , tpBackupBucket = "acme-prod-nagare-backups"
+    , tpBaseDomain = "apps.acme.com"
+    , tpInstanceName = "nagare-01"
+    }
+
+initTests :: TestTree
+initTests =
+  testGroup
+    "Nagare.Init (EP-63)"
+    [ testCase "renderTargetEnv emits the export lines with the right values" $ do
+        let out = renderTargetEnv initProfile
+        assertBool "project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT=acme-prod" out)
+        assertBool "derived image bucket" (T.isInfixOf "export NAGARE_IMAGE_BUCKET=acme-prod-nagare-images" out)
+        assertBool "base domain" (T.isInfixOf "export NAGARE_BASE_DOMAIN=apps.acme.com" out)
+    , testCase "seedKeys covers the eight Pulumi keys incl. the required imageBucket" $
+        map fst (seedKeys initProfile)
+          @?= [ "gcp:project", "gcp:region", "gcp:zone", "nagare:baseDomain"
+              , "nagare:imageBucket", "nagare:backupBucket"
+              , "nagare:artifactRegistryId", "nagare:instanceName"
+              ]
+    , testCase "pulumiConfigSetArgs targets the infra/pulumi stack" $
+        pulumiConfigSetArgs "gcp:project" "acme-prod"
+          @?= ["-C", "infra/pulumi", "config", "set", "gcp:project", "acme-prod"]
+    , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
+        assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
+    , testCase "nextStepsText names the ordered just targets" $ do
+        assertBool "infra-up" (T.isInfixOf "just infra-up" nextStepsText)
+        assertBool "host-image" (T.isInfixOf "just host-image" nextStepsText)
+    ]
 
 -- ---------------------------------------------------------------------------
 -- EP-62 M3: the CLI-side image normalizer. A bare name (no '/') is prefixed

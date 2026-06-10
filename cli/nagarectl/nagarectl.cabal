@@ -54,6 +54,7 @@ library
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
     Nagare.Image
+    Nagare.Init
     Nagare.Ops.Cleanup
     Nagare.Ops.Doctor
     Nagare.Ops.Domains

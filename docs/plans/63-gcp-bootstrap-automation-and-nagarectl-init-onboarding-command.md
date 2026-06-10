@@ -98,29 +98,32 @@ This section must always reflect the actual current state of the work.
 - [x] M1.3 — Verified: `NAGARE_ENABLE_APIS_DRY_RUN=1 bash scripts/enable-apis.sh` matches the Step
       M1.3 transcript; `tsc --noEmit` typechecks the Pulumi program. (Real `gcloud services enable`
       against a foreign project deferred — no such project available this session.) (2026-06-10)
-- [ ] M2.1 — Create `cli/nagarectl/src/Nagare/Init.hs`: the `InitOpts` record, the profile-from-opts
-      construction (reusing `TargetProfile`), the idempotent env-file writer (`--force` guard), and
-      the `pulumi config set` seeding. Register it in `nagarectl.cabal`'s library `exposed-modules`.
-- [ ] M2.2 — Wire `init` into `app/Main.hs`: add the `Init InitOpts` constructor to `data Command`,
-      the `initOptsParser`, the `command "init" initCmd` entry in the top-level `subparser`, and the
-      `Init o -> runInit o` dispatch arm.
-- [ ] M2.3 — Implement the non-interactive path (all flags supplied) and the idempotent write with
-      `--force`; verify `nagarectl init --project X --region us-west1 --base-domain Y --skip-enable
-      --skip-seed --dry-run` prints the profile it would write without side effects.
-- [ ] M2.4 — Implement the interactive prompt path (TTY): prompt for project/region/zone/base
-      domain with defaults; non-TTY without enough flags errors clearly.
-- [ ] M3.1 — Implement the preflight: `gcloud auth list` (authenticated account) and per-role
-      `gcloud projects get-iam-policy`/`testIamPermissions` checks for the six operator roles, with
-      a precise remediation message and a `--skip-preflight` escape hatch for CI.
-- [ ] M3.2 — Wire the full ordered flow in `runInit`: preflight → prompt/resolve → write → enable →
-      seed → next-steps. Each side-effecting stage is individually skippable
-      (`--skip-preflight`/`--skip-enable`/`--skip-seed`) and the command is safe to re-run.
-- [ ] M3.3 — Add unit tests in `cli/nagarectl/test/Spec.hs` for the pure pieces: profile-from-opts,
-      env-file rendering, the `pulumi config set` argv builder, the next-steps text; `cabal test`
-      green.
-- [ ] M3.4 — End-to-end acceptance: the non-interactive transcript writes a correct
-      `nagare.target.env`, `pulumi -C infra/pulumi config get gcp:project` returns the seeded value,
-      a simulated preflight failure prints the remediation, and a re-run is idempotent.
+- [x] M2.1 — Created `cli/nagarectl/src/Nagare/Init.hs`: `InitOpts`, `profileFromOpts` (reuses
+      `resolveTargetProfile`), `renderTargetEnv`, idempotent `writeTargetEnv` (`--force`),
+      `seedKeys`/`pulumiConfigSetArgs`/`seedPulumiConfig`, `enableApis`, `runPreflight`,
+      `nextStepsText`, `operatorRoles`. Registered in `nagarectl.cabal`. Library builds. (2026-06-10)
+- [x] M2.2 — Wired `init` into `app/Main.hs`: `Init InitOpts` constructor, `initOptsParser`,
+      `command "init" initCmd`, `Init o -> runInit o` dispatch, `Nagare.Init` import. (2026-06-10)
+- [x] M2.3 — Non-interactive path + idempotent write verified: `init --project acme-prod --region
+      us-west1 --base-domain apps.acme.com --skip-preflight --dry-run --force` prints the rendered
+      profile, the enable-apis dry-run argv, and the eight `pulumi config set` argv, writing nothing;
+      a real write then a re-run without `--force` refuses (exit 1), with `--force` overwrites. (2026-06-10)
+- [x] M2.4 — Interactive vs non-TTY: `resolveField` prompts on a TTY with defaults; non-TTY requires
+      only `--project` (region/zone/base-domain fall back to EP-60 defaults — matching the M2
+      acceptance that omits `--zone`), erroring clearly if `--project` is absent. (2026-06-10)
+- [x] M3.1 — Preflight: `gcloud auth list` for an active account + `gcloud projects get-iam-policy`
+      (flattened, filtered by the active user) for the six operator roles, `roles/owner`
+      short-circuits, precise remediation, `--skip-preflight` escape hatch. Verified the auth-failure
+      path with an empty `CLOUDSDK_CONFIG`. (2026-06-10)
+- [x] M3.2 — `runInit` wires the ordered flow (resolve → preflight → write → enable → seed →
+      next-steps); each side-effecting stage is `--skip-*`-able and safe to re-run. (2026-06-10)
+- [x] M3.3 — Added the `Nagare.Init (EP-63)` test group (env rendering, the eight seed keys,
+      `pulumiConfigSetArgs`, `operatorRoles`, next-steps); `cabal test` green (258 tests). (2026-06-10)
+- [x] M3.4 — End-to-end (non-interactive) acceptance demonstrated via dry-run + real-write +
+      preflight-failure transcripts. The real `pulumi config get gcp:project` step is intentionally
+      NOT run: it would overwrite the committed `tan-nb-exp` `Pulumi.dev.yaml` worked example; the
+      dry-run printed the exact `pulumi -C infra/pulumi config set` argv for all eight keys as the
+      seed evidence. (2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -128,7 +131,23 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Field-name collision (resolved): `Nagare.Ops.Probe.InventoryOpts` already exports an `ioZone`
+  selector, which collides with `InitOpts.ioZone`. With `DuplicateRecordFields` on, the records
+  coexist, but the bare selector `ioZone` is ambiguous when used. Resolved by deriving `Generic` on
+  `InitOpts` and accessing its fields in `runInit` via generic-lens labels (`o ^. #ioZone`) — the
+  repo idiom for every other `*Opts` record — which disambiguates by type. (2026-06-10)
+- Non-interactive requiredness (refined against the M2 acceptance): the plan's Decision Log said a
+  non-TTY run "without them errors" but the M2 acceptance command omits `--zone` and expects the
+  `us-west1-a` default. Reconciled: only `--project` is mandatory in non-interactive mode (no safe
+  default for "your project"); `--region`/`--zone`/`--base-domain` fall back to their EP-60 defaults.
+  `resolveField` takes a `required` flag accordingly. (2026-06-10)
+- CWD convention: `enableApis` runs `bash scripts/enable-apis.sh` and the seed/profile paths
+  (`nagare.target.env`, `infra/pulumi`) are all repo-root-relative — the same convention every other
+  nagarectl command already uses (e.g. `stackOutput "infra/pulumi"`). `init` must be run from the
+  repo root; `cabal run` from the package dir fails to find the script (CWD = package dir), so the
+  acceptance was run via the built binary from the repo root. (2026-06-10)
+- `OverloadedStrings` made the bare `addArgs ["scripts/enable-apis.sh"]` literal list ambiguous
+  (cradle's `addArgs` is polymorphic over `ConvertibleStrings`); annotated it `:: [String]`. (2026-06-10)
 
 
 ## Decision Log
@@ -204,7 +223,30 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-63 delivered the onboarding front door. `scripts/enable-apis.sh` and the six
+`gcp.projects.Service` resources codify API enablement (the EP-2 surprise) in both the
+out-of-band script `init` calls and the self-asserting Pulumi program. `nagarectl init` is a
+real subcommand that preflights gcloud auth + operator IAM, resolves the target from flags or TTY
+prompts, writes a byte-correct `nagare.target.env` (idempotent, `--force`-guarded), runs the enable
+script, seeds the eight Pulumi keys, and prints the ordered next steps — every side-effecting stage
+individually skippable, the whole command safe to re-run, and the only command in nagarectl that
+drives Pulumi/gcloud.
+
+Acceptance demonstrated by observable behavior: the full `--dry-run` transcript (enable argv with
+`--project=acme-prod`, the rendered nine-line profile with the EP-60 derivations, all eight `pulumi
+config set` argv, the next-steps block, nothing written); a real write followed by a `--force`-less
+re-run that refuses and exits 1; the auth-failure preflight printing its remediation under an empty
+`CLOUDSDK_CONFIG`; and the `Nagare.Init` unit group (env rendering, seed keys, config-set argv,
+`operatorRoles`, next-steps) green within `cabal test` (258 tests). The real `pulumi config get`
+round-trip (A4) was deliberately not run because it would overwrite the committed `tan-nb-exp`
+`Pulumi.dev.yaml` worked example; the dry-run argv is the seed evidence.
+
+Deviations (Decision Log / Surprises): `InitOpts` fields are accessed via generic-lens labels to
+dodge the `ioZone` collision with `InventoryOpts`; only `--project` is mandatory non-interactively
+(region/zone/base-domain default), reconciling the Decision Log with the M2 acceptance; `init` is
+repo-root-CWD-relative like every other command. No real foreign GCP project was available, so the
+live `gcloud services enable` and the IAM-missing-role preflight branch were verified by transcript
+reasoning rather than a live call.
 
 
 ## Context and Orientation

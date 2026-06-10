@@ -39,8 +39,8 @@ import Options.Applicative
 import Data.Maybe (catMaybes)
 import System.Directory (doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
-import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
-import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
+import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin, stdout)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
@@ -132,6 +132,17 @@ import Nagare.Image
   , imageRef
   , pushImage
   , qualifyImage
+  )
+import Nagare.Init
+  ( InitOpts (..)
+  , WriteResult (..)
+  , enableApis
+  , nextStepsText
+  , profileFromOpts
+  , renderTargetEnv
+  , runPreflight
+  , seedPulumiConfig
+  , writeTargetEnv
   )
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
@@ -313,6 +324,7 @@ data Command
   | Task TaskCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
+  | Init InitOpts
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
@@ -498,6 +510,22 @@ doctorOptsParser :: Parser DoctorOpts
 doctorOptsParser =
   DoctorOpts
     <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
+
+-- | Options for @init@ (MasterPlan 12, EP-63). The four target flags are optional
+-- so an absent flag prompts on a TTY (or errors non-interactively); the skip/force
+-- flags exist for CI and partial recovery.
+initOptsParser :: Parser InitOpts
+initOptsParser =
+  InitOpts
+    <$> optional (strOption (long "project" <> metavar "PROJECT_ID" <> help "GCP project id (prompted if absent on a TTY)"))
+    <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
+    <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
+    <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> switch (long "force" <> help "Overwrite an existing nagare.target.env")
+    <*> switch (long "skip-preflight" <> help "Skip the gcloud auth + operator-IAM checks")
+    <*> switch (long "skip-enable" <> help "Skip running scripts/enable-apis.sh")
+    <*> switch (long "skip-seed" <> help "Skip seeding the Pulumi stack config")
+    <*> switch (long "dry-run" <> help "Show what would be written/enabled/seeded without doing it")
 
 -- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
 -- group leaves room for future @domains add@/@remove@.
@@ -984,6 +1012,7 @@ opts =
             <> command "task" taskCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
+            <> command "init" initCmd
             <> command "domains" domainsCmd
             <> command "cdn" cdnCmd
             <> command "cleanup" cleanupCmd
@@ -992,6 +1021,10 @@ opts =
       info
         (Doctor <$> doctorOptsParser <**> helper)
         (fullDesc <> progDesc "Health-check the platform and print remediation hints (exit 1 on any FAIL)")
+    initCmd =
+      info
+        (Init <$> initOptsParser <**> helper)
+        (fullDesc <> progDesc "Onboard a fresh GCP project: preflight, write the target profile, enable APIs, seed Pulumi config")
     domainsCmd =
       info
         (domainsSubparser <**> helper)
@@ -1442,6 +1475,7 @@ main =
     Task tcmd -> runTask tcmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
+    Init o -> runInit o
     Domains (DomainsList o) -> runDomainsList o
     CdnCmd ccmd -> runCdn ccmd
     Cleanup o -> runCleanup o
@@ -1471,6 +1505,84 @@ runDoctor o = do
   let checks = gradeChecks tp probes
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
+
+-- | @nagarectl init@: the guided onboarding flow (EP-63). Order: resolve target
+-- (flags or prompts) -> preflight (gcloud auth + operator IAM) -> write the profile
+-- -> enable APIs -> seed Pulumi config -> print next steps. Each side-effecting
+-- stage is skippable. The ONLY command that drives Pulumi/gcloud (MasterPlan 12
+-- Decision Log).
+runInit :: InitOpts -> IO ()
+runInit o = do
+  -- Defaults for prompts come from the current resolved profile, so re-running
+  -- shows the operator their existing values.
+  defs <- resolveTargetProfile
+
+  -- Resolve the four core target values from flags or interactive prompts. Only
+  -- the project is mandatory in non-interactive mode (there is no safe default for
+  -- "your project"); region/zone/base-domain fall back to their EP-60 defaults.
+  project <- resolveField True "GCP project id" "project" (o ^. #ioProject) (tpProject defs)
+  region <- resolveField False "Compute region" "region" (o ^. #ioRegion) (tpRegion defs)
+  zone <- resolveField False "Compute zone" "zone" (o ^. #ioZone) (tpZone defs)
+  baseDomain <- resolveField False "Apps base domain" "base-domain" (o ^. #ioBaseDomain) (tpBaseDomain defs)
+
+  -- Preflight (unless skipped). Runs AFTER we know the project but BEFORE any
+  -- write/enable/seed, so a failure leaves nothing changed.
+  unless (o ^. #ioSkipPreflight) $ do
+    putStrLn ("Checking gcloud authentication and operator IAM on " <> T.unpack project <> "...")
+    r <- runPreflight project
+    case r of
+      Left msg -> TIO.hPutStr stderr msg >> exitFailure
+      Right () -> putStrLn "  preflight OK"
+
+  -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver.
+  tp <- profileFromOpts project region zone baseDomain
+
+  -- Write the profile idempotently.
+  wr <- writeTargetEnv (o ^. #ioForce) (o ^. #ioDryRun) tp
+  case wr of
+    Wrote -> putStrLn "Wrote nagare.target.env"
+    DryRunWouldWrite -> do
+      putStrLn "DRY RUN — would write nagare.target.env:"
+      TIO.putStr (renderTargetEnv tp)
+    RefusedExists ->
+      dieT "nagare.target.env already exists; re-run with --force to overwrite it."
+
+  -- Enable the GCP APIs (unless skipped).
+  unless (o ^. #ioSkipEnable) $ do
+    putStrLn "Enabling GCP service APIs..."
+    code <- enableApis (o ^. #ioDryRun)
+    case code of
+      ExitSuccess -> pure ()
+      ExitFailure _ -> dieT "enable-apis failed; see the gcloud output above. Re-run `nagarectl init --skip-preflight` after fixing it."
+
+  -- Seed the Pulumi stack config (unless skipped).
+  unless (o ^. #ioSkipSeed) $ do
+    putStrLn "Seeding Pulumi stack config from the profile..."
+    s <- seedPulumiConfig (o ^. #ioDryRun) tp
+    case s of
+      Right () -> pure ()
+      Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl init --skip-preflight --skip-enable`.")
+
+  -- Next steps.
+  TIO.putStr nextStepsText
+
+-- | Resolve one @init@ target field: a flag value wins; otherwise prompt on a TTY
+-- with the default; otherwise (non-TTY, no flag) use the default unless the field
+-- is @required@ (only the project), in which case error clearly naming the flag.
+resolveField :: Bool -> String -> String -> Maybe String -> Text -> IO Text
+resolveField _ _ _ (Just v) _ = pure (T.pack v)
+resolveField required label flag Nothing def = do
+  tty <- hIsTerminalDevice stdin
+  if tty
+    then do
+      putStr (label <> " [" <> T.unpack def <> "]: ")
+      hFlush stdout
+      line <- getLine
+      pure (if null line then def else T.pack line)
+    else
+      if required
+        then dieT (T.pack ("nagarectl init: --" <> flag <> " is required in non-interactive mode"))
+        else pure def
 
 -- | @domains list@: print the base domain plus every per-app DomainMapping with
 -- its owning Service, computed DNS expectation, and certificate readiness.
