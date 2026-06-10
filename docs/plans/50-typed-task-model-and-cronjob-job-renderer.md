@@ -127,6 +127,15 @@ implementation. Provide concise evidence.
   command+image and no app decodes to `Right`; (2) an inheriting task (no image, no app) with
   only a command fails with `MarshalError "task"` (the cross-field invariant). Both pass.
 
+- **Two additive exports added later for EP-52.** While implementing
+  `docs/plans/52-...` (the deploy-time resolver), `Nagare.Dsl.Task.Render` gained two exports —
+  `cronJobValue :: Task -> Value` (the un-encoded CronJob) and `encodeCronJob :: Value ->
+  ByteString` (the deterministic ordered encoder) — and `renderTask` was refactored to
+  `encodeCronJob . cronJobValue` (byte-identical output; the goldens are unchanged). This lets
+  EP-52 patch the container `Value` (inject the resolved image and `NAGARE_RUN_ID`) and re-encode
+  byte-stably, keeping this module the single owner of the manifest shape. Purely additive; no
+  behavior change to the standalone/app-associated goldens.
+
 
 ## Decision Log
 

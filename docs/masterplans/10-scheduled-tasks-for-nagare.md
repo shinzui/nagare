@@ -149,8 +149,8 @@ Alternatives considered and rejected:
 |---|-------|------|-----------|-----------|--------|
 | 49 | Scheduled-task substrate spike and one-off-run feasibility | docs/plans/49-scheduled-task-substrate-spike-and-one-off-run-feasibility.md | None | None | Complete |
 | 50 | Typed Task model and CronJob/Job renderer | docs/plans/50-typed-task-model-and-cronjob-job-renderer.md | None | EP-49 | Complete |
-| 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | In Progress |
-| 52 | App-task association and runtime env/image/secret inheritance | docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md | EP-50 | EP-51 | Not Started |
+| 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | Complete |
+| 52 | App-task association and runtime env/image/secret inheritance | docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md | EP-50 | EP-51 | Complete |
 | 53 | Scheduled-tasks docs and end-to-end examples | docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md | EP-50 | EP-51, EP-52 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -300,8 +300,8 @@ the milestone. This section provides an at-a-glance view of the entire initiativ
 - [x] EP-50: `Nagare.Dsl.Task` typed model with smart constructors and `Schedule` validation; JSON round-trip via `emitTask`/`decodeTask`.
 - [x] EP-50: `Nagare.Dsl.Task.Render` produces deterministic CronJob/Job YAML; golden tests pass; no existing golden changed.
 - [x] EP-51: `nagarectl task list/delete` discover and remove CronJobs by label selector.
-- [~] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs (both done); deploy-time provisioning of declared CronJobs is implemented in EP-52 (which owns the `Deployment.tasks` field — see Surprises).
-- [ ] EP-52: `Deployment`/`Task` carry the app association; deploy-time resolution injects the app's image tag and `envFrom` managed env/secret; predefined task vars injected.
+- [x] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs; deploy-time provisioning of declared CronJobs is implemented in EP-52 (which owns the `Deployment.tasks` field — see Surprises).
+- [x] EP-52: `Deployment`/`Task` carry the app association; deploy-time resolution injects the app's image tag and `envFrom` managed env/secret; predefined task vars injected.
 - [ ] EP-53: `docs/user/scheduled-tasks.md` written and cross-linked; runnable `cluster/examples/` task examples; VictoriaLogs/Grafana logs walkthrough; runbook integration.
 
 

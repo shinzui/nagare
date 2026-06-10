@@ -103,12 +103,13 @@ Milestone M2 — `task run` (one-off) + `task logs`:
 
 Milestone M3 — deploy-time provisioning:
 
-- [~] **Deferred to EP-52.** M3 reads `dep ^. #tasks`, but the `Deployment.tasks` field is
-      introduced by EP-52's M1 (not EP-50, as this plan originally assumed — see Surprises),
-      and EP-52 also owns the *resolved* `runDeploy` wiring (image-tag + envFrom injection).
-      Implementing a naive render-and-apply here would be immediately rewritten by EP-52, so
-      the deploy-time provisioning is implemented once, in EP-52, against the field it adds.
-      M1/M2 (the operational CLI) do not depend on the field and are complete.
+- [x] **Implemented in EP-52** (which owns the `Deployment.tasks` field and the resolved
+      `runDeploy` wiring). `nagarectl deploy` now renders each declared task's CronJob with the
+      inherited image tag + `envFrom` + predefined vars and applies it alongside the
+      Service/PVCs/databases (printing it under a `--- Task CronJob manifest ---` banner in
+      `--dry-run`). There is exactly one render-and-apply call site, using
+      `renderResolvedTask`. The `Deployment.tasks` field is owned by EP-52's M1, not EP-50 as
+      this plan originally assumed (see Surprises).
 
 
 ## Surprises & Discoveries

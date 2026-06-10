@@ -59,7 +59,15 @@ import Nagare.Task.Discover
   , taskLabelSelector
   )
 import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
+import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
 import Nagare.Task.Run (oneOffJobName, runArgs)
+import Nagare.Dsl.Task
+  ( ConcurrencyPolicy (Forbid)
+  , RestartPolicy (Never)
+  , Task (..)
+  , mkSchedule
+  , mkTask
+  )
 import Nagare.Database.Restore (isGsUrl, renderRestoreJob, resolveBackupObject, RestoreJobInputs (..))
 import Nagare.Database.Secret
   ( ConnectionParts (..)
@@ -168,6 +176,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
+import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 
 main :: IO ()
@@ -203,6 +212,7 @@ main = do
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
       , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
       , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
+      , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
       ]
 
 -- ---------------------------------------------------------------------------
@@ -296,6 +306,70 @@ taskRunTests =
   ]
   where
     fixedTime = UTCTime (fromGregorian 2026 6 10) (secondsToDiffTime (3 * 3600 + 12))
+
+-- MasterPlan 10, EP-52: deploy-time image/env resolution for app-associated tasks.
+
+taskResolveTests :: [TestTree]
+taskResolveTests =
+  [ testCase "inheriting task uses the app's resolved image:tag verbatim" $
+      resolveTaskImage appImg tag inheritTask @?= "gcr.io/myproject/notes:20260602-120000"
+  , testCase "explicit-image task is pinned to the deploy tag" $
+      resolveTaskImage appImg tag ownImageTask @?= "gcr.io/myproject/other:20260602-120000"
+  , testCase "predefined env keys for an app task" $
+      Set.fromList (map envNameText (Map.keys (predefinedTaskEnv inheritTask)))
+        @?= Set.fromList ["NAGARE_TASK_NAME", "NAGARE_NAMESPACE", "NAGARE_APP"]
+  , testCase "standalone task gets no NAGARE_APP" $
+      Map.member (unsafe (mkEnvName "NAGARE_APP")) (predefinedTaskEnv ownImageTask) @?= False
+  , testCase "resolved CronJob shows tag, both envFrom, app label, NAGARE_RUN_ID" $ do
+      let yaml = renderResolvedTask appImg tag withPredef inheritTask
+      assertInfix "image: gcr.io/myproject/notes:20260602-120000" yaml
+      assertInfix "nagare-env-notes-runtime" yaml
+      assertInfix "nagare-secret-notes-runtime" yaml
+      assertInfix "nagare.dev/app: notes" yaml
+      assertInfix "NAGARE_TASK_NAME" yaml
+      assertInfix "NAGARE_RUN_ID" yaml
+      assertInfix "metadata.name" yaml
+  , goldenVsString
+      "renderResolvedTask app-associated"
+      "test/golden/task-app-resolved.cronjob.yaml"
+      (pure (LBS.fromStrict (renderResolvedTask appImg tag withPredef inheritTask)))
+  ]
+  where
+    appImg = "gcr.io/myproject/notes:20260602-120000"
+    tag = "20260602-120000"
+    withPredef tk = tk {taskEnv = mergeGenerated (predefinedTaskEnv tk) (taskEnv tk)}
+    assertInfix needle hay =
+      assertBool
+        ("expected " <> show needle <> " in:\n" <> T.unpack (TE.decodeUtf8 hay))
+        (needle `T.isInfixOf` TE.decodeUtf8 hay)
+    inheritTask =
+      unsafe $
+        mkTask
+          Task
+            { taskName = unsafe (mkServiceName "sync")
+            , taskNamespace = unsafe (mkNamespace "personal")
+            , taskSchedule = unsafe (mkSchedule "*/15 * * * *")
+            , taskImage = Nothing
+            , taskApp = Just (unsafe (mkServiceName "notes"))
+            , taskCommand = ["python", "manage.py", "sync"]
+            , taskArgs = []
+            , taskEnv = Map.empty
+            , taskResources = Nothing
+            , taskTimeoutSeconds = Nothing
+            , taskConcurrencyPolicy = Forbid
+            , taskRestartPolicy = Never
+            , taskBackoffLimit = 2
+            , taskSuccessfulJobsHistoryLimit = 3
+            , taskFailedJobsHistoryLimit = 1
+            , taskStartingDeadlineSeconds = Nothing
+            }
+    ownImageTask =
+      unsafe $
+        mkTask
+          inheritTask
+            { taskImage = Just (unsafe (mkImageRef "gcr.io/myproject/other"))
+            , taskApp = Nothing
+            }
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops (MasterPlan 8, EP-38): the pure probe parsers and the formatter.

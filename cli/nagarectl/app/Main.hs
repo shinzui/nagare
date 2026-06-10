@@ -57,6 +57,7 @@ import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
 import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
+import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
@@ -1447,6 +1448,17 @@ runDeploy dopts = do
       dmBytes = renderDomainMappings dep'
       name = serviceNameText (dep' ^. #name)
       ns = namespaceText (dep' ^. #namespace)
+      -- EP-52: render each co-located task's CronJob with deploy-time values
+      -- resolved. The app's resolved image reference is the SAME string the app's
+      -- own container gets this run, so an inheriting task runs the app's current
+      -- code. The predefined NAGARE_* vars are merged into each task's inline env
+      -- (the task's own env wins on a non-NAGARE collision; left-biased merge).
+      appImageTagged = imageRefText (dep' ^. #image) <> ":" <> effTag
+      withPredef tk = tk & #taskEnv %~ mergeGenerated (predefinedTaskEnv tk)
+      taskBytes =
+        [ renderResolvedTask appImageTagged effTag withPredef tk
+        | tk <- dep' ^. #tasks
+        ]
 
   -- EP-36: warn (never fail) for each volume opted out of backups, in both
   -- dry-run and live deploys, so no volume is ever silently unprotected.
@@ -1463,6 +1475,9 @@ runDeploy dopts = do
       forM_ dmBytes $ \dm -> do
         BC.putStrLn "--- DomainMapping manifest ---"
         BC.putStr dm
+      forM_ taskBytes $ \tb -> do
+        BC.putStrLn "--- Task CronJob manifest ---"
+        BC.putStr tb
       TIO.putStrLn ("Build mode: " <> describeBuild spec)
       TIO.putStrLn ("URL: " <> url)
     else do
@@ -1481,6 +1496,11 @@ runDeploy dopts = do
       -- pre-Service Bound wait (local-path is WaitForFirstConsumer; that deadlocks).
       applyPVCs pvcBytes
       applyManifests (svcBytes : dmBytes)
+      -- EP-52: provision each co-located task's resolved CronJob in the same
+      -- idempotent apply pass. Empty (no declared tasks) applies nothing.
+      unless (null taskBytes) $ do
+        applyManifests taskBytes
+        TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
       waitForReady name ns
       reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The

@@ -17,6 +17,8 @@ module Nagare.Dsl.Task.Render
   ( renderTask
   , taskJobSpecValue
   , taskCronJobName
+  , cronJobValue
+  , encodeCronJob
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -59,7 +61,15 @@ txt = id
 -- | Render the @batch/v1@ CronJob for a task. Deterministic key order via
 -- 'taskConfig' makes the bytes golden-stable.
 renderTask :: Task -> ByteString
-renderTask = YP.encodePretty taskConfig . cronJobValue
+renderTask = encodeCronJob . cronJobValue
+
+-- | Encode a CronJob 'Value' to deterministic YAML bytes with the same ordered
+-- comparator 'renderTask' uses. Exposed so EP-52's deploy-time resolver
+-- ('Nagare.Task.Resolve') can patch the container 'Value' (injecting the resolved
+-- image and the @NAGARE_RUN_ID@ Downward-API entry) and re-encode byte-stably,
+-- keeping this module the single owner of the manifest shape and key order.
+encodeCronJob :: Value -> ByteString
+encodeCronJob = YP.encodePretty taskConfig
 
 cronJobValue :: Task -> Value
 cronJobValue t =

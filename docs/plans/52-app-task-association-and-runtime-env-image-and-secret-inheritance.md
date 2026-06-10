@@ -89,43 +89,40 @@ This section must always reflect the actual current state of the work.
 
 Milestone M1 — typed association, load-time invariants, JSON round-trip (pure DSL):
 
-- [ ] Add `tasks :: ![Task]` to the `Deployment` record in
-      `cli/nagare-dsl/src/Nagare/Dsl/Types.hs` (default `[]`), so an app's config
-      co-locates its tasks.
-- [ ] Serialize `tasks` in `deploymentJSON` (in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`)
-      as a `taskJSON` array, name-sorted for determinism.
-- [ ] Decode `tasks` in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs` (`JsonDeployment` gains a
-      `jdTasks :: [JsonTask]`; `toDeployment` runs `toTask` per element) so each task is
-      re-validated at load, and add the deploy-level cross-task invariant (no two tasks share
-      a name; a task's `taskApp`, when present, names the enclosing app).
-- [ ] Confirm/verify EP-50's load-time cross-field invariant (`taskImage = Nothing` requires
-      `taskApp = Just _`) and add a deploy-level round-trip test.
-- [ ] `cabal build` and `cabal test nagare-dsl-test` pass; a `runghc` of an app-with-task
-      fixture prints a `Deployment` JSON whose `tasks` array carries the task.
+- [x] Add `tasks :: ![Task]` to the `Deployment` record in
+      `cli/nagare-dsl/src/Nagare/Dsl/Types.hs` (default `[]`), via a
+      `Nagare/Dsl/Task.hs-boot` to break the Types↔Task import cycle (see Surprises).
+- [x] Serialize `tasks` in `deploymentJSON` as a `taskJSON` array, name-sorted (`sortOn
+      taskName`) for determinism.
+- [x] Decode `tasks` in `Load.hs` (`JsonDeployment` gains `jdTasks :: [JsonTask]`;
+      `toDeployment` runs `toTask` per element) and add the two deploy-level cross-task
+      invariants (no duplicate task name; a task's `taskApp`, when present, names the
+      enclosing app).
+- [x] EP-50's per-task invariant (`taskImage = Nothing` requires `taskApp = Just _`) is
+      re-run by `mapM toTask`; added deploy-level round-trip + two negative tests.
+- [x] `cabal build` and `cabal test nagare-dsl-test` pass (235 tests); no golden changed.
 
 Milestone M2 — deploy-time image/env/label/predefined-var resolution (CLI):
 
-- [ ] Create `cli/nagarectl/src/Nagare/Task/Resolve.hs` with the pure `resolveTaskImage`,
-      `predefinedTaskEnv`, and `renderResolvedTask` helpers, register it in
-      `cli/nagarectl/nagarectl.cabal`.
-- [ ] Wire task resolution into `runDeploy` in `cli/nagarectl/app/Main.hs`: for each declared
-      task, resolve the inherited image tag (when `taskImage = Nothing`) to the app's
-      `effTag`, merge the predefined `NAGARE_*` task env, render the CronJob, and apply it
-      alongside the Service / PVCs / databases; print it under a banner in `--dry-run`.
-- [ ] Add offline unit tests for `resolveTaskImage`, `predefinedTaskEnv`, and a render
-      demonstration; add the golden `cli/nagare-dsl/test/golden/task-app-resolved.cronjob.yaml`
-      (or extend EP-50's app-associated golden) proving the resolved tag, the two `envFrom`
-      refs, the `nagare.dev/app` label, and the predefined vars.
-- [ ] `cabal test nagarectl-test` passes; capture a `deploy --dry-run` transcript showing the
-      resolved CronJob.
+- [x] Create `cli/nagarectl/src/Nagare/Task/Resolve.hs` with pure `resolveTaskImage`,
+      `predefinedTaskEnv`, and `renderResolvedTask`; register it in `nagarectl.cabal`.
+- [x] Wire task resolution into `runDeploy`: per declared task resolve the inherited image
+      tag (or pin an explicit image to `effTag`), merge the predefined `NAGARE_*` env, render,
+      and apply alongside the Service/PVCs/databases; print under a banner in `--dry-run`.
+      (This also satisfies EP-51's deferred M3 — a single render-and-apply call site.)
+- [x] Offline unit tests for `resolveTaskImage`, `predefinedTaskEnv`, render demonstration,
+      and the golden `cli/nagarectl/test/golden/task-app-resolved.cronjob.yaml` (resolved tag,
+      two `envFrom` refs, `nagare.dev/app` label, predefined vars incl. `NAGARE_RUN_ID`).
+- [x] `cabal test nagarectl-test` passes (226 tests); captured the `deploy --dry-run`
+      transcript showing the resolved CronJob.
 
 Milestone M3 — documented inherited-variable contract + end-to-end dry run:
 
-- [ ] Fill the inherited-variable contract table (consumed by EP-53) in Interfaces and
-      Dependencies, and the precedence rule.
-- [ ] Capture an end-to-end `nagarectl deploy --dry-run` transcript of an app-with-task
-      producing the correct CronJob; document the live (non-dry-run) provisioning check on the
-      VM `nagare-01`, deferred-with-instructions.
+- [x] The inherited-variable contract table and precedence rule are filled in Interfaces and
+      Dependencies (consumed by EP-53).
+- [x] Captured the end-to-end `nagarectl deploy --dry-run` of the app-with-task fixture
+      producing the correct CronJob; the live (non-dry-run) on-VM provisioning check is
+      documented and deferred (EP-48 precedent).
 
 
 ## Surprises & Discoveries
@@ -133,7 +130,44 @@ Milestone M3 — documented inherited-variable contract + end-to-end dry run:
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **A module import cycle the plan dismissed is real; resolved with an `.hs-boot`.** The plan
+  asserted "no cycle exists because `Nagare.Dsl.Task` imports only leaf newtypes." It does not:
+  `Nagare.Dsl.Task` imports `Nagare.Dsl.Types` (for `ServiceName`, `Namespace`, `ImageRef`,
+  `Resources`, `ScopedEnvVar`, `EnvName`), so adding `import Nagare.Dsl.Task (Task)` to
+  `Types.hs` cycles. (The `databases :: [DatabaseName]` precedent avoids this because
+  `DatabaseName` is a leaf newtype defined *in* `Types.hs`, not imported.) Fixed with
+  `cli/nagare-dsl/src/Nagare/Dsl/Task.hs-boot` exporting `Task` abstractly plus `instance Eq
+  Task` / `instance Show Task` (the instances `Deployment`'s `deriving stock (Eq, Show)` needs;
+  `Generic Deployment` treats `Task` opaquely, so no `Generic Task` boot instance is required).
+  `Types.hs` uses `import {-# SOURCE #-} Nagare.Dsl.Task (Task)`. Builds cleanly.
+- **`renderResolvedTask` uses in-memory `Value` patching, not YAML post-processing (plan
+  option 1) nor envelope duplication (option 2).** Instead, EP-50's renderer was extended to
+  export `cronJobValue :: Task -> Value` and `encodeCronJob :: Value -> ByteString`. EP-52
+  builds `encodeCronJob (patchContainer inject (cronJobValue (withPredef t)))`, where
+  `patchContainer` walks the fixed path `spec.jobTemplate.spec.template.spec.containers[0]` and
+  `inject` sets `image` and appends the `NAGARE_RUN_ID` field-ref env entry. This keeps EP-50
+  the single owner of the manifest shape *and* avoids a decode/re-encode round-trip — the
+  cleanest of the three. (Recorded as the resolution of the plan's "pick one and record it"
+  note. EP-50's two new exports are additive.)
+- **`Data.Aeson.KeyMap` exports neither `alter` nor `adjust`** (only `alterF`, `insert`,
+  `lookup`, `delete`). `patchContainer`/`injectImageAndRunId` implement both via
+  `lookup`+`insert`.
+- **The plan's `tk & #env %~ …` setter is wrong — `Task`'s field is `taskEnv`, so the label is
+  `#taskEnv`.** `runDeploy` uses `tk & #taskEnv %~ mergeGenerated (predefinedTaskEnv tk)`; the
+  offline tests use the equivalent record update `tk {taskEnv = mergeGenerated (predefinedTaskEnv
+  tk) (taskEnv tk)}` to avoid pulling generic-lens labels into the test module.
+- **`NAGARE_RUN_ID` renders at the *end* of the container `env:` list, not name-sorted.** The
+  three predefined literals (`NAGARE_APP`, `NAGARE_NAMESPACE`, `NAGARE_TASK_NAME`) are
+  name-sorted by EP-50's renderer (they live in the `ScopedEnvVar` map), then `NAGARE_RUN_ID`
+  (a Downward-API field-ref, which the typed env map cannot represent) is appended after. The
+  plan's illustrative golden showed it name-sorted; the actual golden
+  (`cli/nagarectl/test/golden/task-app-resolved.cronjob.yaml`) pins the append-at-end order. All
+  the load-bearing facts (resolved image, both `envFrom`, the label, every `NAGARE_*` entry, the
+  `fieldRef` to `metadata.name`) are present and asserted.
+- **EP-52 implements EP-51's deferred M3.** EP-51 left deploy-time provisioning to whichever
+  plan owns the `Deployment.tasks` field; that is EP-52. `runDeploy` now has the single
+  render-and-apply call site, using `renderResolvedTask` (the resolved values), so there is no
+  duplicate provisioning loop.
 
 
 ## Decision Log
@@ -202,6 +236,18 @@ Record every decision made while working on the plan.
   `{Runtime}`-scoped entries with the reserved `NAGARE_*` prefix.
   Date: 2026-06-10
 
+- Decision: `renderResolvedTask` patches EP-50's CronJob `Value` in memory (neither the plan's
+  "option 1" byte post-processing nor "option 2" envelope duplication). EP-50's
+  `Nagare.Dsl.Task.Render` was extended to export `cronJobValue :: Task -> Value` and
+  `encodeCronJob :: Value -> ByteString`; EP-52 computes `encodeCronJob (patchContainer inject
+  (cronJobValue (withPredef t)))`, where `patchContainer` walks the fixed container path and
+  `inject` sets `image` and appends the `NAGARE_RUN_ID` field-ref.
+  Rationale: this keeps EP-50 the single owner of the manifest shape and key order (no
+  duplicated envelope) AND avoids a fragile YAML decode/re-encode round-trip. The two EP-50
+  exports are purely additive. The plan explicitly permitted asking EP-50 (a sibling plan in
+  this MasterPlan) to expose a render seam; this is the minimal such seam.
+  Date: 2026-06-10
+
 - Decision: When a task carries an explicit image (`taskImage = Just <ref>`), EP-52 still
   appends the deploy tag to it the same way the app renderer does — `imageRefText ref <> ":" <>
   effTag` — so an explicit-image task deployed with an app is pinned to the same release tag,
@@ -221,7 +267,38 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome: a task can run "in an app's world" end-to-end.** Against the original purpose, all
+four proofs hold:
+
+- **Typed association round-trips (M1).** `Deployment` carries `tasks :: [Task]`; an app config
+  co-locates its tasks, emits a `Deployment` JSON whose `tasks` array carries each task, and
+  decodes back — re-validating every task — to the identical value. The deploy-level invariants
+  (no duplicate task name; a task's `taskApp` must name the enclosing app) reject bad configs
+  with `MarshalError "tasks"`. 235 dsl tests pass.
+- **Image resolved + env inherited (M2).** `resolveTaskImage` gives an inheriting task the app's
+  `repo:tag` verbatim and pins an explicit-image task to the deploy tag; `predefinedTaskEnv`
+  yields `NAGARE_TASK_NAME`/`NAGARE_NAMESPACE`/`NAGARE_APP` (the last only when associated).
+  `renderResolvedTask` injects the resolved image and the `NAGARE_RUN_ID` Downward-API entry.
+  226 nagarectl tests pass.
+- **The golden pins the resolved manifest.** `cli/nagarectl/test/golden/task-app-resolved.cronjob.yaml`
+  shows `image: gcr.io/myproject/notes:20260602-120000`, the two `optional: true` `envFrom`
+  refs, the `nagare.dev/app: notes` label, and the predefined env (`NAGARE_RUN_ID` as a
+  `fieldRef` to `metadata.name`).
+- **End-to-end dry run (M2/M3).** `nagarectl deploy --dry-run -f …/app-with-task/nagare/Config.hs
+  --tag 20260602-120000` prints a `--- Task CronJob manifest ---` banner with the resolved tag,
+  inherited `envFrom`, app label, and predefined vars — the IP5 acceptance excerpt. An app with
+  no tasks produces no banner and applies nothing extra.
+
+**Interfaces delivered.** `Deployment.tasks` (co-location), `Nagare.Task.Resolve`
+(`resolveTaskImage`/`predefinedTaskEnv`/`renderResolvedTask`), and the runDeploy provisioning.
+The inherited-variable contract table and precedence rule are published in Interfaces and
+Dependencies (consumed by EP-53). EP-50 gained two additive exports (`cronJobValue`,
+`encodeCronJob`).
+
+**Gaps / deferred.** The live (non-dry-run) on-VM provisioning check is deferred per the EP-48
+precedent (the cluster API is reachable only on the VM); the dry-run transcript plus the
+EP-49-verified `envFrom`/Downward-API substrate cover the behavior. A live one-off run proving
+inherited env reaches the pod uses EP-51's `nagarectl task run`, also deferred.
 
 
 ## Context and Orientation

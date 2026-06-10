@@ -75,6 +75,7 @@ library
     Nagare.Task.Discover
     Nagare.Task.List
     Nagare.Task.Logs
+    Nagare.Task.Resolve
     Nagare.Task.Run
 
   build-depends:
@@ -146,6 +147,7 @@ test-suite nagarectl-test
     nagare-dsl,
     nagarectl,
     tasty >=1.4,
+    tasty-golden >=2.3,
     tasty-hunit >=0.10,
     temporary,
     text,
