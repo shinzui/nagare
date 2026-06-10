@@ -65,7 +65,7 @@ deployment = do
   name' <- mapLeft show (mkServiceName "hello")
   ns' <- mapLeft show (mkNamespace "personal")
   img' <- mapLeft show (mkImageRef "gcr.io/knative-samples/helloworld-go")
-  dom' <- mapLeft show (mkDomain "hello.example.com")
+  doms <- mapLeft show (mkDomains [("hello.example.com", True)])
   port' <- mapLeft show (mkPort 8080)
   target <- mapLeft show (mkEnvName "TARGET")
   sc <- mapLeft show (mkScale 0 3)
@@ -78,11 +78,12 @@ deployment = do
       , namespace = ns'
       , image = img'
       , build = bld
-      , domain = Just dom'
+      , domains = doms
       , port = port'
-      , env = Map.singleton target (EnvLiteral "Nagare")
-      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
+      , env = Map.singleton target (runtimeScoped (EnvLiteral "Nagare"))
+      , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
+      , healthCheck = Nothing
       }
   where
     mapLeft f = either (Left . f) Right
@@ -102,10 +103,18 @@ The shape never changes:
   `mkScale`, …). Each returns `Either Text`, so the `do` block short-circuits
   with a clear message the moment a value is invalid. (`mapLeft show` adapts
   `Either Text` to the `Either String` that `ioError` wants.)
-- **`env` is a `Map EnvName EnvVar`.** A value is *either* a literal
+- **`env` is a `Map EnvName ScopedEnvVar`.** A value is *either* a literal
   (`EnvLiteral "Nagare"`) *or* a secret reference (`EnvSecretRef …`) — never
-  both. That mutual exclusion is the headline guarantee, enforced by the type,
-  not a runtime check.
+  both; that mutual exclusion is the headline guarantee, enforced by the type.
+  Each value is wrapped with `runtimeScoped` (runtime-only); build- and
+  preview-scoped variables are an [env-and-secrets](env-and-secrets.md) topic.
+- **`domains` is a list with one canonical entry.** `mkDomains [(host, isCanon)]`
+  builds it; the canonical hostname drives the printed URL and each entry becomes
+  a `DomainMapping`. Use `[]` for no custom domain.
+- **`healthCheck` is an optional HTTP probe**, and `resources` now carries
+  optional `cpuLimit`/`memoryLimit` alongside the requests. Both default to
+  "absent" here; see [Config reference](config-reference.md) and
+  [App lifecycle](app-lifecycle.md) for an app that uses them.
 - **`build` says how the image is produced.** Here it is `defaultBuild` — a
   Dockerfile build from `./Dockerfile`, reproducing Nagare's classic behavior. It
   can instead be a prebuilt image or a Dockerfile-free Nixpacks build; see
@@ -173,7 +182,7 @@ What it does, in order:
 2. Load nagare/Config.hs: compile-and-run it, decode the emitted JSON, re-validate.
    A load failure prints one line to stderr and exits 1 — before anything else.
 3. Compute the image tag (a UTC timestamp YYYYMMDD-HHMMSS unless --tag is given).
-4. Render the Knative Service (and a DomainMapping if `domain:` is set).
+4. Render the Knative Service (and one DomainMapping per entry in `domains`).
 5. --dry-run? Print the manifests, the planned build action, and URL, then stop.
    Otherwise, dispatch on the config's build mode: a prebuilt image skips Docker
    entirely; a Dockerfile or Nixpacks build configures Docker auth, builds the
@@ -227,6 +236,8 @@ kind: Service
 metadata:
   name: hello
   namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
 spec:
   template:
     metadata:
@@ -241,13 +252,30 @@ spec:
         env:
         - name: TARGET
           value: Nagare
+        envFrom:
+        - configMapRef:
+            name: nagare-env-hello-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-hello-runtime
+            optional: true
         resources:
           requests:
             cpu: 250m
             memory: 128Mi
 ```
 
-And, because `domain` is set, a `DomainMapping`:
+Two rendering details worth knowing: every app Service carries the
+`nagare.dev/managed-by: nagarectl` label (it's how [`app
+list`](app-lifecycle.md) finds Nagare apps), and an `envFrom` block always
+references the app's managed env/secret stores as `optional` — so
+[`nagarectl env`/`secret`](env-and-secrets.md) edits take effect without
+re-rendering. A `healthCheck` would add `readinessProbe`/`livenessProbe`/
+`startupProbe` blocks, and `cpuLimit`/`memoryLimit` would add a
+`resources.limits` block (see [App lifecycle](app-lifecycle.md) for an example
+showing both).
+
+And, because `domains` is non-empty, one `DomainMapping` per entry:
 
 ```yaml
 apiVersion: serving.knative.dev/v1beta1
@@ -288,9 +316,10 @@ from a smart constructor inside `Config.hs`, surfaced when you build or run it.
 - **Automatic internal URL:** `notes.personal.<baseDomain>` (via the wildcard
   DNS + TLS set up in [Cluster bootstrap](cluster-bootstrap.md)). Works with no
   per-app DNS configuration.
-- **Optional public URL:** whatever you set with `mkDomain` (e.g.
-  `notes.example.com`), wired via a Knative `DomainMapping`. You point that
-  hostname's DNS at the static IP yourself.
+- **Optional public URL(s):** whatever you set with `mkDomains` (e.g.
+  `notes.example.com`), each wired via a Knative `DomainMapping`. The canonical
+  entry is the one reported as the app's URL. You point each hostname's DNS at
+  the static IP yourself.
 
 ## Choosing a data tier
 
@@ -318,6 +347,8 @@ curl https://notes.personal.<baseDomain>     # the app answers over HTTPS
 
 ## Next
 
-Manage the secrets your apps and the host depend on:
-**[Secrets →](secrets.md)** — or browse the full
-**[Config reference →](config-reference.md)**.
+Your app is deployed — now operate it. **[App lifecycle →](app-lifecycle.md)**
+covers listing, inspecting, logging, restarting, stopping, and deleting apps,
+plus deployment history (`nagarectl app` / `deployments`). Or manage the secrets
+your apps and the host depend on: **[Secrets →](secrets.md)** — or browse the
+full **[Config reference →](config-reference.md)**.

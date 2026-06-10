@@ -139,7 +139,7 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 | 29 | Extended application model: health checks, resource limits, multiple domains | docs/plans/29-extended-application-model-health-checks-resource-limits-multiple-domains.md | None | None | Complete |
 | 30 | nagarectl app lifecycle commands | docs/plans/30-nagarectl-app-lifecycle-commands.md | None | EP-29 | Complete |
 | 31 | Application deployment history and deployments commands | docs/plans/31-application-deployment-history-and-deployments-commands.md | None | EP-30 | Complete |
-| 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Not Started |
+| 32 | Application lifecycle docs and end-to-end examples | docs/plans/32-application-lifecycle-docs-and-end-to-end-examples.md | EP-30, EP-31 | EP-29 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-29). The numbers continue the
@@ -288,8 +288,8 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - [x] EP-31: `recordDeploymentFor` wired into `runDeploy` (non-fatal); per-app history ConfigMap `nagare-app-deployments-<app>`; `--source` added. (2026-06-10)
 - [x] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs (id→revision via `resolveRevisionForTag`). (2026-06-10)
 - [x] EP-31: pure-layer unit tests (store name, `revisionForTag`) green; static-release tests unchanged. (2026-06-10)
-- [ ] EP-32: `docs/user/app-lifecycle.md` written; `config-reference.md`/`deploying-apps.md` updated for new fields.
-- [ ] EP-32: runnable example exercised end-to-end (deploy → list → get → logs → deployments → restart → stop → delete).
+- [x] EP-32: `docs/user/app-lifecycle.md` written and linked from `deploying-apps.md`/`README.md`; `config-reference.md` updated for health check, limits, multiple domains; stale `deploying-apps.md` config/YAML corrected. (2026-06-09)
+- [x] EP-32: runnable example `cluster/examples/app-lifecycle-demo/` verified by `nagarectl deploy --dry-run` (probes, limits, two DomainMappings, managed-by label, canonical URL); live walk-through captured in the example README, end-to-end run deferred until `nagare-01` is up. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -343,6 +343,20 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - **App `deploy` gained `--source`** (provenance recorded with the deployment and surfaced as
   `NAGARE_SOURCE`), matching the site deploy path. `DeployOpts` previously had no source field. (EP-31,
   2026-06-10)
+
+- **The docs plan (EP-32) had to repair pre-existing drift in `deploying-apps.md`, not just add a link.**
+  That page's "verbatim" `hello` config and "byte-for-byte golden" Service YAML had been silently
+  invalidated by EP-29 (the `nagare.dev/managed-by` label, `domains`, resource limits, `healthCheck`) and
+  by MasterPlan 5's EP-25 (`ScopedEnvVar`, the `envFrom` store). EP-32 corrected the config block, the
+  rendered YAML, and the surrounding prose so the page matches the current example file and golden. Lesson
+  for future model-changing plans (IP1/IP5): updating `config-reference.md` is not enough — `deploying-apps.md`
+  embeds copies of configs and goldens that also drift. (EP-32, 2026-06-09)
+
+- **EP-32 verified the render path live via `nagarectl deploy --dry-run`, deferring only the cluster verbs.**
+  The new `cluster/examples/app-lifecycle-demo/` renders all three probes, `resources.limits`, two
+  DomainMappings, the managed-by label, and `URL: https://demo.example.com` (the canonical of two) — proving
+  EP-29's renderer contract end-to-end without a cluster. The `app`/`deployments` verbs that read/patch live
+  Knative state stay documented-but-deferred until `nagare-01` is powered on. (EP-32, 2026-06-09)
 
 
 ## Decision Log
@@ -405,6 +419,43 @@ Track milestone-level progress across all child plans. Each entry names the chil
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All four child ExecPlans are Complete. The initiative delivered the Phase 1 remainder: Nagare can now
+*operate* an app, not just *create* one, and the typed model is rich enough to describe a real service.
+
+**What shipped.**
+
+- **EP-29 (model + renderer).** `Deployment` gained `healthCheck :: Maybe HealthCheck`, resource *limits*
+  (`cpuLimit`/`memoryLimit` on `Resources`), and `domains :: [DomainSpec]` (a canonical-marked list)
+  replacing `domain :: Maybe Domain`, plus the `nagare.dev/managed-by: nagarectl` label on every app
+  Service. The renderer emits `readinessProbe`/`livenessProbe`/`startupProbe`, `resources.limits`, and one
+  DomainMapping per domain; `serviceUrl` reports the canonical domain. Verified by golden + round-trip
+  tests with no cluster.
+- **EP-30 (`app` CLI).** `nagarectl app list/get/logs/restart/stop/delete`, backed by a new `Nagare.App`
+  module (`appIdentityOrDie`, `streamServiceLogs`/`LogTarget`, and the live-state + lifecycle helpers).
+  `stop` is recoverable (cluster-local visibility), `restart` rolls a fresh revision and un-stops, `delete`
+  removes Service + DomainMappings + history.
+- **EP-31 (deployment history).** Every successful `deploy` records to `nagare-app-deployments-<app>` (the
+  static-release store generalized by a name prefix), with `deployments list/logs` and a `--source`
+  provenance flag.
+- **EP-32 (docs + example).** `docs/user/app-lifecycle.md`, config-reference updates for the new fields, a
+  runnable `app-lifecycle-demo` example proven by dry-run, and link wiring — plus a correction of stale
+  pre-existing content in `deploying-apps.md`.
+
+**What went well.** The soft-dependency decomposition held: EP-29 and EP-30 were genuinely independent at
+compile time, and the Integration Points (the managed-by label string, the `Nagare.App` signatures, the
+ConfigMap name) were consumed exactly as written with no re-derivation. Reusing `Nagare.Static.Release`'s
+pure core for app history (IP3) kept behavior and tests consistent instead of forking a parallel store.
+
+**Surprises worth carrying forward.** (1) IP5 resolved EP-23-first, so EP-29 rebased onto `ScopedEnvVar`
+rather than the reverse — orthogonal as predicted. (2) A model change ripples into more docs than the
+config reference: `deploying-apps.md` embedded a "verbatim" config and a "byte-for-byte" golden that EP-29
+and EP-25 had quietly invalidated, and EP-32 had to repair them. Future model-changing MasterPlans should
+treat embedded configs/goldens in *every* user page as part of the blast radius.
+
+**Deferred / future work.** The live end-to-end cluster run (all `app`/`deployments` verbs against
+`nagare-01`) is deferred until the host is powered on — every page is honestly marked 🟡 with the render
+path proven by dry-run and the cluster verbs marked intended-behaviour. Hard HTTP redirects from
+non-canonical to canonical domains remain explicitly out of scope (EP-29 Decision Log), recorded as future
+work in the config reference and the lifecycle guide.
 </content>
 </invoke>

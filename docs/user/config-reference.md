@@ -29,21 +29,28 @@ All of this lives in the `nagare-dsl` library:
 
 ```haskell
 data Deployment = Deployment
-  { name      :: ServiceName        -- required
-  , namespace :: Namespace          -- required (use defaultNamespace for "personal")
-  , image     :: ImageRef           -- required, no tag (the tag is added at deploy time)
-  , build     :: BuildSpec          -- required: how the image is produced (see Build modes)
-  , domain    :: Maybe Domain       -- optional public hostname (DomainMapping)
-  , port      :: Port               -- container port (defaultPort = 8080)
-  , env       :: Map EnvName EnvVar -- environment variables (Map.empty for none)
-  , resources :: Maybe Resources    -- CPU/memory requests (Nothing = omit)
-  , scale     :: Maybe Scale        -- autoscaling bounds (Nothing = omit)
+  { name        :: ServiceName              -- required
+  , namespace   :: Namespace                -- required (use defaultNamespace for "personal")
+  , image       :: ImageRef                 -- required, no tag (the tag is added at deploy time)
+  , build       :: BuildSpec                -- required: how the image is produced (see Build modes)
+  , domains     :: [DomainSpec]             -- public hostnames ([] = none); exactly one canonical
+  , port        :: Port                     -- container port (defaultPort = 8080)
+  , env         :: Map EnvName ScopedEnvVar -- environment variables (Map.empty for none)
+  , resources   :: Maybe Resources          -- CPU/memory requests and limits (Nothing = omit)
+  , scale       :: Maybe Scale              -- autoscaling bounds (Nothing = omit)
+  , healthCheck :: Maybe HealthCheck         -- optional HTTP probe (Nothing = omit)
   }
 ```
 
 > `webService` populates `build` with a default Dockerfile build, so preset-based
 > configs need not mention it. A hand-written record literal must set `build` —
-> see [Build modes](#build-modes) and the [migration note](build-modes.md).
+> see [Build modes](#build-modes) and the [migration note](build-modes.md). It
+> must also set `domains` (use `[]` for none) and `healthCheck` (use `Nothing`).
+
+> **`env` values carry scopes.** Each env value is a `ScopedEnvVar` — an `EnvVar`
+> (literal or secret reference) plus the set of scopes it applies to. A bare
+> variable is `runtimeScoped (EnvLiteral …)` (runtime only); see
+> [Environment and secrets](env-and-secrets.md) for build/preview scopes.
 
 Fields are strict and **unprefixed** — `name`, not `depName`. You build a
 `Deployment` with a record literal after constructing each field through its
@@ -150,18 +157,85 @@ env = Map.fromList
 …where `literalVar`, `secretVar` came from `mkEnvName` and `dbSecret` from
 `mkSecretName`. (The `secretEnv` preset helper, below, does this in one call.)
 
-### `Resources`
+### `Resources` — requests and limits
 
 ```haskell
 data Resources = Resources
-  { cpu    :: Maybe Quantity
-  , memory :: Maybe Quantity
+  { cpu         :: Maybe Quantity   -- request: guaranteed CPU
+  , memory      :: Maybe Quantity   -- request: guaranteed memory
+  , cpuLimit    :: Maybe Quantity   -- limit: CPU ceiling (Nothing = no limit)
+  , memoryLimit :: Maybe Quantity   -- limit: memory ceiling (Nothing = no limit)
   }
 ```
 
-A plain record (no smart constructor) — but both fields are `Quantity`, so the
-only way to populate them is through `mkQuantity`. Set the whole field to
-`Nothing` on the `Deployment` to omit the `resources` block entirely.
+A plain record (no smart constructor) — but every field is `Quantity`, so the
+only way to populate them is through `mkQuantity`. **Requests** (`cpu`/`memory`)
+are what the pod is scheduled against — the guaranteed amount; **limits**
+(`cpuLimit`/`memoryLimit`) are the ceiling the container may not exceed. The
+renderer emits a `requests:` sub-block and/or a `limits:` sub-block only for the
+quantities present, e.g.:
+
+```yaml
+        resources:
+          requests:
+            cpu: 250m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+```
+
+Set the whole `resources` field to `Nothing` on the `Deployment` to omit the
+block entirely. The `webService` preset sets requests only (250m / 128Mi) with
+both limits `Nothing`; add limits by overwriting the field:
+
+```haskell
+res = Resources
+  { cpu = Just c250m, memory = Just m128, cpuLimit = Just c500m, memoryLimit = Just m512 }
+```
+
+### `HealthCheck` — an HTTP probe
+
+```haskell
+data HealthScheme = HTTP | HTTPS
+
+data HealthCheck = HealthCheck
+  { path             :: Text        -- non-empty, must start with "/"
+  , checkPort        :: Maybe Port  -- Nothing = the container port
+  , scheme           :: HealthScheme
+  , expectedStatus   :: Int         -- documentation-only (see note); default 200
+  , initialDelay     :: Int         -- seconds before the first probe (>= 0)
+  , period           :: Int         -- seconds between probes (>= 1)
+  , timeout          :: Int         -- per-probe timeout seconds (>= 1)
+  , failureThreshold :: Int         -- consecutive failures before unhealthy (>= 1)
+  , asLiveness       :: Bool        -- also emit a livenessProbe
+  , asStartup        :: Bool        -- also emit a startupProbe
+  }
+
+mkHealthCheck   :: HealthCheck -> Either Text HealthCheck   -- validates an assembled value
+httpHealthCheck :: Text -> Either Text HealthCheck          -- a path + sensible defaults
+```
+
+A `HealthCheck` is always rendered as a Knative `readinessProbe`, and
+additionally as a `livenessProbe`/`startupProbe` when `asLiveness`/`asStartup`
+are set. The quick path is `httpHealthCheck "/healthz"`, which fills `scheme =
+HTTP`, `expectedStatus = 200`, `initialDelay = 0`, `period = 10`, `timeout = 1`,
+`failureThreshold = 3`, and both `asLiveness`/`asStartup` `False`. Promote it to
+all three probes by overwriting the two flags:
+
+```haskell
+do base <- httpHealthCheck "/healthz"
+   pure base {asLiveness = True, asStartup = True}
+```
+
+For full control, assemble the record yourself and validate with `mkHealthCheck`
+(it rejects an empty/relative path, an `expectedStatus` outside 100–599, a
+negative `initialDelay`, or a `period`/`timeout`/`failureThreshold` below 1).
+
+> **`expectedStatus` is documentation-only.** Knative's `httpGet` probe treats any
+> 2xx/3xx as healthy and does not assert a specific status code, so this field is
+> retained in the model for clarity and future use but is deliberately *not*
+> rendered into the manifest.
 
 ### `Scale` — autoscaling bounds
 
@@ -174,15 +248,39 @@ mkScale :: Int -> Int -> Either Text Scale   -- mkScale min max
 means **scale to zero** when idle. Always build a `Scale` with `mkScale`;
 constructing the record directly bypasses the check.
 
-### `Domain` — optional public hostname
+### `Domain` and `DomainSpec` — public hostnames
 
 ```haskell
 mkDomain   :: Text -> Either Text Domain
 domainText :: Domain -> Text
+
+data DomainSpec = DomainSpec { domain :: Domain, canonical :: Bool }
+
+mkDomains       :: [(Text, Bool)] -> Either Text [DomainSpec]
+canonicalDomain :: [DomainSpec] -> Maybe Domain
 ```
 
-Non-empty, no spaces, and no URI scheme (`http://`/`https://`). When the
-`Deployment`'s `domain` is `Just`, `nagarectl` also renders a `DomainMapping`.
+A `Domain` is non-empty, no spaces, and no URI scheme (`http://`/`https://`). A
+`Deployment` carries a *list* of domains (`domains :: [DomainSpec]`), each paired
+with a `canonical` flag. Build the list with `mkDomains`, passing
+`(hostname, isCanonical)` pairs:
+
+```haskell
+mkDomains [("app.example.com", True), ("www.example.com", False)]
+```
+
+- An **empty list** means "no custom domain" — the app is reached at its
+  automatic `name.namespace.<baseDomain>` URL.
+- A **non-empty list** must mark **exactly one** entry `canonical` (`mkDomains`
+  rejects zero or two-plus canonicals). The canonical domain is the one
+  `nagarectl` prints as the app's URL.
+- The renderer emits **one `DomainMapping` per domain**, so every hostname routes
+  to the Service.
+
+> **Redirects are not installed.** Each domain gets a DomainMapping and the
+> canonical one drives the reported URL, but a non-canonical hostname is *not*
+> HTTP-redirected to the canonical one — that hard redirect is deferred future
+> work (EP-29). All listed domains serve the app directly.
 
 ## Build modes
 
@@ -260,12 +358,12 @@ teamDefaults :: Deployment -> Deployment
 
 | Building block | Effect |
 | --- | --- |
-| `webService name image` | A standard HTTP service: namespace `personal`, port `8080`, scale `0..3`, `stdResources` (250m / 128Mi), no env, no domain. |
+| `webService name image` | A standard HTTP service: namespace `personal`, port `8080`, scale `0..3`, `stdResources` (250m / 128Mi requests, no limits), no env, no domains, no health check. |
 | `development dep` | Overlay → scale `0..1` (still scale-to-zero, at most one replica). |
 | `production dep` | Overlay → scale `1..5` (always-warm) and larger resources (500m / 256Mi). |
 | `secretEnv var secret dep` | Adds a `EnvSecretRef` env var, preserving existing entries. |
 | `stdResources` | The 250m / 128Mi resource block. |
-| `teamDefaults dep` | Pins namespace `personal` and clears any custom domain. (Pure — returns `Deployment`, not `Either`.) |
+| `teamDefaults dep` | Pins namespace `personal` and clears any custom domains. (Pure — returns `Deployment`, not `Either`.) |
 
 Every overlay is `Deployment -> Either Text Deployment` and routes any
 constrained field it touches back through a smart constructor, so composing
@@ -316,6 +414,8 @@ When `nagarectl` loads a config, each failure becomes a precise `LoadError`
 ## Related docs
 
 - [Deploying apps](deploying-apps.md) — the workflow and `nagarectl` commands.
+- [App lifecycle](app-lifecycle.md) — day-2 `app`/`deployments` commands using the
+  health-check, limits, and multiple-domain fields above.
 - [Build modes](build-modes.md) — prebuilt, Dockerfile, and Nixpacks builds.
 - [Secrets](secrets.md) — managing the Kubernetes Secrets that `EnvSecretRef`
   points at.
