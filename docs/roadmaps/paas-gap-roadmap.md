@@ -25,11 +25,13 @@ Delivered so far, each by a completed MasterPlan under `docs/masterplans/`:
   GCS with retention) — MasterPlan 7.
 - ✅ Server and operations UX (`nagarectl server status` / `doctor` / `domains list` / `cleanup`) —
   MasterPlan 8.
+- ✅ Managed databases (typed `Database` for Postgres/Redis/ClickHouse, StatefulSet/Service/PVC/Secret
+  renderer, `nagarectl db …`, app connection-env injection, scheduled GCS backups + restore) —
+  MasterPlan 9.
 
-Still missing (future initiatives): managed databases and their backups (Phase 4), scheduled tasks
-(Phase 5), curated service templates (Phase 6), dynamic-app previews (Phase 7), a general control API
-and CLI contexts (Phase 8 — only the static webhook runner `nagared` exists today), and an optional
-dashboard (Phase 10).
+Still missing (future initiatives): scheduled tasks (Phase 5), curated service templates (Phase 6),
+dynamic-app previews (Phase 7), a general control API and CLI contexts (Phase 8 — only the static
+webhook runner `nagared` exists today), and an optional dashboard (Phase 10).
 
 Sources used for the initial comparison. This list is intentionally incomplete and should be updated
 as more PaaS platforms are researched:
@@ -44,15 +46,15 @@ as more PaaS platforms are researched:
 Nagare already has a strong core: one typed Haskell config produces one Knative Service, and
 `nagarectl deploy` builds, pushes, applies, waits, and prints a URL. The type-safe DSL initiative
 eliminated the old YAML surface and made illegal app deployment states much harder to write down.
-On top of that, six capability initiatives have now landed (see *Implementation status* above):
+On top of that, seven capability initiatives have now landed (see *Implementation status* above):
 static hosting (Cloudflare Pages/Netlify-style static-site config, generated Nginx image packaging,
 releases, rollback, previews, and Git webhook automation), typed application build modes, environment
 and secret management, the application model and CLI lifecycle, persistent storage with app-volume
 backups, and the operator-facing server/operations UX.
 
-That leaves these broader PaaS gaps:
+That leaves these broader PaaS gaps (managed databases with backups, Phase 4, is now delivered by
+MasterPlan 9):
 
-- managed databases with backups (Phase 4),
 - scheduled tasks (Phase 5),
 - curated service templates, and optionally Docker Compose-style services (Phase 6),
 - dynamic-app preview deployments (Phase 7),
@@ -76,8 +78,8 @@ any one platform's architecture. Nagare should stay Kubernetes/Knative-native an
 | Persistent storage | Typed volume mounts and PVC renderer, `nagarectl storage ...` | ✅ Done — MasterPlan 7 |
 | App-volume backups | Snapshot to GCS with retention and backup ownership | ✅ Done — MasterPlan 7 |
 | Server inventory & operations UX | `nagarectl server status` / `doctor` / `domains list` / `cleanup` | ✅ Done — MasterPlan 8 |
-| Managed databases | First-class Postgres and Redis resources, generated env injection | ⬜ Not started — Phase 4 |
-| Managed-database backups | Scheduled backup resources, restore commands, retention policy | ⬜ Not started — Phase 4 (app-volume snapshots exist; DB-level UX does not) |
+| Managed databases | First-class Postgres/Redis/ClickHouse `Database` resources, generated env injection | ✅ Done — MasterPlan 9 |
+| Managed-database backups | Scheduled CronJob + on-demand `db backup`, `db restore`, keep-last-N retention | ✅ Done — MasterPlan 9 |
 | Scheduled tasks | Kubernetes CronJob renderer and `nagarectl task` commands | ⬜ Not started — Phase 5 |
 | Service templates | Curated typed templates (Postgres admin, MinIO, etc.) | ⬜ Not started — Phase 6 |
 | Docker Compose apps | Decompose to typed resources, or run in a constrained namespace | ⬜ Not started — Phase 6 (low interest) |
@@ -202,20 +204,24 @@ Suggested plan shape: one MasterPlan if backup integration is included; otherwis
 Why third: persistent storage is a prerequisite for many "service" and "database" templates.
 
 
-## Phase 4: Managed Databases and Backups — ⬜ Not started
+## Phase 4: Managed Databases and Backups — ✅ Done
 
-**Status: not started.** App-volume snapshots to GCS exist (MasterPlan 7), but there are no
-first-class `Database` resources, no generated `DATABASE_URL`/`REDIS_URL` injection, and no
-database-level backup/restore UX. This is the largest remaining gap.
+**Status: delivered by MasterPlan 9** (`docs/masterplans/9-managed-databases-for-nagare.md`,
+EP-43–EP-48). A typed `Database` (Postgres/Redis/ClickHouse) renders a single-replica StatefulSet +
+ClusterIP Service + `local-path` PVC + managed Secret; `nagarectl db list/create/get/shell/restart/
+delete` operate it; an app references databases by name and receives per-engine connection env
+(`DATABASE_URL`/`REDIS_URL`/`CLICKHOUSE_URL` + components, passwords as Secret references);
+`nagarectl db backup/restore` plus a daily self-pruning CronJob handle backups to
+`gs://tan-nb-exp-nagare-backups/databases/<name>/` with keep-last-N retention. User guide:
+`docs/user/managed-databases.md`; three end-to-end examples under `cluster/examples/`. The scope went
+beyond the original Phase 4 (Postgres + Redis) by adding **ClickHouse** as an analytical store. The
+in-pod GCS auth that backups rely on required a node networking fix (a `/32` metadata route +
+`hostAliases`), now in `nixos/hosts/nagare-01/networking.nix`.
 
-PaaS platforms commonly provide managed or semi-managed databases such as PostgreSQL, MySQL/MariaDB,
-MongoDB, Redis-compatible stores, and analytical databases. Nagare should start smaller and make the
-first two excellent.
-
-Deliverables:
+The original Phase 4 deliverables, all met, were:
 
 - First-class `Database` resources in the DSL or project config.
-- Initial engines: PostgreSQL and Redis.
+- Initial engines: PostgreSQL and Redis (plus ClickHouse, added).
 - Generated Kubernetes resources using either direct manifests or a chosen operator/Helm chart.
 - Generated secrets and app env injection:
 

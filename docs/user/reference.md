@@ -174,6 +174,32 @@ volume's data lives on the host under `/var/lib/nagare/local-path/` (see *On-hos
 storage layout* above). Restore with `scripts/restore-volume.sh` (scratch-first).
 See the [Persistent storage](persistent-storage.md) guide.
 
+## `nagarectl db` commands (managed databases)
+
+A managed database (Postgres/Redis/ClickHouse) is a separate typed `Database`
+resource, not an app field. `db create` generates a password, writes the managed
+Secret `nagare-db-<name>`, and provisions a single-replica StatefulSet + ClusterIP
+Service + `local-path` PVC (+ a daily backup CronJob). Resources are discovered by
+the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
+`nagare.dev/engine=<engine>`.
+
+| Command | Does |
+| --- | --- |
+| `nagarectl db list [-n NS]` | Table of managed databases: name, engine, version, size, status, host. |
+| `nagarectl db create ENGINE NAME [--version V] [--size Q] [--memory Q] [--config F]` | Generate credentials and provision the database; idempotent (never regenerates the password). |
+| `nagarectl db get NAME` | Detail: engine, version, size, in-cluster host, retention, ready, Secret key names. |
+| `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
+| `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
+| `nagarectl db delete NAME --yes` | Delete, honoring `RetentionPolicy` (guarded by `--yes`). |
+| `nagarectl db backup NAME [--bucket B] [--keep N]` | Logical dump to GCS; keep-last-N retention. |
+| `nagarectl db restore NAME BACKUP_ID [--into-live]` | Restore a backup, scratch-first (or into the live DB). |
+
+All mutating commands support `--dry-run`. An app references a database by name
+(the `databases` field on `Deployment`) and receives the per-engine connection
+env at deploy time. Backups land at
+`gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`. See the
+[Managed databases](managed-databases.md) guide.
+
 ## Domain model
 
 ```text

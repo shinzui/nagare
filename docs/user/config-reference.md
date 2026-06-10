@@ -39,6 +39,8 @@ data Deployment = Deployment
   , resources   :: Maybe Resources          -- CPU/memory requests and limits (Nothing = omit)
   , scale       :: Maybe Scale              -- autoscaling bounds (Nothing = omit)
   , healthCheck :: Maybe HealthCheck         -- optional HTTP probe (Nothing = omit)
+  , volumes     :: [Volume]                  -- durable disks ([] = stateless); see Volumes
+  , databases   :: [DatabaseName]            -- managed databases this app uses ([] = none); see below
   }
 ```
 
@@ -376,6 +378,45 @@ from `Nagare.Dsl.Types`) and set `retention = Delete`, then
 `pure base { volumes = [v] }`. Attaching any volume pins the Service to
 `min-scale = 1` / `max-scale = 1` / `rollout-duration = 0s` (single-writer +
 stay-warm; see [Persistent storage](persistent-storage.md)).
+
+## Managed databases
+
+A **managed database** is a separate typed resource — not a `Deployment` field —
+declared as a `Database` value and emitted with `emitDatabase` (the database
+analogue of `emitDeployment`). It is provisioned and operated with the
+`nagarectl db` command group, not `nagarectl deploy`. See
+[Managed databases](managed-databases.md) for the full feature.
+
+```haskell
+data Engine = Postgres | Redis | ClickHouse
+
+data Database = Database
+  { dbName    :: DatabaseName       -- DNS-label name, unique in the namespace
+  , engine    :: Engine             -- Postgres | Redis | ClickHouse
+  , version   :: EngineVersion      -- pinned image tag (mkEngineVersion eng "18"); no "latest"
+  , namespace :: Namespace          -- reuses the Deployment namespace type ("personal" default)
+  , size      :: Quantity           -- data PVC size, e.g. mkQuantity "10Gi"
+  , resources :: Maybe Resources    -- container CPU/memory; set a memory limit for ClickHouse
+  , retention :: RetentionPolicy    -- Retain (keep the disk on delete) | Delete
+  }
+```
+
+| Field type | Constructor | Notes |
+| --- | --- | --- |
+| `DatabaseName` | `mkDatabaseName :: Text -> Either Text DatabaseName` | DNS-1123 label (same rules as `ServiceName`). Exported from `Nagare.Dsl.Database` (and re-exported there from `Nagare.Dsl.Types`). |
+| `Engine` | constructors `Postgres`/`Redis`/`ClickHouse` | `defaultEngineVersion` gives the modern major per engine (Postgres `18`, Redis `8`, ClickHouse `25.8`). |
+| `EngineVersion` | `mkEngineVersion :: Engine -> Text -> Either Text EngineVersion` | Rejects empty, `latest`, and `:`-bearing tags; ClickHouse's `YY.M` form is accepted. |
+
+`namespace`, `size`, `resources`, and `retention` reuse the same types as the
+app model (above). The generated password is **not** in this config — it is
+created by `nagarectl db create` and stored only in the managed Secret
+`nagare-db-<name>`.
+
+An app references databases by name through the `databases :: [DatabaseName]`
+field on `Deployment` (above). At deploy time the app receives the per-engine
+connection env — host/port/user/db as literals and the composed `*_URL`/password
+as Secret references; the exact variables are in
+[Managed databases](managed-databases.md#connecting-an-app-to-a-database).
 
 ## Reusable presets
 

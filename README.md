@@ -199,8 +199,12 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 ## Non-goals (v1)
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
-External Secrets Operator, complex autoscaling, multi-tenant auth, running every
-database inside Kubernetes, huge observability retention, production-grade HA.
+External Secrets Operator, complex autoscaling, multi-tenant auth, huge
+observability retention, and production-grade HA. (Nagare does run single-replica
+managed databases in-cluster — Postgres/Redis/ClickHouse via `nagarectl db`, see
+[`docs/user/managed-databases.md`](docs/user/managed-databases.md) — but
+**replicated/HA databases are out of scope**; use Cloud SQL / Neon / Supabase for
+those.)
 
 ---
 
