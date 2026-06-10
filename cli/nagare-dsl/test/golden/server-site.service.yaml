@@ -19,6 +19,13 @@ spec:
           value: https://api.example.com
         - name: HOSTNAME
           value: 0.0.0.0
+        envFrom:
+        - configMapRef:
+            name: nagare-env-notes-app-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-notes-app-runtime
+            optional: true
         resources:
           requests:
             cpu: 500m

@@ -20,6 +20,13 @@ spec:
             secretKeyRef:
               name: tasks-db
               key: DATABASE_URL
+        envFrom:
+        - configMapRef:
+            name: nagare-env-tasks-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-tasks-runtime
+            optional: true
         resources:
           requests:
             cpu: 500m

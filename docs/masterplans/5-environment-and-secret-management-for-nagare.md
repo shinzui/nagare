@@ -106,7 +106,7 @@ grows.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 23 | Scoped env model and scoped Knative renderer | docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md | None | None | In Progress |
+| 23 | Scoped env model and scoped Knative renderer | docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md | None | None | Complete |
 | 24 | Per-app Secret and ConfigMap store with reconcile modes | docs/plans/24-per-app-secret-and-configmap-store-with-reconcile-modes.md | EP-23 | None | Not Started |
 | 25 | nagarectl env and secret CLI commands | docs/plans/25-nagarectl-env-and-secret-cli-commands.md | EP-24 | EP-23 | Not Started |
 | 26 | Generated and predefined environment variables | docs/plans/26-generated-and-predefined-environment-variables.md | EP-23 | None | Not Started |
@@ -253,9 +253,9 @@ documents the table. Because they are injected as inline `env:`, they override m
 
 ## Progress
 
-- [ ] EP-23: `EnvScope`/`ScopedEnvVar` types added; existing configs compile with default Runtime scope.
-- [ ] EP-23: JSON round-trip (Config.hs emit / Load.hs decode) carries scopes; golden tests pass.
-- [ ] EP-23: Scope-filtered inline render + `envFrom` wiring + naming helpers; golden tests pass.
+- [x] EP-23: `EnvScope`/`ScopedEnvVar` types added; existing configs compile with default Runtime scope. (2026-06-09)
+- [x] EP-23: JSON round-trip (Config.hs emit / Load.hs decode) carries scopes; golden tests pass. (2026-06-09)
+- [x] EP-23: Scope-filtered inline render + `envFrom` wiring + naming helpers; golden tests pass. (2026-06-09)
 - [ ] EP-24: Pure `reconcile` + ConfigMap/Secret rendering with unit tests.
 - [ ] EP-24: kubectl read/write IO for the per-app stores.
 - [ ] EP-25: `nagarectl env list|set|delete|sync` commands working against the cluster (or `--dry-run`).

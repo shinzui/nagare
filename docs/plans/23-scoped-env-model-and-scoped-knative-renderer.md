@@ -124,12 +124,19 @@ This section must always reflect the actual current state of the work.
       `scopedEnvTests`); missing/empty default to Runtime, a multi-scope entry
       decodes to both, and an unknown scope token yields a `MarshalError`
       (LoadSpec.hs). 142 tests pass. (2026-06-09)
-- [ ] M3: Add `scopeToken`, `managedConfigMapName`, `managedSecretName`; export them.
-- [ ] M3: Scope-filter the inline `env:` (Runtime-only) and add the `envFrom` block in
-      both `Nagare.Dsl.Render` and `Nagare.Dsl.Server.Render`; place `envFrom` in
-      `keyCompare`.
-- [ ] M3: Update the affected golden files and add a Build-only-exclusion golden/unit
-      test; full `cabal test` is green.
+- [x] M3: Add `scopeToken`, `managedConfigMapName`, `managedSecretName`; export them
+      from `Nagare.Dsl.Render`. `Server/Render.hs` imports and reuses them. (2026-06-09)
+- [x] M3: Scope-filter the inline `env:` (Runtime-only) and add the always-present
+      `envFrom` block in both `Nagare.Dsl.Render` and `Nagare.Dsl.Server.Render`;
+      placed `envFrom` (rank 3) between `env` (2) and `resources` (4) in `keyCompare`,
+      plus `optional`/`configMapRef`/`secretRef` ranks. (2026-06-09)
+- [x] M3: Updated the 4 affected goldens (hello, preset-app-a, preset-app-b,
+      server-site) — diff is exactly the inserted `envFrom` block — and added a new
+      `test/golden/build-only.service.yaml` proving `BUILD_TOKEN` ({Build}) is
+      excluded from inline `env:` while `API_BASE` and the `envFrom` refs remain.
+      `static-site.service.yaml` and the DomainMapping/Dockerfile goldens are
+      unchanged. Full `cabal test` green (143 tests); `nagarectl` builds and its 52
+      tests pass against the updated library. (2026-06-09)
 
 
 ## Surprises & Discoveries
@@ -188,7 +195,31 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-09): complete, all three milestones delivered.** The
+`nagare-dsl` model now carries `EnvScope`/`ScopedEnvVar`, every existing config
+compiles unchanged through the `runtimeScoped` default, the scope set survives
+the JSON round-trip, and every rendered app and server Service scope-filters its
+inline `env:` to Runtime entries and emits the `envFrom` block referencing the
+managed store with `optional: true`. The three integration contracts (IP1 type +
+env-map change, IP2 naming helpers, IP3 `envFrom` wiring + precedence) are in
+place for the downstream plans to import.
+
+**Against the purpose:** both new abilities exist — a `{Build}`-only variable is
+excluded from the running container (proven by `build-only.service.yaml`), and
+every Service reaches out to a per-app managed store it can be populated from
+later without editing Haskell or rebuilding.
+
+**Notes / lessons:**
+- `Server/Render.hs` imports the naming helpers from `Nagare.Dsl.Render` rather
+  than redefining them, keeping a single owner of the string format (IP2). There
+  is no import cycle: `Render` depends only on `Build` and `Types`.
+- `DuplicateRecordFields` is on, so the new `value`/`scopes` selectors of
+  `ScopedEnvVar` coexist with other records; tests poke them via the
+  constructor-qualified record pattern `Deployment{env = m}` and the unambiguous
+  `scopes`/`value` selectors, avoiding a `generic-lens` test dependency.
+- The workspace beyond the library (`nagarectl`) was rebuilt and its suite run to
+  confirm the env-field type change is transparent to consumers that go through
+  `loadDeployment`/`renderService`.
 
 
 ## Context and Orientation

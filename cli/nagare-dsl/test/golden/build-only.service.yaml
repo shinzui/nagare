@@ -15,8 +15,8 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: TARGET
-          value: Nagare
+        - name: API_BASE
+          value: https://api.example.com
         envFrom:
         - configMapRef:
             name: nagare-env-hello-runtime

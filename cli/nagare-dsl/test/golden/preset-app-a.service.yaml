@@ -14,6 +14,13 @@ spec:
       - image: gcr.io/myproject/notes:20260602-120000
         ports:
         - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: nagare-env-notes-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-notes-runtime
+            optional: true
         resources:
           requests:
             cpu: 500m

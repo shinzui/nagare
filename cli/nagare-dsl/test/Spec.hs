@@ -228,6 +228,13 @@ goldenTests =
           Just bs -> pure (fromStrict bs)
           Nothing -> fail "renderDomainMapping returned Nothing for hello (expected Just)"
       )
+  , -- EP-23 M3: a {Build}-only variable is excluded from the inline env: of the
+    -- running container, while a Runtime variable and the envFrom references to
+    -- the managed store remain.
+    goldenVsString
+      "renderService build-only exclusion"
+      "test/golden/build-only.service.yaml"
+      (pure (fromStrict (renderService buildOnlyDep "20260602-120000")))
   ]
 
 -- | The canonical hello deployment, assembled entirely through smart
@@ -249,6 +256,18 @@ helloDep =
             , memory = Just (unsafe (mkQuantity "128Mi"))
             }
     , scale = Just (unsafe (mkScale 0 3))
+    }
+
+-- | 'helloDep' with a Runtime variable and a Build-only variable, used to prove
+-- the M3 scope filter excludes the Build-only entry from the inline @env:@.
+buildOnlyDep :: Deployment
+buildOnlyDep =
+  helloDep
+    { env =
+        Map.fromList
+          [ (unsafe (mkEnvName "API_BASE"), runtimeScoped (EnvLiteral "https://api.example.com"))
+          , (unsafe (mkEnvName "BUILD_TOKEN"), unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "abc123")))
+          ]
     }
 
 -- ---------------------------------------------------------------------------

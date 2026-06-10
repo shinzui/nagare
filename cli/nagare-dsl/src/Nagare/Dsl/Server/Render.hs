@@ -29,14 +29,17 @@ import Data.ByteString (ByteString)
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (siteNameText)
 import Nagare.Dsl.Types
   ( Domain
   , EnvName
+  , EnvScope (..)
   , EnvVar (..)
   , Resources
   , Scale
@@ -138,14 +141,38 @@ containerValue site ctx =
       [ "image" .= imageStr
       , "ports" .= toJSON [object ["containerPort" .= portN]]
       ]
-    optionals = envField (site ^. #env) <> resourcesField (site ^. #resources)
+    optionals =
+      envField (site ^. #env)
+        <> envFromField (serviceNameFor site ctx)
+        <> resourcesField (site ^. #resources)
 
+-- | The inline @env:@ block, restricted to Runtime-scoped entries (see
+-- 'Nagare.Dsl.Render.envField' for the rationale). Build/Preview-only entries
+-- are excluded from the running container.
 envField :: Map EnvName ScopedEnvVar -> [Pair]
 envField m
-  | Map.null m = []
-  | otherwise = ["env" .= toJSON (map envEntry (Map.toAscList m))]
+  | null runtimeEntries = []
+  | otherwise = ["env" .= toJSON (map envEntry runtimeEntries)]
   where
-    envEntry (n, sev) = envEntryValue (envNameText n) (sev ^. #value)
+    runtimeEntries =
+      [ (n, sev ^. #value)
+      | (n, sev) <- Map.toAscList m
+      , Set.member Runtime (sev ^. #scopes)
+      ]
+    envEntry (n, ev) = envEntryValue (envNameText n) ev
+
+-- | The always-present @envFrom:@ block referencing the site's Runtime-scoped
+-- managed ConfigMap and Secret with @optional: true@ (MasterPlan IP3). For a
+-- preview deploy the name is the preview Service name, matching the store the
+-- managed env was written to.
+envFromField :: Text -> [Pair]
+envFromField app =
+  [ "envFrom"
+      .= toJSON
+        [ object ["configMapRef" .= object ["name" .= managedConfigMapName app Runtime, "optional" .= True]]
+        , object ["secretRef" .= object ["name" .= managedSecretName app Runtime, "optional" .= True]]
+        ]
+  ]
 
 envEntryValue :: Text -> EnvVar -> Value
 envEntryValue n (EnvLiteral lit) =
@@ -221,7 +248,11 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("image", 0)
       , ("ports", 1)
       , ("env", 2)
-      , ("resources", 3)
+      , ("envFrom", 3)
+      , ("resources", 4)
       , ("cpu", 0)
       , ("memory", 1)
+      , ("optional", 4)
+      , ("configMapRef", 0)
+      , ("secretRef", 1)
       ]
