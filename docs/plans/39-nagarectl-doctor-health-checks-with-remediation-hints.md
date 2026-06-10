@@ -67,22 +67,37 @@ walks back to "0 failed" with exit `0`.
 
 ## Progress
 
-- [ ] M1: pure `Remediation`/`Check` model + `remediationFor` knowledge base + `formatDoctor` renderer +
-  `doctorExitOk`, all in `cli/nagarectl/src/Nagare/Ops/Doctor.hs`, with a `testGroup "Nagare.Ops.Doctor"` in
-  `cli/nagarectl/test/Spec.hs` covering each failure mode.
-- [ ] M2: `doctor` top-level command wired into `cli/nagarectl/app/Main.hs` — `DoctorOpts` record +
-  parser, `Doctor` constructor, `command "doctor"` registered, `runDoctor` handler calling EP-38's
+- [x] M1 (2026-06-10): pure `Remediation`/`Check` model + `remediationFor` knowledge base + `formatDoctor` renderer +
+  `doctorExitOk`, all in `cli/nagarectl/src/Nagare/Ops/Doctor.hs`, with a `testGroup "Nagare.Ops.Doctor"` (15 cases) in
+  `cli/nagarectl/test/Spec.hs` covering each failure mode — all green.
+- [x] M2 (2026-06-10): `doctor` top-level command wired into `cli/nagarectl/app/Main.hs` — `DoctorOpts` record +
+  parser (`--skip-vm`), `Doctor` constructor, `command "doctor"` registered, `runDoctor` handler calling EP-38's
   `gatherInventory` and exiting non-zero on any FAIL.
-- [ ] M3: `nagarectl-test` green + `nagarectl doctor --help` transcript captured below; live cluster run
-  deferred (no cluster mutated during implementation).
+- [x] M3 (2026-06-10): `nagarectl-test` green (146 tests) + `nagarectl doctor --help` transcript captured below;
+  FAIL/exit-1 path proven with a `gcloud` stub (VM `TERMINATED` → `[FAIL]`, exit 1) and degradation proven with an
+  empty PATH (all `WARN`, exit 0); live cluster run deferred (no cluster mutated during implementation).
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
-(None yet.)
+- 2026-06-10 (M1): EP-38 shipped **display-name** probe keys (`"VM"`, `"k3s node"`,
+  `"Knative controller"`, `"cert-manager-cainjector"`, `"Kourier ingress"`, `"base domain"`,
+  `"external-domain-tls"`, `"Artifact Registry"`, `"backup postgres"`, `"boot disk"`/`"data disk"`/`"disk"`,
+  etc.) and **no** separate stable machine-key field — the conceptual keys this plan sketched
+  (`vm-power`, `k3s-node`, …) do not exist in EP-38's source. Per IP1's instruction to read the
+  committed names, `remediationFor` keys off EP-38's real `probeName` values. The `doctor`
+  checklist therefore shows the same labels as `server status` (consistency win), and the
+  uncatalogued-probe fallback ("see docs/runbooks/") guarantees no bare red line if EP-38 later
+  adds a probe. See the Decision Log entry for the rationale and the safety of this choice.
+- 2026-06-10 (M1): EP-38's inventory has 18 probes (the four control planes expand to seven
+  Deployments incl. `cert-manager-cainjector`, plus an informational `external-domain-tls` line and
+  three backup prefixes), so the live header reads "18 checks", not the plan's illustrative "9".
+  `remediationFor` groups the seven Deployment probes via an `isDeploy`/`deployTarget` table so each
+  prints its own `kubectl rollout status deploy/<name> -n <ns>` and the right
+  `cluster/bootstrap/<component>/README.md`.
+- 2026-06-10 (M3): Both control paths were proven without touching real infra — the FAIL/exit-1 path
+  with a one-line `gcloud` shell stub that reports the VM `TERMINATED` (→ `[FAIL] VM`, summary
+  "1 failed", process exit 1), and the all-`WARN`/exit-0 degradation with `PATH=/var/empty`.
 
 
 ## Decision Log
@@ -115,12 +130,79 @@ implementation. Provide concise evidence.
   Date: 2026-06-09
 
 
+- Decision: Key `remediationFor` off EP-38's committed `probeName` **display values** rather than
+  adding a separate stable machine-key field to EP-38's `Probe` type.
+  Rationale: EP-38 ships display-only probe names and no machine key; adding one would mean editing
+  EP-38's type and every probe construction for marginal benefit, since EP-38 and EP-39 are committed
+  together and the names are stable. Keying off `probeName` keeps `doctor`'s labels identical to
+  `server status`, and the catalogue's `_ -> "see docs/runbooks/"` fallback ensures any future
+  uncatalogued probe still gets a hint (the IP1 "renaming silently drops a remediation" risk is
+  mitigated by the fallback plus the unit tests, which assert the exact command substrings).
+  Date: 2026-06-10
+
+
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+Delivered `nagarectl doctor`: the pure `Nagare.Ops.Doctor` module (the
+`Remediation`/`Check` model, the `remediationFor` knowledge base, the
+`formatDoctor` renderer, and the `doctorExitOk` grade) plus the top-level
+`doctor` command in `cli/nagarectl/app/Main.hs` (a `Doctor DoctorOpts`
+constructor, `doctorOptsParser` with `--skip-vm`, `command "doctor"`, the
+`runDoctor` handler, and the `main` dispatch arm). `runDoctor` reuses EP-38's
+`gatherInventory` — no probe is re-implemented — re-grades the probes, prints the
+checklist, and `exitWith (ExitFailure 1)` iff any check FAILs. All 146 tests pass,
+including the new 15-case `testGroup "Nagare.Ops.Doctor"`.
 
-(To be filled during and after implementation.)
+Captured transcripts (2026-06-10):
+
+```text
+$ nagarectl doctor --help
+Usage: nagarectl doctor [--skip-vm]
+
+  Health-check the platform and print remediation hints (exit 1 on any FAIL)
+
+Available options:
+  --skip-vm                Skip the IAP-SSH disk probe (no SSH setup needed)
+  -h,--help                Show this help text
+```
+
+FAIL / exit-1 path, proven with a `gcloud` stub reporting the VM `TERMINATED`
+(no real infra touched):
+
+```text
+$ PATH=<stub-with-gcloud-only> nagarectl doctor --skip-vm
+nagare doctor — 18 checks
+
+  [FAIL]  VM                       The VM nagare-01 is powered off.
+          fix: gcloud compute instances start nagare-01 --zone=us-west1-a
+  ...
+1 failed, 16 warnings, 1 ok.
+$ echo $?
+1
+```
+
+Degradation / exit-0 path, proven with an empty PATH (every source unreachable →
+every probe `UNKNOWN`, rendered `WARN`, exit 0):
+
+```text
+$ PATH=/var/empty nagarectl doctor
+nagare doctor — 18 checks
+
+  [WARN]  VM                       could not check; gcloud unavailable or no access
+          fix: gcloud compute instances start nagare-01 --zone=us-west1-a
+  ...
+0 failed, 18 warnings, 0 ok.
+$ echo $?
+0
+```
+
+What changed from the plan: the inventory is 18 checks (not the illustrative 9),
+and the knowledge base keys off EP-38's real display names. The remediation
+commands are all repo-accurate (zone `us-west1-a`, `tan-nb-exp` registry,
+`scripts/iap-ssh.sh`, the `cluster/bootstrap/<component>/README.md` paths). The
+live cluster two-run is deferred per the plan's M3 convention and the
+GCP-isolation rule; the FAIL and degradation behaviors above were proven
+deterministically without a cluster.
 
 
 ## Context and Orientation

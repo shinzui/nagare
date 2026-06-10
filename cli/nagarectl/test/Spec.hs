@@ -35,6 +35,14 @@ import Nagare.App
   , restartPatch
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
+import Nagare.Ops.Doctor
+  ( Check (..)
+  , Remediation (..)
+  , doctorExitOk
+  , formatDoctor
+  , gradeChecks
+  , remediationFor
+  )
 import Nagare.Ops.Probe
   ( Probe (..)
   , ProbeStatus (..)
@@ -128,6 +136,7 @@ main =
       , testGroup "Nagare.Env.BuildArgs" buildArgsTests
       , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
       , testGroup "Nagare.Ops" opsTests
+      , testGroup "Nagare.Ops.Doctor" doctorTests
       , testGroup "Nagare.App" appTests
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
@@ -207,6 +216,65 @@ opsTests =
         , "/dev/sda1       100G   24G   76G  24% /"
         , "/dev/sdb        100G   12G   88G  12% /var/lib/nagare"
         ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Ops.Doctor (MasterPlan 8, EP-39): the pure remediation knowledge base,
+-- the checklist renderer, and the exit grade.
+
+doctorTests :: [TestTree]
+doctorTests =
+  [ testCase "remediationFor: OK probe has no hint" $
+      remediationFor (Probe "VM" StatusOk "RUNNING") @?= Nothing
+  , testCase "remediationFor: VM FAIL -> gcloud start" $
+      cmdOf (Probe "VM" StatusFail "TERMINATED")
+        `containsT` "gcloud compute instances start nagare-01 --zone=us-west1-a"
+  , testCase "remediationFor: k3s node FAIL -> kubectl context hint" $
+      cmdOf (Probe "k3s node" StatusFail "NotReady")
+        `containsT` "retrieve the k3s kubeconfig per docs/runbooks/cluster-access.md"
+  , testCase "remediationFor: Knative controller FAIL -> rollout status" $
+      cmdOf (Probe "Knative controller" StatusFail "not rolled out")
+        `containsT` "kubectl rollout status deploy/controller -n knative-serving"
+  , testCase "remediationFor: cert-manager-cainjector FAIL -> cert-manager target" $
+      cmdOf (Probe "cert-manager-cainjector" StatusFail "not rolled out")
+        `containsT` "deploy/cert-manager-cainjector -n cert-manager"
+  , testCase "remediationFor: Kourier ingress FAIL -> compare publicIp" $
+      cmdOf (Probe "Kourier ingress" StatusFail "EXTERNAL-IP 1.2.3.4 != publicIp 5.6.7.8")
+        `containsT` "stack output publicIp"
+  , testCase "remediationFor: base domain WARN -> re-render config-domain" $
+      cmdOf (Probe "base domain" StatusWarn "x != Pulumi y")
+        `containsT` "stack output baseDomain"
+  , testCase "remediationFor: Artifact Registry -> configure-docker" $
+      cmdOf (Probe "Artifact Registry" StatusUnknown "gcloud unavailable")
+        `containsT` "gcloud auth configure-docker us-west1-docker.pkg.dev"
+  , testCase "remediationFor: data disk WARN -> cleanup pointer" $
+      cmdOf (Probe "data disk" StatusWarn "92% of 100G")
+        `containsT` "nagarectl cleanup"
+  , testCase "remediationFor: backup WARN -> backup-postgres script" $
+      cmdOf (Probe "backup postgres" StatusWarn "newest object 9d ago")
+        `containsT` "scripts/backup-postgres.sh"
+  , testCase "remediationFor: UNKNOWN -> 'could not check' why" $
+      whyOf (Probe "k3s node" StatusUnknown "no kubeconfig / not reachable")
+        `startsWithT` "could not check"
+  , testCase "remediationFor: uncatalogued non-OK probe gets a generic hint" $
+      cmdOf (Probe "mystery" StatusFail "boom") @?= "see docs/runbooks/"
+  , testCase "doctorExitOk: False iff any FAIL" $
+      doctorExitOk (gradeChecks [Probe "VM" StatusOk "RUNNING", Probe "k3s node" StatusFail "NotReady"])
+        @?= False
+  , testCase "doctorExitOk: True when only OK/WARN" $
+      doctorExitOk (gradeChecks [Probe "VM" StatusOk "RUNNING", Probe "backup postgres" StatusWarn "9d ago"])
+        @?= True
+  , testCase "formatDoctor: header, FAIL tag, fix line, and summary" $ do
+      let out = formatDoctor (gradeChecks [Probe "VM" StatusFail "TERMINATED", Probe "k3s node" StatusOk "Ready"])
+      assertBool "header" ("nagare doctor — 2 checks" `T.isInfixOf` out)
+      assertBool "FAIL tag" ("[FAIL]" `T.isInfixOf` out)
+      assertBool "fix line" ("fix: gcloud compute instances start" `T.isInfixOf` out)
+      assertBool "summary" ("1 failed, 0 warnings, 1 ok." `T.isInfixOf` out)
+  ]
+  where
+    cmdOf p = maybe "" remCommand (remediationFor p)
+    whyOf p = maybe "" remWhy (remediationFor p)
+    containsT hay needle = assertBool (T.unpack needle) (needle `T.isInfixOf` hay)
+    startsWithT hay needle = assertBool (T.unpack needle) (needle `T.isPrefixOf` hay)
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Storage.Snapshot (EP-36)

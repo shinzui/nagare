@@ -39,7 +39,7 @@ import Options.Applicative
 import Data.Maybe (catMaybes)
 import System.Directory (doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode (ExitFailure), exitFailure, exitWith)
 import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin)
 
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
@@ -98,6 +98,7 @@ import Nagare.Image
   , imageRef
   , pushImage
   )
+import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecks)
 import Nagare.Ops.Probe (InventoryOpts (..), renderInventory)
 import Nagare.Ops.Status (defaultInventoryOpts, gatherInventory)
 import Nagare.Static.Deploy
@@ -257,6 +258,7 @@ data Command
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
   | ServerStatus ServerStatusOpts
+  | Doctor DoctorOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -313,6 +315,18 @@ data ServerStatusOpts = ServerStatusOpts
 serverStatusOptsParser :: Parser ServerStatusOpts
 serverStatusOptsParser =
   ServerStatusOpts
+    <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
+
+-- | Options for @doctor@ (MasterPlan 8, EP-39). Reuses the same inventory knob
+-- as @server status@: @--skip-vm@ skips the best-effort IAP-SSH disk probe.
+data DoctorOpts = DoctorOpts
+  { dSkipVm :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+doctorOptsParser :: Parser DoctorOpts
+doctorOptsParser =
+  DoctorOpts
     <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
 
 -- Reusable option fragments shared across the subcommands.
@@ -585,7 +599,12 @@ opts =
             <> command "deployments" deploymentsCmd
             <> command "storage" storageCmd
             <> command "server" serverCmd
+            <> command "doctor" doctorCmd
         )
+    doctorCmd =
+      info
+        (Doctor <$> doctorOptsParser <**> helper)
+        (fullDesc <> progDesc "Health-check the platform and print remediation hints (exit 1 on any FAIL)")
     serverCmd =
       info
         (serverSubparser <**> helper)
@@ -892,6 +911,7 @@ main =
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
     ServerStatus o -> runServerStatus o
+    Doctor o -> runDoctor o
 
 -- | @server status@: gather the platform inventory and print the aligned
 -- report. Read-only and always exits 0 — graceful degradation is the probes'
@@ -903,6 +923,19 @@ runServerStatus o = do
   let invOpts = defaultInventoryOpts {ioSkipVm = ssSkipVm o}
   probes <- gatherInventory invOpts
   TIO.putStr (renderInventory probes)
+
+-- | @doctor@: gather EP-38's probes, re-grade them into a remediation checklist,
+-- print it, and exit non-zero iff any check FAILs. Read-only and advisory —
+-- every remediation is printed text the operator runs themselves
+-- ('gatherInventory' degrades unreachable sources to @UNKNOWN@, so the report is
+-- always printed; only the exit code varies).
+runDoctor :: DoctorOpts -> IO ()
+runDoctor o = do
+  let invOpts = defaultInventoryOpts {ioSkipVm = dSkipVm o}
+  probes <- gatherInventory invOpts
+  let checks = gradeChecks probes
+  TIO.putStr (formatDoctor checks)
+  unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
