@@ -44,6 +44,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Application lifecycle (`nagarectl app`/`deployments`) | MP-6 (EP-29–32) | 🟡 Built; live verbs pending |
 | Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37) | 🟡 Built; live deploy/snapshot pending |
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48) | 🟡 Built; live deploy pending |
+| Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
 | Backups, secrets, disaster recovery | EP-7 | 🔭 Planned |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -72,6 +73,9 @@ you can observe.
    `scripts/iap-ssh.sh`, and getting a working `kubectl`. 🟡
 5. [Day-2 host changes](day-2-host-changes.md) — `nixos-rebuild switch` over
    Tailscale and how the host config is laid out. 🟡
+   - [Resizing the VM](resizing-the-vm.md) — vertical scale to a bigger machine
+     type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
+     persist. 🟡
 6. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
    cert-manager, and wildcard DNS/TLS wiring. 🔭
 7. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
@@ -97,6 +101,10 @@ you can observe.
      ClickHouse database with `nagarectl db`, connect an app to it by name
      (`DATABASE_URL`/`REDIS_URL`/`CLICKHOUSE_URL` injected from a Secret), and back
      it up to GCS on a schedule. 🟡
+   - [Scheduled tasks](scheduled-tasks.md) — run work on a cron schedule or once on
+     demand: declare a typed `Task` in an app's `tasks` list, provision a CronJob at
+     deploy time, and operate it with `nagarectl task list/run/logs/delete`,
+     including app↔task image/env inheritance. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to

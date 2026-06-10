@@ -300,9 +300,9 @@ taskRunTests =
             , "-n"
             , "personal"
             ]
-  , testCase "grafanaHint embeds the task label query" $
+  , testCase "grafanaHint embeds the EP-49-verified LogsQL field" $
       grafanaHint "cleanup"
-        @?= "For older runs, query VictoriaLogs in Grafana with: {nagare_dev_task=\"cleanup\"}"
+        @?= "For older runs, query VictoriaLogs in Grafana with: kubernetes.pod_labels.nagare.dev/task:=\"cleanup\""
   ]
   where
     fixedTime = UTCTime (fromGregorian 2026 6 10) (secondsToDiffTime (3 * 3600 + 12))

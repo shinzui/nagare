@@ -151,7 +151,7 @@ Alternatives considered and rejected:
 | 50 | Typed Task model and CronJob/Job renderer | docs/plans/50-typed-task-model-and-cronjob-job-renderer.md | None | EP-49 | Complete |
 | 51 | nagarectl task lifecycle commands and deploy-time provisioning | docs/plans/51-nagarectl-task-lifecycle-commands-and-deploy-time-provisioning.md | EP-50 | EP-49 | Complete |
 | 52 | App-task association and runtime env/image/secret inheritance | docs/plans/52-app-task-association-and-runtime-env-image-and-secret-inheritance.md | EP-50 | EP-51 | Complete |
-| 53 | Scheduled-tasks docs and end-to-end examples | docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md | EP-50 | EP-51, EP-52 | Not Started |
+| 53 | Scheduled-tasks docs and end-to-end examples | docs/plans/53-scheduled-tasks-docs-and-end-to-end-examples.md | EP-50 | EP-51, EP-52 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-49, EP-51).
@@ -302,7 +302,7 @@ the milestone. This section provides an at-a-glance view of the entire initiativ
 - [x] EP-51: `nagarectl task list/delete` discover and remove CronJobs by label selector.
 - [x] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs; deploy-time provisioning of declared CronJobs is implemented in EP-52 (which owns the `Deployment.tasks` field — see Surprises).
 - [x] EP-52: `Deployment`/`Task` carry the app association; deploy-time resolution injects the app's image tag and `envFrom` managed env/secret; predefined task vars injected.
-- [ ] EP-53: `docs/user/scheduled-tasks.md` written and cross-linked; runnable `cluster/examples/` task examples; VictoriaLogs/Grafana logs walkthrough; runbook integration.
+- [x] EP-53: `docs/user/scheduled-tasks.md` written and cross-linked; runnable `cluster/examples/` task examples (heartbeat-task, app-cleanup-task); VictoriaLogs/Grafana logs walkthrough with the EP-49-verified query; runbook deliberately untouched (host-ops only).
 
 
 ## Surprises & Discoveries
@@ -322,6 +322,23 @@ interactions between child plans. Provide concise evidence.
   LogsQL query `{kubernetes.pod_namespace="<ns>"} kubernetes.pod_labels.nagare.dev/task:="<task>"`
   (not just the `pod_name:"nagare-task-<task>"` prefix fallback). EP-51's Grafana hint and
   EP-53's docs should use the label-scoped form.
+- **Provisioning is deploy-time co-location only (surfaced in EP-53).** There is no
+  standalone-task provisioning command: a `Task` reaches the cluster by being co-located in an
+  app's `Deployment.tasks` list and applied by `nagarectl deploy` (`deploy -f <task-config>`
+  rejects a `"kind":"Task"` with `UnexpectedKind`). The `nagarectl task` verbs only *operate*
+  CronJobs `deploy` already provisioned. Consequence: EP-53's examples are apps-with-co-located
+  tasks, and the user guide documents co-location as *the* provisioning path. A follow-up could
+  add a `nagarectl task apply -f` for truly standalone tasks, but it was not in scope.
+- **Task images are always tag-resolved at deploy (surfaced in EP-53).** EP-52 appends the
+  deploy tag to an explicit task image and gives an inheriting task the app's resolved tag, so a
+  public fixed-tag image (e.g. `curlimages/curl`) doesn't fit — the examples use inheriting
+  tasks running the app's Nagare-built image.
+- **`grafanaHint` corrected to the EP-49-verified field (in EP-53).** EP-51's hint emitted
+  `{nagare_dev_task="<task>"}`, but the spike verified the collector exposes the label as the
+  stream field `kubernetes.pod_labels.nagare.dev/task`. EP-53's reconciliation fixed
+  `Nagare.Task.Logs.grafanaHint` (and its test) to emit
+  `kubernetes.pod_labels.nagare.dev/task:="<task>"`, matching the docs.
+
 - **Discovery affecting EP-51 (status parsing).** Modern Kubernetes adds a `FailureTarget`
   condition before `Failed` on a failing Job, so `status.conditions[0].type` may be
   `FailureTarget`. EP-51 must parse Job status by condition *type* (scan for `Complete`/`Failed`)
@@ -407,4 +424,43 @@ interactions between child plans. Provide concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+**All five child plans are Complete (2026-06-10).** Against the original Vision & Scope, the
+user-visible win landed: the most common "cron job" need is now a typed, validated declaration
+plus a CLI, with the same safety/determinism guarantees as the rest of Nagare.
+
+What shipped, mapped to the Vision's promises:
+
+- **Declare a `Task` in `Config.hs` and have `nagarectl deploy` provision a CronJob.** ✅ via
+  EP-50's typed `Task` model + renderer and EP-52's `Deployment.tasks` co-location + deploy-time
+  provisioning. (Refinement vs. the Vision's wording: provisioning is by *co-locating* the task
+  in an app's config, not deploying a standalone task file — see Surprises.)
+- **`nagarectl task list/run/logs/delete`.** ✅ via EP-51 (five `Nagare.Task.*` modules + the
+  `task` subparser). One-off runs use the EP-49-verified `kubectl create job --from=cronjob`.
+- **Run "in an app's world" — inherited image + runtime env/secrets.** ✅ via EP-52
+  (`resolveTaskImage`, the `envFrom` inheritance, the `nagare.dev/app` label, and the predefined
+  `NAGARE_TASK_NAME`/`NAGARE_NAMESPACE`/`NAGARE_APP`/`NAGARE_RUN_ID` vars).
+- **Logs via `task logs` + Grafana/VictoriaLogs history.** ✅ via EP-51's `task logs` and the
+  EP-49-verified LogsQL query, documented by EP-53.
+- **Golden tests, offline unit tests, a user guide, runnable examples.** ✅ — `nagare-dsl` (235
+  tests incl. task model/renderer/round-trip goldens) and `nagarectl` (226 tests incl. discovery
+  parse, run/logs arg vectors, resolve + resolved-render golden) both green; `docs/user/scheduled-tasks.md`
+  plus `cluster/examples/heartbeat-task` and `app-cleanup-task`.
+
+Decomposition retrospective: the five-plan split held up. The spike (EP-49) paid for itself —
+its findings (the `FailureTarget` condition, the promoted pod-label stream field, the verified
+`--from=cronjob` flow) directly shaped EP-51/EP-52/EP-53 and caught the `grafanaHint` query bug.
+The "shape vs. semantics" split (EP-50 owns the typed shape + pure renderer; EP-52 owns
+deploy-time value resolution) worked cleanly, enabled by two additive EP-50 exports
+(`cronJobValue`/`encodeCronJob`) so EP-52 patches the rendered `Value` without duplicating the
+manifest shape. The one cross-plan reconciliation cost was the `Deployment.tasks` field
+ownership: EP-51's plan assumed EP-50 added it, but it is EP-52's; resolved by deferring EP-51's
+M3 (deploy provisioning) into EP-52, which owns the field — a single render-and-apply call site,
+no duplicate loop.
+
+Gaps / follow-ups (none block the initiative): (1) every live on-cluster leg
+(`deploy`/`task run`/`task logs` against `nagare-01`) is deferred-with-instructions per the EP-48
+precedent — the offline unit/golden/dry-run proofs plus the EP-49 live spike cover behavior;
+(2) a `nagarectl task apply -f` for truly standalone (non-co-located) tasks is a possible
+follow-up; (3) the per-task run-history ConfigMap remains a documented, unimplemented extension
+point (EP-51 Decision Log); (4) refactoring `Nagare.Database.Backup` onto the new `Task` type
+remains the explicitly-deferred future cleanup recorded in the Decision Log.

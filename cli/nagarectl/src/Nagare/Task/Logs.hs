@@ -48,13 +48,16 @@ taskLogArgs t =
     appTerm (App a) = ",nagare.dev/app=" <> a
 
 -- | A one-line pointer into the cluster's Grafana/VictoriaLogs history for a task.
--- The label query mirrors the kubectl selector so the operator can paste it into the
--- VictoriaLogs Explore view for older runs (EP-53 documents the full walkthrough).
+-- Uses the LogsQL field the EP-49 spike verified on the live cluster: the collector
+-- promotes the @nagare.dev/task@ pod label to the queryable stream field
+-- @kubernetes.pod_labels.nagare.dev/task@ (so the operator can paste this into the
+-- VictoriaLogs Explore view to find every run of one task). EP-53 documents the full
+-- walkthrough.
 grafanaHint :: Text -> Text
 grafanaHint task =
-  "For older runs, query VictoriaLogs in Grafana with: {nagare_dev_task=\""
+  "For older runs, query VictoriaLogs in Grafana with: kubernetes.pod_labels.nagare.dev/task:=\""
     <> task
-    <> "\"}"
+    <> "\""
 
 -- | Stream (or print) a task's pod logs, inheriting stdout/stderr so @--follow@ tails
 -- live. Then print the Grafana history hint. (Mirrors

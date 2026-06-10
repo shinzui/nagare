@@ -134,34 +134,41 @@ This section must always reflect the actual current state of the work.
 
 Milestone M1 — the scheduled-tasks guide and cross-links:
 
-- [ ] Write `docs/user/scheduled-tasks.md` (concepts → declaring a `Task` in `Config.hs` →
-      operating with `nagarectl task` → running in an app's world + inherited-variable table +
-      precedence → logs & observability + the LogsQL query → hard constraints → worked
-      examples), reconciled against EP-50/51/52's shipped surface.
-- [ ] Index the new page in `docs/user/README.md` (the "Read in this order" sub-bullet under
-      item 8, and the "Area / Plan / Status" table row) with a status badge.
-- [ ] Link the new page from `docs/user/deploying-apps.md` (a "scheduled tasks" pointer) and
-      cross-link `docs/user/managed-databases.md` / `docs/user/persistent-storage.md` where
-      natural.
-- [ ] Verify links resolve (`grep -rn "scheduled-tasks.md" docs/`) and no bare ``` fences exist.
+- [x] Wrote `docs/user/scheduled-tasks.md` (concepts → declaring a `Task` co-located in an
+      app's `tasks` list → operating with `nagarectl task` → running in an app's world +
+      inherited-variable table + precedence → logs & observability + the verified LogsQL query
+      → hard constraints → worked examples), reconciled against the shipped surface.
+- [x] Indexed the new page in `docs/user/README.md` (the read-order sub-bullet under item 8
+      and the "Area / Plan / Status" table row, both 🟡).
+- [x] Linked it from `docs/user/deploying-apps.md` (a "scheduled tasks" pointer) and
+      cross-linked `docs/user/managed-databases.md` (run maintenance against a managed DB).
+- [x] Verified links resolve and every opening fence carries a language tag.
 
-Milestone M2 — the two to three end-to-end examples (offline-verified):
+Milestone M2 — the end-to-end examples (offline-verified):
 
-- [ ] Create `cluster/examples/heartbeat-task/` (`nagare/Config.hs` + `README.md`): a standalone
-      `Task`. Its `Config.hs` emits valid `{"kind":"Task"}` JSON via `runghc`.
-- [ ] Create `cluster/examples/app-cleanup-task/` (`nagare/Config.hs` + `README.md`): an
-      app-associated `Task` inheriting the `postgres-app` image/env. Emits valid JSON via `runghc`.
-- [ ] Each README shows the declare → deploy → `task list`/`task run`/`task logs` flow with
-      expected output, marking live legs deferred-with-on-VM-commands.
+- [x] Created `cluster/examples/heartbeat-task/` (`nagare/Config.hs` + `README.md`): a minimal
+      app co-locating an inheriting `heartbeat` task. Emits a `Deployment` JSON whose `tasks`
+      array carries the task; `deploy --dry-run` renders the `nagare-task-heartbeat` CronJob
+      **fully offline**.
+- [x] Created `cluster/examples/app-cleanup-task/` (`nagare/Config.hs` + `README.md`): the
+      `postgres-app` app co-locating an inheriting `cleanup` task. Emits valid JSON via
+      `runghc`; `deploy --dry-run` needs a cluster for the DB connection env (noted, like the
+      managed-database examples).
+- [x] Each README shows declare → deploy → `task list`/`task run`/`task logs`, marking the live
+      legs deferred-with-on-VM-commands. **Reshaped from the plan's "standalone task config"
+      form** to app-co-located form — the shipped provisioning path (see Surprises).
 
 Milestone M3 — observability/runbook integration + final reconciliation:
 
-- [ ] Add the Grafana/VictoriaLogs history walkthrough to `docs/user/scheduled-tasks.md`,
-      cross-linking `docs/user/observability.md` and citing EP-49's verified LogsQL query.
-- [ ] Add a brief "scheduled tasks" pointer to `docs/runbooks/server-operations.md` if task
-      operations belong there.
-- [ ] Reconcile every command, field name, label, and transcript against EP-50/51/52's shipped
-      state; mark the live legs deferred with the exact on-VM commands. Record divergences here.
+- [x] Added the Grafana/VictoriaLogs history walkthrough to `docs/user/scheduled-tasks.md`,
+      cross-linking `docs/user/observability.md` and citing EP-49's **verified** LogsQL query
+      `kubernetes.pod_labels.nagare.dev/task:="<task>"` (corrected from the plan's
+      `{nagare_dev_task="<task>"}` — see Surprises).
+- [~] No runbook edit: `docs/runbooks/server-operations.md` is purely host/cluster operations;
+      scheduled tasks are an app-developer workload concern covered by the user guide (Decision
+      Log).
+- [x] Reconciled every command, field, label, and transcript against the shipped state; the
+      live legs are deferred with exact on-VM commands. Divergences recorded in Surprises.
 
 
 ## Surprises & Discoveries
@@ -169,7 +176,38 @@ Milestone M3 — observability/runbook integration + final reconciliation:
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **There is no standalone-task provisioning path; tasks are provisioned only by deploy-time
+  co-location in an app's `Deployment.tasks` list.** The plan's examples assumed `nagarectl
+  deploy -f <standalone-task-config>` provisions a `Task` emitted via `emitTask`. It does not:
+  `deploy` loads a `Deployment`, and a standalone Task config (`"kind":"Task"`) fails with
+  `nagare: config emitted a 'Task' but 'Deployment' was expected`. The `nagarectl task` verbs
+  only *operate* CronJobs that `deploy` already provisioned. Consequence: both examples were
+  reshaped from "a standalone `Task` config" to "an app `Deployment` that co-locates the task in
+  its `tasks` list" — the actual working path. The guide's "smallest thing that works" and
+  "Constraints" sections state this plainly. (`emitTask`/`loadTask` remain a valid typed
+  primitive, but co-location is how a task reaches the cluster.)
+- **A co-located task's image is always tag-resolved at deploy time, so a public fixed-tag image
+  doesn't fit.** EP-52's resolver appends the deploy tag to an explicit task image
+  (`<repo>:<tag>`) and gives an inheriting task the app's resolved `<repo>:<tag>`. A public
+  image like `curlimages/curl` would become `curlimages/curl:<timestamp>` (nonexistent). So the
+  examples use **inheriting** tasks (`taskImage = Nothing`) that run the app's Nagare-built
+  image; the guide notes "a public fixed-tag image is not a fit (use the app's built image)."
+- **The `task logs` Grafana hint query was wrong; corrected against EP-49.** EP-51's
+  `grafanaHint` emitted `{nagare_dev_task="<task>"}`, but the EP-49 spike verified the collector
+  exposes the label as the stream field `kubernetes.pod_labels.nagare.dev/task` (not
+  `nagare_dev_task`). As part of this plan's reconciliation, `grafanaHint` (and its unit test)
+  were fixed to emit `kubernetes.pod_labels.nagare.dev/task:="<task>"`, and the guide documents
+  that verified query plus the namespace-scoped form
+  `{kubernetes.pod_namespace="<ns>"} kubernetes.pod_labels.nagare.dev/task:="<task>"`.
+- **`app-cleanup-task` cannot be `deploy --dry-run`-rendered fully offline** because it
+  references the `pg-main` managed database, and Nagare resolves the database connection env at
+  deploy time (which needs a reachable cluster) — exactly the limitation the managed-database
+  examples (EP-48) note. Its offline proof is the `runghc` JSON emit; the heartbeat example (no
+  DB) renders fully offline.
+- **A reliable offline `runghc` invocation runs from `cli/nagarectl`**, where `nagare-dsl` is an
+  exposed dependency: `( cd cli/nagarectl && cabal exec -- runghc -XGHC2024 -XOverloadedStrings
+  <config> )`. Running `runghc -i.../nagare-dsl/src` instead recompiles the DSL without its
+  per-module extensions and fails; the example READMEs use the `cabal exec` form.
 
 
 ## Decision Log
@@ -216,6 +254,23 @@ Record every decision made while working on the plan.
   can be completed when the VM is up. A new page therefore starts 🟡 until the live legs run.
   Date: 2026-06-10
 
+- Decision: No `docs/runbooks/server-operations.md` edit. That runbook is purely host/cluster
+  operations (`nagarectl server status`/`doctor`/`domains`/`cleanup`, the TERMINATED→green
+  recovery). Scheduled tasks are an app-developer workload concern, fully covered by
+  `docs/user/scheduled-tasks.md`; adding a `nagarectl task` pointer to a host-ops glance table
+  would be off-topic. The plan explicitly permits recording that no runbook edit was made.
+  Date: 2026-06-10
+
+- Decision: Reshape both examples from "a standalone `Task` config provisioned by `nagarectl
+  deploy -f`" to "an app `Deployment` that co-locates the task in its `tasks` list", and fix
+  EP-51's `grafanaHint` to the EP-49-verified LogsQL field.
+  Rationale: reconciliation against the shipped surface (see Surprises) showed (1) `deploy`
+  rejects a standalone Task config — co-location is the only provisioning path — and (2)
+  `grafanaHint`'s `{nagare_dev_task=...}` query does not match the real VictoriaLogs stream field
+  `kubernetes.pod_labels.nagare.dev/task` the spike verified. Both the docs and the example
+  shapes were corrected to what actually works; the `grafanaHint` source + test were updated.
+  Date: 2026-06-10
+
 - Decision: Document — do not define — every surface owned by the sibling plans. This plan adds
   no library code; the `Task` type and fields (EP-50), the `task` subcommands (EP-51), and the
   app-association/inheritance contract (EP-52) are read from their shipped state and from
@@ -232,7 +287,29 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome: scheduled tasks are discoverable and learnable.** Against the original purpose:
+
+- **The guide ships.** `docs/user/scheduled-tasks.md` covers concepts → declaring a task
+  co-located in an app's `tasks` list → the four `nagarectl task` verbs (with transcripts) →
+  running in an app's world (the inherited-variable table + the predefined-var table + the
+  precedence rule) → logs & observability (the EP-49-verified LogsQL query) → the hard
+  constraints → worked examples. It is indexed in `docs/user/README.md` (read-order + status
+  table), linked from `deploying-apps.md`, and cross-linked from `managed-databases.md`.
+- **Two runnable examples ship**, both offline-verified: `heartbeat-task` (a minimal app +
+  inheriting heartbeat task; renders fully offline via `deploy --dry-run`) and `app-cleanup-task`
+  (the `postgres-app` app + inheriting cleanup task reaching the same database; `runghc` emits
+  the Deployment JSON with the co-located task). Each README walks declare → deploy → `task
+  list`/`run`/`logs`, with live legs deferred-with-on-VM-commands.
+- **Reconciliation corrected the docs to the shipped reality** rather than the plan's
+  assumptions: tasks are provisioned by deploy-time co-location (no standalone-task deploy), task
+  images are always tag-resolved (so inheriting tasks, not public images, are the norm), and the
+  Grafana history query is the EP-49-verified `kubernetes.pod_labels.nagare.dev/task:="<task>"`
+  (which also fixed EP-51's `grafanaHint` and its test). All recorded in Surprises/Decision Log.
+
+**Gaps / deferred.** The live end-to-end legs (apply the CronJob on `nagare-01`, `task run`,
+stream logs, Grafana history) are deferred-with-instructions per the EP-48 precedent — the
+cluster API is reachable only on the VM. The offline emit-and-render checks (mandatory) all pass.
+No runbook edit was made (Decision Log). The page is 🟡 until the live legs run.
 
 
 ## Context and Orientation

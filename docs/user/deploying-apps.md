@@ -346,6 +346,11 @@ database is a single replica on the single node (no HA); for managed HA, Cloud
 SQL / Neon / Supabase remain options. Secrets an app needs (`EnvSecretRef` /
 `secretEnv`) are managed with sops+age — see [Secrets](secrets.md).
 
+Need to run work **on a schedule** (a nightly cleanup) or **once on demand** (a
+one-off migration)? Declare a typed `Task` in your app's `tasks` list and operate
+it with `nagarectl task` — it can inherit the app's image and runtime env/secrets.
+See **[Scheduled tasks](scheduled-tasks.md)**.
+
 ## Verify (against a running cluster)
 
 > Deferred until `nagare-01` is back up; these are the intended steps.

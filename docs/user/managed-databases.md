@@ -316,3 +316,9 @@ Three runnable end-to-end examples live under `cluster/examples/`, one per engin
 
 Each example's `README.md` walks through provision → reference → deploy → back up,
 with the offline `--dry-run` renders and the on-VM live commands.
+
+To run scheduled maintenance against a managed database — a nightly cleanup, an
+hourly aggregation — declare a [scheduled task](scheduled-tasks.md) on the app that
+references the database. The task inherits the app's image and its injected
+`DATABASE_URL`, so it reaches the same database; see the
+[`app-cleanup-task`](../../cluster/examples/app-cleanup-task/) example.
