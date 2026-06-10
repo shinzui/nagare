@@ -218,6 +218,7 @@ data JsonDeployment = JsonDeployment
   , jdHealthCheck :: !(Maybe JsonHealthCheck)
   , jdVolumes :: ![JsonVolume]
   , jdDatabases :: ![Text]
+  , jdTasks :: ![JsonTask]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -240,6 +241,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "healthCheck"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "tasks" .!= []
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonDeployment -> Deployment (re-runs EP-9 smart constructors)
@@ -261,6 +263,17 @@ toDeployment jd = do
   hc' <- toHealthCheck (jdHealthCheck jd)
   vols' <- toVolumes (jdVolumes jd)
   dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
+  -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
+  -- constructor, including EP-50's inherit-image-requires-an-app invariant), then
+  -- enforce the two deploy-level cross-task invariants.
+  tasks' <- mapM toTask (jdTasks jd)
+  -- Invariant 1: no two co-located tasks share a name.
+  case firstDuplicate (map (serviceNameText . taskName) tasks') of
+    Just dup -> Left (MarshalError "tasks" ("duplicate task name: " <> dup))
+    Nothing -> Right ()
+  -- Invariant 2: a co-located task that names an app must name THIS app.
+  let thisApp = serviceNameText name'
+  mapM_ (checkTaskApp thisApp) tasks'
   scale' <- case (jdScaleMin jd, jdScaleMax jd) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
@@ -284,6 +297,7 @@ toDeployment jd = do
       , healthCheck = hc'
       , volumes = vols'
       , databases = dbRefs'
+      , tasks = tasks'
       }
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
@@ -384,6 +398,38 @@ toHealthCheck (Just jhc) = do
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = either (Left . f) Right
+
+-- | The first element that appears more than once in the list, in order, or
+-- 'Nothing' when all elements are unique. Used to reject duplicate co-located
+-- task names (MasterPlan 10 / EP-52).
+firstDuplicate :: (Ord a) => [a] -> Maybe a
+firstDuplicate = go Set.empty
+  where
+    go _ [] = Nothing
+    go seen (x : xs)
+      | x `Set.member` seen = Just x
+      | otherwise = go (Set.insert x seen) xs
+
+-- | Deploy-level invariant (MasterPlan 10 / EP-52): a co-located task that names
+-- an app via @taskApp@ must name the enclosing app, not some other app.
+checkTaskApp :: Text -> Task -> Either LoadError ()
+checkTaskApp thisApp tk =
+  case taskApp tk of
+    Just a
+      | serviceNameText a /= thisApp ->
+          Left
+            ( MarshalError
+                "tasks"
+                ( "task '"
+                    <> serviceNameText (taskName tk)
+                    <> "' references app '"
+                    <> serviceNameText a
+                    <> "' but is co-located under app '"
+                    <> thisApp
+                    <> "'"
+                )
+            )
+    _ -> Right ()
 
 -- | Re-validate one decoded @volumes@ entry back into a 'Volume', re-running the
 -- leaf smart constructors and decoding the access-mode / retention enums. Any

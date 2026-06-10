@@ -45,6 +45,7 @@ main =
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
       , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
+      , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
@@ -348,6 +349,7 @@ helloDep =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , tasks = []
     }
 
 -- ---------------------------------------------------------------------------
@@ -831,6 +833,37 @@ taskTests =
           pure (fromStrict (renderTask appTask))
       ]
   ]
+
+-- | A `notes` deployment that co-locates EP-50's inheriting `sync` task
+-- (MasterPlan 10 / EP-52). The task's `taskApp` is `notes`, matching the
+-- enclosing app, so it satisfies the deploy-level association invariant.
+notesWithTask :: Deployment
+notesWithTask = helloDep {name = unsafe (mkServiceName "notes"), tasks = [appTask]}
+
+deploymentTaskTests :: [TestTree]
+deploymentTaskTests =
+  [ testCase "deployment with a co-located task round-trips" $
+      decodeDeployment (toStrict (encodeDeployment notesWithTask)) @?= Right notesWithTask
+  , testCase "a co-located task naming a different app fails to load" $
+      case decodeDeployment (toStrict (encodeDeployment badAppTaskDep)) of
+        Left (MarshalError "tasks" _) -> pure ()
+        other -> assertFailure ("expected MarshalError tasks, got: " <> show other)
+  , testCase "two co-located tasks with the same name fail to load" $
+      case decodeDeployment (toStrict (encodeDeployment dupTaskDep)) of
+        Left (MarshalError "tasks" _) -> pure ()
+        other -> assertFailure ("expected MarshalError tasks, got: " <> show other)
+  ]
+  where
+    badAppTaskDep =
+      helloDep
+        { name = unsafe (mkServiceName "notes")
+        , tasks = [appTask {taskApp = Just (unsafe (mkServiceName "other"))}]
+        }
+    dupTaskDep =
+      helloDep
+        { name = unsafe (mkServiceName "notes")
+        , tasks = [appTask, appTask]
+        }
 
 unsafe :: Either Text a -> a
 unsafe (Right a) = a

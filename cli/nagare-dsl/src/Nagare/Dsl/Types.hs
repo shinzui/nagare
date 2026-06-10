@@ -116,6 +116,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build (BuildSpec)
+import {-# SOURCE #-} Nagare.Dsl.Task (Task)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
 -- The constructor is hidden; use 'mkServiceName'.
@@ -607,6 +608,12 @@ data Deployment = Deployment
   -- database. EP-46 resolves each name to its in-cluster DNS and managed Secret
   -- and injects the connection env at deploy time.
   , databases :: ![DatabaseName]
+  -- | Scheduled tasks co-located with this app (MasterPlan 10, IP5). Empty (the
+  -- backward-compatible default) means the app declares no tasks. Each 'Task'
+  -- renders to a CronJob at deploy time; a task with @taskImage = Nothing@
+  -- inherits this app's resolved image tag and its managed runtime env/secret.
+  -- EP-52 resolves the inherited values in @cli/nagarectl@.
+  , tasks :: ![Task]
   }
   deriving stock (Generic, Eq, Show)
 

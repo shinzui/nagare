@@ -24,6 +24,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 
 import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
+import Data.List (sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -182,6 +183,7 @@ deploymentJSON dep =
     , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
     , "volumes" .= map volumeJSON (dep ^. #volumes)
     , "databases" .= map databaseNameText (dep ^. #databases)
+    , "tasks" .= map taskJSON (sortOn taskName (dep ^. #tasks))
     ]
   where
     resources = dep ^. #resources

@@ -1019,6 +1019,7 @@ mkDemoDep envMap =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , tasks = []
     }
 
 renderDemonstrationTests :: [TestTree]
