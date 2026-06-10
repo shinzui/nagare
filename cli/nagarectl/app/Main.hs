@@ -98,6 +98,8 @@ import Nagare.Image
   , imageRef
   , pushImage
   )
+import Nagare.Ops.Probe (InventoryOpts (..), renderInventory)
+import Nagare.Ops.Status (defaultInventoryOpts, gatherInventory)
 import Nagare.Static.Deploy
   ( DeployInputs (..)
   , StaticManifests (..)
@@ -254,6 +256,7 @@ data Command
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
+  | ServerStatus ServerStatusOpts
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -299,6 +302,18 @@ data StorageCommand
   = StorageList StoreCommonOpts
   | StorageInspect StoreCommonOpts String -- ^ VOLUME
   | StorageSnapshot StoreCommonOpts String (Maybe String) Int -- ^ VOLUME, --bucket, --keep (EP-36)
+
+-- | Options for @server status@ (MasterPlan 8, EP-38). @--skip-vm@ skips the
+-- best-effort IAP-SSH disk probe (so the report needs no SSH setup).
+data ServerStatusOpts = ServerStatusOpts
+  { ssSkipVm :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+serverStatusOptsParser :: Parser ServerStatusOpts
+serverStatusOptsParser =
+  ServerStatusOpts
+    <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
 
 -- Reusable option fragments shared across the subcommands.
 
@@ -569,6 +584,20 @@ opts =
             <> command "app" appCmd
             <> command "deployments" deploymentsCmd
             <> command "storage" storageCmd
+            <> command "server" serverCmd
+        )
+    serverCmd =
+      info
+        (serverSubparser <**> helper)
+        (fullDesc <> progDesc "Server and platform inventory")
+    serverSubparser =
+      subparser
+        ( command
+            "status"
+            ( info
+                (ServerStatus <$> serverStatusOptsParser <**> helper)
+                (progDesc "One-screen platform health report")
+            )
         )
     deployCmd =
       info
@@ -862,6 +891,18 @@ main =
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
+    ServerStatus o -> runServerStatus o
+
+-- | @server status@: gather the platform inventory and print the aligned
+-- report. Read-only and always exits 0 — graceful degradation is the probes'
+-- job, so a probe whose source is unreachable shows as @UNKNOWN@/@WARN@ rather
+-- than aborting the command (script-friendly exit codes belong to EP-39's
+-- @doctor@).
+runServerStatus :: ServerStatusOpts -> IO ()
+runServerStatus o = do
+  let invOpts = defaultInventoryOpts {ioSkipVm = ssSkipVm o}
+  probes <- gatherInventory invOpts
+  TIO.putStr (renderInventory probes)
 
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do

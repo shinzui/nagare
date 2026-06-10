@@ -64,13 +64,32 @@ having printed the whole report.
 
 - [x] M1 (2026-06-10): `Nagare.Ops.Probe` (the `ProbeStatus`/`Probe` types, `InventoryOpts`, the external-tool wrappers `captureTool`/`runMaybe`, and the pure parsers/formatters) plus `Nagare.Ops.Pulumi.stackOutput`; both added to the cabal library; `testGroup "Nagare.Ops"` (16 cases) covering the pure helpers — all green.
 - [x] M2 (2026-06-10): `gatherInventory` in `Nagare.Ops.Status` wiring every probe (VM, k3s node, Knative controller/webhook, Kourier gateway, cert-manager + webhook + cainjector, net-certmanager, ClusterIssuer, Kourier IP vs publicIp, base domain, external-domain-tls info, registry auth, backup freshness ×3, boot+data disk) with graceful degradation; compiles, typechecks.
-- [ ] M3: `server status` command registered in `cli/nagarectl/app/Main.hs` (a `server` group whose first subcommand is `status`); the `runServerStatus` handler renders the report via `renderInventory`.
-- [ ] M4: `nagarectl-test` green + `--help` transcript captured below; live cluster run deferred (no cluster mutated / VM not powered on during implementation).
+- [x] M3 (2026-06-10): `server status` command registered in `cli/nagarectl/app/Main.hs` (a `server` group whose first subcommand is `status`); the `runServerStatus` handler renders the report via `renderInventory` and always exits 0.
+- [x] M4 (2026-06-10): `nagarectl-test` green (134 tests) + `server --help`/`server status --help` transcripts captured below; graceful-degradation demo captured (empty-PATH run → all `UNKNOWN`, exit 0); live cluster run deferred (GCP isolation + VM commonly `TERMINATED`).
 
 
 ## Surprises & Discoveries
 
-(None yet — to be recorded as implementation proceeds.)
+- 2026-06-10 (M2): The `Nagare.Dsl.Prelude` re-exports `Control.Lens`, so the
+  `&` operator used by `cradle` (`cmd … & addArgs …`) and the lens `&` coexist
+  without ambiguity — confirmed by the existing `Nagare.App`/`Nagare.Image`
+  modules, which do exactly this. The new `Nagare.Ops.*` modules follow the same
+  `import Nagare.Dsl.Prelude` + explicit-qualified-imports style.
+- 2026-06-10 (M2): Added a `cert-manager-cainjector` Deployment probe and an
+  informational `external-domain-tls` line beyond the sketch in the plan body,
+  because the real cluster-bootstrap deploys the cainjector and the
+  `config-network-tls` ConfigMap; both fit the same `probeDeploy`/`runMaybe`
+  shape and degrade gracefully.
+- 2026-06-10 (M3): The longest probe name, `cert-manager-cainjector` (23 chars),
+  overflowed the initial 22-wide CHECK column and was truncated. Widened the
+  `renderInventory` CHECK column to 25 (and updated the formatter unit test
+  accordingly) so every probe name renders in full.
+- 2026-06-10 (M4): Graceful degradation was demonstrated without any live GCP /
+  cluster calls by running the built binary with `PATH=/var/empty`: every probe
+  reported `UNKNOWN` (or `FAIL` for the VM, when `gcloud` is reachable but the VM
+  is `TERMINATED`), the full report printed, and the command exited 0 — proving
+  the IP4 convention with zero external side effects and no risk to the GCP
+  project-isolation rule.
 
 
 ## Decision Log
@@ -119,7 +138,80 @@ having printed the whole report.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Delivered the reusable `Nagare.Ops.*` probe layer and the first consumer,
+`nagarectl server status`. Three new library modules
+(`cli/nagarectl/src/Nagare/Ops/Probe.hs`, `…/Pulumi.hs`, `…/Status.hs`) are
+exposed from `nagarectl.cabal`; the `server status` command is registered in
+`cli/nagarectl/app/Main.hs` (new `ServerStatus ServerStatusOpts` constructor,
+`serverStatusOptsParser` with `--skip-vm`, a `server` command group, a
+`runServerStatus` handler, and a `main` dispatch arm). All 134 tests pass,
+including the new 16-case `testGroup "Nagare.Ops"` over the pure parsers and the
+formatter.
+
+Captured transcripts (2026-06-10):
+
+```text
+$ nagarectl server --help
+Usage: nagarectl server COMMAND
+
+  Server and platform inventory
+
+Available options:
+  -h,--help                Show this help text
+
+Available commands:
+  status                   One-screen platform health report
+
+$ nagarectl server status --help
+Usage: nagarectl server status [--skip-vm]
+
+  One-screen platform health report
+
+Available options:
+  --skip-vm                Skip the IAP-SSH disk probe (no SSH setup needed)
+  -h,--help                Show this help text
+```
+
+Graceful-degradation demo (built binary, `PATH=/var/empty` so no external tool
+is reachable — every probe degrades and the command exits 0):
+
+```text
+$ PATH=/var/empty nagarectl server status
+  STATUS   CHECK                    DETAIL
+  UNKNOWN  VM                       gcloud unavailable or no access
+  UNKNOWN  k3s node                 no kubeconfig / not reachable
+  UNKNOWN  Knative controller       no kubeconfig / not reachable
+  UNKNOWN  Knative webhook          no kubeconfig / not reachable
+  UNKNOWN  Kourier gateway          no kubeconfig / not reachable
+  UNKNOWN  cert-manager             no kubeconfig / not reachable
+  UNKNOWN  cert-manager-webhook     no kubeconfig / not reachable
+  UNKNOWN  cert-manager-cainjector  no kubeconfig / not reachable
+  UNKNOWN  net-certmanager          no kubeconfig / not reachable
+  UNKNOWN  ClusterIssuer            letsencrypt-dns not reachable
+  UNKNOWN  Kourier ingress          no kubeconfig / not reachable
+  UNKNOWN  base domain              config-domain not reachable
+  UNKNOWN  external-domain-tls      config-network-tls not reachable
+  UNKNOWN  Artifact Registry        gcloud unavailable or no access
+  UNKNOWN  backup postgres          gsutil unavailable or prefix empty
+  UNKNOWN  backup litestream        gsutil unavailable or prefix empty
+  UNKNOWN  backup volumes           gsutil unavailable or prefix empty
+  UNKNOWN  disk                     iap-ssh unavailable (VM off? key not set?)
+$ echo $?
+0
+```
+
+What changed from the plan: (1) the CHECK column is 25 wide, not 22, so the
+longest probe name fits; (2) `gatherInventory` includes a
+`cert-manager-cainjector` Deployment probe and an informational
+`external-domain-tls` line in addition to the plan's sketch. Neither affects the
+IP1 types EP-39 reads back. The live cluster run is deferred (per the plan's M4
+convention and the GCP project-isolation rule); the parser/formatter behavior is
+covered by unit tests and the degradation demo above.
+
+Integration handoff: IP1 (`ProbeStatus`/`Probe`/`InventoryOpts`), IP2
+(`Nagare.Ops.Pulumi.stackOutput`), IP3 (the `server` command-group pattern in
+`Main.hs`), and IP4 (`captureTool`/`runMaybe` + degradation convention) are all
+in place and stable for EP-39/40/41 to consume.
 
 
 ## Context and Orientation

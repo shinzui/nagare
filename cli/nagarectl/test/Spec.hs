@@ -173,9 +173,9 @@ opsTests =
   , testCase "renderInventory aligns STATUS/CHECK/DETAIL" $
       renderInventory [Probe "VM" StatusOk "RUNNING", Probe "k3s node" StatusFail "NotReady"]
         @?= T.unlines
-          [ "  STATUS   CHECK                 DETAIL"
-          , "  OK       VM                    RUNNING"
-          , "  FAIL     k3s node              NotReady"
+          [ "  STATUS   CHECK                    DETAIL"
+          , "  OK       VM                       RUNNING"
+          , "  FAIL     k3s node                 NotReady"
           ]
   ]
   where

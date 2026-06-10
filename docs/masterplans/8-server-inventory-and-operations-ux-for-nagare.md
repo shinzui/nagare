@@ -161,7 +161,7 @@ solves this while keeping the foundation as the dependency root.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-38 | Server inventory probe layer and `nagarectl server status` | docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md | None | None | In Progress |
+| EP-38 | Server inventory probe layer and `nagarectl server status` | docs/plans/38-server-inventory-probe-layer-and-nagarectl-server-status.md | None | None | Complete |
 | EP-39 | `nagarectl doctor` health checks with remediation hints | docs/plans/39-nagarectl-doctor-health-checks-with-remediation-hints.md | EP-38 | None | Not Started |
 | EP-40 | `nagarectl domains list` with DNS and certificate readiness | docs/plans/40-nagarectl-domains-list-with-dns-and-certificate-readiness.md | None | EP-38 | Not Started |
 | EP-41 | `nagarectl cleanup` for images, previews, and releases | docs/plans/41-nagarectl-cleanup-for-images-previews-and-releases.md | None | EP-38 | Not Started |
@@ -274,9 +274,9 @@ later plans reuse them.
 
 ## Progress
 
-- [ ] EP-38: `Nagare.Ops` probe types, external-tool wrappers, and pure parsers/formatters with unit tests.
-- [ ] EP-38: `gatherInventory` wiring all probes (VM, k3s, Knative, Kourier, cert-manager, base domain, disk, Artifact Registry, backup freshness).
-- [ ] EP-38: `nagarectl server status` command registered, rendering the inventory table; graceful degradation verified.
+- [x] EP-38: `Nagare.Ops` probe types, external-tool wrappers, and pure parsers/formatters with unit tests.
+- [x] EP-38: `gatherInventory` wiring all probes (VM, k3s, Knative, Kourier, cert-manager, base domain, disk, Artifact Registry, backup freshness).
+- [x] EP-38: `nagarectl server status` command registered, rendering the inventory table; graceful degradation verified.
 - [ ] EP-39: Remediation knowledge base mapping each probe failure mode to a hint and command.
 - [ ] EP-39: `nagarectl doctor` checklist rendering with `OK`/`WARN`/`FAIL` and a non-zero exit code on failure.
 - [ ] EP-40: DomainMapping + Certificate inventory and DNS-expectation computation, with pure parsers tested.
@@ -302,6 +302,24 @@ later plans reuse them.
   and the Integration Points above reference `Nagare.Ops.*`. The CLI commands keep their
   roadmap-specified names (`nagarectl server status`, etc.); only the internal Haskell
   module namespace changed.
+
+
+- 2026-06-10 (EP-38 complete, affects EP-39/40/41): The IP1/IP2/IP3/IP4 surfaces
+  are now committed and stable. Concrete signatures the later plans read back:
+  `Nagare.Ops.Probe` exports `ProbeStatus(StatusOk|StatusWarn|StatusUnknown|StatusFail)`,
+  `Probe{probeName, probeStatus, probeDetail}`, `InventoryOpts{ioZone, ioInstance,
+  ioPulumiDir, ioSkipVm}`, `renderInventory`/`statusLabel`, the `captureTool`/`runMaybe`
+  wrappers, and the seven pure parsers; `Nagare.Ops.Pulumi` exports `stackOutput ::
+  FilePath -> Text -> IO (Maybe Text)`; `Nagare.Ops.Status` exports
+  `gatherInventory`/`defaultInventoryOpts`. The `server` command group in
+  `cli/nagarectl/app/Main.hs` establishes the IP3 registration pattern (a nested
+  `subparser` with a `command "<name>"` and a matching `Command` constructor +
+  `main` dispatch arm). Two additions beyond the EP-38 sketch: a
+  `cert-manager-cainjector` Deployment probe and an informational
+  `external-domain-tls` line; neither changes the IP1 types. The `renderInventory`
+  CHECK column is 25 wide (not the sketch's 22) so the longest probe name fits —
+  EP-40/EP-41 should reuse `renderInventory`/`statusLabel` rather than re-deriving
+  widths.
 
 
 ## Decision Log

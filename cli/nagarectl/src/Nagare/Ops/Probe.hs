@@ -109,8 +109,8 @@ statusLabel = \case
 renderInventory :: [Probe] -> Text
 renderInventory ps = T.unlines (header : map row ps)
   where
-    header = "  " <> pad 9 "STATUS" <> pad 22 "CHECK" <> "DETAIL"
-    row p = "  " <> pad 9 (statusLabel (probeStatus p)) <> pad 22 (probeName p) <> probeDetail p
+    header = "  " <> pad 9 "STATUS" <> pad 25 "CHECK" <> "DETAIL"
+    row p = "  " <> pad 9 (statusLabel (probeStatus p)) <> pad 25 (probeName p) <> probeDetail p
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 
 -- ---------------------------------------------------------------------------
