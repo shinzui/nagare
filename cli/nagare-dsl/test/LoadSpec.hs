@@ -6,9 +6,18 @@
 module LoadSpec (loadTests) where
 
 import Data.ByteString.Char8 qualified as BC
+import Data.Map qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Load
+import Nagare.Dsl.Types
+  ( Deployment (..)
+  , EnvScope (..)
+  , ScopedEnvVar (..)
+  , mkEnvName
+  )
 import System.IO (hClose, hPutStr)
 import System.IO.Temp (withSystemTempFile)
 import Test.Tasty
@@ -57,7 +66,47 @@ loadTests =
         assertContains
           "name"
           (renderLoadError (MarshalError "name" "contains invalid characters"))
+    , testCase "scopes [\"Build\"] decodes to {Build}" $
+        assertScopes "BUILD_ONLY" (Set.fromList [Build]) (envDeploymentJSON "BUILD_ONLY" ",\"scopes\":[\"Build\"]")
+    , testCase "missing scopes defaults to {Runtime}" $
+        assertScopes "X" (Set.fromList [Runtime]) (envDeploymentJSON "X" "")
+    , testCase "empty scopes array defaults to {Runtime}" $
+        assertScopes "X" (Set.fromList [Runtime]) (envDeploymentJSON "X" ",\"scopes\":[]")
+    , testCase "multiple scopes [\"Runtime\",\"Build\"] decode to both" $
+        assertScopes
+          "BOTH"
+          (Set.fromList [Runtime, Build])
+          (envDeploymentJSON "BOTH" ",\"scopes\":[\"Runtime\",\"Build\"]")
+    , testCase "unknown scope token returns MarshalError ...scopes" $
+        case decodeDeployment (BC.pack (envDeploymentJSON "X" ",\"scopes\":[\"Nope\"]")) of
+          Left (MarshalError field msg)
+            | ".scopes" `Text.isInfixOf` field ->
+                assertContains "unknown env scope" msg
+          other -> assertFailure ("expected MarshalError ...scopes, got: " <> show other)
     ]
+
+-- | A minimal valid Deployment JSON with a single Literal env entry whose
+-- @scopes@ suffix is the given JSON fragment (e.g. @,"scopes":["Build"]@ or @""@).
+envDeploymentJSON :: String -> String -> String
+envDeploymentJSON var scopesField =
+  "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\""
+    <> ",\"port\":8080,\"env\":[{\"varName\":\""
+    <> var
+    <> "\",\"kind\":\"Literal\",\"value\":\"v\""
+    <> scopesField
+    <> "}]}"
+
+-- | Decode the JSON and assert the named env var's scope set matches.
+assertScopes :: Text -> Set EnvScope -> String -> Assertion
+assertScopes var expected json =
+  case decodeDeployment (BC.pack json) of
+    Right Deployment {env = m} ->
+      case Map.lookup key m of
+        Just sev -> scopes sev @?= expected
+        Nothing -> assertFailure ("env var " <> Text.unpack var <> " not found in decoded map")
+    other -> assertFailure ("expected Right, got: " <> show other)
+  where
+    key = either (error . Text.unpack) id (mkEnvName var)
 
 -- | Write Haskell source to a temp file and run the action on its path.
 withConfigFixture :: String -> (FilePath -> IO a) -> IO a

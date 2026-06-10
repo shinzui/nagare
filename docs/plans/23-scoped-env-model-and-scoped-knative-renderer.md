@@ -115,12 +115,15 @@ This section must always reflect the actual current state of the work.
       `cluster/examples/preset-app-b/nagare/Config.hs` needed no edit (uses `secretEnv`). (2026-06-09)
 - [x] M1: `cabal build` succeeds; existing golden tests still pass byte-for-byte
       (all 135 tests pass, no `envFrom` yet). (2026-06-09)
-- [ ] M2: Add `"scopes"` to the emitted JSON in `Nagare.Dsl.Config`
-      (`envJSON`/`envEntryJSON`); decode it in `Nagare.Dsl.Load`
-      (`JsonEnvEntry`/`toEnvEntry`) with missing/empty defaulting to `["Runtime"]`
-      and unknown tokens rejected.
-- [ ] M2: Unit tests for round-trip: scopes survive emit→decode; missing scopes
-      default to Runtime; an unknown scope token yields a `MarshalError`.
+- [x] M2: Add `"scopes"` to the emitted JSON in `Nagare.Dsl.Config`
+      (`envJSON`/`envEntryJSON`, via shared `scopeTokensJSON`); decode it in
+      `Nagare.Dsl.Load` (`JsonEnvEntry.jeScopes`/`parseScope`/`toEnvEntry`) with
+      missing/empty defaulting to `{Runtime}` and unknown tokens rejected via a
+      `MarshalError "env.<var>.scopes"`. (2026-06-09)
+- [x] M2: Unit tests for round-trip: scopes survive emit→decode (Spec.hs
+      `scopedEnvTests`); missing/empty default to Runtime, a multi-scope entry
+      decodes to both, and an unknown scope token yields a `MarshalError`
+      (LoadSpec.hs). 142 tests pass. (2026-06-09)
 - [ ] M3: Add `scopeToken`, `managedConfigMapName`, `managedSecretName`; export them.
 - [ ] M3: Scope-filter the inline `env:` (Runtime-only) and add the `envFrom` block in
       both `Nagare.Dsl.Render` and `Nagare.Dsl.Server.Render`; place `envFrom` in

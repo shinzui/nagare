@@ -2,6 +2,7 @@ module Main (main) where
 
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
@@ -27,6 +28,7 @@ main =
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
       , testGroup "Nagare.Dsl.Render" goldenTests
+      , testGroup "Nagare.Dsl.Types scoped env" scopedEnvTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
       , loadTests
@@ -248,6 +250,22 @@ helloDep =
             }
     , scale = Just (unsafe (mkScale 0 3))
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-23: scoped env — the scope set survives the JSON emit -> decode round-trip
+
+scopedEnvTests :: [TestTree]
+scopedEnvTests =
+  [ testCase "multi-scope env survives emit -> decode round-trip" $ do
+      let bothScopes = unsafe (scopedEnv (Set.fromList [Build, Runtime]) (EnvLiteral "x"))
+          dep =
+            helloDep
+              { env = Map.fromList [(unsafe (mkEnvName "API_BASE"), bothScopes)]
+              }
+      decodeDeployment (toStrict (encodeDeployment dep)) @?= Right dep
+  , testCase "default runtimeScoped env round-trips" $
+      decodeDeployment (toStrict (encodeDeployment helloDep)) @?= Right helloDep
+  ]
 
 -- ---------------------------------------------------------------------------
 -- EP-19: BuildSpec model — emit/decode round-trips, helpers, renderer, failures

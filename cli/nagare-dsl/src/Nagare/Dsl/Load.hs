@@ -25,6 +25,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
 import Nagare.Dsl.Server.Types
@@ -85,6 +86,7 @@ data JsonEnvEntry = JsonEnvEntry
   , jeKind :: !Text
   , jeValue :: !(Maybe Text)
   , jeSecretName :: !(Maybe Text)
+  , jeScopes :: !(Maybe [Text])
   }
   deriving stock (Generic, Eq, Show)
 
@@ -95,6 +97,7 @@ instance FromJSON JsonEnvEntry where
       <*> o .: "kind"
       <*> o .:? "value"
       <*> o .:? "secretName"
+      <*> o .:? "scopes"
 
 -- | The @build@ sub-object: a @"kind"@ discriminator plus the per-kind fields.
 -- A 'PrebuiltImage' carries @tag@; a @DockerfileBuild@ carries
@@ -218,6 +221,15 @@ toBuildSpec jb = case jbKind jb of
     Right (NixpacksBuild {context = ctx', buildArgs = jbBuildArgs jb})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
+-- | Decode a single scope token, rejecting any unknown value with a precise
+-- 'MarshalError'. The tokens are the capitalized 'Show' 'EnvScope' names.
+parseScope :: Text -> Text -> Either LoadError EnvScope
+parseScope var t = case t of
+  "Runtime" -> Right Runtime
+  "Build" -> Right Build
+  "Preview" -> Right Preview
+  other -> Left (MarshalError ("env." <> var <> ".scopes") ("unknown env scope: " <> other))
+
 toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, ScopedEnvVar)
 toEnvEntry e = do
   n <- mapLeft (MarshalError "env.varName") $ mkEnvName (jeVarName e)
@@ -232,7 +244,11 @@ toEnvEntry e = do
           . mapLeft (MarshalError ("env." <> jeVarName e <> ".secretRef"))
           $ mkSecretName sec
     other -> Left (MarshalError ("env." <> jeVarName e <> ".kind") ("unknown env kind: " <> other))
-  Right (n, runtimeScoped v)
+  scopeList <- traverse (parseScope (jeVarName e)) (fromMaybe [] (jeScopes e))
+  let scopeSet = Set.fromList scopeList
+      finalScopes = if Set.null scopeSet then Set.singleton Runtime else scopeSet
+  sev <- mapLeft (MarshalError ("env." <> jeVarName e <> ".scopes")) (scopedEnv finalScopes v)
+  Right (n, sev)
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
 toResources jd =

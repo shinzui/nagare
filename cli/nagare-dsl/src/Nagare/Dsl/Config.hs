@@ -22,6 +22,8 @@ import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
+import Data.Text qualified as Text
 import Nagare.Dsl.Build
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -37,6 +39,14 @@ emitDeployment dep = LBS.putStr (encodeDeployment dep)
 -- @runghc@).
 encodeDeployment :: Deployment -> LBS.ByteString
 encodeDeployment = encode . deploymentJSON
+
+-- | The scope set of a 'ScopedEnvVar' as a JSON-ready list of capitalized
+-- tokens matching the 'Show' 'EnvScope' names (@"Runtime"@, @"Build"@,
+-- @"Preview"@), sorted ascending for deterministic output. These capitalized
+-- tokens are distinct from the lowercased resource-name tokens
+-- ('Nagare.Dsl.Render.scopeToken').
+scopeTokensJSON :: ScopedEnvVar -> [Text]
+scopeTokensJSON sev = map (Text.pack . show) (Set.toAscList (sev ^. #scopes))
 
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load').
 deploymentJSON :: Deployment -> Value
@@ -83,12 +93,14 @@ deploymentJSON dep =
           [ "varName" .= envNameText n
           , "kind" .= ("Literal" :: Text)
           , "value" .= lit
+          , "scopes" .= scopeTokensJSON sev
           ]
       EnvSecretRef sn ->
         object
           [ "varName" .= envNameText n
           , "kind" .= ("SecretRef" :: Text)
           , "secretName" .= secretNameText sn
+          , "scopes" .= scopeTokensJSON sev
           ]
 
 -- | Serialize a 'StaticSite' to JSON and write it to stdout. Call this as the
@@ -191,10 +203,12 @@ serverSiteJSON site =
           [ "varName" .= envNameText n
           , "kind" .= ("Literal" :: Text)
           , "value" .= lit
+          , "scopes" .= scopeTokensJSON sev
           ]
       EnvSecretRef sn ->
         object
           [ "varName" .= envNameText n
           , "kind" .= ("SecretRef" :: Text)
           , "secretName" .= secretNameText sn
+          , "scopes" .= scopeTokensJSON sev
           ]
