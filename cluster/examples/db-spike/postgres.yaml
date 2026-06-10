@@ -1,0 +1,101 @@
+# EP-43 spike: PostgreSQL as a single-replica StatefulSet + standalone local-path
+# PVC + ClusterIP Service + managed Secret. Credentials are read from the Secret
+# via envFrom. PGDATA points at a subdirectory of the mount so a fresh PVC's
+# lost+found does not trip Postgres's "data directory must be empty" check.
+# Verified 2026-06-10 (postgres:18 -> 18.4): starts, reachable over ClusterIP
+# DNS, row survives a pod restart, pg_dump|gzip backup non-empty.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-db-pg-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: pg-spike
+    nagare.dev/engine: postgres
+type: Opaque
+stringData:
+  POSTGRES_USER: appuser
+  POSTGRES_PASSWORD: spikepw12345
+  POSTGRES_DB: appdb
+  DATABASE_URL: postgresql://appuser:spikepw12345@pg-spike.db-spike.svc.cluster.local:5432/appdb
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-db-pg-spike-data
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: pg-spike
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pg-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: pg-spike
+    nagare.dev/engine: postgres
+spec:
+  serviceName: pg-spike
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/database: pg-spike
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/database: pg-spike
+        nagare.dev/engine: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18
+          envFrom:
+            - secretRef:
+                name: nagare-db-pg-spike
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nagare-db-pg-spike-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: pg-spike
+    nagare.dev/engine: postgres
+spec:
+  type: ClusterIP
+  selector:
+    nagare.dev/database: pg-spike
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

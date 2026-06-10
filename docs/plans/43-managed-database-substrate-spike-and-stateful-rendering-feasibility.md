@@ -65,14 +65,14 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M0: Start the `nagare-01` VM; confirm one `Ready` node via `sudo k3s kubectl get nodes`; create the disposable `db-spike` namespace.
-- [ ] M1: Apply the Postgres Secret + PVC + StatefulSet + ClusterIP Service by hand; pod becomes Ready; `psql` connects from a client pod over `pg-spike.db-spike.svc.cluster.local`; create a table and insert a row.
-- [ ] M1: Delete the Postgres pod; confirm the StatefulSet recreates it, the same PVC re-mounts, and the inserted row is still present. Capture the transcript.
-- [ ] M1: Run a `pg_dump | gzip` backup to a scratch file inside the pod and confirm it is non-empty; (optionally) upload it to `gs://tan-nb-exp-nagare-backups/databases/pg-spike/` to validate in-pod ADC. Record the exact command.
-- [ ] M2: Repeat the M1 sequence for Redis (image `redis:7`, `--requirepass`, port 6379): connect with `redis-cli -a`, `SET` a key, delete the pod, `GET` survives. Pick and record the backup command (`BGSAVE` + copy `dump.rdb`, or `redis-cli --rdb`).
-- [ ] M3: Repeat for ClickHouse (image `clickhouse/clickhouse-server:24`, ports 9000 + 8123) INCLUDING memory tuning so it coexists with k3s/Knative/apps on `e2-standard-2`: create a table, insert rows, delete the pod, confirm survival; determine and record viable `max_server_memory_usage` and container memory limits; pick and record the backup command.
-- [ ] M4: Settle and write into this plan: the substrate decision (StatefulSet vs Deployment; PVC vs volumeClaimTemplates), the credential model (IP3), the per-engine verified YAML shapes (IP2), the per-engine backup commands, and the residual risks — as the explicit input artifact for EP-44/EP-45/EP-47.
-- [ ] M4: Tear down the `db-spike` namespace; confirm the per-PVC host directories under `/var/lib/nagare/local-path` are reclaimed. (Optionally) commit the example manifests under `cluster/examples/db-spike/` and this plan with the mandated trailers.
+- [x] M0 (2026-06-10): VM already `RUNNING`; one `Ready` node confirmed (`nagare-01`, k3s `v1.35.4+k3s1`); `db-spike` namespace created; `local-path` StorageClass confirmed default (`Delete` reclaim, `WaitForFirstConsumer`).
+- [x] M1 (2026-06-10): Applied Postgres (`postgres:18` → `18.4`) Secret + PVC + StatefulSet + ClusterIP Service by hand; `pg-spike-0` Ready; PVC `Bound` RWO/`local-path`; `psql` connected over `pg-spike.db-spike.svc.cluster.local` (creds sourced from the Secret via `envFrom`); created table `spike`, inserted a row. Also verified cross-pod reachability is implied by the in-pod DNS connect.
+- [x] M1 (2026-06-10): Deleted `pg-spike-0`; StatefulSet recreated it, same PVC re-mounted, the row was still present (`SELECT * FROM spike` returned `persisted-before-restart`).
+- [x] M1 (2026-06-10): `pg_dump --no-owner --no-privileges | gzip -9` produced a 782-byte dump with COPY data present. GCS upload **could not be validated** — see Surprises (metadata/ADC route via `flannel.1` is black-holed cluster-wide).
+- [x] M2 (2026-06-10): Redis (`redis:8` → `8.8.0`, `--requirepass`, 6379): `redis-cli -a` authenticated; an unauthenticated `PING` returned `NOAUTH`; `SET` a key; deleted the pod; `GET` survived (loaded from `dump.rdb` on the PVC). Backup command recorded: `redis-cli -a <pw> BGSAVE` then copy `/data/dump.rdb`.
+- [x] M3 (2026-06-10): ClickHouse (`clickhouse/clickhouse-server:25.8` → `25.8.24.21`, the current LTS, 9000 + 8123) with container `limits.memory: 2Gi` and `max_server_memory_usage: 1610612736` (1.5Gi) via a `config.d` ConfigMap: created a `MergeTree` table, inserted rows, deleted the pod, row survived. Node stayed at ~33% memory, **0 restarts**, no `MemoryPressure`, `personal`-namespace pods stayed `Running`. Backup command recorded: `BACKUP TABLE <t> TO File('<t>.zip')` → `/var/lib/clickhouse/backups/<t>.zip` (~4 KB artifact).
+- [x] M4 (2026-06-10): Substrate settled (single-replica StatefulSet + standalone `local-path` PVC, both confirmed). Credential model (IP3) and per-engine verified YAML shapes (IP2) recorded below with observed versions/limits. Per-engine backup commands fixed. Residual risk flagged: in-pod GCS auth is currently blocked by a flannel routing bug — a hard input for EP-47.
+- [x] M4 (2026-06-10): Tore down the `db-spike` namespace; the three `pvc-..._db-spike_...` host directories under `/var/lib/nagare/local-path` were reclaimed; other namespaces' PVC dirs untouched. Verified spike manifests committed under `cluster/examples/db-spike/` as house-style reference.
 
 
 ## Surprises & Discoveries
@@ -80,7 +80,63 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **In-pod GCS auth is currently broken cluster-wide — a flannel routing bug black-holes the
+  metadata server (HARD INPUT TO EP-47 / IP6).** The MasterPlan assumes the in-pod ADC pattern
+  `GCE_METADATA_HOST=169.254.169.254` works (it is how `cluster/examples/sqlite-litestream/` and
+  EP-47's backup CronJob authenticate to GCS). The spike's optional GCS probe failed; investigation
+  showed the failure is **not** spike-specific and **not** pod-specific — the metadata IP is
+  unreachable from the host *and* every pod. Evidence:
+  - The probe pod (`google/cloud-sdk:slim`, `gsutil`/`gcloud storage`) got `401 Anonymous caller`
+    and no SA token; a raw `curl http://169.254.169.254/.../service-accounts/default/token` returned
+    HTTP `000`.
+  - The **already-deployed litestream sidecar** in `personal` is failing *continuously* with
+    `dial tcp 169.254.169.254:80: connect: no route to host` — so this is a standing cluster
+    regression, independent of this spike.
+  - Root cause: on the VM, `ip route get 169.254.169.254` resolves **`dev flannel.1 src 169.254.15.118`** —
+    k3s's flannel VXLAN overlay has captured the link-local `169.254.0.0/16` range, so metadata
+    traffic is routed into the overlay instead of out the primary NIC and dropped. Both
+    `169.254.169.254` and `metadata.google.internal` return curl `(7) Could not connect` on the host.
+  - Implication for EP-47: in-pod GCS upload will not work until this routing is fixed. Likely fix is
+    a more-specific host route (`ip route add 169.254.169.254/32 dev <primary-nic>`) added at node
+    bootstrap (an `infra/`/NixOS change), or routing the backup upload through the host (e.g. the
+    backup Job runs the engine dump via `kubectl exec`, then a host-side step uploads — mirroring how
+    `scripts/backup-postgres.sh` already uploads from the host where native ADC works). `hostNetwork:
+    true` alone does **not** help because the broken route lives in the host's own table.
+  - Scope note: this does **not** affect EP-43's gate. All three engines start, are reachable over
+    ClusterIP DNS, survive a pod restart with data intact, and produce a non-empty backup *artifact
+    locally*. Only the GCS *upload* leg (optional in EP-43) is blocked, and that blocker is now
+    characterized for EP-47.
+
+- **Observed engine versions (modern tags, per user direction 2026-06-10 — "postgres 16 is super old,
+  support 18" and "modern versions of redis and clickhouse"):** `postgres:18` → PostgreSQL `18.4`;
+  `redis:8` → Redis `8.8.0`; `clickhouse/clickhouse-server:25.8` → ClickHouse `25.8.24.21` (the current
+  LTS). EP-44 should default `EngineVersion` to these modern majors and let the typed value pin a more
+  specific tag when desired. **ClickHouse tag gotcha:** ClickHouse uses `YY.M` calendar versioning —
+  there is **no bare `:25` tag** (an initial `:25` attempt hit `ErrImagePull`/`NotFound`). Valid recent
+  tags are `25.8` (LTS), `25.10`, `26.x`. EP-44's `EngineVersion` validator must accept the ClickHouse
+  `YY.M[.p.b]` shape, which differs from Postgres's integer major and Redis's integer major.
+
+- **StatefulSets here have no readinessProbe, so "rollout complete" ≠ "engine accepting connections".**
+  A connect to the Service immediately after `rollout status` returned raced Postgres's first-boot
+  `initdb` and got `Connection refused`; the durability proof only passed after polling `pg_isready` in
+  a loop. Input to EP-44/EP-45: either the renderer emits a real readinessProbe per engine (e.g.
+  `pg_isready`, `redis-cli ping`, a ClickHouse `SELECT 1`/HTTP `/ping`), or EP-45's "wait for ready"
+  must poll the engine itself, not just the StatefulSet rollout.
+
+- **ClickHouse fits comfortably on `e2-standard-2`** with `limits.memory: 2Gi` +
+  `max_server_memory_usage: 1610612736` (1.5 GiB) + `mark_cache_size: 268435456`: the node sat at
+  ~34% memory (`kubectl top node`: `2725Mi / 34%`), `MemoryPressure=False`, **0 restarts**, and the
+  existing `personal` workload kept running. The headline ClickHouse unknown is resolved in the
+  affirmative; no fallback to a smaller default was needed.
+
+- **Postgres `PGDATA` subdirectory is necessary, as anticipated:** `PGDATA=/var/lib/postgresql/data/pgdata`
+  (a subdir of the mount) initialized cleanly on a fresh `local-path` PVC — confirming the working
+  hypothesis that pointing `PGDATA` at the mount root risks the `lost+found`/"directory not empty"
+  trip on some volume backends.
+
+- **`local-path` is `WaitForFirstConsumer`:** the PVC stayed `Pending` until the pod was scheduled,
+  then bound — so the renderer (EP-44) must apply the PVC and StatefulSet together (the PVC does not
+  bind on its own), which matches EP-45's intended apply ordering.
 
 
 ## Decision Log
@@ -154,13 +210,84 @@ Record every decision made while working on the plan.
   (`tan-cluster`/`sennari`). Running on the VM is the simplest correct path for a hand-applied spike.
   Date: 2026-06-10
 
+- Decision (CONFIRMED by M1–M3): the substrate is a **single-replica StatefulSet** with a **standalone
+  `local-path`/RWO PVC named `nagare-db-<name>-data`** (not `volumeClaimTemplates`). All three engines
+  reached `Ready` from the four hand-applied objects, kept stable pod name `<name>-0` and stable
+  ClusterIP DNS `<name>.<namespace>.svc.cluster.local`, and re-mounted the same PVC across a
+  `kubectl delete pod` with data intact. The standalone PVC bound RWO/`local-path` and is named per the
+  MasterPlan-7 convention so `nagarectl storage` can discover it. EP-44 renders exactly this shape.
+  Date: 2026-06-10
+
+- Decision (CONFIRMED by M1): each engine honors its credentials from the **`nagare-db-<name>` Secret**
+  via `envFrom: secretRef`. Postgres and ClickHouse read `*_USER`/`*_PASSWORD`/`*_DB` directly from the
+  container env; Redis does **not** read a password env var on its own, so the password must be
+  interpolated into the server flag `--requirepass "$REDIS_PASSWORD"` (verified: an unauthenticated
+  command returns `NOAUTH`). This is the IP3 contract EP-44/EP-45 implement.
+  Date: 2026-06-10
+
+- Decision (CONFIRMED, numbers fixed by M3): ClickHouse runs acceptably on `e2-standard-2` with
+  container `resources.limits.memory: 2Gi`, a `config.d` override setting
+  `<max_server_memory_usage>1610612736</max_server_memory_usage>` (1.5 GiB) and
+  `<mark_cache_size>268435456</mark_cache_size>`, mounted from a `nagare-db-<name>-mem` ConfigMap at
+  `/etc/clickhouse-server/config.d/low-memory.xml`. EP-44 encodes these as the ClickHouse defaults.
+  Date: 2026-06-10
+
+- Decision (CONFIRMED, commands fixed by M1–M3): the per-engine backup commands are — Postgres:
+  `pg_dump --no-owner --no-privileges <db> | gzip -9` → `databases/<name>/<ts>.sql.gz`; Redis:
+  `redis-cli -a <pw> BGSAVE` then copy `/data/dump.rdb` → `databases/<name>/<ts>.rdb`; ClickHouse:
+  `BACKUP TABLE <t> TO File('<t>.zip')` (artifact lands under `/var/lib/clickhouse/backups/`, inside the
+  data PVC) → `databases/<name>/<ts>.zip`. The external `clickhouse-backup` tool is rejected for now
+  (the built-in `BACKUP` statement worked and needs no extra binary). EP-47 productizes these.
+  Date: 2026-06-10
+
+- Decision (per user direction 2026-06-10, supersedes the plan's original draft versions): default the
+  managed engines to **modern majors — Postgres 18, Redis 8, ClickHouse 25.8 (LTS)** — not the
+  `postgres:16`/`redis:7`/`clickhouse-server:24` the plan was originally drafted against. All three
+  modern tags were re-verified on the cluster (18.4, 8.8.0, 25.8.24.21): start, reachable, survive a pod
+  restart, back up. EP-44's `EngineVersion` defaults and golden files encode the modern tags; the
+  validator must accept ClickHouse's `YY.M` calendar versioning (there is no bare `:25` tag).
+  Rationale: the platform should ship current engine majors.
+  Date: 2026-06-10
+
+- Decision (RAISED to the MasterPlan): EP-47's GCS upload mechanism is **blocked by a cluster routing
+  regression** (the metadata IP routes via `flannel.1` and is unreachable — see Surprises). EP-47 must
+  resolve this (a node route fix in `infra/`, or a host-side upload step) before scheduled/on-demand
+  backups can reach `gs://tan-nb-exp-nagare-backups`. The engine-local dump commands above are verified
+  and unaffected; only the upload leg is gated.
+  Date: 2026-06-10
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome: the gate is passed.** All three target engines were proven on the live single-node k3s
+cluster from raw manifests, exactly as the purpose demanded:
+
+| Engine | Image → version | Restart-survival | In-cluster reachability | Backup artifact |
+|--------|-----------------|------------------|--------------------------|-----------------|
+| Postgres | `postgres:18` → 18.4 | ✅ row persisted | ✅ `pg-spike.db-spike.svc.cluster.local:5432` | ✅ 781 B `pg_dump\|gzip` |
+| Redis | `redis:8` → 8.8.0 | ✅ key persisted | ✅ `redis-spike...:6379` (`NOAUTH` enforced) | ✅ `dump.rdb` via `BGSAVE` |
+| ClickHouse | `clickhouse/clickhouse-server:25.8` → 25.8.24.21 (LTS) | ✅ row persisted | ✅ `ch-spike...:9000/8123` | ✅ ~4 KB `BACKUP ... TO File` |
+
+The substrate (single-replica StatefulSet + standalone `local-path` PVC), the credential model (IP3:
+`nagare-db-<name>` Secret, `envFrom`, Redis's `--requirepass` interpolation), the per-engine verified
+YAML shapes (IP2), the ClickHouse memory numbers, and the per-engine backup commands are all settled and
+recorded below. EP-44 can now write its renderer and golden files against verified shapes rather than a
+guess.
+
+**One gap, flagged forward:** the in-pod GCS upload leg (optional for this spike) is blocked by a
+standing cluster routing regression — the metadata IP `169.254.169.254` is routed into the `flannel.1`
+overlay and is unreachable, breaking ADC for every pod (and the existing litestream sidecar). This is a
+hard input to EP-47 (IP6), captured in Surprises and the Decision Log; it does not weaken EP-43's gate
+because every engine produces a valid backup artifact locally and the upload mechanism is EP-47's to
+build.
+
+**Lesson:** the existing `cluster/examples/sqlite-litestream/` "works" only aspirationally on the current
+cluster — its GCS replication has been failing continuously. Worth noting for whoever next touches
+backups: prove the upload path end-to-end, do not assume the documented `GCE_METADATA_HOST` pattern is
+currently functional.
 
 
 ## Context and Orientation
@@ -1225,7 +1352,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:16          # M4: pin the exact patch tag observed (e.g. postgres:16.3)
+          image: postgres:18          # VERIFIED 2026-06-10: postgres:18 -> 18.4 runs; default to the major tag
           envFrom:
             - secretRef:
                 name: nagare-db-<name>
@@ -1309,7 +1436,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:7              # M4: pin the exact tag observed (e.g. redis:7.2)
+          image: redis:8              # VERIFIED 2026-06-10: redis:8 -> 8.8.0 runs; default to the major tag
           envFrom:
             - secretRef:
                 name: nagare-db-<name>
@@ -1348,7 +1475,7 @@ metadata:
 data:
   low-memory.xml: |
     <clickhouse>
-      <max_server_memory_usage>1610612736</max_server_memory_usage>   <!-- M4: confirm/adjust -->
+      <max_server_memory_usage>1610612736</max_server_memory_usage>   <!-- VERIFIED 2026-06-10: 1.5Gi, 0 OOM -->
       <mark_cache_size>268435456</mark_cache_size>
     </clickhouse>
 ---
@@ -1376,7 +1503,7 @@ spec:
     spec:
       containers:
         - name: clickhouse
-          image: clickhouse/clickhouse-server:24   # M4: pin exact tag (e.g. ...:24.3)
+          image: clickhouse/clickhouse-server:25.8   # VERIFIED 2026-06-10: ...:25.8 -> 25.8.24.21 (LTS) runs within 2Gi; no bare ":25" tag exists
           envFrom:
             - secretRef:
                 name: nagare-db-<name>
@@ -1391,7 +1518,7 @@ spec:
               subPath: low-memory.xml
           resources:
             requests: { cpu: "200m", memory: 512Mi }
-            limits:   { memory: 2Gi }                # M4: confirm/adjust from M3 step 2
+            limits:   { memory: 2Gi }                # VERIFIED 2026-06-10: node ~34% mem, 0 restarts
       volumes:
         - name: data
           persistentVolumeClaim:

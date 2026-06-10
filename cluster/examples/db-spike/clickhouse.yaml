@@ -1,0 +1,124 @@
+# EP-43 spike: ClickHouse as a single-replica StatefulSet, constrained to fit the
+# e2-standard-2 VM (≈8 GB, shared with k3s/apps). Two memory levers applied
+# together: a container resources.limits.memory (2Gi) and a server-side cap
+# (max_server_memory_usage) dropped into config.d via a ConfigMap.
+# Verified 2026-06-10 (clickhouse/clickhouse-server:25.8 -> 25.8.24.21, the
+# current LTS; note ClickHouse uses YY.M tags, there is no bare ":25"): starts,
+# node at ~33% memory with 0 restarts, row survives restart, BACKUP ... TO File
+# produces a non-empty artifact under /var/lib/clickhouse/backups/.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-db-ch-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ch-spike
+    nagare.dev/engine: clickhouse
+type: Opaque
+stringData:
+  CLICKHOUSE_USER: appuser
+  CLICKHOUSE_PASSWORD: spikepw12345
+  CLICKHOUSE_URL: clickhouse://appuser:spikepw12345@ch-spike.db-spike.svc.cluster.local:9000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ch-spike-mem
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ch-spike
+data:
+  low-memory.xml: |
+    <clickhouse>
+      <max_server_memory_usage>1610612736</max_server_memory_usage>
+      <mark_cache_size>268435456</mark_cache_size>
+    </clickhouse>
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-db-ch-spike-data
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ch-spike
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ch-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ch-spike
+    nagare.dev/engine: clickhouse
+spec:
+  serviceName: ch-spike
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/database: ch-spike
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/database: ch-spike
+        nagare.dev/engine: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:25.8
+          envFrom:
+            - secretRef:
+                name: nagare-db-ch-spike
+          ports:
+            - containerPort: 9000
+            - containerPort: 8123
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: mem-config
+              mountPath: /etc/clickhouse-server/config.d/low-memory.xml
+              subPath: low-memory.xml
+          resources:
+            requests:
+              cpu: "200m"
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nagare-db-ch-spike-data
+        - name: mem-config
+          configMap:
+            name: ch-spike-mem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ch-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ch-spike
+    nagare.dev/engine: clickhouse
+spec:
+  type: ClusterIP
+  selector:
+    nagare.dev/database: ch-spike
+  ports:
+    - name: native
+      port: 9000
+      targetPort: 9000
+    - name: http
+      port: 8123
+      targetPort: 8123

@@ -1,0 +1,99 @@
+# EP-43 spike: Redis as a single-replica StatefulSet. The redis:7 image does not
+# read a password env var on its own, so the password (from the Secret) is
+# interpolated into the server flag --requirepass. RDB persistence (--save 60 1)
+# writes /data/dump.rdb to the PVC so a key survives a pod restart.
+# Verified 2026-06-10 (redis:8 -> 8.8.0): auth enforced (NOAUTH on unauth),
+# key survives restart, BGSAVE writes a non-empty dump.rdb.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-db-redis-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: redis-spike
+    nagare.dev/engine: redis
+type: Opaque
+stringData:
+  REDIS_PASSWORD: spikepw12345
+  REDIS_URL: redis://:spikepw12345@redis-spike.db-spike.svc.cluster.local:6379
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-db-redis-spike-data
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: redis-spike
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: redis-spike
+    nagare.dev/engine: redis
+spec:
+  serviceName: redis-spike
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/database: redis-spike
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/database: redis-spike
+        nagare.dev/engine: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:8
+          envFrom:
+            - secretRef:
+                name: nagare-db-redis-spike
+          command: ["sh", "-c"]
+          args:
+            - 'exec redis-server --requirepass "$REDIS_PASSWORD" --dir /data --save 60 1 --appendonly no'
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nagare-db-redis-spike-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-spike
+  namespace: db-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: redis-spike
+    nagare.dev/engine: redis
+spec:
+  type: ClusterIP
+  selector:
+    nagare.dev/database: redis-spike
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379

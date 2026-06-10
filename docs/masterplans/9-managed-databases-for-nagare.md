@@ -192,8 +192,8 @@ schedule/restore milestones.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 43 | Managed-database substrate spike and stateful rendering feasibility | docs/plans/43-managed-database-substrate-spike-and-stateful-rendering-feasibility.md | None | None | Not Started |
-| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | Not Started |
+| 43 | Managed-database substrate spike and stateful rendering feasibility | docs/plans/43-managed-database-substrate-spike-and-stateful-rendering-feasibility.md | None | None | Complete |
+| 44 | Typed Database model and stateful StatefulSet, Service, PVC, and Secret renderer | docs/plans/44-typed-database-model-and-stateful-statefulset-service-pvc-and-secret-renderer.md | None | EP-43 | In Progress |
 | 45 | nagarectl db lifecycle commands and deploy-time provisioning | docs/plans/45-nagarectl-db-lifecycle-commands-and-deploy-time-provisioning.md | EP-44 | EP-43 | Not Started |
 | 46 | Generated database connection env injection for apps | docs/plans/46-generated-database-connection-env-injection-for-apps.md | EP-44 | EP-45 | Not Started |
 | 47 | Scheduled database backups, restore commands, and retention | docs/plans/47-scheduled-database-backups-restore-commands-and-retention.md | EP-44, EP-45 | EP-43 | Not Started |
@@ -353,8 +353,8 @@ fixed constraints every plan must respect.
 Track milestone-level progress across all child plans. Each entry names the child plan and the
 milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-43: Postgres, Redis, and ClickHouse each run on the live single-node cluster from raw manifests; data survives a pod restart; reachable in-cluster.
-- [ ] EP-43: Stateful substrate decided (StatefulSet vs Deployment; PVC vs volumeClaimTemplates) and credential-generation architecture settled; ClickHouse resource limits for `e2-standard-2` fixed; per-engine verified YAML shapes documented as the input to EP-44.
+- [x] EP-43 (2026-06-10): Postgres 18.4, Redis 8.8.0, and ClickHouse 25.8.24.21 each run on the live single-node cluster from raw manifests; data survives a pod restart; reachable over ClusterIP DNS.
+- [x] EP-43 (2026-06-10): Stateful substrate decided (single-replica **StatefulSet** + standalone `local-path` PVC, not `volumeClaimTemplates`); credential model settled (IP3: `nagare-db-<name>` Secret, `envFrom`, Redis `--requirepass` interpolation); ClickHouse limits fixed (`2Gi` container limit + `max_server_memory_usage: 1610612736`); per-engine verified YAML shapes recorded as the input to EP-44.
 - [ ] EP-44: `Database`/`Engine`/`EngineVersion`/`DatabaseName` types + smart constructors; existing configs compile unchanged; the `databases` reference field added to `Deployment` (for IP5).
 - [ ] EP-44: JSON round-trip (Config.hs emit / Load.hs decode) carries the `Database` config kind; golden tests pass.
 - [ ] EP-44: StatefulSet/Service/PVC/Secret renderer per engine matches EP-43's verified shapes; golden tests; deterministic key ordering.
@@ -371,7 +371,30 @@ milestone. This section provides an at-a-glance view of the entire initiative.
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected interactions
 between child plans. Provide concise evidence.
 
-(None yet.)
+- **Engine versions bumped to modern majors (affects EP-44/EP-48).** Per user direction (2026-06-10),
+  the engines default to **Postgres 18, Redis 8, ClickHouse 25.8 (LTS)** — not the
+  `postgres:16`/`redis:7`/`clickhouse-server:24` the child plans were originally drafted against. All
+  three were re-verified on the cluster (18.4 / 8.8.0 / 25.8.24.21). EP-44's `EngineVersion` defaults
+  and golden files must use the modern tags, and the validator must accept ClickHouse's `YY.M` calendar
+  versioning (**there is no bare `:25` tag** — an initial `:25` pull failed `NotFound`; valid tags are
+  `25.8`, `25.10`, `26.x`). Evidence: EP-43 Decision Log + Surprises.
+
+- **EP-47 has a hard blocker discovered during EP-43: in-pod GCS auth is broken cluster-wide (IP6).**
+  The metadata IP `169.254.169.254` is routed into the k3s `flannel.1` VXLAN overlay
+  (`ip route get` → `dev flannel.1`) and is unreachable from pods *and* the host, so the
+  `GCE_METADATA_HOST` ADC pattern (which IP6 and the litestream example rely on) fails — the existing
+  litestream sidecar has been erroring continuously with `no route to host`. EP-47 must resolve this
+  before scheduled/on-demand backups can reach `gs://tan-nb-exp-nagare-backups` — likely a node-route
+  fix in `infra/` (a more-specific `169.254.169.254/32` route via the primary NIC) or a host-side
+  upload step (the engine dump via `kubectl exec`, then upload from the host where native ADC works,
+  mirroring `scripts/backup-postgres.sh`). The per-engine *dump commands* are verified and unaffected;
+  only the *upload* leg is gated. Evidence: EP-43 Surprises & Discoveries.
+
+- **No readinessProbe ⇒ "rollout complete" ≠ "engine ready" (affects EP-44/EP-45).** A connect right
+  after `rollout status` returned raced Postgres `initdb` and got `Connection refused`. EP-44's renderer
+  should emit a per-engine readinessProbe, and/or EP-45's "wait for ready" must poll the engine
+  (`pg_isready` / `redis-cli ping` / ClickHouse `SELECT 1`), not just the StatefulSet rollout.
+  Evidence: EP-43 Surprises & Discoveries.
 
 
 ## Decision Log
