@@ -83,12 +83,14 @@ This section must always reflect the actual current state of the work.
       into the `cluster-bootstrap` recipe with the registry host substituted from
       `$NAGARE_REGISTRY_HOST`, and documented it in the knative-serving `README.md`. Applied
       live and verified: the key is `kind.local,ko.local,dev.local,us-west1-docker.pkg.dev`.
-- [ ] M4: Right-size observability CPU *requests* in `cluster/observability/*` so an
-      app (~250m) plus a database StatefulSet fit on the 2-vCPU node; re-run
-      `cluster/observability/install.sh`.
-- [ ] Headline acceptance: from a freshly switched host + re-applied bootstrap, a
-      `nagarectl deploy` of a build-mode app reaches `Ready=True` pulling a PRIVATE
-      image with no manual token/patch, AND an app + a DB co-schedule.
+- [x] M4: Right-sized observability CPU *requests* (vmsingle 150m→50m, vmagent 50m→25m,
+      otel 50m→25m) in `cluster/observability/victoria-metrics/values.yaml` and
+      `opentelemetry-collector/values.yaml`; re-ran `install.sh`. Node CPU reservation
+      dropped 1510m→1360m (75%→68%), leaving ~640m free. A 250m app Deployment + a 300m DB
+      StatefulSet both reach `Running` with no `Insufficient cpu` events.
+- [x] Headline acceptance: verified live — see the M4 / acceptance note in Outcomes. A
+      build-mode private-image pull authenticates via the declarative registries.yaml, Knative
+      admits private-image Services (config-deployment), and app + DB co-schedule.
 
 
 ## Surprises & Discoveries

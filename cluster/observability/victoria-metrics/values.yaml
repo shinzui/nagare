@@ -12,6 +12,18 @@
 vmsingle:
   enabled: true
   spec:
+    # CPU/memory requests sized for the 2-vCPU node (EP-2 M4). The chart default
+    # reserves 150m CPU for VMSingle; on a 2000m node that — plus VMAgent, otel,
+    # and the Knative/cert-manager platform — left too little unreserved CPU for an
+    # app (~250m) plus a database (~300m) to co-schedule (FailedScheduling /
+    # Insufficient cpu). 50m is the guaranteed floor; with no CPU limit VMSingle
+    # still bursts above it. The memory limit guards the small node against OOM.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 200Mi
+      limits:
+        memory: 512Mi
     # Keep metrics 30 days (Decision Log: metrics 30d / logs 7d / traces 3d).
     retentionPeriod: "30d"
     # Pin the HTTP port to 8429. Chart 0.81.0 defaults to "8428"; pinning keeps the
@@ -34,6 +46,16 @@ vmcluster:
 # annotated app endpoints, then writes samples into VMSingle.
 vmagent:
   enabled: true
+  spec:
+    # CPU request trimmed from the chart default (50m) to 25m for the 2-vCPU node
+    # (EP-2 M4); the config-reloader sidecar keeps its own small request. No CPU
+    # limit, so scraping can still burst; the memory limit guards the node.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 96Mi
+      limits:
+        memory: 256Mi
 
 # No alerting in v1.
 alertmanager:

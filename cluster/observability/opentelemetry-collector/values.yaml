@@ -17,12 +17,15 @@ command:
 
 # The default config's memory_limiter uses limit_percentage of the container's
 # memory limit, so a limit must be set for deterministic startup.
+# CPU request trimmed to 25m (EP-2 M4): on the 2-vCPU node the observability CPU
+# *requests* must leave room for an app + a database to co-schedule. The 250m CPU
+# limit still allows bursting; only the guaranteed reservation is reduced.
 resources:
   limits:
     cpu: 250m
     memory: 512Mi
   requests:
-    cpu: 50m
+    cpu: 25m
     memory: 128Mi
 
 # OTLP receiver ports are enabled by default in this chart; listed here for clarity.
