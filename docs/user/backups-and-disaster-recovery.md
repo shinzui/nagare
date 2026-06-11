@@ -45,7 +45,8 @@ default. `nagarectl storage snapshot APP VOLUME` tars the volume's contents to
 short-lived in-cluster Job mounts the PVC read-only and streams the archive to
 GCS), and keeps the last N snapshots per volume (`--keep`, default 7). Restore a
 snapshot into a disposable scratch PVC — never over live data — with
-`scripts/restore-volume.sh gs://…/<ts>.tar.gz`.
+`nagarectl storage restore APP VOLUME <ts>` (it restores into a scratch PVC by
+default; pass `--into-live` to target the live PVC).
 
 ### Managed databases: backed up by default
 

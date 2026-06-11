@@ -231,8 +231,9 @@ Restores are **scratch-first**: restore a snapshot into a *disposable* PVC,
 compare its contents, then promote — never restore directly over a live volume.
 The full step-by-step is in
 [Backups & disaster recovery](backups-and-disaster-recovery.md#app-volumes-backup-included-by-default-opt-out-explicitly)
-and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); the helper
-is `scripts/restore-volume.sh gs://…/<timestamp>.tar.gz`.
+and the [disaster-recovery runbook](../runbooks/disaster-recovery.md); the verb
+is `nagarectl storage restore APP VOLUME <timestamp>` (scratch-first by default;
+`--into-live` targets the live PVC).
 
 
 ## Two worked examples

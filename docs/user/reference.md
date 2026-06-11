@@ -211,7 +211,7 @@ PVCs are named deterministically `nagare-vol-<app>-<volume>` and labelled
 (the storage commands discover them by these labels). Snapshots land at
 `gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz`. A
 volume's data lives on the host under `/var/lib/nagare/local-path/` (see *On-host
-storage layout* above). Restore with `scripts/restore-volume.sh` (scratch-first).
+storage layout* above). Restore with `nagarectl storage restore APP VOLUME <id>` (scratch-first).
 See the [Persistent storage](persistent-storage.md) guide.
 
 ## `nagarectl db` commands (managed databases)

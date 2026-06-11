@@ -14,6 +14,13 @@ region **`us-west1`**, zone **`us-west1-a`**.
 > rebuild-from-scratch sequence; `doctor` automates many of its per-step
 > "Observe:" assertions, noted inline below.
 
+> **`nagarectl` is a disaster-recovery prerequisite.** The restore steps below
+> call `nagarectl` verbs (`db restore`, `storage restore`) directly; the former
+> hand-rolled `scripts/restore-*` / `scripts/backup-postgres` helper scripts have
+> been removed (MasterPlan 13, EP-1) so that all control-plane logic lives in the
+> typed CLI. Build it once with `cabal build exe:nagarectl` in `cli/nagarectl/`
+> (inside `nix develop`), or have it on `PATH`, before starting a restore.
+
 ## The one thing that is NOT in Git or the bucket
 
 The **age private key** (`~/.config/sops/age/keys.txt`; on the host
@@ -32,11 +39,11 @@ Kubernetes manifests ...... Git (cluster/)                           -> git clon
 Secrets ................... sops-encrypted in Git (.sops.yaml,
                             cluster/secrets/, nixos/secrets/)         -> sops -d | kubectl apply
 SQLite app data ........... Litestream replica in
-                            gcs://<backupBucket>/litestream/          -> scripts/restore-sqlite.sh (scratch)
+                            gcs://<backupBucket>/litestream/          -> litestream restore (scratch)
 Postgres data ............. pg_dump in
-                            gcs://<backupBucket>/postgres/            -> scripts/restore-postgres.sh (scratch)
+                            gcs://<backupBucket>/postgres/            -> nagarectl db restore <name> <id> (scratch)
 App volume data ........... tar.gz snapshots in
-                            gcs://<backupBucket>/volumes/<app>/<volume>/ -> scripts/restore-volume.sh (scratch)
+                            gcs://<backupBucket>/volumes/<app>/<volume>/ -> nagarectl storage restore <app> <volume> <id> (scratch)
 Managed database data ..... pg_dump/.rdb/.native logical dumps in
                             gcs://<backupBucket>/databases/<name>/      -> nagarectl db restore <name> <id> (scratch)
 Grafana dashboards ........ Git (cluster/observability/grafana/
@@ -172,13 +179,17 @@ Observe: each prints `secret/<name> created`; the Secrets are listed.
 
 ```bash
 export BACKUP_BUCKET=$(cd infra/pulumi && pulumi stack output backupBucket)
-# SQLite (Litestream) into a scratch file, then promote into the app volume/disk:
-scripts/restore-sqlite.sh /tmp/restore-app.db
+# SQLite (Litestream) into a scratch file, then promote into the app volume/disk.
+# (The old restore-sqlite helper script is removed — restore with litestream
+# directly, pointing at the replica prefix in the backup bucket.)
+litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-db>
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
-# Postgres into a scratch db, compare row counts, then promote:
-scripts/restore-postgres.sh gs://$BACKUP_BUCKET/postgres/<latest>.sql.gz
+# Postgres (managed database, EP-47) into a SCRATCH target, compare, then promote
+# manually. (The host-side restore-postgres / backup-postgres helper scripts are
+# removed; managed-DB backup/restore is the supported path.)
+nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
-scripts/restore-volume.sh gs://$BACKUP_BUCKET/volumes/<app>/<volume>/<latest>.tar.gz
+nagarectl storage restore <app> <volume> <latest-id> --config <path-to-Config.hs>
 # Managed database (EP-47) into a SCRATCH target, compare, then promote manually:
 nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
 ```
@@ -187,8 +198,9 @@ Observe: the scratch row counts (or, for an app volume, the restored file tree
 the Job logs print) match the source at backup time. Only after comparing do you
 promote (copy the scratch SQLite file to `/var/lib/nagare/sqlite/`, rename the
 scratch Postgres db, or copy the scratch PVC's files into the live volume). The
-restore scripts only ever write to a scratch target, so a botched restore can
-never clobber live data.
+`nagarectl` restore verbs only ever write to a scratch target by default
+(`--into-live` is the sole, loudly-announced destructive path), so a botched
+restore can never clobber live data.
 
 **App-volume snapshots are file-level, point-in-time copies** (`tar` of the
 mounted volume → `gs://<backupBucket>/volumes/<app>/<volume>/<ts>.tar.gz`, taken
@@ -233,7 +245,10 @@ nagarectl db delete drilldb --yes
 > the primary NIC (beats the `/16`) + a MASQUERADE for pod SNAT; the backup/restore
 > Jobs also set `hostAliases` so gcloud/gsutil resolve `metadata.google.internal`.
 > Applied live on the node and committed to NixOS — run `just host-switch` (or
-> rebuild the image) to persist across reboots. See MasterPlan 9 and EP-43.
+> rebuild the image) to persist across reboots. See MasterPlan 9 and EP-43. As of
+> MasterPlan 13 / EP-1, that `hostAliases` is rendered by the shared
+> `Nagare.Cluster.GcsJob` module for every GCS data-movement Job (db backup/restore,
+> volume snapshot/restore), so it cannot be present in one path and missing in another.
 
 ### 8. Redeploy the apps (EP-6)
 

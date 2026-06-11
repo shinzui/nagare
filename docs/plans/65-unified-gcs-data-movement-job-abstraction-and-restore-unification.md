@@ -80,11 +80,13 @@ Status: **In Progress** — M1 complete; M2–M4 remaining.
       (`--help` lists the verb; dry-run against `uploads-volume` prints the scratch-PVC +
       Job manifests with the metadata `hostAliases`, `google/cloud-sdk:slim`, and a
       `-restore-scratch` claim; `--into-live` omits the scratch PVC and targets the live PVC.)
-- [ ] M3: Delete `scripts/restore-volume.sh`, `scripts/backup-postgres.sh`,
+- [x] M3: Delete `scripts/restore-volume.sh`, `scripts/backup-postgres.sh`,
       `scripts/restore-postgres.sh`, `scripts/restore-sqlite.sh`; update
       `docs/runbooks/disaster-recovery.md`, `docs/user/backups-and-disaster-recovery.md`, and
       `docs/user/persistent-storage.md` to call `nagarectl` verbs; record the
-      `nagarectl`-is-a-DR-prerequisite note.
+      `nagarectl`-is-a-DR-prerequisite note. (Also updated two further in-scope references the
+      audit grep surfaced: `docs/runbooks/server-operations.md` and `docs/user/reference.md`.
+      Acceptance grep over `scripts/ docs/runbooks/ docs/user/` now returns nothing.)
 - [ ] M4: Add the recurrence-prevention test asserting every data-movement Job renderer
       includes the metadata `hostAliases`; confirm `cabal test nagarectl-test` is green.
 
