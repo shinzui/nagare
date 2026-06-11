@@ -42,6 +42,14 @@ module Nagare.Ops.Probe
   , parseClusterIssuerReady
   , parseNewestBackupAge
   , parseDfUsage
+
+    -- * EP-4 doctor-correctness helpers (unit-tested)
+  , parseNodeExternalIp
+  , KourierEvidence (..)
+  , gradeKourier
+  , parseSkipTagResolvingHosts
+  , parseNodeArch
+  , gradeArch
   ) where
 
 import Nagare.Dsl.Prelude
@@ -255,3 +263,95 @@ parseDfUsage out mount = do
   let rows = [ws | ln <- T.lines out, let ws = T.words ln, length ws >= 6, last ws == mount]
   row <- find (const True) rows
   pure (row !! 4 <> " of " <> row !! 1)
+
+-- ---------------------------------------------------------------------------
+-- EP-4 (MasterPlan 13): doctor-correctness helpers
+
+-- | The first node's @ExternalIP@ from @kubectl get nodes -o json@
+-- (@.items[0].status.addresses[]@ where @type == "ExternalIP"@). 'Nothing' when
+-- no ExternalIP is advertised — the normal k3s ServiceLB case.
+parseNodeExternalIp :: ByteString -> Maybe Text
+parseNodeExternalIp bs = do
+  v <- decodeStrict bs
+  Aeson.Array items <- lookupPath ["items"] v
+  node <- items V.!? 0
+  Aeson.Array addrs <- lookupPath ["status", "addresses"] node
+  addr <- find (\a -> textAt ["type"] a == Just "ExternalIP") (V.toList addrs)
+  textAt ["address"] addr
+
+-- | The evidence the Kourier-ingress grader weighs (EP-4 M1). Gathered by the IO
+-- probe in "Nagare.Ops.Status"; graded purely by 'gradeKourier' so every branch
+-- is unit-testable without a cluster.
+data KourierEvidence = KourierEvidence
+  { keLbExternalIp :: !(Maybe Text)
+  -- ^ the Kourier LoadBalancer EXTERNAL-IP ('parseKourierIp')
+  , kePublicIp :: !(Maybe Text)
+  -- ^ the Pulumi @publicIp@ output
+  , keHttpCode :: !(Maybe Text)
+  -- ^ a curl @%{http_code}@ against @http://\<publicIp>/@; 'Nothing' if curl is
+  -- absent or returned @000@
+  , keNodeExternalIp :: !(Maybe Text)
+  -- ^ the node's advertised ExternalIP ('parseNodeExternalIp')
+  }
+  deriving stock (Eq, Show)
+
+-- | Grade the Kourier ingress from gathered evidence (EP-4 M1). Reachability is
+-- the ground truth: any HTTP response on the reserved public IP proves the
+-- gateway serves (k3s ServiceLB assigns the NODE IP as the LB EXTERNAL-IP, so the
+-- old @EXTERNAL-IP == publicIp@ equality false-FAILed a healthy cluster). When
+-- curl is unavailable, fall back to confirming the node's ExternalIP equals the
+-- public IP; if even that is inconclusive, WARN — never FAIL on a healthy
+-- ServiceLB cluster.
+gradeKourier :: KourierEvidence -> Probe
+gradeKourier ev = case keLbExternalIp ev of
+  Nothing -> Probe nm StatusFail "no EXTERNAL-IP assigned to the Kourier LoadBalancer"
+  Just lbIp -> case keHttpCode ev of
+    Just code ->
+      Probe nm StatusOk ("serving on " <> publicIpStr <> " (HTTP " <> code <> "; LB EXTERNAL-IP " <> lbIp <> ")")
+    Nothing -> case (kePublicIp ev, keNodeExternalIp ev) of
+      (Just want, Just nodeExt)
+        | nodeExt == want -> Probe nm StatusOk ("LB EXTERNAL-IP " <> lbIp <> " fronted by " <> want <> " (node ExternalIP)")
+        | otherwise -> Probe nm StatusFail ("node ExternalIP " <> nodeExt <> " != publicIp " <> want)
+      (Just want, Nothing) ->
+        Probe nm StatusWarn ("LB EXTERNAL-IP " <> lbIp <> "; could not confirm it is fronted by publicIp " <> want <> " (curl unavailable, node ExternalIP not advertised)")
+      (Nothing, _) ->
+        Probe nm StatusWarn ("LB EXTERNAL-IP " <> lbIp <> " (publicIp unknown)")
+  where
+    nm = "Kourier ingress"
+    publicIpStr = fromMaybe "the public IP" (kePublicIp ev)
+
+-- | The registry hosts listed in @config-deployment@'s
+-- @.data.registriesSkippingTagResolving@ (a comma-separated string), trimmed and
+-- with empties dropped (EP-4 M2). @Just []@ when @.data@ is present but the key
+-- is absent; 'Nothing' only on undecodable JSON.
+parseSkipTagResolvingHosts :: ByteString -> Maybe [Text]
+parseSkipTagResolvingHosts bs = do
+  v <- decodeStrict bs
+  pure $ case textAt ["data", "registriesSkippingTagResolving"] v of
+    Just s -> filter (not . T.null) (map T.strip (T.splitOn "," s))
+    Nothing -> []
+
+-- | The first node's architecture from @kubectl get nodes -o json@
+-- (@.items[0].status.nodeInfo.architecture@, e.g. @"amd64"@). 'Nothing' on
+-- malformed JSON (EP-4 M3).
+parseNodeArch :: ByteString -> Maybe Text
+parseNodeArch bs = do
+  v <- decodeStrict bs
+  Aeson.Array items <- lookupPath ["items"] v
+  node <- items V.!? 0
+  textAt ["status", "nodeInfo", "architecture"] node
+
+-- | Grade a Docker platform string (e.g. @"linux/arm64"@) against the node arch
+-- (e.g. @"amd64"@), comparing the platform's arch token (segment after the first
+-- @/@, ignoring any @/variant@) case-insensitively (EP-4 M3). OK on match, WARN
+-- otherwise (a mismatch is advisory — it never gates @doctor@'s exit code).
+gradeArch :: Text -> Text -> Probe
+gradeArch platform nodeArch =
+  if T.toLower archTok == T.toLower nodeArch
+    then Probe nm StatusOk (platform <> " matches node " <> nodeArch)
+    else Probe nm StatusWarn (platform <> " will not run on " <> nodeArch <> " node")
+  where
+    nm = "build platform"
+    archTok = case T.splitOn "/" platform of
+      (_os : arch : _) -> arch
+      _ -> platform

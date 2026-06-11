@@ -91,10 +91,12 @@ why tp name detail
   | name == "k3s node" = "kubectl cannot reach the k3s cluster (or your context points at the wrong cluster)."
   | isDeploy name = "The " <> name <> " control plane is not ready."
   | name == "ClusterIssuer" = "TLS issuance is not ready."
-  | name == "Kourier ingress" = "Ingress is not serving on the reserved static IP."
+  | name == "Kourier ingress" = "The gateway is not reachable on the reserved public IP (and could not be confirmed fronting the node)."
   | name == "base domain" = "The cluster's configured base domain disagrees with infrastructure."
   | name == "external-domain-tls" = "External-domain TLS is disabled (HTTP-first)."
   | name == "Artifact Registry" = "Image push auth is not configured."
+  | name == "private image pull" = "The cluster is not configured to pull private images from the project Artifact Registry."
+  | name == "build platform" = "The configured build platform does not match the cluster node architecture; images built here will not run on the node."
   | isDisk name = "Disk is filling up."
   | isBackup name = "No recent backup object found."
   | otherwise = detail
@@ -115,8 +117,14 @@ command tp name
       "kubectl get clusterissuer letsencrypt-dns -o yaml "
         <> "(note: TLS is HTTP-first/deferred while the base domain is the placeholder apps.example.com)"
   | name == "Kourier ingress" =
-      "kubectl get svc -n kourier-system kourier -o wide and compare against: "
-        <> "pulumi -C infra/pulumi stack output publicIp"
+      "curl -sS -o /dev/null -w '%{http_code}\\n' http://$(pulumi -C infra/pulumi stack output publicIp)/ ; "
+        <> "also: kubectl get svc -n kourier-system kourier -o wide; kubectl get nodes -o wide"
+  | name == "private image pull" =
+      "apply the declarative private-image-pull config (config-deployment registriesSkippingTagResolving "
+        <> "+ node registries.yaml) per docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md"
+  | name == "build platform" =
+      "set NAGARE_TARGET_PLATFORM (e.g. linux/amd64) in nagare.target.env to match the node architecture; "
+        <> "see docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
   | name == "base domain" =
       "re-render config-domain from: pulumi -C infra/pulumi stack output baseDomain "
         <> "(see cluster/bootstrap/knative-serving/README.md)"
@@ -129,7 +137,7 @@ command tp name
   | isDisk name =
       "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 scripts/iap-ssh.sh ssh nagare-01 -- 'df -h'; "
         <> "then run nagarectl cleanup once available (EP-41)"
-  | isBackup name = "run scripts/backup-postgres.sh; consult docs/runbooks/disaster-recovery.md"
+  | isBackup name = "take an on-demand managed-DB backup: nagarectl db backup <name>; consult docs/runbooks/disaster-recovery.md"
   | otherwise = "see docs/runbooks/"
 
 -- | Whether a probe name is one of the control-plane Deployment rollouts.

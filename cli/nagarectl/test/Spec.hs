@@ -105,15 +105,21 @@ import Nagare.Ops.Domains
   , formatDomainList
   )
 import Nagare.Ops.Probe
-  ( Probe (..)
+  ( KourierEvidence (..)
+  , Probe (..)
   , ProbeStatus (..)
+  , gradeArch
+  , gradeKourier
   , parseClusterIssuerReady
   , parseConfigDomain
   , parseDeploymentReady
   , parseDfUsage
   , parseKourierIp
   , parseNewestBackupAge
+  , parseNodeArch
+  , parseNodeExternalIp
   , parseNodeReady
+  , parseSkipTagResolvingHosts
   , renderInventory
   , statusLabel
   )
@@ -584,6 +590,39 @@ opsTests =
       parseKourierIp kourierJson @?= Just "34.83.0.1"
   , testCase "parseKourierIp: no ingress yet" $
       parseKourierIp kourierPendingJson @?= Nothing
+  , -- EP-4 M1: Kourier ingress correctness
+    testCase "parseNodeExternalIp: extracts the ExternalIP address" $
+      parseNodeExternalIp nodeAddrsJson @?= Just "34.145.74.203"
+  , testCase "parseNodeExternalIp: Nothing when only InternalIP advertised" $
+      parseNodeExternalIp nodeInternalOnlyJson @?= Nothing
+  , testCase "gradeKourier: reachable (curl 404) -> OK" $
+      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") (Just "404") Nothing)) @?= StatusOk
+  , testCase "gradeKourier: no curl, node ExternalIP fronts publicIp -> OK" $
+      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "34.145.74.203"))) @?= StatusOk
+  , testCase "gradeKourier: no curl, node ExternalIP differs from publicIp -> FAIL" $
+      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "9.9.9.9"))) @?= StatusFail
+  , testCase "gradeKourier: inconclusive (no curl, no node ExternalIP) -> WARN not FAIL" $
+      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing Nothing)) @?= StatusWarn
+  , testCase "gradeKourier: no LB EXTERNAL-IP -> FAIL" $
+      probeStatus (gradeKourier (KourierEvidence Nothing (Just "34.145.74.203") Nothing Nothing)) @?= StatusFail
+  , -- EP-4 M2: private-image-pull check
+    testCase "parseSkipTagResolvingHosts: host present" $
+      parseSkipTagResolvingHosts configDeploymentJson @?= Just ["kind.local", "ko.local", "dev.local", "us-west1-docker.pkg.dev"]
+  , testCase "parseSkipTagResolvingHosts: absent key -> Just []" $
+      parseSkipTagResolvingHosts "{\"data\":{\"other\":\"x\"}}" @?= Just []
+  , testCase "parseSkipTagResolvingHosts: malformed JSON -> Nothing" $
+      parseSkipTagResolvingHosts "{not json" @?= Nothing
+  , -- EP-4 M3: build/node architecture check
+    testCase "parseNodeArch: extracts amd64" $
+      parseNodeArch nodeArchJson @?= Just "amd64"
+  , testCase "parseNodeArch: malformed JSON -> Nothing" $
+      parseNodeArch "{not json" @?= Nothing
+  , testCase "gradeArch: linux/amd64 on amd64 node -> OK" $
+      probeStatus (gradeArch "linux/amd64" "amd64") @?= StatusOk
+  , testCase "gradeArch: linux/arm64 on amd64 node -> WARN" $
+      probeStatus (gradeArch "linux/arm64" "amd64") @?= StatusWarn
+  , testCase "gradeArch: linux/arm64/v8 on arm64 node -> OK (ignores variant)" $
+      probeStatus (gradeArch "linux/arm64/v8" "arm64") @?= StatusOk
   , testCase "parseConfigDomain: returns the domain key, skips _example" $
       parseConfigDomain configDomainJson @?= Just "apps.example.com"
   , testCase "parseClusterIssuerReady: Ready=True" $
@@ -622,6 +661,14 @@ opsTests =
       "{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"34.83.0.1\"}]}}}"
     kourierPendingJson =
       "{\"status\":{\"loadBalancer\":{}}}"
+    nodeAddrsJson =
+      "{\"items\":[{\"status\":{\"addresses\":[{\"type\":\"InternalIP\",\"address\":\"10.10.0.4\"},{\"type\":\"ExternalIP\",\"address\":\"34.145.74.203\"}]}}]}"
+    nodeInternalOnlyJson =
+      "{\"items\":[{\"status\":{\"addresses\":[{\"type\":\"InternalIP\",\"address\":\"10.10.0.4\"}]}}]}"
+    configDeploymentJson =
+      "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,us-west1-docker.pkg.dev\"}}"
+    nodeArchJson =
+      "{\"items\":[{\"status\":{\"nodeInfo\":{\"architecture\":\"amd64\"}}}]}"
     configDomainJson =
       "{\"data\":{\"_example\":\"## docs ##\",\"apps.example.com\":\"\"}}"
     clusterIssuerJson =
@@ -802,9 +849,16 @@ doctorTests =
   , testCase "remediationFor: cert-manager-cainjector FAIL -> cert-manager target" $
       cmdOf (Probe "cert-manager-cainjector" StatusFail "not rolled out")
         `containsT` "deploy/cert-manager-cainjector -n cert-manager"
-  , testCase "remediationFor: Kourier ingress FAIL -> compare publicIp" $
-      cmdOf (Probe "Kourier ingress" StatusFail "EXTERNAL-IP 1.2.3.4 != publicIp 5.6.7.8")
-        `containsT` "stack output publicIp"
+  , testCase "remediationFor: Kourier ingress FAIL -> curl reachability + publicIp" $ do
+      let c = cmdOf (Probe "Kourier ingress" StatusFail "node ExternalIP 1.2.3.4 != publicIp 5.6.7.8")
+      c `containsT` "stack output publicIp"
+      c `containsT` "curl"
+  , testCase "remediationFor: private image pull WARN -> EP-2 mechanism pointer" $
+      cmdOf (Probe "private image pull" StatusWarn "us-west1-docker.pkg.dev not configured for private pull")
+        `containsT` "docs/plans/66"
+  , testCase "remediationFor: build platform WARN -> set NAGARE_TARGET_PLATFORM" $
+      cmdOf (Probe "build platform" StatusWarn "linux/arm64 will not run on amd64 node")
+        `containsT` "NAGARE_TARGET_PLATFORM"
   , testCase "remediationFor: base domain WARN -> re-render config-domain" $
       cmdOf (Probe "base domain" StatusWarn "x != Pulumi y")
         `containsT` "stack output baseDomain"
@@ -814,9 +868,9 @@ doctorTests =
   , testCase "remediationFor: data disk WARN -> cleanup pointer" $
       cmdOf (Probe "data disk" StatusWarn "92% of 100G")
         `containsT` "nagarectl cleanup"
-  , testCase "remediationFor: backup WARN -> backup-postgres script" $
+  , testCase "remediationFor: backup WARN -> nagarectl db backup" $
       cmdOf (Probe "backup postgres" StatusWarn "newest object 9d ago")
-        `containsT` "scripts/backup-postgres.sh"
+        `containsT` "nagarectl db backup"
   , testCase "remediationFor: UNKNOWN -> 'could not check' why" $
       whyOf (Probe "k3s node" StatusUnknown "no kubeconfig / not reachable")
         `startsWithT` "could not check"

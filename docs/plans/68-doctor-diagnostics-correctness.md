@@ -131,23 +131,20 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Choose and document the corrected Kourier predicate (reachability-first; see Plan of Work).
-- [ ] M1: Add the pure helper(s) in `Nagare.Ops.Probe` that the new predicate needs (e.g. `gradeKourier` / a node-external-IP parser), exported for unit test.
-- [ ] M1: Rewrite `probeKourierIp` in `Nagare.Ops.Status` to gather the extra evidence and call the new grader.
-- [ ] M1: Update the remediation `why`/`command` for `"Kourier ingress"` in `Nagare.Ops.Doctor` so the hint matches the new predicate.
-- [ ] M1: Replace/extend the Kourier unit tests in `test/Spec.hs` so a node-internal-IP LB fronted by the static IP grades OK; keep a genuine-mismatch FAIL case.
-- [ ] M1: `cabal test nagarectl-test` green; `nagarectl doctor` on the live cluster shows `[OK] Kourier ingress`.
-- [ ] M2: Re-read `docs/plans/66-...`; confirm the `config-deployment` key shape; record in Decision Log.
-- [ ] M2: Add pure parser `parsePrivateImagePull` (config-deployment ConfigMap → registry hosts) in `Nagare.Ops.Probe`, exported.
-- [ ] M2: Add `probePrivateImagePull tp` in `Nagare.Ops.Status`; wire it into `gatherInventory` in report order.
-- [ ] M2: Catalogue the `"private image pull"` remediation in `Nagare.Ops.Doctor`.
-- [ ] M2: Unit tests for the parser and the remediation hint; suite green.
-- [ ] M3: Re-read `docs/plans/67-...`; confirm the `NAGARE_TARGET_PLATFORM` field name and accessor; record in Decision Log.
-- [ ] M3: Add pure parser `parseNodeArch` (node JSON → architecture) and pure grader `gradeArch` (platform vs node arch) in `Nagare.Ops.Probe`, exported.
-- [ ] M3: Add `probeArch tp` in `Nagare.Ops.Status`; wire it into `gatherInventory`.
-- [ ] M3: Catalogue the `"build platform"` remediation in `Nagare.Ops.Doctor`.
-- [ ] M3: Unit tests for `parseNodeArch` and `gradeArch`; suite green.
-- [ ] Final: `nagarectl doctor` end-to-end on the live cluster shows Kourier OK and the two new checks with correct grades; full suite green.
+Status: **Complete** — M1–M3 done; 285 tests pass; live `doctor` shows all three checks OK, `0 failed`, exit 0.
+
+- [x] M1: Reachability-first Kourier predicate (curl the public IP; node-ExternalIP fronting fallback; WARN — never FAIL — when inconclusive).
+- [x] M1: Added pure helpers `parseNodeExternalIp`, `KourierEvidence(..)`, `gradeKourier` in `Nagare.Ops.Probe`, exported.
+- [x] M1: Rewrote `probeKourierIp` in `Nagare.Ops.Status` (gathers svc/node JSON + curl) and added `curlHttpCode`.
+- [x] M1: Updated the `"Kourier ingress"` `why`/`command` in `Nagare.Ops.Doctor`.
+- [x] M1: 7 new Kourier ops tests incl. the WARN-not-FAIL regression guard; live `doctor` → `[OK] Kourier ingress serving on 34.145.74.203 (HTTP 404; LB EXTERNAL-IP 10.10.0.4)`.
+- [x] M2: Re-read EP-2 (now landed); confirmed key `registriesSkippingTagResolving` carries `kind.local,ko.local,dev.local,us-west1-docker.pkg.dev` (Decision Log).
+- [x] M2: Added `parseSkipTagResolvingHosts` in `Probe.hs`; `probePrivateImagePull tp` in `Status.hs`, wired into `gatherInventory` after `probeRegistryAuth`.
+- [x] M2: Catalogued `"private image pull"` remediation; tests; live `[OK] private image pull`.
+- [x] M3: Re-read EP-3 (now landed); confirmed accessor `tpTargetPlatform :: TargetProfile -> Text` (default `linux/amd64`).
+- [x] M3: Added `parseNodeArch` + `gradeArch` in `Probe.hs`; `probeArch tp` in `Status.hs`, wired into `gatherInventory`.
+- [x] M3: Catalogued `"build platform"` remediation; tests; live `[OK] build platform linux/amd64 matches node amd64`.
+- [x] Final: live `nagarectl doctor` — 21 checks, `0 failed`, exit 0; full suite green (285 tests).
 
 
 ## Surprises & Discoveries
@@ -163,7 +160,24 @@ implementation. Provide concise evidence.
   equals `pulumi -C infra/pulumi stack output publicIp` (`34.145.74.203`). The existing check at
   `Nagare.Ops.Status.probeKourierIp` requires literal `EXTERNAL-IP == publicIp`, so it FAILs.
 
-(Add further discoveries here as M1–M3 are implemented.)
+- (M1, 2026-06-11) **The reachability-first predicate produces the ideal `[OK]` on the live
+  cluster**, not just the WARN fallback: `curl http://34.145.74.203/` returns `404` (Kourier's
+  unknown-Host response — the GCP firewall `nagare-network-fw-web` allows `tcp:80,443` from
+  `0.0.0.0/0`), so `gradeKourier` reports `[OK] serving on 34.145.74.203 (HTTP 404; LB EXTERNAL-IP
+  10.10.0.4)`. The node-ExternalIP fallback would *not* have sufficed — the k3s ServiceLB node
+  advertises only an InternalIP in `.status.addresses` (no ExternalIP), so without the curl signal
+  the grade is the inconclusive WARN. Reachability was the right primary signal.
+
+- (M1, 2026-06-11) **`doctor` must run from the repo root**, because `gatherInventory` reads
+  `publicIp` via `pulumi -C infra/pulumi …` (a path relative to cwd). Running it from
+  `cli/nagarectl` makes `publicIp` resolve to `Nothing` → no curl probe → Kourier degrades to the
+  WARN fallback. Use `cabal --project-dir=cli/nagarectl run -v0 exe:nagarectl -- doctor` from the
+  root (note `exe:nagarectl` — the package has two executables). Recorded for EP-5's smoke harness.
+
+- (M1, 2026-06-11) **EP-1 left a stale reference in `Doctor.hs`.** The backup-freshness remediation
+  pointed at `scripts/backup-postgres.sh`, which EP-1 deleted (EP-1's grep scope was
+  `scripts/`+`docs/`, not Haskell). Since EP-4 is the single writer of `Doctor.hs`, it was updated
+  to `nagarectl db backup <name>` (the managed-DB path), and the corresponding test was updated.
 
 
 ## Decision Log
@@ -188,13 +202,41 @@ Record every decision made while working on the plan.
   "not yet configured" grade even before EP-2/EP-3 land.
   Date: 2026-06-11
 
+- Decision (2026-06-11): **Contracts confirmed — EP-2 and EP-3 had both landed by the time EP-4 was
+  implemented, so the stated contracts were reconciled against the real code.** (a) M2 reads the
+  Knative `config-deployment` `.data.registriesSkippingTagResolving` (a comma-separated string);
+  the live value is `kind.local,ko.local,dev.local,us-west1-docker.pkg.dev`, so the parser splits on
+  `,` and the probe checks membership of `tpRegistryHost`. (b) M3 reads `tpTargetPlatform ::
+  TargetProfile -> Text` (default `linux/amd64`) — the real accessor EP-3 added — directly, with no
+  environment-variable fallback needed (the interim fallback the plan allowed was unnecessary).
+  No divergence from the stated contracts.
+  Date: 2026-06-11
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+`doctor` now tells the truth — verified live on `nagare-01`:
+
+1. **The Kourier false-FAIL is gone.** The reachability-first `gradeKourier` reports `[OK] Kourier
+   ingress  serving on 34.145.74.203 (HTTP 404; LB EXTERNAL-IP 10.10.0.4)` — exactly the master
+   plan's expected output. The pure grader is total over `KourierEvidence`, so every branch
+   (reachable→OK, fronted→OK, mismatch→FAIL, inconclusive→WARN, no-EXTERNAL-IP→FAIL) is unit-pinned,
+   including the WARN-not-FAIL regression guard.
+2. **`[OK] private image pull  us-west1-docker.pkg.dev in registriesSkippingTagResolving`** — reads
+   the capability EP-2 made declarative; WARN (never FAIL) when absent.
+3. **`[OK] build platform  linux/amd64 matches node amd64`** — compares EP-3's `tpTargetPlatform`
+   against the node arch; WARN (never FAIL) on mismatch.
+
+The live summary is `21 checks, 0 failed, exit 0`. 285 unit tests pass (17 new). As single writer of
+the check set, EP-4 also fixed a stale `Doctor.hs` reference EP-1's script deletion left behind.
+
+Gaps: none against scope. The exit-code contract is unchanged — both new checks are advisory
+(WARN/UNKNOWN never affect the exit code). Lesson: making the graders pure and total over a small
+evidence record (`KourierEvidence`) is what let the trickiest, most failure-prone check be fully
+unit-tested without a cluster — and the live run then only had to confirm the happy path.
 
 
 ## Context and Orientation

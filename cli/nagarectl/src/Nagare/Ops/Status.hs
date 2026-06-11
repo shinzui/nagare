@@ -69,6 +69,8 @@ gatherInventory tp o = do
       , probeBaseDomain baseDomain
       , probeTls
       , probeRegistryAuth tp
+      , probePrivateImagePull tp
+      , probeArch tp
       , probeBackup bucket "postgres"
       , probeBackup bucket "litestream"
       , probeBackup bucket "volumes"
@@ -126,16 +128,41 @@ probeClusterIssuer = do
       then Probe "ClusterIssuer" StatusOk "letsencrypt-dns Ready"
       else Probe "ClusterIssuer" StatusWarn "letsencrypt-dns not Ready"
 
--- | The Kourier @EXTERNAL-IP@ must equal the Pulumi @publicIp@.
+-- | The Kourier ingress (EP-4 M1). k3s ServiceLB assigns the NODE IP as the LB
+-- EXTERNAL-IP while the reserved public IP fronts the node, so the old
+-- @EXTERNAL-IP == publicIp@ equality false-FAILed a healthy cluster. Gather the
+-- evidence — LB EXTERNAL-IP, the Pulumi @publicIp@, a curl reachability probe of
+-- the public IP, and the node's advertised ExternalIP — and delegate to the pure
+-- 'gradeKourier'. Signature unchanged so the 'gatherInventory' call site is too.
 probeKourierIp :: Maybe Text -> IO Probe
 probeKourierIp publicIp = do
-  m <- captureTool "kubectl" ["get", "svc", "kourier", "-n", "kourier-system", "-o", "json"]
-  runMaybe "Kourier ingress" "no kubeconfig / not reachable" (m >>= parseKourierIp) $ \ip ->
-    case publicIp of
-      Just want
-        | want == ip -> Probe "Kourier ingress" StatusOk ("EXTERNAL-IP " <> ip <> " = publicIp")
-        | otherwise -> Probe "Kourier ingress" StatusFail ("EXTERNAL-IP " <> ip <> " != publicIp " <> want)
-      Nothing -> Probe "Kourier ingress" StatusWarn ("EXTERNAL-IP " <> ip <> " (publicIp unknown)")
+  svcJson <- captureTool "kubectl" ["get", "svc", "kourier", "-n", "kourier-system", "-o", "json"]
+  nodeJson <- captureTool "kubectl" ["get", "nodes", "-o", "json"]
+  let lbIp = svcJson >>= parseKourierIp
+      nodeExtIp = nodeJson >>= parseNodeExternalIp
+  httpCode <- maybe (pure Nothing) curlHttpCode publicIp
+  case lbIp of
+    Nothing | svcJson == Nothing -> pure (Probe "Kourier ingress" StatusUnknown "no kubeconfig / not reachable")
+    _ ->
+      pure $
+        gradeKourier
+          KourierEvidence
+            { keLbExternalIp = lbIp
+            , kePublicIp = publicIp
+            , keHttpCode = httpCode
+            , keNodeExternalIp = nodeExtIp
+            }
+
+-- | Probe HTTP reachability of the gateway at @ip@: run @curl@ for the status
+-- code. Returns 'Nothing' when curl is absent or yields @000@/empty (unreachable
+-- or no curl); 'Just code' (e.g. @"404"@, which Kourier returns for an unknown
+-- Host) proves the public IP routes to a listening gateway.
+curlHttpCode :: Text -> IO (Maybe Text)
+curlHttpCode ip = do
+  m <- captureTool "curl" ["-sS", "-o", "/dev/null", "-m", "5", "-w", "%{http_code}", "http://" <> T.unpack ip <> "/"]
+  pure $ case fmap (T.strip . decodeUtf8) m of
+    Just code | not (T.null code) && code /= "000" -> Just code
+    _ -> Nothing
 
 -- | The in-cluster @config-domain@ key vs the Pulumi @baseDomain@ output.
 probeBaseDomain :: Maybe Text -> IO Probe
@@ -175,6 +202,30 @@ probeRegistryAuth tp = do
   pure $ case m of
     Just _ -> Probe "Artifact Registry" StatusOk (registryPrefix tp <> " reachable")
     Nothing -> Probe "Artifact Registry" StatusUnknown "gcloud unavailable or no access"
+
+-- | Whether the cluster is configured to pull the project's PRIVATE images
+-- (EP-4 M2): the registry host must appear in the Knative @config-deployment@
+-- ConfigMap's @registriesSkippingTagResolving@ (the capability EP-2 makes
+-- declarative). WARN — never FAIL — when absent, so it does not gate the exit
+-- code; UNKNOWN when the ConfigMap is unreachable.
+probePrivateImagePull :: TargetProfile -> IO Probe
+probePrivateImagePull tp = do
+  m <- captureTool "kubectl" ["get", "configmap", "config-deployment", "-n", "knative-serving", "-o", "json"]
+  let host = tpRegistryHost tp
+  runMaybe "private image pull" "config-deployment not reachable" (m >>= parseSkipTagResolvingHosts) $ \hosts ->
+    if host `elem` hosts
+      then Probe "private image pull" StatusOk (host <> " in registriesSkippingTagResolving")
+      else Probe "private image pull" StatusWarn (host <> " not configured for private pull")
+
+-- | Whether the configured build platform matches the node architecture
+-- (EP-4 M3): compares @tpTargetPlatform@ (EP-3) against the k3s node's reported
+-- architecture. WARN on mismatch (an arm64 image cannot run on the amd64 node),
+-- never FAIL; UNKNOWN when the node arch is unreadable.
+probeArch :: TargetProfile -> IO Probe
+probeArch tp = do
+  m <- captureTool "kubectl" ["get", "nodes", "-o", "json"]
+  runMaybe "build platform" "node arch not reachable" (m >>= parseNodeArch) $ \arch ->
+    gradeArch (tpTargetPlatform tp) arch
 
 -- | The age of the newest object in a backup prefix via @gsutil ls -l@.
 probeBackup :: Text -> Text -> IO Probe
