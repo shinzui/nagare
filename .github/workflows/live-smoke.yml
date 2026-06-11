@@ -1,0 +1,33 @@
+name: Live Smoke
+
+# EP-5 (docs/plans/69, MasterPlan 13). MANUAL trigger ONLY — this deploys to the
+# real cluster and requires the running VM + GCP credentials, so it must never run
+# on push/PR. Trigger it from the GitHub UI via "Run workflow".
+on:
+  workflow_dispatch:
+
+jobs:
+  live-smoke:
+    name: live smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = relaxed
+
+      - name: Authenticate to GCP
+        # Configure credentials so gcloud/nagarectl can reach the target project
+        # (e.g. a service-account key in repo secrets, or Workload Identity
+        # Federation). The smoke script's _require_target_project guardrail still
+        # refuses to act on any project but the configured target.
+        run: echo "TODO: configure GCP auth (service-account key or WIF) before invoking the smoke test"
+
+      - name: Run the live smoke test inside the dev shell
+        # The dev shell ships nagarectl's toolchain, gcloud, kubectl, and just.
+        run: nix develop --command just smoke

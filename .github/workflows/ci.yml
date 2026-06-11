@@ -1,0 +1,40 @@
+name: CI
+
+# EP-5 (docs/plans/69, MasterPlan 13). This workflow is a THIN shell: all CI
+# logic lives in the root flake's `checks` output (the source of truth), so a
+# contributor reproduces CI exactly with `nix flake check` and no GitHub account.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flake-check:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          # Flakes are still gated behind experimental features. `sandbox =
+          # relaxed` lets the cabal-based checks (marked `__noChroot` in flake.nix)
+          # reach the network to fetch Hackage deps and the `cradle`
+          # source-repository-package; see the NETWORK note in flake.nix.
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            sandbox = relaxed
+
+      - name: Run the flake checks (the source of truth)
+        # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
+        # compiling, either Haskell test suite fails, or a shell script has an
+        # error-level shellcheck finding, this step fails the build.
+        run: nix flake check --print-build-logs

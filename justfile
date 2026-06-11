@@ -106,3 +106,11 @@ status:
 # port, and print the KUBECONFIG to export. Reuses scripts/iap-ssh.sh.
 live-test:
     scripts/live-test.sh
+
+# EP-5 (docs/plans/69-ci-pipeline-and-live-smoke-test.md): live smoke test.
+# Starts the VM if needed, deploys a private-registry build-mode app, snapshots
+# and RESTORES a volume (confirming a sentinel round-trips through GCS), verifies
+# HTTP 200, and tears down. Requires the running VM + GCP credentials; this is
+# NOT part of the per-PR offline CI (that is `nix flake check`).
+smoke:
+    scripts/live-smoke.sh
