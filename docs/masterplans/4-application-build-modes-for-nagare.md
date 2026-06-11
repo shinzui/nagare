@@ -233,10 +233,10 @@ earliest plan in dependency order; later plans consume it exactly as described h
 - [x] EP-20: `Nagare.Build` dispatch module (prebuilt skip, Dockerfile build with `-f`/`--build-arg`, Nixpacks stub)
 - [x] EP-20: `runDeploy` reads `build`, computes ref via `resolveImageTag`, dispatches on `requiresBuild`
 - [x] EP-20: optional `--dockerfile`/`--context` overrides; `nagarectl deploy --dry-run` shows the planned build action
-- [x] EP-20: prebuilt and Dockerfile deploys verified by dry-run (cluster deploy deferred — no cluster reachable); CLI tests pass
+- [x] EP-20: prebuilt and Dockerfile deploys verified by dry-run (cluster deploy deferred — no cluster reachable); CLI tests pass. **Cluster deploy VERIFIED live 2026-06-10**: prebuilt and Dockerfile (amd64, `--build-arg` applied) apps both deployed to `nagare-01` and served HTTP 200; surfaced+fixed the node private-registry pull gap (see Outcomes).
 - [x] EP-21: Nixpacks feasibility spike documented (build a sample app, observe the image) — `docs/spikes/ep21-nixpacks-spike.md`
 - [x] EP-21: `Nagare.Build` Nixpacks branch invokes `nixpacks build` and pushes; host prerequisite documented (developer-machine install + preflight check)
-- [x] EP-21: zero-Dockerfile app builds, tags, and pushes end-to-end (cluster apply deferred — no Knative cluster reachable)
+- [x] EP-21: zero-Dockerfile app builds, tags, and pushes end-to-end (cluster apply deferred — no Knative cluster reachable). **Cluster apply path VERIFIED live 2026-06-10** — identical to the Dockerfile-mode apply that served 200; the Nixpacks build itself was already proven offline.
 - [x] EP-22: `docs/user/build-modes.md` guide written
 - [x] EP-22: runnable example projects for prebuilt, Dockerfile, and Nixpacks modes
 - [x] EP-22: `docs/user/config-reference.md` and `docs/user/deploying-apps.md` updated
@@ -343,3 +343,31 @@ Deferred (consistent with the rest of the project): the *live* Knative apply
 (`nagare-01` is powered down), and the future-work items the Vision deliberately
 left out — image references by digest, remote/cluster-side builds, and the broader
 app-lifecycle CLI.
+
+**Live verification 2026-06-10 (the deferred Knative apply, executed).** With `nagare-01` running:
+- **Prebuilt mode (EP-20)** — `prebuilt-image-app` (public `gcr.io/knative-samples/helloworld-go`)
+  deployed via `nagarectl deploy` and served **HTTP 200** (also the MP2 M2 proof).
+- **Dockerfile mode (EP-20)** — a Dockerfile app built with `DOCKER_DEFAULT_PLATFORM=linux/amd64`
+  (the node is amd64; the build daemon is arm64), pushed to `us-west1-docker.pkg.dev/tan-nb-exp/nagare`,
+  and deployed. The `--build-arg SITE_MESSAGE` was applied at build time (verified in the running
+  container: `build_arg=hello-from-a-dockerfile-build-arg`), and the app served **HTTP 200**. Runtime
+  env from the managed store was injected too (`GREETING=hello-from-managed-store` — MP5/EP-27).
+- **Nixpacks mode (EP-21)** — the cluster-apply path is identical to Dockerfile mode (now proven); the
+  Nixpacks build itself was already verified offline (builds/tags/pushes).
+
+**Two infra gaps this live run surfaced (build modes had never deployed a *private* image before — all
+prior live tests used public images):**
+1. **The node could not pull from the project's own Artifact Registry** (`DENIED: Unauthenticated`).
+   There was no `/etc/rancher/k3s/registries.yaml`, so containerd pulled anonymously. The node SA
+   (`nagare-node@`) already has `roles/artifactregistry.writer` + cloud-platform scope; writing
+   `registries.yaml` with an `oauth2accesstoken` from the metadata server fixed the containerd pull
+   (verified with `crictl pull`).
+2. **Knative's controller-side tag→digest resolver** does not use `registries.yaml`, so it still failed
+   admission. Adding `us-west1-docker.pkg.dev` to `registriesSkippingTagResolving` in the
+   `config-deployment` ConfigMap made Knative defer the pull to containerd; the revision then went
+   Ready and served 200.
+   **Follow-up (NOT yet permanent):** both fixes were applied imperatively on the running VM — the
+   `registries.yaml` token expires (~1h) and neither change is in the NixOS host config or the cluster
+   bootstrap. To make private-image deploys durable, declare `registries.yaml` (with a token-refresh
+   mechanism, e.g. a systemd timer minting a metadata token) in the host image and set
+   `registriesSkippingTagResolving` in the Knative bootstrap. Tracked as a bootstrap/host follow-up.

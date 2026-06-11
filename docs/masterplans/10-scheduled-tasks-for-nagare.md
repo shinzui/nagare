@@ -458,8 +458,15 @@ M3 (deploy provisioning) into EP-52, which owns the field — a single render-an
 no duplicate loop.
 
 Gaps / follow-ups (none block the initiative): (1) every live on-cluster leg
-(`deploy`/`task run`/`task logs` against `nagare-01`) is deferred-with-instructions per the EP-48
-precedent — the offline unit/golden/dry-run proofs plus the EP-49 live spike cover behavior;
+(`deploy`/`task run`/`task logs` against `nagare-01`) was once deferred-with-instructions per the
+EP-48 precedent — **now EXECUTED and VERIFIED live on 2026-06-10**: `nagarectl deploy` of an app with
+a co-located task provisioned both the Knative Service and `cronjob.batch/nagare-task-heartbeat`
+(`*/15 * * * *`) in one pass; `task list` (global + app-scoped) showed it; `task run heartbeat-app
+heartbeat` created a one-off Job from the CronJob and ran it to completion; `task logs` returned the
+task's real `date -u` output (`Wed Jun 10 23:11:56 UTC 2026`) plus the VictoriaLogs/Grafana history
+hint; `task delete` removed the CronJob. (The live deploy used a prebuilt public image so the proof is
+independent of the in-flight image-ref build work.) The offline unit/golden/dry-run proofs plus the
+EP-49 live spike already covered behavior;
 (2) a `nagarectl task apply -f` for truly standalone (non-co-located) tasks is a possible
 follow-up; (3) the per-task run-history ConfigMap remains a documented, unimplemented extension
 point (EP-51 Decision Log); (4) refactoring `Nagare.Database.Backup` onto the new `Task` type

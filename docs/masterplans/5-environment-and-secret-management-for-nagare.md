@@ -369,8 +369,20 @@ tested, and committed. The initiative delivers, end to end:
   (via the `BuildSpec`/`performBuild` path) with a secret-as-build-arg warning; a
   four-entry preview `envFrom` overlay (runtime then preview) keyed by the production name.
 - **Docs + example (EP-28).** `docs/user/env-and-secrets.md` and
-  `cluster/examples/env-and-secrets/`, with real `--dry-run` transcripts; the live
-  walkthrough deferred behind the shared 🟡 `nagare-01` caveat.
+  `cluster/examples/env-and-secrets/`, with real `--dry-run` transcripts. The live
+  walkthrough was once deferred behind the shared 🟡 `nagare-01` caveat; **the managed-store
+  half is now VERIFIED live (2026-06-10)** against the running cluster: `env set --runtime`/
+  `--build` and `secret set` created the real scope-suffixed resources
+  (`nagare-env-envdemo-runtime`, `nagare-env-envdemo-build`, `nagare-secret-envdemo-runtime`);
+  `env list --all` grouped values by scope; `secret list` returned key names only (values never
+  printed). _(Fixing the stale `env-and-secrets/Config.hs` to the current `Deployment` schema —
+  it was missing the `tasks` field added by MP10 — was a prerequisite found by this live audit; see
+  Decision Log.)_ The runtime-injection-into-the-container leg was folded into MP4's build-mode live
+  test and is now **VERIFIED live (2026-06-10)**: a Dockerfile app built for the cluster's
+  `linux/amd64` node was deployed with `GREETING` set only via the managed store (`env set --runtime`),
+  and `printenv GREETING` inside the running container returned `hello-from-managed-store` — proving the
+  managed ConfigMap reaches the container at runtime via the rendered `envFrom`. With the store-half
+  verification above, the EP-28 live walkthrough is complete.
 
 **Tests:** `nagare-dsl` 143 tests green; `nagarectl` 89 tests green; both executables
 build.

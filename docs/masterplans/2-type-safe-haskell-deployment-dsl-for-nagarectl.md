@@ -378,8 +378,11 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   and the example app carries `nagare/Config.hs` instead of YAML. _(2026-06-03: `cli/nagarectl/`
   built against `nagare-dsl`; `deploy --dry-run` renders byte-identically to EP-9's golden and prints
   the URL; failure path exits 1; no live `nagare.yaml` remains; bootstrap MP IP6 + EP-6 amended.
-  **M2 live deploy + `curl` 200 deferred** — `nagare-01` is powered down to halt charges; run once
-  the cluster is back up.)_
+  **M2 live deploy + `curl` 200 — VERIFIED 2026-06-10**: with `nagare-01` running, `nagarectl deploy`
+  (loader via `--ghc-env`, the captured `.ghc.environment.*`) created `ksvc/prebuilt-image-app` in
+  `personal`, reached `condition met`/`READY=True`, and `curl -H 'Host: prebuilt-image-app.personal.apps.example.com'`
+  through the kourier gateway returned **HTTP 200 `Hello World!`**. The deferred validation milestone
+  is closed.)_
 
 
 ## Surprises & Discoveries
@@ -531,8 +534,11 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 ## Outcomes & Retrospective
 
-All five child plans are Complete. The initiative delivered the Vision & Scope, with one validation
-milestone (EP-12 M2, the live deploy) deferred behind powered-down infrastructure.
+All five child plans are Complete. The initiative delivered the Vision & Scope. The one validation
+milestone once deferred behind powered-down infrastructure (EP-12 M2, the live deploy) was
+**executed and verified on 2026-06-10**: `nagarectl deploy` against the running `nagare-01` cluster
+created a live Knative Service that served **HTTP 200** at its URL (evidence in EP-12's checklist
+entry above). No deferred milestone remains.
 
 **Against the Vision & Scope:**
 
@@ -549,7 +555,8 @@ milestone (EP-12 M2, the live deploy) deferred behind powered-down infrastructur
 - **`nagarectl deploy` from the typed config, no YAML.** EP-12 built `cli/nagarectl/` against
   `nagare-dsl`; `deploy --dry-run` loads `Config.hs` (EP-10's `loadDeployment`, compile-and-run),
   renders byte-identically to EP-9's golden, and prints the URL. `nagare.yaml` is gone from all live
-  config/source/fixtures. The live-URL leg (M2) is deferred pending cluster bring-up.
+  config/source/fixtures. The live-URL leg (M2) was **verified on 2026-06-10** — a real deploy to
+  `nagare-01` served HTTP 200.
 
 **Which substrate won, and did ergonomics match the spike?** The **native Haskell eDSL in the
 config-as-program model** (EP-8 Prototype 1, scored 20/25, chosen by the user over Dhall's 19/25 on

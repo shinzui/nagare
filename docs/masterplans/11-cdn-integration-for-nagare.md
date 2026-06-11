@@ -541,3 +541,13 @@ Capture the live `CF-Cache-Status: HIT` (Cloudflare) and growing `Age:` (Google)
 discovery (currently `queryCdnRows` returns `[]`); and confirm EP-54's proposed health-check
 host/path and the HTTPS origin hop once origin TLS is enabled. None of these block the typed
 contract, the deploy wiring, or the docs — they are the environment-gated proofs.
+
+**Audit note (2026-06-10).** With `nagare-01` running, `nagarectl cdn list`/`cdn status`/`cdn --help`
+were exercised live: the command group works against the cluster and `cdn list` returns
+`(no CDN-fronted hostnames)` (the documented empty `queryCdnRows`). **The remaining CDN proofs stay
+genuinely deferred — the VM being up is necessary but NOT sufficient.** They each need an external
+dependency the running box does not supply: a **real delegated domain** (for the Google managed cert
+and the Cloudflare zone), a scoped **`CF_API_TOKEN`**, and a deliberate **billable `pulumi up`** for
+the Google global load balancer. Unlike MP2–MP10, whose only blocker was the powered-off VM, MP11's
+live edge legs are blocked by these external/cost gates and are intentionally left for a dedicated
+operator session.

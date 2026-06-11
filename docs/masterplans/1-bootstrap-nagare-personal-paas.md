@@ -301,6 +301,16 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   fix below); Postgres backup/restore scripts authored (live test deferred — no Postgres deployed);
   dashboards in Git; `docs/runbooks/disaster-recovery.md` written with backup inventory. Full
   clean-room DR drill deferred. (2026-06-03)
+  **Update 2026-06-10 (deferral resolved via successor path):** the deferred Postgres
+  backup/restore *live* test is now satisfied by MasterPlan 9's managed-database path, which
+  supersedes the host-`notes`-Postgres `scripts/backup-postgres.sh` (that host DB was never
+  deployed). Verified live against the running `nagare-01`: `nagarectl db backup` wrote a real
+  `pg_dump` to `gs://tan-nb-exp-nagare-backups/databases/auditpg/…`, and `nagarectl db restore`
+  round-tripped a known row into a scratch target (scratch-first DR drill) — see MP9 EP-47. The
+  remaining open item is **wildcard TLS/HTTPS (EP-4)**, which stays **gated on a real DNS-01-capable
+  domain** being delegated (the base domain is still the placeholder `apps.example.com`); a full
+  bare-metal clean-room rebuild drill also remains future work. Litestream/SQLite backups stay
+  live-verified.
 
 
 ## Surprises & Discoveries

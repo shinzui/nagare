@@ -283,13 +283,13 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - [x] EP-29: JSON round-trip (Config emit / Load decode) carries the new fields; golden + round-trip tests pass. (2026-06-10)
 - [x] EP-29: Renderer emits probes, `resources.limits`, per-domain DomainMappings, and the managed-by label; `serviceUrl` uses canonical domain; deploy call sites updated; `cabal test` green in `cli/nagare-dsl`. (2026-06-10)
 - [x] EP-30: `Nagare.App` module with `appIdentityOrDie` and `streamServiceLogs`; unit tests for pure helpers. (2026-06-10)
-- [x] EP-30: `app list` and `app get` implemented (label-filtered list, formatted get with EP-29 enrichment); `--help` verified, live run deferred. (2026-06-10)
-- [x] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` implemented; `nagarectl-test` green (102). (2026-06-10)
+- [x] EP-30: `app list` and `app get` implemented (label-filtered list, formatted get with EP-29 enrichment); `--help` verified. **Live run VERIFIED 2026-06-10** against `nagare-01`: `app list` filters to nagarectl-managed apps (hides the unmanaged `hello`), `--all` shows every ksvc, `app get` prints the enriched detail (revision, image, canonical URL). (2026-06-10)
+- [x] EP-30: `app logs [--follow]`, `app restart`, `app stop`, `app delete` implemented; `nagarectl-test` green (102). **Live VERIFIED 2026-06-10** against `nagare-01`: `app logs` streamed the running pod's request log; `app restart` patched + reached `condition met`; `app stop` flipped the URL to `svc.cluster.local` and public curl returned **404**; `app delete` removed the Service, DomainMappings, and the `nagare-app-deployments-*` history ConfigMap (confirmed absent after). (2026-06-10)
 - [x] EP-31: `recordDeploymentFor` wired into `runDeploy` (non-fatal); per-app history ConfigMap `nagare-app-deployments-<app>`; `--source` added. (2026-06-10)
-- [x] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs (id→revision via `resolveRevisionForTag`). (2026-06-10)
+- [x] EP-31: `deployments list NAME` prints the history table; `deployments logs NAME [ID]` streams revision logs (id→revision via `resolveRevisionForTag`). **Live VERIFIED 2026-06-10**: two real deploys produced a 2-row history table with the active release `*`-marked and the `--source` provenance (`demo-v2`) recorded. (2026-06-10)
 - [x] EP-31: pure-layer unit tests (store name, `revisionForTag`) green; static-release tests unchanged. (2026-06-10)
 - [x] EP-32: `docs/user/app-lifecycle.md` written and linked from `deploying-apps.md`/`README.md`; `config-reference.md` updated for health check, limits, multiple domains; stale `deploying-apps.md` config/YAML corrected. (2026-06-09)
-- [x] EP-32: runnable example `cluster/examples/app-lifecycle-demo/` verified by `nagarectl deploy --dry-run` (probes, limits, two DomainMappings, managed-by label, canonical URL); live walk-through captured in the example README, end-to-end run deferred until `nagare-01` is up. (2026-06-09)
+- [x] EP-32: runnable example `cluster/examples/app-lifecycle-demo/` verified by `nagarectl deploy --dry-run` (probes, limits, two DomainMappings, managed-by label, canonical URL); live walk-through captured in the example README. **End-to-end run VERIFIED 2026-06-10**: with `nagare-01` up, a real `nagarectl deploy` served HTTP 200 and the full `app`/`deployments` verb set was exercised live (see EP-30/EP-31 entries above). (2026-06-09; live 2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -356,7 +356,10 @@ Track milestone-level progress across all child plans. Each entry names the chil
   The new `cluster/examples/app-lifecycle-demo/` renders all three probes, `resources.limits`, two
   DomainMappings, the managed-by label, and `URL: https://demo.example.com` (the canonical of two) — proving
   EP-29's renderer contract end-to-end without a cluster. The `app`/`deployments` verbs that read/patch live
-  Knative state stay documented-but-deferred until `nagare-01` is powered on. (EP-32, 2026-06-09)
+  Knative state were documented-but-deferred until `nagare-01` was powered on; that live run was
+**executed and VERIFIED on 2026-06-10** — every verb (`app list`/`get`/`logs`/`restart`/`stop`/`delete`,
+`deployments list`) ran against the live cluster, evidence in the EP-30/EP-31 checklist entries above.
+(EP-32, 2026-06-09; live verbs 2026-06-10)
 
 
 ## Decision Log
@@ -453,8 +456,9 @@ and EP-25 had quietly invalidated, and EP-32 had to repair them. Future model-ch
 treat embedded configs/goldens in *every* user page as part of the blast radius.
 
 **Deferred / future work.** The live end-to-end cluster run (all `app`/`deployments` verbs against
-`nagare-01`) is deferred until the host is powered on — every page is honestly marked 🟡 with the render
-path proven by dry-run and the cluster verbs marked intended-behaviour. Hard HTTP redirects from
+`nagare-01`) was **executed and VERIFIED on 2026-06-10** once the host was powered back on — the render
+path (already proven by dry-run) plus every cluster verb now have live evidence (see the EP-30/EP-31/EP-32
+checklist entries). Hard HTTP redirects from
 non-canonical to canonical domains remain explicitly out of scope (EP-29 Decision Log), recorded as future
 work in the config reference and the lifecycle guide.
 </content>

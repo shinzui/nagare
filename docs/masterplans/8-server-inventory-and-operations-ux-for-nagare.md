@@ -436,5 +436,22 @@ across all four `Nagare.Ops.*` modules). The mutating/live paths were proven det
 without touching real infrastructure — `doctor`'s FAIL/exit-1 via a `gcloud` stub, graceful
 degradation via an empty PATH, `cleanup`'s dry-run-by-default — and every `--help`/transcript
 in the docs was captured from the built binary. Per the GCP project-isolation rule and because
-`nagare-01` is commonly `TERMINATED`, the live healthy-cluster runs are deferred (recorded in
-each child plan); the pure contracts and the degraded transcripts are the evidence.
+`nagare-01` is commonly `TERMINATED`, the live healthy-cluster runs were deferred (recorded in
+each child plan); the pure contracts and the degraded transcripts were the offline evidence.
+
+**Live healthy-cluster runs EXECUTED and VERIFIED 2026-06-10** (the deferral is closed). Against the
+running `nagare-01`:
+- **`server status` / `doctor` (EP-38/EP-39)** ran all 19 checks live and printed OK/WARN/FAIL with
+  remediation hints; the IAP disk probes returned real figures (`boot disk 14% of 99G`, `data disk 1%
+  of 98G`). `doctor` reports **14 OK / 4 WARN / 1 FAIL** and exits 1 on the FAIL as specified. The WARNs
+  are the expected placeholder-domain TLS and empty-backup-prefix cases.
+- **One real FAIL worth recording (not a tool defect):** the *Kourier ingress* check fails because on
+  k3s the Kourier `LoadBalancer` `EXTERNAL-IP` is the node's internal IP (`10.10.0.4`), which the
+  reserved static public IP (`34.145.74.203`) fronts via GCP forwarding — so the literal
+  `EXTERNAL-IP == publicIp` assertion does not hold on this topology even though ingress serves
+  correctly (verified: apps return HTTP 200 through the gateway). Follow-up: relax the check to accept a
+  node-IP `LoadBalancer` whose traffic the static IP forwards, instead of requiring literal equality.
+- **`domains list` (EP-40)** enumerated the base wildcard (`*.apps.example.com A -> 34.145.74.x`) and
+  per-service rows with live DNS/cert-readiness columns.
+- **`cleanup` (EP-41)** scanned the live host: `50 unused images (~2.2 GiB reclaimable)`, no stale
+  previews, no releases to trim — dry-run by default, `--confirm` required to delete.

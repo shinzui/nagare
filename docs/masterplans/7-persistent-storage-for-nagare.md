@@ -274,10 +274,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-34: JSON round-trip (Config.hs emit / Load.hs decode) carries volumes; golden tests pass. (2026-06-09; load-time name + mount-path uniqueness as MarshalError "volumes".)
 - [x] EP-34: PVC manifest renderer + container/pod `volumeMounts`/`volumes` rendering + key ordering; golden tests match EP-33's verified shape. (2026-06-09; all 185 tests pass, no existing golden changed.)
 - [x] EP-35: `nagarectl deploy` provisions PVCs before applying the Service; demonstrated via the real CLI `--dry-run` (PVC block first + EP-33 rollout annotations; no-volume path byte-compatible). (2026-06-09)
-- [x] EP-35: `nagarectl storage list|inspect` commands working (verified end-to-end through the real binary; live-PVC-data path unit-tested + the on-cluster transcript deferred to EP-37 — IAP forwards only SSH/22). (2026-06-09)
-- [x] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored. (2026-06-09; in-cluster Job renderer + keep-last-N pruning; pure logic unit-tested, live `→ gsutil ls` deferred to EP-37.)
-- [x] EP-36: Backup-ownership policy: deploy warns on backup-excluded volumes (`retention = Delete`, verified via real CLI); disaster-recovery runbook + user guide updated; `scripts/restore-volume.sh` scratch-first restore added (live restore drill deferred to EP-37). (2026-06-09)
-- [x] EP-37: User guide written (`docs/user/persistent-storage.md` + config/reference/README/deploying-apps cross-links); SQLite-on-PVC and uploaded-files examples render durable storage (dry-run verified; live deploy deferred to a running cluster). (2026-06-09)
+- [x] EP-35: `nagarectl storage list|inspect` commands working (verified end-to-end through the real binary; live-PVC-data path unit-tested + the on-cluster transcript deferred to EP-37 — IAP forwards only SSH/22). **On-cluster transcript VERIFIED 2026-06-10**: a PVC-backed app was deployed live (PVC `nagare-vol-uploads-live-uploads` Bound, 1Gi, local-path); `storage list` showed the volume + PVC status + node path; `storage inspect` printed full PVC detail (labels, capacity, access mode, used-by pod, events). (2026-06-09; live 2026-06-10)
+- [x] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored. (2026-06-09; in-cluster Job renderer + keep-last-N pruning; pure logic unit-tested, live `→ gsutil ls` deferred to EP-37.) **Live `→ gsutil ls` VERIFIED 2026-06-10** — after writing `durable-payload-2026` into the volume, `storage snapshot` wrote `gs://tan-nb-exp-nagare-backups/volumes/uploads-live/uploads/20260610T232042Z.tar.gz` (confirmed via `gsutil ls`). _Bug found+fixed by this live audit: the snapshot Job set `GCE_METADATA_HOST` but lacked the `hostAliases` mapping for `metadata.google.internal`, so its first run got ADC-anonymous → 401 on GCS; added the same `hostAliases` the proven db-backup Job uses (`Nagare.Storage.Snapshot`), and the retry succeeded._
+- [x] EP-36: Backup-ownership policy: deploy warns on backup-excluded volumes (`retention = Delete`, verified via real CLI); disaster-recovery runbook + user guide updated; `scripts/restore-volume.sh` scratch-first restore added (live restore drill deferred to EP-37). **Restore drill VERIFIED live 2026-06-10**: `scripts/restore-volume.sh gs://…/20260610T232042Z.tar.gz` created the scratch PVC `vol-restore-scratch`, the restore Job untarred the snapshot into it (`/restore/probe.txt` listed), and the restored file's content matched the original (`durable-payload-2026`) — the live volume was never touched. _Same `hostAliases` metadata fix applied to the script's restore Job (it had the identical 401 latent bug)._ (2026-06-09; live 2026-06-10)
+- [x] EP-37: User guide written (`docs/user/persistent-storage.md` + config/reference/README/deploying-apps cross-links); SQLite-on-PVC and uploaded-files examples render durable storage (dry-run verified; live deploy deferred to a running cluster). **Live deploy VERIFIED 2026-06-10**: a durable-storage app deployed to `nagare-01` provisioned and bound its `1Gi` `local-path` PVC, served, and round-tripped a file through snapshot+restore (see EP-35/EP-36 entries). (2026-06-09; live 2026-06-10)
 
 
 ## Surprises & Discoveries
@@ -439,12 +439,15 @@ survived a revision roll, a full Service delete+recreate, and a scale-to-zero cy
 goldens encode a verified shape rather than a guess.
 
 **Gaps / follow-ups (carried forward, none blocking):**
-1. **Live cluster legs deferred.** EP-35/36/37's on-cluster transcripts (a real volume-app deploy,
-   `storage list` against live PVCs, `storage snapshot → gsutil ls`, the restore drill) are not yet run
-   from a workstation: IAP forwards only SSH/22, so a local `kubectl`/`gsutil`/`nagarectl` can't reach the
-   k3s API. Run the example READMEs on the VM, or SSH-forward 6443 (`ssh -L 16443:127.0.0.1:6443`) with
-   `KUBECONFIG` pointed at a rewritten `/etc/rancher/k3s/k3s.yaml`. Everything is dry-run / unit /
-   golden verified offline; the cluster has the EP-33 flags enabled.
+1. **Live cluster legs — EXECUTED and VERIFIED 2026-06-10 (deferral closed).** EP-35/36/37's on-cluster
+   transcripts (a real volume-app deploy, `storage list`/`inspect` against a live PVC, `storage snapshot
+   → gsutil ls`, and the `restore-volume.sh` scratch-first drill with a content round-trip) were all run
+   from the workstation using exactly the documented path — IAP port-22 tunnel + `ssh -L
+   16443:127.0.0.1:6443` with `KUBECONFIG` pointed at a rewritten `/etc/rancher/k3s/k3s.yaml`. The live
+   run also surfaced and fixed a real GCS-auth bug: both the snapshot Job renderer and
+   `scripts/restore-volume.sh` set `GCE_METADATA_HOST` but omitted the `metadata.google.internal`
+   `hostAliases`, so their pods hit ADC-anonymous 401s on the first run; adding the alias (matching the
+   proven db-backup Job) made both succeed. The cluster has the EP-33 flags enabled.
 2. **`attachVolume` only builds `Retain` volumes** — opting a volume out of backups (`retention = Delete`)
    needs a raw `Volume` literal today. An `attachVolumeWith`/`attachVolumeExcluded` preset would be
    ergonomic (small EP-34 follow-up).
