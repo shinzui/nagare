@@ -17,7 +17,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
-import Data.List (sort)
+import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
@@ -170,6 +170,7 @@ import Nagare.Env.Generated (generatedEnv, mergeGenerated)
 import Nagare.Env.Generated qualified as Gen
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Env.Store
+import Nagare.GhcEnv (findGhcEnvIn)
 import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -225,6 +226,7 @@ main = do
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
+      , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
@@ -2063,6 +2065,39 @@ gcsJobHostAliasesTests =
       , ("volume snapshot Job", renderSnapshotJob snapshotJobInputs)
       , ("volume restore Job", renderStorageRestoreJob storageRestoreJobInputs)
       ]
+  ]
+
+-- | EP-6 M1: the GHC-env auto-resolver's testable core. 'findGhcEnvIn' returns
+-- the first @.ghc.environment.*@ across the given dirs (absolute), else Nothing.
+ghcEnvTests :: [TestTree]
+ghcEnvTests =
+  [ testCase "findGhcEnvIn finds a planted .ghc.environment file" $
+      withSystemTempDirectory "nagare-ghcenv" $ \root -> do
+        let envFile = root </> ".ghc.environment.aarch64-darwin-9.12.3"
+        writeFile envFile "package-db dummy\n"
+        found <- findGhcEnvIn [root]
+        case found of
+          Just p -> assertBool "returns the planted file (absolute)" (".ghc.environment.aarch64-darwin-9.12.3" `isSuffixOf` p)
+          Nothing -> assertFailure "expected to find the planted env file"
+  , testCase "findGhcEnvIn returns Nothing when no env file exists" $
+      withSystemTempDirectory "nagare-ghcenv" $ \root -> do
+        found <- findGhcEnvIn [root]
+        found @?= Nothing
+  , testCase "findGhcEnvIn skips a nonexistent directory" $
+      withSystemTempDirectory "nagare-ghcenv" $ \root -> do
+        found <- findGhcEnvIn [root </> "does-not-exist"]
+        found @?= Nothing
+  , testCase "findGhcEnvIn returns the first hit across dirs" $
+      withSystemTempDirectory "nagare-ghcenv" $ \root -> do
+        let d1 = root </> "empty"
+            d2 = root </> "haz"
+        createDirectoryIfMissing True d1
+        createDirectoryIfMissing True d2
+        writeFile (d2 </> ".ghc.environment.x") "x\n"
+        found <- findGhcEnvIn [d1, d2]
+        case found of
+          Just p -> assertBool "from the second dir" ("haz" `isInfixOf` p)
+          Nothing -> assertFailure "expected a hit in the second dir"
   ]
 
 backupRestoreTests :: [TestTree]

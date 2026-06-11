@@ -98,3 +98,11 @@ deploy-hello:
 status:
     kubectl get pods -A
     kubectl get ksvc -A
+
+# EP-6 (docs/plans/70-cli-and-operator-harness-ergonomics.md): stand up a
+# workstation->cluster kube connection in one command — open the IAP port-22
+# tunnel, layer an ssh -L forward of the k3s API (127.0.0.1:6443 -> :16443),
+# fetch /etc/rancher/k3s/k3s.yaml and rewrite its server: to the forwarded
+# port, and print the KUBECONFIG to export. Reuses scripts/iap-ssh.sh.
+live-test:
+    scripts/live-test.sh

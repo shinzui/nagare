@@ -35,6 +35,9 @@ TARGET_REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
 TARGET_ZONE="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 # Build platform for nagarectl image builds (EP-3); mirrored here for completeness.
 TARGET_PLATFORM="${NAGARE_TARGET_PLATFORM:-linux/amd64}"
+# SSH login user for scripts/iap-ssh.sh (EP-6); env > profile > default 'deploy'.
+NAGARE_SSH_USER="${NAGARE_SSH_USER:-deploy}"
+export NAGARE_SSH_USER
 
 # Fail-closed preflight: abort unless gcloud's active project equals the
 # configured target. Returns/exits non-zero on mismatch. Call it once at the top

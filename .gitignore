@@ -24,3 +24,6 @@ infra/pulumi/node_modules/
 keys.txt
 *.agekey
 *.age.key
+
+# EP-6 live-test harness kubeconfig + tunnels
+.live-test/

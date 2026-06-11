@@ -10,10 +10,11 @@
 -- temporary, lens, generic-lens, directory) resolve from Hackage.
 --
 -- `write-ghc-environment-files: always` materialises a `.ghc.environment.*`
--- here so that, when `nagarectl` is run from this directory, the loader's
--- `runghc` (EP-10's Nagare.Dsl.Load) can resolve the `nagare-dsl` package and
--- its deps. To run `nagarectl deploy` from an app directory instead, point the
--- `--ghc-env` flag (or NAGARE_GHC_ENVIRONMENT) at a built env file — see Main.hs.
+-- here so that the loader's `runghc` (EP-10's Nagare.Dsl.Load) can resolve the
+-- `nagare-dsl` package and its deps. As of EP-6 (MasterPlan 13), `nagarectl`
+-- AUTO-DISCOVERS this file (see Nagare.GhcEnv.resolveProjectGhcEnv) when run from
+-- an app directory, so no `--ghc-env` is needed in the normal case. The
+-- `--ghc-env` flag and NAGARE_GHC_ENVIRONMENT remain as explicit overrides.
 write-ghc-environment-files: always
 
 packages:

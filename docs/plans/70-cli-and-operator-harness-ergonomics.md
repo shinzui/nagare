@@ -65,17 +65,19 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add a GHC-env auto-resolver to `cli/nagarectl/app/Main.hs` and `cli/nagarectl/nagared/Main.hs` so `provisionGhcEnv` discovers the project's `.ghc.environment.*` when no `--ghc-env`/`NAGARE_GHC_ENVIRONMENT` is given.
-- [ ] M1: Update `cli/nagarectl/cabal.project` comment to describe the auto-resolution behavior.
-- [ ] M1: Add a unit test for the resolver in `cli/nagarectl/test/`.
-- [ ] M1: Verify `nagarectl deploy --dry-run` works from `cluster/examples/prebuilt-image-app/nagare` with no `--ghc-env`.
-- [ ] M2: Append `NAGARE_SSH_USER` (default `deploy`) to `nagare.target.env.example`, `scripts/lib/target.sh`, and the `.envrc`/`CLAUDE.md` schema docs, coordinated with EP-3 (docs/plans/67).
-- [ ] M2: Replace the OS-Login default in `scripts/iap-ssh.sh` with the `NAGARE_SSH_USER`/`deploy` default; keep `SSH_USER` env override winning.
-- [ ] M2: Decide and record whether to add `tpSshUser` to the Haskell `TargetProfile` record (default: shell-only).
-- [ ] M2: Verify `scripts/iap-ssh.sh ssh nagare-01 -- echo ok` works with no `SSH_USER` set.
-- [ ] M3: Add `scripts/live-test.sh` (the harness body) and a thin `just live-test` recipe that invokes it and prints the `KUBECONFIG`.
-- [ ] M3: Verify `just live-test` prints a `KUBECONFIG` that makes `kubectl get nodes` succeed.
-- [ ] Final: `cd cli/nagarectl && cabal build exe:nagarectl && cabal test nagarectl-test` pass.
+Status: **Complete** — M1–M3 done; 268 tests pass; all three behaviors verified live.
+
+- [x] M1: New library module `Nagare.GhcEnv` (`findGhcEnvIn` + `resolveProjectGhcEnv`); `provisionGhcEnv` in both `app/Main.hs` and `nagared/Main.hs` gained the auto-discovery fallback. (Shared module removes the duplicated helper logic.)
+- [x] M1: Updated `cli/nagarectl/cabal.project` comment to describe auto-discovery.
+- [x] M1: Added `ghcEnvTests` (4 cases) exercising `findGhcEnvIn` over fixture temp dirs.
+- [x] M1: Verified the RAW `nagarectl` binary renders the Service from `cluster/examples/prebuilt-image-app` with no `--ghc-env` and no `NAGARE_GHC_ENVIRONMENT` (it failed `Could not find module Nagare.Dsl.*` before).
+- [x] M2: Appended `NAGARE_SSH_USER` (default `deploy`) to `nagare.target.env.example` (after EP-3's `NAGARE_TARGET_PLATFORM`) and `scripts/lib/target.sh` (exported).
+- [x] M2: Replaced the OS-Login default in `scripts/iap-ssh.sh` with `SSH_USER="${SSH_USER:-${NAGARE_SSH_USER:-deploy}}"`; deleted `resolve_oslogin_user`; updated the header comment.
+- [x] M2: Confirmed shell-only (no `tpSshUser` on the Haskell record) per the Decision Log.
+- [x] M2: Verified live — `scripts/iap-ssh.sh ssh nagare-01 -- 'echo ok; whoami'` with no `SSH_USER` prints `ok` / `deploy`.
+- [x] M3: Added `scripts/live-test.sh` + the thin `just live-test` recipe; `.live-test/` git-ignored.
+- [x] M3: Verified live — `just live-test` prints the `KUBECONFIG` + PIDs; `kubectl get nodes` through it lists `nagare-01 Ready`.
+- [x] Final: `cabal build exe:nagarectl exe:nagared && cabal test nagarectl-test` pass (268 tests); shellcheck clean (no new warnings).
 
 
 ## Surprises & Discoveries
@@ -83,7 +85,25 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **M1 resolver approach chosen (per the plan's open question): `getExecutablePath` + cwd
+  walk-up, no config-path threading.** `resolveProjectGhcEnv` finds the repo root by walking up
+  from *both* the current directory and the executable's path until it sees
+  `cli/nagarectl/cabal.project`, then globs `<root>/cli/nagarectl` and `<root>/cli/nagare-dsl`
+  for `.ghc.environment.*` (plus the cwd's own ancestors, covering a run from inside
+  `cli/nagarectl`). This needed **no `provisionGhcEnv` signature change** and no call-site churn
+  — verified working from `cluster/examples/prebuilt-image-app` with the dist-newstyle binary,
+  whose path walks up to the repo root. The `cabal exec` fallback is kept only for a checkout
+  that has never built. (The plan offered threading the config path as an alternative; it proved
+  unnecessary.)
+
+- **EP-3 had already landed `NAGARE_TARGET_PLATFORM` as the last env line**, so M2 simply
+  appended `NAGARE_SSH_USER` after it (Integration Point #2, second writer) — no ambiguity, no
+  reserved-slot comment needed.
+
+- **The EP-6 GHC-env fix is load-bearing for live ops.** It was independently confirmed during
+  EP-2 that the raw `nagarectl` binary cannot load a `Config.hs` without this fix
+  (`Could not find module Nagare.Dsl.*`), which is exactly what blocks EP-5's one-command live
+  smoke. With M1 landed, a raw-binary `nagarectl deploy` now loads configs from an app dir.
 
 
 ## Decision Log
@@ -143,7 +163,28 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+All three papercuts are gone, each verified live:
+
+1. **`nagarectl` auto-resolves the loader's GHC environment.** `Nagare.GhcEnv.resolveProjectGhcEnv`
+   discovers the project's `.ghc.environment.*` and `provisionGhcEnv` exports it when neither
+   `--ghc-env` nor `NAGARE_GHC_ENVIRONMENT` is set; both overrides still win. The raw binary now
+   renders a Service from an example app dir with no flag (it failed before). 4 new unit tests over
+   `findGhcEnvIn`; 268 tests green. The logic lives in one library module shared by `app/Main.hs` and
+   `nagared/Main.hs`, removing the prior duplicated helper.
+
+2. **`iap-ssh.sh` defaults its SSH user to `deploy` from the profile.** `NAGARE_SSH_USER` (shell-side
+   only, per the EP-3↔EP-6 integration contract) is mirrored in `nagare.target.env.example` and
+   `scripts/lib/target.sh`; the OS-Login derivation is deleted. `iap-ssh.sh ssh nagare-01 -- whoami`
+   prints `deploy` with no `SSH_USER` set, and an explicit `SSH_USER` still overrides.
+
+3. **`just live-test` is the one-command harness.** It fetches the kubeconfig, opens the IAP port-22
+   tunnel, layers the `ssh -L` API forward, rewrites the server, and prints the `KUBECONFIG` + the
+   PIDs to kill. `kubectl get nodes` through it lists `nagare-01 Ready`.
+
+Gaps: none against scope. The Haskell `TargetProfile` record was deliberately left untouched (no
+`tpSshUser`) — Integration Point #2 honored. Lesson: the `getExecutablePath`+cwd walk-up made M1 a
+zero-call-site-churn change, and proving each fix on the live box (rather than only in tests) caught
+that the harness's background tunnels must use `nohup`+`disown` to survive the launching shell.
 
 
 ## Context and Orientation

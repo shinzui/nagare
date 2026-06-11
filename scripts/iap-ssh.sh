@@ -28,9 +28,10 @@
 #
 # Required env:
 #   ZONE          GCE zone of the instance (defaults to gcloud's active zone).
-#   SSH_USER      Linux user to SSH as. Defaults to the OS Login username
-#                 derived from the active gcloud identity (e.g.
-#                 alice@example.com -> alice_example_com).
+#   SSH_USER      Linux user to SSH as. Defaults to NAGARE_SSH_USER from the
+#                 target profile, or 'deploy' (the dedicated NixOS operator user).
+#                 The OS-Login-derived name never works here — the VM only accepts
+#                 the 'deploy' user.
 #   SSH_KEY       Private SSH key path. Defaults to the first of
 #                 ~/.ssh/id_ed25519 or ~/.ssh/id_rsa that is readable.
 #
@@ -43,21 +44,10 @@ set -euo pipefail
 source "$(dirname "$0")/lib/target.sh"
 _require_target_project
 
-# Resolve the operator's OS Login username from the active gcloud identity.
-# GCP's documented derivation: lowercase the account email, replace `@` and
-# `.` with `_`. Example: alice@example.com -> alice_example_com.
-resolve_oslogin_user() {
-  local account
-  account="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null \
-              | head -n1)"
-  if [ -z "${account}" ]; then
-    echo "iap-ssh: gcloud has no active account; run 'gcloud auth login' or set SSH_USER" >&2
-    return 1
-  fi
-  echo "${account}" | tr '@.' '__' | tr '[:upper:]' '[:lower:]'
-}
-
-SSH_USER="${SSH_USER:-$(resolve_oslogin_user)}"
+# The SSH login user (EP-6): an explicit SSH_USER wins, then NAGARE_SSH_USER from
+# the target profile (exported by lib/target.sh), then the default 'deploy'. The
+# OS-Login-derived name was removed because it never authenticates here.
+SSH_USER="${SSH_USER:-${NAGARE_SSH_USER:-deploy}}"
 ZONE="${ZONE:-$(gcloud config get-value compute/zone 2>/dev/null || true)}"
 
 if [ -z "${ZONE}" ]; then

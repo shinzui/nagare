@@ -54,6 +54,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.GhcEnv
     Nagare.Image
     Nagare.Init
     Nagare.Ops.Cleanup
@@ -100,6 +101,7 @@ library
     lens ^>=5.3,
     memory,
     nagare-dsl,
+    process,
     temporary,
     text,
     time,

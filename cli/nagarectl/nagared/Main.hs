@@ -52,6 +52,7 @@ import System.FilePath ((</>))
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
 import Nagare.Dsl.Load (loadStaticSite, renderLoadError)
+import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Static.Checkout (checkoutRepo)
 import Nagare.Static.Deploy
   ( DeployInputs (..)
@@ -133,11 +134,18 @@ trimNewline bs
   | not (BS.null bs) && BS.last bs == 10 = BS.init bs
   | otherwise = bs
 
+-- | Export a GHC package-environment file as @GHC_ENVIRONMENT@ for the loader's
+-- child @runghc@ (EP-6 M1). An explicit path wins; otherwise the project's
+-- @.ghc.environment.*@ is auto-discovered. 'Nothing' found ⇒ leave it unset.
 provisionGhcEnv :: Maybe FilePath -> IO ()
-provisionGhcEnv Nothing = pure ()
 provisionGhcEnv (Just p) = do
   abs' <- makeAbsolute p
   setEnv "GHC_ENVIRONMENT" abs'
+provisionGhcEnv Nothing = do
+  mfile <- resolveProjectGhcEnv
+  case mfile of
+    Just f -> setEnv "GHC_ENVIRONMENT" f
+    Nothing -> pure ()
 
 -- ---------------------------------------------------------------------------
 -- HTTP

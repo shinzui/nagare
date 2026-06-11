@@ -126,6 +126,7 @@ import Nagare.Env.Store
   , writeEnvStore
   , writeSecretStore
   )
+import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Image
   ( computeTag
   , configureDockerAuth
@@ -2651,14 +2652,20 @@ resolveBaseDomain :: Maybe String -> IO Text
 resolveBaseDomain (Just bd) = pure (T.pack bd)
 resolveBaseDomain Nothing = tpBaseDomain <$> resolveTargetProfile
 
--- | If a GHC package-environment file is given (via @--ghc-env@ or
--- @NAGARE_GHC_ENVIRONMENT@), export it as @GHC_ENVIRONMENT@ (absolute) so the
--- loader's child @runghc@ resolves the @nagare-dsl@ package.
+-- | Ensure the loader's child @runghc@ can resolve the @nagare-dsl@ package by
+-- exporting a GHC package-environment file as @GHC_ENVIRONMENT@. Precedence
+-- (EP-6 M1): the @--ghc-env@ flag > the @NAGARE_GHC_ENVIRONMENT@ env var >
+-- the project's auto-discovered @.ghc.environment.*@ file. When none is found,
+-- do nothing (the loader then fails with its existing, clear compile error).
 provisionGhcEnv :: Maybe FilePath -> IO ()
 provisionGhcEnv mflag = do
   menv <- lookupEnv "NAGARE_GHC_ENVIRONMENT"
   case mflag <|> menv of
-    Nothing -> pure ()
     Just p -> do
       abs' <- makeAbsolute p
       setEnv "GHC_ENVIRONMENT" abs'
+    Nothing -> do
+      mfile <- resolveProjectGhcEnv
+      case mfile of
+        Just f -> setEnv "GHC_ENVIRONMENT" f -- already absolute
+        Nothing -> pure ()
