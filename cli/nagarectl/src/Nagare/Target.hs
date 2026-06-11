@@ -40,6 +40,11 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
   , tpInstanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
+  , tpTargetPlatform :: !Text
+  -- ^ NAGARE_TARGET_PLATFORM, the Docker platform string the cluster node runs,
+  -- default @"linux/amd64"@. Passed verbatim to @docker build --platform@ and
+  -- @nixpacks build --platform@ (EP-3). The node is amd64; an operator whose
+  -- node differs overrides this in @nagare.target.env@.
   }
   deriving stock (Eq, Show)
 
@@ -65,6 +70,7 @@ resolveTargetProfile = do
   backupBucket <- envOr "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
   baseDomain <- envOr "NAGARE_BASE_DOMAIN" "apps.example.com"
   instanceName <- envOr "NAGARE_INSTANCE_NAME" "nagare-01"
+  targetPlatform <- envOr "NAGARE_TARGET_PLATFORM" "linux/amd64"
   pure
     TargetProfile
       { tpProject = project
@@ -76,6 +82,7 @@ resolveTargetProfile = do
       , tpBackupBucket = backupBucket
       , tpBaseDomain = baseDomain
       , tpInstanceName = instanceName
+      , tpTargetPlatform = targetPlatform
       }
 
 -- | Read an env var, falling back to @def@ when it is unset OR set to the empty

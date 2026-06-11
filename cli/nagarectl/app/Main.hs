@@ -1827,7 +1827,7 @@ runDeploy dopts = do
       forM_ taskBytes $ \tb -> do
         BC.putStrLn "--- Task CronJob manifest ---"
         BC.putStr tb
-      TIO.putStrLn ("Build mode: " <> describeBuild spec)
+      TIO.putStrLn ("Build mode: " <> describeBuild (tpTargetPlatform tp) spec)
       TIO.putStrLn ("URL: " <> url)
       cdnDeployStep True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
     else do
@@ -1839,7 +1839,7 @@ runDeploy dopts = do
           (bargs, warns) <- gatherBuildArgs name ns (dep ^. #env)
           printBuildArgWarnings warns
           configureDockerAuth
-          performBuild (addBuildArgs bargs spec) ref
+          performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a

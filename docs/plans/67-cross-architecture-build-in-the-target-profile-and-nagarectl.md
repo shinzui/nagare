@@ -67,12 +67,14 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `tpTargetPlatform` to `TargetProfile` and resolve `NAGARE_TARGET_PLATFORM` (default `linux/amd64`) in `resolveTargetProfile` (`cli/nagarectl/src/Nagare/Target.hs`).
-- [ ] M1: Add the `NAGARE_TARGET_PLATFORM` line to `nagare.target.env.example` (repo root) and the `TARGET_PLATFORM` mirror to `scripts/lib/target.sh`.
-- [ ] M1: Extend `renderTargetEnv` and the `targetProfileTests` (and any record literals that no longer compile) so the field round-trips and the precedence is tested.
-- [ ] M2: Thread the resolved platform into `performBuild` (`cli/nagarectl/src/Nagare/Build.hs`) and through `Nagare.Image.buildDockerfile`/`buildNixpacks`, passing `--platform <platform>` to both `docker build` and `nixpacks build`.
-- [ ] M2: Update the `dockerBuildArgs`/`nixpacksBuildArgs` unit tests and add a render test asserting `--platform linux/amd64` appears.
-- [ ] M3: Demonstrate (and record in this plan) that a Dockerfile build produces a `linux/amd64` image with no `DOCKER_DEFAULT_PLATFORM` set.
+Status: **Complete** — M1–M3 done; `cabal test nagarectl-test` is green at 264 tests.
+
+- [x] M1: Add `tpTargetPlatform` to `TargetProfile` and resolve `NAGARE_TARGET_PLATFORM` (default `linux/amd64`) in `resolveTargetProfile` (`cli/nagarectl/src/Nagare/Target.hs`).
+- [x] M1: Add the `NAGARE_TARGET_PLATFORM` line to `nagare.target.env.example` (repo root) and the `TARGET_PLATFORM` mirror to `scripts/lib/target.sh`. Also extended `renderTargetEnv` (`Nagare.Init`) and documented why `seedKeys` deliberately omits it.
+- [x] M1: Extend `renderTargetEnv` and the `targetProfileTests` (and any record literals that no longer compile — `tnbProfile`, `initProfile`) so the field round-trips and env > profile > default precedence (incl. empty-is-unset) is tested.
+- [x] M2: Thread the resolved platform into `performBuild` (`cli/nagarectl/src/Nagare/Build.hs`) and through `Nagare.Image.buildDockerfile`/`buildNixpacks`, passing `--platform <platform>` to both `docker build` and `nixpacks build`; `describeBuild` now shows it. `runDeploy` passes `tpTargetPlatform tp` at both call sites.
+- [x] M2: Update the `dockerBuildArgs`/`nixpacksBuildArgs`/`describeBuild` unit tests and add render tests asserting `--platform` appears. Dry-run confirmed: `Build mode: docker build --platform linux/amd64 …`, and `NAGARE_TARGET_PLATFORM=linux/arm64` flips it to `linux/arm64`.
+- [x] M3: Demonstrated (transcript in Surprises & Discoveries) that a Dockerfile build with the flag nagarectl emits produces a `linux/amd64` image on this arm64 daemon with no `DOCKER_DEFAULT_PLATFORM` set, while the no-flag baseline is `arm64`.
 
 (Replace `[ ]` with `[x]` as each item lands. Add sub-items / split items at every stopping point.)
 
@@ -96,6 +98,26 @@ implementation. Provide concise evidence.
   this change the explicit flag we pass wins, and an operator who still exports
   `DOCKER_DEFAULT_PLATFORM` does not break anything — but they also no longer *need*
   to, which is the whole point.
+
+- **M3 demonstration (2026-06-11, recorded evidence).** On this `arm64` Docker daemon
+  (`docker version` → `Server.Arch: arm64`; `uname -m` → `arm64`), with
+  `DOCKER_DEFAULT_PLATFORM` unset, a throwaway `FROM alpine:3.20` Dockerfile built two ways:
+
+  ```text
+  # WITH the exact flag nagarectl now emits:
+  docker build --platform linux/amd64 -f Dockerfile -t nagare-ep3-demo:amd64 .
+  docker image inspect nagare-ep3-demo:amd64 --format '{{.Architecture}}'
+  -> amd64
+
+  # Baseline, NO --platform (the pre-EP-3 behavior on this daemon):
+  docker build -f Dockerfile -t nagare-ep3-demo:native .
+  docker image inspect nagare-ep3-demo:native --format '{{.Architecture}}'
+  -> arm64
+  ```
+
+  The `--platform` flag is load-bearing: it turns the node-unrunnable `arm64` default into
+  the node-runnable `amd64` image, with no env var. This is the concrete fix for the
+  2026-06-10 audit foot-gun. (Demo images/dir cleaned up afterward.)
 
 (Add further entries with evidence as work proceeds.)
 
@@ -155,7 +177,32 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Delivered against the purpose in full:
+
+- The target architecture is now a first-class profile value `NAGARE_TARGET_PLATFORM`
+  (Haskell field `tpTargetPlatform`, default `linux/amd64`), resolved through the same `envOr`
+  helper as every other field, so the env > profile > default precedence is identical and tested
+  (including the empty-is-unset fallback). It is mirrored in all three artifacts
+  (`Nagare.Target`, `nagare.target.env.example`, `scripts/lib/target.sh`) and emitted by
+  `renderTargetEnv` so `nagarectl init` writes a complete profile.
+- `nagarectl` passes `--platform <platform>` explicitly to both `docker build` and `nixpacks
+  build`, threaded from `runDeploy`'s already-bound `tp` through `performBuild`/`describeBuild`
+  into the pure `dockerBuildArgs`/`nixpacksBuildArgs` vectors. The explicit flag overrides any
+  stale `DOCKER_DEFAULT_PLATFORM` and is visible in `--dry-run`.
+- Demonstrated end-to-end (Surprises & Discoveries): on an arm64 daemon with no env var, the
+  flag produces an `amd64` image; the no-flag baseline is `arm64`.
+
+Scope honored: the static/server-site deploy paths use `Nagare.Image.buildImage` directly
+(`docker build -t <ref> <context>`, no `-f`) and do **not** route through
+`Nagare.Build.performBuild`, so per the plan they are out of scope for EP-3 and were left
+untouched (the required deliverable is the app build path via `performBuild`). The
+`TargetProfile` record and the example/`target.sh`/`renderTargetEnv` ordering were left
+append-extensible with `tpTargetPlatform` last, so EP-6 (docs/plans/70) can append
+`NAGARE_SSH_USER` after it without reordering — Integration Point #2 satisfied. `Doctor.hs`/
+`Probe.hs` were not touched; EP-4 will read `tpTargetPlatform` for its arch-mismatch check.
+
+Lesson: the `deploy` verb takes the config via `-f`/`--file`, not a positional app name — worth
+noting for EP-5's smoke test, which drives `nagarectl deploy` headlessly.
 
 
 ## Context and Orientation

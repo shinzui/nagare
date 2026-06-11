@@ -38,18 +38,19 @@ import System.IO (stderr)
 -- Nixpacks). Precondition: 'Nagare.Dsl.Build.requiresBuild' is 'True' —
 -- 'PrebuiltImage' is handled by the caller (no build). 'NixpacksBuild' is not
 -- yet supported and exits with a clear message (implemented in EP-21).
-performBuild :: BuildSpec -> Text -> IO ()
-performBuild spec ref = case spec of
+performBuild :: Text -> BuildSpec -> Text -> IO ()
+performBuild platform spec ref = case spec of
   PrebuiltImage _ -> pure () -- defensive; the caller skips via requiresBuild
   DockerfileBuild df ctx args ->
     buildDockerfile
+      platform
       ref
       (T.unpack (filePathText df))
       (T.unpack (filePathText ctx))
       (Map.toList args)
   NixpacksBuild ctx args -> do
     ensureNixpacks
-    buildNixpacks ref (T.unpack (filePathText ctx)) (Map.toList args)
+    buildNixpacks platform ref (T.unpack (filePathText ctx)) (Map.toList args)
 
 -- | Fail with an actionable message if the @nixpacks@ CLI is not on @PATH@,
 -- rather than letting the shell-out die with a raw "command not found".
@@ -75,14 +76,16 @@ addBuildArgs extra spec = case spec of
     NixpacksBuild ctx (Map.union args (Map.fromList extra))
 
 -- | A one-line, human-readable description of the build action, for @--dry-run@.
-describeBuild :: BuildSpec -> Text
-describeBuild = \case
+-- The @platform@ is shown so the operator can confirm the right architecture
+-- before a real deploy (EP-3); 'PrebuiltImage' builds nothing so it omits it.
+describeBuild :: Text -> BuildSpec -> Text
+describeBuild platform = \case
   PrebuiltImage t ->
     "prebuilt image (no local build), tag " <> tagText t
   DockerfileBuild df ctx _ ->
-    "docker build -f " <> filePathText df <> " " <> filePathText ctx
+    "docker build --platform " <> platform <> " -f " <> filePathText df <> " " <> filePathText ctx
   NixpacksBuild ctx _ ->
-    "nixpacks build " <> filePathText ctx
+    "nixpacks build --platform " <> platform <> " " <> filePathText ctx
 
 -- | Apply CLI overrides to the config's build spec. The first argument is a
 -- @--context@ override, the second a @--dockerfile@ override; either may be

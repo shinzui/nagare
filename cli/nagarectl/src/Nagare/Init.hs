@@ -123,11 +123,14 @@ renderTargetEnv tp =
     , "export NAGARE_BACKUP_BUCKET=" <> tpBackupBucket tp
     , "export NAGARE_BASE_DOMAIN=" <> tpBaseDomain tp
     , "export NAGARE_INSTANCE_NAME=" <> tpInstanceName tp
+    , "export NAGARE_TARGET_PLATFORM=" <> tpTargetPlatform tp
     ]
 
 -- | The eight Pulumi config (key, value) pairs to seed from the profile. Order is
 -- stable for deterministic output. @nagare:imageBucket@ is REQUIRED by the program
--- (no default), so it is always present here.
+-- (no default), so it is always present here. NOTE: @NAGARE_TARGET_PLATFORM@ (EP-3)
+-- is deliberately NOT seeded — it is a build-time client concern (the architecture
+-- nagarectl builds images for), not GCP infrastructure, so Pulumi has no use for it.
 seedKeys :: TargetProfile -> [(Text, Text)]
 seedKeys tp =
   [ ("gcp:project", tpProject tp)
