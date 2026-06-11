@@ -156,8 +156,11 @@ import Nagare.Storage.Discover
   , formatStorageTable
   , pvcName
   )
+import Nagare.Storage.Restore (StorageRestoreJobInputs (..), renderStorageRestoreJob)
 import Nagare.Storage.Snapshot
-  ( backupExcludedWarnings
+  ( SnapshotJobInputs (..)
+  , backupExcludedWarnings
+  , renderSnapshotJob
   , snapshotObjectPath
   , snapshotsToPrune
   )
@@ -221,6 +224,7 @@ main = do
       , testGroup "Nagare.App.Deployments" deploymentsTests
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
+      , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
@@ -1998,6 +2002,48 @@ restoreJobInputsPg =
     , rjiLiveTarget = False
     , rjiProject = "tan-nb-exp"
     }
+
+snapshotJobInputs :: SnapshotJobInputs
+snapshotJobInputs =
+  SnapshotJobInputs
+    { sjiNamespace = "personal"
+    , sjiJobName = "nagare-snapshot-myapp-data-20260610t141503z"
+    , sjiClaimName = "nagare-vol-myapp-data"
+    , sjiDestUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
+    , sjiMountPath = "/vol"
+    , sjiProject = "tan-nb-exp"
+    }
+
+storageRestoreJobInputs :: StorageRestoreJobInputs
+storageRestoreJobInputs =
+  StorageRestoreJobInputs
+    { sriNamespace = "personal"
+    , sriJobName = "nagare-volrestore-myapp-data-20260610t141503z"
+    , sriClaimName = "nagare-vol-myapp-data-restore-scratch"
+    , sriSrcUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
+    , sriMountPath = "/restore"
+    , sriProject = "tan-nb-exp"
+    }
+
+-- | Recurrence guard (EP-1): every GCS data-movement Job renderer must emit the
+-- metadata @hostAliases@ and the @google/cloud-sdk:slim@ image. All four render
+-- through the shared 'Nagare.Cluster.GcsJob', so dropping the @hostAliases@ there
+-- fails every case at once.
+gcsJobHostAliasesTests :: [TestTree]
+gcsJobHostAliasesTests =
+  [ testCase (name <> " renders the metadata hostAliases and the cloud-sdk image") $ do
+      let y = TE.decodeUtf8 rendered
+      assertBool "hostAliases for metadata.google.internal" ("metadata.google.internal" `T.isInfixOf` y)
+      assertBool "metadata IP" ("169.254.169.254" `T.isInfixOf` y)
+      assertBool "cloud-sdk image" ("google/cloud-sdk:slim" `T.isInfixOf` y)
+      assertBool "restartPolicy Never" ("Never" `T.isInfixOf` y)
+  | (name, rendered) <-
+      [ ("db backup Job", renderBackupJob backupJobInputsPg)
+      , ("db restore Job", renderRestoreJob restoreJobInputsPg)
+      , ("volume snapshot Job", renderSnapshotJob snapshotJobInputs)
+      , ("volume restore Job", renderStorageRestoreJob storageRestoreJobInputs)
+      ]
+  ]
 
 backupRestoreTests :: [TestTree]
 backupRestoreTests =

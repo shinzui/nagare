@@ -66,7 +66,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-Status: **In Progress** — M1 complete; M2–M4 remaining.
+Status: **Complete** — M1–M4 done; `cabal test nagarectl-test` is green at 262 tests.
 
 - [x] M1: Create the shared module `Nagare.Cluster.GcsJob` (canonical pod scaffolding) and
       add it to `nagarectl.cabal`.
@@ -87,8 +87,10 @@ Status: **In Progress** — M1 complete; M2–M4 remaining.
       `nagarectl`-is-a-DR-prerequisite note. (Also updated two further in-scope references the
       audit grep surfaced: `docs/runbooks/server-operations.md` and `docs/user/reference.md`.
       Acceptance grep over `scripts/ docs/runbooks/ docs/user/` now returns nothing.)
-- [ ] M4: Add the recurrence-prevention test asserting every data-movement Job renderer
+- [x] M4: Add the recurrence-prevention test asserting every data-movement Job renderer
       includes the metadata `hostAliases`; confirm `cabal test nagarectl-test` is green.
+      (New `gcsJobHostAliasesTests` drives all four renderers through one assertion table;
+      262 tests pass. Demonstrated the guard bites — see Surprises & Discoveries.)
 
 
 ## Surprises & Discoveries
@@ -96,7 +98,20 @@ Status: **In Progress** — M1 complete; M2–M4 remaining.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The recurrence guard was proven to bite.** With the new test in place, deleting
+  `"hostAliases" .= metadataHostAliases` from `Nagare.Cluster.GcsJob.dataMovementJobSpec` and
+  re-running `cabal test nagarectl-test` failed **all four** new cases at once (db backup, db
+  restore, volume snapshot, volume restore) — plus the pre-existing `backupRestoreTests`
+  hostAliases assertion, for 5 failures total — because every renderer now shares one assembly.
+  Restoring the line returned the suite to 262 green. This is exactly the centralization the
+  plan aimed for: the 401-Anonymous regression can no longer hide in one renderer.
+
+- **The M3 acceptance grep was broader than the plan's enumerated file list.** Beyond the three
+  docs the plan named, the audit grep over `scripts/ docs/runbooks/ docs/user/` also matched
+  `docs/runbooks/server-operations.md` (a `run scripts/backup-postgres.sh` remediation hint) and
+  `docs/user/reference.md` (a `scripts/restore-volume.sh` restore pointer). Both were updated to
+  the `nagarectl` equivalents. The explanatory "these helper scripts are removed" notes were
+  reworded to drop the literal `*.sh` filename tokens so the acceptance grep stays clean.
 
 
 ## Decision Log
@@ -133,7 +148,42 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Delivered against the purpose in full, offline-verifiable:
+
+1. **The cycle is gone and the helper is de-duplicated.** `Nagare.Cluster.GcsJob` is a leaf
+   module rendering the canonical GCS data-movement pod scaffolding once. `cabal build
+   exe:nagarectl` reports no module cycle, and `grep -rn 'metadata.google.internal'
+   cli/nagarectl/src/` now hits only `Nagare/Cluster/GcsJob.hs` (the literal plus its Haddock),
+   where it previously appeared in three renderers. M1 preserved every renderer's byte output:
+   the field-assembly order in `dataMovementJobSpec` matches the prior inline order, so all 258
+   pre-existing tests stayed green through the refactor.
+
+2. **Volume restore now exists in the typed control plane.** `nagarectl storage restore APP
+   VOLUME BACKUP_ID [--into-live]` is scratch-first by default: it applies a disposable
+   `<pvc>-restore-scratch` PVC and untars the GCS snapshot into it, touching the live PVC only
+   under `--into-live` (which prints a loud confirmation). The dry-run against `uploads-volume`
+   renders the scratch-PVC manifest, the `google/cloud-sdk:slim` image, the
+   `metadata.google.internal` `hostAliases`, and the `-restore-scratch` claim — exactly the
+   shape the deleted `scripts/restore-volume.sh` produced, now type-checked and shared.
+
+3. **The four hand-rolled scripts are deleted and every doc calls `nagarectl` verbs.** No
+   systemd timer or justfile target referenced them. The disaster-recovery runbook now opens
+   with a "`nagarectl` is a DR prerequisite" note and its restore steps call `nagarectl db
+   restore` / `nagarectl storage restore` (and `litestream restore` for SQLite).
+
+4. **The regression guard is centralized and enforced.** A single `gcsJobHostAliasesTests` table
+   drives all four renderers; adding a fifth data-movement renderer means adding one row.
+
+No gaps against scope. The live exercise of these rendered Jobs (a real snapshot+restore round
+trip on `nagare-01`) is intentionally out of this plan and belongs to EP-5
+(`docs/plans/69-ci-pipeline-and-live-smoke-test.md`), which consumes this module's output but
+does not edit it.
+
+Lessons: (a) putting the *whole* `.spec` body (not just the `hostAliases` fragment) behind the
+shared module is what makes the recurrence guard total — a renderer cannot partially adopt the
+scaffolding. (b) Acceptance greps that scope by directory can be broader than a plan's
+enumerated file list; running the acceptance command (not just editing the named files) caught
+two extra in-scope references.
 
 
 ## Context and Orientation
