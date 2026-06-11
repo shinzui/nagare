@@ -2,9 +2,10 @@
 --
 -- Only `.` (the spike package) is listed by default so that `cabal build
 -- spike-lib` and the lighter prototypes have a small, fast solve. The heavier
--- corpus packages are added incrementally as each prototype needs them:
---   * proto1 (config-as-program) needs `cradle`  -> uncommented below.
---   * proto3 (dhall)             needs `dhall`    -> added in M4.
+-- packages are pulled in as each prototype needs them:
+--   * proto1 (config-as-program) needs `cradle` (not on Hackage) -> fetched
+--     from upstream via the source-repository-package stanza below.
+--   * proto3 (dhall)             needs `dhall`  -> resolves from Hackage.
 -- This keeps M1/M2 from dragging in dhall's large transitive closure before
 -- it is needed. (Deviation from the plan's all-at-once cabal.project, recorded
 -- in the Decision Log.)
@@ -18,5 +19,8 @@ write-ghc-environment-files: always
 
 packages:
   .
-  /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle
-  /Users/shinzui/Keikaku/hub/haskell/dhall-haskell-project/dhall-haskell/dhall
+
+source-repository-package
+  type: git
+  location: https://github.com/garnix-io/cradle
+  tag: 711c441fa8f190a8964c56a3bae864cd5321c5c5

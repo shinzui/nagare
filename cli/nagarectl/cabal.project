@@ -4,7 +4,8 @@
 -- sibling library nagare-dsl. The ../nagare-dsl entry makes the nagare-dsl
 -- Cabal package available without publishing it to Hackage.
 --
--- `cradle` is not on Hackage, so its corpus source path is listed explicitly.
+-- `cradle` is not on Hackage, so it is fetched directly from its upstream
+-- repository (garnix-io/cradle) via the source-repository-package stanza below.
 -- All other dependencies (optparse-applicative, text, bytestring, time,
 -- temporary, lens, generic-lens, directory) resolve from Hackage.
 --
@@ -18,4 +19,8 @@ write-ghc-environment-files: always
 packages:
   .
   ../nagare-dsl
-  /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle
+
+source-repository-package
+  type: git
+  location: https://github.com/garnix-io/cradle
+  tag: 711c441fa8f190a8964c56a3bae864cd5321c5c5
