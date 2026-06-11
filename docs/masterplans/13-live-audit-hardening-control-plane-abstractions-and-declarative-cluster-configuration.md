@@ -147,7 +147,7 @@ MasterPlan threshold.
 | EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | Complete |
 | EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Complete |
 | EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Complete |
-| EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Not Started |
+| EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Complete |
 | EP-6 | CLI and Operator-Harness Ergonomics | docs/plans/70-cli-and-operator-harness-ergonomics.md | None | EP-3 | Complete |
 
 Phases: **Phase 1** = EP-1, EP-2, EP-3 (parallelizable). **Phase 2** = EP-4, EP-5, EP-6.
@@ -244,8 +244,8 @@ at-a-glance roll-up.
 - [x] EP-3: `Nagare.Build` passes `--platform` to `docker build`/`nixpacks`
 - [x] EP-4: Kourier-ingress check accepts a node-IP LoadBalancer fronted by the static IP
 - [x] EP-4: New `doctor` checks: private-image pullability; build/node architecture mismatch
-- [ ] EP-5: Nix flake checks + GitHub Actions workflow; compile-every-example-`Config.hs` guard
-- [ ] EP-5: Periodic/manual live smoke test (private-image deploy + volume snapshot/restore + teardown)
+- [x] EP-5: Nix flake checks + GitHub Actions workflow; compile-every-example-`Config.hs` guard
+- [x] EP-5: Periodic/manual live smoke test (private-image deploy + volume snapshot/restore + teardown)
 - [x] EP-6: `nagarectl` resolves the loader GHC environment itself (no hand-captured `--ghc-env`)
 - [x] EP-6: `iap-ssh.sh` reads SSH user from the target profile (default `deploy`); `just live-test` harness
 
@@ -321,6 +321,22 @@ interactions between child plans. Provide concise evidence.
   EP-1/2/3 capabilities exist) and the live smoke harness should run `doctor`/`deploy` from the repo
   root (the EP-4 cwd lesson).
 
+- **EP-5 complete (2026-06-11): CI exists, and the live smoke test paid for itself immediately.** The
+  root `flake.nix` gains a `checks` output (build+test both Haskell packages, compile-and-run every
+  example `Config.hs`, shellcheck), invoked by a thin `.github/workflows/ci.yml`; `nix flake check`
+  passes on a clean tree. `just smoke` / `scripts/live-smoke.sh` ran the full deploy → snapshot →
+  restore → HTTP-200 → teardown cycle against `nagare-01` (`live smoke: OK`), proving EP-1/2/3/6
+  together on the exact paths that were dark for weeks. **Two cross-plan defects surfaced and were
+  fixed:** (1) **EP-2's token refresh was non-durable** — containerd loads `registries.yaml` only at
+  k3s start and never hot-reloads it, so the timer's rewrites were ignored and the token expired ~1h
+  after the last restart (the M2 "verification" only passed because `host-switch` restarts k3s). Fixed
+  by adding `nagare-registries-reload` (a timer-driven `systemctl restart k3s`) to EP-2's
+  `registries.nix`; re-verified live. (2) The flake checks, run in a clean Nix derivation (no stray
+  `.ghc.environment.*`), exposed that `nagare-dsl`'s loader tests need `cabal build` (not just `cabal
+  test`) to materialise that file — the same GHC-env class EP-6 fixed for `nagarectl`. Both validate
+  the initiative's thesis: behaviours never exercised in a clean environment rot in the dark. **All six
+  child ExecPlans are now Complete.**
+
 
 ## Decision Log
 
@@ -364,4 +380,51 @@ plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+**All six child ExecPlans are Complete (2026-06-11), and the initiative met its vision.** Each
+defect the 2026-06-10 audit exposed was fixed at the right altitude — the abstraction, not the
+symptom — and verified live on `nagare-01`.
+
+Against the vision's promises:
+
+- **One typed abstraction renders every GCS-backed data-movement Job (EP-1).** `Nagare.Cluster.GcsJob`
+  emits the canonical scaffolding once; db backup/restore, volume snapshot, and the new
+  `nagarectl storage restore` verb all consume it, breaking the `Backup`↔`Snapshot` cycle. A
+  recurrence test drives all four renderers; the four bash scripts are deleted and the DR runbook
+  calls `nagarectl` verbs. The live smoke proved the snapshot→restore GCS round-trip (the old
+  `401 Anonymous` path) now authenticates.
+- **The cluster pulls its own private images out of the box (EP-2).** `registries.nix` (a
+  metadata-token refresh + a reload that restarts k3s so containerd actually reloads it) and the
+  Knative `config-deployment` `registriesSkippingTagResolving` are declarative; a fresh
+  `nagarectl deploy` of a build-mode app reached `Ready` pulling a private image with no manual
+  token or patch. The reload requirement was a defect the EP-5 smoke caught and EP-2 then fixed.
+- **`nagarectl` builds for the cluster's architecture (EP-3).** `NAGARE_TARGET_PLATFORM` is in the
+  target profile and `Nagare.Build` passes `--platform`; demonstrated amd64-on-arm64.
+- **The control plane tells the truth (EP-4).** `doctor`'s Kourier check is reachability-first (no
+  more false FAIL — live `[OK] serving on 34.145.74.203`), plus private-image-pull and build/node-arch
+  checks; live run 21 checks, `0 failed`. (Observability CPU requests were right-sized in EP-2 so an
+  app + a DB co-schedule on the 2-vCPU node.)
+- **Regressions of this class are caught automatically (EP-5).** `nix flake check` (the source of
+  truth) compiles every example, runs both suites, and shellchecks; a thin Actions workflow invokes
+  it; a manual live smoke exercises the Phase-1 behaviours end-to-end.
+- **The ergonomics that made the audit painful are gone (EP-6).** `nagarectl` auto-resolves the GHC
+  env, `iap-ssh.sh` defaults to `deploy`, and `just live-test` stands up the workstation→cluster
+  harness in one command.
+
+**Out of scope, unchanged (as planned):** wildcard TLS/HTTPS and CDN edge proofs (need a real domain
++ Cloudflare token + billable `pulumi up`) remain deferred in MasterPlans 1 and 11.
+
+**Gaps / recommended follow-ups (recorded in the child plans):** (1) the kubelet image
+credential-provider plugin (`auth-provider-gcp`, once packaged for Nix) would replace EP-2's periodic
+k3s restart with mint-per-pull — the superior durable mechanism; (2) a pre-existing, EP-orthogonal sops
+gap on the box (`/var/lib/sops-nix/age-key.txt` absent → Tailscale logged out → `host-switch` runs over
+an IAP tunnel and `switch-to-configuration` exits non-zero on `tailscaled-autoconnect`) is the single
+most useful operability fix; (3) `fourmolu-format` was omitted from CI pending a fourmolu re-pin or a
+one-time tree-wide reformat; (4) the flake checks are network-dependent (the documented first
+iteration) — a `haskell.nix` migration would make them hermetic; (5) `just host-image` (fresh-image
+parity bake) was scoped out as a billable mutation whose build was already proven by `host-switch`.
+
+**The through-line lesson:** every defect this initiative fixed had survived precisely because its path
+was never run in a clean environment. The two new safety nets — the offline flake checks and the live
+smoke — are designed to keep exactly those paths lit, and both proved their worth during the work
+itself (the smoke caught the EP-2 reload defect; the clean-derivation flake check caught a GHC-env
+fragility the dev shell had hidden).
