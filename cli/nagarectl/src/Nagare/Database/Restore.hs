@@ -31,7 +31,8 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupGsUrl, metadataHostAliases)
+import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
+import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupGsUrl)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
@@ -79,21 +80,13 @@ renderRestoreJob i =
             , "labels" .= labels
             ]
       , "spec"
-          .= object
-            [ "backoffLimit" .= (0 :: Int)
-            , "template"
-                .= object
-                  [ "metadata" .= object ["labels" .= labels]
-                  , "spec"
-                      .= object
-                        [ "restartPolicy" .= ("Never" :: Text)
-                        , "hostAliases" .= metadataHostAliases
-                        , "initContainers" .= toJSON [downloadContainer i]
-                        , "containers" .= toJSON [restoreContainer i]
-                        , "volumes" .= toJSON [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
-                        ]
-                  ]
-            ]
+          .= dataMovementJobSpec
+            DataMovementJob
+              { dmjTemplateLabels = Just labels
+              , dmjInitContainers = [downloadContainer i]
+              , dmjContainers = [restoreContainer i]
+              , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+              }
       ]
   where
     labels =
@@ -109,15 +102,12 @@ downloadContainer :: RestoreJobInputs -> Value
 downloadContainer i =
   object
     [ "name" .= ("download" :: Text)
-    , "image" .= ("google/cloud-sdk:slim" :: Text)
+    , "image" .= gcsContainerImage
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [downloadShell (rjiEngine i)]
     , "env"
         .= toJSON
-          [ plainEnv "SRC" (rjiSrcUrl i)
-          , plainEnv "GCE_METADATA_HOST" "169.254.169.254"
-          , plainEnv "CLOUDSDK_CORE_PROJECT" (rjiProject i)
-          ]
+          (plainEnv "SRC" (rjiSrcUrl i) : metadataEnv (rjiProject i))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 

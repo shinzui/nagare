@@ -36,6 +36,7 @@ library
     Nagare.Cdn.Cloudflare
     Nagare.Cdn.Provision
     Nagare.Cdn.Status
+    Nagare.Cluster.GcsJob
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create

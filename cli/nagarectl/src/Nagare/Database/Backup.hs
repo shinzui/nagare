@@ -31,7 +31,6 @@ module Nagare.Database.Backup
   , BackupCronInputs (..)
   , renderBackupCronJob
   , renderDbBackupCronJob
-  , metadataHostAliases
 
     -- * Command driver
   , runDbBackup
@@ -50,6 +49,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
+import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
@@ -132,25 +132,13 @@ renderBackupJob i =
 -- containers). Reused verbatim as a CronJob's @jobTemplate.spec@.
 backupJobSpecValue :: BackupJobInputs -> Value
 backupJobSpecValue i =
-  object
-    [ "backoffLimit" .= (0 :: Int)
-    , "template"
-        .= object
-          [ "metadata" .= object ["labels" .= labelsValue i]
-          , "spec"
-              .= object
-                [ "restartPolicy" .= ("Never" :: Text)
-                , -- gcloud/gsutil resolve the metadata server by name; pods can't
-                  -- resolve metadata.google.internal via cluster DNS, so map it to
-                  -- the metadata IP (which the node's /32 route makes reachable).
-                  "hostAliases" .= metadataHostAliases
-                , "initContainers" .= toJSON [dumpContainer i]
-                , "containers" .= toJSON [uploadContainer i]
-                , "volumes"
-                    .= toJSON [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
-                ]
-          ]
-    ]
+  dataMovementJobSpec
+    DataMovementJob
+      { dmjTemplateLabels = Just (labelsValue i)
+      , dmjInitContainers = [dumpContainer i]
+      , dmjContainers = [uploadContainer i]
+      , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+      }
 
 jobMetadata :: BackupJobInputs -> Value
 jobMetadata i =
@@ -186,35 +174,22 @@ uploadContainer :: BackupJobInputs -> Value
 uploadContainer i =
   object
     [ "name" .= ("upload" :: Text)
-    , "image" .= ("google/cloud-sdk:slim" :: Text)
+    , "image" .= gcsContainerImage
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [uploadShell i]
     , "env"
         .= toJSON
-          [ plainEnv "DEST" (bjiDestUrl i)
-          , plainEnv "PREFIX" (bjiPrefix i)
-          , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
-          , plainEnv "GCE_METADATA_HOST" "169.254.169.254"
-          , plainEnv "CLOUDSDK_CORE_PROJECT" (bjiProject i)
-          ]
+          ( [ plainEnv "DEST" (bjiDestUrl i)
+            , plainEnv "PREFIX" (bjiPrefix i)
+            , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
+            ]
+              ++ metadataEnv (bjiProject i)
+          )
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
 dumpMount :: Value
 dumpMount = object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
-
--- | A @hostAliases@ entry mapping @metadata.google.internal@ to the GCE metadata
--- IP, so gcloud/gsutil (which look up the canonical name) find the metadata
--- server. Pods cannot resolve that name via cluster DNS; the node's /32 route
--- (nixos networking.nix) makes the IP reachable, and this maps the name to it.
-metadataHostAliases :: Value
-metadataHostAliases =
-  toJSON
-    [ object
-        [ "ip" .= ("169.254.169.254" :: Text)
-        , "hostnames" .= toJSON (["metadata.google.internal"] :: [Text])
-        ]
-    ]
 
 plainEnv :: Text -> Text -> Value
 plainEnv n v = object ["name" .= n, "value" .= v]

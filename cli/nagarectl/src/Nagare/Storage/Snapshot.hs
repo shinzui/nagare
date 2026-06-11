@@ -48,6 +48,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Data.Yaml qualified as Y
+import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
 import Nagare.Dsl.Types
   ( Deployment
   , RetentionPolicy (..)
@@ -145,67 +146,39 @@ jobValue i =
           , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
           ]
     , "spec"
-        .= object
-          [ "backoffLimit" .= (0 :: Int)
-          , "template"
-              .= object
-                [ "spec"
-                    .= object
-                      [ "restartPolicy" .= ("Never" :: Text)
-                      , -- gsutil/gcloud resolve the metadata server by name even with
-                        -- GCE_METADATA_HOST set; pods can't resolve
-                        -- metadata.google.internal via cluster DNS, so map it to the
-                        -- metadata IP (the node's /32 route makes it reachable). Without
-                        -- this the snapshot pod gets ADC anonymous → 401 on GCS. Mirrors
-                        -- the proven db-backup Job (Nagare.Database.Backup).
-                        "hostAliases" .= metadataHostAliases
-                      , "containers"
-                          .= toJSON
-                            [ object
-                                [ "name" .= ("snapshot" :: Text)
-                                , "image" .= ("google/cloud-sdk:slim" :: Text)
-                                , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-                                , "args" .= toJSON [snapshotShell]
-                                , "env"
-                                    .= toJSON
-                                      [ envVar "DEST" (sjiDestUrl i)
-                                      , envVar "GCE_METADATA_HOST" "169.254.169.254"
-                                      , envVar "CLOUDSDK_CORE_PROJECT" (sjiProject i)
-                                      ]
-                                , "volumeMounts"
-                                    .= toJSON
-                                      [ object
-                                          [ "name" .= ("vol" :: Text)
-                                          , "mountPath" .= sjiMountPath i
-                                          , "readOnly" .= True
-                                          ]
-                                      ]
-                                ]
-                            ]
-                      , "volumes"
-                          .= toJSON
-                            [ object
-                                [ "name" .= ("vol" :: Text)
-                                , "persistentVolumeClaim" .= object ["claimName" .= sjiClaimName i]
-                                ]
-                            ]
-                      ]
+        .= dataMovementJobSpec
+          DataMovementJob
+            { dmjTemplateLabels = Nothing
+            , dmjInitContainers = []
+            , dmjContainers =
+                [ object
+                    [ "name" .= ("snapshot" :: Text)
+                    , "image" .= gcsContainerImage
+                    , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+                    , "args" .= toJSON [snapshotShell]
+                    , "env"
+                        .= toJSON
+                          (envVar "DEST" (sjiDestUrl i) : metadataEnv (sjiProject i))
+                    , "volumeMounts"
+                        .= toJSON
+                          [ object
+                              [ "name" .= ("vol" :: Text)
+                              , "mountPath" .= sjiMountPath i
+                              , "readOnly" .= True
+                              ]
+                          ]
+                    ]
                 ]
-          ]
+            , dmjVolumes =
+                [ object
+                    [ "name" .= ("vol" :: Text)
+                    , "persistentVolumeClaim" .= object ["claimName" .= sjiClaimName i]
+                    ]
+                ]
+            }
     ]
   where
     envVar n v = object ["name" .= (n :: Text), "value" .= (v :: Text)]
-    -- Map metadata.google.internal -> the metadata IP at the pod level. Defined
-    -- locally (not imported from Nagare.Database.Backup) because Backup already
-    -- depends on this module, so importing back would form a cycle. Kept in sync
-    -- with Backup.metadataHostAliases.
-    metadataHostAliases =
-      toJSON
-        [ object
-            [ "ip" .= ("169.254.169.254" :: Text)
-            , "hostnames" .= toJSON (["metadata.google.internal"] :: [Text])
-            ]
-        ]
     -- Tar the mount and stream straight to GCS; $DEST comes from the env above.
     snapshotShell =
       "set -e; tar -C "

@@ -66,14 +66,15 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-Status: **Not Started.**
+Status: **In Progress** — M1 complete; M2–M4 remaining.
 
-- [ ] M1: Create the shared module `Nagare.Cluster.GcsJob` (canonical pod scaffolding) and
+- [x] M1: Create the shared module `Nagare.Cluster.GcsJob` (canonical pod scaffolding) and
       add it to `nagarectl.cabal`.
-- [ ] M1: Refactor `Nagare.Database.Backup`, `Nagare.Database.Restore`, and
+- [x] M1: Refactor `Nagare.Database.Backup`, `Nagare.Database.Restore`, and
       `Nagare.Storage.Snapshot` to consume it; delete the three duplicated
       `metadataHostAliases` copies and the inline `GCE_METADATA_HOST` env literals; confirm
-      `cabal build` no longer reports a module cycle.
+      `cabal build` no longer reports a module cycle. (Built clean, 258 tests still green,
+      `grep metadata.google.internal src/` now hits only `Nagare/Cluster/GcsJob.hs`.)
 - [ ] M2: Add `Nagare.Storage.Restore` (renderer + driver) and wire the new
       `nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]` verb in `app/Main.hs`.
 - [ ] M3: Delete `scripts/restore-volume.sh`, `scripts/backup-postgres.sh`,
