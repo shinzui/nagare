@@ -143,7 +143,7 @@ MasterPlan threshold.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Unified GCS Data-Movement Job Abstraction and Restore Unification | docs/plans/65-unified-gcs-data-movement-job-abstraction-and-restore-unification.md | None | None | In Progress |
+| EP-1 | Unified GCS Data-Movement Job Abstraction and Restore Unification | docs/plans/65-unified-gcs-data-movement-job-abstraction-and-restore-unification.md | None | None | Complete |
 | EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | Not Started |
 | EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Not Started |
 | EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Not Started |
@@ -233,10 +233,10 @@ honored.
 Track milestone-level progress across all child plans. Each child plan owns the detail; this is the
 at-a-glance roll-up.
 
-- [ ] EP-1: Shared `Nagare.Cluster.GcsJob` module rendering the canonical GCS data-movement pod scaffolding
-- [ ] EP-1: `Database.Backup`/`Database.Restore`/`Storage.Snapshot` refactored onto it; `Backup`↔`Snapshot` cycle broken
-- [ ] EP-1: New `nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]` verb (scratch-first)
-- [ ] EP-1: Bash scripts deleted; disaster-recovery runbook calls `nagarectl` verbs
+- [x] EP-1: Shared `Nagare.Cluster.GcsJob` module rendering the canonical GCS data-movement pod scaffolding
+- [x] EP-1: `Database.Backup`/`Database.Restore`/`Storage.Snapshot` refactored onto it; `Backup`↔`Snapshot` cycle broken
+- [x] EP-1: New `nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]` verb (scratch-first)
+- [x] EP-1: Bash scripts deleted; disaster-recovery runbook calls `nagarectl` verbs
 - [ ] EP-2: `registries.yaml` (durable credential mechanism) declared in `nixos/hosts/nagare-01/`
 - [ ] EP-2: `config-deployment.yaml` (`registriesSkippingTagResolving`) in the Knative bootstrap
 - [ ] EP-2: Observability resource requests right-sized for the 2-vCPU node (app + DB co-schedule)
@@ -260,6 +260,17 @@ interactions between child plans. Provide concise evidence.
   `docs/masterplans/9-managed-databases-for-nagare.md`), the private-image-pull gap
   (`docs/masterplans/4-application-build-modes-for-nagare.md` Outcomes), and the `doctor`
   Kourier-ingress false-FAIL (`docs/masterplans/8-server-inventory-and-operations-ux-for-nagare.md`).
+
+- **EP-1 complete (2026-06-11): Integration Point #1 is now concrete.** The shared module landed as
+  `cli/nagarectl/src/Nagare/Cluster/GcsJob.hs` (name as proposed) exporting `metadataHostAliases ::
+  Value`, `metadataEnv :: Text -> [Value]`, `gcsContainerImage :: Text`, `DataMovementJob (..)`, and
+  `dataMovementJobSpec :: DataMovementJob -> Value`. It owns the *whole* `.spec` body (not just the
+  `hostAliases` fragment), so adoption is all-or-nothing — the recurrence guard
+  (`gcsJobHostAliasesTests`) covers all four renderers and was proven to fail every case at once when
+  the shared line is removed. EP-5's live smoke exercises these rendered Jobs but must not edit the
+  module. The `Backup`↔`Snapshot` cycle is broken; `cabal build` is cycle-free and the suite is 262
+  green. EP-1 added two `Nagare.Storage.*` consumers but left the target-profile schema (IP #2) and
+  the `doctor` check set (IP #3) untouched, so EP-3/EP-6 and EP-4 are unaffected.
 
 
 ## Decision Log
