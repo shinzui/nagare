@@ -15,10 +15,13 @@ default:
 # EP-2 (docs/plans/2-pulumi-gcp-infrastructure.md): create/update the GCP
 # resources (VM, static IP, Cloud DNS, disks, service account, Artifact
 # Registry, backup bucket).
+# Create/update GCP infrastructure (pulumi up).
+[group('infra')]
 infra-up:
     cd infra/pulumi && pulumi up
 
 # EP-2: preview the Pulumi changes without applying them.
+[group('infra')]
 infra-preview:
     cd infra/pulumi && pulumi preview
 
@@ -28,6 +31,7 @@ infra-preview:
 # defaulting to nagare-01 / us-west1-a / tan-nb-exp. For a FULL teardown instead,
 # use `pulumi destroy` in infra/pulumi (see docs/runbooks/disaster-recovery.md).
 # Stop the VM (reversible; restart with `just vm-start`).
+[group('infra')]
 vm-stop:
     gcloud compute instances stop "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 
@@ -36,6 +40,7 @@ vm-stop:
 # not survive a reboot — see the "Power management" section of
 # docs/runbooks/disaster-recovery.md.
 # Start the VM again after `just vm-stop`.
+[group('infra')]
 vm-start:
     gcloud compute instances start "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 
@@ -44,11 +49,15 @@ vm-start:
 # the image-staging GCS bucket, register it as a GCE image, and write its
 # self-link into Pulumi config key `nagareImageSelfLink`. The script owns
 # the details.
+# Build + upload + register the NixOS GCE image.
+[group('host')]
 host-image:
     scripts/upload-images.sh
 
 # EP-3: apply day-2 host configuration changes to the running nagare-01
 # over Tailscale. The non-root deploy user needs --sudo.
+# Apply day-2 host config to running nagare-01.
+[group('host')]
 host-switch:
     nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo
 
@@ -68,6 +77,8 @@ netcertmanager_version := "v1.14.0"
 # Assumes KUBECONFIG points at the cluster (see the MasterPlan access note: an
 # SSH local-forward to 127.0.0.1:6443 until Tailscale is joined) and that the
 # Pulumi stack output `baseDomain` is the real apps domain.
+# Install cert-manager, Knative Serving, Kourier + wire ConfigMaps (HTTP-first).
+[group('cluster')]
 cluster-bootstrap:
     for ns in cert-manager knative-serving kourier-system personal; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
@@ -92,6 +103,8 @@ cluster-bootstrap:
 # EP-4 (deferred): enable automatic per-namespace wildcard HTTPS. Only run this
 # AFTER a real baseDomain is set in Pulumi config and delegated to the Cloud DNS
 # zone's nameservers (see cluster/bootstrap/cert-manager/README.md).
+# Enable automatic per-namespace wildcard HTTPS (run after baseDomain delegated).
+[group('cluster')]
 cluster-enable-tls:
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
     @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
@@ -100,6 +113,8 @@ cluster-enable-tls:
 # VictoriaMetrics/Logs/Traces stack + OpenTelemetry Collector + Grafana via Helm.
 # The script owns the pinned chart versions and the install order; it is idempotent
 # (helm upgrade --install). Assumes KUBECONFIG points at the cluster.
+# Install the VictoriaMetrics/Logs/Traces + OTel + Grafana stack.
+[group('cluster')]
 observability:
     cluster/observability/install.sh
 
@@ -107,11 +122,14 @@ observability:
 # Kubernetes manifests explicitly (the app contract is the typed
 # nagare/Config.hs, not a k8s object, so it must not be passed to kubectl;
 # `nagarectl deploy` is the path that renders it).
+# Apply the hello Knative sample app as a smoke test.
+[group('apps')]
 deploy-hello:
     kubectl apply -f cluster/examples/hello-knative-service/service.yaml
     kubectl apply -f cluster/examples/hello-knative-service/domainmapping.yaml
 
 # Quick cluster status across all namespaces (pods and Knative services).
+[group('apps')]
 status:
     kubectl get pods -A
     kubectl get ksvc -A
@@ -121,6 +139,8 @@ status:
 # tunnel, layer an ssh -L forward of the k3s API (127.0.0.1:6443 -> :16443),
 # fetch /etc/rancher/k3s/k3s.yaml and rewrite its server: to the forwarded
 # port, and print the KUBECONFIG to export. Reuses scripts/iap-ssh.sh.
+# Open a workstation->cluster kube connection in one command.
+[group('test')]
 live-test:
     scripts/live-test.sh
 
@@ -129,5 +149,7 @@ live-test:
 # and RESTORES a volume (confirming a sentinel round-trips through GCS), verifies
 # HTTP 200, and tears down. Requires the running VM + GCP credentials; this is
 # NOT part of the per-PR offline CI (that is `nix flake check`).
+# Run the live smoke test (deploy, volume snapshot/restore, HTTP 200, teardown).
+[group('test')]
 smoke:
     scripts/live-smoke.sh
