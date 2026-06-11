@@ -22,6 +22,23 @@ infra-up:
 infra-preview:
     cd infra/pulumi && pulumi preview
 
+# Cheapest reversible "off": halts compute charges; the boot/data disks and the
+# reserved static IP keep their small storage/reservation cost. Targets the
+# instance/zone/project from the target profile (.envrc / nagare.target.env),
+# defaulting to nagare-01 / us-west1-a / tan-nb-exp. For a FULL teardown instead,
+# use `pulumi destroy` in infra/pulumi (see docs/runbooks/disaster-recovery.md).
+# Stop the VM (reversible; restart with `just vm-start`).
+vm-stop:
+    gcloud compute instances stop "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
+
+# Caveat: a plain start boots the EXISTING boot disk (the current system
+# generation), NOT the latest registered image, and some runtime-only fixes do
+# not survive a reboot — see the "Power management" section of
+# docs/runbooks/disaster-recovery.md.
+# Start the VM again after `just vm-stop`.
+vm-start:
+    gcloud compute instances start "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
+
 # EP-3 (docs/plans/3-nixos-host-nagare-01-with-k3s.md): build the NixOS
 # GCE image on the remote x86_64-linux Nix builder, upload the tarball to
 # the image-staging GCS bucket, register it as a GCE image, and write its
