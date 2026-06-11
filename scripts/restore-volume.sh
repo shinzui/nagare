@@ -66,6 +66,13 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # gsutil/gcloud resolve metadata.google.internal by name even with
+      # GCE_METADATA_HOST set; pods can't resolve it via cluster DNS, so map it
+      # to the metadata IP (the node's /32 route makes it reachable). Without
+      # this the restore pod gets ADC anonymous -> 401 on GCS.
+      hostAliases:
+        - ip: "169.254.169.254"
+          hostnames: ["metadata.google.internal"]
       containers:
         - name: restore
           image: google/cloud-sdk:slim

@@ -41,6 +41,7 @@ deployment = do
       , healthCheck = Nothing
       , volumes = []
       , databases = []
+      , tasks = []
       , cdn = Nothing
       }
   where

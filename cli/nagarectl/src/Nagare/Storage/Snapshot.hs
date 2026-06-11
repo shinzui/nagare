@@ -152,6 +152,13 @@ jobValue i =
                 [ "spec"
                     .= object
                       [ "restartPolicy" .= ("Never" :: Text)
+                      , -- gsutil/gcloud resolve the metadata server by name even with
+                        -- GCE_METADATA_HOST set; pods can't resolve
+                        -- metadata.google.internal via cluster DNS, so map it to the
+                        -- metadata IP (the node's /32 route makes it reachable). Without
+                        -- this the snapshot pod gets ADC anonymous → 401 on GCS. Mirrors
+                        -- the proven db-backup Job (Nagare.Database.Backup).
+                        "hostAliases" .= metadataHostAliases
                       , "containers"
                           .= toJSON
                             [ object
@@ -188,6 +195,17 @@ jobValue i =
     ]
   where
     envVar n v = object ["name" .= (n :: Text), "value" .= (v :: Text)]
+    -- Map metadata.google.internal -> the metadata IP at the pod level. Defined
+    -- locally (not imported from Nagare.Database.Backup) because Backup already
+    -- depends on this module, so importing back would form a cycle. Kept in sync
+    -- with Backup.metadataHostAliases.
+    metadataHostAliases =
+      toJSON
+        [ object
+            [ "ip" .= ("169.254.169.254" :: Text)
+            , "hostnames" .= toJSON (["metadata.google.internal"] :: [Text])
+            ]
+        ]
     -- Tar the mount and stream straight to GCS; $DEST comes from the env above.
     snapshotShell =
       "set -e; tar -C "
