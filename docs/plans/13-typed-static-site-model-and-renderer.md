@@ -96,6 +96,18 @@ reject invalid rules, and compare rendered YAML/Nginx config against golden file
   `FilePathText`, and `mkFilePathText` so EP-18 can import them instead of redefining them.
   Date: 2026-06-09
 
+- Decision: Keep Nginx as the static origin server rendered by `renderNginxConfig`; do not switch the
+  renderer to a Caddyfile/Caddy image.
+  Rationale: Evaluated Caddy as an alternative while the renderer surface is still small. Caddy's
+  headline automatic-HTTPS feature is irrelevant here — TLS terminates upstream (Kourier today, the
+  CDN edge after MasterPlan 11) and the origin serves plain HTTP on port 8080 from an immutable image
+  — leaving only generated-config readability, which users never see because the config is
+  machine-generated from the typed rules. Nginx idles lighter for scale-to-zero density and its
+  generator is already golden-tested, so a switch is churn that would re-derive the `location`
+  precedence (immutable-asset regex vs header-prefix) this plan already resolved. Recorded at the
+  coordination level in `docs/masterplans/3-static-hosting-for-nagare.md` (Decision Log, 2026-06-10).
+  Date: 2026-06-10
+
 
 ## Outcomes & Retrospective
 
@@ -327,3 +339,8 @@ module Nagare.Dsl.Static.Render
   frameworks). No change to this plan's static-site model, renderers, or tests; the amendment only
   fixes the contract EP-18 builds on. Reason: the parent MasterPlan was extended to support full-stack
   server-runtime hosting in addition to static hosting.
+
+- 2026-06-10: Recorded the Nginx-vs-Caddy evaluation for the static origin server in the Decision Log
+  and kept Nginx. No change to the renderer, model, or tests — the entry documents why
+  `renderNginxConfig` stays Nginx-targeted. Reason: a request to revisit the origin server choice
+  while it is still cheap to change.

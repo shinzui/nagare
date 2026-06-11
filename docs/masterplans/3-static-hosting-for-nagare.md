@@ -242,10 +242,10 @@ describe the server image only at the user-visible level; users never hand-write
 
 - [x] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API. (2026-06-09)
 - [x] EP-13: Add golden and negative tests for Nginx config, Knative Service, DomainMappings, redirects, headers, and invalid rules. (2026-06-09)
-- [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09)
-- [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation)
+- [x] EP-14: Implement local static build, output collection, generated image context, image build/push, dry-run, and production apply. (2026-06-09) **Live build→package→push→apply VERIFIED 2026-06-10**: `site deploy` packaged the `public/` dir into an `linux/amd64` image, pushed it to `us-west1-docker.pkg.dev/tan-nb-exp/nagare`, deployed the Knative Service, and served **HTTP 200** with the real site content; the `/old-home`→`/` redirect rule returned **301** live.
+- [x] EP-15: Add release metadata, release listing, rollback, and preview deploy naming. (2026-06-09; kubectl-backed flow pending live-cluster validation). **VERIFIED live 2026-06-10** against `nagare-01`: two real `site deploy`s produced a 2-row `site releases` history (active `*`-marked, `--source` provenance recorded); `site rollback <v1>` reverted the served content to v1 (curl-confirmed); `site preview deploy -n pr-42` created `audit-static-pr-pr-42` + the preview DomainMapping `pr-42.audit-static.preview.apps.example.com` (served 200); `site preview list`/`delete` listed then cleanly removed it.
 - [x] EP-16: Add a webhook receiver that verifies Git provider signatures and triggers production or preview deploys. (2026-06-09; in-cluster GitHub round-trip documented as operator setup)
-- [x] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting. (2026-06-09; live validation deferred until `nagare-01` is up)
+- [x] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting. (2026-06-09; live validation deferred until `nagare-01` is up). **Static end-to-end validation EXECUTED and VERIFIED live 2026-06-10** (deploy → 200 + redirect, releases, rollback, preview — see EP-14/EP-15). The full-stack `ServerSite` deploy (EP-18) uses the identical build→push→apply path, now proven; its stale example config was also fixed to the current DSL (`ServerSite.env` is now `ScopedEnvVar`). Note the private-image pull required configuring node→Artifact Registry auth — see MasterPlan 4's live-verification note.
 - [x] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`. (2026-06-09)
 - [x] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation. (2026-06-09; live Docker/cluster deploy is manual)
 
@@ -410,6 +410,27 @@ describe the server image only at the user-visible level; users never hand-write
   cache and explicitly keeps Kourier-on-the-VM as the origin with the Nginx image behind it.
   Date: 2026-06-10
 
+- Decision: Keep Nginx (`nginx:1.27-alpine`) as the static-site origin server inside the per-release
+  image; do not switch to Caddy. *Which* file server runs in the container is a swappable detail
+  behind the typed renderer, evaluated and settled here.
+  Rationale: Evaluated on "should the static origin be Caddy instead of Nginx, while the change is
+  still cheap?". Caddy's flagship feature — automatic HTTPS/ACME — is worth nothing in this slot: TLS
+  terminates upstream (Kourier today, the CDN edge after MasterPlan 11), the origin serves plain HTTP
+  on port 8080, and the image is immutable and ephemeral, so per-container certs are meaningless (you
+  would have to actively disable Caddy's auto-HTTPS). What remains is Caddyfile readability — but the
+  config is machine-generated from typed rules (`renderNginxConfig` in
+  `cli/nagare-dsl/src/Nagare/Dsl/Static/Render.hs`) and never seen or hand-edited by users, so that
+  benefit is small. Against switching: Nginx idles lighter and starts faster (it matters for
+  scale-to-zero density across several small static sites), and the Nginx generator is already
+  written, golden-tested, and shipped (EP-13/EP-14 Complete) — switching means re-deriving
+  config-generation correctness, including the immutable-asset-regex-vs-header-prefix `location`
+  precedence EP-13 already flagged, in Caddy's unfamiliar matcher model. The change surface is small
+  (only `renderNginxConfig`, the generated Dockerfile in `Nagare.Static.Image`, one golden, and
+  tests), so this remains revisitable later as a renderer-only swap if the origin ever needs to
+  hand-extend its config or terminate TLS itself — neither of which the typed-rule, upstream-TLS
+  design calls for.
+  Date: 2026-06-10
+
 
 ## Outcomes & Retrospective
 
@@ -444,10 +465,13 @@ Verified offline: `cabal test` passes in both packages (nagare-dsl 112, nagarect
 server examples; a live `nagared` answered `/healthz` and the signed/unsigned
 webhook paths.
 
-Deferred (environment-gated, documented as manual): the live build → push →
-`kubectl apply` → Ready → URL leg, the in-cluster GitHub webhook round-trip, and a
-real custom domain — all pending `nagare-01` being powered on. These are the same
-"box is down" caveats the rest of the operator guide carries.
+Deferred (environment-gated, documented as manual): **the live build → push →
+`kubectl apply` → Ready → URL leg is now EXECUTED and VERIFIED (2026-06-10)** — a static site
+deployed to `nagare-01` served 200 with its redirect rule, and release/rollback/preview all ran live
+(see EP-14/EP-15/EP-17). Still genuinely deferred: the in-cluster GitHub **webhook** round-trip
+(needs a public webhook endpoint + a real Git repo/secret) and a **real custom domain with TLS** (the
+base domain is still the placeholder `apps.example.com`). These remain the "external dependency"
+caveats, distinct from the now-closed "box is down" one.
 
 Known follow-ups (small, non-blocking): server-site **preview** deploys (static
 previews work today); teaching `nagared` the `loadSite` dispatcher so webhooks can
@@ -477,3 +501,9 @@ the Decision Log if the in-cluster Docker daemon proves painful.
   and the "does pure-static need an origin at all?" question is folded into
   `docs/masterplans/11-cdn-integration-for-nagare.md` (CDN), which fronts the Nginx origin with an
   edge cache. See the Decision Log entry of the same date.
+
+- 2026-06-10: Evaluated switching the static origin server from Nginx to Caddy while the change is
+  still cheap; decided to keep Nginx (see Decision Log, 2026-06-10). Caddy's automatic-HTTPS feature
+  is moot here because TLS terminates upstream and the origin is an immutable HTTP-only port-8080
+  container, and the machine-generated config users never see does not justify churning the shipped,
+  golden-tested renderer. No code change. Mirrored in EP-13's Decision Log.
