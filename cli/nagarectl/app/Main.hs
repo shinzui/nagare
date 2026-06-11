@@ -182,6 +182,7 @@ import Nagare.Server.Deploy
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
 import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
+import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Static.Release
   ( StaticReleaseLog (..)
@@ -373,6 +374,8 @@ data StorageCommand
   = StorageList StoreCommonOpts
   | StorageInspect StoreCommonOpts String -- ^ VOLUME
   | StorageSnapshot StoreCommonOpts String (Maybe String) Int -- ^ VOLUME, --bucket, --keep (EP-36)
+  | StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool
+  -- ^ VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run (EP-1)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
 -- constructor per subcommand. EP-47 extends this with @DbBackup@/@DbRestore@
@@ -1332,6 +1335,28 @@ opts =
                       <**> helper
                   )
                   (progDesc "Snapshot a volume's contents to the GCS backup bucket")
+              )
+            <> command
+              "restore"
+              ( info
+                  ( Storage
+                      <$> ( StorageRestore
+                              <$> storeCommonOptsParser
+                              <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
+                              <*> strArgument (metavar "BACKUP_ID" <> help "Snapshot timestamp (or full gs:// URL) to restore")
+                              <*> optional
+                                ( strOption
+                                    ( long "bucket"
+                                        <> metavar "BUCKET"
+                                        <> help "GCS backup bucket (overrides the target profile NAGARE_BACKUP_BUCKET / <project>-nagare-backups)"
+                                    )
+                                )
+                              <*> switch (long "into-live" <> help "Restore into the LIVE volume PVC (default: a scratch PVC)")
+                              <*> dryRunOpt
+                          )
+                      <**> helper
+                  )
+                  (progDesc "Restore a volume snapshot from GCS into a scratch PVC (or --into-live)")
               )
         )
     dbCmd =
@@ -2363,6 +2388,11 @@ runStorage = \case
     tp <- resolveTargetProfile
     b <- resolveBackupBucket bucket
     runSnapshot dep (T.pack vol) b keep (tpProject tp)
+  StorageRestore copts vol backupId bucket live dryRun -> do
+    dep <- resolveStorageDep copts
+    tp <- resolveTargetProfile
+    b <- resolveBackupBucket bucket
+    runStorageRestore dep (T.pack vol) (T.pack backupId) live b (tpProject tp) dryRun
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.

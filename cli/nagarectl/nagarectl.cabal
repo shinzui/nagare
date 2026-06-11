@@ -75,6 +75,7 @@ library
     Nagare.Storage.Discover
     Nagare.Storage.Inspect
     Nagare.Storage.List
+    Nagare.Storage.Restore
     Nagare.Storage.Snapshot
     Nagare.Target
     Nagare.Task.Delete

@@ -75,8 +75,11 @@ Status: **In Progress** — M1 complete; M2–M4 remaining.
       `metadataHostAliases` copies and the inline `GCE_METADATA_HOST` env literals; confirm
       `cabal build` no longer reports a module cycle. (Built clean, 258 tests still green,
       `grep metadata.google.internal src/` now hits only `Nagare/Cluster/GcsJob.hs`.)
-- [ ] M2: Add `Nagare.Storage.Restore` (renderer + driver) and wire the new
+- [x] M2: Add `Nagare.Storage.Restore` (renderer + driver) and wire the new
       `nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]` verb in `app/Main.hs`.
+      (`--help` lists the verb; dry-run against `uploads-volume` prints the scratch-PVC +
+      Job manifests with the metadata `hostAliases`, `google/cloud-sdk:slim`, and a
+      `-restore-scratch` claim; `--into-live` omits the scratch PVC and targets the live PVC.)
 - [ ] M3: Delete `scripts/restore-volume.sh`, `scripts/backup-postgres.sh`,
       `scripts/restore-postgres.sh`, `scripts/restore-sqlite.sh`; update
       `docs/runbooks/disaster-recovery.md`, `docs/user/backups-and-disaster-recovery.md`, and
