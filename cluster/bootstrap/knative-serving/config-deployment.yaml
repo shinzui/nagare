@@ -1,0 +1,30 @@
+# Patch body for the knative-serving `config-deployment` ConfigMap.
+#
+# EP-2 (MasterPlan 13): let Knative admit Services that reference PRIVATE images.
+#
+# Before admitting a Service, Knative's controller resolves the image TAG (e.g.
+# .../nagare/app:latest) to an immutable DIGEST (.../app@sha256:...) so a revision
+# pins an exact image. It does that resolution CONTROLLER-SIDE, and the controller
+# does NOT read containerd's /etc/rancher/k3s/registries.yaml — so for a PRIVATE
+# Artifact Registry that tag->digest resolution fails with an auth error even when
+# containerd itself can pull. Listing the registry host here EXEMPTS it from
+# controller-side tag resolution, deferring the pull entirely to containerd, which
+# is authenticated via the host's registries.yaml (refreshed by the EP-2
+# systemd-timer in nixos/hosts/nagare-01/registries.nix).
+#
+# Applied as a MERGE patch onto the upstream-installed ConfigMap, like the sibling
+# files in this directory (it does NOT replace release labels or other keys):
+#   kubectl -n knative-serving patch configmap config-deployment \
+#     --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-deployment.yaml)"
+#
+# The list preserves Knative's upstream defaults (kind.local, ko.local,
+# dev.local — local-dev registries) and APPENDS the Artifact Registry host. A
+# merge patch on this single string key fully replaces its value, so the defaults
+# must be spelled out here or they would be dropped (the value is a comma-joined
+# string, not a mergeable list). The AR host below is the worked-example default
+# (the target-profile variable NAGARE_REGISTRY_HOST); the cluster-bootstrap recipe
+# substitutes the real $NAGARE_REGISTRY_HOST at apply time. If you apply this file
+# by hand for a different project, replace the host. Knative re-reconciles
+# config-deployment live; no controller restart is needed.
+data:
+  registriesSkippingTagResolving: "kind.local,ko.local,dev.local,us-west1-docker.pkg.dev"

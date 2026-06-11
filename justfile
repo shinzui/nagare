@@ -67,6 +67,10 @@ cluster-bootstrap:
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
     kubectl -n knative-serving patch configmap config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
+    kubectl -n knative-serving patch configmap config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
+    REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
+      kubectl -n knative-serving patch configmap config-deployment --type merge \
+        --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
 
 # EP-4 (deferred): enable automatic per-namespace wildcard HTTPS. Only run this
 # AFTER a real baseDomain is set in Pulumi config and delegated to the Cloud DNS

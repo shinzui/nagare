@@ -65,22 +65,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1 (SPIKE): Determine whether k3s's embedded kubelet honors a credential
-      provider plugin (`auth-provider-gcp` / `gcr-credential-provider`) on this host,
-      and whether that plugin is buildable/packageable under NixOS; record the
-      verdict and the chosen mechanism in the Decision Log.
-- [ ] M1: If the plugin path is chosen, prove a private-image pull works with the
-      plugin wired (no static token on disk). If the systemd-timer fallback is
-      chosen, prove a private-image pull works with the timer-refreshed
-      `registries.yaml`.
-- [ ] M2: Declare the chosen mechanism in the NixOS host config under
-      `nixos/hosts/nagare-01/` (a new `registries.nix`, imported by
-      `configuration.nix`), built via `just host-image` and applied via
-      `just host-switch`.
-- [ ] M3: Add `cluster/bootstrap/knative-serving/config-deployment.yaml` setting
-      `registriesSkippingTagResolving` to include the Artifact Registry host, and
-      wire it into the `cluster-bootstrap` recipe in the `justfile` and the
-      knative-serving `README.md`.
+- [x] M1 (SPIKE): Determined the credential mechanism. `auth-provider-gcp` is absent
+      from the host's pinned nixpkgs, so the plugin path is NOT buildable without a
+      custom `buildGoModule`; **chose the systemd-timer fallback** (Decision Log).
+- [x] M1: Proved a private-image pull works with a metadata-minted token in
+      `registries.yaml` (image `audit-build:20260610-232600` pulls; the negative
+      control — no `registries.yaml` — fails with `403 Forbidden`/anonymous-token).
+- [x] M2: Declared the systemd-timer mechanism in `nixos/hosts/nagare-01/registries.nix`
+      (imported by `configuration.nix`), applied via `nixos-rebuild switch` over an IAP
+      tunnel (`--build-host`/`--target-host deploy@127.0.0.1`, since the box builds its own
+      x86_64 closure natively and Tailscale is not joined). Generation switched system-1→2;
+      `nagare-registries-refresh.service` ran `status=0/SUCCESS` and wrote `registries.yaml`;
+      the `.timer` is active (next run +30min); a forced `crictl pull` of a private image
+      succeeds via the service-managed file. `just host-image` parity bake: see M2 note below.
+- [x] M3: Added `cluster/bootstrap/knative-serving/config-deployment.yaml`
+      (`registriesSkippingTagResolving`), wired it (and the previously-missing `config-features`)
+      into the `cluster-bootstrap` recipe with the registry host substituted from
+      `$NAGARE_REGISTRY_HOST`, and documented it in the knative-serving `README.md`. Applied
+      live and verified: the key is `kind.local,ko.local,dev.local,us-west1-docker.pkg.dev`.
 - [ ] M4: Right-size observability CPU *requests* in `cluster/observability/*` so an
       app (~250m) plus a database StatefulSet fit on the 2-vCPU node; re-run
       `cluster/observability/install.sh`.
@@ -111,6 +113,33 @@ implementation. Provide concise evidence.
   (M1) must resolve, and it is the reason a fully-specified systemd-timer fallback
   is included rather than assumed away.
 
+- (M1, 2026-06-11) Confirmed `auth-provider-gcp` is **absent** from the host's pinned
+  nixpkgs — so the systemd-timer fallback was selected (see Decision Log). The box's
+  `registries.yaml` from the audit (written 23:31) carried a token already ~4h expired by
+  03:37; the very first `crictl pull` after a `registries.yaml`-removal negative control
+  returned `403 Forbidden`/"failed to fetch anonymous token", proving the credential is the
+  load-bearing piece.
+
+- (M2, 2026-06-11) **Two pre-existing, EP-2-orthogonal facts surfaced during `host-switch`.**
+  (a) The box was still on its **first NixOS generation** (`system-1`) — it had never been
+  `nixos-rebuild switch`-ed since first boot. (b) `/var/lib/sops-nix/age-key.txt` was never
+  placed, so sops secrets have never materialized (`/run/secrets` absent), which is why
+  Tailscale is logged out and `tailscaled-autoconnect.service` fails. The switch's
+  `switch-to-configuration` therefore exits non-zero **solely** because that pre-existing
+  tailscale unit times out — but NixOS still applies all unit changes first, so the EP-2 units
+  landed and the generation advanced to `system-2`. This sops gap is out of EP-2's scope
+  (recorded here so it is not mistaken for an EP-2 regression); a separate fix should place the
+  age key (or switch `sops.age` to derive from the host SSH key alone). Because Tailscale is
+  not joined, `host-switch` had to be driven over an IAP port-22 tunnel with
+  `--build-host/--target-host deploy@127.0.0.1` (the box builds its own x86_64 closure).
+
+- (M3, 2026-06-11) The live `config-deployment` already had
+  `registriesSkippingTagResolving: kind.local,ko.local,dev.local,us-west1-docker.pkg.dev` (the
+  audit had appended the AR host to Knative's defaults). A merge patch on this **single
+  comma-joined string** key fully replaces the value, so the checked-in
+  `config-deployment.yaml`, the `justfile` recipe, and the README now spell out the Knative
+  defaults alongside the AR host to avoid silently dropping `kind.local,ko.local,dev.local`.
+
 
 ## Decision Log
 
@@ -128,13 +157,32 @@ Record every decision made while working on the plan.
   systemd-timer that mints a fresh token and rewrites `registries.yaml`. The plan
   is authored to **recommend the credential-provider plugin if and only if M1
   proves it both works on k3s here and is buildable under NixOS**; otherwise the
-  systemd-timer fallback is selected. The final verdict and rationale are recorded
-  here when M1 completes. (Pending — to be filled by M1.)
-  Rationale: the plugin refreshes credentials natively per pull (no token ever
-  written to disk, nothing to expire), which is strictly more durable; but it
-  depends on packaging a third-party binary under Nix, which may not be
-  ready-made. The timer fallback has no external packaging dependency and is fully
-  declarative, at the cost of a periodic refresh window.
+  systemd-timer fallback is selected.
+  **VERDICT (M1, 2026-06-11): candidate (ii), the systemd-timer fallback.**
+  Deciding evidence, gathered live on `nagare-01`:
+  - **Candidate (i) fails the "buildable under NixOS" half of the rule.**
+    `auth-provider-gcp` / `gcr-credential-provider` / `gcp-credential-provider` are
+    **absent from nixpkgs** (`nix search nixpkgs auth-provider-gcp` → no match;
+    `nix eval nixpkgs#<name>.pname` → absent for all three) on the host's pinned
+    `nixos-unstable` (rev `331800de…`). Shipping it would require a hand-authored
+    `buildGoModule` derivation for the multi-module `kubernetes/cloud-provider-gcp`
+    repo (vendorHash discovery + an x86_64-linux builder, which is currently
+    TERMINATED) — exactly the packaging risk the plan flagged. No ready-made package
+    exists, so (i) is not selected.
+  - **Candidate (ii) is proven to work on this exact box.** With a metadata-minted
+    token written to `/etc/rancher/k3s/registries.yaml` (username `oauth2accesstoken`),
+    a containerd pull of the private image
+    `us-west1-docker.pkg.dev/tan-nb-exp/nagare/audit-build:20260610-232600` succeeds.
+    The **negative control** confirms the credential is load-bearing: with
+    `registries.yaml` removed and k3s restarted, the same pull fails with
+    `403 Forbidden` / "failed to fetch anonymous token" (the `DENIED: Unauthenticated`
+    baseline); restoring a fresh token makes it authenticate again. The node SA
+    `nagare-node@tan-nb-exp.iam.gserviceaccount.com` holds the `cloud-platform` scope,
+    so the metadata token endpoint mints AR-pull credentials with no configured secret.
+  Rationale: candidate (ii) is fully declarative (a NixOS `systemd.service`+`timer`
+  in `registries.nix`), depends on no third-party binary, and refreshes well within
+  the ~1-hour token lifetime; its only cost is a refresh window and a root-only token
+  briefly at rest — acceptable versus the unbounded packaging effort (i) would need.
 
 - Decision (2026-06-11): `config-deployment.yaml` is applied as a **merge patch
   onto the upstream-installed ConfigMap**, exactly like the sibling

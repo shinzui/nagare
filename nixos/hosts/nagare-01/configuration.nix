@@ -8,6 +8,7 @@
     ./security.nix
     ./k3s.nix
     ./tailscale.nix
+    ./registries.nix
   ];
 
   # sops-nix: decrypt secrets at activation using an age key on the host.

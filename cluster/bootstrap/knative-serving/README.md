@@ -32,6 +32,11 @@ Then install Kourier (see `../kourier/README.md`) and net-certmanager (see
   `letsencrypt-dns` ClusterIssuer. Applied (inert until TLS is enabled).
 - `config-features.yaml` — enables PVC volume + read-write mounts (EP-33).
   **Applied** to allow Nagare apps to mount durable `local-path` storage.
+- `config-deployment.yaml` — adds the Artifact Registry host to
+  `registriesSkippingTagResolving` so Knative defers PRIVATE-image tag→digest
+  resolution to (authenticated) containerd instead of failing controller-side
+  with an auth error (EP-2). **Applied.** Its host is substituted from
+  `$NAGARE_REGISTRY_HOST` at apply time.
 
 ## Apply order
 
@@ -51,6 +56,10 @@ kubectl -n knative-serving patch configmap config-certmanager \
 # PVC volume support (EP-33)
 kubectl -n knative-serving patch configmap config-features \
   --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
+# private-image admission: skip controller-side tag resolution for the AR host (EP-2)
+REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
+kubectl -n knative-serving patch configmap config-deployment \
+  --type merge --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
 ```
 
 ## Enabling TLS later (deferred)
