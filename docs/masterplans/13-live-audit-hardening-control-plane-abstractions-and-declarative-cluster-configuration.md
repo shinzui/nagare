@@ -148,7 +148,7 @@ MasterPlan threshold.
 | EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Complete |
 | EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Not Started |
 | EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Not Started |
-| EP-6 | CLI and Operator-Harness Ergonomics | docs/plans/70-cli-and-operator-harness-ergonomics.md | None | EP-3 | Not Started |
+| EP-6 | CLI and Operator-Harness Ergonomics | docs/plans/70-cli-and-operator-harness-ergonomics.md | None | EP-3 | Complete |
 
 Phases: **Phase 1** = EP-1, EP-2, EP-3 (parallelizable). **Phase 2** = EP-4, EP-5, EP-6.
 EP-3↔EP-6 share an integration point (the target-profile schema); EP-4↔EP-2/EP-3 and EP-5↔EP-1/EP-2/EP-3 are soft. See Dependency Graph and Integration Points.
@@ -246,8 +246,8 @@ at-a-glance roll-up.
 - [ ] EP-4: New `doctor` checks: private-image pullability; build/node architecture mismatch
 - [ ] EP-5: Nix flake checks + GitHub Actions workflow; compile-every-example-`Config.hs` guard
 - [ ] EP-5: Periodic/manual live smoke test (private-image deploy + volume snapshot/restore + teardown)
-- [ ] EP-6: `nagarectl` resolves the loader GHC environment itself (no hand-captured `--ghc-env`)
-- [ ] EP-6: `iap-ssh.sh` reads SSH user from the target profile (default `deploy`); `just live-test` harness
+- [x] EP-6: `nagarectl` resolves the loader GHC environment itself (no hand-captured `--ghc-env`)
+- [x] EP-6: `iap-ssh.sh` reads SSH user from the target profile (default `deploy`); `just live-test` harness
 
 
 ## Surprises & Discoveries
@@ -299,6 +299,16 @@ interactions between child plans. Provide concise evidence.
   sufficient" bar, and the actual bake is a billable infra mutation scoped out for routine validation.
   Integration Point #4 (`cluster/bootstrap/knative-serving/`, `nixos/hosts/nagare-01/`) is owned
   solely by EP-2; EP-5 will exercise these but not edit them.
+
+- **EP-6 complete (2026-06-11): the operator papercuts are gone — verified live.** `Nagare.GhcEnv`
+  auto-resolves the loader's GHC environment (the raw `nagarectl` binary now loads `Config.hs` from
+  an app dir with no `--ghc-env` — **this unblocks EP-5's one-command live smoke**, which EP-2 had
+  flagged as gated on it); `iap-ssh.sh` defaults its SSH user to `deploy` via `NAGARE_SSH_USER`
+  (Integration Point #2 second writer — appended cleanly after EP-3's `NAGARE_TARGET_PLATFORM`, shell
+  side only, Haskell record untouched); `just live-test` stands up the workstation→cluster kube
+  connection in one command (`kubectl get nodes` → `nagare-01 Ready`). 268 tests green. With EP-1/2/3
+  and EP-6 done, only EP-4 (doctor) and EP-5 (CI + live smoke) remain; both now have all the
+  capabilities and ergonomics they consume.
 
 
 ## Decision Log
