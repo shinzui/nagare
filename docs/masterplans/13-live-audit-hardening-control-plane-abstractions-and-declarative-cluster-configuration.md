@@ -146,7 +146,7 @@ MasterPlan threshold.
 | EP-1 | Unified GCS Data-Movement Job Abstraction and Restore Unification | docs/plans/65-unified-gcs-data-movement-job-abstraction-and-restore-unification.md | None | None | Complete |
 | EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | Complete |
 | EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Complete |
-| EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Not Started |
+| EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Complete |
 | EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Not Started |
 | EP-6 | CLI and Operator-Harness Ergonomics | docs/plans/70-cli-and-operator-harness-ergonomics.md | None | EP-3 | Complete |
 
@@ -242,8 +242,8 @@ at-a-glance roll-up.
 - [x] EP-2: Observability resource requests right-sized for the 2-vCPU node (app + DB co-schedule)
 - [x] EP-3: Target-architecture field in `Nagare.Target` + `nagare.target.env(.example)` schema
 - [x] EP-3: `Nagare.Build` passes `--platform` to `docker build`/`nixpacks`
-- [ ] EP-4: Kourier-ingress check accepts a node-IP LoadBalancer fronted by the static IP
-- [ ] EP-4: New `doctor` checks: private-image pullability; build/node architecture mismatch
+- [x] EP-4: Kourier-ingress check accepts a node-IP LoadBalancer fronted by the static IP
+- [x] EP-4: New `doctor` checks: private-image pullability; build/node architecture mismatch
 - [ ] EP-5: Nix flake checks + GitHub Actions workflow; compile-every-example-`Config.hs` guard
 - [ ] EP-5: Periodic/manual live smoke test (private-image deploy + volume snapshot/restore + teardown)
 - [x] EP-6: `nagarectl` resolves the loader GHC environment itself (no hand-captured `--ghc-env`)
@@ -309,6 +309,17 @@ interactions between child plans. Provide concise evidence.
   connection in one command (`kubectl get nodes` → `nagare-01 Ready`). 268 tests green. With EP-1/2/3
   and EP-6 done, only EP-4 (doctor) and EP-5 (CI + live smoke) remain; both now have all the
   capabilities and ergonomics they consume.
+
+- **EP-4 complete (2026-06-11): `doctor` tells the truth — verified live.** As single writer of the
+  check set (Integration Point #3), EP-4 made `gradeKourier` reachability-first (live `[OK] Kourier
+  ingress serving on 34.145.74.203 (HTTP 404; LB EXTERNAL-IP 10.10.0.4)` — the standing false FAIL is
+  gone) and added the two advisory checks reading EP-2's `registriesSkippingTagResolving` and EP-3's
+  `tpTargetPlatform` (live `[OK]` both). Live run: 21 checks, `0 failed`, exit 0; 285 unit tests. EP-2
+  and EP-3 had landed, so the stated contracts were reconciled against real code with no divergence.
+  EP-4 also fixed a stale `Doctor.hs` reference to EP-1's deleted `scripts/backup-postgres.sh`. Only
+  **EP-5** (CI + live smoke) remains; its blockers are clear (EP-6 unblocked the GHC-env path, the
+  EP-1/2/3 capabilities exist) and the live smoke harness should run `doctor`/`deploy` from the repo
+  root (the EP-4 cwd lesson).
 
 
 ## Decision Log
