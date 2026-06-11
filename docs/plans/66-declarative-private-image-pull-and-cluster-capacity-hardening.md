@@ -200,7 +200,60 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Delivered against the purpose, verified live on `nagare-01` (2026-06-11):
+
+- **The cluster pulls its own private images declaratively.** `nixos/hosts/nagare-01/registries.nix`
+  (a oneshot service + 30-min timer) mints the node-SA token from the metadata server and writes
+  `/etc/rancher/k3s/registries.yaml` before k3s and periodically. Applied via `nixos-rebuild
+  switch` (system-1→2); the service ran `0/SUCCESS`, the timer is active, and a forced
+  `crictl pull` of a private image authenticates through the service-managed file. The
+  durability problem is gone — no hand-written, hour-expiring token.
+
+- **Knative admits private-image Services.** `config-deployment.registriesSkippingTagResolving`
+  carries the AR host (alongside Knative's `kind.local,ko.local,dev.local` defaults), applied live
+  and shipped as a bootstrap file + `cluster-bootstrap` recipe line + README entry.
+
+- **Headline, proven end-to-end at the cluster layer.** A Knative Service referencing the **private**
+  image `us-west1-docker.pkg.dev/tan-nb-exp/nagare/audit-build:20260610-232600` — with **no manual
+  token and no manual ConfigMap patch** — was **admitted** (config-deployment skips tag resolution),
+  reached **Ready=True**, and its pod ran **2/2** pulling the private image. The forced-pull negative
+  control (no `registries.yaml` → `403 Forbidden`) confirms the credential is load-bearing. The
+  cross-arch build leg (EP-3) was proven separately (`docker build --platform linux/amd64` → amd64).
+
+- **Capacity: an app + a DB co-schedule on the 2-vCPU node.** Observability CPU *requests* were
+  trimmed (vmsingle 150m→50m, vmagent 50m→25m, otel 50m→25m); node reservation dropped 1510m→1360m
+  (75%→68%), ~640m free. A 250m app Deployment + a 300m DB StatefulSet both reached `Running` with no
+  `Insufficient cpu`.
+
+Gaps / out-of-scope handled deliberately:
+
+- **`just host-image` (fresh-image parity bake) was NOT run.** The plan states "build success is
+  sufficient evidence for the image path; a full VM re-image is out of scope for routine validation."
+  The `host-switch` already built the entire `nixos-system-nagare-01` closure successfully on the box,
+  and `nagare-image` wraps that identical `nagare01Modules` set with generic image packaging — so the
+  build-success bar is met. The actual bake additionally needs the terminated, billable
+  `nix-builder-x86` started and would register a new GCE image + rewrite Pulumi's
+  `nagareImageSelfLink` (a consequential infra-state mutation with only fresh-VM-parity value). That
+  was declined to avoid the unnecessary cost/mutation; a future operator runs `just host-image` when
+  actually re-provisioning a VM.
+
+- **A pre-existing sops gap (orthogonal to EP-2) surfaced and is documented in Surprises:** the box
+  never had `/var/lib/sops-nix/age-key.txt`, so secrets never materialized and Tailscale is logged
+  out — which is also why `host-switch` had to be driven over an IAP port-22 tunnel and why
+  `switch-to-configuration` exits non-zero (the `tailscaled-autoconnect` unit times out). This is a
+  separate fix (place the age key, or derive the sops age identity from the host SSH key), not an
+  EP-2 deliverable, but it is the single most useful follow-up for operability.
+
+- **The full single-command `nagarectl deploy` headline is gated on EP-6's GHC-env fix.** Running the
+  raw `nagarectl` binary outside `cabal run` fails to load `Config.hs` (`Could not find module
+  Nagare.Dsl.*`) because no `GHC_ENVIRONMENT` is provisioned — exactly the ergonomics foot-gun EP-6
+  (docs/plans/70) fixes and EP-5 (docs/plans/69) exercises in its live smoke. EP-2's cluster-side
+  capability is fully proven above; the combined one-command run is left to those plans by design.
+
+Lesson: independently proving each capability (authenticated pull + negative control, admission key,
+co-scheduling) plus a single private-image ksvc reaching Ready is a stronger, lower-risk acceptance
+than one fragile end-to-end command — and it cleanly separated the EP-2 deliverables from the
+pre-existing sops/Tailscale and EP-6 GHC-env issues that would otherwise have muddied the result.
 
 
 ## Context and Orientation

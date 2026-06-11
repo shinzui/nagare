@@ -144,7 +144,7 @@ MasterPlan threshold.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Unified GCS Data-Movement Job Abstraction and Restore Unification | docs/plans/65-unified-gcs-data-movement-job-abstraction-and-restore-unification.md | None | None | Complete |
-| EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | In Progress |
+| EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | Complete |
 | EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Complete |
 | EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Not Started |
 | EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Not Started |
@@ -237,9 +237,9 @@ at-a-glance roll-up.
 - [x] EP-1: `Database.Backup`/`Database.Restore`/`Storage.Snapshot` refactored onto it; `Backup`↔`Snapshot` cycle broken
 - [x] EP-1: New `nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]` verb (scratch-first)
 - [x] EP-1: Bash scripts deleted; disaster-recovery runbook calls `nagarectl` verbs
-- [ ] EP-2: `registries.yaml` (durable credential mechanism) declared in `nixos/hosts/nagare-01/`
-- [ ] EP-2: `config-deployment.yaml` (`registriesSkippingTagResolving`) in the Knative bootstrap
-- [ ] EP-2: Observability resource requests right-sized for the 2-vCPU node (app + DB co-schedule)
+- [x] EP-2: `registries.yaml` (durable credential mechanism) declared in `nixos/hosts/nagare-01/`
+- [x] EP-2: `config-deployment.yaml` (`registriesSkippingTagResolving`) in the Knative bootstrap
+- [x] EP-2: Observability resource requests right-sized for the 2-vCPU node (app + DB co-schedule)
 - [x] EP-3: Target-architecture field in `Nagare.Target` + `nagare.target.env(.example)` schema
 - [x] EP-3: `Nagare.Build` passes `--platform` to `docker build`/`nixpacks`
 - [ ] EP-4: Kourier-ingress check accepts a node-IP LoadBalancer fronted by the static IP
@@ -282,6 +282,23 @@ interactions between child plans. Provide concise evidence.
   `Doctor.hs`/`Probe.hs`; EP-4 will *read* `tpTargetPlatform` for its build/node arch-mismatch check.
   Note for EP-5's smoke: `nagarectl deploy` takes the config via `-f`/`--file`, not a positional app
   name. 264 tests green.
+
+- **EP-2 complete (2026-06-11): the cluster pulls its own private images and fits a real workload,
+  declaratively — verified live.** M1 spike chose the systemd-timer credential mechanism
+  (`auth-provider-gcp` absent from nixpkgs); `registries.nix` applied via `host-switch`; the Knative
+  `config-deployment` carries the AR host in `registriesSkippingTagResolving`; observability CPU
+  requests trimmed so an app+DB co-schedule. Headline proven: a private-image ksvc reached `Ready`
+  pulling the private image with no manual token/patch. **Cross-plan impacts:** (1) a **pre-existing,
+  EP-2-orthogonal** sops gap (`/var/lib/sops-nix/age-key.txt` absent → secrets never materialize →
+  Tailscale logged out → `host-switch` runs over an IAP tunnel and `switch-to-configuration` exits
+  non-zero on the `tailscaled-autoconnect` timeout) — a useful follow-up but not in MP13 scope; (2)
+  the **EP-6 GHC-env foot-gun is confirmed real and load-bearing for live ops** — the raw `nagarectl`
+  binary can't load `Config.hs` outside `cabal run` (no `GHC_ENVIRONMENT`), so EP-6 is effectively a
+  prerequisite for EP-5's one-command live smoke; (3) `just host-image` (fresh-image parity bake) was
+  intentionally not run — the `host-switch` closure build satisfies the plan's "build success is
+  sufficient" bar, and the actual bake is a billable infra mutation scoped out for routine validation.
+  Integration Point #4 (`cluster/bootstrap/knative-serving/`, `nixos/hosts/nagare-01/`) is owned
+  solely by EP-2; EP-5 will exercise these but not edit them.
 
 
 ## Decision Log
