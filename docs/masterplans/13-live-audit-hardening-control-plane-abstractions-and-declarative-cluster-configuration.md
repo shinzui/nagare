@@ -145,7 +145,7 @@ MasterPlan threshold.
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Unified GCS Data-Movement Job Abstraction and Restore Unification | docs/plans/65-unified-gcs-data-movement-job-abstraction-and-restore-unification.md | None | None | Complete |
 | EP-2 | Declarative Private-Image Pull and Cluster Capacity Hardening | docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md | None | None | Not Started |
-| EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Not Started |
+| EP-3 | Cross-Architecture Build in the Target Profile and nagarectl | docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md | None | None | Complete |
 | EP-4 | Doctor Diagnostics Correctness | docs/plans/68-doctor-diagnostics-correctness.md | None | EP-2, EP-3 | Not Started |
 | EP-5 | CI Pipeline and Live Smoke Test | docs/plans/69-ci-pipeline-and-live-smoke-test.md | None | EP-1, EP-2, EP-3 | Not Started |
 | EP-6 | CLI and Operator-Harness Ergonomics | docs/plans/70-cli-and-operator-harness-ergonomics.md | None | EP-3 | Not Started |
@@ -240,8 +240,8 @@ at-a-glance roll-up.
 - [ ] EP-2: `registries.yaml` (durable credential mechanism) declared in `nixos/hosts/nagare-01/`
 - [ ] EP-2: `config-deployment.yaml` (`registriesSkippingTagResolving`) in the Knative bootstrap
 - [ ] EP-2: Observability resource requests right-sized for the 2-vCPU node (app + DB co-schedule)
-- [ ] EP-3: Target-architecture field in `Nagare.Target` + `nagare.target.env(.example)` schema
-- [ ] EP-3: `Nagare.Build` passes `--platform` to `docker build`/`nixpacks`
+- [x] EP-3: Target-architecture field in `Nagare.Target` + `nagare.target.env(.example)` schema
+- [x] EP-3: `Nagare.Build` passes `--platform` to `docker build`/`nixpacks`
 - [ ] EP-4: Kourier-ingress check accepts a node-IP LoadBalancer fronted by the static IP
 - [ ] EP-4: New `doctor` checks: private-image pullability; build/node architecture mismatch
 - [ ] EP-5: Nix flake checks + GitHub Actions workflow; compile-every-example-`Config.hs` guard
@@ -271,6 +271,17 @@ interactions between child plans. Provide concise evidence.
   module. The `Backup`↔`Snapshot` cycle is broken; `cabal build` is cycle-free and the suite is 262
   green. EP-1 added two `Nagare.Storage.*` consumers but left the target-profile schema (IP #2) and
   the `doctor` check set (IP #3) untouched, so EP-3/EP-6 and EP-4 are unaffected.
+
+- **EP-3 complete (2026-06-11): Integration Point #2 first-writer landed; the append anchor for
+  EP-6 is concrete.** `tpTargetPlatform :: !Text` (env `NAGARE_TARGET_PLATFORM`, default
+  `linux/amd64`) is the **last** field of `Nagare.Target.TargetProfile`; the matching
+  `export NAGARE_TARGET_PLATFORM=linux/amd64` is the **last** line of `nagare.target.env.example`
+  and of `Nagare.Init.renderTargetEnv`; and `TARGET_PLATFORM="${NAGARE_TARGET_PLATFORM:-linux/amd64}"`
+  is the last derivation in `scripts/lib/target.sh`. **EP-6 must append `NAGARE_SSH_USER` (shell-side
+  only, per the Decision Log) after each of these.** EP-3 deliberately did *not* touch
+  `Doctor.hs`/`Probe.hs`; EP-4 will *read* `tpTargetPlatform` for its build/node arch-mismatch check.
+  Note for EP-5's smoke: `nagarectl deploy` takes the config via `-f`/`--file`, not a positional app
+  name. 264 tests green.
 
 
 ## Decision Log
