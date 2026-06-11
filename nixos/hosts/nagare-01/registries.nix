@@ -33,8 +33,13 @@ let
           password: "''${TOKEN}"
     EOF
     chmod 0600 /etc/rancher/k3s/registries.yaml
-    # k3s/containerd hot-reloads registries.yaml on change (no restart needed on
-    # this k3s version; proven during the EP-2 M1 spike, 2026-06-11).
+    # NOTE: k3s reads registries.yaml only at START — it bakes the credential into
+    # containerd's generated config; the running containerd does NOT hot-reload a
+    # rewritten registries.yaml. So writing a fresh token here is necessary but not
+    # sufficient: containerd keeps using the token loaded at the last k3s start.
+    # The 'nagare-registries-reload' service below restarts k3s on a timer so the
+    # fresh token actually takes effect (this service re-runs before each restart).
+    # (Discovered by EP-5's live smoke test, 2026-06-11; see the EP-2 Decision Log.)
   '';
 in
 {
@@ -44,20 +49,30 @@ in
   # Registry. containerd reads per-registry credentials from
   # /etc/rancher/k3s/registries.yaml; without it the pull is anonymous and AR
   # returns 403/DENIED. Rather than a hand-written token that expires in ~1 hour
-  # (the non-durable fix the 2026-06-10 audit applied), this unit mints a fresh
-  # token from the metadata server on boot, before k3s, and every ~30 minutes —
-  # well within the token's ~1-hour lifetime — so the credential is always valid
-  # with no operator action. (M1 chose this systemd-timer mechanism over the
-  # kubelet credential-provider plugin because auth-provider-gcp is not packaged
-  # in nixpkgs; see the EP-2 Decision Log.)
+  # (the non-durable fix the 2026-06-10 audit applied), a metadata-minted token is
+  # written on boot (before k3s) and refreshed on a timer.
+  #
+  # The credential is durable via TWO cooperating units, because k3s only loads
+  # registries.yaml at start (the running containerd ignores later rewrites):
+  #   * nagare-registries-refresh — writes a fresh token; runs before k3s, so every
+  #     k3s (re)start picks up a fresh credential.
+  #   * nagare-registries-reload  — a timer-driven `systemctl restart k3s`, so the
+  #     refreshed token actually reaches containerd. It is deliberately NOT a k3s
+  #     dependency, to avoid an ordering cycle with the refresh service.
+  # A k3s SERVER restart briefly interrupts the control plane (~15-30s) but does
+  # NOT stop running workload pods (containerd keeps them), so app traffic is
+  # uninterrupted. (The kubelet image-credential-provider plugin would avoid the
+  # restart entirely by minting per-pull, but auth-provider-gcp is not packaged in
+  # nixpkgs — see the EP-2 Decision Log; packaging it is the recommended follow-up.)
   systemd.services.nagare-registries-refresh = {
     description = "Refresh k3s Artifact Registry pull credentials from the metadata server";
     # The metadata server is link-local and available early, but require the
     # network stack so a cold boot does not race it.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    # Write a fresh token before k3s starts so the first pull is authenticated.
-    # wantedBy (not requiredBy) so a transient metadata blip never wedges k3s.
+    # Write a fresh token before k3s starts so the first pull (and every pull after
+    # a reload-triggered restart) is authenticated. wantedBy (not requiredBy) so a
+    # transient metadata blip never wedges k3s.
     before = [ "k3s.service" ];
     wantedBy = [ "k3s.service" "multi-user.target" ];
     path = [ pkgs.curl pkgs.jq pkgs.coreutils ];
@@ -67,14 +82,27 @@ in
     };
   };
 
-  systemd.timers.nagare-registries-refresh = {
-    description = "Periodically refresh k3s Artifact Registry pull credentials";
+  # Restart k3s so containerd reloads the refreshed registries.yaml token. Starting
+  # k3s re-runs nagare-registries-refresh (its Before/WantedBy), writing a fresh
+  # token first. This unit is intentionally NOT WantedBy/Before k3s, so there is no
+  # ordering cycle.
+  systemd.services.nagare-registries-reload = {
+    description = "Restart k3s so containerd reloads the refreshed Artifact Registry token";
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${pkgs.systemd}/bin/systemctl restart k3s.service";
+    };
+  };
+
+  systemd.timers.nagare-registries-reload = {
+    description = "Periodically reload k3s registry credentials (restart k3s with a fresh token)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      # First refresh shortly after boot, then every 30 minutes (half the token
-      # lifetime). Persistent catches up a missed firing after a stop/suspend.
-      OnBootSec = "2min";
-      OnUnitActiveSec = "30min";
+      # The boot-time token (written before k3s) is valid ~1 hour; restart every 45
+      # minutes so the token containerd holds is always < 45 min old (safely within
+      # its ~1h lifetime). Persistent catches up a missed firing after suspend.
+      OnBootSec = "45min";
+      OnUnitActiveSec = "45min";
       Persistent = true;
     };
   };

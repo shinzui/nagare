@@ -135,6 +135,25 @@ implementation. Provide concise evidence.
   not joined, `host-switch` had to be driven over an IAP port-22 tunnel with
   `--build-host/--target-host deploy@127.0.0.1` (the box builds its own x86_64 closure).
 
+- **(2026-06-11, surfaced by EP-5's live smoke — a real defect in the M2 mechanism, now FIXED.)**
+  The systemd-timer that rewrote `/etc/rancher/k3s/registries.yaml` every 30 min was **ineffective**:
+  k3s reads `registries.yaml` only at **start** (it bakes the credential into containerd's generated
+  config), and the running containerd does **not** hot-reload a rewritten file. So the token
+  containerd held was the one loaded at the last k3s start; ~1 h later it expired and private pulls
+  failed with `401 Unauthorized` — exactly the non-durable failure EP-2 was meant to fix, in a
+  subtler form. (The M2 verification only passed because `host-switch` *restarts* k3s, masking the
+  gap.) Evidence: with a fresh token written by the timer 1 min earlier, `crictl pull` still 401'd;
+  `systemctl restart k3s` made the same pull succeed. **Fix:** `registries.nix` now has a second unit
+  `nagare-registries-reload` (a timer-driven `systemctl restart k3s`, every 45 min) — restarting k3s
+  re-runs `nagare-registries-refresh` (which is `Before=k3s`), writing a fresh token that containerd
+  then loads. `reload` is deliberately NOT a k3s dependency, avoiding an ordering cycle. A k3s
+  *server* restart briefly interrupts the control plane (~15-30 s) but does **not** stop running
+  workload pods, so app traffic is uninterrupted. Verified: manually triggering
+  `nagare-registries-reload` restarts k3s and a fresh private `crictl pull` then succeeds with no
+  manual step; EP-5's live smoke then deployed a private build-mode app to `Ready`. The kubelet
+  credential-provider plugin (mint-per-pull, no restart) remains the superior follow-up — it just
+  needs `auth-provider-gcp` packaged for Nix.
+
 - (M3, 2026-06-11) The live `config-deployment` already had
   `registriesSkippingTagResolving: kind.local,ko.local,dev.local,us-west1-docker.pkg.dev` (the
   audit had appended the AR host to Knative's defaults). A merge patch on this **single
@@ -185,6 +204,12 @@ Record every decision made while working on the plan.
   in `registries.nix`), depends on no third-party binary, and refreshes well within
   the ~1-hour token lifetime; its only cost is a refresh window and a root-only token
   briefly at rest — acceptable versus the unbounded packaging effort (i) would need.
+  **Amended (2026-06-11, EP-5 smoke): candidate (ii) requires a k3s RESTART to take
+  effect** — see Surprises. The mechanism is now refresh-token + timer-driven
+  `systemctl restart k3s` (every 45 min). This keeps it declarative and durable; the
+  cost is now a periodic ~15-30 s control-plane blip (no app downtime) instead of
+  just a refresh window. The credential-provider plugin (no restart) is the
+  recommended future improvement once `auth-provider-gcp` is packaged for Nix.
 
 - Decision (2026-06-11): `config-deployment.yaml` is applied as a **merge patch
   onto the upstream-installed ConfigMap**, exactly like the sibling

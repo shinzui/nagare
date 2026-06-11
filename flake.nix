@@ -9,6 +9,106 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
     in {
+      # EP-5 (docs/plans/69, MasterPlan 13): CI as Nix flake checks — the SOURCE
+      # OF TRUTH. `nix flake check` builds every entry below; the GitHub Actions
+      # workflow (.github/workflows/ci.yml) is a thin shell that installs Nix and
+      # runs the same command, so local and hosted behavior are identical.
+      #
+      # NETWORK: these derivations run `cabal`, which fetches Hackage deps and the
+      # `cradle` source-repository-package from GitHub. Nix's build sandbox blocks
+      # the network, so each is marked `__noChroot = true` and the checks are run
+      # with a relaxed sandbox: locally `nix flake check` (macOS sandbox is off by
+      # default); on CI the workflow sets `sandbox = relaxed`. The trade-off
+      # (network-dependent, not fully hermetic) is the documented first iteration;
+      # a later hardening can migrate to haskell.nix / callCabal2nix.
+      #
+      # NOTE: a `fourmolu-format` check is intentionally NOT included — the pinned
+      # fourmolu (0.19.x) reformats 82/93 committed files (a version drift from the
+      # older fourmolu that last formatted the tree, unrelated to any contributor's
+      # change), so the check would be red on a clean tree. Re-pinning fourmolu or
+      # a one-time tree-wide reformat is a separate follow-up; see this plan's
+      # Surprises & Discoveries.
+      checks = forAllSystems (pkgs:
+        let
+          ghc = pkgs.haskell.compiler.ghc912;
+          # Tooling for the cabal-based checks: the pinned GHC + cabal, the C deps
+          # (zlib via pkg-config), git (for the cradle source-repository-package),
+          # and CA certs (for Hackage/GitHub https).
+          haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.pkg-config pkgs.git pkgs.cacert ];
+          cabalEnv = ''
+            export HOME="$PWD/.home"
+            export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+            export LANG=C.UTF-8
+          '';
+        in {
+          # Build + test nagare-dsl (the typed model + renderer).
+          nagare-dsl-build-test = pkgs.runCommand "nagare-dsl-build-test"
+            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            ''
+              cp -r "$src" build && chmod -R +w build
+              cd build/cli/nagare-dsl
+              ${cabalEnv}
+              cabal update
+              # `cabal build` (not the implicit build in `cabal test`) is what
+              # materialises the .ghc.environment.* file (write-ghc-environment-files:
+              # always). The loader tests (loadServerSite/loadSite) shell out to
+              # runghc, which needs that file present to resolve nagare-dsl, so build
+              # explicitly first.
+              cabal build all
+              cabal test nagare-dsl-test --test-show-details=streaming
+              touch "$out"
+            '';
+
+          # Build + test nagarectl (builds against the local nagare-dsl per its cabal.project).
+          nagarectl-build-test = pkgs.runCommand "nagarectl-build-test"
+            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            ''
+              cp -r "$src" build && chmod -R +w build
+              cd build/cli/nagarectl
+              ${cabalEnv}
+              cabal update
+              cabal build all
+              cabal test nagarectl-test --test-show-details=streaming
+              touch "$out"
+            '';
+
+          # Compile-and-run every shipped cluster/examples/*/nagare/Config.hs through
+          # the loader's runghc contract (runghc -XGHC2024 -i<dir>), resolving
+          # nagare-dsl via `cabal exec` from the nagarectl package. This is the guard
+          # that catches a rotted example (the 2026-06-10 audit found 3 silently broken).
+          examples-compile = pkgs.runCommand "examples-compile"
+            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            ''
+              cp -r "$src" build && chmod -R +w build
+              cd build
+              ${cabalEnv}
+              ( cd cli/nagarectl && cabal update && cabal build all )
+              fail=0
+              for cfg in cluster/examples/*/nagare/Config.hs; do
+                dir="$(dirname "$cfg")"
+                echo "== compiling $cfg =="
+                if ! ( cd cli/nagarectl && cabal exec -v0 -- \
+                         runghc -XGHC2024 -i"../../$dir" "../../$cfg" >/dev/null ); then
+                  echo "FAILED: $cfg" >&2
+                  fail=1
+                fi
+              done
+              [ "$fail" -eq 0 ] || exit 1
+              touch "$out"
+            '';
+
+          # Lint the shell scripts at error severity (clean on the current tree;
+          # SC1091 "not following sourced file" and SC2034 "appears unused" — the
+          # TARGET_* vars other scripts consume — are info/warning, not errors).
+          shellcheck-scripts = pkgs.runCommand "shellcheck-scripts"
+            { nativeBuildInputs = [ pkgs.shellcheck ]; src = ./.; }
+            ''
+              cd "$src"
+              shellcheck --severity=error scripts/*.sh scripts/lib/*.sh
+              touch "$out"
+            '';
+        });
+
       devShells = forAllSystems (pkgs:
         let
           # Pulumi 3.239.0 is upstream's current release at the time this
