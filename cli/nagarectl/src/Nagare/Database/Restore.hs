@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db restore NAME BACKUP_ID@ (MasterPlan 9, EP-47): restore a chosen
 -- GCS backup into a database, scratch-first. By default the restore lands in a
 -- disposable target (a @\<db\>_restore_scratch@ database for Postgres/ClickHouse)
@@ -21,7 +19,7 @@ module Nagare.Database.Restore
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))

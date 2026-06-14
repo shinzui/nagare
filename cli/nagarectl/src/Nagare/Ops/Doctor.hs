@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The @nagarectl doctor@ remediation knowledge base and checklist renderer
 -- (MasterPlan 8, EP-39).
 --

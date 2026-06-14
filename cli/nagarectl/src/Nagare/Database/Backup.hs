@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db backup NAME@ and the scheduled-backup CronJob (MasterPlan 9,
 -- EP-47, Integration Point IP6): an engine-appropriate logical dump of a managed
 -- database, uploaded to @gs://\<backup-bucket>/databases/\<name\>/\<ts\>.\<ext\>@,
@@ -38,7 +36,7 @@ module Nagare.Database.Backup
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Control.Monad (forM_)

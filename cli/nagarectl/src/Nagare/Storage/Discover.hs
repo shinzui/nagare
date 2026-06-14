@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Shared persistent-volume discovery for the @nagarectl storage@ commands
 -- (EP-35, MasterPlan Integration Point IP5).
 --
@@ -34,7 +32,7 @@ module Nagare.Storage.Discover
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Aeson (eitherDecodeStrict)

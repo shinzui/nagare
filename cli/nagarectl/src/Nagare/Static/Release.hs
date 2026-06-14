@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Static-site release history (EP-15).
 --
 -- Every successful production @nagarectl site deploy@ records a 'StaticRelease'

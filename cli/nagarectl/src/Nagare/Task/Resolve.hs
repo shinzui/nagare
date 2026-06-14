@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Deploy-time resolution of an app-associated task (MasterPlan 10, EP-52, IP5).
 --
 -- EP-50's pure renderer ('Nagare.Dsl.Task.Render') emits the *structure* of

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl task logs APP TASK@ (MasterPlan 10, EP-51, Integration Point IP6):
 -- show a task's most recent pod logs, following a running one with @--follow@. Pods
 -- are selected by the IP3 label @nagare.dev/task=<task>@ (narrowed by app). After

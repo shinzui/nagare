@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Per-app, per-scope environment and secret store (EP-24).
 --
 -- A small, tested library any command can use to read, merge or replace, and

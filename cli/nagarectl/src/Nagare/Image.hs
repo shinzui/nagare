@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Container image operations for a deployment: tag computation, the full
 -- image reference, building, Docker auth, and pushing to Artifact Registry.
 --
@@ -22,7 +20,7 @@ module Nagare.Image
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Text qualified as T

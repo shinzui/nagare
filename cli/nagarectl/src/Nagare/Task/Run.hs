@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl task run APP TASK@ (MasterPlan 10, EP-51, Integration Point IP6):
 -- run a scheduled task once, now. Creates a single Job from the deployed CronJob
 -- via @kubectl create job <name> --from=cronjob/nagare-task-<task>@, waits for it

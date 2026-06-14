@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db get NAME@ (MasterPlan 9, EP-45): show one managed database's
 -- detail (engine, version, size, in-cluster host, readiness) plus the /key names/
 -- present in its managed Secret — never the values. Read-only.

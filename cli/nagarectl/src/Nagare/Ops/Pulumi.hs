@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Read authoritative platform values from the Pulumi stack (Integration Point
 -- IP2 of MasterPlan 8).
 --

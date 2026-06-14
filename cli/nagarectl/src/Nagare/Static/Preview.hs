@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Preview deployments for static sites (EP-15).
 --
 -- A preview is a non-production copy of a site for a branch or pull request,

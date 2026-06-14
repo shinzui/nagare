@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db list@ (MasterPlan 9, EP-45): print a table of all managed
 -- databases in a namespace, discovered by the IP3 labels. Read-only.
 module Nagare.Database.List

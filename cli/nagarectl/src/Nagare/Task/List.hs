@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl task list [APP]@ (MasterPlan 10, EP-51): print a table of scheduled
 -- tasks in a namespace, discovered by the IP3 labels. Read-only. With no @APP@ it
 -- lists every task; with @APP@ it lists only that app's tasks; with the @-@ sentinel

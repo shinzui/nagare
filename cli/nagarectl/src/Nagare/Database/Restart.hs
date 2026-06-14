@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db restart NAME@ (MasterPlan 9, EP-45): roll the database
 -- StatefulSet's pod and wait for it to be Ready again. @--dry-run@ prints the
 -- command and does nothing.

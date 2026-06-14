@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Deploy-time generated database connection environment variables (MasterPlan
 -- 9, EP-46, Integration Point IP5).
 --

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Render a 'Deployment' to Knative @Service@ and @DomainMapping@ YAML.
 --
 -- Rendering rules preserved exactly (the EP-6 cluster contract / MasterPlan
@@ -37,7 +35,7 @@ module Nagare.Dsl.Render
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)

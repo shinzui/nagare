@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Cluster operations for a deployment: apply rendered manifests, wait for
 -- readiness, and compute the service URL.
 --
@@ -16,7 +14,7 @@ module Nagare.Deploy
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.ByteString qualified as BS

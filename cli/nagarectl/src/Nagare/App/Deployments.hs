@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Per-app deployment history (EP-31).
 --
 -- Applications get the same release history static sites already have: every

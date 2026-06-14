@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl task delete APP TASK@ (MasterPlan 10, EP-51): remove a scheduled
 -- task. Deletes its CronJob @nagare-task-<task>@ and any run-history ConfigMap
 -- @nagare-task-runs-<task>@, each @--ignore-not-found@ so the command is idempotent.

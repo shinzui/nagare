@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl storage restore APP VOLUME BACKUP_ID [--into-live]@ (MasterPlan 13,
 -- EP-1): restore a @tar.gz@ volume snapshot from GCS, scratch-first. By default
 -- the archive is untarred into a disposable @\<pvc\>-restore-scratch@ PVC so live
@@ -23,7 +21,7 @@ module Nagare.Storage.Restore
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))

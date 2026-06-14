@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db create ENGINE NAME@ (MasterPlan 9, EP-45): generate a strong
 -- password, write the managed credential Secret (IP3), then provision the
 -- PVC/StatefulSet/Service (and, for ClickHouse, the memory ConfigMap) EP-44's
@@ -20,7 +18,7 @@ module Nagare.Database.Create
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.ByteString (ByteString)

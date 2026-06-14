@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Produce the directory of static files a 'StaticSite' will serve.
 --
 -- For a @NoBuild@ site the files already exist; this module only resolves and
@@ -17,7 +15,7 @@ module Nagare.Static.Build
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Text qualified as T

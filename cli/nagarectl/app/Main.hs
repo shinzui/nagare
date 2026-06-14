@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The @nagarectl@ deploy CLI entry point.
 --
 -- Command namespaces:
@@ -24,7 +22,7 @@ module Main (main) where
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Control.Exception (bracket_)
 import Control.Monad (forM, forM_, unless)

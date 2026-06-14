@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Build-time (@Build@-scoped) environment assembled into @docker build@
 -- @--build-arg@s (EP-27).
 --

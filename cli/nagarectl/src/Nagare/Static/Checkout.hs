@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Check a repository out into a webhook workspace (EP-16 Milestone 3, IO part).
 --
 -- @nagared@ deploys from source, so it must materialise the exact commit a

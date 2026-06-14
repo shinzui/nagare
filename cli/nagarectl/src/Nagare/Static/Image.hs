@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Assemble the temporary Docker build context for a static site release.
 --
 -- The image is generated, never hand-written (MasterPlan Integration Point 3):

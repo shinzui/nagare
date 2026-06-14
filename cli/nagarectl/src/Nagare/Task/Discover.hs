@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Shared scheduled-task discovery for the @nagarectl task@ commands
 -- (MasterPlan 10, EP-51, Integration Point IP4).
 --

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl storage list@ (EP-35): print a table of an app's declared
 -- volumes joined to their live PVC status on the cluster.
 --
@@ -13,7 +11,7 @@ module Nagare.Storage.List
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO

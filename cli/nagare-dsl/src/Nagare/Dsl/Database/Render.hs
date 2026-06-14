@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Render a 'Database' to its Kubernetes manifest set (MasterPlan 9, IP2):
 -- a StatefulSet, a ClusterIP Service, a PersistentVolumeClaim, and — for engines
 -- that need server-side config (ClickHouse's memory cap) — a ConfigMap. The
@@ -29,7 +27,7 @@ module Nagare.Dsl.Database.Render
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl storage inspect APP VOLUME@ (EP-35): show the full detail of one
 -- declared volume's PVC via @kubectl describe@.
 --
@@ -12,7 +10,7 @@ module Nagare.Storage.Inspect
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.Text qualified as T

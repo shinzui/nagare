@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Render a 'StaticSite' to the three artifacts a static deploy needs:
 --
 --   * the generated Nginx configuration that serves the built files
@@ -22,7 +20,7 @@ module Nagare.Dsl.Static.Render
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)

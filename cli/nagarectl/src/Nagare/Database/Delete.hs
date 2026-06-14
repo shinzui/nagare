@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db delete NAME@ (MasterPlan 9, EP-45): remove a managed database,
 -- honoring its 'RetentionPolicy'. Deletes the StatefulSet, then the Service, then
 -- the Secret (and the ClickHouse memory ConfigMap), each @--ignore-not-found@ and

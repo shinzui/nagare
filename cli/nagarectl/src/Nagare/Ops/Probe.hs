@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The reusable, typed probe layer behind the @nagarectl server status@ /
 -- @doctor@ / @domains@ / @cleanup@ operator commands (MasterPlan 8).
 --

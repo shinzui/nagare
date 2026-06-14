@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Produce the runtime output of a 'ServerSite' (EP-18).
 --
 -- Parallel to 'Nagare.Static.Build': run the build command in the project root
@@ -15,7 +13,7 @@ module Nagare.Server.Build
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Data.List.NonEmpty (NonEmpty)

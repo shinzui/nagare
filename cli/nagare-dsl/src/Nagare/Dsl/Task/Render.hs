@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Render a 'Task' to its Kubernetes manifest (MasterPlan 10, IP2): a single
 -- @batch/v1@ CronJob whose @spec.jobTemplate.spec@ is the Job template a one-off
 -- run reuses. The shape reproduces the proven backup machinery in
@@ -23,7 +21,7 @@ module Nagare.Dsl.Task.Render
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)

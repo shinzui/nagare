@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Serialization helpers for config-as-program files.
 --
 -- An app's @Config.hs@ imports this module and calls 'emitDeployment' as the
@@ -20,7 +18,7 @@ module Nagare.Dsl.Config
   , encodeTask
   ) where
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Nagare.Dsl.Prelude hiding ((.=))
 

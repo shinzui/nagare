@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Assemble the temporary Docker build context for a server-site release (EP-18).
 --
 -- Parallel to 'Nagare.Static.Image': write the generated Node Dockerfile and an

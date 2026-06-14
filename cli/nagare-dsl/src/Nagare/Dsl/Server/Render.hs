@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Render a 'ServerSite' to the three artifacts a server deploy needs (EP-18):
 --
 --   * the generated single-stage Node 'renderServerDockerfile';
@@ -22,7 +20,7 @@ module Nagare.Dsl.Server.Render
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The canonical pod scaffolding for a Kubernetes Job that moves data to or from
 -- Google Cloud Storage (GCS) using the node service account's Application Default
 -- Credentials (ADC). MasterPlan 13 / EP-1 Integration Point IP1.

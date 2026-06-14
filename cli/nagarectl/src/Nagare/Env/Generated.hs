@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Deploy-time generated environment variables (EP-26).
 --
 -- A pure assembly of the @NAGARE_*@ variables that describe a deployment's own

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Pure GitHub-webhook logic (EP-16 Milestone 2): HMAC-SHA256 signature
 -- verification, event parsing, and branch/PR routing. No IO, so the
 -- security-sensitive decisions are fully unit-testable without a live provider.
@@ -31,8 +29,8 @@ module Nagare.Static.Webhook
 
 import Nagare.Dsl.Prelude
 
-import "crypton" Crypto.Hash (SHA256)
-import "crypton" Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
+import Crypto.Hash (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Types (Parser, Value, parseEither)
 import Data.ByteArray qualified as BA

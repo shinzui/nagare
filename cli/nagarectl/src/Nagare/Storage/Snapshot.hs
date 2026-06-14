@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl storage snapshot APP VOLUME@ (EP-36): point-in-time backup of an
 -- app volume's file contents to GCS, plus the backup-ownership policy and
 -- retention pruning (MasterPlan Integration Point IP4).
@@ -35,7 +33,7 @@ module Nagare.Storage.Snapshot
 
 import Nagare.Dsl.Prelude hiding ((.=))
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Control.Monad (forM_)

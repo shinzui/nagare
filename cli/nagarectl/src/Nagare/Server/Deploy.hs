@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The server-site deploy effects (EP-18), parallel to 'Nagare.Static.Deploy'.
 --
 -- Build → package into a Node image → push → apply the Knative Service +
@@ -18,7 +16,7 @@ module Nagare.Server.Deploy
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)

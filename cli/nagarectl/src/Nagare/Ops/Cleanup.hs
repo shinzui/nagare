@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl cleanup@ — reclaim disk across three categories: unused
 -- containerd images, stale static-site previews, and old release-history
 -- entries (MasterPlan 8, EP-41).

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Pure helpers for the managed-database credential Secret (MasterPlan 9, IP3 —
 -- the create-time half owned by EP-45).
 --

@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Assemble the full platform inventory for @nagarectl server status@
 -- (MasterPlan 8, EP-38).
 --

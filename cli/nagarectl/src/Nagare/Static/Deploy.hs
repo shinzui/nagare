@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The reusable static-deploy effects, factored out of the CLI (EP-16
 -- Milestone 1) so both @nagarectl site deploy@ and the @nagared@ webhook runner
 -- drive the exact same path — load is the caller's job; these functions take a
@@ -22,7 +20,7 @@ module Nagare.Static.Deploy
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)

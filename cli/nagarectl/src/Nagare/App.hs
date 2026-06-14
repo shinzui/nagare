@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Application lifecycle helpers for the @nagarectl app@ commands (EP-30).
 --
 -- This module owns the shared @kubectl@ plumbing and the pure parse/format
@@ -43,7 +41,7 @@ module Nagare.App
 
 import Nagare.Dsl.Prelude
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Cradle
 import Control.Monad (forM_)

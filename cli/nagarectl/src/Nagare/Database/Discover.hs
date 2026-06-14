@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Shared managed-database discovery for the @nagarectl db@ commands
 -- (MasterPlan 9, EP-45, Integration Point IP4).
 --

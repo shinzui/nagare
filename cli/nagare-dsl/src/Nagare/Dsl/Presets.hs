@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | Reusable building blocks for Nagare deployments.
 --
 -- An app author imports this module and composes presets and overlays to
@@ -33,7 +31,7 @@ module Nagare.Dsl.Presets
   , teamDefaults
   ) where
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 import Data.Map qualified as Map
 import Nagare.Dsl.Build (defaultBuild)

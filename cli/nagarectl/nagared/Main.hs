@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagared@ — the Nagare webhook runner (EP-16).
 --
 -- A small HTTP service that receives GitHub webhooks, verifies their HMAC-SHA256

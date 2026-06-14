@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | A minimal dotenv (@.env@) parser for @nagarectl env sync@ (EP-25).
 --
 -- Accepts @KEY=VALUE@ per line. Ignores blank lines and @#@ comments. Strips an

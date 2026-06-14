@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | The @nagarectl domains list@ inventory: extract Knative @DomainMapping@ and
 -- cert-manager @Certificate@ state, compute each domain's DNS expectation, and
 -- format the table (MasterPlan 8, EP-40).

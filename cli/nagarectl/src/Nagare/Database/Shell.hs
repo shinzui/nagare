@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 -- | @nagarectl db shell NAME@ (MasterPlan 9, EP-45): open an interactive engine
 -- client inside the database pod via @kubectl exec -it@. The credentials are
 -- already present in the pod's environment (the StatefulSet wires them from the
