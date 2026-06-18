@@ -31,6 +31,9 @@ module Nagare.Dsl.Render
   , volumeMountsField
   , volumesField
   , volumeAnnotationPairs
+    -- * Container env rendering (reused by "Nagare.Dsl.Worker.Render", IP3)
+  , envField
+  , envFromField
   ) where
 
 import Nagare.Dsl.Prelude hiding ((.=))

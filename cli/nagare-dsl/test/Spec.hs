@@ -28,6 +28,7 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
+import WorkerSpec (workerTests)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -54,6 +55,7 @@ main =
       , staticTests
       , serverTests
       , cdnTests
+      , workerTests
       ]
 
 -- | EP-62 M3: the registry-prefix derivation that turns a short image NAME plus

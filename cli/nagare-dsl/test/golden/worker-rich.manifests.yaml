@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-vol-queue-consumer-scratch
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/app: queue-consumer
+    nagare.dev/volume: scratch
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-consumer
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/worker: queue-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      nagare.dev/worker: queue-consumer
+  template:
+    metadata:
+      labels:
+        nagare.dev/worker: queue-consumer
+    spec:
+      containers:
+      - name: queue-consumer
+        image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/queue-consumer:latest
+        command:
+        - python
+        - -m
+        - worker
+        env:
+        - name: API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: queue-secret
+              key: API_TOKEN
+        - name: LOG_LEVEL
+          value: info
+        envFrom:
+        - configMapRef:
+            name: nagare-env-queue-consumer-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-queue-consumer-runtime
+            optional: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+          readOnly: false
+      volumes:
+      - name: scratch
+        persistentVolumeClaim:
+          claimName: nagare-vol-queue-consumer-scratch

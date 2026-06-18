@@ -16,6 +16,8 @@ module Nagare.Dsl.Config
   , encodeServerSite
   , emitTask
   , encodeTask
+  , emitWorker
+  , encodeWorker
   ) where
 
 import Data.Generics.Labels ()
@@ -36,6 +38,7 @@ import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
+import Nagare.Dsl.Worker (Worker, commandArgvList, replicasInt)
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.
@@ -156,6 +159,87 @@ volumeJSON v =
     retentionToken Retain = "Retain" :: Text
     retentionToken Delete = "Delete"
 
+-- | The JSON shape of a 'BuildSpec', shared by 'deploymentJSON' and 'workerJSON'
+-- so both emit one byte-identical @build@ contract the loader's 'toBuildSpec'
+-- reads back. A @"kind"@ discriminator selects the per-kind fields.
+buildSpecJSON :: BuildSpec -> Value
+buildSpecJSON (PrebuiltImage t) =
+  object
+    [ "kind" .= ("PrebuiltImage" :: Text)
+    , "tag" .= tagText t
+    ]
+buildSpecJSON (DockerfileBuild df ctx args) =
+  object
+    [ "kind" .= ("DockerfileBuild" :: Text)
+    , "dockerfile" .= filePathText df
+    , "context" .= filePathText ctx
+    , "buildArgs" .= args
+    ]
+buildSpecJSON (NixpacksBuild ctx args) =
+  object
+    [ "kind" .= ("NixpacksBuild" :: Text)
+    , "context" .= filePathText ctx
+    , "buildArgs" .= args
+    ]
+
+-- | The JSON shape of one scoped env entry, shared by 'workerJSON' (and matching
+-- byte-for-byte the inline encoders in 'deploymentJSON' / 'serverSiteJSON' /
+-- 'taskJSON'). The loader reads it back in 'Nagare.Dsl.Load.toEnvEntry'.
+scopedEnvJSON :: (EnvName, ScopedEnvVar) -> Value
+scopedEnvJSON (n, sev) = case sev ^. #value of
+  EnvLiteral lit ->
+    object
+      [ "varName" .= envNameText n
+      , "kind" .= ("Literal" :: Text)
+      , "value" .= lit
+      , "scopes" .= scopeTokensJSON sev
+      ]
+  EnvSecretRef sn ->
+    object
+      [ "varName" .= envNameText n
+      , "kind" .= ("SecretRef" :: Text)
+      , "secretName" .= secretNameText sn
+      , "scopes" .= scopeTokensJSON sev
+      ]
+
+-- | Serialize a 'Worker' to JSON and write it to stdout (EP-71). Call this as the
+-- last line of a worker project's @Config.hs@ @main@. The top-level
+-- @"kind": "Worker"@ discriminator lets the loader dispatch and report a precise
+-- 'Nagare.Dsl.Load.UnexpectedKind' if a Worker config is run under the wrong
+-- command.
+emitWorker :: Worker -> IO ()
+emitWorker w = LBS.putStr (encodeWorker w)
+
+-- | The exact JSON bytes 'emitWorker' writes (exposed for the round-trip test).
+encodeWorker :: Worker -> LBS.ByteString
+encodeWorker = encode . workerJSON
+
+-- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load.decodeWorker').
+-- The four flat resource keys mirror 'deploymentJSON'/'databaseJSON', and
+-- @build@/@env@/@volumes@ reuse the shared encoders, so the loader reuses the
+-- same marshalling steps. @command@ is a JSON array (or @null@ for the image
+-- default); @replicas@ is an Int.
+workerJSON :: Worker -> Value
+workerJSON w =
+  object
+    [ "kind" .= ("Worker" :: Text)
+    , "name" .= serviceNameText (w ^. #name)
+    , "namespace" .= namespaceText (w ^. #namespace)
+    , "image" .= imageRefText (w ^. #image)
+    , "build" .= buildSpecJSON (w ^. #build)
+    , "command" .= fmap commandArgvList (w ^. #command)
+    , "replicas" .= replicasInt (w ^. #replicas)
+    , "env" .= map scopedEnvJSON (Map.toAscList (w ^. #env))
+    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+    , "volumes" .= map volumeJSON (w ^. #volumes)
+    , "databases" .= map databaseNameText (w ^. #databases)
+    ]
+  where
+    res = w ^. #resources
+
 -- | The nested @"cdn"@ object emitted inside a static site, server site, or
 -- deployment (MasterPlan 11, EP-55). Provider tokens are the wire contract
 -- EP-56/EP-57/EP-58 read: @"Cloudflare"@ and @"GcpCloudCdn"@. A per-path rule's
@@ -192,7 +276,7 @@ deploymentJSON dep =
     [ "name" .= serviceNameText (dep ^. #name)
     , "namespace" .= namespaceText (dep ^. #namespace)
     , "image" .= imageRefText (dep ^. #image)
-    , "build" .= buildJSON (dep ^. #build)
+    , "build" .= buildSpecJSON (dep ^. #build)
     , "domains" .= map domainSpecJSON (dep ^. #domains)
     , "port" .= portInt (dep ^. #port)
     , "env" .= map envJSON (Map.toAscList (dep ^. #env))
@@ -235,25 +319,6 @@ deploymentJSON dep =
     schemeText :: HealthScheme -> Text
     schemeText HTTP = "HTTP"
     schemeText HTTPS = "HTTPS"
-
-    buildJSON (PrebuiltImage t) =
-      object
-        [ "kind" .= ("PrebuiltImage" :: Text)
-        , "tag" .= tagText t
-        ]
-    buildJSON (DockerfileBuild df ctx args) =
-      object
-        [ "kind" .= ("DockerfileBuild" :: Text)
-        , "dockerfile" .= filePathText df
-        , "context" .= filePathText ctx
-        , "buildArgs" .= args
-        ]
-    buildJSON (NixpacksBuild ctx args) =
-      object
-        [ "kind" .= ("NixpacksBuild" :: Text)
-        , "context" .= filePathText ctx
-        , "buildArgs" .= args
-        ]
 
     envJSON (n, sev) = case sev ^. #value of
       EnvLiteral lit ->

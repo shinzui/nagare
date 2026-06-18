@@ -18,6 +18,8 @@ module Nagare.Dsl.Load
   , decodeServerSite
   , loadTask
   , decodeTask
+  , loadWorker
+  , decodeWorker
   , SiteConfig (..)
   , loadSite
   ) where
@@ -39,6 +41,7 @@ import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
+import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas)
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
@@ -724,6 +727,115 @@ decodeTask bs =
 -- different shape is reported as 'UnexpectedKind'. Used by EP-51's @task@ CLI.
 loadTask :: FilePath -> IO (Either LoadError Task)
 loadTask path = fmap (>>= decodeTask) (runConfig path)
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for workers (mirrors Nagare.Dsl.Config's emitted shape)
+
+-- | The intermediate decode shape for a 'Worker' (mirrors
+-- 'Nagare.Dsl.Config'\'s @workerJSON@). Optional fields carry model defaults so a
+-- partial object is a precise 'MarshalError', not an aeson parse error: @build@
+-- defaults to the historical Dockerfile build, @replicas@ to @1@, @command@ to
+-- absent (run the image entrypoint).
+data JsonWorker = JsonWorker
+  { jwName :: !Text
+  , jwNamespace :: !Text
+  , jwImage :: !Text
+  , jwBuild :: !(Maybe JsonBuildSpec)
+  , jwCommand :: !(Maybe [Text])
+  , jwReplicas :: !Int
+  , jwEnv :: ![JsonEnvEntry]
+  , jwCpuRequest :: !(Maybe Text)
+  , jwMemoryRequest :: !(Maybe Text)
+  , jwCpuLimit :: !(Maybe Text)
+  , jwMemoryLimit :: !(Maybe Text)
+  , jwVolumes :: ![JsonVolume]
+  , jwDatabases :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonWorker where
+  parseJSON = withObject "Worker" $ \o ->
+    JsonWorker
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "image"
+      <*> o .:? "build"
+      <*> o .:? "command"
+      <*> o .:? "replicas" .!= 1
+      <*> o .:? "env" .!= []
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
+      <*> o .:? "volumes" .!= []
+      <*> o .:? "databases" .!= []
+
+-- | Re-validate a decoded worker: re-run every smart constructor
+-- ('mkServiceName', 'mkNamespace', 'mkImageRef', 'mkReplicas', 'mkCommand', the
+-- shared build/env/resources/volume marshallers, and 'mkDatabaseName'). Volume
+-- name / mount-path uniqueness is enforced by the reused 'toVolumes', exactly as
+-- 'toDeployment' enforces it. Any failure is a precise 'MarshalError'.
+toWorker :: JsonWorker -> Either LoadError Worker
+toWorker j = do
+  name' <- mapLeft (MarshalError "name") $ mkServiceName (jwName j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jwNamespace j)
+  img' <- mapLeft (MarshalError "image") $ mkImageRef (jwImage j)
+  build' <- case jwBuild j of
+    Nothing -> mapLeft (MarshalError "build") defaultBuild
+    Just jb -> toBuildSpec jb
+  command' <- traverse (mapLeft (MarshalError "command") . mkCommand) (jwCommand j)
+  replicas' <- mapLeft (MarshalError "replicas") $ mkReplicas (jwReplicas j)
+  env' <- mapM toEnvEntry (jwEnv j)
+  res' <- toWorkerResources j
+  vols' <- toVolumes (jwVolumes j)
+  dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
+  Right
+    Worker
+      { name = name'
+      , namespace = ns'
+      , image = img'
+      , build = build'
+      , command = command'
+      , replicas = replicas'
+      , env = Map.fromList env'
+      , resources = res'
+      , volumes = vols'
+      , databases = dbRefs'
+      }
+
+toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)
+toWorkerResources j =
+  case (jwCpuRequest j, jwMemoryRequest j, jwCpuLimit j, jwMemoryLimit j) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (c, m, cl, ml) -> do
+      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
+
+-- | Decode the JSON a worker config emits (via 'Nagare.Dsl.Config.emitWorker')
+-- into a validated 'Worker'. The top-level @kind@ is checked first: a missing or
+-- non-@Worker@ kind is 'UnexpectedKind'.
+decodeWorker :: ByteString -> Either LoadError Worker
+decodeWorker bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Worker" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode worker: " <> Text.pack perr))
+        Right jw -> toWorker jw
+      Just other -> Left (UnexpectedKind "Worker" other)
+      Nothing -> Left (UnexpectedKind "Worker" "<none>")
+
+-- | Load a 'Worker' from a Haskell config-as-program source file (EP-71). The
+-- config must print its JSON via 'Nagare.Dsl.Config.emitWorker'. A config that
+-- instead emits a 'Deployment' or another kind is reported as 'UnexpectedKind'.
+-- Used by @nagarectl worker deploy@.
+loadWorker :: FilePath -> IO (Either LoadError Worker)
+loadWorker path = fmap (>>= decodeWorker) (runConfig path)
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for the optional CDN block (mirrors Nagare.Dsl.Config.cdnJSON)

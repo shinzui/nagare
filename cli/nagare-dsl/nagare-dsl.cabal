@@ -44,6 +44,8 @@ library
     Nagare.Dsl.Task
     Nagare.Dsl.Task.Render
     Nagare.Dsl.Types
+    Nagare.Dsl.Worker
+    Nagare.Dsl.Worker.Render
 
   build-depends:
     , aeson
@@ -78,6 +80,7 @@ test-suite nagare-dsl-test
     LoadSpec
     ServerSpec
     StaticSpec
+    WorkerSpec
   build-depends:
     , base
     , bytestring
