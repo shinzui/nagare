@@ -145,10 +145,14 @@ This section must always reflect the actual current state of the work.
       suites pass (`nagare-dsl-test` 286, `nagarectl-test` 285). A
       config-as-program `loadWorker` fixture test lives in `nagare-dsl-test`
       (which owns the runghc harness).
-- [ ] **M5 — Example + docs + CI.** Add `cluster/examples/queue-worker/` with a
-      `nagare/Config.hs` that compiles under the `examples-compile` flake check,
-      and document the worker workflow. Acceptance: `nix flake check` passes
-      (examples-compile includes the new example).
+- [x] **M5 — Example + docs + CI.** (2026-06-17) Added
+      `cluster/examples/queue-worker/` (`nagare/Config.hs` using the public
+      `helloworld-go` image + a `command` override, `replicas = 2`) and its
+      `README.md`; added the `docs/user/workers.md` user guide and indexed it in
+      `docs/user/README.md`. `nix flake check` passes — all four checks green
+      (`nagare-dsl-build-test`, `nagarectl-build-test`, `shellcheck-scripts`, and
+      `examples-compile`, which compiled the new example through the loader's
+      runghc contract).
 - [ ] **M6 — Live validation (optional, requires a running cluster).** Deploy a
       real worker to `nagare-01` and observe `2/2` replicas Ready and worker log
       output. Acceptance: transcript captured in Validation and Acceptance.

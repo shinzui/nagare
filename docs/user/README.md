@@ -117,6 +117,10 @@ you can observe.
      demand: declare a typed `Task` in an app's `tasks` list, provision a CronJob at
      deploy time, and operate it with `nagarectl task list/run/logs/delete`,
      including app↔task image/env inheritance. 🟡
+   - [Running workers](workers.md) — run a continuous background process (a queue
+     consumer, a stream processor) with a typed `Worker` and `nagarectl worker
+     deploy`: it renders an `apps/v1` Deployment with a fixed replica count, never
+     scales to zero, needs no HTTP port, and is operated with stock `kubectl`. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
