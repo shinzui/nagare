@@ -153,9 +153,13 @@ This section must always reflect the actual current state of the work.
       (`nagare-dsl-build-test`, `nagarectl-build-test`, `shellcheck-scripts`, and
       `examples-compile`, which compiled the new example through the loader's
       runghc contract).
-- [ ] **M6 — Live validation (optional, requires a running cluster).** Deploy a
-      real worker to `nagare-01` and observe `2/2` replicas Ready and worker log
-      output. Acceptance: transcript captured in Validation and Acceptance.
+- [ ] **M6 — Live validation (optional, requires a running cluster).** DEFERRED
+      (2026-06-17): `nagare-01` is `TERMINATED` (confirmed via
+      `gcloud compute instances list`), as the standing memory note anticipates.
+      M1–M5 are complete and verified offline (`nix flake check` green). Live
+      validation needs the VM started (`just vm-start` + `just live-test`), which
+      is a billable, outward-facing action left for an operator to run. The exact
+      commands and expected transcript are in Concrete Steps / Validation.
 
 
 ## Surprises & Discoveries
@@ -169,6 +173,10 @@ implementation. Provide concise evidence.
   `lens`/`generic-lens` dependency, so `WorkerSpec` disambiguates with record
   /pattern/ matching (`Right Worker {build = b}`) rather than `^. #build`. No
   production code is affected (those modules use `Data.Generics.Labels` lenses).
+- At M6 time `nagare-01` was `TERMINATED` (`gcloud compute instances list` shows
+  `nagare-01` and `nix-builder-x86` both stopped in `us-west1-a`), matching the
+  standing memory note that the VM is often off and must be started first. M6 is
+  deferred to an operator rather than auto-starting a billable VM.
 - The PVC a worker volume renders carries the existing `nagare.dev/app` label
   (it reuses `renderPersistentVolumeClaims`, the single owner of the PVC
   contract), not a `nagare.dev/worker` label. This is intentional: storage
@@ -262,7 +270,48 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+### Status at 2026-06-17 — M1–M5 complete, M6 deferred
+
+The original purpose is met offline: nagare can now describe and deploy a
+long-running **Worker** from a tiny typed `nagare/Config.hs`, and it renders to a
+plain `apps/v1` Deployment — never a Knative Service — so it runs continuously,
+never scales to zero, and needs no HTTP port. Concretely:
+
+* **M1** — `Nagare.Dsl.Worker` adds the `Worker` record, the `Replicas` newtype
+  (rejects `< 0`, default 1), the `Command` entrypoint override (non-empty,
+  NUL-free), and the `webWorker` preset. Unit tests pin the constructors.
+* **M2** — `Nagare.Dsl.Worker.Render` renders an `apps/v1` Deployment (replicas,
+  matching selector/pod labels, managed `envFrom`, optional command/env/
+  resources/volumes) plus one PVC per volume. Golden files
+  (`worker-minimal.deployment.yaml`, `worker-rich.deployment.yaml`,
+  `worker-rich.manifests.yaml`) pin the exact YAML; a manual read confirmed a
+  valid Deployment with **no** Service/DomainMapping/Knative annotation. The
+  inline-env and managed-`envFrom` rendering reuses the app's exported
+  `envField`/`envFromField`, so it cannot fork the contract.
+* **M3** — `emitWorker`/`encodeWorker` + `loadWorker`/`decodeWorker` with a
+  `"kind": "Worker"` discriminator; the encode→decode round-trip is identity and
+  decoding a `Database`/`Deployment` as a Worker is `UnexpectedKind`.
+* **M4** — `nagarectl worker deploy` loads the config, qualifies the image,
+  reuses the app build/push path (incl. `gatherBuildArgs`), applies the
+  PVCs+Deployment, and gates on `waitForWorkerRollout`
+  (`kubectl rollout status deployment/<name>`). `worker --help` and
+  `worker deploy --help` document it; both test suites pass (286 + 285).
+* **M5** — the `queue-worker` example and the `docs/user/workers.md` guide ship;
+  `nix flake check` is green, including `examples-compile`.
+
+**Gap:** M6 (live `2/2`-Ready Deployment on `nagare-01`, absent from
+`kubectl get ksvc`, emitting logs) is **deferred** — the VM is `TERMINATED` and
+bringing it up is a billable, outward-facing action for an operator. Everything
+M6 needs (the example, the command, the readiness gate) is in place; only the
+on-cluster run remains.
+
+**Lessons:** (1) Reusing the app renderer's `envField`/`envFromField` (exported,
+not reimplemented) and lifting a shared `buildSpecJSON`/`scopedEnvJSON` kept the
+worker byte-identical to the app on the env/build contracts — the single-owner
+discipline the plan insisted on. (2) The two workloads now share field names
+(`build`, `replicas`, `env`, …); production modules disambiguate with
+`Data.Generics.Labels` lenses, but the lens-free test suite needed record-pattern
+matching instead.
 
 
 ## Context and Orientation
