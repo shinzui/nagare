@@ -14,7 +14,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDeployment, encodeWorker)
-import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker)
+import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker, loadWorker)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
@@ -32,6 +32,7 @@ workerTests =
     , testGroup "webWorker preset" presetTests
     , testGroup "renderer goldens" renderTests
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
+    , testGroup "loadWorker (config-as-program)" loadTests
     ]
 
 replicasTests :: [TestTree]
@@ -148,6 +149,31 @@ roundTripTests =
       case decodeWorker (toStrict (encodeDeployment helloDep)) of
         Left (UnexpectedKind "Worker" "<none>") -> pure ()
         other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+  ]
+
+-- ---------------------------------------------------------------------------
+-- M4 acceptance: the config-as-program fixture loads to the expected Worker via
+-- the runghc harness (the same harness the request-driven loadDeployment test
+-- uses). The fixture is the queue-worker shape nagarectl's `worker deploy`
+-- loads; this proves the full Config.hs -> emitWorker -> loadWorker path.
+
+fixtureWorker :: Worker
+fixtureWorker =
+  case webWorker "queue-consumer" "gcr.io/knative-samples/helloworld-go" of
+    Right w ->
+      w
+        { command = Just (unsafe (mkCommand ["sh", "-c", "while true; do echo working; sleep 5; done"]))
+        , replicas = unsafe (mkReplicas 2)
+        }
+    Left e -> error ("test fixture invalid: " <> e)
+
+loadTests :: [TestTree]
+loadTests =
+  [ testCase "loadWorker fixture returns the expected Worker" $ do
+      result <- loadWorker "test/fixtures/worker/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("loadWorker returned Left: " <> show err)
+        Right w -> w @?= fixtureWorker
   ]
 
 -- | A minimal request-driven 'Deployment' used only to prove kind discrimination

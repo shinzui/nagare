@@ -134,12 +134,17 @@ This section must always reflect the actual current state of the work.
       `Nagare.Dsl.Load` with a `"kind": "Worker"` discriminator. Round-trip and
       kind-guard tests pass (rich + minimal round-trip; Worker↔Deployment kind
       discrimination).
-- [ ] **M4 — `nagarectl worker deploy` command.** Add
-      `Nagare.Worker.Deploy` to `nagarectl`, a `WorkerCommand` to
-      `app/Main.hs`, and the `worker` subparser. Build/push reuse the existing
-      `Nagare.Build`/`Nagare.Image` path; apply with `applyManifests`; gate on a
-      new `waitForWorkerRollout`. Acceptance: `nagarectl worker --help` lists
-      `deploy`; `cabal test nagarectl-test` passes.
+- [x] **M4 — `nagarectl worker deploy` command.** (2026-06-17) Added
+      `cli/nagarectl/src/Nagare/Worker/Deploy.hs` (`runWorkerDeploy` /
+      `WorkerDeployParams`), `waitForWorkerRollout` to `Nagare.Deploy`, and the
+      `Worker WorkerCommand` arm + `worker` subparser + `runWorker` dispatcher in
+      `app/Main.hs`. Build/push reuse `Nagare.Build`/`Nagare.Image` and
+      `gatherBuildArgs` verbatim; apply via `applyPVCs`+`applyManifests`; gate on
+      `waitForWorkerRollout`. `nagarectl worker --help` lists `deploy`;
+      `worker deploy --help` shows the options; `cabal build all` and both test
+      suites pass (`nagare-dsl-test` 286, `nagarectl-test` 285). A
+      config-as-program `loadWorker` fixture test lives in `nagare-dsl-test`
+      (which owns the runghc harness).
 - [ ] **M5 — Example + docs + CI.** Add `cluster/examples/queue-worker/` with a
       `nagare/Config.hs` that compiles under the `examples-compile` flake check,
       and document the worker workflow. Acceptance: `nix flake check` passes
@@ -226,6 +231,17 @@ Record every decision made while working on the plan.
   prevents the worker's emitted shape from drifting from what the loader's
   `toBuildSpec` / `toEnvEntry` read back. `deploymentJSON`'s output is unchanged
   (the existing goldens still pass). Date: 2026-06-17
+
+- Decision: Place the `loadWorker`-from-fixture subprocess test in
+  `nagare-dsl-test` (`WorkerSpec`), with the fixture at
+  `cli/nagare-dsl/test/fixtures/worker/nagare/Config.hs`, rather than in
+  `nagarectl-test`. Rationale: `nagare-dsl-test` already owns the working
+  `runghc` config-loader harness (it loads `loadDeployment`/`loadServerSite`
+  fixtures and the cabal project writes the GHC package-environment file
+  `runghc` needs); `nagarectl-test` is a pure-helper suite that spawns no
+  subprocess. Putting it where the harness already works keeps it robust and
+  still proves the full `Config.hs` → `emitWorker` → `loadWorker` path the CLI
+  uses. Date: 2026-06-17
 
 - Decision: The worker's readiness gate is
   `kubectl rollout status deployment/<name>`, not the Knative

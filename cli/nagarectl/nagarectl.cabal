@@ -85,6 +85,7 @@ library
     Nagare.Task.Logs
     Nagare.Task.Resolve
     Nagare.Task.Run
+    Nagare.Worker.Deploy
 
   build-depends:
     aeson,

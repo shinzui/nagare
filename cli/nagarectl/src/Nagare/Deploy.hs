@@ -9,6 +9,7 @@ module Nagare.Deploy
   , pvcPhases
   , waitForReady
   , waitForRollout
+  , waitForWorkerRollout
   , serviceUrl
   ) where
 
@@ -108,6 +109,24 @@ waitForRollout namespace name =
         [ "rollout"
         , "status"
         , "statefulset/" <> T.unpack name
+        , "-n"
+        , T.unpack namespace
+        , "--timeout=300s"
+        ]
+
+-- | Run @kubectl rollout status deployment/\<name\> -n \<namespace\> --timeout=300s@.
+-- The readiness gate for a worker (EP-71): a worker is an @apps/v1@ Deployment,
+-- which exposes rollout status exactly as the database StatefulSet does
+-- ('waitForRollout'); this is the parallel @deployment/\<name\>@ form. Blocks
+-- until the requested replicas are Ready or the 5-minute timeout expires.
+waitForWorkerRollout :: Text -> Text -> IO ()
+waitForWorkerRollout namespace name =
+  run_ $
+    cmd "kubectl"
+      & addArgs
+        [ "rollout"
+        , "status"
+        , "deployment/" <> T.unpack name
         , "-n"
         , T.unpack namespace
         , "--timeout=300s"

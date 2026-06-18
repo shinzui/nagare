@@ -190,6 +190,7 @@ import Nagare.Static.Release
   , readReleaseLog
   , writeReleaseLog
   )
+import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 
 -- ---------------------------------------------------------------------------
 -- CLI options
@@ -209,6 +210,23 @@ data DeployOpts = DeployOpts
   -- ^ Free-form provenance recorded with the deployment (e.g. a git SHA or
   -- branch), and surfaced as @NAGARE_SOURCE@ — matching the site deploy path.
   }
+  deriving stock (Generic, Show)
+
+-- | Options for @worker deploy@ (EP-71). A worker has no URL and no deployment
+-- history, so (unlike 'DeployOpts') it carries no @--base-domain@ or @--source@.
+data WorkerDeployOpts = WorkerDeployOpts
+  { file :: !FilePath
+  , tag :: !(Maybe String)
+  , contextOverride :: !(Maybe FilePath)
+  , dockerfileOverride :: !(Maybe FilePath)
+  , ghcEnv :: !(Maybe FilePath)
+  , dryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | The @worker@ command group (EP-71). One subcommand today (@deploy@); a
+-- 'newtype' with a constructor per subcommand, mirroring 'DbCommand'/'TaskCommand'.
+newtype WorkerCommand = WorkerDeploy WorkerDeployOpts
   deriving stock (Generic, Show)
 
 -- | Options for @site deploy@ (and, with a @--name@, @site preview deploy@).
@@ -322,6 +340,7 @@ data Command
   | Storage StorageCommand
   | Db DbCommand
   | Task TaskCommand
+  | Worker WorkerCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Init InitOpts
@@ -717,6 +736,29 @@ deployOptsParser defaultFile =
           )
       )
 
+workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
+workerDeployOptsParser defaultFile =
+  WorkerDeployOpts
+    <$> fileOpt defaultFile
+    <*> tagOpt
+    <*> optional
+      ( strOption
+          ( long "context"
+              <> short 'c'
+              <> metavar "DIR"
+              <> help "Override the build context directory from the config (build modes only)"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "dockerfile"
+              <> metavar "FILE"
+              <> help "Override the Dockerfile path from the config (Dockerfile build only)"
+          )
+      )
+    <*> ghcEnvOpt
+    <*> dryRunOpt
+
 siteDeployOptsParser :: FilePath -> Parser SiteDeployOpts
 siteDeployOptsParser defaultFile =
   SiteDeployOpts
@@ -1012,6 +1054,7 @@ opts =
             <> command "storage" storageCmd
             <> command "db" dbCmd
             <> command "task" taskCmd
+            <> command "worker" workerCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "init" initCmd
@@ -1092,6 +1135,19 @@ opts =
       info
         (Deploy <$> deployOptsParser defaultConfigFile <**> helper)
         (fullDesc <> progDesc "Build, push, and deploy the app in the current directory")
+    workerCmd =
+      info
+        (workerSubparser <**> helper)
+        (fullDesc <> progDesc "Run long-running background workers (apps/v1 Deployments)")
+    workerSubparser =
+      subparser
+        ( command
+            "deploy"
+            ( info
+                (Worker . WorkerDeploy <$> workerDeployOptsParser defaultConfigFile <**> helper)
+                (progDesc "Build, push, and run a long-running worker (apps/v1 Deployment) from the current directory")
+            )
+        )
     siteCmd =
       info
         (siteSubparser <**> helper)
@@ -1497,6 +1553,7 @@ main =
     Storage scmd -> runStorage scmd
     Db dcmd -> runDb dcmd
     Task tcmd -> runTask tcmd
+    Worker wcmd -> runWorker wcmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Init o -> runInit o
@@ -2433,6 +2490,22 @@ runDb = \case
     runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (tpProject tp) (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
+
+-- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
+-- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
+-- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
+runWorker :: WorkerCommand -> IO ()
+runWorker = \case
+  WorkerDeploy o -> do
+    provisionGhcEnv (o ^. #ghcEnv)
+    runWorkerDeploy
+      WorkerDeployParams
+        { wdpConfigPath = o ^. #file
+        , wdpTag = T.pack <$> o ^. #tag
+        , wdpContextOverride = o ^. #contextOverride
+        , wdpDockerfileOverride = o ^. #dockerfileOverride
+        , wdpDryRun = o ^. #dryRun
+        }
 
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
 -- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is
