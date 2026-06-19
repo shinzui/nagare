@@ -166,12 +166,31 @@ renderTests =
 -- ---------------------------------------------------------------------------
 -- M3: emit -> decode round-trip and kind discrimination.
 
+-- | EP-74 M2: probe-bearing workers for the round-trip. Exec is the primary
+-- case; TCP and HTTP exercise the other two branches.
+execProbeWorker :: Worker
+execProbeWorker = minimalWorker {liveness = Just (unsafe (execProbe ["/app/healthcheck"]))}
+
+tcpProbeWorker :: Worker
+tcpProbeWorker = minimalWorker {liveness = Just (mkTcpProbe (unsafe (mkPort 9000)) defaultProbeTiming)}
+
+httpProbeWorker :: Worker
+httpProbeWorker =
+  minimalWorker
+    {liveness = Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))}
+
 roundTripTests :: [TestTree]
 roundTripTests =
   [ testCase "rich worker survives emit -> decode round-trip" $
       decodeWorker (toStrict (encodeWorker richWorker)) @?= Right richWorker
   , testCase "minimal worker round-trips" $
       decodeWorker (toStrict (encodeWorker minimalWorker)) @?= Right minimalWorker
+  , testCase "exec-probe worker round-trips" $
+      decodeWorker (toStrict (encodeWorker execProbeWorker)) @?= Right execProbeWorker
+  , testCase "tcp-probe worker round-trips" $
+      decodeWorker (toStrict (encodeWorker tcpProbeWorker)) @?= Right tcpProbeWorker
+  , testCase "http-probe worker round-trips" $
+      decodeWorker (toStrict (encodeWorker httpProbeWorker)) @?= Right httpProbeWorker
   , testCase "decoding a Worker as a Deployment is UnexpectedKind" $
       case decodeDeployment (toStrict (encodeWorker minimalWorker)) of
         Left (UnexpectedKind "Deployment" "Worker") -> pure ()

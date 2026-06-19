@@ -48,9 +48,16 @@ exactly as it does today — byte-identical output, no probe block.
 - [x] M1 (2026-06-18) — `WorkerSpec` `WorkerProbe` group covers the timing-range and exec-argv
       validation, `execProbe` default timing, the http-path rule, and the `Nothing` default; full
       suite green (311 tests, no regression to existing worker/application round-trips or goldens).
-- [ ] M2 — JSON encode (`workerJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`) and
-      decode (`JsonWorker` / `toWorker` in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`) round-trip.
-- [ ] M2 — round-trip tests in `WorkerSpec` cover exec, TCP, and no-probe workers.
+- [x] M2 (2026-06-18) — JSON encode (`workerJSON` + `workerProbeJSON` in
+      `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`, a `"kind"`-tagged object with flat timing) and
+      decode (`JsonWorker.jwLiveness` + `JsonWorkerProbe` + `toWorkerProbe` in
+      `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`, re-running the smart constructors) round-trip. The
+      `liveness` key is decoded with `.:?`, so old worker JSON with no key decodes to `Nothing`
+      (backward compatible).
+- [x] M2 (2026-06-18) — round-trip tests in `WorkerSpec` cover exec, TCP, HTTP, and (via the
+      existing `minimal`/`rich` fixtures) no-probe workers; full suite green (314 tests). EP-1's
+      Application round-trip and the runghc load tests are unaffected (embedded workers now emit
+      `"liveness":null`, which decodes back to `Nothing`).
 - [ ] M3 — renderer emits `livenessProbe`/`startupProbe` into the container
       (`cli/nagare-dsl/src/Nagare/Dsl/Worker/Render.hs`); golden fixtures added/updated.
 - [ ] M3 — golden test proves a no-probe worker is byte-identical to today.

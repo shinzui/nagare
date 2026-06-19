@@ -44,7 +44,17 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import Nagare.Dsl.Application (Application (..), mkApplication)
-import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas)
+import Nagare.Dsl.Worker
+  ( ProbeTiming (..)
+  , Worker (..)
+  , WorkerProbe
+  , mkCommand
+  , mkExecProbe
+  , mkHttpProbe
+  , mkProbeTiming
+  , mkReplicas
+  , mkTcpProbe
+  )
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
@@ -753,6 +763,7 @@ data JsonWorker = JsonWorker
   , jwMemoryLimit :: !(Maybe Text)
   , jwVolumes :: ![JsonVolume]
   , jwDatabases :: ![Text]
+  , jwLiveness :: !(Maybe JsonWorkerProbe)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -772,6 +783,76 @@ instance FromJSON JsonWorker where
       <*> o .:? "memoryLimit"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "liveness"
+
+-- | The intermediate decode shape for a 'WorkerProbe' (mirrors
+-- 'Nagare.Dsl.Config'\'s @workerProbeJSON@). The @kind@ selects the mechanism;
+-- the per-kind fields are optional so a missing one is a precise 'MarshalError'.
+-- The timing fields carry the model defaults (mirroring 'defaultProbeTiming').
+data JsonWorkerProbe = JsonWorkerProbe
+  { jwpKind :: !Text
+  , jwpCommand :: !(Maybe [Text])
+  , jwpPort :: !(Maybe Int)
+  , jwpPath :: !(Maybe Text)
+  , jwpCheckPort :: !(Maybe Int)
+  , jwpScheme :: !(Maybe Text)
+  , jwpInitialDelay :: !Int
+  , jwpPeriod :: !Int
+  , jwpTimeout :: !Int
+  , jwpFailureThreshold :: !Int
+  , jwpAsStartup :: !Bool
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonWorkerProbe where
+  parseJSON = withObject "WorkerProbe" $ \o ->
+    JsonWorkerProbe
+      <$> o .: "kind"
+      <*> o .:? "command"
+      <*> o .:? "port"
+      <*> o .:? "path"
+      <*> o .:? "checkPort"
+      <*> o .:? "scheme"
+      <*> o .:? "initialDelay" .!= 0
+      <*> o .:? "period" .!= 10
+      <*> o .:? "timeout" .!= 1
+      <*> o .:? "failureThreshold" .!= 3
+      <*> o .:? "asStartup" .!= False
+
+-- | Re-validate a decoded liveness probe, dispatching on the @kind@ and re-running
+-- the relevant smart constructor (and 'mkProbeTiming' / 'mkPort'). A missing
+-- per-kind field or unknown kind/scheme is a precise 'MarshalError "liveness*"'.
+toWorkerProbe :: JsonWorkerProbe -> Either LoadError WorkerProbe
+toWorkerProbe j =
+  case jwpKind j of
+    "Exec" -> do
+      argv <-
+        maybe (Left (MarshalError "liveness" "Exec probe missing 'command' field")) Right (jwpCommand j)
+      mapLeft (MarshalError "liveness") (mkExecProbe argv timing)
+    "Tcp" -> do
+      p <- maybe (Left (MarshalError "liveness" "Tcp probe missing 'port' field")) Right (jwpPort j)
+      port <- mapLeft (MarshalError "liveness.port") (mkPort p)
+      t <- mapLeft (MarshalError "liveness") (mkProbeTiming timing)
+      Right (mkTcpProbe port t)
+    "Http" -> do
+      path <-
+        maybe (Left (MarshalError "liveness" "Http probe missing 'path' field")) Right (jwpPath j)
+      mport <- traverse (mapLeft (MarshalError "liveness.checkPort") . mkPort) (jwpCheckPort j)
+      scheme <- case fromMaybe "HTTP" (jwpScheme j) of
+        "HTTP" -> Right HTTP
+        "HTTPS" -> Right HTTPS
+        other -> Left (MarshalError "liveness.scheme" ("unknown scheme: " <> other))
+      mapLeft (MarshalError "liveness") (mkHttpProbe path mport scheme timing)
+    other -> Left (MarshalError "liveness.kind" ("unknown probe kind: " <> other))
+  where
+    timing =
+      ProbeTiming
+        { initialDelay = jwpInitialDelay j
+        , period = jwpPeriod j
+        , timeout = jwpTimeout j
+        , failureThreshold = jwpFailureThreshold j
+        , asStartup = jwpAsStartup j
+        }
 
 -- | Re-validate a decoded worker: re-run every smart constructor
 -- ('mkServiceName', 'mkNamespace', 'mkImageRef', 'mkReplicas', 'mkCommand', the
@@ -792,6 +873,7 @@ toWorker j = do
   res' <- toWorkerResources j
   vols' <- toVolumes (jwVolumes j)
   dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
+  liveness' <- traverse toWorkerProbe (jwLiveness j)
   Right
     Worker
       { name = name'
@@ -804,7 +886,7 @@ toWorker j = do
       , resources = res'
       , volumes = vols'
       , databases = dbRefs'
-      , liveness = Nothing
+      , liveness = liveness'
       }
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)

@@ -41,7 +41,7 @@ import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import Nagare.Dsl.Application (Application)
-import Nagare.Dsl.Worker (Worker, commandArgvList, replicasInt)
+import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt)
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.
@@ -239,9 +239,39 @@ workerJSON w =
     , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
     , "volumes" .= map volumeJSON (w ^. #volumes)
     , "databases" .= map databaseNameText (w ^. #databases)
+    , "liveness" .= fmap workerProbeJSON (w ^. #liveness)
     ]
   where
     res = w ^. #resources
+
+-- | The JSON shape of a worker liveness probe (EP-74). A @"kind"@ discriminator
+-- (@"Exec"|"Tcp"|"Http"@) selects the per-mechanism fields; the shared timing is
+-- emitted flat alongside. The loader reads it back in
+-- 'Nagare.Dsl.Load.toWorkerProbe'. A @Nothing@ probe is encoded as JSON @null@
+-- (the @"liveness"@ key above), matching how @deploymentJSON@ emits an absent
+-- @healthCheck@, so a no-probe worker stays byte-identical to today.
+workerProbeJSON :: WorkerProbe -> Value
+workerProbeJSON p = object (kindPairs <> timingPairs)
+  where
+    t = probeTiming p
+    kindPairs = case p of
+      ExecProbe argv _ -> ["kind" .= ("Exec" :: Text), "command" .= argv]
+      TcpProbe port _ -> ["kind" .= ("Tcp" :: Text), "port" .= portInt port]
+      HttpProbe path mport scheme _ ->
+        [ "kind" .= ("Http" :: Text)
+        , "path" .= path
+        , "checkPort" .= fmap portInt mport
+        , "scheme" .= schemeTok scheme
+        ]
+    timingPairs =
+      [ "initialDelay" .= (t ^. #initialDelay)
+      , "period" .= (t ^. #period)
+      , "timeout" .= (t ^. #timeout)
+      , "failureThreshold" .= (t ^. #failureThreshold)
+      , "asStartup" .= (t ^. #asStartup)
+      ]
+    schemeTok HTTP = "HTTP" :: Text
+    schemeTok HTTPS = "HTTPS"
 
 -- | The nested @"cdn"@ object emitted inside a static site, server site, or
 -- deployment (MasterPlan 11, EP-55). Provider tokens are the wire contract
