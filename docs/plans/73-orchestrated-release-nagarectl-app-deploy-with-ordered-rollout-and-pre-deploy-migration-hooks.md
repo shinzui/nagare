@@ -79,8 +79,14 @@ first, as one tracked release."
 - [x] M2 (2026-06-18): unit test injects a fake `PhaseExec` whose hook returns `PhaseFailed` and
       asserts only the hook phase ran (databases/service/workers never invoked); a second asserts
       all phases run in order when each succeeds.
-- [ ] M3: machine-readable `--dry-run --json` result contract (stable ordered object list
-      with labels); JSON-shape golden test; the contract documented in this plan.
+- [x] M3 (2026-06-18): machine-readable `--dry-run --json` result contract — `RenderedObject`
+      / `AppDeployPlan` with `ToJSON`, and `renderPlan` building the ordered object list (each
+      object's apiVersion/kind/name/namespace/labels parsed back from its stamped manifest so the
+      JSON and YAML cannot drift). `app deploy --dry-run --json` writes a single JSON document to
+      stdout: `{app, image, objects:[{apiVersion,kind,name,namespace,phase,labels,manifest}]}`,
+      ordered hook → database → service → worker, every object carrying `nagare.dev/app`. The
+      database phase is rendered here (PVC/Service/StatefulSet via `renderDatabase`). `AppDeploySpec`
+      asserts the plan shape, ordering, per-object label, and that it encodes to parseable JSON.
 - [ ] M4: live-apply wiring (build/push once, hook run, db ensure, apply + wait) — deferred
       acceptance while `nagare-01` is `TERMINATED`; offline render gates stand in.
 - [ ] Docs: `docs/user/deploying-apps.md` gains an "Deploying a multi-workload app" section.

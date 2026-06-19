@@ -33,19 +33,30 @@ module Nagare.App.Deploy
   , RolloutEnv (..)
   , renderAppObjects
   , stampAppLabel
+
+    -- * Machine-readable plan (EP-2 M3, the kotei contract)
+  , RenderedObject (..)
+  , AppDeployPlan (..)
+  , renderPlan
   ) where
 
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 
 import Data.Generics.Labels ()
 
 import Control.Monad (forM_)
+import Data.Aeson (ToJSON (..), Value (Object, String), encode, object, (.=))
+import Data.Aeson.Key qualified as K
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
 import Data.Map (Map)
+import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Yaml
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -53,6 +64,7 @@ import Nagare.Deploy.Resolve (resolveTag)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Build (BuildSpec, resolveImageTag)
 import Nagare.Dsl.Database (Database)
+import Nagare.Dsl.Database.Render (renderDatabase)
 import Nagare.Dsl.Load (loadApplication, renderLoadError)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Task (Task, taskName)
@@ -185,9 +197,15 @@ renderAppObjects env app =
 -- | The stamped, phase-tagged manifests for one phase.
 renderPhaseObjects :: RolloutEnv -> Phase -> [(Text, ByteString)]
 renderPhaseObjects env (PhaseHooks ts) = concatMap (renderTaskObjects env) ts
-renderPhaseObjects _ (PhaseDatabases _) = [] -- rendered in M3
+renderPhaseObjects env (PhaseDatabases dbs) = concatMap (renderDatabaseObjects env) dbs
 renderPhaseObjects env (PhaseService svc) = renderServiceObjects env svc
 renderPhaseObjects env (PhaseWorkers ws) = concatMap (renderWorkerObjects env) ws
+
+-- | Render a managed database's manifests (PVC, optional ConfigMap, Service,
+-- StatefulSet) and stamp the app label. The database keeps its OWN engine image
+-- (it is not the shared app image), so no image/env flow-down applies.
+renderDatabaseObjects :: RolloutEnv -> Database -> [(Text, ByteString)]
+renderDatabaseObjects env db = map (stamp env "database") (renderDatabase db)
 
 -- | Apply the shared image + shared env to the web service, render its PVCs,
 -- Knative Service, and DomainMappings, and stamp the app label on each.
@@ -244,6 +262,94 @@ stampAppLabel appName bs
       | otherwise = l : insertAfterFirst ls
 
 -- ---------------------------------------------------------------------------
+-- Machine-readable plan (the kotei contract, EP-2 M3)
+
+-- | One rendered object in a deploy plan. The flat shape (with an explicit
+-- @phase@) lets the kotei backend enumerate an app's resources and read each
+-- object's @nagare.dev/app@ label without parsing YAML or human prose. The
+-- contract is additive: consumers ignore unknown keys.
+data RenderedObject = RenderedObject
+  { roApiVersion :: !Text
+  , roKind :: !Text
+  , roName :: !Text
+  , roNamespace :: !Text
+  , roPhase :: !Text
+  -- ^ @"hook" | "database" | "service" | "worker"@.
+  , roLabels :: !(Map Text Text)
+  , roManifest :: !Text
+  -- ^ the exact rendered YAML document.
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance ToJSON RenderedObject where
+  toJSON o =
+    object
+      [ "apiVersion" .= roApiVersion o
+      , "kind" .= roKind o
+      , "name" .= roName o
+      , "namespace" .= roNamespace o
+      , "phase" .= roPhase o
+      , "labels" .= roLabels o
+      , "manifest" .= roManifest o
+      ]
+
+-- | The whole rollout plan: the app identity, the resolved tagged image every
+-- workload runs, and the ordered object list (rollout-phase order).
+data AppDeployPlan = AppDeployPlan
+  { adpApp :: !Text
+  , adpImage :: !Text
+  , adpObjects :: ![RenderedObject]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance ToJSON AppDeployPlan where
+  toJSON p =
+    object
+      [ "app" .= adpApp p
+      , "image" .= adpImage p
+      , "objects" .= adpObjects p
+      ]
+
+-- | Build the machine-readable plan from the rendered, label-stamped objects.
+-- Each 'RenderedObject'\'s metadata is parsed back from its stamped manifest, so
+-- the JSON's labels and the YAML's labels cannot drift.
+renderPlan :: RolloutEnv -> Application -> AppDeployPlan
+renderPlan env app =
+  AppDeployPlan
+    { adpApp = reAppName env
+    , adpImage = reAppImageTagged env
+    , adpObjects = [toRenderedObject ph bs | (ph, bs) <- renderAppObjects env app]
+    }
+
+-- | Parse a rendered manifest's identity (apiVersion/kind/name/namespace/labels)
+-- back out of its YAML for the JSON plan. A manifest that fails to parse yields
+-- empty fields rather than throwing (our own renderers always produce valid YAML).
+toRenderedObject :: Text -> ByteString -> RenderedObject
+toRenderedObject ph bs =
+  RenderedObject
+    { roApiVersion = str "apiVersion" top
+    , roKind = str "kind" top
+    , roName = str "name" meta
+    , roNamespace = str "namespace" meta
+    , roPhase = ph
+    , roLabels = labels
+    , roManifest = TE.decodeUtf8 bs
+    }
+  where
+    top = case Yaml.decodeEither' bs of
+      Right (Object o) -> o
+      _ -> KM.empty
+    meta = case KM.lookup "metadata" top of
+      Just (Object o) -> o
+      _ -> KM.empty
+    labels = case KM.lookup "labels" meta of
+      Just (Object o) -> Map.fromList [(K.toText k, v) | (k, String v) <- KM.toList o]
+      _ -> Map.empty
+    str k o = case KM.lookup (K.fromText k) o of
+      Just (String s) -> s
+      _ -> ""
+
+-- ---------------------------------------------------------------------------
 -- Entry point
 
 -- | Run @app deploy@. M1: load the 'Application', qualify the shared image once,
@@ -273,14 +379,17 @@ runAppDeploy p = do
           , reNamespace = namespaceText (app ^. #namespace)
           , reBaseDomain = maybe (tpBaseDomain tp) id (adpBaseDomain p)
           }
-      objs = renderAppObjects env app
 
   if adpDryRun p
-    then do
-      forM_ objs $ \(ph, bs) -> do
-        TIO.putStrLn ("--- " <> ph <> " manifest ---")
-        BC.putStr bs
-      TIO.putStrLn (summaryLine app env)
+    then
+      if adpJson p
+        then -- the machine-readable plan: a single JSON document on stdout, nothing else.
+          LBS.putStr (encode (renderPlan env app)) >> BC.putStrLn ""
+        else do
+          forM_ (renderAppObjects env app) $ \(ph, bs) -> do
+            TIO.putStrLn ("--- " <> ph <> " manifest ---")
+            BC.putStr bs
+          TIO.putStrLn (summaryLine app env)
     else dieT "nagarectl app deploy: live apply is not yet wired (use --dry-run); see EP-2 M2/M4"
 
 -- | The build spec the shared image's effective tag is resolved against — the

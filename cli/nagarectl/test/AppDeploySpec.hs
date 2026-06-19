@@ -8,7 +8,9 @@
 module AppDeploySpec (appDeployTests) where
 
 import Control.Monad (forM_)
+import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -25,6 +27,7 @@ appDeployTests =
     "Nagare.App.Deploy (EP-2)"
     [ testGroup "render + shared label (M1)" renderTests
     , testGroup "rollout phases (M2)" phaseTests
+    , testGroup "machine-readable plan (M3)" planTests
     ]
 
 fixturePath :: FilePath
@@ -47,13 +50,13 @@ testEnv =
 
 renderTests :: [TestTree]
 renderTests =
-  [ testCase "renders hook, service, and workers in rollout order" $ do
+  [ testCase "renders hook, databases, service, and workers in rollout order" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app ->
           map fst (renderAppObjects testEnv app)
-            @?= ["hook", "service", "worker", "worker", "worker"]
+            @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
   , testCase "every rendered object carries the shared nagare.dev/app label" $ do
       result <- loadApplication fixturePath
       case result of
@@ -111,6 +114,37 @@ phaseTests =
           order <- readIORef ran
           r @?= PhaseOk
           order @?= ["hook", "database", "service", "worker"]
+  ]
+
+planTests :: [TestTree]
+planTests =
+  [ testCase "renderPlan lists every object in rollout order with the app identity" $ do
+      result <- loadApplication fixturePath
+      case result of
+        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
+        Right app -> do
+          let plan = renderPlan testEnv app
+          adpApp plan @?= "kizashi"
+          adpImage plan @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
+          map roPhase (adpObjects plan)
+            @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
+  , testCase "every plan object's labels carry nagare.dev/app = the app" $ do
+      result <- loadApplication fixturePath
+      case result of
+        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
+        Right app ->
+          forM_ (adpObjects (renderPlan testEnv app)) $ \o ->
+            Map.lookup "nagare.dev/app" (roLabels o) @?= Just "kizashi"
+  , testCase "the plan encodes to a single parseable JSON document" $ do
+      result <- loadApplication fixturePath
+      case result of
+        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
+        Right app -> do
+          let bytes = LBS.toStrict (Aeson.encode (renderPlan testEnv app))
+          case Aeson.eitherDecodeStrict bytes :: Either String Aeson.Value of
+            Left e -> assertFailure ("plan JSON did not parse: " <> e)
+            Right _ -> pure ()
+          assertBool "JSON names the app" (BS.isInfixOf "\"app\":\"kizashi\"" bytes)
   ]
 
 unsafe :: Either Text a -> a
