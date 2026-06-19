@@ -16,6 +16,7 @@
 --   nagarectl deploy -f cluster/examples/app-cleanup-task/nagare/Config.hs
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -29,7 +30,7 @@ import Nagare.Dsl.Task
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName, mkNamespace, mkServiceName)
 
 deployment :: Either String Deployment
-deployment = mapLeft show $ do
+deployment = first show $ do
   dep <- webService "postgres-app" "postgres-app"
   db <- mkDatabaseName "pg-main"
   app <- mkServiceName "postgres-app"
@@ -61,8 +62,6 @@ deployment = mapLeft show $ do
         , taskStartingDeadlineSeconds = Nothing
         }
   pure dep {databases = [db], tasks = [cleanup]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

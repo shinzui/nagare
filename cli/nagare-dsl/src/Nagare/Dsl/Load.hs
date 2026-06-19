@@ -267,21 +267,21 @@ instance FromJSON JsonDeployment where
 
 toDeployment :: JsonDeployment -> Either LoadError Deployment
 toDeployment jd = do
-  name' <- mapLeft (MarshalError "name") $ mkServiceName (jdName jd)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jdNamespace jd)
-  img' <- mapLeft (MarshalError "image") $ mkImageRef (jdImage jd)
+  name' <- first (MarshalError "name") $ mkServiceName (jdName jd)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jdNamespace jd)
+  img' <- first (MarshalError "image") $ mkImageRef (jdImage jd)
   build' <- case jdBuild jd of
-    Nothing -> mapLeft (MarshalError "build") defaultBuild
+    Nothing -> first (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
   domains' <-
-    mapLeft (MarshalError "domains") $
+    first (MarshalError "domains") $
       mkDomains [(jdsDomain ds, jdsCanonical ds) | ds <- jdDomains jd]
-  port' <- mapLeft (MarshalError "port") $ mkPort (jdPort jd)
+  port' <- first (MarshalError "port") $ mkPort (jdPort jd)
   env' <- mapM toEnvEntry (jdEnv jd)
   res' <- toResources jd
   hc' <- toHealthCheck (jdHealthCheck jd)
   vols' <- toVolumes (jdVolumes jd)
-  dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
+  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
   -- constructor, including EP-50's inherit-image-requires-an-app invariant), then
   -- enforce the two deploy-level cross-task invariants.
@@ -295,7 +295,7 @@ toDeployment jd = do
   mapM_ (checkTaskApp thisApp) tasks'
   scale' <- case (jdScaleMin jd, jdScaleMax jd) of
     (Nothing, Nothing) -> Right Nothing
-    (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
+    (Just mn, Just mx) -> fmap Just . first (MarshalError "scale") $ mkScale mn mx
     _ ->
       Left
         ( MarshalError
@@ -331,7 +331,7 @@ toBuildSpec jb = case jbKind jb of
     tag <-
       maybe (Left (MarshalError "build" "PrebuiltImage entry missing 'tag' field")) Right $
         jbTag jb
-    fmap PrebuiltImage . mapLeft (MarshalError "build.tag") $ mkTag tag
+    fmap PrebuiltImage . first (MarshalError "build.tag") $ mkTag tag
   "DockerfileBuild" -> do
     df <-
       maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'dockerfile' field")) Right $
@@ -339,14 +339,14 @@ toBuildSpec jb = case jbKind jb of
     ctx <-
       maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'context' field")) Right $
         jbContext jb
-    df' <- mapLeft (MarshalError "build.dockerfile") $ mkFilePathText df
-    ctx' <- mapLeft (MarshalError "build.context") $ mkFilePathText ctx
+    df' <- first (MarshalError "build.dockerfile") $ mkFilePathText df
+    ctx' <- first (MarshalError "build.context") $ mkFilePathText ctx
     Right (DockerfileBuild {dockerfile = df', context = ctx', buildArgs = jbBuildArgs jb})
   "NixpacksBuild" -> do
     ctx <-
       maybe (Left (MarshalError "build" "NixpacksBuild entry missing 'context' field")) Right $
         jbContext jb
-    ctx' <- mapLeft (MarshalError "build.context") $ mkFilePathText ctx
+    ctx' <- first (MarshalError "build.context") $ mkFilePathText ctx
     Right (NixpacksBuild {context = ctx', buildArgs = jbBuildArgs jb})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
@@ -361,7 +361,7 @@ parseScope var t = case t of
 
 toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, ScopedEnvVar)
 toEnvEntry e = do
-  n <- mapLeft (MarshalError "env.varName") $ mkEnvName (jeVarName e)
+  n <- first (MarshalError "env.varName") $ mkEnvName (jeVarName e)
   v <- case jeKind e of
     "Literal" -> case jeValue e of
       Nothing -> Left (MarshalError ("env." <> jeVarName e) "Literal entry missing 'value' field")
@@ -370,13 +370,13 @@ toEnvEntry e = do
       Nothing -> Left (MarshalError ("env." <> jeVarName e) "SecretRef entry missing 'secretName' field")
       Just sec ->
         fmap EnvSecretRef
-          . mapLeft (MarshalError ("env." <> jeVarName e <> ".secretRef"))
+          . first (MarshalError ("env." <> jeVarName e <> ".secretRef"))
           $ mkSecretName sec
     other -> Left (MarshalError ("env." <> jeVarName e <> ".kind") ("unknown env kind: " <> other))
   scopeList <- traverse (parseScope (jeVarName e)) (fromMaybe [] (jeScopes e))
   let scopeSet = Set.fromList scopeList
       finalScopes = if Set.null scopeSet then Set.singleton Runtime else scopeSet
-  sev <- mapLeft (MarshalError ("env." <> jeVarName e <> ".scopes")) (scopedEnv finalScopes v)
+  sev <- first (MarshalError ("env." <> jeVarName e <> ".scopes")) (scopedEnv finalScopes v)
   Right (n, sev)
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
@@ -384,10 +384,10 @@ toResources jd =
   case (jdCpuRequest jd, jdMemoryRequest jd, jdCpuLimit jd, jdMemoryLimit jd) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
-      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
-      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
-      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) ml
       Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
 
 -- | Re-validate a decoded @healthCheck@ sub-object back into a 'HealthCheck'.
@@ -401,8 +401,8 @@ toHealthCheck (Just jhc) = do
     "HTTP" -> Right HTTP
     "HTTPS" -> Right HTTPS
     other -> Left (MarshalError "healthCheck.scheme" ("unknown scheme: " <> other))
-  checkPort' <- traverse (mapLeft (MarshalError "healthCheck.checkPort") . mkPort) (jhcCheckPort jhc)
-  fmap Just . mapLeft (MarshalError "healthCheck") $
+  checkPort' <- traverse (first (MarshalError "healthCheck.checkPort") . mkPort) (jhcCheckPort jhc)
+  fmap Just . first (MarshalError "healthCheck") $
     mkHealthCheck
       HealthCheck
         { path = jhcPath jhc
@@ -416,9 +416,6 @@ toHealthCheck (Just jhc) = do
         , asLiveness = jhcAsLiveness jhc
         , asStartup = jhcAsStartup jhc
         }
-
-mapLeft :: (a -> b) -> Either a c -> Either b c
-mapLeft f = either (Left . f) Right
 
 -- | The first element that appears more than once in the list, in order, or
 -- 'Nothing' when all elements are unique. Used to reject duplicate co-located
@@ -457,9 +454,9 @@ checkTaskApp thisApp tk =
 -- failure is a precise 'MarshalError' keyed by the sub-field.
 toVolume :: JsonVolume -> Either LoadError Volume
 toVolume jv = do
-  vn <- mapLeft (MarshalError "volumes.name") $ mkVolumeName (jvName jv)
-  sz <- mapLeft (MarshalError "volumes.size") $ mkQuantity (jvSize jv)
-  mp <- mapLeft (MarshalError "volumes.mountPath") $ mkMountPath (jvMountPath jv)
+  vn <- first (MarshalError "volumes.name") $ mkVolumeName (jvName jv)
+  sz <- first (MarshalError "volumes.size") $ mkQuantity (jvSize jv)
+  mp <- first (MarshalError "volumes.mountPath") $ mkMountPath (jvMountPath jv)
   am <- case fromMaybe "ReadWriteOnce" (jvAccessMode jv) of
     "ReadWriteOnce" -> Right ReadWriteOnce
     other -> Left (MarshalError "volumes.accessMode" ("unknown access mode: " <> other))
@@ -555,13 +552,13 @@ instance FromJSON JsonDatabase where
 
 toDatabase :: JsonDatabase -> Either LoadError Database
 toDatabase j = do
-  name' <- mapLeft (MarshalError "name") $ mkDatabaseName (jdbName j)
+  name' <- first (MarshalError "name") $ mkDatabaseName (jdbName j)
   eng' <- case parseEngine (jdbEngine j) of
     Just e -> Right e
     Nothing -> Left (MarshalError "engine" ("unknown engine: " <> jdbEngine j))
-  ver' <- mapLeft (MarshalError "version") $ mkEngineVersion eng' (jdbVersion j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jdbNamespace j)
-  size' <- mapLeft (MarshalError "size") $ mkQuantity (jdbSize j)
+  ver' <- first (MarshalError "version") $ mkEngineVersion eng' (jdbVersion j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jdbNamespace j)
+  size' <- first (MarshalError "size") $ mkQuantity (jdbSize j)
   res' <- toDbResources j
   ret' <- case fromMaybe "Retain" (jdbRetention j) of
     "Retain" -> Right Retain
@@ -583,10 +580,10 @@ toDbResources j =
   case (jdbCpuRequest j, jdbMemoryRequest j, jdbCpuLimit j, jdbMemoryLimit j) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
-      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
-      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
-      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) ml
       Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
 
 -- | Decode the JSON a database config emits (via
@@ -664,11 +661,11 @@ instance FromJSON JsonTask where
 -- field.
 toTask :: JsonTask -> Either LoadError Task
 toTask j = do
-  name' <- mapLeft (MarshalError "name") $ mkServiceName (jtName j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jtNamespace j)
-  sched' <- mapLeft (MarshalError "schedule") $ mkSchedule (jtSchedule j)
-  img' <- traverse (mapLeft (MarshalError "image") . mkImageRef) (jtImage j)
-  app' <- traverse (mapLeft (MarshalError "app") . mkServiceName) (jtApp j)
+  name' <- first (MarshalError "name") $ mkServiceName (jtName j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jtNamespace j)
+  sched' <- first (MarshalError "schedule") $ mkSchedule (jtSchedule j)
+  img' <- traverse (first (MarshalError "image") . mkImageRef) (jtImage j)
+  app' <- traverse (first (MarshalError "app") . mkServiceName) (jtApp j)
   env' <- mapM toEnvEntry (jtEnv j)
   res' <- toTaskResources j
   cp' <- case parseConcurrencyPolicy (fromMaybe "Forbid" (jtConcurrencyPolicy j)) of
@@ -687,7 +684,7 @@ toTask j = do
             "restartPolicy"
             ("unknown restart policy: " <> fromMaybe "" (jtRestartPolicy j))
         )
-  mapLeft (MarshalError "task") $
+  first (MarshalError "task") $
     mkTask
       Task
         { taskName = name'
@@ -713,10 +710,10 @@ toTaskResources j =
   case (jtCpuRequest j, jtMemoryRequest j, jtCpuLimit j, jtMemoryLimit j) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
-      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
-      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
-      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) ml
       Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
 
 -- | Decode the JSON a task config emits (via 'Nagare.Dsl.Config.emitTask') into
@@ -828,21 +825,21 @@ toWorkerProbe j =
     "Exec" -> do
       argv <-
         maybe (Left (MarshalError "liveness" "Exec probe missing 'command' field")) Right (jwpCommand j)
-      mapLeft (MarshalError "liveness") (mkExecProbe argv timing)
+      first (MarshalError "liveness") (mkExecProbe argv timing)
     "Tcp" -> do
       p <- maybe (Left (MarshalError "liveness" "Tcp probe missing 'port' field")) Right (jwpPort j)
-      port <- mapLeft (MarshalError "liveness.port") (mkPort p)
-      t <- mapLeft (MarshalError "liveness") (mkProbeTiming timing)
+      port <- first (MarshalError "liveness.port") (mkPort p)
+      t <- first (MarshalError "liveness") (mkProbeTiming timing)
       Right (mkTcpProbe port t)
     "Http" -> do
       path <-
         maybe (Left (MarshalError "liveness" "Http probe missing 'path' field")) Right (jwpPath j)
-      mport <- traverse (mapLeft (MarshalError "liveness.checkPort") . mkPort) (jwpCheckPort j)
+      mport <- traverse (first (MarshalError "liveness.checkPort") . mkPort) (jwpCheckPort j)
       scheme <- case fromMaybe "HTTP" (jwpScheme j) of
         "HTTP" -> Right HTTP
         "HTTPS" -> Right HTTPS
         other -> Left (MarshalError "liveness.scheme" ("unknown scheme: " <> other))
-      mapLeft (MarshalError "liveness") (mkHttpProbe path mport scheme timing)
+      first (MarshalError "liveness") (mkHttpProbe path mport scheme timing)
     other -> Left (MarshalError "liveness.kind" ("unknown probe kind: " <> other))
   where
     timing =
@@ -861,18 +858,18 @@ toWorkerProbe j =
 -- 'toDeployment' enforces it. Any failure is a precise 'MarshalError'.
 toWorker :: JsonWorker -> Either LoadError Worker
 toWorker j = do
-  name' <- mapLeft (MarshalError "name") $ mkServiceName (jwName j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jwNamespace j)
-  img' <- mapLeft (MarshalError "image") $ mkImageRef (jwImage j)
+  name' <- first (MarshalError "name") $ mkServiceName (jwName j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jwNamespace j)
+  img' <- first (MarshalError "image") $ mkImageRef (jwImage j)
   build' <- case jwBuild j of
-    Nothing -> mapLeft (MarshalError "build") defaultBuild
+    Nothing -> first (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
-  command' <- traverse (mapLeft (MarshalError "command") . mkCommand) (jwCommand j)
-  replicas' <- mapLeft (MarshalError "replicas") $ mkReplicas (jwReplicas j)
+  command' <- traverse (first (MarshalError "command") . mkCommand) (jwCommand j)
+  replicas' <- first (MarshalError "replicas") $ mkReplicas (jwReplicas j)
   env' <- mapM toEnvEntry (jwEnv j)
   res' <- toWorkerResources j
   vols' <- toVolumes (jwVolumes j)
-  dbRefs' <- traverse (mapLeft (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
+  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
   liveness' <- traverse toWorkerProbe (jwLiveness j)
   Right
     Worker
@@ -894,10 +891,10 @@ toWorkerResources j =
   case (jwCpuRequest j, jwMemoryRequest j, jwCpuLimit j, jwMemoryLimit j) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
-      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
-      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
-      cl' <- traverse (mapLeft (MarshalError "cpuLimit") . mkQuantity) cl
-      ml' <- traverse (mapLeft (MarshalError "memoryLimit") . mkQuantity) ml
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) ml
       Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
 
 -- | Decode the JSON a worker config emits (via 'Nagare.Dsl.Config.emitWorker')
@@ -966,9 +963,9 @@ instance FromJSON JsonApplication where
 -- is rejected as a precise @MarshalError "application"@).
 toApplication :: JsonApplication -> Either LoadError Application
 toApplication j = do
-  name' <- mapLeft (MarshalError "name") $ mkServiceName (jaName j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jaNamespace j)
-  img' <- mapLeft (MarshalError "image") $ mkImageRef (jaImage j)
+  name' <- first (MarshalError "name") $ mkServiceName (jaName j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jaNamespace j)
+  img' <- first (MarshalError "image") $ mkImageRef (jaImage j)
   env' <- mapM toEnvEntry (jaEnv j)
   dbs' <- traverse toDatabase (jaDatabases j)
   svc' <- traverse toDeployment (jaService j)
@@ -985,7 +982,7 @@ toApplication j = do
           , workers = wks'
           , tasks = tks'
           }
-  mapLeft (MarshalError "application") (mkApplication assembled)
+  first (MarshalError "application") (mkApplication assembled)
 
 -- | Decode the JSON an application config emits (via
 -- 'Nagare.Dsl.Config.emitApplication') into a validated 'Application'. The
@@ -1072,7 +1069,7 @@ toCdn j = do
       }
   where
     toCdnCacheRule r =
-      mapLeft (MarshalError "cdn.cacheRules") $
+      first (MarshalError "cdn.cacheRules") $
         mkCdnCacheRule (jcrPathPrefix r) (jcrEdgeTtlSeconds r)
 
 -- ---------------------------------------------------------------------------
@@ -1167,17 +1164,17 @@ instance FromJSON JsonStaticSite where
 
 toStaticSite :: JsonStaticSite -> Either LoadError StaticSite
 toStaticSite j = do
-  name' <- mapLeft (MarshalError "name") $ mkSiteName (jssName j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jssNamespace j)
-  img' <- mapLeft (MarshalError "image") $ mkImageRef (jssImage j)
+  name' <- first (MarshalError "name") $ mkSiteName (jssName j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jssNamespace j)
+  img' <- first (MarshalError "image") $ mkImageRef (jssImage j)
   build' <- toStaticBuild (jssBuild j)
-  domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jssDomains j)
+  domains' <- traverse (first (MarshalError "domain") . mkDomain) (jssDomains j)
   redirects' <- traverse toRedirect (jssRedirects j)
   headers' <- traverse toHeader (jssHeaders j)
   cache' <-
-    mapLeft (MarshalError "cache") $
+    first (MarshalError "cache") $
       mkCachePolicy (jcImmutableAssets cacheJ) (jcDefaultMaxAge cacheJ)
-  notFound' <- traverse (mapLeft (MarshalError "notFound") . mkFilePathText) (jssNotFound j)
+  notFound' <- traverse (first (MarshalError "notFound") . mkFilePathText) (jssNotFound j)
   cdn' <- traverse toCdn (jssCdn j)
   Right
     StaticSite
@@ -1199,7 +1196,7 @@ toStaticBuild :: JsonStaticBuild -> Either LoadError StaticBuild
 toStaticBuild jb = case jsbKind jb of
   "NoBuild" -> case jsbDirectory jb of
     Nothing -> Left (MarshalError "build" "NoBuild entry missing 'directory' field")
-    Just d -> fmap NoBuild . mapLeft (MarshalError "build.directory") $ mkFilePathText d
+    Just d -> fmap NoBuild . first (MarshalError "build.directory") $ mkFilePathText d
   "BuildCommand" -> do
     cmd <-
       maybe (Left (MarshalError "build" "BuildCommand entry missing 'command' field")) Right $
@@ -1207,17 +1204,17 @@ toStaticBuild jb = case jsbKind jb of
     outD <-
       maybe (Left (MarshalError "build" "BuildCommand entry missing 'outputDirectory' field")) Right $
         jsbOutputDirectory jb
-    outD' <- mapLeft (MarshalError "build.outputDirectory") $ mkFilePathText outD
+    outD' <- first (MarshalError "build.outputDirectory") $ mkFilePathText outD
     Right (BuildCommand {command = cmd, outputDirectory = outD'})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
 toRedirect :: JsonRedirect -> Either LoadError RedirectRule
 toRedirect jr =
-  mapLeft (MarshalError "redirect") $ mkRedirectRule (jrFrom jr) (jrTo jr) (jrStatus jr)
+  first (MarshalError "redirect") $ mkRedirectRule (jrFrom jr) (jrTo jr) (jrStatus jr)
 
 toHeader :: JsonHeader -> Either LoadError HeaderRule
 toHeader jh =
-  mapLeft (MarshalError "header") $ mkHeaderRule (jhPath jh) (jhName jh) (jhValue jh)
+  first (MarshalError "header") $ mkHeaderRule (jhPath jh) (jhName jh) (jhValue jh)
 
 -- | Decode the JSON a config program emits (via
 -- 'Nagare.Dsl.Config.emitStaticSite') into a validated 'StaticSite', re-running
@@ -1383,19 +1380,19 @@ instance FromJSON JsonServerSite where
 
 toServerSite :: JsonServerSite -> Either LoadError ServerSite
 toServerSite j = do
-  name' <- mapLeft (MarshalError "name") $ mkSiteName (jsvName j)
-  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jsvNamespace j)
-  img' <- mapLeft (MarshalError "image") $ mkImageRef (jsvImage j)
+  name' <- first (MarshalError "name") $ mkSiteName (jsvName j)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jsvNamespace j)
+  img' <- first (MarshalError "image") $ mkImageRef (jsvImage j)
   build' <- toServerBuild (jsvBuild j)
   runtime' <- toServerRuntime (jsvRuntime j)
-  port' <- mapLeft (MarshalError "port") $ mkPort (jsvPort j)
+  port' <- first (MarshalError "port") $ mkPort (jsvPort j)
   env' <- mapM toEnvEntry (jsvEnv j)
   res' <- toServerResources (jsvCpuRequest j) (jsvMemoryRequest j)
   scale' <- case (jsvScaleMin j, jsvScaleMax j) of
     (Nothing, Nothing) -> Right Nothing
-    (Just mn, Just mx) -> fmap Just . mapLeft (MarshalError "scale") $ mkScale mn mx
+    (Just mn, Just mx) -> fmap Just . first (MarshalError "scale") $ mkScale mn mx
     _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
-  domains' <- traverse (mapLeft (MarshalError "domain") . mkDomain) (jsvDomains j)
+  domains' <- traverse (first (MarshalError "domain") . mkDomain) (jsvDomains j)
   vols' <- toVolumes (jsvVolumes j)
   cdn' <- traverse toCdn (jsvCdn j)
   Right
@@ -1416,13 +1413,13 @@ toServerSite j = do
 
 toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild
 toServerBuild jb = do
-  dirs <- traverse (mapLeft (MarshalError "build.outputDirs") . mkFilePathText) (srvOutputDirs jb)
+  dirs <- traverse (first (MarshalError "build.outputDirs") . mkFilePathText) (srvOutputDirs jb)
   neDirs <- maybe (Left (MarshalError "build.outputDirs" "outputDirs must be non-empty")) Right (NE.nonEmpty dirs)
   Right (ServerBuild {command = srvCommand jb, outputDirs = neDirs})
 
 toServerRuntime :: JsonServerRuntime -> Either LoadError ServerRuntime
 toServerRuntime jr = do
-  base <- mapLeft (MarshalError "runtime.baseImage") $ mkRuntimeImage (jsrBaseImage jr)
+  base <- first (MarshalError "runtime.baseImage") $ mkRuntimeImage (jsrBaseImage jr)
   neCmd <- maybe (Left (MarshalError "runtime.startCommand" "startCommand must be non-empty")) Right (NE.nonEmpty (jsrStartCommand jr))
   Right (ServerRuntime {baseImage = base, startCommand = neCmd})
 
@@ -1431,8 +1428,8 @@ toServerResources mc mm =
   case (mc, mm) of
     (Nothing, Nothing) -> Right Nothing
     (c, m) -> do
-      c' <- traverse (mapLeft (MarshalError "cpuRequest") . mkQuantity) c
-      m' <- traverse (mapLeft (MarshalError "memoryRequest") . mkQuantity) m
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
       Right (Just Resources {cpu = c', memory = m', cpuLimit = Nothing, memoryLimit = Nothing})
 
 -- | Decode the JSON a config emits (via 'Nagare.Dsl.Config.emitServerSite') into

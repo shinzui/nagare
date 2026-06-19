@@ -15,20 +15,21 @@
 -- @BuildCommand { command = "npm run build", outputDirectory = ... }@.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (mkImageRef, mkNamespace)
 
 staticSite :: Either String StaticSite
 staticSite = do
-  name' <- mapLeft show (mkSiteName "static-site")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "static-site")
-  dir' <- mapLeft show (mkFilePathText "public")
-  redirect' <- mapLeft show (mkRedirectRule "/old-home" "/" 301)
-  header' <- mapLeft show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")
-  cache' <- mapLeft show (mkCachePolicy True (Just 600))
-  notFound' <- mapLeft show (mkFilePathText "404.html")
+  name' <- first show (mkSiteName "static-site")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "static-site")
+  dir' <- first show (mkFilePathText "public")
+  redirect' <- first show (mkRedirectRule "/old-home" "/" 301)
+  header' <- first show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")
+  cache' <- first show (mkCachePolicy True (Just 600))
+  notFound' <- first show (mkFilePathText "404.html")
   Right
     StaticSite
       { name = name'
@@ -42,8 +43,6 @@ staticSite = do
       , notFound = Just notFound'
       , cdn = Nothing
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case staticSite of

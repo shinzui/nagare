@@ -15,6 +15,7 @@
 -- the @nagare.dev/managed-by: nagarectl@ label, and one DomainMapping per domain.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types
@@ -22,22 +23,22 @@ import Nagare.Dsl.Types
 deployment :: Either String Deployment
 deployment = do
   base <-
-    mapLeft
+    first
       show
       (webService "lifecycle-demo" "lifecycle-demo")
 
   -- Two public domains; exactly one is canonical and drives the reported URL.
-  doms <- mapLeft show (mkDomains [("demo.example.com", True), ("www.demo.example.com", False)])
+  doms <- first show (mkDomains [("demo.example.com", True), ("www.demo.example.com", False)])
 
   -- A /healthz probe with defaults, promoted to also emit liveness + startup.
-  baseHc <- mapLeft show (httpHealthCheck "/healthz")
+  baseHc <- first show (httpHealthCheck "/healthz")
   let hc = baseHc {asLiveness = True, asStartup = True}
 
   -- The webService preset sets requests (250m / 128Mi); add matching limits.
-  cpuReq <- mapLeft show (mkQuantity "250m")
-  memReq <- mapLeft show (mkQuantity "128Mi")
-  cpuLim <- mapLeft show (mkQuantity "500m")
-  memLim <- mapLeft show (mkQuantity "512Mi")
+  cpuReq <- first show (mkQuantity "250m")
+  memReq <- first show (mkQuantity "128Mi")
+  cpuLim <- first show (mkQuantity "500m")
+  memLim <- first show (mkQuantity "512Mi")
   let res =
         Resources
           { cpu = Just cpuReq
@@ -52,8 +53,6 @@ deployment = do
       , resources = Just res
       , healthCheck = Just hc
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

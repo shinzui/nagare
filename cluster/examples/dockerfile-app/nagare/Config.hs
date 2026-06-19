@@ -14,6 +14,7 @@
 -- compiles under @-XGHC2024@ (no @OverloadedLabels@).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -23,13 +24,11 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "dockerfile-app" "dockerfile-app")
-  df <- mapLeft show (mkFilePathText "Dockerfile")
-  ctx <- mapLeft show (mkFilePathText ".")
+  base <- first show (webService "dockerfile-app" "dockerfile-app")
+  df <- first show (mkFilePathText "Dockerfile")
+  ctx <- first show (mkFilePathText ".")
   let buildArgs' = Map.fromList [("SITE_MESSAGE", "hello from a Dockerfile build with a build arg")]
   Right (base {build = DockerfileBuild {dockerfile = df, context = ctx, buildArgs = buildArgs'}})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

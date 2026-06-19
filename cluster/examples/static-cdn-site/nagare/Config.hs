@@ -11,6 +11,7 @@
 -- CDN changes with no cloud side effects (the VM may be powered off).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Cdn.Types (cloudflareCdn, withCacheRule, withDefaultTtl)
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
@@ -18,20 +19,20 @@ import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)
 
 staticSite :: Either String StaticSite
 staticSite = do
-  name' <- mapLeft show (mkSiteName "static-cdn-site")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "static-cdn-site")
-  dir' <- mapLeft show (mkFilePathText "public")
-  blog <- mapLeft show (mkDomain "blog.apps.example.com")
-  header' <- mapLeft show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")
-  cache' <- mapLeft show (mkCachePolicy True (Just 600))
-  notFound' <- mapLeft show (mkFilePathText "404.html")
+  name' <- first show (mkSiteName "static-cdn-site")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "static-cdn-site")
+  dir' <- first show (mkFilePathText "public")
+  blog <- first show (mkDomain "blog.apps.example.com")
+  header' <- first show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")
+  cache' <- first show (mkCachePolicy True (Just 600))
+  notFound' <- first show (mkFilePathText "404.html")
   -- Cloudflare CDN: a 1-hour default edge TTL, a 1-year cache for fingerprinted
   -- assets under /assets/, and never cache /api/. withCacheRule validates the
   -- per-path TTL, so it is threaded in the Either do-block (=<<); withDefaultTtl
   -- is total. Nothing TTL = "never cache this path".
   cdn' <-
-    mapLeft show
+    first show
       ( withCacheRule "/api/" Nothing
           =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
       )
@@ -48,8 +49,6 @@ staticSite = do
       , notFound = Just notFound'
       , cdn = Just cdn'
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case staticSite of

@@ -13,6 +13,7 @@
 -- pulumi up@ (see the README).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Cdn.Types (gcpCloudCdn, withCacheRule, withDefaultTtl)
 import Nagare.Dsl.Config (emitServerSite)
@@ -22,15 +23,15 @@ import Nagare.Dsl.Types
 
 serverSite :: Either String ServerSite
 serverSite = do
-  name' <- mapLeft show (mkSiteName "tanstack-start-cdn")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "tanstack-start-cdn")
-  host <- mapLeft show (mkEnvName "HOSTNAME")
-  app <- mapLeft show (mkDomain "app.apps.example.com")
+  name' <- first show (mkSiteName "tanstack-start-cdn")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "tanstack-start-cdn")
+  host <- first show (mkEnvName "HOSTNAME")
+  app <- first show (mkDomain "app.apps.example.com")
   -- Google Cloud CDN: a 10-minute default edge TTL, a 1-year cache for
   -- fingerprinted assets, never cache /api/.
   cdn' <-
-    mapLeft show
+    first show
       ( withCacheRule "/api/" Nothing
           =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 600 gcpCloudCdn)
       )
@@ -49,8 +50,6 @@ serverSite = do
       , volumes = []
       , cdn = Just cdn'
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case serverSite of

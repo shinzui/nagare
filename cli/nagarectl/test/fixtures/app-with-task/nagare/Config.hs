@@ -7,6 +7,7 @@
 -- tag and applies the rendered CronJob alongside the app's Knative Service.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Config (emitDeployment)
@@ -26,7 +27,7 @@ import Nagare.Dsl.Types
   )
 
 dep :: Either String Deployment
-dep = mapLeft show $ do
+dep = first show $ do
   appName <- mkServiceName "notes"
   ns <- mkNamespace "personal"
   img <- mkImageRef "gcr.io/myproject/notes"
@@ -74,6 +75,3 @@ dep = mapLeft show $ do
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment dep
-
-mapLeft :: (a -> b) -> Either a c -> Either b c
-mapLeft f = either (Left . f) Right

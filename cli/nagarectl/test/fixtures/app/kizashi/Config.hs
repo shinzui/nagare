@@ -11,6 +11,7 @@
 -- the embedded Database/Worker records use qualified imports (@DB.@/@W.@).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -64,9 +65,9 @@ app = do
 
   svc <- webService "kizashi-serve" sharedImage
 
-  worker <- mapLeft Text.pack (webWorker "kizashi-worker" sharedImage)
-  escalation <- mapLeft Text.pack (webWorker "kizashi-escalation-worker" sharedImage)
-  agent <- mapLeft Text.pack (webWorker "kizashi-agent-worker" sharedImage)
+  worker <- first Text.pack (webWorker "kizashi-worker" sharedImage)
+  escalation <- first Text.pack (webWorker "kizashi-escalation-worker" sharedImage)
+  agent <- first Text.pack (webWorker "kizashi-agent-worker" sharedImage)
   let bindDb w = w {W.databases = [dbn]}
 
   migrateNm <- mkServiceName "kizashi-migrate"
@@ -103,8 +104,6 @@ app = do
       , workers = [bindDb worker, bindDb escalation, bindDb agent]
       , tasks = [migrate]
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError . Text.unpack) emitApplication app

@@ -4,15 +4,16 @@
 -- Provision with: nagarectl db create redis cache --size 2Gi
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDatabase)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Types (RetentionPolicy (..), defaultNamespace, mkQuantity)
 
 database :: Either String Database
 database = do
-  name' <- mapLeft show (mkDatabaseName "cache")
-  ver' <- mapLeft show (mkEngineVersion Redis "8")
-  size' <- mapLeft show (mkQuantity "2Gi")
+  name' <- first show (mkDatabaseName "cache")
+  ver' <- first show (mkEngineVersion Redis "8")
+  size' <- first show (mkQuantity "2Gi")
   pure
     Database
       { dbName = name'
@@ -23,8 +24,6 @@ database = do
       , resources = Nothing
       , retention = Retain
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case database of

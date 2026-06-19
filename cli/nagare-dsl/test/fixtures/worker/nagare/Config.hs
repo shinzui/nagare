@@ -9,17 +9,16 @@
 -- (@base {replicas = ...}@) rather than @#replicas@ lenses.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitWorker)
 import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas, webWorker)
 
 worker :: Either String Worker
 worker = do
   base <- webWorker "queue-consumer" "gcr.io/knative-samples/helloworld-go"
-  cmd <- mapLeft show (mkCommand ["sh", "-c", "while true; do echo working; sleep 5; done"])
-  reps <- mapLeft show (mkReplicas 2)
+  cmd <- first show (mkCommand ["sh", "-c", "while true; do echo working; sleep 5; done"])
+  reps <- first show (mkReplicas 2)
   Right base {command = Just cmd, replicas = reps}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitWorker worker

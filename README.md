@@ -117,22 +117,23 @@ reference is a compile-time error rather than a silent cluster rejection:
 ```haskell
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Types
 
 deployment :: Either String Deployment
 deployment = do
-  name' <- mapLeft show (mkServiceName "notes")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
-  dom' <- mapLeft show (mkDomain "notes.example.com")
-  port' <- mapLeft show (mkPort 8080)
-  dbUrl <- mapLeft show (mkEnvName "DATABASE_URL")
-  secret <- mapLeft show (mkSecretName "notes-db-url")
-  sc <- mapLeft show (mkScale 0 3)
-  cpuQ <- mapLeft show (mkQuantity "250m")
-  memQ <- mapLeft show (mkQuantity "512Mi")
+  name' <- first show (mkServiceName "notes")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+  dom' <- first show (mkDomain "notes.example.com")
+  port' <- first show (mkPort 8080)
+  dbUrl <- first show (mkEnvName "DATABASE_URL")
+  secret <- first show (mkSecretName "notes-db-url")
+  sc <- first show (mkScale 0 3)
+  cpuQ <- first show (mkQuantity "250m")
+  memQ <- first show (mkQuantity "512Mi")
   Right
     Deployment
       { name = name', namespace = ns', image = img', domain = Just dom'
@@ -140,8 +141,6 @@ deployment = do
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ}
       , scale = Just sc
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment

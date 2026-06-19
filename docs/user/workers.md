@@ -46,17 +46,16 @@ a `Worker` (via `emitWorker`) and its own `nagarectl worker deploy` command. The
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitWorker)
 import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas, webWorker)
 
 worker :: Either String Worker
 worker = do
   base <- webWorker "queue-consumer" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/queue-consumer"
-  cmd  <- mapLeft show (mkCommand ["python", "-m", "worker"])
-  reps <- mapLeft show (mkReplicas 2)
+  cmd  <- first show (mkCommand ["python", "-m", "worker"])
+  reps <- first show (mkReplicas 2)
   Right base {command = Just cmd, replicas = reps}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case worker of
@@ -113,6 +112,7 @@ is too old). `tcp` (open an internal port) and `http` (GET an internal `/healthz
 are also available for workers that expose one.
 
 ```haskell
+import Data.Bifunctor (first)
 import Nagare.Dsl.Worker (Worker (..), execProbe, mkReplicas, webWorker)
 
 worker :: Either String Worker
@@ -120,11 +120,9 @@ worker = do
   base <- webWorker "reactor" "myrepo/reactor"
   -- the worker's loop refreshes /tmp/heartbeat each iteration; this exec probe
   -- fails (and triggers a restart) once the heartbeat goes stale.
-  probe <- mapLeft show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
-  reps <- mapLeft show (mkReplicas 1)
+  probe <- first show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
+  reps <- first show (mkReplicas 1)
   Right base {replicas = reps, liveness = Just probe}
-  where
-    mapLeft f = either (Left . f) Right
 ```
 
 `execProbe` uses sensible default timing (first probe immediately, every 10s, 1s

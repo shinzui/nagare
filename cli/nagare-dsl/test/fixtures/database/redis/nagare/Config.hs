@@ -5,16 +5,17 @@
 -- declared here.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDatabase)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Types (RetentionPolicy (..), mkNamespace, mkQuantity)
 
 database :: Either String Database
 database = do
-  n <- mapLeft show (mkDatabaseName "redis-cache")
-  v <- mapLeft show (mkEngineVersion Redis "8")
-  ns <- mapLeft show (mkNamespace "personal")
-  sz <- mapLeft show (mkQuantity "2Gi")
+  n <- first show (mkDatabaseName "redis-cache")
+  v <- first show (mkEngineVersion Redis "8")
+  ns <- first show (mkNamespace "personal")
+  sz <- first show (mkQuantity "2Gi")
   Right
     Database
       { dbName = n
@@ -25,8 +26,6 @@ database = do
       , resources = Nothing
       , retention = Retain
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case database of

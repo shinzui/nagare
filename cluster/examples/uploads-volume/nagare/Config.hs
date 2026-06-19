@@ -11,17 +11,16 @@
 -- upload / durability / snapshot / restore walk-through.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (attachVolume, webService)
 import Nagare.Dsl.Types (Deployment)
 
 deployment :: Either String Deployment
 deployment =
-  mapLeft show $
+  first show $
     webService "uploads-volume" "uploads-volume"
       >>= attachVolume "uploads" "1Gi" "/uploads"
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

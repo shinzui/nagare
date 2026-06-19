@@ -7,6 +7,7 @@
 -- constructor, so an invalid value is a compile-time or load-time error.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Config (emitServerSite)
@@ -16,15 +17,15 @@ import Nagare.Dsl.Types
 
 serverSite :: Either String ServerSite
 serverSite = do
-  name' <- mapLeft show (mkSiteName "notes-app")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "notes-app")
-  dom' <- mapLeft show (mkDomain "notes-app.example.com")
-  host <- mapLeft show (mkEnvName "HOSTNAME")
-  apiBase <- mapLeft show (mkEnvName "API_BASE")
-  sc <- mapLeft show (mkScale 1 3)
-  cpuQ <- mapLeft show (mkQuantity "500m")
-  memQ <- mapLeft show (mkQuantity "256Mi")
+  name' <- first show (mkSiteName "notes-app")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "notes-app")
+  dom' <- first show (mkDomain "notes-app.example.com")
+  host <- first show (mkEnvName "HOSTNAME")
+  apiBase <- first show (mkEnvName "API_BASE")
+  sc <- first show (mkScale 1 3)
+  cpuQ <- first show (mkQuantity "500m")
+  memQ <- first show (mkQuantity "256Mi")
   Right
     ServerSite
       { name = name'
@@ -46,8 +47,6 @@ serverSite = do
         -- balancer) with a 10-minute default edge TTL.
         cdn = Just (withDefaultTtl 600 gcpCloudCdn)
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case serverSite of

@@ -6,17 +6,16 @@
 -- 'secretEnv'. Proof that one definition is shared across two apps.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (production, secretEnv, webService)
 import Nagare.Dsl.Types (Deployment)
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "tasks" "gcr.io/myproject/tasks")
-  withDb <- mapLeft show (secretEnv "DATABASE_URL" "tasks-db" base)
-  mapLeft show (production withDb)
-  where
-    mapLeft f = either (Left . f) Right
+  base <- first show (webService "tasks" "gcr.io/myproject/tasks")
+  withDb <- first show (secretEnv "DATABASE_URL" "tasks-db" base)
+  first show (production withDb)
 
 main :: IO ()
 main = case deployment of

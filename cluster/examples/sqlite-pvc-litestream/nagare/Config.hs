@@ -16,17 +16,16 @@
 -- supplementary step).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (attachVolume, webService)
 import Nagare.Dsl.Types (Deployment)
 
 deployment :: Either String Deployment
 deployment =
-  mapLeft show $
+  first show $
     webService "sqlite-pvc-litestream" "sqlite-pvc-litestream"
       >>= attachVolume "data" "1Gi" "/data"
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

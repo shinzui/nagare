@@ -6,15 +6,16 @@
 -- or simply: nagarectl db create postgres pg-main --size 10Gi
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDatabase)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Types (RetentionPolicy (..), defaultNamespace, mkQuantity)
 
 database :: Either String Database
 database = do
-  name' <- mapLeft show (mkDatabaseName "pg-main")
-  ver' <- mapLeft show (mkEngineVersion Postgres "18")
-  size' <- mapLeft show (mkQuantity "10Gi")
+  name' <- first show (mkDatabaseName "pg-main")
+  ver' <- first show (mkEngineVersion Postgres "18")
+  size' <- first show (mkQuantity "10Gi")
   pure
     Database
       { dbName = name'
@@ -25,8 +26,6 @@ database = do
       , resources = Nothing
       , retention = Retain
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case database of

@@ -15,6 +15,7 @@
 --   nagarectl deploy -f cluster/examples/heartbeat-task/nagare/Config.hs
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -28,7 +29,7 @@ import Nagare.Dsl.Task
 import Nagare.Dsl.Types (Deployment (..), mkNamespace, mkServiceName)
 
 deployment :: Either String Deployment
-deployment = mapLeft show $ do
+deployment = first show $ do
   dep <- webService "heartbeat-app" "heartbeat-app"
   app <- mkServiceName "heartbeat-app"
   taskN <- mkServiceName "heartbeat"
@@ -55,8 +56,6 @@ deployment = mapLeft show $ do
         , taskStartingDeadlineSeconds = Nothing
         }
   pure dep {tasks = [heartbeat]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

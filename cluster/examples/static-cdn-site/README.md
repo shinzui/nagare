@@ -15,7 +15,7 @@ The CDN declaration (see `nagare/Config.hs`):
 
 ```haskell
 cdn' <-
-  mapLeft show
+  first show
     ( withCacheRule "/api/" Nothing
         =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
     )

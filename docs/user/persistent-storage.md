@@ -51,16 +51,15 @@ overlay from `Nagare.Dsl.Presets`:
 
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (attachVolume, webService)
 
 deployment :: Either String Deployment
 deployment =
-  mapLeft show
+  first show
     (webService "notes" "gcr.io/myproject/notes"
        >>= attachVolume "data" "1Gi" "/data")
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of
@@ -88,19 +87,19 @@ it `retention = Delete`. `attachVolume` only builds `Retain` volumes, so an
 excluded volume is a record literal today:
 
 ```haskell
+import Data.Bifunctor (first)
 import Nagare.Dsl.Types
 
 cacheVol :: Either String Volume
 cacheVol = do
-  vn <- mapLeft show (mkVolumeName "cache")
-  sz <- mapLeft show (mkQuantity "1Gi")
-  mp <- mapLeft show (mkMountPath "/cache")
+  vn <- first show (mkVolumeName "cache")
+  sz <- first show (mkQuantity "1Gi")
+  mp <- first show (mkMountPath "/cache")
   pure Volume
     { volName = vn, size = sz, mountPath = mp
     , accessMode = ReadWriteOnce, readOnly = False
     , retention = Delete           -- excluded from backups; warned at deploy
     }
-  where mapLeft f = either (Left . f) Right
 ```
 
 then `pure base { volumes = [v] }`. `nagarectl deploy` prints a warning naming

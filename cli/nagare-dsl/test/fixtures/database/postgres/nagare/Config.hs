@@ -7,16 +7,17 @@
 -- @nagarectl db create@ (EP-45) and lives only in the managed Secret.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDatabase)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Types (RetentionPolicy (..), mkNamespace, mkQuantity)
 
 database :: Either String Database
 database = do
-  n <- mapLeft show (mkDatabaseName "pg-main")
-  v <- mapLeft show (mkEngineVersion Postgres "18")
-  ns <- mapLeft show (mkNamespace "personal")
-  sz <- mapLeft show (mkQuantity "10Gi")
+  n <- first show (mkDatabaseName "pg-main")
+  v <- first show (mkEngineVersion Postgres "18")
+  ns <- first show (mkNamespace "personal")
+  sz <- first show (mkQuantity "10Gi")
   Right
     Database
       { dbName = n
@@ -27,8 +28,6 @@ database = do
       , resources = Nothing
       , retention = Retain
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case database of

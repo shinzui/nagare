@@ -5,17 +5,16 @@
 -- (Secret references) at deploy time (MasterPlan 9, EP-46).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
 
 deployment :: Either String Deployment
 deployment = do
-  dep <- mapLeft show (webService "redis-cache" "redis-cache")
-  db <- mapLeft show (mkDatabaseName "cache")
+  dep <- first show (webService "redis-cache" "redis-cache")
+  db <- first show (mkDatabaseName "cache")
   pure dep {databases = [db]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

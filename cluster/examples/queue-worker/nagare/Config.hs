@@ -16,6 +16,7 @@
 --   nagarectl worker deploy -f cluster/examples/queue-worker/nagare/Config.hs
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitWorker)
 import Nagare.Dsl.Worker (Worker (..), execProbe, mkCommand, mkReplicas, webWorker)
 
@@ -24,17 +25,15 @@ worker = do
   base <- webWorker "queue-worker" "gcr.io/knative-samples/helloworld-go"
   -- The loop prints "working" and refreshes a heartbeat file every 5 seconds.
   cmd <-
-    mapLeft
+    first
       show
       (mkCommand ["sh", "-c", "while true; do echo working; touch /tmp/heartbeat; sleep 5; done"])
-  reps <- mapLeft show (mkReplicas 2)
+  reps <- first show (mkReplicas 2)
   -- A liveness probe: if the loop hangs (no longer refreshes the heartbeat), the
   -- kubelet restarts the container. A headless worker has no HTTP port, so this
   -- is an exec probe, not httpGet.
-  probe <- mapLeft show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
+  probe <- first show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
   Right base {command = Just cmd, replicas = reps, liveness = Just probe}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case worker of

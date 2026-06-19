@@ -13,6 +13,7 @@
 -- See docs/user/env-and-secrets.md for the full walkthrough.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Nagare.Dsl.Build (defaultBuild)
@@ -21,19 +22,19 @@ import Nagare.Dsl.Types
 
 deployment :: Either String Deployment
 deployment = do
-  name' <- mapLeft show (mkServiceName "envdemo")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "envdemo")
-  port' <- mapLeft show (mkPort 8080)
-  sc <- mapLeft show (mkScale 0 2)
-  bld <- mapLeft show defaultBuild
+  name' <- first show (mkServiceName "envdemo")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "envdemo")
+  port' <- first show (mkPort 8080)
+  sc <- first show (mkScale 0 2)
+  bld <- first show defaultBuild
 
-  greeting <- mapLeft show (mkEnvName "GREETING")
-  buildStamp <- mapLeft show (mkEnvName "BUILD_STAMP")
-  apiKey <- mapLeft show (mkEnvName "API_KEY")
-  apiKeySecret <- mapLeft show (mkSecretName "envdemo-api-key")
+  greeting <- first show (mkEnvName "GREETING")
+  buildStamp <- first show (mkEnvName "BUILD_STAMP")
+  apiKey <- first show (mkEnvName "API_KEY")
+  apiKeySecret <- first show (mkSecretName "envdemo-api-key")
 
-  buildScoped <- mapLeft show (scopedEnv (Set.fromList [Build]) (EnvLiteral "dev-stamp"))
+  buildScoped <- first show (scopedEnv (Set.fromList [Build]) (EnvLiteral "dev-stamp"))
 
   let env' =
         Map.fromList
@@ -58,8 +59,6 @@ deployment = do
       , tasks = []
       , cdn = Nothing
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

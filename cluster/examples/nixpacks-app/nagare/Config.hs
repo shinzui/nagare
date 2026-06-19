@@ -14,6 +14,7 @@
 -- is used because the loader's @runghc@ compiles under @-XGHC2024@.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -23,11 +24,9 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "nixpacks-app" "nixpacks-app")
-  ctx <- mapLeft show (mkFilePathText ".")
+  base <- first show (webService "nixpacks-app" "nixpacks-app")
+  ctx <- first show (mkFilePathText ".")
   Right (base {build = NixpacksBuild {context = ctx, buildArgs = Map.empty}})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

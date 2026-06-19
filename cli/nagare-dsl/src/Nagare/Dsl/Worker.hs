@@ -236,7 +236,7 @@ data Worker = Worker
 -- the preset alone is runnable), 'defaultReplicas', no command, no resources,
 -- and empty env/volumes/databases. Returns 'Either' 'String' (not 'Text') to
 -- match the existing preset convention, so an example @Config.hs@ can chain it
--- without @mapLeft show@.
+-- without @first show@.
 webWorker :: Text -> Text -> Either String Worker
 webWorker nameText imageText = do
   name' <- toStr (mkServiceName nameText)

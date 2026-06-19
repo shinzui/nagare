@@ -28,6 +28,7 @@
 --   nagarectl app deploy -f cluster/examples/multi-workload-app/nagare/Config.hs
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -86,8 +87,8 @@ app = do
   svc <- webService "kizashi-serve" sharedImage
 
   -- Two background reactors, each binding the managed database.
-  w1base <- mapLeft Text.pack (webWorker "kizashi-worker" sharedImage)
-  w2base <- mapLeft Text.pack (webWorker "kizashi-agent-worker" sharedImage)
+  w1base <- first Text.pack (webWorker "kizashi-worker" sharedImage)
+  w2base <- first Text.pack (webWorker "kizashi-agent-worker" sharedImage)
   let w1 = w1base {W.databases = [dbn]}
       w2 = w2base {W.databases = [dbn]}
 
@@ -128,8 +129,6 @@ app = do
       , workers = [w1, w2]
       , tasks = [migrate]
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError . Text.unpack) emitApplication app

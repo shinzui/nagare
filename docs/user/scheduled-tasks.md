@@ -32,19 +32,18 @@ command:
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task (scheduledTask)
 import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
-deployment = mapLeft show $ do
+deployment = first show $ do
   dep  <- webService "notes" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
   task <- scheduledTask "heartbeat" "*/15 * * * *"
             "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes" "date -u"
   pure dep {tasks = [task]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment
@@ -129,6 +128,7 @@ smart constructor:
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -139,7 +139,7 @@ import Nagare.Dsl.Types
   , mkServiceName, runtimeScoped )
 
 deployment :: Either String Deployment
-deployment = mapLeft show $ do
+deployment = first show $ do
   dep   <- webService "notes" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
   n     <- mkServiceName "cleanup"
   ns    <- mkNamespace "personal"
@@ -165,8 +165,6 @@ deployment = mapLeft show $ do
     , taskStartingDeadlineSeconds    = Nothing
     }
   pure dep {tasks = [task]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment

@@ -13,6 +13,7 @@ module Nagare.Dsl.Prelude
 import "lens" Control.Lens
 import "base" Control.Applicative as X ((<|>))
 import "base" Control.Monad as X (guard, unless, void, when)
+import "base" Data.Bifunctor as X (first)
 import "base" Data.Maybe as X (fromMaybe, isJust, isNothing)
 import "base" GHC.Generics as X (Generic)
 import "text" Data.Text as X (Text)

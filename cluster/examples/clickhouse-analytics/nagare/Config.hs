@@ -6,17 +6,16 @@
 -- (MasterPlan 9, EP-46).
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
 
 deployment :: Either String Deployment
 deployment = do
-  dep <- mapLeft show (webService "clickhouse-analytics" "clickhouse-analytics")
-  db <- mapLeft show (mkDatabaseName "events")
+  dep <- first show (webService "clickhouse-analytics" "clickhouse-analytics")
+  db <- first show (mkDatabaseName "events")
   pure dep {databases = [db]}
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

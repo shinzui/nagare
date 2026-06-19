@@ -7,17 +7,18 @@
 --   nagarectl db create clickhouse events --size 5Gi --memory 2Gi
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitDatabase)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Types (Resources (..), RetentionPolicy (..), defaultNamespace, mkQuantity)
 
 database :: Either String Database
 database = do
-  name' <- mapLeft show (mkDatabaseName "events")
-  ver' <- mapLeft show (mkEngineVersion ClickHouse "25.8")
-  size' <- mapLeft show (mkQuantity "5Gi")
-  memReq <- mapLeft show (mkQuantity "512Mi")
-  memLim <- mapLeft show (mkQuantity "2Gi")
+  name' <- first show (mkDatabaseName "events")
+  ver' <- first show (mkEngineVersion ClickHouse "25.8")
+  size' <- first show (mkQuantity "5Gi")
+  memReq <- first show (mkQuantity "512Mi")
+  memLim <- first show (mkQuantity "2Gi")
   pure
     Database
       { dbName = name'
@@ -35,8 +36,6 @@ database = do
               }
       , retention = Retain
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case database of

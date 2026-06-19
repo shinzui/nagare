@@ -14,6 +14,7 @@
 -- (@base {build = ...}@) rather than the @#build@ lens.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -21,11 +22,9 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "prebuilt-image-app" "gcr.io/knative-samples/helloworld-go")
-  tag <- mapLeft show (mkTag "latest")
+  base <- first show (webService "prebuilt-image-app" "gcr.io/knative-samples/helloworld-go")
+  tag <- first show (mkTag "latest")
   Right (base {build = PrebuiltImage tag})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

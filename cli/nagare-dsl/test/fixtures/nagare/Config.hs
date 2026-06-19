@@ -7,6 +7,7 @@
 -- cluster/examples/hello-knative-service/nagare/Config.hs.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Config (emitDeployment)
@@ -14,16 +15,16 @@ import Nagare.Dsl.Types
 
 deployment :: Either String Deployment
 deployment = do
-  name' <- mapLeft show (mkServiceName "hello")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "gcr.io/knative-samples/helloworld-go")
-  doms <- mapLeft show (mkDomains [("hello.example.com", True)])
-  port' <- mapLeft show (mkPort 8080)
-  target <- mapLeft show (mkEnvName "TARGET")
-  sc <- mapLeft show (mkScale 0 3)
-  cpuQ <- mapLeft show (mkQuantity "250m")
-  memQ <- mapLeft show (mkQuantity "128Mi")
-  bld <- mapLeft show defaultBuild
+  name' <- first show (mkServiceName "hello")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "gcr.io/knative-samples/helloworld-go")
+  doms <- first show (mkDomains [("hello.example.com", True)])
+  port' <- first show (mkPort 8080)
+  target <- first show (mkEnvName "TARGET")
+  sc <- first show (mkScale 0 3)
+  cpuQ <- first show (mkQuantity "250m")
+  memQ <- first show (mkQuantity "128Mi")
+  bld <- first show defaultBuild
   Right
     Deployment
       { name = name'
@@ -41,8 +42,6 @@ deployment = do
       , tasks = []
       , cdn = Nothing
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case deployment of

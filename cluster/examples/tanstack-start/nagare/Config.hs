@@ -16,6 +16,7 @@
 -- @scale = Just (mkScale 1 n)@ to avoid cold starts.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Config (emitServerSite)
 import Nagare.Dsl.Server.Types
@@ -24,10 +25,10 @@ import Nagare.Dsl.Types
 
 serverSite :: Either String ServerSite
 serverSite = do
-  name' <- mapLeft show (mkSiteName "tanstack-start")
-  ns' <- mapLeft show (mkNamespace "personal")
-  img' <- mapLeft show (mkImageRef "tanstack-start")
-  host <- mapLeft show (mkEnvName "HOSTNAME")
+  name' <- first show (mkSiteName "tanstack-start")
+  ns' <- first show (mkNamespace "personal")
+  img' <- first show (mkImageRef "tanstack-start")
+  host <- first show (mkEnvName "HOSTNAME")
   Right
     ServerSite
       { name = name'
@@ -43,8 +44,6 @@ serverSite = do
       , volumes = []
       , cdn = Nothing
       }
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = case serverSite of

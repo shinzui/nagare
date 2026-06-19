@@ -7,6 +7,7 @@
 -- not reference an app.
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitTask)
 import Nagare.Dsl.Task
@@ -20,7 +21,7 @@ import Nagare.Dsl.Types
   )
 
 task :: Either String Task
-task = mapLeft show $ do
+task = first show $ do
   n <- mkServiceName "cleanup"
   ns <- mkNamespace "personal"
   sched <- mkSchedule "0 3 * * *"
@@ -50,6 +51,3 @@ main :: IO ()
 main = case task of
   Left err -> ioError (userError err)
   Right t -> emitTask t
-
-mapLeft :: (a -> b) -> Either a c -> Either b c
-mapLeft f = either (Left . f) Right

@@ -43,6 +43,7 @@ the tag to deploy lives in the config. Useful for third-party images
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -50,11 +51,9 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "web" "ghcr.io/acme/web")
-  tag  <- mapLeft show (mkTag "v1.2.3")
+  base <- first show (webService "web" "ghcr.io/acme/web")
+  tag  <- first show (mkTag "v1.2.3")
   Right (base {build = PrebuiltImage tag})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment
@@ -95,6 +94,7 @@ control the Dockerfile path, the build context, or build arguments.
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -104,13 +104,11 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
-  df   <- mapLeft show (mkFilePathText "Dockerfile")
-  ctx  <- mapLeft show (mkFilePathText ".")
+  base <- first show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
+  df   <- first show (mkFilePathText "Dockerfile")
+  ctx  <- first show (mkFilePathText ".")
   let args = Map.fromList [("SITE_MESSAGE", "hello from a build arg")]
   Right (base {build = DockerfileBuild {dockerfile = df, context = ctx, buildArgs = args}})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment
@@ -160,6 +158,7 @@ image. Nagare pushes and deploys it exactly like the Dockerfile path.
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Data.Bifunctor (first)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -169,11 +168,9 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- mapLeft show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
-  ctx  <- mapLeft show (mkFilePathText ".")
+  base <- first show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
+  ctx  <- first show (mkFilePathText ".")
   Right (base {build = NixpacksBuild {context = ctx, buildArgs = Map.empty}})
-  where
-    mapLeft f = either (Left . f) Right
 
 main :: IO ()
 main = either (ioError . userError) emitDeployment deployment
