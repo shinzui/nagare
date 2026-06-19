@@ -8,12 +8,15 @@
 module ApplicationSpec (applicationTests) where
 
 import Control.Lens ((&), (.~))
+import Data.ByteString.Lazy (toStrict)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Application
+import Nagare.Dsl.Config (encodeApplication, encodeDeployment)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
+import Nagare.Dsl.Load (LoadError (..), decodeApplication, decodeDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
@@ -26,6 +29,7 @@ applicationTests =
   testGroup
     "Nagare.Dsl.Application (EP-1)"
     [ testGroup "mkApplication" mkApplicationTests
+    , testGroup "JSON round-trip and kind discrimination" roundTripTests
     ]
 
 -- ---------------------------------------------------------------------------
@@ -95,9 +99,36 @@ multiAppRec =
     , env = Map.fromList [(unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))]
     , appDatabases = [kizashiDb]
     , service = Just kizashiServe
-    , workers = [worker1, worker2]
+    -- canonical (name-sorted) order: the encoder sorts workers by name, so a
+    -- pre-sorted fixture round-trips to itself (kizashi-agent-worker < kizashi-worker).
+    , workers = [worker2, worker1]
     , tasks = [migrateTask]
     }
+
+-- | The validated multi-workload app (the happy 'multiAppRec').
+multiApp :: Application
+multiApp = unsafe (mkApplication multiAppRec)
+
+-- | A service-less app: workers (no database references) plus the migration
+-- task. Exercises the @service = Nothing@ branch of the round-trip.
+plainWorker :: Worker
+plainWorker = unsafeStr (webWorker "kizashi-worker" sharedImage)
+
+serviceLessAppRec :: Application
+serviceLessAppRec =
+  Application
+    { appName = unsafe (mkServiceName "kizashi")
+    , namespace = unsafe (mkNamespace "personal")
+    , image = unsafe (mkImageRef sharedImage)
+    , env = Map.empty
+    , appDatabases = []
+    , service = Nothing
+    , workers = [plainWorker]
+    , tasks = [migrateTask]
+    }
+
+serviceLessApp :: Application
+serviceLessApp = unsafe (mkApplication serviceLessAppRec)
 
 -- ---------------------------------------------------------------------------
 -- M1: mkApplication
@@ -127,6 +158,56 @@ mkApplicationTests =
         "namespace"
         (mkApplication multiAppRec {workers = [worker1 & #namespace .~ unsafe (mkNamespace "other"), worker2]})
   ]
+
+-- ---------------------------------------------------------------------------
+-- M2: JSON emit -> decode round-trip, kind discrimination, and the three
+-- cross-workload invariants re-checked at the loader boundary (defence in depth).
+
+roundTripTests :: [TestTree]
+roundTripTests =
+  [ testCase "multi-workload application survives emit -> decode round-trip" $
+      decodeApplication (toStrict (encodeApplication multiApp)) @?= Right multiApp
+  , testCase "service-less application round-trips" $
+      decodeApplication (toStrict (encodeApplication serviceLessApp)) @?= Right serviceLessApp
+  , testCase "decoding an Application as a Deployment is UnexpectedKind" $
+      case decodeDeployment (toStrict (encodeApplication multiApp)) of
+        Left (UnexpectedKind "Deployment" "Application") -> pure ()
+        other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+  , testCase "decoding a Deployment as an Application is UnexpectedKind" $
+      case decodeApplication (toStrict (encodeDeployment kizashiServe)) of
+        Left (UnexpectedKind "Application" "<none>") -> pure ()
+        other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+  , testCase "undeclared database rejected as MarshalError application" $
+      assertAppMarshal
+        "not declared"
+        (decodeApplication (toStrict (encodeApplication multiAppRec {appDatabases = []})))
+  , testCase "image disagreement rejected as MarshalError application" $
+      assertAppMarshal
+        "shared image"
+        ( decodeApplication
+            ( toStrict
+                ( encodeApplication
+                    multiAppRec {workers = [worker1 & #image .~ unsafe (mkImageRef "gcr.io/other/img"), worker2]}
+                )
+            )
+        )
+  , testCase "duplicate workload name rejected as MarshalError application" $
+      assertAppMarshal
+        "duplicate workload name"
+        (decodeApplication (toStrict (encodeApplication multiAppRec {workers = [worker1, worker1]})))
+  ]
+
+-- | Assert a decode result is a @MarshalError "application"@ whose message
+-- contains the needle (the cross-workload invariants are re-checked at the
+-- loader boundary by calling 'mkApplication' inside 'toApplication').
+assertAppMarshal :: (Show a) => Text -> Either LoadError a -> Assertion
+assertAppMarshal needle e = case e of
+  Left (MarshalError "application" msg)
+    | needle `Text.isInfixOf` msg -> pure ()
+    | otherwise ->
+        assertFailure
+          ("MarshalError application but message missing " <> show needle <> ": " <> Text.unpack msg)
+  other -> assertFailure ("expected MarshalError application, got: " <> show other)
 
 -- ---------------------------------------------------------------------------
 -- Helpers (mirroring the other spec modules).

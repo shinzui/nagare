@@ -62,13 +62,15 @@ This section must always reflect the actual current state of the work.
 - [x] M1 (2026-06-18): unit tests for `mkApplication` (happy path, image disagreement,
       undeclared-database rejection, duplicate workload/database name rejection, namespace
       disagreement) pass under `cabal test nagare-dsl-test --test-options='--pattern "mkApplication"'`.
-- [ ] M2: `emitApplication` / `encodeApplication` added to `Nagare.Dsl.Config` and
-      `decodeApplication` / `loadApplication` added to `Nagare.Dsl.Load`, with the
-      `"kind": "Application"` discriminator.
-- [ ] M2: emit → decode round-trip tests pass (valid multi-workload `Application` decodes
-      byte-identically; kind discrimination against `Deployment`/`Worker` holds; the
-      undeclared-database / image-disagreement / duplicate-name failures are reported as a
-      precise `MarshalError`).
+- [x] M2 (2026-06-18): `emitApplication` / `encodeApplication` + `applicationJSON` added to
+      `Nagare.Dsl.Config` and `JsonApplication` / `toApplication` / `decodeApplication` /
+      `loadApplication` added to `Nagare.Dsl.Load`, with the `"kind": "Application"`
+      discriminator. Each embedded workload reuses its existing per-kind encoder/marshaller;
+      `toApplication` re-runs `mkApplication` for defence in depth.
+- [x] M2 (2026-06-18): emit → decode round-trip tests pass (multi-workload + service-less
+      `Application` decode byte-identically; kind discrimination both ways vs `Deployment`; the
+      undeclared-database / image-disagreement / duplicate-name failures are reported as a precise
+      `MarshalError "application"`).
 - [ ] M3: the `cluster/examples/multi-workload-app/nagare/Config.hs` example exists, loads
       via `loadApplication`, and is covered by an example-load test plus golden round-trip
       bytes.
@@ -94,6 +96,14 @@ implementation. Provide concise evidence.
   the house-idiom `&`/`.~` with `#field` generic-lens optics (as `Presets.hs` does), which meant
   adding `lens`/`generic-lens` to the `test-suite` `build-depends` (they were already library
   deps and in the build plan — no new package enters the project). See Decision Log.
+
+- 2026-06-18 — **`applicationJSON` canonicalizes list order by name, so a round-trip fixture must
+  be pre-sorted.** As the plan specifies (matching `deploymentJSON`'s task sort), the encoder sorts
+  `workers`/`databases`/`tasks` by name for deterministic bytes. The decoder preserves that sorted
+  order, so `decodeApplication (encode app) == Right app` holds only when `app`'s lists are already
+  name-sorted — i.e. the canonical form is the sorted one. The `multiApp` fixture's workers were
+  reordered to `[kizashi-agent-worker, kizashi-worker]` to make the round-trip an identity. (The
+  existing single-element `Deployment`/`Worker`/`Task` round-trip fixtures never surfaced this.)
 
 
 ## Decision Log

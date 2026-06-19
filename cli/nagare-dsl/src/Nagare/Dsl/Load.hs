@@ -20,6 +20,8 @@ module Nagare.Dsl.Load
   , decodeTask
   , loadWorker
   , decodeWorker
+  , loadApplication
+  , decodeApplication
   , SiteConfig (..)
   , loadSite
   ) where
@@ -41,6 +43,7 @@ import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
+import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas)
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
@@ -836,6 +839,95 @@ decodeWorker bs =
 -- Used by @nagarectl worker deploy@.
 loadWorker :: FilePath -> IO (Either LoadError Worker)
 loadWorker path = fmap (>>= decodeWorker) (runConfig path)
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for the multi-workload Application aggregate (MasterPlan 14,
+-- EP-1; mirrors Nagare.Dsl.Config's applicationJSON)
+
+-- | The intermediate decode shape for an 'Application' (mirrors
+-- 'Nagare.Dsl.Config'\'s @applicationJSON@). Each embedded workload reuses the
+-- existing per-kind intermediate ('JsonDeployment' / 'JsonWorker' /
+-- 'JsonDatabase' / 'JsonTask'), so the embedded objects decode exactly as they
+-- do standalone. Optional fields default to empty so a partial object is a
+-- precise 'MarshalError', not an aeson parse error.
+data JsonApplication = JsonApplication
+  { jaName :: !Text
+  , jaNamespace :: !Text
+  , jaImage :: !Text
+  , jaEnv :: ![JsonEnvEntry]
+  , jaDatabases :: ![JsonDatabase]
+  , jaService :: !(Maybe JsonDeployment)
+  , jaWorkers :: ![JsonWorker]
+  , jaTasks :: ![JsonTask]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonApplication where
+  parseJSON = withObject "Application" $ \o ->
+    JsonApplication
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "image"
+      <*> o .:? "env" .!= []
+      <*> o .:? "databases" .!= []
+      <*> o .:? "service"
+      <*> o .:? "workers" .!= []
+      <*> o .:? "tasks" .!= []
+
+-- | Re-validate a decoded application: re-run every leaf smart constructor for
+-- the shared bindings, marshal each embedded workload with the EXISTING
+-- 'toDeployment' / 'toWorker' / 'toDatabase' / 'toTask' (which re-run all their
+-- own invariants), then enforce the cross-workload invariants by calling
+-- 'mkApplication' on the assembled record — so the validation lives in one place
+-- (defence in depth: a hand-written or tampered JSON that violates an invariant
+-- is rejected as a precise @MarshalError "application"@).
+toApplication :: JsonApplication -> Either LoadError Application
+toApplication j = do
+  name' <- mapLeft (MarshalError "name") $ mkServiceName (jaName j)
+  ns' <- mapLeft (MarshalError "namespace") $ mkNamespace (jaNamespace j)
+  img' <- mapLeft (MarshalError "image") $ mkImageRef (jaImage j)
+  env' <- mapM toEnvEntry (jaEnv j)
+  dbs' <- traverse toDatabase (jaDatabases j)
+  svc' <- traverse toDeployment (jaService j)
+  wks' <- traverse toWorker (jaWorkers j)
+  tks' <- traverse toTask (jaTasks j)
+  let assembled =
+        Application
+          { appName = name'
+          , namespace = ns'
+          , image = img'
+          , env = Map.fromList env'
+          , appDatabases = dbs'
+          , service = svc'
+          , workers = wks'
+          , tasks = tks'
+          }
+  mapLeft (MarshalError "application") (mkApplication assembled)
+
+-- | Decode the JSON an application config emits (via
+-- 'Nagare.Dsl.Config.emitApplication') into a validated 'Application'. The
+-- top-level @kind@ is checked first: a missing kind (a bare 'Deployment') or a
+-- non-@Application@ kind is 'UnexpectedKind'.
+decodeApplication :: ByteString -> Either LoadError Application
+decodeApplication bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Application" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode application: " <> Text.pack perr))
+        Right ja -> toApplication ja
+      Just other -> Left (UnexpectedKind "Application" other)
+      Nothing -> Left (UnexpectedKind "Application" "<none>")
+
+-- | Load an 'Application' from a Haskell config-as-program source file (MasterPlan
+-- 14, EP-1). The config must print its JSON via
+-- 'Nagare.Dsl.Config.emitApplication'. A config that instead emits a single
+-- workload (or another kind) is reported as 'UnexpectedKind'. Used by
+-- @nagarectl app deploy@ (EP-2).
+loadApplication :: FilePath -> IO (Either LoadError Application)
+loadApplication path = fmap (>>= decodeApplication) (runConfig path)
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for the optional CDN block (mirrors Nagare.Dsl.Config.cdnJSON)

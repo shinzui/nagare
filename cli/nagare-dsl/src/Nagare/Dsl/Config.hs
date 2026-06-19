@@ -18,6 +18,8 @@ module Nagare.Dsl.Config
   , encodeTask
   , emitWorker
   , encodeWorker
+  , emitApplication
+  , encodeApplication
   ) where
 
 import Data.Generics.Labels ()
@@ -38,6 +40,7 @@ import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
+import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Worker (Worker, commandArgvList, replicasInt)
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
@@ -458,3 +461,40 @@ serverSiteJSON site =
           , "secretName" .= secretNameText sn
           , "scopes" .= scopeTokensJSON sev
           ]
+
+-- | Serialize an 'Application' to JSON and write it to stdout (MasterPlan 14,
+-- EP-1). Call this as the last line of a multi-workload app's @Config.hs@ @main@.
+-- The top-level @"kind": "Application"@ discriminator lets the loader dispatch and
+-- report a precise 'Nagare.Dsl.Load.UnexpectedKind' if an Application config is
+-- run under the wrong command.
+emitApplication :: Application -> IO ()
+emitApplication app = LBS.putStr (encodeApplication app)
+
+-- | The exact JSON bytes 'emitApplication' writes (exposed for the round-trip
+-- test, mirroring 'encodeWorker').
+encodeApplication :: Application -> LBS.ByteString
+encodeApplication = encode . applicationJSON
+
+-- | The JSON shape the loader reads back (see
+-- 'Nagare.Dsl.Load.decodeApplication'). The shared @image@/@env@/@databases@ are
+-- the single source of truth at the aggregate level; each embedded workload
+-- serializes with its EXISTING per-kind encoder ('deploymentJSON' / 'workerJSON'
+-- / 'databaseJSON' / 'taskJSON') verbatim, so it round-trips unchanged and any
+-- future workload field flows through automatically. Every list is sorted by name
+-- so the bytes are deterministic for golden comparison, exactly as
+-- 'deploymentJSON' sorts its co-located tasks.
+applicationJSON :: Application -> Value
+applicationJSON app =
+  object
+    [ "kind" .= ("Application" :: Text)
+    , "name" .= serviceNameText (app ^. #appName)
+    , "namespace" .= namespaceText (app ^. #namespace)
+    , "image" .= imageRefText (app ^. #image)
+    , "env" .= map scopedEnvJSON (Map.toAscList (app ^. #env))
+    , "databases"
+        .= map databaseJSON (sortOn (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases))
+    , "service" .= fmap deploymentJSON (app ^. #service)
+    , "workers"
+        .= map workerJSON (sortOn (\w -> serviceNameText (w ^. #name)) (app ^. #workers))
+    , "tasks" .= map taskJSON (sortOn taskName (app ^. #tasks))
+    ]
