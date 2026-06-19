@@ -87,9 +87,19 @@ first, as one tracked release."
       ordered hook → database → service → worker, every object carrying `nagare.dev/app`. The
       database phase is rendered here (PVC/Service/StatefulSet via `renderDatabase`). `AppDeploySpec`
       asserts the plan shape, ordering, per-object label, and that it encodes to parseable JSON.
-- [ ] M4: live-apply wiring (build/push once, hook run, db ensure, apply + wait) — deferred
-      acceptance while `nagare-01` is `TERMINATED`; offline render gates stand in.
-- [ ] Docs: `docs/user/deploying-apps.md` gains an "Deploying a multi-workload app" section.
+- [x] M4 (2026-06-18, code): live-apply wiring written — `liveDeploy` builds/pushes the shared
+      image ONCE (reusing `gatherBuildArgs`/`performBuild`/`pushImage`), then `runPhases` with a live
+      `PhaseExec`: hooks apply each CronJob and run a one-off Job to completion (`runArgs` +
+      `kubectl wait --for=condition=complete`, returning `PhaseFailed` on non-zero so the release
+      aborts before any Service/Worker), databases `runDbCreate` (idempotent ensure), service
+      applies + `waitForReady`, workers apply + `waitForWorkerRollout`. Compiles (`cabal build all`).
+      **Live acceptance deferred** while `nagare-01` is `TERMINATED`; the sequencing/abort logic is
+      exercised offline by the `runPhases` unit tests. Known follow-up: per-database connection-env
+      and the generated `NAGARE_*` vars (which the single-Service `deploy` injects, needing a cluster
+      lookup) are not yet wired into the aggregate render — dry-run and live render identically.
+- [x] Docs (2026-06-18): `docs/user/deploying-apps.md`'s "Multi-workload applications" section now
+      documents `nagarectl app deploy`, the enforced rollout order, the migration-idempotence
+      requirement, and the `--dry-run --json` contract for external consumers (kotei).
 
 
 ## Surprises & Discoveries
@@ -158,9 +168,60 @@ first, as one tracked release."
   Date: 2026-06-18
 
 
+## Surprises & Discoveries (continued)
+
+- 2026-06-18 — **Label stamping is a one-line text insert, not a YAML round-trip.** The plan
+  suggested decoding each manifest to a `Value`, inserting under `metadata.labels`, and re-encoding
+  with "the same key comparator" — but that comparator isn't shared across kinds and a generic
+  re-encode would reorder every key. Instead `stampAppLabel` inserts `nagare.dev/app: <name>` on the
+  line after the unique top-level `nagare.dev/managed-by: nagarectl` (sharing its indentation),
+  preserving the rest of the document byte-for-byte. It is idempotent (a manifest already carrying a
+  `nagare.dev/app` label — e.g. a co-located Task that EP-52 already stamps, or a volume PVC — is
+  left unchanged), which is why the kizashi hook's existing EP-52 `nagare.dev/app` is kept rather
+  than duplicated. The JSON plan's `roLabels` is parsed back from the *stamped* manifest (a real YAML
+  decode via `Data.Yaml`), so the JSON and YAML labels cannot drift.
+
+- 2026-06-18 — **The shared env flows down in EP-2, but connection/generated env is a live-path
+  follow-up.** EP-1 decided the shared `Application` env is NOT duplicated into each workload's JSON;
+  EP-2 fans it down at render time (`flowEnv`: shared env as the base, a workload's own env wins on a
+  collision). The per-database connection env (`resolveConnectionEnv`, a `kubectl` lookup) and the
+  `NAGARE_*` generated vars that the single-Service `deploy` injects are intentionally NOT wired into
+  the aggregate render yet: resolving them needs a cluster, which would break the offline dry-run
+  gate. Dry-run and live render identically, so this is a uniform, documented follow-up for when
+  `nagare-01` is up (the databases are ensured in the same deploy, so their Secrets exist before the
+  service/worker phases).
+
+
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-18 — EP-2 complete).** All five milestones (M0–M4) landed; the `nagarectl`
+suite is green (291 → with the 13-case `Nagare.App.Deploy (EP-2)` group). A developer now runs ONE
+command, `nagarectl app deploy`, to roll a whole multi-workload `Application` out in dependency order
+under one shared identity. Verified offline end-to-end against
+`cli/nagarectl/test/fixtures/app/kizashi/Config.hs`:
+`app deploy --dry-run` prints 8 objects (1 hook CronJob, 3 Postgres objects, 1 Knative Service, 3
+worker Deployments), each carrying `nagare.dev/app: kizashi`, and `--dry-run --json` emits the stable
+ordered plan kotei consumes.
+
+**What worked.** (1) The M0 extraction (`Nagare.Deploy.Resolve`) cleanly unblocked the library
+module with a behavior-preserving refactor. (2) Reusing every existing per-kind renderer
+(`renderService`/`renderWorker`/`renderResolvedTask`/`renderDatabase`) meant the aggregate added
+*orchestration*, not new rendering — and EP-3's worker liveness probe flows through for free (an
+aggregated worker renders its `livenessProbe` with no EP-2 code). (3) Splitting the phase *sequencing*
+(`runPhases`, pure-ish, unit-tested with a fake executor) from the live *executor* (`livePhaseExec`,
+cluster IO) made the hook-gating guarantee testable offline despite `nagare-01` being down.
+
+**Deferred / follow-ups.** (a) **Live acceptance** (M4) awaits a running cluster; the offline render +
+phase-sequencing gates stand in. (b) **Connection/generated env** injection into aggregate workloads
+is a documented follow-up (see Surprises). (c) The "build once" uses the service's build spec as the
+canonical artifact; workers default to a prebuilt `:latest` and so render `:latest` rather than the
+deploy tag — acceptable today (it matches standalone `worker deploy`), but a future refinement could
+force every workload to the one built tag.
+
+**Hand-off to kotei.** The `--dry-run --json` contract is stable and additive:
+`{app, image, objects:[{apiVersion,kind,name,namespace,phase,labels,manifest}]}`, ordered
+hook → database → service → worker, every object carrying `nagare.dev/app`. kotei can deploy and track
+a whole multi-workload app in one call.
 
 
 ## Context and Orientation

@@ -367,9 +367,35 @@ A worked example — one Service, two Workers binding a managed Postgres, and a
 migration Task, all on one shared image — is
 `cluster/examples/multi-workload-app/nagare/Config.hs` (see its
 [README](../../cluster/examples/multi-workload-app/README.md)). It is deployed
-with **one** command, `nagarectl app deploy`, which rolls the app out in
-dependency order: pre-deploy hooks (the migration Task) first, then the managed
-databases, then the Service and Workers.
+with **one** command, `nagarectl app deploy`, which builds and pushes the shared
+image once, then rolls the app out in dependency order:
+
+```bash
+# Dry-run (no cluster): print every rendered object, each with nagare.dev/app=<name>.
+nagarectl app deploy --dry-run -f nagare/Config.hs
+
+# Live: build/push once, then roll out in order.
+nagarectl app deploy -f nagare/Config.hs
+```
+
+The rollout order is fixed and enforced: **pre-deploy hooks first** (the migration
+Task runs to completion as a one-off Job — a non-zero exit aborts the release
+**before any Service or Worker is applied**), **then** the managed databases are
+ensured (idempotent), **then** the Knative Service and every Worker are applied
+and waited on. So "run migrations before the new code boots" is a platform
+guarantee, not a runbook step. Because the migration is re-run on every deploy,
+it must be idempotent at the SQL level (the standard "migrations tracked in a
+table" discipline) — an already-applied migration must be a no-op.
+
+For tooling, `--dry-run --json` emits the whole rollout as a single machine-
+readable document — `{ app, image, objects: [ { kind, name, phase, labels, … } ] }`,
+ordered hook → database → service → worker, every object carrying the shared
+`nagare.dev/app` label — so an external system of record can track the release as
+one unit without scraping prose:
+
+```bash
+nagarectl app deploy --dry-run --json -f nagare/Config.hs | jq '[.objects[].kind]'
+```
 
 ## Verify (against a running cluster)
 
