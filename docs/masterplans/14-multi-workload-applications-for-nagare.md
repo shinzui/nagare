@@ -128,7 +128,7 @@ phase ordering expresses without a scheduler.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Application aggregate: typed multi-workload app with shared image, env, and database bindings | docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md | None | None | In Progress |
+| 1 | Application aggregate: typed multi-workload app with shared image, env, and database bindings | docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md | None | None | Complete |
 | 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | Not Started |
 | 3 | Worker health and liveness probes | docs/plans/74-worker-health-and-liveness-probes.md | None | EP-1 | Not Started |
 
@@ -191,8 +191,8 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 
 ## Progress
 
-- [ ] EP-1: `Application` record, smart constructor, and shared-binding validation in `nagare-dsl`
-- [ ] EP-1: `emitApplication` / loader and JSON round-trip + golden tests
+- [x] EP-1 (2026-06-18): `Application` record, smart constructor, and shared-binding validation in `nagare-dsl`
+- [x] EP-1 (2026-06-18): `emitApplication` / loader and JSON round-trip + load tests (JSON golden deferred — round-trip pins the wire shape)
 - [ ] EP-2: `nagarectl app deploy` renders all workloads with the shared `nagare.dev/app` label
 - [ ] EP-2: ordered rollout — pre-deploy hooks and databases before service/workers; failed hook aborts
 - [ ] EP-2: machine-readable `--dry-run` output contract for external consumers (kotei)
@@ -201,6 +201,28 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 
 
 ## Surprises & Discoveries
+
+- 2026-06-18 — **EP-1 complete; the integration contract is implemented as specified (affects
+  EP-2, EP-3).** `Nagare.Dsl.Application` ships with `appDatabases :: [Database]` (full specs, as
+  pinned), the `appLabelKey`/`appLabel` helpers defining `nagare.dev/app` once, and the
+  `emitApplication`/`encodeApplication` + `decodeApplication`/`loadApplication` wire contract. The
+  aggregate embeds `Deployment`/`Worker`/`Database`/`Task` **as-is** and its encoder/decoder reuse
+  every per-kind helper unchanged — so **EP-3's `Worker` liveness field will flow through the
+  aggregate automatically** (at most a fixture refresh), and **EP-2** can `loadApplication` and
+  render each embedded workload with its existing renderer. Two consumption notes for EP-2:
+  (a) the test-suite target is `nagare-dsl-test`, not `nagare-dsl` (`cabal test nagare-dsl` errors
+  `Cabal-7043`); (b) `applicationJSON` **canonicalizes list order by name** (sorts
+  `workers`/`databases`/`tasks`), so any JSON consumer (kotei) sees deterministic, name-sorted
+  output — EP-2's `--dry-run` JSON inherits this for free.
+
+- 2026-06-18 — **Multi-workload `Config.hs` files need qualified imports for embedded records
+  (affects EP-2's developer-facing example and docs).** The loader runs configs under
+  `runghc -XGHC2024`, which does NOT enable `DuplicateRecordFields`; an `Application` config builds
+  an `Application` record plus embedded `Database`/`Worker` records whose `namespace`/`image` labels
+  collide. The fixture and `cluster/examples/multi-workload-app/` resolve this by importing
+  `Nagare.Dsl.Database qualified as DB` / `Nagare.Dsl.Worker qualified as W` and qualifying those
+  records' fields, keeping the `Application` record unqualified. EP-2's `app deploy` docs/examples
+  must follow this template (see EP-1's Surprises & Discoveries for the full pattern).
 
 - 2026-06-18 — **Library/executable boundary blocks EP-2's reuse plan (affects EP-2).** A
   validation pass that fact-checked every concrete code claim against the source found that
