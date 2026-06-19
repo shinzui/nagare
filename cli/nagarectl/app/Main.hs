@@ -89,6 +89,7 @@ import Nagare.App
   , stopApp
   , streamServiceLogs
   )
+import Nagare.App.Deploy (AppDeployParams (..), runAppDeploy)
 import Nagare.App.Deployments
   ( formatDeploymentsTable
   , readDeployments
@@ -225,6 +226,23 @@ data WorkerDeployOpts = WorkerDeployOpts
   }
   deriving stock (Generic, Show)
 
+-- | Options for @app deploy@ (MasterPlan 14, EP-2): deploy a whole multi-workload
+-- 'Nagare.Dsl.Application.Application' in one command. Mirrors 'DeployOpts' plus a
+-- @--json@ switch that selects the machine-readable @--dry-run@ plan (the kotei
+-- contract).
+data AppDeployOpts = AppDeployOpts
+  { file :: !FilePath
+  , tag :: !(Maybe String)
+  , baseDomain :: !(Maybe String)
+  , contextOverride :: !(Maybe FilePath)
+  , dockerfileOverride :: !(Maybe FilePath)
+  , ghcEnv :: !(Maybe FilePath)
+  , dryRun :: !Bool
+  , json :: !Bool
+  , source :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
 -- | The @worker@ command group (EP-71). One subcommand today (@deploy@); a
 -- 'newtype' with a constructor per subcommand, mirroring 'DbCommand'/'TaskCommand'.
 newtype WorkerCommand = WorkerDeploy WorkerDeployOpts
@@ -336,6 +354,7 @@ data Command
   | AppRestart AppNameOpts
   | AppStop AppNameOpts
   | AppDelete AppDeleteOpts
+  | AppDeploy AppDeployOpts
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
@@ -729,6 +748,41 @@ deployOptsParser defaultFile =
       )
     <*> ghcEnvOpt
     <*> dryRunOpt
+    <*> optional
+      ( strOption
+          ( long "source"
+              <> metavar "REF"
+              <> help "Provenance to record with the deployment (e.g. a git SHA or branch)"
+          )
+      )
+
+appDeployOptsParser :: FilePath -> Parser AppDeployOpts
+appDeployOptsParser defaultFile =
+  AppDeployOpts
+    <$> fileOpt defaultFile
+    <*> tagOpt
+    <*> baseDomainOpt
+    <*> optional
+      ( strOption
+          ( long "context"
+              <> short 'c'
+              <> metavar "DIR"
+              <> help "Override the build context directory from the config (build modes only)"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "dockerfile"
+              <> metavar "FILE"
+              <> help "Override the Dockerfile path from the config (Dockerfile build only)"
+          )
+      )
+    <*> ghcEnvOpt
+    <*> dryRunOpt
+    <*> switch
+      ( long "json"
+          <> help "With --dry-run, emit the rollout plan as a single JSON document (for tooling/kotei)"
+      )
     <*> optional
       ( strOption
           ( long "source"
@@ -1340,6 +1394,12 @@ opts =
                   (AppDelete <$> appDeleteOptsParser <**> helper)
                   (progDesc "Delete the app, its DomainMappings, and its deployment history")
               )
+            <> command
+              "deploy"
+              ( info
+                  (AppDeploy <$> appDeployOptsParser defaultConfigFile <**> helper)
+                  (progDesc "Deploy a whole multi-workload Application (service + workers + databases + hooks) in one ordered rollout")
+              )
         )
     storageCmd =
       info
@@ -1549,6 +1609,9 @@ main =
     AppRestart o -> runAppRestart o
     AppStop o -> runAppStop o
     AppDelete o -> runAppDelete o
+    AppDeploy o -> do
+      provisionGhcEnv (o ^. #ghcEnv)
+      runAppDeploy (toAppDeployParams o)
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
@@ -2169,6 +2232,21 @@ appNamespace = maybe "personal" T.pack
 
 -- | @app list@: print a table of apps in a namespace (Nagare-managed unless
 -- @--all@). An empty managed list prints a hint to try @--all@.
+-- | Convert the executable's option record into the library deploy params
+-- (MasterPlan 14, EP-2), so the library never depends on the option type.
+toAppDeployParams :: AppDeployOpts -> AppDeployParams
+toAppDeployParams o =
+  AppDeployParams
+    { adpConfigPath = o ^. #file
+    , adpTag = T.pack <$> o ^. #tag
+    , adpBaseDomain = T.pack <$> o ^. #baseDomain
+    , adpContextOverride = o ^. #contextOverride
+    , adpDockerfileOverride = o ^. #dockerfileOverride
+    , adpDryRun = o ^. #dryRun
+    , adpJson = o ^. #json
+    , adpSource = T.pack <$> o ^. #source
+    }
+
 runAppList :: AppListOpts -> IO ()
 runAppList o = do
   let ns = appNamespace (o ^. #namespace)

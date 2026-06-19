@@ -61,14 +61,24 @@ first, as one tracked release."
       (`Maybe FilePath -> Maybe FilePath -> BuildSpec -> IO BuildSpec`) so it depends on no
       executable-local type; the `runDeploy` call site was updated. `runDeploy` is behaviorally
       unchanged; `cabal build exe:nagarectl` + `cabal test nagarectl-test` green (285 tests).
-- [ ] M1: `nagarectl app deploy` command skeleton wired into the optparse tree; loads an
-      `Application` via EP-1's loader; renders the Service + all Workers + Task(s) offline,
-      each stamped with `nagare.dev/app: <name>`.
-- [ ] M1: golden render test (`AppDeploySpec`) over the kizashi-shaped fixture asserting the
-      shared label on every rendered object.
-- [ ] M2: ordered rollout engine — pre-deploy hooks (migration Task) → databases →
-      service/workers — with a failed hook aborting before any Service/Worker apply.
-- [ ] M2: unit test that a non-zero hook exit prevents any later apply step from running.
+- [x] M1 (2026-06-18): `nagarectl app deploy` wired into the optparse tree (a new `deploy`
+      subcommand under `app`, `AppDeployOpts` + `appDeployOptsParser` + `AppDeploy` dispatch);
+      new library module `cli/nagarectl/src/Nagare/App/Deploy.hs` (`Nagare.App.Deploy`) loads an
+      `Application` via `loadApplication`, qualifies the shared image once, flows the shared env
+      down onto every workload, renders the Service + all Workers + Task(s) offline, and stamps
+      `nagare.dev/app: <name>` onto each via `stampAppLabel` (insert-after-managed-by, idempotent).
+      `app deploy --dry-run` prints the kizashi fixture's 5 objects (hook CronJob, Knative Service,
+      3 worker Deployments), each carrying the label.
+- [x] M1 (2026-06-18): `AppDeploySpec` (new test module) asserts the rollout-order phase tags and
+      the shared `nagare.dev/app: kizashi` label on every rendered object, over
+      `cli/nagarectl/test/fixtures/app/kizashi/Config.hs`.
+- [x] M2 (2026-06-18, phase engine): `Phase`/`phaseTag`/`planPhases` (fixed order hooks →
+      databases → service → workers) and `runPhases :: PhaseExec -> [Phase] -> IO PhaseResult`
+      which aborts on the first failure. (The live `PhaseExec` — build/push, db ensure, apply/wait —
+      is written as part of the M4 live-apply wiring.)
+- [x] M2 (2026-06-18): unit test injects a fake `PhaseExec` whose hook returns `PhaseFailed` and
+      asserts only the hook phase ran (databases/service/workers never invoked); a second asserts
+      all phases run in order when each succeeds.
 - [ ] M3: machine-readable `--dry-run --json` result contract (stable ordered object list
       with labels); JSON-shape golden test; the contract documented in this plan.
 - [ ] M4: live-apply wiring (build/push once, hook run, db ensure, apply + wait) — deferred

@@ -36,6 +36,7 @@ import Nagare.App
   , parseServiceNames
   , restartPatch
   )
+import AppDeploySpec (appDeployTests)
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
 import Nagare.Database.Backup
@@ -246,6 +247,7 @@ main = do
       , testGroup "EP-62 rendered Job project" backupProjectTests
       , testGroup "EP-62 qualifyImage" qualifyImageTests
       , initTests
+      , appDeployTests
       ]
 
 -- ---------------------------------------------------------------------------
