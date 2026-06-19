@@ -37,9 +37,11 @@ import Nagare.Dsl.Render
   , volumesField
   )
 import Nagare.Dsl.Types
-  ( Resources
+  ( HealthScheme (..)
+  , Resources
   , imageRefText
   , namespaceText
+  , portInt
   , quantityText
   , serviceNameText
   )
@@ -131,10 +133,49 @@ containerValue w tag =
         <> envField (w ^. #env)
         <> envFromField (nameText w)
         <> resourcesPairs (w ^. #resources)
+        <> probesField (w ^. #liveness)
         <> volumeMountsField (w ^. #volumes)
     )
   where
     imageStr = imageRefText (w ^. #image) <> ":" <> resolveImageTag (w ^. #build) tag
+
+-- | The liveness/startup probe block for a worker container (EP-74). Mirrors the
+-- app renderer's @probesField@ ("Nagare.Dsl.Render") but emits NO @readinessProbe@
+-- (a headless worker routes no traffic) and swaps @httpGet@ for the probe's
+-- mechanism: @exec@ (the primary case), @tcpSocket@, or @httpGet@. A
+-- @startupProbe@ with the same check is added when 'asStartup' is set. A worker
+-- with no probe ('Nothing') emits nothing, so its rendered Deployment is
+-- byte-identical to one rendered before this field existed.
+probesField :: Maybe WorkerProbe -> [Pair]
+probesField Nothing = []
+probesField (Just p) =
+  ["livenessProbe" .= probe]
+    <> (if t ^. #asStartup then ["startupProbe" .= probe] else [])
+  where
+    t = probeTiming p
+    probe = object (checkPair p <> timingPairs t)
+
+-- | The Kubernetes probe-mechanism sub-object for a 'WorkerProbe' branch.
+checkPair :: WorkerProbe -> [Pair]
+checkPair (ExecProbe argv _) = ["exec" .= object ["command" .= toJSON argv]]
+checkPair (TcpProbe port _) = ["tcpSocket" .= object ["port" .= portInt port]]
+checkPair (HttpProbe path mport scheme _) =
+  ["httpGet" .= object (["path" .= path] <> portPair <> ["scheme" .= schemeStr])]
+  where
+    portPair = maybe [] (\pt -> ["port" .= portInt pt]) mport
+    schemeStr = case scheme of
+      HTTP -> "HTTP" :: Text
+      HTTPS -> "HTTPS"
+
+-- | The shared timing keys, rendered exactly as the app renderer renders them
+-- (Knative's @httpGet@ probe asserts no status, so no @expectedStatus@).
+timingPairs :: ProbeTiming -> [Pair]
+timingPairs t =
+  [ "initialDelaySeconds" .= (t ^. #initialDelay)
+  , "periodSeconds" .= (t ^. #period)
+  , "timeoutSeconds" .= (t ^. #timeout)
+  , "failureThreshold" .= (t ^. #failureThreshold)
+  ]
 
 -- | The container @command:@ block, emitted only when the worker overrides the
 -- image's entrypoint. Rendered as a YAML list of the @commandArgv@ strings.
@@ -194,13 +235,29 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , -- pod spec
         ("containers", 0)
       , ("volumes", 1)
-      , -- container (name(0) < image < command < env < envFrom < resources < volumeMounts)
+      , -- container (name(0) < image < command < env < envFrom < resources <
+        -- livenessProbe < startupProbe < volumeMounts)
         ("image", 1)
       , ("command", 2)
       , ("env", 3)
       , ("envFrom", 4)
       , ("resources", 5)
-      , ("volumeMounts", 6)
+      , ("livenessProbe", 6)
+      , ("startupProbe", 7)
+      , ("volumeMounts", 8)
+      , -- probe sub-object: the check mechanism first, then timings in doc order
+        ("exec", 0)
+      , ("tcpSocket", 0)
+      , ("httpGet", 0)
+      , ("initialDelaySeconds", 1)
+      , ("periodSeconds", 2)
+      , ("timeoutSeconds", 3)
+      , ("failureThreshold", 4)
+      , -- httpGet sub-object keys (path(0) < port < scheme); exec's 'command' and
+        -- tcpSocket's 'port' reuse the ranks above
+        ("path", 0)
+      , ("port", 1)
+      , ("scheme", 2)
       , -- env entry
         ("value", 1)
       , ("valueFrom", 2)

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue-consumer
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/worker: queue-consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      nagare.dev/worker: queue-consumer
+  template:
+    metadata:
+      labels:
+        nagare.dev/worker: queue-consumer
+    spec:
+      containers:
+      - name: queue-consumer
+        image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/queue-consumer:latest
+        envFrom:
+        - configMapRef:
+            name: nagare-env-queue-consumer-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-queue-consumer-runtime
+            optional: true
+        livenessProbe:
+          exec:
+            command:
+            - /app/healthcheck
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3

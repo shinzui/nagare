@@ -161,6 +161,29 @@ renderTests =
       length (renderWorker minimalWorker "20260602-120000") @?= 1
   , testCase "rich worker renders two documents (PVC + Deployment)" $
       length (renderWorker richWorker "20260602-120000") @?= 2
+  , -- EP-74 M3: a probe-bearing worker renders a livenessProbe; a no-probe worker
+    -- is byte-identical to today (the minimal/rich goldens above do not change).
+    goldenVsString
+      "renderWorkerDeployment exec probe"
+      "test/golden/worker-exec-probe.deployment.yaml"
+      (pure (fromStrict (renderWorkerDeployment execProbeWorker "20260602-120000")))
+  , testCase "a no-probe worker renders no livenessProbe" $
+      assertBool
+        "no livenessProbe"
+        (not (BS.isInfixOf "livenessProbe" (renderWorkerDeployment minimalWorker "20260602-120000")))
+  , testCase "an exec probe renders livenessProbe.exec.command and no startupProbe" $ do
+      let yaml = renderWorkerDeployment execProbeWorker "20260602-120000"
+      assertBool "livenessProbe present" (BS.isInfixOf "livenessProbe:" yaml)
+      assertBool "exec command present" (BS.isInfixOf "/app/healthcheck" yaml)
+      assertBool "no startupProbe" (not (BS.isInfixOf "startupProbe" yaml))
+  , testCase "a tcp probe renders tcpSocket.port" $
+      assertBool
+        "tcpSocket present"
+        (BS.isInfixOf "tcpSocket:" (renderWorkerDeployment tcpProbeWorker "20260602-120000"))
+  , testCase "asStartup renders both a livenessProbe and a startupProbe" $ do
+      let yaml = renderWorkerDeployment startupProbeWorker "20260602-120000"
+      assertBool "livenessProbe present" (BS.isInfixOf "livenessProbe:" yaml)
+      assertBool "startupProbe present" (BS.isInfixOf "startupProbe:" yaml)
   ]
 
 -- ---------------------------------------------------------------------------
@@ -178,6 +201,15 @@ httpProbeWorker :: Worker
 httpProbeWorker =
   minimalWorker
     {liveness = Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))}
+
+-- | Default timing with @asStartup = True@, built as a full literal so the field
+-- update is not ambiguous between 'ProbeTiming' and the app 'HealthCheck'.
+startupTiming :: ProbeTiming
+startupTiming =
+  ProbeTiming {initialDelay = 0, period = 10, timeout = 1, failureThreshold = 3, asStartup = True}
+
+startupProbeWorker :: Worker
+startupProbeWorker = minimalWorker {liveness = Just (unsafe (mkExecProbe ["/app/healthcheck"] startupTiming))}
 
 roundTripTests :: [TestTree]
 roundTripTests =

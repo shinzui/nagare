@@ -58,9 +58,16 @@ exactly as it does today — byte-identical output, no probe block.
       existing `minimal`/`rich` fixtures) no-probe workers; full suite green (314 tests). EP-1's
       Application round-trip and the runghc load tests are unaffected (embedded workers now emit
       `"liveness":null`, which decodes back to `Nothing`).
-- [ ] M3 — renderer emits `livenessProbe`/`startupProbe` into the container
-      (`cli/nagare-dsl/src/Nagare/Dsl/Worker/Render.hs`); golden fixtures added/updated.
-- [ ] M3 — golden test proves a no-probe worker is byte-identical to today.
+- [x] M3 (2026-06-18) — renderer emits `livenessProbe` (and `startupProbe` when `asStartup`) into
+      the worker container via a new `probesField`/`checkPair`/`timingPairs` in
+      `cli/nagare-dsl/src/Nagare/Dsl/Worker/Render.hs` (exec/tcpSocket/httpGet; no readinessProbe).
+      The `keyCompare` rank table gained the container-level probe keys (`livenessProbe` 6,
+      `startupProbe` 7, `volumeMounts` bumped to 8) and the probe-internal keys. New golden
+      `cli/nagare-dsl/test/golden/worker-exec-probe.deployment.yaml`.
+- [x] M3 (2026-06-18) — the existing `worker-minimal`/`worker-rich` goldens did NOT regenerate
+      (proving a no-probe worker is byte-identical), and an explicit `testCase` asserts a no-probe
+      worker renders no `livenessProbe`. Behavioral tests cover exec/tcp/startup. Full suite green
+      (319 tests).
 - [ ] M4 — `docs/user/workers.md` field table gains a `liveness` row; the
       `cluster/examples/queue-worker` example shows a probe.
 
