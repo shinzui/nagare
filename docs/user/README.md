@@ -46,6 +46,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Persistent storage (Knative PVC volumes) | MP-7 (EP-33–37) | 🟡 Built; live deploy/snapshot pending |
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48) | 🟡 Built; live deploy pending |
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
+| Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74) | 🟡 Built; live deploy pending |
 | Backups, secrets, disaster recovery | EP-7 | ✅ Working (full DR drill deferred) |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell

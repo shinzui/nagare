@@ -507,7 +507,13 @@ When `nagarectl` loads a config, each failure becomes a precise `LoadError`
 
 ## Related docs
 
-- [Deploying apps](deploying-apps.md) — the workflow and `nagarectl` commands.
+- [Deploying apps](deploying-apps.md) — the workflow and `nagarectl` commands,
+  including [multi-workload applications](deploying-apps.md#multi-workload-applications):
+  describing a Service + Workers + Databases + a migration Task as one typed
+  `Application` and deploying them in one ordered rollout with `nagarectl app deploy`.
+- [Running workers](workers.md) — the `Worker` config (a headless `apps/v1`
+  Deployment), its fields, and its optional exec/TCP/HTTP `liveness` probe.
+- [Scheduled tasks](scheduled-tasks.md) — the `Task` config (a Kubernetes CronJob).
 - [App lifecycle](app-lifecycle.md) — day-2 `app`/`deployments` commands using the
   health-check, limits, and multiple-domain fields above.
 - [Build modes](build-modes.md) — prebuilt, Dockerfile, and Nixpacks builds.
