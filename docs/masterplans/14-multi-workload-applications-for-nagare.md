@@ -129,7 +129,7 @@ phase ordering expresses without a scheduler.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Application aggregate: typed multi-workload app with shared image, env, and database bindings | docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md | None | None | Complete |
-| 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | In Progress |
+| 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | Complete |
 | 3 | Worker health and liveness probes | docs/plans/74-worker-health-and-liveness-probes.md | None | EP-1 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -193,14 +193,26 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 
 - [x] EP-1 (2026-06-18): `Application` record, smart constructor, and shared-binding validation in `nagare-dsl`
 - [x] EP-1 (2026-06-18): `emitApplication` / loader and JSON round-trip + load tests (JSON golden deferred — round-trip pins the wire shape)
-- [ ] EP-2: `nagarectl app deploy` renders all workloads with the shared `nagare.dev/app` label
-- [ ] EP-2: ordered rollout — pre-deploy hooks and databases before service/workers; failed hook aborts
-- [ ] EP-2: machine-readable `--dry-run` output contract for external consumers (kotei)
+- [x] EP-2 (2026-06-18): `nagarectl app deploy` renders all workloads with the shared `nagare.dev/app` label (M1)
+- [x] EP-2 (2026-06-18): ordered rollout — pre-deploy hooks and databases before service/workers; failed hook aborts (M2; live apply M4, acceptance deferred while nagare-01 is TERMINATED)
+- [x] EP-2 (2026-06-18): machine-readable `--dry-run --json` output contract for external consumers (kotei) (M3)
 - [x] EP-3 (2026-06-18): optional liveness/health probe field on `Worker` (`WorkerProbe` exec/TCP/HTTP + `ProbeTiming`), with JSON round-trip
 - [x] EP-3 (2026-06-18): renderer emits `livenessProbe` (and `startupProbe`) on the `apps/v1` Deployment; golden test + no-probe byte-identity proven
 
 
 ## Surprises & Discoveries
+
+- 2026-06-18 — **EP-2 complete; the soft dependency on EP-3 cost zero wiring, as predicted.**
+  `nagarectl app deploy` ships (M0–M4): the library module `Nagare.App.Deploy` loads an
+  `Application`, qualifies the shared image once, fans the shared env down, renders every workload
+  with its EXISTING per-kind renderer, stamps `nagare.dev/app` on each, sequences the rollout
+  (`planPhases`/`runPhases`, hook-gated), and emits the `--dry-run --json` kotei contract. Because the
+  aggregate reuses `renderWorker`, **EP-3's `livenessProbe` flows through an aggregated worker with no
+  EP-2 code** — confirming the integration-point design. Two notes: (1) **live apply (M4) acceptance
+  is deferred** while `nagare-01` is `TERMINATED` (the phase sequencing + hook-abort are unit-tested
+  offline with a fake executor); (2) **connection/generated env injection** into aggregate workloads
+  is a documented follow-up (it needs a cluster lookup, which would break the offline dry-run gate) —
+  the shared *app* env does flow down. This closes the initiative: all three EPs are Complete.
 
 - 2026-06-18 — **EP-3 complete; the EP-1↔EP-3 soft dependency cost zero wiring (affects EP-2).**
   EP-3 added `liveness :: Maybe WorkerProbe` to `Worker` (exec/TCP/HTTP probe, rendered as a
@@ -313,10 +325,55 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-18 — initiative complete).** All three Exec-Plans are Complete. Nagare now has
+the layer *above* the workload: a developer describes a multi-workload app as **one typed
+`Application`** in a single `nagare/Config.hs` and deploys it with **one command**,
+`nagarectl app deploy`, which fans it out into the correct Kubernetes objects in the correct order
+under one shared identity. The four headline behaviors from Vision & Scope all landed:
+
+- **One typed aggregate (EP-1).** `Nagare.Dsl.Application` bundles an optional Service, Workers,
+  managed Databases (`appDatabases :: [Database]`), and Tasks, with the shared image / env / database
+  bindings declared once and validated to agree with every workload (image agreement, declared
+  databases, unique names, namespace agreement) at config-load time. JSON round-trips; a runghc
+  fixture and a `cluster/examples/multi-workload-app/` example load to a validated value.
+- **One deploy command with correct ordering (EP-2).** `nagarectl app deploy` builds the shared image
+  once and rolls out in fixed phases — pre-deploy hooks → databases → service → workers — with a
+  failed migration hook aborting before any serving workload is touched.
+- **One identity / one rollback unit (EP-2).** Every rendered object carries `nagare.dev/app: <name>`
+  (key defined once by EP-1, stamped by EP-2), and `--dry-run --json` emits the stable ordered object
+  list kotei consumes.
+- **Workers that fail safely (EP-3).** A `Worker` gained an optional exec/TCP/HTTP `livenessProbe`
+  (and `startupProbe`), rendered into its `apps/v1` Deployment, so a hung loop is restarted.
+
+**What the decomposition got right.** Isolating EP-1 (the type) first gave EP-2 a stable thing to
+render and EP-3 a stable thing to extend. Building EP-3 *before* EP-2 (both were unblocked once EP-1
+landed) meant EP-2's aggregated workers render liveness probes for free — the soft dependency cost
+zero wiring, exactly as the Dependency Graph predicted. Reusing the proven per-kind renderers
+throughout meant each EP added *one* new capability (a type, a probe, an orchestrator) rather than
+re-modelling existing ones.
+
+**Verification posture.** Everything is verified offline (the standard gate, since `nagare-01` is
+frequently `TERMINATED`): `cabal test nagare-dsl-test` (319) and `cabal test nagarectl-test` (291, incl.
+the 13-case `Nagare.App.Deploy` group) are green, and the kizashi-shaped fixtures exercise the full
+`Config.hs → load → render → label → JSON` path. EP-2's **live apply acceptance is the one deferred
+item**, awaiting a running cluster.
+
+**Deferred / follow-ups (none blocking).** (1) EP-2 live-apply acceptance on `nagare-01`. (2) Wiring
+per-database connection env and the `NAGARE_*` generated vars into aggregate workloads (needs a
+cluster lookup; documented in EP-2). (3) An optional refinement to force every workload to the one
+built image tag (today prebuilt workers render `:latest`). (4) The kotei backend (`shinzui/kotei`)
+can now adopt the `app deploy --dry-run --json` contract.
 
 
 ## Revision Notes
+
+- 2026-06-18 — **Initiative implemented; all three Exec-Plans Complete.** EP-1 (Application aggregate),
+  EP-3 (worker liveness probes), and EP-2 (orchestrated `nagarectl app deploy`, M0–M4) all landed and
+  are recorded Complete in the Exec-Plan Registry and Progress. EP-3 was implemented before EP-2 (both
+  unblocked once EP-1 completed) so EP-2's aggregated workers render liveness probes for free.
+  Offline test suites green (`nagare-dsl-test` 319, `nagarectl-test` 291); EP-2's live-apply
+  acceptance is the single deferred item (no cluster). See each child plan's Outcomes & Retrospective
+  and this document's Outcomes & Retrospective / Surprises & Discoveries for detail.
 
 - 2026-06-18 — Validation pass (no implementation yet). Fact-checked every concrete code claim
   in EP-1/EP-2/EP-3 against the source and reconciled cross-plan drift. Changes: (1) EP-2 gained
