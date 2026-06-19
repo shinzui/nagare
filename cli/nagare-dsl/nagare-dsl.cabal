@@ -26,6 +26,7 @@ library
   import:          common
   hs-source-dirs:  src
   exposed-modules:
+    Nagare.Dsl.Application
     Nagare.Dsl.Build
     Nagare.Dsl.Cdn.Types
     Nagare.Dsl.Config
@@ -76,6 +77,7 @@ test-suite nagare-dsl-test
   main-is:         Spec.hs
   hs-source-dirs:  test
   other-modules:
+    ApplicationSpec
     CdnSpec
     LoadSpec
     ServerSpec
@@ -85,6 +87,8 @@ test-suite nagare-dsl-test
     , base
     , bytestring
     , containers
+    , generic-lens     ^>=2.2
+    , lens             ^>=5.3
     , nagare-dsl
     , tasty            >=1.4
     , tasty-golden     >=2.3

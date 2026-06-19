@@ -55,11 +55,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: `Nagare.Dsl.Application` module created and exposed in `nagare-dsl.cabal`, with the
-      `Application` record, the `AppName`/`nagare.dev/app` label helper, the `mkApplication`
-      smart constructor, and the shared-binding validation rules.
-- [ ] M1: unit tests for `mkApplication` (image agreement, undeclared-database rejection,
-      duplicate-name rejection, the happy path) pass under `cabal test nagare-dsl`.
+- [x] M1 (2026-06-18): `Nagare.Dsl.Application` module created and exposed in `nagare-dsl.cabal`,
+      with the `Application` record, the `nagare.dev/app` label helper (`appLabelKey`/`appLabel`),
+      the `mkApplication` smart constructor, and the shared-binding validation rules (image
+      agreement, declared databases, unique names, namespace agreement).
+- [x] M1 (2026-06-18): unit tests for `mkApplication` (happy path, image disagreement,
+      undeclared-database rejection, duplicate workload/database name rejection, namespace
+      disagreement) pass under `cabal test nagare-dsl-test --test-options='--pattern "mkApplication"'`.
 - [ ] M2: `emitApplication` / `encodeApplication` added to `Nagare.Dsl.Config` and
       `decodeApplication` / `loadApplication` added to `Nagare.Dsl.Load`, with the
       `"kind": "Application"` discriminator.
@@ -80,7 +82,18 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-06-18 — **The test-suite target is `nagare-dsl-test`, not `nagare-dsl`.** The plan's
+  Concrete Steps say `cabal test nagare-dsl`, but `cabal test` resolves `nagare-dsl` to the
+  *library* and errors (`Cabal-7043`). The runnable command is `cabal test nagare-dsl-test`
+  (the `test-suite` stanza name). All acceptance commands below should use `nagare-dsl-test`.
+
+- 2026-06-18 — **`worker1 {image = ...}` record updates are `-Wambiguous-fields`.** Because
+  `ApplicationSpec` imports `Types`/`Worker`/`Database`/`Task`, the labels `image`/`namespace`/`env`
+  are in scope from multiple record types, so a bare record update on a `Worker` triggers
+  `-Wambiguous-fields` (the type-directed disambiguation GHC warns it will drop). Fixed by using
+  the house-idiom `&`/`.~` with `#field` generic-lens optics (as `Presets.hs` does), which meant
+  adding `lens`/`generic-lens` to the `test-suite` `build-depends` (they were already library
+  deps and in the build plan — no new package enters the project). See Decision Log.
 
 
 ## Decision Log

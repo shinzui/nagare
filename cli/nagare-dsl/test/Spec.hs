@@ -7,6 +7,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
 import LoadSpec (loadTests)
 import Nagare.Dsl.Build
@@ -56,6 +57,7 @@ main =
       , serverTests
       , cdnTests
       , workerTests
+      , applicationTests
       ]
 
 -- | EP-62 M3: the registry-prefix derivation that turns a short image NAME plus
