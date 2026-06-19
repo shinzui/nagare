@@ -804,6 +804,7 @@ toWorker j = do
       , resources = res'
       , volumes = vols'
       , databases = dbRefs'
+      , liveness = Nothing
       }
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)

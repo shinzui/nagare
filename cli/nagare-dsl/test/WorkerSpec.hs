@@ -29,6 +29,7 @@ workerTests =
     "Nagare.Dsl.Worker (EP-71)"
     [ testGroup "mkReplicas" replicasTests
     , testGroup "mkCommand" commandTests
+    , testGroup "WorkerProbe" probeTests
     , testGroup "webWorker preset" presetTests
     , testGroup "renderer goldens" renderTests
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
@@ -53,6 +54,36 @@ commandTests =
       fmap commandArgvList (mkCommand ["sh", "-c", "echo hi"])
         @?= Right ["sh", "-c", "echo hi"]
   ]
+
+-- | EP-74 M1: probe-timing range validation, the exec-argv invariant, the
+-- default-timing convenience, and the optional field defaulting to 'Nothing'.
+probeTests :: [TestTree]
+probeTests =
+  [ testCase "mkProbeTiming accepts the defaults" $ assertRight (mkProbeTiming defaultProbeTiming)
+  , testCase "mkProbeTiming rejects period 0" $
+      assertBool "Left on period 0" (isLeft (mkProbeTiming (timingWith 0 0 1 3)))
+  , testCase "mkProbeTiming rejects failureThreshold 0" $
+      assertBool "Left on failureThreshold 0" (isLeft (mkProbeTiming (timingWith 0 10 1 0)))
+  , testCase "mkProbeTiming rejects negative initialDelay" $
+      assertBool "Left on initialDelay -1" (isLeft (mkProbeTiming (timingWith (-1) 10 1 3)))
+  , testCase "mkExecProbe rejects empty argv" $
+      assertBool "Left on empty argv" (isLeft (mkExecProbe [] defaultProbeTiming))
+  , testCase "mkExecProbe rejects a NUL argument" $
+      assertBool "Left on NUL" (isLeft (mkExecProbe ["bad\NULarg"] defaultProbeTiming))
+  , testCase "mkExecProbe accepts a healthcheck argv" $
+      assertRight (mkExecProbe ["/app/healthcheck"] defaultProbeTiming)
+  , testCase "execProbe yields the default timing" $
+      fmap probeTiming (execProbe ["/app/healthcheck"]) @?= Right defaultProbeTiming
+  , testCase "mkHttpProbe rejects a path without a leading slash" $
+      assertBool "Left on bad path" (isLeft (mkHttpProbe "healthz" Nothing HTTP defaultProbeTiming))
+  , testCase "webWorker preset has no probe (liveness = Nothing)" $
+      case webWorker "queue-consumer" "registry/x" of
+        Right Worker {liveness = l} -> l @?= Nothing
+        Left e -> assertFailure ("expected Right, got Left: " <> e)
+  ]
+  where
+    timingWith d p t f =
+      ProbeTiming {initialDelay = d, period = p, timeout = t, failureThreshold = f, asStartup = False}
 
 presetTests :: [TestTree]
 presetTests =

@@ -40,9 +40,14 @@ exactly as it does today — byte-identical output, no probe block.
 
 ## Progress
 
-- [ ] M1 — `WorkerProbe` type, optional `liveness` field on `Worker`, smart
-      constructors/validation (`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`).
-- [ ] M1 — `WorkerSpec` unit tests for the new constructors and validation.
+- [x] M1 (2026-06-18) — `WorkerProbe` sum (`ExecProbe`/`TcpProbe`/`HttpProbe`) + `ProbeTiming`,
+      optional `liveness :: Maybe WorkerProbe` field on `Worker` (default `Nothing`), and the smart
+      constructors `mkProbeTiming`/`defaultProbeTiming`/`mkExecProbe`/`mkTcpProbe`/`mkHttpProbe`/
+      `execProbe`/`probeTiming` (`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`). `webWorker` and
+      `Load.toWorker` set `liveness = Nothing`.
+- [x] M1 (2026-06-18) — `WorkerSpec` `WorkerProbe` group covers the timing-range and exec-argv
+      validation, `execProbe` default timing, the http-path rule, and the `Nothing` default; full
+      suite green (311 tests, no regression to existing worker/application round-trips or goldens).
 - [ ] M2 — JSON encode (`workerJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`) and
       decode (`JsonWorker` / `toWorker` in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`) round-trip.
 - [ ] M2 — round-trip tests in `WorkerSpec` cover exec, TCP, and no-probe workers.

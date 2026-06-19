@@ -23,6 +23,17 @@ module Nagare.Dsl.Worker
   , mkCommand
   , commandArgvList
 
+    -- * Liveness probe (EP-74)
+  , ProbeTiming (..)
+  , mkProbeTiming
+  , defaultProbeTiming
+  , WorkerProbe (..)
+  , mkExecProbe
+  , mkTcpProbe
+  , mkHttpProbe
+  , execProbe
+  , probeTiming
+
     -- * Worker
   , Worker (..)
 
@@ -39,8 +50,10 @@ import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Types
   ( DatabaseName
   , EnvName
+  , HealthScheme (..)
   , ImageRef
   , Namespace
+  , Port
   , Resources
   , ScopedEnvVar
   , ServiceName
@@ -95,6 +108,102 @@ mkCommand argv
 commandArgvList :: Command -> [Text]
 commandArgvList = commandArgv
 
+-- ---------------------------------------------------------------------------
+-- Liveness probe (EP-74)
+
+-- | Probe timing, shared across every 'WorkerProbe' branch. All durations are in
+-- seconds. Construct via 'mkProbeTiming' (validates the ranges) or
+-- 'defaultProbeTiming'. The range rules mirror 'Nagare.Dsl.Types.mkHealthCheck'.
+data ProbeTiming = ProbeTiming
+  { initialDelay :: !Int
+  -- ^ seconds before the first probe; @>= 0@.
+  , period :: !Int
+  -- ^ seconds between probes; @>= 1@.
+  , timeout :: !Int
+  -- ^ per-probe timeout seconds; @>= 1@.
+  , failureThreshold :: !Int
+  -- ^ consecutive failures before the kubelet restarts the container; @>= 1@.
+  , asStartup :: !Bool
+  -- ^ also emit a @startupProbe@ with the same check (suspends liveness until the
+  -- worker has started once).
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Validate and construct a 'ProbeTiming', rejecting an out-of-range field with
+-- a precise message. Returns the value unchanged on success (mirrors 'mkTask').
+mkProbeTiming :: ProbeTiming -> Either Text ProbeTiming
+mkProbeTiming t
+  | initialDelay t < 0 = Left ("probe initialDelay must be >= 0, got: " <> tshow (initialDelay t))
+  | period t < 1 = Left ("probe period must be >= 1, got: " <> tshow (period t))
+  | timeout t < 1 = Left ("probe timeout must be >= 1, got: " <> tshow (timeout t))
+  | failureThreshold t < 1 =
+      Left ("probe failureThreshold must be >= 1, got: " <> tshow (failureThreshold t))
+  | otherwise = Right t
+
+-- | The default probe timing: first probe immediately, every 10s, 1s timeout, 3
+-- consecutive failures to restart, no startup probe. Mirrors
+-- 'Nagare.Dsl.Types.httpHealthCheck''s defaults.
+defaultProbeTiming :: ProbeTiming
+defaultProbeTiming =
+  ProbeTiming
+    { initialDelay = 0
+    , period = 10
+    , timeout = 1
+    , failureThreshold = 3
+    , asStartup = False
+    }
+
+-- | A liveness check for a headless worker. The branch selects the Kubernetes
+-- probe mechanism: 'ExecProbe' runs a command (exit 0 = healthy) — the primary
+-- case for a worker with no HTTP server; 'TcpProbe' opens a TCP port;
+-- 'HttpProbe' issues an HTTP GET (for a worker that happens to expose an internal
+-- endpoint). The sum makes the choice exclusive at the type level. Construct via
+-- 'mkExecProbe' / 'mkTcpProbe' / 'mkHttpProbe' (or the 'execProbe' convenience).
+data WorkerProbe
+  = ExecProbe ![Text] !ProbeTiming
+  -- ^ argv; non-empty, NUL-free (validated by 'mkExecProbe').
+  | TcpProbe !Port !ProbeTiming
+  -- ^ TCP port to dial.
+  | HttpProbe !Text !(Maybe Port) !HealthScheme !ProbeTiming
+  -- ^ HTTP path (must start with @/@), optional port (defaults to the probe's
+  -- own — workers have no container port, so a port is usually given), scheme.
+  deriving stock (Generic, Eq, Show)
+
+-- | Construct an exec liveness probe, reusing 'mkCommand''s argv invariant
+-- (non-empty, NUL-free) and validating the timing.
+mkExecProbe :: [Text] -> ProbeTiming -> Either Text WorkerProbe
+mkExecProbe argv timing = do
+  _ <- mkCommand argv
+  t <- mkProbeTiming timing
+  Right (ExecProbe argv t)
+
+-- | Construct a TCP liveness probe from an already-validated 'Port' and timing.
+-- (The 'Port' carries its own range invariant; the timing should come from
+-- 'defaultProbeTiming' or a validated 'mkProbeTiming'.)
+mkTcpProbe :: Port -> ProbeTiming -> WorkerProbe
+mkTcpProbe = TcpProbe
+
+-- | Construct an HTTP liveness probe, validating that the path starts with @/@
+-- and the timing is in range.
+mkHttpProbe :: Text -> Maybe Port -> HealthScheme -> ProbeTiming -> Either Text WorkerProbe
+mkHttpProbe path mport scheme timing
+  | not (Text.isPrefixOf "/" path) =
+      Left ("probe http path must start with '/': " <> path)
+  | otherwise = do
+      t <- mkProbeTiming timing
+      Right (HttpProbe path mport scheme t)
+
+-- | The exec-probe convenience: an exec check with 'defaultProbeTiming'.
+execProbe :: [Text] -> Either Text WorkerProbe
+execProbe argv = mkExecProbe argv defaultProbeTiming
+
+-- | The shared timing of any 'WorkerProbe' branch (used by the renderer and the
+-- loader's defence-in-depth re-validation).
+probeTiming :: WorkerProbe -> ProbeTiming
+probeTiming (ExecProbe _ t) = t
+probeTiming (TcpProbe _ t) = t
+probeTiming (HttpProbe _ _ _ t) = t
+
 -- | A long-running background worker. There is no hidden constructor for
 -- 'Worker' — the safety guarantee comes from the field types (mirrors
 -- 'Nagare.Dsl.Database.Database' and 'Nagare.Dsl.Types.Deployment'). It reuses,
@@ -115,6 +224,9 @@ data Worker = Worker
   , resources :: !(Maybe Resources)
   , volumes :: ![Volume]
   , databases :: ![DatabaseName]
+  , liveness :: !(Maybe WorkerProbe)
+  -- ^ optional liveness/health probe (EP-74). 'Nothing' (the default) emits no
+  -- probe — byte-identical to a worker without one.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -142,6 +254,7 @@ webWorker nameText imageText = do
       , resources = Nothing
       , volumes = []
       , databases = []
+      , liveness = Nothing
       }
   where
     toStr = either (Left . Text.unpack) Right
