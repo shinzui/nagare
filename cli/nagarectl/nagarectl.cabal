@@ -49,6 +49,7 @@ library
     Nagare.Database.Secret
     Nagare.Database.Shell
     Nagare.Deploy
+    Nagare.Deploy.Resolve
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated

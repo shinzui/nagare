@@ -54,9 +54,13 @@ first, as one tracked release."
 
 ## Progress
 
-- [ ] M0: extract `resolveTag`/`resolveBuildSpec`/`resolveConnectionEnv` from `Main.hs` into
-      a new library module `Nagare.Deploy.Resolve` (so the new library code can reuse them);
-      `runDeploy` unchanged, `cabal test nagarectl-test` green.
+- [x] M0 (2026-06-18): extracted `resolveTag`/`resolveBuildSpec`/`resolveConnectionEnv` from
+      `Main.hs` into a new library module `cli/nagarectl/src/Nagare/Deploy/Resolve.hs`
+      (`Nagare.Deploy.Resolve`, added to the cabal `exposed-modules`), with its own private
+      `dieT`/`orDie`. `resolveBuildSpec` was re-typed to take the two override paths directly
+      (`Maybe FilePath -> Maybe FilePath -> BuildSpec -> IO BuildSpec`) so it depends on no
+      executable-local type; the `runDeploy` call site was updated. `runDeploy` is behaviorally
+      unchanged; `cabal build exe:nagarectl` + `cabal test nagarectl-test` green (285 tests).
 - [ ] M1: `nagarectl app deploy` command skeleton wired into the optparse tree; loads an
       `Application` via EP-1's loader; renders the Service + all Workers + Task(s) offline,
       each stamped with `nagare.dev/app: <name>`.
@@ -74,7 +78,16 @@ first, as one tracked release."
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-06-18 — **M0: `resolveBuildSpec` had to be re-typed to drop its `DeployOpts` dependency.**
+  The original `resolveBuildSpec :: DeployOpts -> BuildSpec -> IO BuildSpec` destructured the
+  Main-local `DeployOpts` record (`^. #contextOverride`/`#dockerfileOverride`). `DeployOpts` cannot
+  move to the library (it's an executable option-parser type), so the extracted helper takes the two
+  override paths directly: `Maybe FilePath -> Maybe FilePath -> BuildSpec -> IO BuildSpec`. The lone
+  call site in `runDeploy` was updated; `nagarectl deploy` behavior is unchanged. The plan's
+  Interfaces signature for `resolveBuildSpec` is updated accordingly. `resolveTag` and
+  `resolveConnectionEnv` moved verbatim. Main keeps its own `dieT`/`orDie` (used widely elsewhere);
+  the new module has its own private copies (`-Wno-unused-imports` covers Main's now-unused
+  `applyBuildOverrides`/`connectionEnv`/`lookupConnection`/`computeTag` imports).
 
 
 ## Decision Log

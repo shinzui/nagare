@@ -129,7 +129,7 @@ phase ordering expresses without a scheduler.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Application aggregate: typed multi-workload app with shared image, env, and database bindings | docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md | None | None | Complete |
-| 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | Not Started |
+| 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | In Progress |
 | 3 | Worker health and liveness probes | docs/plans/74-worker-health-and-liveness-probes.md | None | EP-1 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.

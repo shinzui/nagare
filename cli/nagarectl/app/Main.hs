@@ -69,6 +69,7 @@ import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
+import Nagare.Deploy.Resolve (resolveBuildSpec, resolveConnectionEnv, resolveTag)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Load qualified as Load
@@ -1788,22 +1789,6 @@ runCleanup o = do
   report <- executeCleanup o
   TIO.putStr (formatCleanupReport report)
 
--- | EP-46: resolve each referenced database to its engine + identity (read-only
--- cluster lookup) and build the merged per-engine connection env. Empty list ⇒
--- no cluster call and an empty map (stateless apps are unaffected). A missing
--- database or a same-engine collision exits with a clear message.
-resolveConnectionEnv :: Namespace -> [DatabaseName] -> IO (Map EnvName ScopedEnvVar)
-resolveConnectionEnv _ [] = pure Map.empty
-resolveConnectionEnv ns dbs = do
-  maps <- forM dbs $ \name -> do
-    r <- lookupConnection (namespaceText ns) (databaseNameText name)
-    case r of
-      Left err -> dieT ("nagarectl deploy: " <> err)
-      Right (eng, ident) -> pure (connectionEnv eng name ns ident)
-  case mergeConnectionEnvs maps of
-    Left err -> dieT ("nagarectl deploy: " <> err)
-    Right m -> pure m
-
 runDeploy :: DeployOpts -> IO ()
 runDeploy dopts = do
   bd <- resolveBaseDomain (dopts ^. #baseDomain)
@@ -1820,7 +1805,7 @@ runDeploy dopts = do
       Right qimg -> pure (d & #image %~ const qimg)
 
   imageTag <- resolveTag (dopts ^. #tag)
-  spec <- resolveBuildSpec dopts (dep ^. #build)
+  spec <- resolveBuildSpec (dopts ^. #contextOverride) (dopts ^. #dockerfileOverride) (dep ^. #build)
 
   -- EP-46: resolve each referenced managed database to its engine + identity and
   -- build the per-engine connection env (literals + Secret refs). Empty when the
@@ -1933,14 +1918,6 @@ reportPVCs ns dep = do
     forM_ (zip vols phases) $ \(v, (pn, phase)) ->
       TIO.putStrLn
         ("Volume " <> volumeNameText (v ^. #volName) <> ": pvc " <> pn <> " is " <> phase)
-
--- | Apply the @--context@/@--dockerfile@ overrides to the config's build spec,
--- exiting with a clear error if an override is invalid or misused (e.g. an
--- override against a prebuilt-image config). With no overrides the spec is
--- returned unchanged.
-resolveBuildSpec :: DeployOpts -> BuildSpec -> IO BuildSpec
-resolveBuildSpec dopts spec =
-  orDie (applyBuildOverrides (dopts ^. #contextOverride) (dopts ^. #dockerfileOverride) spec)
 
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share
@@ -2701,10 +2678,6 @@ loadSiteOrDie file = do
   case esite of
     Left err -> dieT (Load.renderLoadError err)
     Right s -> pure s
-
-resolveTag :: Maybe String -> IO Text
-resolveTag (Just t) = pure (T.pack t)
-resolveTag Nothing = computeTag
 
 -- | Exit with a one-line error from a pure @Either Text@ validation.
 orDie :: Either Text a -> IO a
