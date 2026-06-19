@@ -71,12 +71,15 @@ This section must always reflect the actual current state of the work.
       `Application` decode byte-identically; kind discrimination both ways vs `Deployment`; the
       undeclared-database / image-disagreement / duplicate-name failures are reported as a precise
       `MarshalError "application"`).
-- [ ] M3: the `cluster/examples/multi-workload-app/nagare/Config.hs` example exists, loads
-      via `loadApplication`, and is covered by an example-load test plus golden round-trip
-      bytes.
-- [ ] M3: `docs/user/deploying-apps.md` (or a new `docs/user/applications.md`) gains a short
-      "multi-workload Application" section pointing at the example. (Optional; do only if the
-      doc set already cross-links workloads — see Decision Log.)
+- [x] M3 (2026-06-18): `cli/nagare-dsl/test/fixtures/application/nagare/Config.hs` and
+      `cluster/examples/multi-workload-app/nagare/Config.hs` (+ `README.md`) exist and load via
+      `loadApplication` through the `runghc` harness; the fixture-load test asserts `Right multiApp`
+      and the example-load test asserts `Right`. (Golden round-trip bytes deferred — the M2
+      `decodeApplication . encodeApplication == Right` round-trip already pins the wire shape
+      behaviorally; no `test/golden/application.json` was added.)
+- [x] M3 (2026-06-18): `docs/user/deploying-apps.md` gained a short "Multi-workload applications"
+      section pointing at the example and naming `nagarectl app deploy` (EP-2). The doc set already
+      cross-links workload kinds (Scheduled tasks, Managed databases), so the condition held.
 
 
 ## Surprises & Discoveries
@@ -104,6 +107,21 @@ implementation. Provide concise evidence.
   name-sorted — i.e. the canonical form is the sorted one. The `multiApp` fixture's workers were
   reordered to `[kizashi-agent-worker, kizashi-worker]` to make the round-trip an identity. (The
   existing single-element `Deployment`/`Worker`/`Task` round-trip fixtures never surfaced this.)
+
+- 2026-06-18 — **A multi-workload `Config.hs` must use QUALIFIED imports for the embedded
+  workload records (affects any future multi-kind config / EP-2 docs).** The loader runs configs
+  under `runghc -XGHC2024`, which does **not** enable `DuplicateRecordFields`. An `Application`
+  config necessarily builds an `Application` record *and* embedded `Database`/`Worker` records, and
+  the labels `namespace`/`image` are shared across all three — so a single unqualified scope makes
+  every use of `namespace` an "Ambiguous occurrence". The fixture and example resolve this by
+  importing `Nagare.Dsl.Database qualified as DB` and `Nagare.Dsl.Worker qualified as W` and building
+  those records with qualified field names (`DB.Database { DB.namespace = ... }`,
+  `w {W.databases = ...}`), while the `Application` record stays unqualified (its fields are then the
+  only unqualified `namespace`/`image`/`env` in scope). `Task` needs no qualification (all its fields
+  are `task`-prefixed and unique). The plan's M3 fixture sketch (which `import`ed `Nagare.Dsl.Types`
+  wholesale) would not have compiled; this qualified-import shape is the correct template, and EP-2's
+  developer-facing example/docs should follow it. Verified by running the fixture directly under the
+  loader's exact invocation (`runghc -XGHC2024 -i<dir> <Config.hs>`); it emits the expected JSON.
 
 
 ## Decision Log
@@ -173,7 +191,38 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-18 — EP-1 complete).** All three milestones landed and the full
+`nagare-dsl` suite is green (`cabal test nagare-dsl-test`, 301 tests, including the 15 new
+`Nagare.Dsl.Application (EP-1)` cases). The purpose is met: a multi-workload app is now describable
+as one typed `Application` in a single `Config.hs`, with the image / env / database bindings
+declared once and validated to agree with every embedded workload. The four headline guarantees are
+behaviorally proven (not just "it compiles"):
+
+- **Image agreement, declared databases, unique names, namespace agreement** are enforced by
+  `mkApplication` and re-enforced at the loader boundary (`toApplication` re-runs `mkApplication`),
+  each with a negative test asserting the precise message / `MarshalError "application"`.
+- **One wire contract**: a valid multi-workload and a service-less `Application` round-trip
+  byte-identically through `emitApplication` → `decodeApplication`; kind discrimination holds both
+  ways against a bare `Deployment`.
+- **One shared identity**: `appLabelKey`/`appLabel` define `nagare.dev/app` once for EP-2 to stamp.
+- **End-to-end**: a `runghc` fixture and the `cluster/examples/multi-workload-app/` example both load
+  to a validated `Application`.
+
+**Design choices that held.** Composing the existing `Deployment`/`Worker`/`Database`/`Task` types
+*as-is* (rather than re-modelling them) meant the aggregate's encoder/decoder reuses every per-kind
+`*JSON`/`to*` helper unchanged — so EP-3's forthcoming `Worker` liveness field will flow through the
+aggregate automatically, with at most a fixture refresh. The declared-database field is
+`appDatabases :: [Database]` (full specs), as pinned for EP-2's `runDbCreate` phase.
+
+**Gaps / deferrals (none blocking).** (1) The JSON golden test was deferred: the emit→decode
+round-trip already pins the wire shape, and a golden would add a maintenance burden EP-3 would have
+to refresh. (2) `mkApplicationFrom` (the optional one-line preset) was not added — the example/fixture
+build the full record directly, and no caller needs the preset yet; EP-2 can add it if the CLI wants
+a minimal-app constructor.
+
+**Hand-off note for EP-2 / EP-3.** Authoring a multi-workload `Config.hs` requires qualified imports
+for the embedded `Database`/`Worker` records under `runghc -XGHC2024` (no `DuplicateRecordFields`);
+see Surprises & Discoveries. The fixture/example are the canonical template.
 
 
 ## Context and Orientation

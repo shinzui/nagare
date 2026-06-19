@@ -16,7 +16,7 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Application
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
-import Nagare.Dsl.Load (LoadError (..), decodeApplication, decodeDeployment)
+import Nagare.Dsl.Load (LoadError (..), decodeApplication, decodeDeployment, loadApplication)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
@@ -30,6 +30,7 @@ applicationTests =
     "Nagare.Dsl.Application (EP-1)"
     [ testGroup "mkApplication" mkApplicationTests
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
+    , testGroup "loadApplication (config-as-program)" loadApplicationTests
     ]
 
 -- ---------------------------------------------------------------------------
@@ -208,6 +209,26 @@ assertAppMarshal needle e = case e of
         assertFailure
           ("MarshalError application but message missing " <> show needle <> ": " <> Text.unpack msg)
   other -> assertFailure ("expected MarshalError application, got: " <> show other)
+
+-- ---------------------------------------------------------------------------
+-- M3: the full Config.hs -> emitApplication -> loadApplication path through the
+-- runghc harness (the same harness loadWorker/loadDeployment use). The fixture is
+-- assembled to the same value as 'multiApp' (the loader canonicalizes list order
+-- by name, so its workers come back name-sorted, matching the fixture).
+
+loadApplicationTests :: [TestTree]
+loadApplicationTests =
+  [ testCase "loadApplication fixture returns the expected Application" $ do
+      result <- loadApplication "test/fixtures/application/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
+        Right a -> a @?= multiApp
+  , testCase "multi-workload-app example loads" $ do
+      result <- loadApplication "../../cluster/examples/multi-workload-app/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("loadApplication example returned Left: " <> show err)
+        Right _ -> pure ()
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Helpers (mirroring the other spec modules).

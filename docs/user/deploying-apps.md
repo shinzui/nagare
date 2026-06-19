@@ -351,6 +351,26 @@ one-off migration)? Declare a typed `Task` in your app's `tasks` list and operat
 it with `nagarectl task` — it can inherit the app's image and runtime env/secrets.
 See **[Scheduled tasks](scheduled-tasks.md)**.
 
+## Multi-workload applications
+
+When an app is **several workloads at once** — a web Service plus background
+Workers plus a managed Database plus a migration Task — you no longer write a
+separate `Config.hs` per workload. Describe the whole app as **one typed
+`Application`** in a single `nagare/Config.hs`: the **image**, **env/secret set**,
+and **database bindings** are declared once on the `Application` and validated to
+agree with every workload it bundles (a worker pointing at an undeclared database,
+or disagreeing on the shared image, is rejected at config-load time). Every object
+it renders carries one shared identity label, `nagare.dev/app: <name>`, so the app
+can be listed and torn down as a unit.
+
+A worked example — one Service, two Workers binding a managed Postgres, and a
+migration Task, all on one shared image — is
+`cluster/examples/multi-workload-app/nagare/Config.hs` (see its
+[README](../../cluster/examples/multi-workload-app/README.md)). It is deployed
+with **one** command, `nagarectl app deploy`, which rolls the app out in
+dependency order: pre-deploy hooks (the migration Task) first, then the managed
+databases, then the Service and Workers.
+
 ## Verify (against a running cluster)
 
 > Deferred until `nagare-01` is back up; these are the intended steps.
