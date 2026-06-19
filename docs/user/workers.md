@@ -91,11 +91,47 @@ Inspect: kubectl get deployment queue-consumer -n personal
 | `resources`  | CPU/memory requests and limits (same `Resources` as an app).            |
 | `volumes`    | Durable `local-path` PVCs (same `Volume` model as an app).               |
 | `databases`  | Names of managed databases this worker connects to.                      |
+| `liveness`   | Optional liveness probe — `exec` (run a command), `tcp` (open a port), or `http`. Absent = no probe. Restarts a hung worker that never crashes. |
 
 A worker reuses the app's env/secret store, so `nagarectl env` and
 `nagarectl secret` work for a worker exactly as for an app — values flow in
 through the managed `nagare-env-<name>-runtime` ConfigMap and
 `nagare-secret-<name>-runtime` Secret without a redeploy.
+
+## Liveness probes for hung workers
+
+Kubernetes only restarts a container when its process **exits**. A worker that is
+a NOTIFY/timer loop can **hang without crashing** — the process is still alive, so
+the kubelet never recovers it, and jobs silently stop being processed. A
+`liveness` probe closes that gap: the kubelet runs the check periodically and, on
+`failureThreshold` consecutive failures, kills and restarts the container.
+
+Because a worker is **headless** (no Service, no HTTP port), the primary mechanism
+is **exec** — the worker ships a small healthcheck that exits non-zero when the
+loop has stalled (e.g. a heartbeat file is stale, or a "last processed" timestamp
+is too old). `tcp` (open an internal port) and `http` (GET an internal `/healthz`)
+are also available for workers that expose one.
+
+```haskell
+import Nagare.Dsl.Worker (Worker (..), execProbe, mkReplicas, webWorker)
+
+worker :: Either String Worker
+worker = do
+  base <- webWorker "reactor" "myrepo/reactor"
+  -- the worker's loop refreshes /tmp/heartbeat each iteration; this exec probe
+  -- fails (and triggers a restart) once the heartbeat goes stale.
+  probe <- mapLeft show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
+  reps <- mapLeft show (mkReplicas 1)
+  Right base {replicas = reps, liveness = Just probe}
+  where
+    mapLeft f = either (Left . f) Right
+```
+
+`execProbe` uses sensible default timing (first probe immediately, every 10s, 1s
+timeout, restart after 3 consecutive failures). For custom timing or a TCP/HTTP
+check, build a `ProbeTiming` and use `mkExecProbe` / `mkTcpProbe` / `mkHttpProbe`.
+With `asStartup = True`, a matching `startupProbe` is also emitted so a
+slow-starting worker is not killed before its first successful check.
 
 ## The `nagarectl worker deploy` command
 

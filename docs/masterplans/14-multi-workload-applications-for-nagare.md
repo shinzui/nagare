@@ -130,7 +130,7 @@ phase ordering expresses without a scheduler.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Application aggregate: typed multi-workload app with shared image, env, and database bindings | docs/plans/72-application-aggregate-typed-multi-workload-app-with-shared-image-env-and-database-bindings.md | None | None | Complete |
 | 2 | Orchestrated release: `nagarectl app deploy` with ordered rollout and pre-deploy migration hooks | docs/plans/73-orchestrated-release-nagarectl-app-deploy-with-ordered-rollout-and-pre-deploy-migration-hooks.md | EP-1 | EP-3 | Not Started |
-| 3 | Worker health and liveness probes | docs/plans/74-worker-health-and-liveness-probes.md | None | EP-1 | In Progress |
+| 3 | Worker health and liveness probes | docs/plans/74-worker-health-and-liveness-probes.md | None | EP-1 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -196,11 +196,21 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 - [ ] EP-2: `nagarectl app deploy` renders all workloads with the shared `nagare.dev/app` label
 - [ ] EP-2: ordered rollout — pre-deploy hooks and databases before service/workers; failed hook aborts
 - [ ] EP-2: machine-readable `--dry-run` output contract for external consumers (kotei)
-- [ ] EP-3: optional liveness/health probe field on `Worker`
-- [ ] EP-3: renderer emits `livenessProbe` on the `apps/v1` Deployment; golden test
+- [x] EP-3 (2026-06-18): optional liveness/health probe field on `Worker` (`WorkerProbe` exec/TCP/HTTP + `ProbeTiming`), with JSON round-trip
+- [x] EP-3 (2026-06-18): renderer emits `livenessProbe` (and `startupProbe`) on the `apps/v1` Deployment; golden test + no-probe byte-identity proven
 
 
 ## Surprises & Discoveries
+
+- 2026-06-18 — **EP-3 complete; the EP-1↔EP-3 soft dependency cost zero wiring (affects EP-2).**
+  EP-3 added `liveness :: Maybe WorkerProbe` to `Worker` (exec/TCP/HTTP probe, rendered as a
+  `livenessProbe`/`startupProbe` on the `apps/v1` Deployment). Because EP-1's `Application` embeds
+  `Worker` as-is and its encoder/decoder reuse `workerJSON`/`toWorker`, the new field flowed through
+  the aggregate with **no change to EP-1's code** — only EP-1's fixtures saw a new `"liveness":null`
+  byte, and they still round-trip. The backward-compat guarantee held exactly (existing worker
+  goldens did not change; a no-probe worker emits no probe). **Consequence for EP-2:** aggregated
+  workers render their probe via the same `renderWorker` EP-2 will call, so EP-2 needs no probe-aware
+  wiring. EP-3 was implemented before EP-2 specifically so EP-2 renders liveness for free.
 
 - 2026-06-18 — **EP-1 complete; the integration contract is implemented as specified (affects
   EP-2, EP-3).** `Nagare.Dsl.Application` ships with `appDatabases :: [Database]` (full specs, as

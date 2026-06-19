@@ -7,9 +7,15 @@ when no requests arrive), a worker renders to a plain **`apps/v1` Deployment** â
 so it runs continuously, never scales to zero, and needs no HTTP port.
 
 This example uses the public `gcr.io/knative-samples/helloworld-go` image with a
-`command` override that turns it into a visible worker (it prints `working` every
-5 seconds) and runs **2 replicas**, so it deploys with no build step and no
-registry credentials of your own.
+`command` override that turns it into a visible worker (it prints `working` and
+refreshes a `/tmp/heartbeat` file every 5 seconds) and runs **2 replicas**, so it
+deploys with no build step and no registry credentials of your own.
+
+It also declares an **exec liveness probe** (`test -f /tmp/heartbeat`): because a
+worker is headless (no HTTP port), Kubernetes can only restart it on a *crash*, so
+the probe is what recovers a loop that **hangs without exiting**. After the probe
+fails `failureThreshold` times, the kubelet restarts the container. See
+[Liveness probes for hung workers](../../../docs/user/workers.md#liveness-probes-for-hung-workers).
 
 ## Deploy
 
