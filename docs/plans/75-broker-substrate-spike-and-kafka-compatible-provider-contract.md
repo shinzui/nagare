@@ -38,6 +38,16 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [ ] M1: Establish disposable namespace, storage, resource budget, and Redpanda manifests for a single broker.
+- [x] M0 (2026-06-21): Repository and dependency orientation completed. `mori show --full` identified
+  this repo as `shinzui/nagare`; `mori registry search kafka` identified local Kafka client libraries
+  but the spike still uses `rpk` from Redpanda images rather than adding a Haskell dependency.
+- [x] M0 (2026-06-21): Verified the local kubectl context is `sennari`, which is not the Nagare k3s
+  cluster. The runbook-confirmed safe path remains the VM path through `scripts/iap-ssh.sh` and
+  `sudo k3s kubectl`.
+- [x] M0 (2026-06-21): Refreshed the Redpanda Helm repo and pinned the current chart metadata for the
+  spike input: `redpanda/redpanda` chart `26.1.6`, app/image `v26.1.8`.
+- [ ] M1 is blocked before applying Kubernetes resources: IAP SSH to `nagare-01` fails because gcloud
+  needs interactive reauthentication and cannot prompt from this non-interactive session.
 - [ ] M2: Verify internal Kafka listener correctness with an in-cluster client, topic creation, produce, and consume.
 - [ ] M3: Verify persistence across pod restart and document backup/restore implications.
 - [ ] M4: Verify metrics endpoint and record provider-neutral observability facts.
@@ -49,7 +59,41 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **Live cluster access is blocked before any Redpanda resource was applied.** The documented safe
+  command path correctly avoids the local `sennari` kubectl context, but the IAP tunnel cannot open
+  until gcloud credentials are refreshed interactively. Evidence:
+
+```text
+SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl get nodes'
+
+ERROR: (gcloud.compute.start-iap-tunnel) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution.
+Please run:
+
+  $ gcloud auth login
+
+to obtain new credentials.
+```
+
+  `gcloud auth list` shows active account `nadeem@topagentnetwork.com`, and `gcloud config list`
+  shows project `tan-nb-exp`, region `us-west1`, and zone `us-west1-a`. No namespace, PVC, StatefulSet,
+  Service, Helm release, or pod was created before this blocker.
+
+- **Current Redpanda Helm defaults require explicit spike overrides.** On 2026-06-21, `helm repo
+  update redpanda` and `helm show chart redpanda/redpanda` reported chart `26.1.6` with app version
+  `v26.1.8`. The values show defaults that are not Nagare-v1 safe without overrides: `statefulset.replicas`
+  defaults to `3`, `external.enabled` defaults to `true`, global `tls.enabled` defaults to `true`, and
+  `storage.persistentVolume.size` defaults to `20Gi`. The values also show resource defaults of
+  one CPU core and `2.5Gi` container memory. The live spike should start with a single replica,
+  internal-only access, and a deliberately small persistent volume before accepting any renderer shape.
+
+- **Official provider documentation confirms the contract boundaries to test live.** Redpanda's
+  Kubernetes listener documentation says the Helm chart has an internal Kafka listener for in-cluster
+  connections and an external listener for outside-cluster access; Redpanda's monitoring documentation
+  says `/public_metrics` on the Admin API port is the primary low-cardinality metrics endpoint. The
+  Tansu repository describes an Apache Kafka API-compatible broker with PostgreSQL, libSQL/SQLite, S3,
+  and memory storage engines. These sources support keeping Nagare's public contract at the Kafka
+  bootstrap/topic/metrics level while treating chart values and Redpanda metrics names as provider
+  implementation details.
 
 
 ## Decision Log
@@ -65,6 +109,20 @@ Record every decision made while working on the plan.
 - Decision: Keep the spike internal-only.
   Rationale: The user asked for messaging inside the cluster. External Kafka access requires
   provider-specific advertised listener and security decisions that are out of scope for v1.
+  Date: 2026-06-21
+
+- Decision: Treat the Redpanda Helm chart as the live spike vehicle, but do not let chart defaults
+  define Nagare's contract.
+  Rationale: The current chart is easy to pin and inspect (`26.1.6` / app `v26.1.8`), but its defaults
+  include three replicas, external access, TLS, and a 20Gi persistent volume. Nagare v1 needs a
+  single-node, internal-only, low-resource broker contract, so the spike must override these values and
+  record the resulting Kubernetes shape before EP-76 writes a renderer.
+  Date: 2026-06-21
+
+- Decision: Stop before live mutation when IAP SSH requires gcloud reauthentication.
+  Rationale: The runbook warns that the workstation's default kubectl context targets an unrelated
+  cluster. Because `scripts/iap-ssh.sh` could not open the IAP tunnel without `gcloud auth login`, any
+  attempt to use local kubectl would risk applying broker resources to the wrong cluster.
   Date: 2026-06-21
 
 
@@ -140,6 +198,16 @@ kubectl get storageclass
 kubectl get nodes
 ```
 
+Current resume point as of 2026-06-21: run `gcloud auth login` interactively for
+`nadeem@topagentnetwork.com`, then continue through the VM path rather than local kubectl:
+
+```bash
+SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 \
+  scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl get nodes'
+```
+
+Do not proceed if the local context is still `sennari` and the VM path is unavailable.
+
 Apply the chosen Redpanda manifests or Helm release. If using Helm during the spike, pin the exact
 chart version in the transcript and use values that create one internal broker, one PVC, and no public
 external listener:
@@ -153,6 +221,18 @@ helm upgrade --install redpanda redpanda/redpanda \
 ```
 
 The exact values are a spike output, not an input. After install:
+
+As of 2026-06-21, the Helm chart input to verify is:
+
+```text
+redpanda/redpanda chart: 26.1.6
+Redpanda app/image: v26.1.8
+Defaults requiring spike overrides: statefulset.replicas=3, external.enabled=true, tls.enabled=true, storage.persistentVolume.size=20Gi
+```
+
+The live spike should render or apply values equivalent to single replica, internal-only access, and a
+small persistent volume, then record the actual generated Service, StatefulSet, PVC, and advertised
+Kafka listener before EP-76 relies on them.
 
 ```bash
 kubectl -n broker-spike get pods,svc,pvc

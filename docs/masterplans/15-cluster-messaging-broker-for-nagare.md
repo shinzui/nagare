@@ -105,7 +105,7 @@ dashboard contract, but the contract must be Nagare-owned.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Not Started |
+| 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | In Progress |
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Not Started |
 | 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Not Started |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Not Started |
@@ -192,7 +192,11 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- 2026-06-21: EP-75 started but live cluster access is blocked by expired non-interactive gcloud
+  reauthentication for IAP. The active account is `nadeem@topagentnetwork.com`, project is
+  `tan-nb-exp`, region `us-west1`, zone `us-west1-a`, and local kubectl context is `sennari`, so the
+  spike must continue through the documented `sudo k3s kubectl` path after `gcloud auth login`
+  refreshes credentials. No broker resources were applied before the blocker.
 
 
 ## Decision Log
