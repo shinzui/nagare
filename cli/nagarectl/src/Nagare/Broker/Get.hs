@@ -7,6 +7,7 @@ where
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Broker.Discover (BrokerRow (..), getBroker)
+import Nagare.Broker.Health (brokerHealth, formatBrokerHealth)
 import Nagare.Dsl.Broker.Render (brokerPvcName)
 import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
@@ -20,7 +21,8 @@ runBrokerGet ns brokerName = do
     Left err -> do
       TIO.hPutStrLn stderr ("nagarectl: " <> err)
       exitFailure
-    Right r ->
+    Right r -> do
+      health <- brokerHealth ns r
       TIO.putStr $
         T.unlines
           [ "Name:      " <> r ^. #name
@@ -31,3 +33,4 @@ runBrokerGet ns brokerName = do
           , "PVC:       " <> brokerPvcName brokerName
           , "Ready:     " <> (if r ^. #ready then "True" else "False")
           ]
+          <> formatBrokerHealth health

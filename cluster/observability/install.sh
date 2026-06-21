@@ -29,6 +29,13 @@ helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version "$VMKS_VERSI
   --namespace monitoring --create-namespace \
   -f "$ROOT/victoria-metrics/values.yaml" --wait --timeout 10m
 
+kubectl apply -f "$ROOT/brokers/vmservicescrape.yaml"
+kubectl -n monitoring create configmap grafana-dashboard-nagare-brokers \
+  --from-file=nagare-brokers.json="$ROOT/grafana/dashboards/nagare-brokers.json" \
+  --dry-run=client -o yaml | \
+  kubectl label --local -f - grafana_dashboard=1 -o yaml | \
+  kubectl apply -f -
+
 # --- M2: logs ---
 helm upgrade --install victoria-logs vm/victoria-logs-single --version "$VLOGS_VERSION" \
   --namespace logging --create-namespace \

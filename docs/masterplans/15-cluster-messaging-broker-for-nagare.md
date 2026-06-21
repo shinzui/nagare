@@ -109,7 +109,7 @@ dashboard contract, but the contract must be Nagare-owned.
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
 | 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Complete |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Complete |
-| 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Not Started |
+| 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Complete |
 | 80 | Messaging broker docs examples and Tansu migration readiness | docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md | EP-77, EP-78, EP-79 | EP-75 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -185,7 +185,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
   Parser wiring, Redpanda create/apply/wait, topic reconciliation, dry-run output, list/get/restart/delete
   discovery, unit tests, and live acceptance are complete.
 - [x] EP-77: Add workload broker/topic bindings and generated runtime env injection.
-- [ ] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
+- [x] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
 - [ ] EP-80: Add docs, examples, and a Tansu migration readiness note.
 
 
@@ -246,6 +246,14 @@ interactions between child plans. Provide concise evidence.
   broker-worker example with the generated env, and cleaned up StatefulSet, Service, and PVC.
   Validation: `cabal test nagare-dsl-test` passed with 343 tests and `cabal test nagarectl-test`
   passed with 311 tests.
+
+- 2026-06-21: EP-79 completed the broker observability abstraction. VMAgent now scrapes managed
+  broker Services through a Nagare-owned `VMServiceScrape`, samples are normalized to
+  `job="nagare-brokers"` with `nagare_broker` and `nagare_broker_provider` labels, Grafana loads the
+  source-controlled `Nagare Brokers` dashboard, and `broker get` reports pod readiness,
+  `/public_metrics` reachability, and VictoriaMetrics scrape status. Live validation created a
+  disposable `events` Redpanda broker in `personal`, observed `up=1` in VictoriaMetrics, and cleaned
+  up StatefulSet, Service, and PVC. Validation: `cabal test nagarectl-test` passed with 315 tests.
 
 
 ## Decision Log
@@ -321,6 +329,11 @@ generated Kafka-compatible env for single services, workers, and applications. T
 example proves a workload can bind to broker `events` and topic `jobs`, and live dry-run acceptance
 showed the rendered `KAFKA_BOOTSTRAP_SERVERS` and `NAGARE_TOPIC_JOBS` env.
 
+EP-79 completed on 2026-06-21. The initiative now has provider-neutral broker observability:
+VMAgent scrapes managed broker Services by Nagare labels, the Grafana dashboard uses the shared
+`nagare_broker` contract, and `nagarectl broker get` surfaces readiness and scrape health from the
+CLI. EP-80 can now finish the user-facing docs/examples and Tansu migration readiness note.
+
 
 ## Revision Notes
 
@@ -333,3 +346,6 @@ Redpanda Helm chart.
 
 2026-06-21: Marked EP-77 complete after DSL/load coverage, nagarectl resolver tests, and live
 broker-bound worker dry-run acceptance passed; recorded the temporary broker cleanup.
+
+2026-06-21: Marked EP-79 complete after VMServiceScrape/dashboard wiring, `broker get` health checks,
+and live Redpanda scrape validation passed; recorded the temporary broker cleanup.
