@@ -107,7 +107,7 @@ dashboard contract, but the contract must be Nagare-owned.
 |---|-------|------|-----------|-----------|--------|
 | 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
-| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Not Started |
+| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | In Progress |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Not Started |
 | 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Not Started |
 | 80 | Messaging broker docs examples and Tansu migration readiness | docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md | EP-77, EP-78, EP-79 | EP-75 | Not Started |
@@ -182,6 +182,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-75: Record the provider-neutral Kafka-compatible contract and Tansu migration implications.
 - [x] EP-76: Add typed broker/topic model, JSON emit/load, renderer helpers, and golden tests.
 - [ ] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
+  Parser wiring, Redpanda create/apply/wait, dry-run output, and list/get/restart/delete discovery
+  are implemented and unit-tested; topic reconciliation and live acceptance remain.
 - [ ] EP-77: Add workload broker/topic bindings and generated runtime env injection.
 - [ ] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
 - [ ] EP-80: Add docs, examples, and a Tansu migration readiness note.
@@ -218,6 +220,13 @@ interactions between child plans. Provide concise evidence.
   JSON contract. Direct `cabal test nagare-dsl-test` also uncovered and fixed an existing
   config-as-program loader assumption by passing `--ghc-arg=-package --ghc-arg=nagare-dsl` to
   `runghc`. Validation: `All 339 tests passed (5.53s)`.
+
+- 2026-06-21: EP-78 now has a working `nagarectl broker` lifecycle slice. The CLI can create Redpanda
+  brokers from flags or `--config`, render/apply EP-76 manifests, annotate version and size, wait for
+  rollout, list/get managed brokers through `nagare.dev/broker` labels, restart StatefulSets, and
+  delete StatefulSet/Service resources while retaining PVC data by default. Validation:
+  `cabal test nagarectl-test` passed with 303 tests. EP-78 remains open for topic reconciliation and
+  live acceptance.
 
 
 ## Decision Log
