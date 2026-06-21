@@ -108,7 +108,7 @@ dashboard contract, but the contract must be Nagare-owned.
 | 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
 | 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Complete |
-| 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | In Progress |
+| 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Complete |
 | 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Not Started |
 | 80 | Messaging broker docs examples and Tansu migration readiness | docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md | EP-77, EP-78, EP-79 | EP-75 | Not Started |
 
@@ -184,7 +184,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
   Parser wiring, Redpanda create/apply/wait, topic reconciliation, dry-run output, list/get/restart/delete
   discovery, unit tests, and live acceptance are complete.
-- [ ] EP-77: Add workload broker/topic bindings and generated runtime env injection.
+- [x] EP-77: Add workload broker/topic bindings and generated runtime env injection.
 - [ ] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
 - [ ] EP-80: Add docs, examples, and a Tansu migration readiness note.
 
@@ -236,6 +236,16 @@ interactions between child plans. Provide concise evidence.
   `ep78-live-ok` was consumed before and after restart. Cleanup removed the broker and disposable
   namespace. Validation: `cabal test nagarectl-test` passed with 307 tests and
   `cabal test nagare-dsl-test` passed with 339 tests.
+
+- 2026-06-21: EP-77 completed workload broker bindings and generated env injection. `BrokerBinding`
+  uses unprefixed strict record fields (`name`, `topics`) and derives `Generic`; `Deployment`,
+  `Worker`, and `Application` expose `brokers :: [BrokerBinding]`; deploy, worker deploy, and app
+  deploy resolve live broker/topic state and inject `KAFKA_BOOTSTRAP_SERVERS`,
+  `KAFKA_SECURITY_PROTOCOL`, `NAGARE_BROKER_NAME`, and `NAGARE_TOPIC_*`. Live dry-run acceptance
+  created a disposable `events` broker in `personal`, reconciled topic `jobs`, rendered the
+  broker-worker example with the generated env, and cleaned up StatefulSet, Service, and PVC.
+  Validation: `cabal test nagare-dsl-test` passed with 343 tests and `cabal test nagarectl-test`
+  passed with 311 tests.
 
 
 ## Decision Log
@@ -306,6 +316,11 @@ create from flags or typed config, reconcile topics, inspect/list, restart with 
 delete broker workload resources while preserving PVC data by default. EP-77 and EP-79 can now proceed
 against a live broker created by `nagarectl`.
 
+EP-77 completed on 2026-06-21. The initiative now has typed workload broker bindings and deploy-time
+generated Kafka-compatible env for single services, workers, and applications. The broker-worker
+example proves a workload can bind to broker `events` and topic `jobs`, and live dry-run acceptance
+showed the rendered `KAFKA_BOOTSTRAP_SERVERS` and `NAGARE_TOPIC_JOBS` env.
+
 
 ## Revision Notes
 
@@ -315,3 +330,6 @@ Redpanda Helm chart.
 
 2026-06-21: Marked EP-78 complete after topic reconciliation, dry-run verification, and live
 `broker-live` acceptance passed on the Nagare k3s cluster.
+
+2026-06-21: Marked EP-77 complete after DSL/load coverage, nagarectl resolver tests, and live
+broker-bound worker dry-run acceptance passed; recorded the temporary broker cleanup.

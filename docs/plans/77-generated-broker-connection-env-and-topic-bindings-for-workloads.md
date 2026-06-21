@@ -37,7 +37,7 @@ This section must always reflect the actual current state of the work.
 - [x] M2: Round-trip bindings through JSON emit/load with backward-compatible empty defaults.
 - [x] M3: Implement broker discovery and generated env assembly in `nagarectl`.
 - [x] M4: Wire generated env into deploy, worker deploy, and app deploy paths.
-- [ ] M5: Add tests and a dry-run example proving env injection.
+- [x] M5: Add tests and a dry-run example proving env injection.
 
 Update 2026-06-21: M1/M2 landed as a DSL-only slice. `BrokerName`, `TopicName`, and
 `BrokerBinding` now live in `Nagare.Dsl.Broker.Types` and are re-exported by `Nagare.Dsl.Broker`.
@@ -64,6 +64,43 @@ Validation 2026-06-21:
 - `nix fmt cli/nagarectl` failed because the flake does not provide
   `formatter.aarch64-darwin`.
 
+Update 2026-06-21: M5 completed. `cluster/examples/broker-worker/nagare/Config.hs` is a
+config-as-program worker example with `BrokerBinding { name = events, topics = [jobs] }`.
+`nagare-dsl-test` loads that example and compares the typed binding. Live dry-run acceptance used a
+temporary Redpanda broker named `events` in namespace `personal`, reconciled topic `jobs`, rendered
+the broker-worker dry-run manifest, and then deleted the broker StatefulSet, Service, and PVC.
+
+The dry-run evidence contained the required generated env:
+
+```yaml
+env:
+- name: KAFKA_BOOTSTRAP_SERVERS
+  value: events.personal.svc.cluster.local:9092
+- name: KAFKA_SECURITY_PROTOCOL
+  value: PLAINTEXT
+- name: NAGARE_BROKER_NAME
+  value: events
+- name: NAGARE_TOPIC_JOBS
+  value: jobs
+```
+
+Final validation 2026-06-21:
+
+- `fourmolu --mode inplace cluster/examples/broker-worker/nagare/Config.hs cli/nagare-dsl/test/WorkerSpec.hs` passed.
+- `cabal test nagare-dsl-test` from `cli/nagare-dsl` passed: 343 tests.
+- `cabal test nagarectl-test` from `cli/nagarectl` passed: 311 tests.
+- Live dry-run command passed:
+
+```bash
+PATH=/tmp/nagare-kubectl-ep77:$PATH cabal run exe:nagarectl -- worker deploy -f ../../cluster/examples/broker-worker/nagare/Config.hs --dry-run
+```
+
+- Cleanup passed: `broker delete events --namespace personal --yes`, PVC
+  `nagare-broker-events-data` deletion, and `broker list --namespace personal` returned
+  `(no managed brokers)`.
+- `nix fmt cli/nagare-dsl cli/nagarectl` failed because the flake does not provide
+  `formatter.aarch64-darwin`.
+
 
 ## Surprises & Discoveries
 
@@ -78,6 +115,9 @@ implementation. Provide concise evidence.
 - Dry-run deploy now resolves broker bindings before rendering, so a dry-run example with bindings
   requires a live managed broker and topics in the target namespace. A missing broker/topic fails
   before manifest output, matching the acceptance requirement.
+- Live M5 validation used the same temporary `kubectl` wrapper approach as EP-78 because the local
+  kubectl context is `sennari`; Nagare cluster operations must go through the VM's
+  `sudo k3s kubectl`.
 
 
 ## Decision Log
@@ -108,7 +148,12 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-77 is complete. Workloads can now declare provider-neutral broker/topic bindings in typed config,
+round-trip them through JSON, resolve the referenced live broker and topics at deploy time, and
+receive Kafka-compatible runtime env without hard-coding service DNS. The implemented contract covers
+single-service deploys, worker deploys, and application deploys. The broker-worker example and live
+dry-run prove the user-visible behavior. The remaining formatter caveat is repository-level:
+`nix fmt` cannot run on this host until the flake provides `formatter.aarch64-darwin`.
 
 
 ## Context and Orientation
@@ -251,3 +296,10 @@ brokerConnectionEnv :: BrokerBinding -> BrokerConn -> Either Text (Map EnvName S
 mergeBrokerConnectionEnvs :: [Map EnvName ScopedEnvVar] -> Either Text (Map EnvName ScopedEnvVar)
 resolveBrokerEnv :: Namespace -> [BrokerBinding] -> IO (Map EnvName ScopedEnvVar)
 ```
+
+
+## Revision Notes
+
+2026-06-21: Completed EP-77 by adding the broker-worker example, validating it through
+`nagare-dsl-test`, running a live broker-bound worker dry-run against a temporary Redpanda broker, and
+recording the generated Kafka-compatible env and cleanup evidence.
