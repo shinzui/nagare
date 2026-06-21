@@ -8,6 +8,8 @@
 module Nagare.Dsl.Config
   ( emitDeployment
   , encodeDeployment
+  , emitBroker
+  , encodeBroker
   , emitDatabase
   , encodeDatabase
   , emitStaticSite
@@ -20,11 +22,8 @@ module Nagare.Dsl.Config
   , encodeWorker
   , emitApplication
   , encodeApplication
-  ) where
-
-import Data.Generics.Labels ()
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
@@ -33,15 +32,18 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Application (Application)
+import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt)
+import "generic-lens" Data.Generics.Labels ()
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.
@@ -53,6 +55,45 @@ emitDeployment dep = LBS.putStr (encodeDeployment dep)
 -- @runghc@).
 encodeDeployment :: Deployment -> LBS.ByteString
 encodeDeployment = encode . deploymentJSON
+
+-- | Serialize a 'Broker' to JSON and write it to stdout. The top-level
+-- @"kind": "Broker"@ discriminator lets loader and CLI code reject configs run
+-- under the wrong command.
+emitBroker :: Broker -> IO ()
+emitBroker broker = LBS.putStr (encodeBroker broker)
+
+-- | The exact JSON bytes 'emitBroker' writes.
+encodeBroker :: Broker -> LBS.ByteString
+encodeBroker = encode . brokerJSON
+
+brokerJSON :: Broker -> Value
+brokerJSON broker =
+  object
+    [ "kind" .= ("Broker" :: Text)
+    , "name" .= brokerNameText (broker ^. #name)
+    , "provider" .= brokerProviderToken (broker ^. #provider)
+    , "version" .= brokerVersionText (broker ^. #version)
+    , "namespace" .= namespaceText (broker ^. #namespace)
+    , "storageSize" .= quantityText (broker ^. #storageSize)
+    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+    , "redpandaSmp" .= (broker ^. #sizing . #smp)
+    , "redpandaMemory" .= quantityText (broker ^. #sizing . #memory)
+    , "topics" .= map topicJSON (broker ^. #topics)
+    ]
+  where
+    res = broker ^. #sizing . #resources
+
+topicJSON :: BrokerTopic -> Value
+topicJSON topic =
+  object
+    [ "name" .= topicNameText (topic ^. #name)
+    , "partitions" .= (topic ^. #partitions)
+    , "replicationFactor" .= (topic ^. #replicationFactor)
+    , "retentionMs" .= (topic ^. #retentionMs)
+    ]
 
 -- | Serialize a 'Database' to JSON and write it to stdout. Call this as the last
 -- line of a database project's @Config.hs@ @main@. The top-level
