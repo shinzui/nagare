@@ -35,8 +35,8 @@ This section must always reflect the actual current state of the work.
 
 - [x] M1: Add typed broker/topic binding fields to `Deployment`, `Worker`, and `Application`.
 - [x] M2: Round-trip bindings through JSON emit/load with backward-compatible empty defaults.
-- [ ] M3: Implement broker discovery and generated env assembly in `nagarectl`.
-- [ ] M4: Wire generated env into deploy, worker deploy, and app deploy paths.
+- [x] M3: Implement broker discovery and generated env assembly in `nagarectl`.
+- [x] M4: Wire generated env into deploy, worker deploy, and app deploy paths.
 - [ ] M5: Add tests and a dry-run example proving env injection.
 
 Update 2026-06-21: M1/M2 landed as a DSL-only slice. `BrokerName`, `TopicName`, and
@@ -51,6 +51,19 @@ Validation 2026-06-21:
 - `nix fmt cli/nagare-dsl` failed because the flake does not provide
   `formatter.aarch64-darwin`.
 
+Update 2026-06-21: M3/M4 landed as a `nagarectl` runtime slice. `Nagare.Broker.Connection` resolves
+broker bindings to ready broker rows, validates requested topics with `rpk topic describe`, assembles
+Kafka-compatible env (`KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_SECURITY_PROTOCOL`, `NAGARE_BROKER_NAME`,
+`NAGARE_TOPIC_*`), and rejects incompatible multi-broker bootstrap collisions. Single-service deploy,
+worker deploy, and app deploy merge the generated broker env before rendering.
+
+Validation 2026-06-21:
+
+- `fourmolu --mode inplace` passed for the edited `nagarectl` source and test modules.
+- `cabal test nagarectl-test` from `cli/nagarectl` passed: 311 tests.
+- `nix fmt cli/nagarectl` failed because the flake does not provide
+  `formatter.aarch64-darwin`.
+
 
 ## Surprises & Discoveries
 
@@ -62,6 +75,9 @@ implementation. Provide concise evidence.
   `Nagare.Dsl.Types` for broker resource fields.
 - The project convention for new records is strict, unprefixed fields with `deriving stock
   (Generic, ...)`; the binding shape uses `BrokerBinding { name, topics }`, not prefixed field names.
+- Dry-run deploy now resolves broker bindings before rendering, so a dry-run example with bindings
+  requires a live managed broker and topics in the target namespace. A missing broker/topic fails
+  before manifest output, matching the acceptance requirement.
 
 
 ## Decision Log
@@ -77,6 +93,13 @@ Record every decision made while working on the plan.
   `Nagare.Dsl.Broker`.
   Rationale: Workload records need `BrokerBinding`, but the full broker resource module depends on
   workload leaf types from `Nagare.Dsl.Types`; a leaf module keeps the typed API without a cycle.
+  Date: 2026-06-21
+
+- Decision: Validate requested topics during deploy resolution by executing `rpk topic describe`
+  inside the broker pod.
+  Rationale: A binding should fail before rendering/applying manifests when the referenced topic does
+  not exist or is not reachable, and EP-78 already proved `rpk` inside the Redpanda pod as the topic
+  management surface.
   Date: 2026-06-21
 
 

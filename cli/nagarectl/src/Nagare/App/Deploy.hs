@@ -38,20 +38,18 @@ module Nagare.App.Deploy
   , RenderedObject (..)
   , AppDeployPlan (..)
   , renderPlan
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
-
-import Cradle (StdoutUntrimmed (..), addArgs, cmd, run, run_, silenceStderr, (&))
 import Control.Monad (forM_, when)
+import Cradle (StdoutUntrimmed (..), addArgs, cmd, run, run_, silenceStderr, (&))
 import Data.Aeson (ToJSON (..), Value (Object, String), encode, object, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as T
@@ -59,18 +57,16 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Yaml
-import System.Exit (ExitCode (..), exitFailure)
-import System.IO (stderr)
-
 import Nagare.Build (addBuildArgs, performBuild)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
 import Nagare.Deploy (applyManifests, waitForReady, waitForWorkerRollout)
-import Nagare.Deploy.Resolve (resolveBuildSpec, resolveTag)
+import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveTag)
 import Nagare.Dsl.Application (Application (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Database (Database, engineVersionText)
 import Nagare.Dsl.Database.Render (renderDatabase)
 import Nagare.Dsl.Load (loadApplication, renderLoadError)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Task (Task, taskName)
 import Nagare.Dsl.Types
@@ -92,6 +88,8 @@ import Nagare.Image (configureDockerAuth, pushImage, qualifyImage, taggedImageRe
 import Nagare.Target (TargetProfile (..), resolveTargetProfile)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (oneOffJobName, runArgs)
+import System.Exit (ExitCode (..), exitFailure)
+import System.IO (stderr)
 
 -- | The deploy inputs, unpacked from @Main@'s @AppDeployOpts@ so the library does
 -- not depend on the executable's option types. @GHC_ENVIRONMENT@ is provisioned
@@ -141,14 +139,14 @@ data RolloutEnv = RolloutEnv
 -- ('planPhases') is the only ordering a single-node app needs: migrations and
 -- databases must be ready before the serving workloads boot.
 data Phase
-  = PhaseHooks ![Task]
-  -- ^ pre-deploy migration Tasks, each run to completion; a non-zero exit aborts.
-  | PhaseDatabases ![Database]
-  -- ^ managed databases, ensured (idempotent) with their full specs.
-  | PhaseService !Deployment
-  -- ^ the request-driven Knative Service (omitted when the app has none).
-  | PhaseWorkers ![Worker]
-  -- ^ the background workers.
+  = -- | pre-deploy migration Tasks, each run to completion; a non-zero exit aborts.
+    PhaseHooks ![Task]
+  | -- | managed databases, ensured (idempotent) with their full specs.
+    PhaseDatabases ![Database]
+  | -- | the request-driven Knative Service (omitted when the app has none).
+    PhaseService !Deployment
+  | -- | the background workers.
+    PhaseWorkers ![Worker]
   deriving stock (Generic, Show)
 
 -- | The wire/log tag for a phase: @"hook" | "database" | "service" | "worker"@.
@@ -375,6 +373,7 @@ runAppDeploy p = do
     Left e -> dieT ("nagarectl app deploy: " <> e)
     Right q -> pure q
   imageTag <- resolveTag (T.unpack <$> adpTag p)
+  brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
 
   let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
       env =
@@ -384,7 +383,7 @@ runAppDeploy p = do
           , reImageTag = imageTag
           , reEffTag = effTag
           , reAppImageTagged = imageRefText qImg <> ":" <> effTag
-          , reAppEnv = app ^. #env
+          , reAppEnv = mergeGenerated brokerEnv (app ^. #env)
           , reNamespace = namespaceText (app ^. #namespace)
           , reBaseDomain = maybe (tpBaseDomain tp) id (adpBaseDomain p)
           }

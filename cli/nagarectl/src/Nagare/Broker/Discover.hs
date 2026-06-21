@@ -5,6 +5,7 @@ module Nagare.Broker.Discover
   , extractBrokerRows
   , listBrokers
   , getBroker
+  , checkBrokerTopic
   , formatBrokerTable
   )
 where
@@ -18,6 +19,7 @@ import Data.ByteString (ByteString)
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Dsl.Broker (TopicName, topicNameText)
 import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
 import "generic-lens" Data.Generics.Labels ()
@@ -107,6 +109,37 @@ getBroker ns name' = do
     Right rs -> case find ((== name') . name) rs of
       Just r -> Right r
       Nothing -> Left ("no managed broker named '" <> name' <> "' in namespace " <> ns)
+
+checkBrokerTopic :: Text -> BrokerRow -> TopicName -> IO (Either Text ())
+checkBrokerTopic ns row topic = do
+  (code, StdoutRaw _out) <-
+    run $
+      cmd "kubectl"
+        & addArgs
+          [ "exec"
+          , "-n"
+          , T.unpack ns
+          , "pod/" <> T.unpack (row ^. #name <> "-0")
+          , "--"
+          , "rpk"
+          , "topic"
+          , "describe"
+          , T.unpack (topicNameText topic)
+          , "-X"
+          , T.unpack ("brokers=" <> row ^. #bootstrap)
+          ]
+        & silenceStderr
+  pure $ case code of
+    ExitSuccess -> Right ()
+    ExitFailure _ ->
+      Left
+        ( "broker '"
+            <> row
+              ^. #name
+            <> "' has no reachable topic '"
+            <> topicNameText topic
+            <> "'"
+        )
 
 formatBrokerTable :: [BrokerRow] -> Text
 formatBrokerTable [] = "(no managed brokers)\n"

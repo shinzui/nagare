@@ -41,6 +41,11 @@ import Nagare.App
   , restartPatch
   )
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
+import Nagare.Broker.Connection
+  ( BrokerConn (..)
+  , brokerConnectionEnv
+  , mergeBrokerConnectionEnvs
+  )
 import Nagare.Broker.Create (BrokerCreateParams (..), buildBroker)
 import Nagare.Broker.Discover (BrokerRow (..), brokerLabelSelector, extractBrokerRows, formatBrokerTable)
 import Nagare.Broker.Topic (TopicStatus (..), parseTopicDescription, renderTopicPlan, rpkTopicCreateArgs)
@@ -70,12 +75,14 @@ import Nagare.Database.Secret
   )
 import Nagare.Dsl.Broker
   ( Broker (..)
+  , BrokerBinding (..)
   , BrokerProvider (..)
   , BrokerSizing (..)
   , BrokerTopic (..)
   , brokerNameText
   , defaultBrokerSizing
   , defaultBrokerVersion
+  , mkBrokerName
   , mkTopicName
   , topicNameText
   )
@@ -251,6 +258,7 @@ main = do
       , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Broker (EP-78)" brokerTests
+      , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
       , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
@@ -1344,6 +1352,50 @@ generatedEnvTests =
   ]
 
 -- ---------------------------------------------------------------------------
+-- Nagare.Broker.Connection (EP-77)
+
+eventsBinding :: BrokerBinding
+eventsBinding =
+  BrokerBinding
+    { name = unsafe (mkBrokerName "events")
+    , topics = [unsafe (mkTopicName "jobs"), unsafe (mkTopicName "user.created")]
+    }
+
+eventsConn :: BrokerConn
+eventsConn =
+  BrokerConn
+    { provider = Redpanda
+    , bootstrapServers = "events.personal.svc.cluster.local:9092"
+    , topics = [unsafe (mkTopicName "jobs"), unsafe (mkTopicName "user.created")]
+    }
+
+brokerConnectionEnvTests :: [TestTree]
+brokerConnectionEnvTests =
+  [ testCase "brokerConnectionEnv emits Kafka bootstrap and topic variables" $ do
+      let env = unsafe (brokerConnectionEnv eventsBinding eventsConn)
+      genLit env "KAFKA_BOOTSTRAP_SERVERS" @?= Just "events.personal.svc.cluster.local:9092"
+      genLit env "KAFKA_SECURITY_PROTOCOL" @?= Just "PLAINTEXT"
+      genLit env "NAGARE_BROKER_NAME" @?= Just "events"
+      genLit env "NAGARE_TOPIC_JOBS" @?= Just "jobs"
+      genLit env "NAGARE_TOPIC_USER_CREATED" @?= Just "user.created"
+  , testCase "identical broker env maps merge without conflict" $ do
+      let env = unsafe (brokerConnectionEnv eventsBinding eventsConn)
+      mergeBrokerConnectionEnvs [env, env] @?= Right env
+  , testCase "different bootstrap targets are rejected" $ do
+      let env1 = unsafe (brokerConnectionEnv eventsBinding eventsConn)
+          otherConn = eventsConn {bootstrapServers = "other.personal.svc.cluster.local:9092"}
+          env2 = unsafe (brokerConnectionEnv eventsBinding otherConn)
+      assertBool "should be Left" (isLeft (mergeBrokerConnectionEnvs [env1, env2]))
+  , testCase "topics that normalize to the same env key are rejected" $ do
+      let binding =
+            BrokerBinding
+              { name = unsafe (mkBrokerName "events")
+              , topics = [unsafe (mkTopicName "user.created"), unsafe (mkTopicName "user-created")]
+              }
+      assertBool "should be Left" (isLeft (brokerConnectionEnv binding eventsConn))
+  ]
+
+-- ---------------------------------------------------------------------------
 -- EP-26 render demonstration: the generated vars actually appear in a
 -- deployed Service's inline env: (mirrors what runDeploy does).
 
@@ -1371,6 +1423,7 @@ mkDemoDep envMap =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , brokers = []
     , tasks = []
     , cdn = Nothing
     }

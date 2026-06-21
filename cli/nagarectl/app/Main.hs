@@ -76,7 +76,7 @@ import Nagare.Database.Restart (runDbRestart)
 import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
-import Nagare.Deploy.Resolve (resolveBuildSpec, resolveConnectionEnv, resolveTag)
+import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveConnectionEnv, resolveTag)
 import Nagare.Dsl.Broker (BrokerProvider (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
@@ -2037,6 +2037,7 @@ runDeploy dopts = do
   -- app references no databases (no cluster call), so stateless apps are
   -- unaffected. Merged below alongside the NAGARE_* generated env.
   connEnv <- resolveConnectionEnv (dep ^. #namespace) (dep ^. #databases)
+  brokerEnv <- resolveBrokerEnv (dep ^. #namespace) (dep ^. #brokers)
 
   -- EP-26: inject the generated NAGARE_* identity variables as inline {Runtime}
   -- env before rendering, so they appear in the Service and override the managed
@@ -2052,9 +2053,15 @@ runDeploy dopts = do
           , Gen.releaseId = imageTag
           , Gen.source = srcText
           }
-      -- EP-46 connection vars and EP-26 NAGARE_* both win over user env (disjoint
-      -- names; both left of the user map in the left-biased merge).
-      dep' = dep & #env %~ (mergeGenerated (generatedEnv gctx) . mergeGenerated connEnv)
+      -- EP-46 connection vars, EP-77 broker vars, and EP-26 NAGARE_* all win
+      -- over user env (disjoint names; all left of the user map).
+      dep' =
+        dep
+          & #env
+          %~ ( mergeGenerated (generatedEnv gctx)
+                 . mergeGenerated brokerEnv
+                 . mergeGenerated connEnv
+             )
 
   let effTag = resolveImageTag spec imageTag
       ref = imageRef dep' effTag

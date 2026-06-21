@@ -14,7 +14,9 @@ module Nagare.Deploy.Resolve
   ( resolveTag
   , resolveBuildSpec
   , resolveConnectionEnv
-  ) where
+  , resolveBrokerEnv
+  )
+where
 
 import Control.Monad (forM)
 import Data.Map (Map)
@@ -22,12 +24,11 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Exit (exitFailure)
-import System.IO (stderr)
-
+import Nagare.Broker.Connection (brokerConnectionEnv, lookupBrokerConnection, mergeBrokerConnectionEnvs)
 import Nagare.Build (applyBuildOverrides)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Discover (lookupConnection)
+import Nagare.Dsl.Broker (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Types
   ( DatabaseName
@@ -38,6 +39,8 @@ import Nagare.Dsl.Types
   , namespaceText
   )
 import Nagare.Image (computeTag)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 -- | Resolve the image tag: an explicit @--tag@ wins; otherwise the UTC timestamp
 -- @computeTag@ produces.
@@ -67,6 +70,23 @@ resolveConnectionEnv ns dbs = do
       Left err -> dieT ("nagarectl deploy: " <> err)
       Right (eng, ident) -> pure (connectionEnv eng name ns ident)
   case mergeConnectionEnvs maps of
+    Left err -> dieT ("nagarectl deploy: " <> err)
+    Right m -> pure m
+
+-- | EP-77: resolve each referenced broker/topic binding to a live broker
+-- connection and build the merged Kafka-compatible connection env. Empty list
+-- means no cluster call and an empty map.
+resolveBrokerEnv :: Namespace -> [BrokerBinding] -> IO (Map EnvName ScopedEnvVar)
+resolveBrokerEnv _ [] = pure Map.empty
+resolveBrokerEnv ns bindings = do
+  maps <- forM bindings $ \binding -> do
+    r <- lookupBrokerConnection ns binding
+    case r of
+      Left err -> dieT ("nagarectl deploy: " <> err)
+      Right conn -> case brokerConnectionEnv binding conn of
+        Left err -> dieT ("nagarectl deploy: " <> err)
+        Right env -> pure env
+  case mergeBrokerConnectionEnvs maps of
     Left err -> dieT ("nagarectl deploy: " <> err)
     Right m -> pure m
 

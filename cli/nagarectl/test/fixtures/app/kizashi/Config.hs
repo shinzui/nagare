@@ -100,6 +100,7 @@ app = do
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
       , appDatabases = [db]
+      , brokers = []
       , service = Just svc
       , workers = [bindDb worker, bindDb escalation, bindDb agent]
       , tasks = [migrate]
