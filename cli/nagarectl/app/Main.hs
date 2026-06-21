@@ -20,63 +20,16 @@
 -- artifacts and URL without side effects.
 module Main (main) where
 
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
-
 import Control.Exception (bracket_)
 import Control.Monad (forM, forM_, unless)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Options.Applicative
-import Data.Maybe (catMaybes)
-import System.Directory (doesFileExist, makeAbsolute)
-import System.Environment (lookupEnv, setEnv)
-import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
-import System.IO (hFlush, hSetEcho, hIsTerminalDevice, stderr, stdin, stdout)
-
-import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
-import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
-import Nagare.Cdn.Provision
-  ( CdnResult (..)
-  , CdnTarget (..)
-  , GcpStackRefs (..)
-  , planCdn
-  , provisionCdn
-  , renderCdnPlan
-  )
-import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
-import Nagare.Dsl.Cdn.Types (Cdn)
-import Nagare.Database.Backup (runDbBackup)
-import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
-import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
-import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
-import Nagare.Database.Discover (lookupConnection)
-import Nagare.Database.Restore (runDbRestore)
-import Nagare.Database.Get (runDbGet)
-import Nagare.Database.List (runDbList)
-import Nagare.Database.Restart (runDbRestart)
-import Nagare.Database.Shell (runDbShell)
-import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
-import Nagare.Task.Discover (AppScope (..))
-import Nagare.Task.List (runTaskList)
-import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
-import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
-import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
-import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
-import Nagare.Deploy.Resolve (resolveBuildSpec, resolveConnectionEnv, resolveTag)
-import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
-import Nagare.Dsl.Database (Engine (..))
-import Nagare.Dsl.Load qualified as Load
-import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
-import Nagare.Dsl.Server.Types (ServerSite)
-import Nagare.Dsl.Static.Render (StaticDeployContext (..))
-import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -96,6 +49,44 @@ import Nagare.App.Deployments
   , recordDeploymentFor
   , resolveRevisionForTag
   )
+import Nagare.Broker.Create (BrokerCreateParams (..), runBrokerCreate)
+import Nagare.Broker.Delete (BrokerDeleteParams (..), runBrokerDelete)
+import Nagare.Broker.Get (runBrokerGet)
+import Nagare.Broker.List (runBrokerList)
+import Nagare.Broker.Restart (runBrokerRestart)
+import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Cdn.Cloudflare (loadCloudflareCreds, purgeHostname)
+import Nagare.Cdn.Provision
+  ( CdnResult (..)
+  , CdnTarget (..)
+  , GcpStackRefs (..)
+  , planCdn
+  , provisionCdn
+  , renderCdnPlan
+  )
+import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
+import Nagare.Database.Backup (runDbBackup)
+import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
+import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
+import Nagare.Database.Delete (DbDeleteParams (..), runDbDelete)
+import Nagare.Database.Discover (lookupConnection)
+import Nagare.Database.Get (runDbGet)
+import Nagare.Database.List (runDbList)
+import Nagare.Database.Restart (runDbRestart)
+import Nagare.Database.Restore (runDbRestore)
+import Nagare.Database.Shell (runDbShell)
+import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
+import Nagare.Deploy.Resolve (resolveBuildSpec, resolveConnectionEnv, resolveTag)
+import Nagare.Dsl.Broker (BrokerProvider (..))
+import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
+import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.Database (Engine (..))
+import Nagare.Dsl.Load qualified as Load
+import Nagare.Dsl.Prelude
+import Nagare.Dsl.Render (pvcName, renderDomainMappings, renderService, renderVolumeClaims, scopeToken)
+import Nagare.Dsl.Server.Types (ServerSite)
+import Nagare.Dsl.Static.Render (StaticDeployContext (..))
+import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
@@ -154,17 +145,23 @@ import Nagare.Ops.Cleanup
   )
 import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecks)
 import Nagare.Ops.Domains
-  ( DomainRow (..)
+  ( CertState (..)
   , DnsExpectation (..)
-  , CertState (..)
+  , DomainRow (..)
   , formatDomainList
   , listNamespaces
   , queryDomainRows
   )
 import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
-import Nagare.Ops.Status (inventoryOptsFor, gatherInventory)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
+import Nagare.Server.Deploy
+  ( ServerDeployInputs (..)
+  , ServerManifests (..)
+  , deployServerProduction
+  , serverManifests
+  , serverUrl
+  )
 import Nagare.Static.Deploy
   ( DeployInputs (..)
   , StaticManifests (..)
@@ -173,18 +170,7 @@ import Nagare.Static.Deploy
   , previewManifests
   , productionManifests
   )
-import Nagare.Server.Deploy
-  ( ServerDeployInputs (..)
-  , ServerManifests (..)
-  , deployServerProduction
-  , serverManifests
-  , serverUrl
-  )
 import Nagare.Static.Preview (deletePreview, listPreviews, previewDomain, previewServiceName)
-import Nagare.Storage.Inspect (runStorageInspect)
-import Nagare.Storage.List (runStorageList)
-import Nagare.Storage.Restore (runStorageRestore)
-import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Static.Release
   ( StaticReleaseLog (..)
   , findRelease
@@ -192,7 +178,24 @@ import Nagare.Static.Release
   , readReleaseLog
   , writeReleaseLog
   )
+import Nagare.Storage.Inspect (runStorageInspect)
+import Nagare.Storage.List (runStorageList)
+import Nagare.Storage.Restore (runStorageRestore)
+import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
+import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
+import Nagare.Task.Discover (AppScope (..))
+import Nagare.Task.List (runTaskList)
+import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
+import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
+import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
+import Options.Applicative
+import System.Directory (doesFileExist, makeAbsolute)
+import System.Environment (lookupEnv, setEnv)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
+import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
+import "generic-lens" Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- CLI options
@@ -358,6 +361,7 @@ data Command
   | DeploymentsList DepListOpts
   | DeploymentsLogs DepLogsOpts
   | Storage StorageCommand
+  | Broker BrokerCommand
   | Db DbCommand
   | Task TaskCommand
   | Worker WorkerCommand
@@ -393,16 +397,23 @@ data ScopeSelection = ScopeSelection
 -- | The @env@ subcommands. The trailing 'Bool' on the mutating variants is
 -- @--dry-run@.
 data EnvCommand
-  = EnvList StoreCommonOpts Bool -- ^ Bool = --all (show all three scopes)
-  | EnvSet StoreCommonOpts ScopeSelection Bool String String -- ^ dryRun, KEY, VALUE
-  | EnvDelete StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY
-  | EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath -- ^ dryRun, reconcileExact, dotenv file
+  = -- | Bool = --all (show all three scopes)
+    EnvList StoreCommonOpts Bool
+  | -- | dryRun, KEY, VALUE
+    EnvSet StoreCommonOpts ScopeSelection Bool String String
+  | -- | dryRun, KEY
+    EnvDelete StoreCommonOpts ScopeSelection Bool String
+  | -- | dryRun, reconcileExact, dotenv file
+    EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath
 
 -- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
 data SecretCommand
-  = SecretSet StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY (value from stdin)
-  | SecretList StoreCommonOpts Bool -- ^ Bool = --all
-  | SecretDelete StoreCommonOpts ScopeSelection Bool String -- ^ dryRun, KEY
+  = -- | dryRun, KEY (value from stdin)
+    SecretSet StoreCommonOpts ScopeSelection Bool String
+  | -- | Bool = --all
+    SecretList StoreCommonOpts Bool
+  | -- | dryRun, KEY
+    SecretDelete StoreCommonOpts ScopeSelection Bool String
 
 -- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
 -- APP + @-f@ config + @--ghc-env@); identity and the declared volume set come
@@ -410,33 +421,60 @@ data SecretCommand
 -- extends this with a @StorageSnapshot@ constructor (Integration Point IP5).
 data StorageCommand
   = StorageList StoreCommonOpts
-  | StorageInspect StoreCommonOpts String -- ^ VOLUME
-  | StorageSnapshot StoreCommonOpts String (Maybe String) Int -- ^ VOLUME, --bucket, --keep (EP-36)
-  | StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool
-  -- ^ VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run (EP-1)
+  | -- | VOLUME
+    StorageInspect StoreCommonOpts String
+  | -- | VOLUME, --bucket, --keep (EP-36)
+    StorageSnapshot StoreCommonOpts String (Maybe String) Int
+  | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run (EP-1)
+    StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
 -- constructor per subcommand. EP-47 extends this with @DbBackup@/@DbRestore@
 -- constructors and the matching @command "backup"@/@command "restore"@ in the
 -- subparser — extend, not fork.
 data DbCommand
-  = DbList DbListOpts -- ^ nagarectl db list [-n NS]
-  | DbCreate Engine String DbCreateOpts -- ^ nagarectl db create ENGINE NAME [flags]
-  | DbGet DbNameOpts -- ^ nagarectl db get NAME [-n NS]
-  | DbShell DbNameOpts -- ^ nagarectl db shell NAME [-n NS]
-  | DbRestart DbNameOpts Bool -- ^ nagarectl db restart NAME [-n NS] [--dry-run]
-  | DbDelete DbDeleteOpts -- ^ nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
-  | DbBackup DbBackupOpts -- ^ nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
-  | DbRestore DbRestoreOpts -- ^ nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
+  = -- | nagarectl db list [-n NS]
+    DbList DbListOpts
+  | -- | nagarectl db create ENGINE NAME [flags]
+    DbCreate Engine String DbCreateOpts
+  | -- | nagarectl db get NAME [-n NS]
+    DbGet DbNameOpts
+  | -- | nagarectl db shell NAME [-n NS]
+    DbShell DbNameOpts
+  | -- | nagarectl db restart NAME [-n NS] [--dry-run]
+    DbRestart DbNameOpts Bool
+  | -- | nagarectl db delete NAME [-n NS] [--yes] [--dry-run]
+    DbDelete DbDeleteOpts
+  | -- | nagarectl db backup NAME [-n NS] [--bucket B] [--keep N] [--dry-run] (EP-47)
+    DbBackup DbBackupOpts
+  | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
+    DbRestore DbRestoreOpts
+
+-- | The @broker@ subcommands (MasterPlan 15, EP-78).
+data BrokerCommand
+  = -- | nagarectl broker list [-n NS]
+    BrokerList BrokerListOpts
+  | -- | nagarectl broker create redpanda NAME [flags]
+    BrokerCreate BrokerProvider String BrokerCreateOpts
+  | -- | nagarectl broker get NAME [-n NS]
+    BrokerGet BrokerNameOpts
+  | -- | nagarectl broker restart NAME [-n NS] [--dry-run]
+    BrokerRestart BrokerNameOpts Bool
+  | -- | nagarectl broker delete NAME [-n NS] [--yes] [--dry-run]
+    BrokerDelete BrokerDeleteOpts
 
 -- | The @task@ subcommands (MasterPlan 10, EP-51, Integration Point IP4). One
 -- constructor per subcommand, mirroring 'DbCommand'. EP-52 may add app-scoping
 -- flags but must extend, not fork, this group.
 data TaskCommand
-  = TaskList TaskListOpts -- ^ nagarectl task list [APP] [-n NS]
-  | TaskRun TaskRunOpts -- ^ nagarectl task run APP TASK [-n NS] [--dry-run]
-  | TaskLogs TaskLogsOpts -- ^ nagarectl task logs APP TASK [-n NS] [--follow] [--tail N]
-  | TaskDelete TaskDeleteOpts -- ^ nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run]
+  = -- | nagarectl task list [APP] [-n NS]
+    TaskList TaskListOpts
+  | -- | nagarectl task run APP TASK [-n NS] [--dry-run]
+    TaskRun TaskRunOpts
+  | -- | nagarectl task logs APP TASK [-n NS] [--follow] [--tail N]
+    TaskLogs TaskLogsOpts
+  | -- | nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run]
+    TaskDelete TaskDeleteOpts
 
 -- | Options for @task list [APP]@: an optional positional APP (scopes by the
 -- @nagare.dev/app@ label; @-@ means app-less) and a namespace.
@@ -525,6 +563,40 @@ data DbRestoreOpts = DbRestoreOpts
   , dbrBucket :: !(Maybe String)
   , dbrLive :: !Bool
   , dbrDryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @broker list@: just a namespace (default @personal@).
+newtype BrokerListOpts = BrokerListOpts {namespace :: Maybe String}
+  deriving stock (Generic, Show)
+
+-- | The positional NAME plus a namespace, shared by get/restart.
+data BrokerNameOpts = BrokerNameOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @broker create PROVIDER NAME@. Provider and NAME are positionals.
+data BrokerCreateOpts = BrokerCreateOpts
+  { namespace :: !(Maybe String)
+  , version :: !(Maybe String)
+  , size :: !(Maybe String)
+  , cpu :: !(Maybe String)
+  , memory :: !(Maybe String)
+  , config :: !(Maybe FilePath)
+  , dryRun :: !Bool
+  , redpandaSmp :: !(Maybe Int)
+  , redpandaMemory :: !(Maybe String)
+  }
+  deriving stock (Generic, Show)
+
+-- | Options for @broker delete NAME@: namespace, the --yes guard, and --dry-run.
+data BrokerDeleteOpts = BrokerDeleteOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , yes :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -971,6 +1043,15 @@ engineReader = eitherReader $ \case
 dbNameArg :: Parser String
 dbNameArg = strArgument (metavar "NAME" <> help "Managed database name (DNS label)")
 
+brokerProviderReader :: ReadM BrokerProvider
+brokerProviderReader = eitherReader $ \case
+  "redpanda" -> Right Redpanda
+  "tansu" -> Left "Tansu is reserved but not implemented yet; use redpanda"
+  other -> Left ("unknown broker provider '" <> other <> "' (expected redpanda)")
+
+brokerNameArg :: Parser String
+brokerNameArg = strArgument (metavar "NAME" <> help "Broker name (DNS label)")
+
 -- Scheduled-task option fragments (MasterPlan 10, EP-51).
 
 -- | The positional TASK argument every @task ... TASK@ command takes.
@@ -1031,6 +1112,33 @@ dbDeleteOptsParser :: Parser DbDeleteOpts
 dbDeleteOptsParser =
   DbDeleteOpts
     <$> dbNameArg
+    <*> namespaceOpt
+    <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
+    <*> dryRunOpt
+
+brokerListOptsParser :: Parser BrokerListOpts
+brokerListOptsParser = BrokerListOpts <$> namespaceOpt
+
+brokerNameOptsParser :: Parser BrokerNameOpts
+brokerNameOptsParser = BrokerNameOpts <$> brokerNameArg <*> namespaceOpt
+
+brokerCreateOptsParser :: Parser BrokerCreateOpts
+brokerCreateOptsParser =
+  BrokerCreateOpts
+    <$> namespaceOpt
+    <*> optional (strOption (long "version" <> metavar "TAG" <> help "Pinned provider image tag (provider default if absent)"))
+    <*> optional (strOption (long "size" <> metavar "QTY" <> help "Data volume size (default 5Gi)"))
+    <*> optional (strOption (long "cpu" <> metavar "QTY" <> help "CPU limit (e.g. 1)"))
+    <*> optional (strOption (long "memory" <> metavar "QTY" <> help "Memory limit (e.g. 1536Mi)"))
+    <*> optional (strOption (long "config" <> metavar "FILE" <> help "Load a typed Broker from a Config.hs instead of building from flags"))
+    <*> dryRunOpt
+    <*> optional (option auto (long "redpanda-smp" <> metavar "N" <> help "Redpanda core count / --smp"))
+    <*> optional (strOption (long "redpanda-memory" <> metavar "QTY" <> help "Redpanda process memory (e.g. 1G)"))
+
+brokerDeleteOptsParser :: Parser BrokerDeleteOpts
+brokerDeleteOptsParser =
+  BrokerDeleteOpts
+    <$> brokerNameArg
     <*> namespaceOpt
     <*> switch (long "yes" <> help "Confirm deletion (without it, prints the plan and deletes nothing)")
     <*> dryRunOpt
@@ -1107,6 +1215,7 @@ opts =
             <> command "app" appCmd
             <> command "deployments" deploymentsCmd
             <> command "storage" storageCmd
+            <> command "broker" brokerCmd
             <> command "db" dbCmd
             <> command "task" taskCmd
             <> command "worker" workerCmd
@@ -1227,7 +1336,7 @@ opts =
         ( SiteRollback
             <$> siteCommonOptsParser defaultConfigFile
             <*> strArgument (metavar "RELEASE_ID" <> help "Release id to roll back to")
-            <**> helper
+              <**> helper
         )
         (fullDesc <> progDesc "Roll production back to a prior release")
     sitePreviewCmd =
@@ -1253,7 +1362,7 @@ opts =
         ( SitePreviewDelete
             <$> siteCommonOptsParser defaultConfigFile
             <*> strArgument (metavar "NAME" <> help "Preview name to delete")
-            <**> helper
+              <**> helper
         )
         (fullDesc <> progDesc "Delete a preview deployment")
     envCmd =
@@ -1268,7 +1377,7 @@ opts =
                 ( EnvList
                     <$> storeCommonOptsParser
                     <*> switch (long "all" <> help "Show all scopes, grouped")
-                    <**> helper
+                      <**> helper
                 )
                 (progDesc "List env keys/values for an app")
             )
@@ -1281,7 +1390,7 @@ opts =
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
                       <*> strArgument (metavar "VALUE")
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Set one env key (single-key merge)")
               )
@@ -1293,7 +1402,7 @@ opts =
                       <*> scopeSelectionParser
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Delete one env key")
               )
@@ -1306,7 +1415,7 @@ opts =
                       <*> dryRunOpt
                       <*> reconcileExactParser
                       <*> strOption (long "file" <> metavar "FILE" <> help "dotenv file to import")
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Bulk-import a dotenv file into the env store")
               )
@@ -1325,7 +1434,7 @@ opts =
                     <*> scopeSelectionParser
                     <*> dryRunOpt
                     <*> strArgument (metavar "KEY")
-                    <**> helper
+                      <**> helper
                 )
                 (progDesc "Set one secret key; the value is read from stdin")
             )
@@ -1335,7 +1444,7 @@ opts =
                   ( SecretList
                       <$> storeCommonOptsParser
                       <*> switch (long "all" <> help "Show all scopes")
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "List secret key names (never values)")
               )
@@ -1347,7 +1456,7 @@ opts =
                       <*> scopeSelectionParser
                       <*> dryRunOpt
                       <*> strArgument (metavar "KEY")
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Delete one secret key")
               )
@@ -1421,7 +1530,7 @@ opts =
                               <$> storeCommonOptsParser
                               <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
                           )
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Show full detail of one volume's PVC")
               )
@@ -1448,7 +1557,7 @@ opts =
                                     <> help "Snapshots to keep per volume (older are pruned)"
                                 )
                           )
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Snapshot a volume's contents to the GCS backup bucket")
               )
@@ -1470,7 +1579,7 @@ opts =
                               <*> switch (long "into-live" <> help "Restore into the LIVE volume PVC (default: a scratch PVC)")
                               <*> dryRunOpt
                           )
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Restore a volume snapshot from GCS into a scratch PVC (or --into-live)")
               )
@@ -1479,6 +1588,50 @@ opts =
       info
         (dbSubparser <**> helper)
         (fullDesc <> progDesc "Provision and operate managed databases (Postgres, Redis, ClickHouse)")
+    brokerCmd =
+      info
+        (brokerSubparser <**> helper)
+        (fullDesc <> progDesc "Provision and operate in-cluster messaging brokers")
+    brokerSubparser =
+      subparser
+        ( command
+            "list"
+            ( info
+                (Broker . BrokerList <$> brokerListOptsParser <**> helper)
+                (progDesc "List managed brokers in a namespace")
+            )
+            <> command
+              "create"
+              ( info
+                  ( Broker
+                      <$> ( BrokerCreate
+                              <$> Options.Applicative.argument brokerProviderReader (metavar "PROVIDER" <> help "redpanda")
+                              <*> brokerNameArg
+                              <*> brokerCreateOptsParser
+                          )
+                        <**> helper
+                  )
+                  (progDesc "Create an internal Kafka-compatible broker")
+              )
+            <> command
+              "get"
+              ( info
+                  (Broker . BrokerGet <$> brokerNameOptsParser <**> helper)
+                  (progDesc "Show one broker's detail")
+              )
+            <> command
+              "restart"
+              ( info
+                  (Broker <$> (BrokerRestart <$> brokerNameOptsParser <*> dryRunOpt) <**> helper)
+                  (progDesc "Roll the broker StatefulSet and wait for Ready")
+              )
+            <> command
+              "delete"
+              ( info
+                  (Broker . BrokerDelete <$> brokerDeleteOptsParser <**> helper)
+                  (progDesc "Delete a broker (guarded by --yes)")
+              )
+        )
     dbSubparser =
       subparser
         ( command
@@ -1496,7 +1649,7 @@ opts =
                               <*> strArgument (metavar "NAME" <> help "Database name (DNS label)")
                               <*> dbCreateOptsParser
                           )
-                      <**> helper
+                        <**> helper
                   )
                   (progDesc "Create a managed database: generate credentials and provision it")
               )
@@ -1615,6 +1768,7 @@ main =
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
     Storage scmd -> runStorage scmd
+    Broker bcmd -> runBroker bcmd
     Db dcmd -> runDb dcmd
     Task tcmd -> runTask tcmd
     Worker wcmd -> runWorker wcmd
@@ -1842,7 +1996,9 @@ runCdnDisable o = do
           dieT
             ( "cdn disable: could not delete the Cloud DNS record for "
                 <> host
-                <> " (is it a Google-CDN hostname? is gcloud configured for " <> tpProject tp <> "?)"
+                <> " (is it a Google-CDN hostname? is gcloud configured for "
+                <> tpProject tp
+                <> "?)"
             )
 
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
@@ -2504,6 +2660,40 @@ runStorage = \case
     tp <- resolveTargetProfile
     b <- resolveBackupBucket bucket
     runStorageRestore dep (T.pack vol) (T.pack backupId) live b (tpProject tp) dryRun
+
+-- | Dispatch the @broker@ subcommands (MasterPlan 15, EP-78). The namespace
+-- defaults to @personal@.
+runBroker :: BrokerCommand -> IO ()
+runBroker = \case
+  BrokerList o -> runBrokerList (nsOf (o ^. #namespace))
+  BrokerCreate provider name o -> do
+    when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
+    runBrokerCreate
+      provider
+      (T.pack name)
+      BrokerCreateParams
+        { namespace = nsOf (o ^. #namespace)
+        , version = T.pack <$> o ^. #version
+        , size = T.pack <$> o ^. #size
+        , cpu = T.pack <$> o ^. #cpu
+        , memory = T.pack <$> o ^. #memory
+        , config = o ^. #config
+        , dryRun = o ^. #dryRun
+        , redpandaSmp = o ^. #redpandaSmp
+        , redpandaMemory = T.pack <$> o ^. #redpandaMemory
+        }
+  BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
+  BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
+  BrokerDelete o ->
+    runBrokerDelete
+      BrokerDeleteParams
+        { name = T.pack (o ^. #name)
+        , namespace = nsOf (o ^. #namespace)
+        , yes = o ^. #yes
+        , dryRun = o ^. #dryRun
+        }
+  where
+    nsOf = maybe "personal" T.pack
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.

@@ -20,6 +20,7 @@ common common
     DuplicateRecordFields
     OverloadedLabels
     OverloadedStrings
+    PackageImports
 
   ghc-options:
     -Wall
@@ -34,6 +35,12 @@ library
     Nagare.App.Deploy
     Nagare.App.Deployments
     Nagare.Build
+    Nagare.Broker.Create
+    Nagare.Broker.Delete
+    Nagare.Broker.Discover
+    Nagare.Broker.Get
+    Nagare.Broker.List
+    Nagare.Broker.Restart
     Nagare.Cdn.Cloudflare
     Nagare.Cdn.Provision
     Nagare.Cdn.Status

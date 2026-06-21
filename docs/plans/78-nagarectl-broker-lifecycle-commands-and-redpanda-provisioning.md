@@ -32,11 +32,11 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `broker` command parser and library module stubs to `nagarectl`.
-- [ ] M2: Implement idempotent Redpanda create/apply/wait using EP-76 renderer output.
+- [x] M1: Add `broker` command parser and library module stubs to `nagarectl`. Started 2026-06-21 after EP-76 completed.
+- [x] M2: Implement idempotent Redpanda create/apply/wait using EP-76 renderer output.
 - [ ] M3: Implement topic creation and reconciliation for declared topics.
-- [ ] M4: Implement list, get, restart, and delete commands with label-based discovery.
-- [ ] M5: Add dry-run output, tests, and live acceptance transcript.
+- [x] M4: Implement list, get, restart, and delete commands with label-based discovery.
+- [ ] M5: Add dry-run output, tests, and live acceptance transcript. Dry-run output and focused unit tests are in place; live acceptance transcript remains.
 
 
 ## Surprises & Discoveries
@@ -44,7 +44,9 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-06-21: `nagare-dsl` defaults are already `Redpanda` `v26.1.8` and broker runtime memory `1G`,
+  so `nagarectl` tests should assert through `defaultBrokerVersion` and `defaultBrokerSizing` rather
+  than copy stale version or sizing literals.
 
 
 ## Decision Log
@@ -56,13 +58,24 @@ Record every decision made while working on the plan.
   going through the executable. Broker lifecycle should follow that pattern.
   Date: 2026-06-21
 
+- Decision: Keep the initial CLI topic path behind typed config instead of adding partial
+  `--topic-*` flags before topic names and ownership behavior are settled.
+  Rationale: `Broker` already carries typed topic declarations from EP-76, but EP-78 still needs the
+  Redpanda reconciliation step. Adding flags without a complete topic identity contract would create
+  a user-facing surface that may need to change.
+  Date: 2026-06-21
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Partial implementation landed for lifecycle commands. `nagarectl broker create redpanda NAME` can
+build a typed `Broker` from flags or load one from `--config`, render EP-76 manifests, dry-run them,
+apply them, annotate the StatefulSet, and wait for rollout. `broker list`, `broker get`, `broker
+restart`, and `broker delete` use the shared `nagare.dev/broker` labels and preserve PVC data by
+default. Remaining gaps are topic reconciliation and live cluster acceptance.
 
 
 ## Context and Orientation
@@ -182,6 +195,14 @@ Acceptance requires:
   in the rendered plan;
 - `broker restart events` returns after the broker is ready again and topic data still exists; and
 - tests pass for `nagare-dsl-test` and `nagarectl-test`.
+
+Validation so far:
+
+- 2026-06-21: `fourmolu --mode inplace` on touched `nagarectl` Haskell files passed.
+- 2026-06-21: `cabal test nagarectl-test` from `cli/nagarectl` passed with 303 tests, including
+  `Nagare.Broker (EP-78)` coverage for broker construction defaults, Redpanda sizing flags, label
+  selectors, StatefulSet JSON discovery, image-version fallback, malformed JSON handling, and table
+  formatting.
 
 
 ## Idempotence and Recovery

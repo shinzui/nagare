@@ -8,6 +8,10 @@
 -- build/output-preparation state machine.
 module Main (main) where
 
+import AppDeploySpec (appDeployTests)
+import Control.Exception (finally)
+import Crypto.Hash (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (eitherDecodeStrict, encode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -18,10 +22,10 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.List (isInfixOf, isSuffixOf, sort)
-import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
@@ -36,9 +40,13 @@ import Nagare.App
   , parseServiceNames
   , restartPatch
   )
-import AppDeploySpec (appDeployTests)
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
-import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
+import Nagare.Broker.Create (BrokerCreateParams (..), buildBroker)
+import Nagare.Broker.Discover (BrokerRow (..), brokerLabelSelector, extractBrokerRows, formatBrokerTable)
+import Nagare.Build (applyBuildOverrides, describeBuild)
+import Nagare.Cdn.Cloudflare
+import Nagare.Cdn.Provision
+import Nagare.Cdn.Status
 import Nagare.Database.Backup
   ( BackupCronInputs (..)
   , BackupJobInputs (..)
@@ -51,17 +59,28 @@ import Nagare.Database.Backup
   , renderBackupJob
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
+import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
-import Nagare.Task.Discover
-  ( AppScope (..)
-  , TaskRow (..)
-  , extractTaskRows
-  , formatTaskTable
-  , taskLabelSelector
+import Nagare.Database.Restore (RestoreJobInputs (..), isGsUrl, renderRestoreJob, resolveBackupObject)
+import Nagare.Database.Secret
+  ( ConnectionParts (..)
+  , composeConnectionUrl
+  , secretKeysFor
   )
-import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
-import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
-import Nagare.Task.Run (oneOffJobName, runArgs)
+import Nagare.Dsl.Broker
+  ( Broker (..)
+  , BrokerProvider (..)
+  , BrokerSizing (..)
+  , brokerNameText
+  , defaultBrokerSizing
+  , defaultBrokerVersion
+  )
+import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
+import Nagare.Dsl.Cdn.Types
+import Nagare.Dsl.Database (Engine (..), engineToken, mkDatabaseName)
+import Nagare.Dsl.Render (renderService)
+import Nagare.Dsl.Server.Types
+import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
   ( ConcurrencyPolicy (Forbid)
   , RestartPolicy (Never)
@@ -69,20 +88,44 @@ import Nagare.Dsl.Task
   , mkSchedule
   , mkTask
   )
-import Nagare.Database.Restore (isGsUrl, renderRestoreJob, resolveBackupObject, RestoreJobInputs (..))
-import Nagare.Database.Secret
-  ( ConnectionParts (..)
-  , composeConnectionUrl
-  , secretKeysFor
+import Nagare.Dsl.Types
+  ( AccessMode (..)
+  , Deployment (..)
+  , EnvName
+  , EnvScope (..)
+  , EnvVar (..)
+  , RetentionPolicy (..)
+  , ScopedEnvVar (..)
+  , Volume (..)
+  , defaultPort
+  , envNameText
+  , mkEnvName
+  , mkImageRef
+  , mkMountPath
+  , mkNamespace
+  , mkQuantity
+  , mkSecretName
+  , mkServiceName
+  , mkVolumeName
+  , quantityText
+  , runtimeScoped
+  , scopedEnv
+  , secretNameText
   )
-import Nagare.Dsl.Database (Engine (..), engineToken, mkDatabaseName)
-import Nagare.Ops.Doctor
-  ( Check (..)
-  , Remediation (..)
-  , doctorExitOk
-  , formatDoctor
-  , gradeChecks
-  , remediationFor
+import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
+import Nagare.Env.Dotenv (parseDotenv)
+import Nagare.Env.Generated (generatedEnv, mergeGenerated)
+import Nagare.Env.Generated qualified as Gen
+import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
+import Nagare.Env.Store
+import Nagare.GhcEnv (findGhcEnvIn)
+import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
+import Nagare.Init
+  ( nextStepsText
+  , operatorRoles
+  , pulumiConfigSetArgs
+  , renderTargetEnv
+  , seedKeys
   )
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
@@ -93,6 +136,14 @@ import Nagare.Ops.Cleanup
   , pruneReleases
   , selectStalePreviews
   , sumReclaimableBytes
+  )
+import Nagare.Ops.Doctor
+  ( Check (..)
+  , Remediation (..)
+  , doctorExitOk
+  , formatDoctor
+  , gradeChecks
+  , remediationFor
   )
 import Nagare.Ops.Domains
   ( CertState (..)
@@ -124,38 +175,12 @@ import Nagare.Ops.Probe
   , renderInventory
   , statusLabel
   )
-import Nagare.Build (applyBuildOverrides, describeBuild)
-import Nagare.Cdn.Cloudflare
-import Nagare.Cdn.Provision
-import Nagare.Cdn.Status
-import Nagare.Dsl.Cdn.Types
-import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
-import Nagare.Dsl.Server.Types
-import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Render (renderService)
-import Nagare.Dsl.Types
-  ( AccessMode (..)
-  , Deployment (..)
-  , EnvName
-  , EnvScope (..)
-  , EnvVar (..)
-  , RetentionPolicy (..)
-  , ScopedEnvVar (..)
-  , Volume (..)
-  , defaultPort
-  , envNameText
-  , mkEnvName
-  , mkImageRef
-  , mkMountPath
-  , mkNamespace
-  , mkQuantity
-  , mkSecretName
-  , mkServiceName
-  , mkVolumeName
-  , runtimeScoped
-  , scopedEnv
-  , secretNameText
-  )
+import Nagare.Server.Build
+import Nagare.Static.Build
+import Nagare.Static.Image (staticDockerfile)
+import Nagare.Static.Preview
+import Nagare.Static.Release
+import Nagare.Static.Webhook
 import Nagare.Storage.Discover
   ( PVCRow (..)
   , appPVCLabelSelector
@@ -171,38 +196,24 @@ import Nagare.Storage.Snapshot
   , snapshotObjectPath
   , snapshotsToPrune
   )
-import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
-import Nagare.Env.Dotenv (parseDotenv)
-import Nagare.Env.Generated (generatedEnv, mergeGenerated)
-import Nagare.Env.Generated qualified as Gen
-import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
-import Nagare.Env.Store
-import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
-import Crypto.Hash (SHA256)
-import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
-import Nagare.Server.Build
-import Nagare.Static.Build
-import Nagare.Static.Image (staticDockerfile)
-import Nagare.Static.Preview
-import Nagare.Static.Release
-import Nagare.Static.Webhook
+import Nagare.Target (TargetProfile (..), registryPrefix, resolveTargetProfile)
+import Nagare.Task.Discover
+  ( AppScope (..)
+  , TaskRow (..)
+  , extractTaskRows
+  , formatTaskTable
+  , taskLabelSelector
+  )
+import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
+import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
+import Nagare.Task.Run (oneOffJobName, runArgs)
 import System.Directory (createDirectoryIfMissing)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
-import Nagare.Target (TargetProfile (..), resolveTargetProfile, registryPrefix)
-import Nagare.Init
-  ( renderTargetEnv
-  , pulumiConfigSetArgs
-  , seedKeys
-  , nextStepsText
-  , operatorRoles
-  )
-import System.Environment (lookupEnv, setEnv, unsetEnv)
-import Control.Exception (finally)
 
 main :: IO ()
 main = do
@@ -235,6 +246,7 @@ main = do
       , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
       , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
+      , testGroup "Nagare.Broker (EP-78)" brokerTests
       , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
       , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
       , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
@@ -285,9 +297,14 @@ initTests =
         assertBool "target platform (override)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/arm64" out)
     , testCase "seedKeys covers the eight Pulumi keys incl. the required imageBucket" $
         map fst (seedKeys initProfile)
-          @?= [ "gcp:project", "gcp:region", "gcp:zone", "nagare:baseDomain"
-              , "nagare:imageBucket", "nagare:backupBucket"
-              , "nagare:artifactRegistryId", "nagare:instanceName"
+          @?= [ "gcp:project"
+              , "gcp:region"
+              , "gcp:zone"
+              , "nagare:baseDomain"
+              , "nagare:imageBucket"
+              , "nagare:backupBucket"
+              , "nagare:artifactRegistryId"
+              , "nagare:instanceName"
               ]
     , testCase "pulumiConfigSetArgs targets the infra/pulumi stack" $
         pulumiConfigSetArgs "gcp:project" "acme-prod"
@@ -333,7 +350,8 @@ backupProjectTests =
       assertBool "tan-nb-exp present" ("tan-nb-exp" `T.isInfixOf` rendered "tan-nb-exp")
   , testCase "backup Job CLOUDSDK_CORE_PROJECT follows the resolved project" $ do
       assertBool "acme-prod present" ("acme-prod" `T.isInfixOf` rendered "acme-prod")
-      assertBool "no tan-nb-exp project leaked"
+      assertBool
+        "no tan-nb-exp project leaked"
         (not ("value: tan-nb-exp" `T.isInfixOf` rendered "acme-prod"))
   ]
   where
@@ -411,9 +429,15 @@ targetProfileTests =
       tpTargetPlatform tp4 @?= "linux/amd64"
   where
     allTargetVars =
-      [ "CLOUDSDK_CORE_PROJECT", "CLOUDSDK_COMPUTE_REGION", "CLOUDSDK_COMPUTE_ZONE"
-      , "NAGARE_REGISTRY_HOST", "NAGARE_ARTIFACT_REGISTRY_ID", "NAGARE_IMAGE_BUCKET"
-      , "NAGARE_BACKUP_BUCKET", "NAGARE_BASE_DOMAIN", "NAGARE_INSTANCE_NAME"
+      [ "CLOUDSDK_CORE_PROJECT"
+      , "CLOUDSDK_COMPUTE_REGION"
+      , "CLOUDSDK_COMPUTE_ZONE"
+      , "NAGARE_REGISTRY_HOST"
+      , "NAGARE_ARTIFACT_REGISTRY_ID"
+      , "NAGARE_IMAGE_BUCKET"
+      , "NAGARE_BACKUP_BUCKET"
+      , "NAGARE_BASE_DOMAIN"
+      , "NAGARE_INSTANCE_NAME"
       , "NAGARE_TARGET_PLATFORM"
       ]
 
@@ -1792,8 +1816,18 @@ buildModeTests =
             @?= ["build", "--platform", "linux/amd64", "-f", "docker/Dockerfile", "-t", "ref:tag", "svc"]
       , testCase "multiple build args each get their own --build-arg" $
           dockerBuildArgs "linux/amd64" "r" "Dockerfile" "." [("A", "1"), ("B", "2")]
-            @?= [ "build", "--platform", "linux/amd64", "-f", "Dockerfile", "-t", "r"
-                , "--build-arg", "A=1", "--build-arg", "B=2", "."
+            @?= [ "build"
+                , "--platform"
+                , "linux/amd64"
+                , "-f"
+                , "Dockerfile"
+                , "-t"
+                , "r"
+                , "--build-arg"
+                , "A=1"
+                , "--build-arg"
+                , "B=2"
+                , "."
                 ]
       , testCase "the platform argument is honored (EP-3)" $
           dockerBuildArgs "linux/arm64" "r" "Dockerfile" "." []
@@ -1961,6 +1995,74 @@ databaseTests =
     stsListJson =
       BC.pack
         "{\"items\":[{\"metadata\":{\"name\":\"pg-main\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/engine\":\"postgres\",\"nagare.dev/managed-by\":\"nagarectl\"},\"annotations\":{\"nagare.dev/version\":\"18\",\"nagare.dev/size\":\"10Gi\",\"nagare.dev/retention\":\"Retain\"}},\"status\":{\"readyReplicas\":1}}]}"
+
+-- ---------------------------------------------------------------------------
+-- EP-78: broker lifecycle command helpers.
+
+brokerTests :: [TestTree]
+brokerTests =
+  [ testGroup
+      "Nagare.Broker.Create.buildBroker"
+      [ testCase "builds Redpanda with defaults" $
+          case buildBroker Redpanda "events" (mkParams Nothing Nothing Nothing) of
+            Right Broker {name = brokerName, version = brokerVersion, sizing = BrokerSizing {smp, memory}} -> do
+              let BrokerSizing {smp = defaultSmp, memory = defaultMemory} = defaultBrokerSizing
+              brokerNameText brokerName @?= "events"
+              brokerVersion @?= defaultBrokerVersion Redpanda
+              smp @?= defaultSmp
+              memory @?= defaultMemory
+            Left e -> assertFailure (T.unpack e)
+      , testCase "rejects latest version" $
+          assertBool "should reject" (isLeft (buildBroker Redpanda "events" (mkParams (Just "latest") Nothing Nothing)))
+      , testCase "honors Redpanda sizing flags" $
+          case buildBroker Redpanda "events" (mkParams Nothing (Just 2) (Just "4Gi")) of
+            Right Broker {sizing = BrokerSizing {smp, memory}} -> do
+              smp @?= 2
+              quantityText memory @?= "4Gi"
+            Left e -> assertFailure (T.unpack e)
+      ]
+  , testGroup
+      "Nagare.Broker.Discover"
+      [ testCase "brokerLabelSelector" $
+          brokerLabelSelector @?= "nagare.dev/managed-by=nagarectl,nagare.dev/broker"
+      , testCase "extractBrokerRows parses a statefulset list" $
+          extractBrokerRows brokerStsListJson
+            @?= Right [BrokerRow "events" "redpanda" "v25.2.1" "5Gi" "events.personal.svc.cluster.local:9092" True]
+      , testCase "extractBrokerRows falls back to image version" $
+          extractBrokerRows brokerStsImageVersionJson
+            @?= Right [BrokerRow "events" "redpanda" "v25.2.1" "?" "events.personal.svc.cluster.local:9092" False]
+      , testCase "extractBrokerRows on empty items is Right []" $
+          extractBrokerRows "{\"items\":[]}" @?= Right []
+      , testCase "extractBrokerRows on malformed JSON is Left" $
+          assertBool "should be Left" (isLeft (extractBrokerRows "not json"))
+      , testCase "formatBrokerTable renders a header" $
+          assertBool
+            "has NAME header"
+            ( "NAME"
+                `T.isInfixOf` formatBrokerTable
+                  [BrokerRow "events" "redpanda" "v25.2.1" "5Gi" "events.personal.svc.cluster.local:9092" True]
+            )
+      ]
+  ]
+  where
+    mkParams ver smp' memory' =
+      BrokerCreateParams
+        { namespace = "personal"
+        , version = ver
+        , size = Nothing
+        , cpu = Nothing
+        , memory = Nothing
+        , config = Nothing
+        , dryRun = True
+        , redpandaSmp = smp'
+        , redpandaMemory = memory'
+        }
+    brokerStsListJson =
+      BC.pack
+        "{\"items\":[{\"metadata\":{\"name\":\"events\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/broker\":\"events\",\"nagare.dev/broker-provider\":\"redpanda\",\"nagare.dev/managed-by\":\"nagarectl\"},\"annotations\":{\"nagare.dev/version\":\"v25.2.1\",\"nagare.dev/size\":\"5Gi\"}},\"status\":{\"readyReplicas\":1}}]}"
+    brokerStsImageVersionJson =
+      BC.pack
+        "{\"items\":[{\"metadata\":{\"name\":\"events\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/broker\":\"events\",\"nagare.dev/broker-provider\":\"redpanda\",\"nagare.dev/managed-by\":\"nagarectl\"}},\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"docker.redpanda.com/redpandadata/redpanda:v25.2.1\"}]} }},\"status\":{\"readyReplicas\":0}}]}"
 
 -- ---------------------------------------------------------------------------
 -- EP-46: app -> database connection-env injection.
@@ -2299,17 +2401,17 @@ cloudflareTests =
       Aeson.object
         [ "rules"
             Aeson..= [ ruleObj
-                        "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/assets/\")"
-                        (ttlParams 31536000)
+                         "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/assets/\")"
+                         (ttlParams 31536000)
                      , ruleObj
-                        "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/api/\")"
-                        bypassParams
+                         "(http.host eq \"blog.example.com\") and starts_with(http.request.uri.path, \"/api/\")"
+                         bypassParams
                      , ruleObj
-                        "(http.host eq \"blog.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})"
-                        (ttlParams 31536000)
+                         "(http.host eq \"blog.example.com\") and (http.request.uri.path.extension in {\"js\" \"css\" \"woff2\" \"woff\" \"png\" \"jpg\" \"jpeg\" \"gif\" \"svg\" \"webp\" \"ico\"})"
+                         (ttlParams 31536000)
                      , ruleObj
-                        "(http.host eq \"blog.example.com\")"
-                        (ttlParams 3600)
+                         "(http.host eq \"blog.example.com\")"
+                         (ttlParams 3600)
                      ]
         ]
 
@@ -2323,7 +2425,7 @@ cdnProvisionTests =
       let p = planCdn cfCdn cfTarget noRefs
       planProvider p @?= CloudflareCdn
       assertBool "no gcloud action" (not (any isGcloud (planActions p)))
-      assertBool "one DnsUpsert per host" (length [() | DnsUpsert{} <- planActions p] == 1)
+      assertBool "one DnsUpsert per host" (length [() | DnsUpsert {} <- planActions p] == 1)
   , testCase "planCdn Gcp: all GcloudCmd, every argv pins --project=tan-nb-exp" $ do
       let p = planCdn gcpCdn gcpTarget gcpRefs
       planProvider p @?= GcpCloudCdn
