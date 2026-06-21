@@ -29,15 +29,15 @@ module Nagare.Dsl.Application
     -- * Shared-identity label
   , appLabelKey
   , appLabel
-  ) where
+  )
+where
 
 import Data.Generics.Labels ()
-
-import Nagare.Dsl.Prelude
-
 import Data.Map (Map)
 import Data.Set qualified as Set
+import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Database (Database (..), databaseNameText)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task (Task (..))
 import Nagare.Dsl.Types
   ( DatabaseName
@@ -74,6 +74,8 @@ data Application = Application
   , appDatabases :: ![Database]
   -- ^ the managed databases this app owns. A workload may only reference a
   -- database whose 'dbName' appears here (the 'declared databases' invariant).
+  , brokers :: ![BrokerBinding]
+  -- ^ shared broker/topic bindings declared once on the app.
   , service :: !(Maybe Deployment)
   -- ^ the optional request-driven web Service. 'Nothing' for an app with no
   -- HTTP front (e.g. workers + a migration task only).

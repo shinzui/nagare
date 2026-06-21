@@ -240,6 +240,7 @@ data JsonDeployment = JsonDeployment
   , jdHealthCheck :: !(Maybe JsonHealthCheck)
   , jdVolumes :: ![JsonVolume]
   , jdDatabases :: ![Text]
+  , jdBrokers :: ![JsonBrokerBinding]
   , jdTasks :: ![JsonTask]
   , jdCdn :: !(Maybe JsonCdn)
   }
@@ -264,6 +265,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "healthCheck"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "brokers" .!= []
       <*> o .:? "tasks" .!= []
       <*> o .:? "cdn"
 
@@ -287,6 +289,7 @@ toDeployment jd = do
   hc' <- toHealthCheck (jdHealthCheck jd)
   vols' <- toVolumes (jdVolumes jd)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (jdBrokers jd)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
   -- constructor, including EP-50's inherit-image-requires-an-app invariant), then
   -- enforce the two deploy-level cross-task invariants.
@@ -322,6 +325,7 @@ toDeployment jd = do
       , healthCheck = hc'
       , volumes = vols'
       , databases = dbRefs'
+      , brokers = brokerRefs'
       , tasks = tasks'
       , cdn = cdn'
       }
@@ -543,6 +547,18 @@ instance FromJSON JsonBrokerTopic where
       <*> o .:? "replicationFactor" .!= 1
       <*> o .:? "retentionMs"
 
+data JsonBrokerBinding = JsonBrokerBinding
+  { name :: !Text
+  , topics :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonBrokerBinding where
+  parseJSON = withObject "BrokerBinding" $ \o ->
+    JsonBrokerBinding
+      <$> o .: "name"
+      <*> o .:? "topics" .!= []
+
 data JsonBroker = JsonBroker
   { name :: !Text
   , provider :: !Text
@@ -604,6 +620,12 @@ toBrokerTopic j = do
   name' <- first (MarshalError "topics.name") $ mkTopicName (j ^. #name)
   first (MarshalError "topics") $
     mkBrokerTopic name' (j ^. #partitions) (j ^. #replicationFactor) (j ^. #retentionMs)
+
+toBrokerBinding :: Text -> JsonBrokerBinding -> Either LoadError BrokerBinding
+toBrokerBinding path (JsonBrokerBinding rawName rawTopics) = do
+  name' <- first (MarshalError (path <> ".name")) $ mkBrokerName rawName
+  topics' <- traverse (first (MarshalError (path <> ".topics")) . mkTopicName) rawTopics
+  Right BrokerBinding {name = name', topics = topics'}
 
 toBrokerResources :: JsonBroker -> Either LoadError (Maybe Resources)
 toBrokerResources j =
@@ -870,6 +892,7 @@ data JsonWorker = JsonWorker
   , jwMemoryLimit :: !(Maybe Text)
   , jwVolumes :: ![JsonVolume]
   , jwDatabases :: ![Text]
+  , jwBrokers :: ![JsonBrokerBinding]
   , jwLiveness :: !(Maybe JsonWorkerProbe)
   }
   deriving stock (Generic, Eq, Show)
@@ -890,6 +913,7 @@ instance FromJSON JsonWorker where
       <*> o .:? "memoryLimit"
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "brokers" .!= []
       <*> o .:? "liveness"
 
 -- | The intermediate decode shape for a 'WorkerProbe' (mirrors
@@ -980,6 +1004,7 @@ toWorker j = do
   res' <- toWorkerResources j
   vols' <- toVolumes (jwVolumes j)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (jwBrokers j)
   liveness' <- traverse toWorkerProbe (jwLiveness j)
   Right
     Worker
@@ -993,6 +1018,7 @@ toWorker j = do
       , resources = res'
       , volumes = vols'
       , databases = dbRefs'
+      , brokers = brokerRefs'
       , liveness = liveness'
       }
 
@@ -1046,6 +1072,7 @@ data JsonApplication = JsonApplication
   , jaImage :: !Text
   , jaEnv :: ![JsonEnvEntry]
   , jaDatabases :: ![JsonDatabase]
+  , jaBrokers :: ![JsonBrokerBinding]
   , jaService :: !(Maybe JsonDeployment)
   , jaWorkers :: ![JsonWorker]
   , jaTasks :: ![JsonTask]
@@ -1060,6 +1087,7 @@ instance FromJSON JsonApplication where
       <*> o .: "image"
       <*> o .:? "env" .!= []
       <*> o .:? "databases" .!= []
+      <*> o .:? "brokers" .!= []
       <*> o .:? "service"
       <*> o .:? "workers" .!= []
       <*> o .:? "tasks" .!= []
@@ -1078,6 +1106,7 @@ toApplication j = do
   img' <- first (MarshalError "image") $ mkImageRef (jaImage j)
   env' <- mapM toEnvEntry (jaEnv j)
   dbs' <- traverse toDatabase (jaDatabases j)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (jaBrokers j)
   svc' <- traverse toDeployment (jaService j)
   wks' <- traverse toWorker (jaWorkers j)
   tks' <- traverse toTask (jaTasks j)
@@ -1088,6 +1117,7 @@ toApplication j = do
           , image = img'
           , env = Map.fromList env'
           , appDatabases = dbs'
+          , brokers = brokerRefs'
           , service = svc'
           , workers = wks'
           , tasks = tks'

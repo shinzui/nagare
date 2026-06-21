@@ -30,6 +30,7 @@ library
     Nagare.Dsl.Application
     Nagare.Dsl.Broker
     Nagare.Dsl.Broker.Render
+    Nagare.Dsl.Broker.Types
     Nagare.Dsl.Build
     Nagare.Dsl.Cdn.Types
     Nagare.Dsl.Config

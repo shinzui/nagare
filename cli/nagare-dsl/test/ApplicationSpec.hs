@@ -14,6 +14,7 @@ import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Application
+import Nagare.Dsl.Broker
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Load (LoadError (..), decodeApplication, decodeDeployment, loadApplication)
@@ -99,10 +100,11 @@ multiAppRec =
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.fromList [(unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))]
     , appDatabases = [kizashiDb]
+    , brokers = []
     , service = Just kizashiServe
-    -- canonical (name-sorted) order: the encoder sorts workers by name, so a
-    -- pre-sorted fixture round-trips to itself (kizashi-agent-worker < kizashi-worker).
-    , workers = [worker2, worker1]
+    , -- canonical (name-sorted) order: the encoder sorts workers by name, so a
+      -- pre-sorted fixture round-trips to itself (kizashi-agent-worker < kizashi-worker).
+      workers = [worker2, worker1]
     , tasks = [migrateTask]
     }
 
@@ -123,6 +125,7 @@ serviceLessAppRec =
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.empty
     , appDatabases = []
+    , brokers = []
     , service = Nothing
     , workers = [plainWorker]
     , tasks = [migrateTask]
@@ -168,6 +171,9 @@ roundTripTests :: [TestTree]
 roundTripTests =
   [ testCase "multi-workload application survives emit -> decode round-trip" $
       decodeApplication (toStrict (encodeApplication multiApp)) @?= Right multiApp
+  , testCase "application broker bindings round-trip" $
+      let boundApp = unsafe (mkApplication (multiAppRec & #brokers .~ [appBrokerBinding]))
+       in decodeApplication (toStrict (encodeApplication boundApp)) @?= Right boundApp
   , testCase "service-less application round-trips" $
       decodeApplication (toStrict (encodeApplication serviceLessApp)) @?= Right serviceLessApp
   , testCase "decoding an Application as a Deployment is UnexpectedKind" $
@@ -209,6 +215,13 @@ assertAppMarshal needle e = case e of
         assertFailure
           ("MarshalError application but message missing " <> show needle <> ": " <> Text.unpack msg)
   other -> assertFailure ("expected MarshalError application, got: " <> show other)
+
+appBrokerBinding :: BrokerBinding
+appBrokerBinding =
+  BrokerBinding
+    { name = unsafe (mkBrokerName "events")
+    , topics = [unsafe (mkTopicName "jobs")]
+    }
 
 -- ---------------------------------------------------------------------------
 -- M3: the full Config.hs -> emitApplication -> loadApplication path through the

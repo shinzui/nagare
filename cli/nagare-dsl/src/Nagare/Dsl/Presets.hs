@@ -29,10 +29,10 @@ module Nagare.Dsl.Presets
   , secretEnv
   , stdResources
   , teamDefaults
-  ) where
+  )
+where
 
 import Data.Generics.Labels ()
-
 import Data.Map qualified as Map
 import Nagare.Dsl.Build (defaultBuild)
 import Nagare.Dsl.Prelude
@@ -64,6 +64,7 @@ webService nameText imageText = do
       , healthCheck = Nothing
       , volumes = []
       , databases = []
+      , brokers = []
       , tasks = []
       , cdn = Nothing
       }
@@ -128,5 +129,7 @@ stdResources = do
 teamDefaults :: Deployment -> Deployment
 teamDefaults dep =
   dep
-    & #namespace .~ defaultNamespace
-    & #domains .~ []
+    & #namespace
+    .~ defaultNamespace
+    & #domains
+    .~ []

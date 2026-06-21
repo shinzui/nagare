@@ -39,14 +39,15 @@ module Nagare.Dsl.Worker
 
     -- * Preset
   , webWorker
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
+import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( DatabaseName
   , EnvName
@@ -160,13 +161,13 @@ defaultProbeTiming =
 -- endpoint). The sum makes the choice exclusive at the type level. Construct via
 -- 'mkExecProbe' / 'mkTcpProbe' / 'mkHttpProbe' (or the 'execProbe' convenience).
 data WorkerProbe
-  = ExecProbe ![Text] !ProbeTiming
-  -- ^ argv; non-empty, NUL-free (validated by 'mkExecProbe').
-  | TcpProbe !Port !ProbeTiming
-  -- ^ TCP port to dial.
-  | HttpProbe !Text !(Maybe Port) !HealthScheme !ProbeTiming
-  -- ^ HTTP path (must start with @/@), optional port (defaults to the probe's
-  -- own — workers have no container port, so a port is usually given), scheme.
+  = -- | argv; non-empty, NUL-free (validated by 'mkExecProbe').
+    ExecProbe ![Text] !ProbeTiming
+  | -- | TCP port to dial.
+    TcpProbe !Port !ProbeTiming
+  | -- | HTTP path (must start with @/@), optional port (defaults to the probe's
+    -- own — workers have no container port, so a port is usually given), scheme.
+    HttpProbe !Text !(Maybe Port) !HealthScheme !ProbeTiming
   deriving stock (Generic, Eq, Show)
 
 -- | Construct an exec liveness probe, reusing 'mkCommand''s argv invariant
@@ -224,6 +225,7 @@ data Worker = Worker
   , resources :: !(Maybe Resources)
   , volumes :: ![Volume]
   , databases :: ![DatabaseName]
+  , brokers :: ![BrokerBinding]
   , liveness :: !(Maybe WorkerProbe)
   -- ^ optional liveness/health probe (EP-74). 'Nothing' (the default) emits no
   -- probe — byte-identical to a worker without one.
@@ -254,6 +256,7 @@ webWorker nameText imageText = do
       , resources = Nothing
       , volumes = []
       , databases = []
+      , brokers = []
       , liveness = Nothing
       }
   where
