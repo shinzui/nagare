@@ -36,6 +36,7 @@ library
     Nagare.App.Deployments
     Nagare.Build
     Nagare.Broker.Create
+    Nagare.Broker.Connection
     Nagare.Broker.Delete
     Nagare.Broker.Discover
     Nagare.Broker.Get

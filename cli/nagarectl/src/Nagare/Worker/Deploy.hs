@@ -13,24 +13,25 @@
 module Nagare.Worker.Deploy
   ( WorkerDeployParams (..)
   , runWorkerDeploy
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Control.Monad (forM_)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
 import Nagare.Deploy (applyManifests, applyPVCs, waitForWorkerRollout)
+import Nagare.Deploy.Resolve (resolveBrokerEnv)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load (loadWorker, renderLoadError)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (imageRefText, namespaceText, serviceNameText)
 import Nagare.Dsl.Worker (Worker, replicasInt)
 import Nagare.Dsl.Worker.Render (renderWorker, workerDeploymentName)
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
+import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Image (computeTag, configureDockerAuth, pushImage, qualifyImage, taggedImageRef)
 import Nagare.Target (TargetProfile (..), resolveTargetProfile)
 import System.Exit (exitFailure)
@@ -66,16 +67,18 @@ runWorkerDeploy params = do
 
   imageTag <- maybe computeTag pure (wdpTag params)
   spec <- orDie (applyBuildOverrides (wdpContextOverride params) (wdpDockerfileOverride params) (worker ^. #build))
+  brokerEnv <- resolveBrokerEnv (worker ^. #namespace) (worker ^. #brokers)
 
-  let effTag = resolveImageTag spec imageTag
-      ref = taggedImageRef (worker ^. #image) effTag
-      name = serviceNameText (worker ^. #name)
-      ns = namespaceText (worker ^. #namespace)
+  let worker' = worker & #env %~ mergeGenerated brokerEnv
+      effTag = resolveImageTag spec imageTag
+      ref = taggedImageRef (worker' ^. #image) effTag
+      name = serviceNameText (worker' ^. #name)
+      ns = namespaceText (worker' ^. #namespace)
       replicaCount = replicasInt (worker ^. #replicas)
       -- renderWorker resolves the tag itself; the PVCs (if any) head the list and
       -- the Deployment is its last element (mirrors how the app deploy splits
       -- renderVolumeClaims from renderService).
-      manifests = renderWorker worker imageTag
+      manifests = renderWorker worker' imageTag
       (pvcBytes, depBytes) = splitLast manifests
 
   if wdpDryRun params
@@ -97,7 +100,7 @@ runWorkerDeploy params = do
         )
     else do
       if requiresBuild spec
-        then buildAndPush tp worker name ns spec ref
+        then buildAndPush tp worker' name ns spec ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       -- PVCs first (no-op when empty; local-path is WaitForFirstConsumer), then
       -- the Deployment.
