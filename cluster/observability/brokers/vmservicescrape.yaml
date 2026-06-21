@@ -1,0 +1,41 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: nagare-brokers
+  namespace: monitoring
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/component: broker-observability
+spec:
+  jobLabel: nagare.dev/component
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      nagare.dev/managed-by: nagarectl
+      nagare.dev/broker-provider: redpanda
+  endpoints:
+    - port: admin
+      path: /public_metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelConfigs:
+        - action: replace
+          replacement: nagare-brokers
+          targetLabel: job
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_service_label_nagare_dev_broker
+          targetLabel: nagare_broker
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_service_label_nagare_dev_broker_provider
+          targetLabel: nagare_broker_provider
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_namespace
+          targetLabel: kubernetes_namespace
+        - action: replace
+          sourceLabels:
+            - __meta_kubernetes_service_name
+          targetLabel: kubernetes_service

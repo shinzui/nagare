@@ -48,6 +48,7 @@ import Nagare.Broker.Connection
   )
 import Nagare.Broker.Create (BrokerCreateParams (..), buildBroker)
 import Nagare.Broker.Discover (BrokerRow (..), brokerLabelSelector, extractBrokerRows, formatBrokerTable)
+import Nagare.Broker.Health (parsePodReady, parseVictoriaUp)
 import Nagare.Broker.Topic (TopicStatus (..), parseTopicDescription, renderTopicPlan, rpkTopicCreateArgs)
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Cdn.Cloudflare
@@ -2144,6 +2145,17 @@ brokerTests =
                   [BrokerRow "events" "redpanda" "v25.2.1" "5Gi" "events.personal.svc.cluster.local:9092" True]
             )
       ]
+  , testGroup
+      "Nagare.Broker.Health"
+      [ testCase "parsePodReady reads Ready=True" $
+          parsePodReady readyPodJson @?= Just True
+      , testCase "parsePodReady reads Ready=False" $
+          parsePodReady notReadyPodJson @?= Just False
+      , testCase "parseVictoriaUp matches broker up sample" $
+          parseVictoriaUp "events" victoriaUpJson @?= Right True
+      , testCase "parseVictoriaUp returns False when broker has no up sample" $
+          parseVictoriaUp "events" victoriaEmptyJson @?= Right False
+      ]
   ]
   where
     mkParams ver smp' memory' =
@@ -2170,6 +2182,18 @@ brokerTests =
     brokerStsImageVersionJson =
       BC.pack
         "{\"items\":[{\"metadata\":{\"name\":\"events\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/broker\":\"events\",\"nagare.dev/broker-provider\":\"redpanda\",\"nagare.dev/managed-by\":\"nagarectl\"}},\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"image\":\"docker.redpanda.com/redpandadata/redpanda:v25.2.1\"}]} }},\"status\":{\"readyReplicas\":0}}]}"
+    readyPodJson =
+      BC.pack
+        "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
+    notReadyPodJson =
+      BC.pack
+        "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"False\"}]}}"
+    victoriaUpJson =
+      BC.pack
+        "{\"status\":\"success\",\"data\":{\"result\":[{\"metric\":{\"nagare_broker\":\"events\"},\"value\":[1710000000,\"1\"]}]}}"
+    victoriaEmptyJson =
+      BC.pack
+        "{\"status\":\"success\",\"data\":{\"result\":[]}}"
 
 -- ---------------------------------------------------------------------------
 -- EP-46: app -> database connection-env injection.

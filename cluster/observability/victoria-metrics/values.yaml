@@ -47,6 +47,12 @@ vmcluster:
 vmagent:
   enabled: true
   spec:
+    # Pick up Nagare-owned VMServiceScrape objects such as
+    # cluster/observability/brokers/vmservicescrape.yaml. The stack chart already
+    # creates the standard Kubernetes scrape objects; selecting all scrape
+    # objects keeps custom Nagare surfaces discoverable without another chart
+    # value edit per component.
+    selectAllByDefault: true
     # CPU request trimmed from the chart default (50m) to 25m for the 2-vCPU node
     # (EP-2 M4); the config-reloader sidecar keeps its own small request. No CPU
     # limit, so scraping can still burst; the memory limit guards the node.

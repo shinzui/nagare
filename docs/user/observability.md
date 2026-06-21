@@ -1,10 +1,6 @@
 # Observability
 
-> **Status:** 🔭 Planned (EP-5) — **not built yet.**
->
-> Target runbook. The `cluster/observability/` manifests and Helm values do not
-> exist on disk yet, and `just observability` references chart values EP-5 will
-> create. Treat commands here as the intended design until EP-5 lands.
+> **Status:** Installed by `just observability`.
 
 Nagare's observability is the **Victoria stack** — VictoriaMetrics (metrics),
 VictoriaLogs (logs), and VictoriaTraces (traces) — plus an **OpenTelemetry
@@ -86,6 +82,34 @@ Grafana ships with the metrics stack. Configure three datasources:
 
 Dashboards live in Git so they're reproducible (see
 [Backups and disaster recovery](backups-and-disaster-recovery.md)).
+
+## Brokers
+
+Managed brokers expose a Nagare-owned observability surface. `just
+observability` applies `cluster/observability/brokers/vmservicescrape.yaml`,
+which tells VMAgent to scrape broker Services labelled by `nagarectl`, and loads
+the `Nagare Brokers` Grafana dashboard from
+`cluster/observability/grafana/dashboards/nagare-brokers.json`.
+
+The first provider is Redpanda. It exports public Prometheus metrics at
+`/public_metrics` on the Admin API port `9644`; Nagare records those samples
+with labels such as `nagare_broker` and `nagare_broker_provider` so dashboards
+do not need Redpanda-specific Kubernetes selectors.
+
+Use:
+
+```bash
+nagarectl broker get events --namespace personal
+```
+
+to see pod readiness, direct `/public_metrics` reachability, and whether
+VictoriaMetrics has an `up{job="nagare-brokers"}` sample for the broker. The
+CLI does not require Grafana to be reachable.
+
+Consumer lag panels are empty until Redpanda consumer group lag metrics are
+enabled. A future Tansu provider must expose the same concepts over
+Prometheus-format HTTP metrics; the concrete mapping belongs in
+`cluster/observability/brokers/README.md`.
 
 ### Exposing Grafana
 
