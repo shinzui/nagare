@@ -10,6 +10,8 @@ module Nagare.Dsl.Load
   , renderLoadError
   , loadDeployment
   , decodeDeployment
+  , loadBroker
+  , decodeBroker
   , loadDatabase
   , decodeDatabase
   , loadStaticSite
@@ -24,7 +26,8 @@ module Nagare.Dsl.Load
   , decodeApplication
   , SiteConfig (..)
   , loadSite
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
@@ -35,15 +38,16 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Application (Application (..), mkApplication)
+import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Worker
   ( ProbeTiming (..)
   , Worker (..)
@@ -59,6 +63,7 @@ import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.Process (readProcessWithExitCode)
+import "generic-lens" Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- LoadError
@@ -518,6 +523,111 @@ decodeDeployment bs =
           Left (MarshalError "json" ("could not decode deployment: " <> Text.pack perr))
         Right jd -> toDeployment jd
       Just other -> Left (UnexpectedKind "Deployment" other)
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for brokers (mirrors Nagare.Dsl.Config's emitted shape)
+
+data JsonBrokerTopic = JsonBrokerTopic
+  { name :: !Text
+  , partitions :: !Int
+  , replicationFactor :: !Int
+  , retentionMs :: !(Maybe Int)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonBrokerTopic where
+  parseJSON = withObject "BrokerTopic" $ \o ->
+    JsonBrokerTopic
+      <$> o .: "name"
+      <*> o .:? "partitions" .!= 1
+      <*> o .:? "replicationFactor" .!= 1
+      <*> o .:? "retentionMs"
+
+data JsonBroker = JsonBroker
+  { name :: !Text
+  , provider :: !Text
+  , version :: !Text
+  , namespace :: !Text
+  , storageSize :: !Text
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , redpandaSmp :: !(Maybe Int)
+  , redpandaMemory :: !(Maybe Text)
+  , topics :: ![JsonBrokerTopic]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonBroker where
+  parseJSON = withObject "Broker" $ \o ->
+    JsonBroker
+      <$> o .: "name"
+      <*> o .: "provider"
+      <*> o .: "version"
+      <*> o .: "namespace"
+      <*> o .: "storageSize"
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
+      <*> o .:? "redpandaSmp"
+      <*> o .:? "redpandaMemory"
+      <*> o .:? "topics" .!= []
+
+toBroker :: JsonBroker -> Either LoadError Broker
+toBroker j = do
+  name' <- first (MarshalError "name") $ mkBrokerName (j ^. #name)
+  provider' <- case parseBrokerProvider (j ^. #provider) of
+    Just p -> Right p
+    Nothing -> Left (MarshalError "provider" ("unknown broker provider: " <> j ^. #provider))
+  version' <- first (MarshalError "version") $ mkBrokerVersion provider' (j ^. #version)
+  namespace' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  storageSize' <- first (MarshalError "storageSize") $ mkQuantity (j ^. #storageSize)
+  resources' <- toBrokerResources j
+  redpandaMemory' <- traverse (first (MarshalError "redpandaMemory") . mkQuantity) (j ^. #redpandaMemory)
+  sizing' <- first (MarshalError "sizing") $ mkBrokerSizing (Just storageSize') resources' (j ^. #redpandaSmp) redpandaMemory'
+  topics' <- traverse toBrokerTopic (j ^. #topics)
+  Right
+    Broker
+      { name = name'
+      , provider = provider'
+      , version = version'
+      , namespace = namespace'
+      , storageSize = storageSize'
+      , sizing = sizing'
+      , topics = topics'
+      }
+
+toBrokerTopic :: JsonBrokerTopic -> Either LoadError BrokerTopic
+toBrokerTopic j = do
+  name' <- first (MarshalError "topics.name") $ mkTopicName (j ^. #name)
+  first (MarshalError "topics") $
+    mkBrokerTopic name' (j ^. #partitions) (j ^. #replicationFactor) (j ^. #retentionMs)
+
+toBrokerResources :: JsonBroker -> Either LoadError (Maybe Resources)
+toBrokerResources j =
+  case (j ^. #cpuRequest, j ^. #memoryRequest, j ^. #cpuLimit, j ^. #memoryLimit) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (c, m, cl, ml) -> do
+      c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
+      m' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) m
+      cl' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cl
+      ml' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) ml
+      Right (Just Resources {cpu = c', memory = m', cpuLimit = cl', memoryLimit = ml'})
+
+decodeBroker :: ByteString -> Either LoadError Broker
+decodeBroker bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Broker" -> case eitherDecodeStrict bs of
+        Left perr ->
+          Left (MarshalError "json" ("could not decode broker: " <> Text.pack perr))
+        Right jb -> toBroker jb
+      Just other -> Left (UnexpectedKind "Broker" other)
+      Nothing -> Left (UnexpectedKind "Broker" "<none>")
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for databases (mirrors Nagare.Dsl.Config's emitted shape)
@@ -1016,7 +1126,7 @@ loadApplication path = fmap (>>= decodeApplication) (runConfig path)
 -- @.:?@ so a missing key is 'Nothing'; the encoder always writes the key (as
 -- @null@ for the never-cache case), so the round-trip preserves 'Nothing'.
 data JsonCdnCacheRule = JsonCdnCacheRule
-  { jcrPathPrefix     :: !Text
+  { jcrPathPrefix :: !Text
   , jcrEdgeTtlSeconds :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
@@ -1029,10 +1139,10 @@ instance FromJSON JsonCdnCacheRule where
 -- @cacheRules@ to @[]@ so a hand-written partial object is forgiving, mirroring
 -- how 'JsonVolume'/'JsonHealthCheck' default their optional fields.
 data JsonCdn = JsonCdn
-  { jcProvider          :: !Text
+  { jcProvider :: !Text
   , jcDefaultTtlSeconds :: !(Maybe Int)
   , jcCacheStaticAssets :: !Bool
-  , jcCacheRules        :: ![JsonCdnCacheRule]
+  , jcCacheRules :: ![JsonCdnCacheRule]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1056,8 +1166,9 @@ toCdn j = do
     "GcpCloudCdn" -> Right GcpCloudCdn
     other -> Left (MarshalError "cdn.provider" ("unknown cdn provider: " <> other))
   case jcDefaultTtlSeconds j of
-    Just n | n < 0 ->
-      Left (MarshalError "cdn.defaultTtlSeconds" ("must be >= 0, got: " <> Text.pack (show n)))
+    Just n
+      | n < 0 ->
+          Left (MarshalError "cdn.defaultTtlSeconds" ("must be >= 0, got: " <> Text.pack (show n)))
     _ -> Right ()
   rules <- traverse toCdnCacheRule (jcCacheRules j)
   Right
@@ -1239,14 +1350,12 @@ decodeStaticSite bs =
 -- | Compile-and-run a config-as-program source file with @runghc@ and capture
 -- the JSON it prints on stdout, mapping every failure mode to a 'LoadError'.
 --
--- The file is run with @runghc@ (the house @GHC2024@ edition and the config's
--- directory on the include path). @runghc@ resolves the @nagare-dsl@ package
--- through the project's @.ghc.environment.*@ file
--- (@write-ghc-environment-files: always@ in @cabal.project@). The config must
--- print its JSON via one of the @Nagare.Dsl.Config.emit*@ helpers; empty output
--- means it never called one ('MissingBinding'). The decoder that reads the
--- captured bytes is chosen by the caller ('decodeDeployment' or
--- 'decodeStaticSite').
+-- The file is run with @runghc@ (the house @GHC2024@ edition, the local
+-- @nagare-dsl@ package exposed, and the config's directory on the include path).
+-- The config must print its JSON via one of the @Nagare.Dsl.Config.emit*@
+-- helpers; empty output means it never called one ('MissingBinding'). The
+-- decoder that reads the captured bytes is chosen by the caller
+-- ('decodeDeployment' or 'decodeStaticSite').
 runConfig :: FilePath -> IO (Either LoadError ByteString)
 runConfig path = do
   exists <- doesFileExist path
@@ -1256,7 +1365,10 @@ runConfig path = do
       let configDir = takeDirectory path
       result <-
         try @IOException $
-          readProcessWithExitCode "runghc" ["-XGHC2024", "-i" <> configDir, path] ""
+          readProcessWithExitCode
+            "runghc"
+            ["--ghc-arg=-XGHC2024", "--ghc-arg=-package", "--ghc-arg=nagare-dsl", "-i" <> configDir, path]
+            ""
       pure $ case result of
         Left ioErr -> Left (CompileError path (Text.pack (show ioErr)))
         Right (ExitFailure _, _out, err) -> Left (CompileError path (Text.pack err))
@@ -1270,6 +1382,12 @@ runConfig path = do
 -- production-provisioning note handed to EP-12.
 loadDeployment :: FilePath -> IO (Either LoadError Deployment)
 loadDeployment path = fmap (>>= decodeDeployment) (runConfig path)
+
+-- | Load a 'Broker' from a Haskell config-as-program source file. The config
+-- must print its JSON via 'Nagare.Dsl.Config.emitBroker'. A config that instead
+-- emits any other kind is reported as 'UnexpectedKind'.
+loadBroker :: FilePath -> IO (Either LoadError Broker)
+loadBroker path = fmap (>>= decodeBroker) (runConfig path)
 
 -- | Load a 'Database' from a Haskell config-as-program source file (MasterPlan 9,
 -- EP-44/EP-45). The config must print its JSON via

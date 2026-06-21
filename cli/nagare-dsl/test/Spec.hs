@@ -1,5 +1,7 @@
 module Main (main) where
 
+import ApplicationSpec (applicationTests)
+import CdnSpec (cdnTests)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Map qualified as Map
@@ -7,11 +9,15 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import ApplicationSpec (applicationTests)
-import CdnSpec (cdnTests)
 import LoadSpec (loadTests)
+import Nagare.Dsl.Broker
+import Nagare.Dsl.Broker.Render
+  ( renderBrokerPvc
+  , renderBrokerService
+  , renderBrokerStatefulSet
+  )
 import Nagare.Dsl.Build
-import Nagare.Dsl.Config (encodeDatabase, encodeDeployment, encodeTask)
+import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
 import Nagare.Dsl.Database.Render
   ( renderDatabaseConfigMap
@@ -19,8 +25,8 @@ import Nagare.Dsl.Database.Render
   , renderDatabaseService
   , renderStatefulSet
   )
-import Nagare.Dsl.Load (LoadError (..), decodeDatabase, decodeDeployment, decodeTask, loadDeployment)
 import Nagare.Dsl.Image (imageRefFromName, mkImageName)
+import Nagare.Dsl.Load (LoadError (..), decodeBroker, decodeDatabase, decodeDeployment, decodeTask, loadBroker, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
@@ -29,11 +35,11 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
-import WorkerSpec (workerTests)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (Gen, Property, choose, elements, forAll, testProperty)
+import WorkerSpec (workerTests)
 
 main :: IO ()
 main =
@@ -47,6 +53,7 @@ main =
       , testGroup "Nagare.Dsl extended model (EP-29)" extendedModelTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
+      , testGroup "Nagare.Dsl.Broker (EP-76)" brokerTests
       , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
@@ -380,6 +387,129 @@ helloDep =
     , tasks = []
     , cdn = Nothing
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-76: typed brokers (model, JSON round-trip, renderer goldens).
+
+redpandaBroker :: Broker
+redpandaBroker =
+  Broker
+    { name = unsafe (mkBrokerName "events")
+    , provider = Redpanda
+    , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
+    , namespace = unsafe (mkNamespace "personal")
+    , storageSize = unsafe (mkQuantity "5Gi")
+    , sizing = defaultBrokerSizing
+    , topics =
+        [ unsafe
+            ( mkBrokerTopic
+                (unsafe (mkTopicName "jobs"))
+                1
+                1
+                (Just 86400000)
+            )
+        ]
+    }
+
+largeRedpandaBroker :: Broker
+largeRedpandaBroker =
+  Broker
+    { name = unsafe (mkBrokerName "events")
+    , provider = Redpanda
+    , version = unsafe (mkBrokerVersion Redpanda "v26.1.8")
+    , namespace = unsafe (mkNamespace "personal")
+    , storageSize = unsafe (mkQuantity "20Gi")
+    , sizing =
+        unsafe
+          ( mkBrokerSizing
+              (Just (unsafe (mkQuantity "20Gi")))
+              ( Just
+                  Resources
+                    { cpu = Just (unsafe (mkQuantity "1"))
+                    , memory = Just (unsafe (mkQuantity "2Gi"))
+                    , cpuLimit = Just (unsafe (mkQuantity "2"))
+                    , memoryLimit = Just (unsafe (mkQuantity "3Gi"))
+                    }
+              )
+              (Just 2)
+              (Just (unsafe (mkQuantity "2G")))
+          )
+    , topics =
+        [ unsafe
+            ( mkBrokerTopic
+                (unsafe (mkTopicName "jobs"))
+                1
+                1
+                (Just 86400000)
+            )
+        ]
+    }
+
+brokerTests :: [TestTree]
+brokerTests =
+  [ testGroup
+      "constructors"
+      [ testCase "mkBrokerName accepts events" $ assertRight (mkBrokerName "events")
+      , testCase "mkBrokerName rejects uppercase" $ assertLeftContains "invalid" (mkBrokerName "Events")
+      , testCase "mkTopicName accepts dots and hyphens" $ assertRight (mkTopicName "jobs.created")
+      , testCase "mkTopicName rejects leading dot" $ assertLeftContains "dot" (mkTopicName ".hidden")
+      , testCase "mkTopicName rejects slash" $ assertLeftContains "/" (mkTopicName "bad/topic")
+      , testCase "mkBrokerVersion rejects latest" $
+          assertLeftContains "pinned" (mkBrokerVersion Redpanda "latest")
+      , testCase "mkBrokerSizing rejects non-positive smp" $
+          assertLeftContains ">= 1" (mkBrokerSizing Nothing Nothing (Just 0) Nothing)
+      , testCase "mkBrokerTopic rejects zero partitions" $
+          assertLeftContains
+            "partitions"
+            (mkBrokerTopic (unsafe (mkTopicName "jobs")) 0 1 Nothing)
+      ]
+  , testGroup
+      "provider facts"
+      [ testCase "provider token round-trips through parseBrokerProvider" $
+          mapM (\p -> parseBrokerProvider (brokerProviderToken p)) [minBound .. maxBound]
+            @?= Just [Redpanda, Tansu]
+      , testCase "redpanda exposes kafka/admin/metrics facts" $ do
+          brokerProviderKafkaPort Redpanda @?= 9092
+          brokerProviderAdminPort Redpanda @?= Just 9644
+          brokerProviderMetricsPath Redpanda @?= Just "/public_metrics"
+      ]
+  , testGroup
+      "JSON round-trip and kind discrimination"
+      [ testCase "broker survives emit -> decode round-trip" $
+          decodeBroker (toStrict (encodeBroker redpandaBroker)) @?= Right redpandaBroker
+      , testCase "loadBroker redpanda fixture returns Right redpandaBroker" $ do
+          result <- loadBroker "test/fixtures/broker/redpanda/nagare/Config.hs"
+          case result of
+            Left err -> assertFailure ("loadBroker returned Left: " <> show err)
+            Right broker -> broker @?= redpandaBroker
+      , testCase "large broker sizing survives emit -> decode round-trip" $
+          decodeBroker (toStrict (encodeBroker largeRedpandaBroker)) @?= Right largeRedpandaBroker
+      , testCase "decoding a Broker as a Deployment is UnexpectedKind" $
+          case decodeDeployment (toStrict (encodeBroker redpandaBroker)) of
+            Left (UnexpectedKind "Deployment" "Broker") -> pure ()
+            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+      , testCase "decoding a Deployment as a Broker is UnexpectedKind" $
+          case decodeBroker (toStrict (encodeDeployment helloDep)) of
+            Left (UnexpectedKind "Broker" "<none>") -> pure ()
+            other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
+      , testCase "unknown provider rejected as MarshalError provider" $
+          case decodeBroker
+            "{\"kind\":\"Broker\",\"name\":\"events\",\"provider\":\"kafka\",\"version\":\"1\",\"namespace\":\"personal\",\"storageSize\":\"1Gi\"}" of
+            Left (MarshalError "provider" _) -> pure ()
+            other -> assertFailure ("expected MarshalError provider, got: " <> show other)
+      ]
+  , testGroup
+      "renderer goldens"
+      [ goldenVsString "renderBrokerStatefulSet redpanda" "test/golden/broker-redpanda.statefulset.yaml" $
+          pure (fromStrict (renderBrokerStatefulSet redpandaBroker))
+      , goldenVsString "renderBrokerService redpanda" "test/golden/broker-redpanda.service.yaml" $
+          pure (fromStrict (renderBrokerService redpandaBroker))
+      , goldenVsString "renderBrokerPvc redpanda" "test/golden/broker-redpanda.pvc.yaml" $
+          pure (fromStrict (renderBrokerPvc redpandaBroker))
+      , goldenVsString "renderBrokerStatefulSet large redpanda" "test/golden/broker-redpanda-large.statefulset.yaml" $
+          pure (fromStrict (renderBrokerStatefulSet largeRedpandaBroker))
+      ]
+  ]
 
 -- ---------------------------------------------------------------------------
 -- EP-44: managed databases (model, JSON round-trip, renderer goldens).

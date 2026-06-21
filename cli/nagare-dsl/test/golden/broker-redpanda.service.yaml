@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: events
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/broker: events
+    nagare.dev/broker-provider: redpanda
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redpanda
+    nagare.dev/broker: events
+  ports:
+  - name: kafka
+    port: 9092
+    targetPort: kafka
+  - name: admin
+    port: 9644
+    targetPort: admin

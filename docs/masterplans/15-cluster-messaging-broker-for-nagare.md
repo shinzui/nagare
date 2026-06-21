@@ -106,7 +106,7 @@ dashboard contract, but the contract must be Nagare-owned.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
-| 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Not Started |
+| 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
 | 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Not Started |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Not Started |
 | 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Not Started |
@@ -180,7 +180,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 
 - [x] EP-75: Prove Redpanda starts, persists data, creates topics, produces/consumes, and exports metrics on the live cluster.
 - [x] EP-75: Record the provider-neutral Kafka-compatible contract and Tansu migration implications.
-- [ ] EP-76: Add typed broker/topic model, JSON emit/load, renderer helpers, and golden tests.
+- [x] EP-76: Add typed broker/topic model, JSON emit/load, renderer helpers, and golden tests.
 - [ ] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
 - [ ] EP-77: Add workload broker/topic bindings and generated runtime env injection.
 - [ ] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
@@ -210,6 +210,14 @@ interactions between child plans. Provide concise evidence.
   external listener assumptions and provider sidecars. EP-76 should encode the small raw manifest
   shape committed at `cluster/examples/broker-spike/redpanda.yaml` and keep Redpanda-specific flags
   behind provider options.
+
+- 2026-06-21: EP-76 completed the pure DSL contract. `Nagare.Dsl.Broker` now defines the
+  provider-neutral broker/topic/version/sizing model with `Redpanda` implemented and `Tansu` reserved;
+  `Nagare.Dsl.Broker.Render` emits the raw Redpanda v1 PVC, Service, and StatefulSet shape with
+  Nagare-owned labels and provider-neutral resource names; `emitBroker`/`loadBroker` round-trip the
+  JSON contract. Direct `cabal test nagare-dsl-test` also uncovered and fixed an existing
+  config-as-program loader assumption by passing `--ghc-arg=-package --ghc-arg=nagare-dsl` to
+  `runghc`. Validation: `All 339 tests passed (5.53s)`.
 
 
 ## Decision Log
@@ -253,6 +261,14 @@ plan.
   Rationale: The interactive intention prompt was unavailable in the active mode, but the MasterPlan
   already carries `intention_01kvncmnzweearjz953y6besqc` in frontmatter. Commits under this MasterPlan
   should include the matching `Intention:` trailer.
+  Date: 2026-06-21
+
+- Decision: Broker DSL records must follow the `haskell-jitsurei` record-pattern convention.
+  Rationale: The repository convention at
+  `/Users/shinzui/Keikaku/bokuno/haskell-jitsurei/core/record-patterns.md` requires strict
+  unprefixed fields, explicit `deriving stock (Generic, ...)`, and generic-lens field access. EP-76's
+  new broker records and loader intermediates were written to that convention so later plans consume
+  the same field style.
   Date: 2026-06-21
 
 

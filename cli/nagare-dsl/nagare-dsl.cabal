@@ -19,6 +19,7 @@ common common
     MultilineStrings
     OverloadedLabels
     OverloadedStrings
+    PackageImports
 
   ghc-options:        -Wall -Wno-unused-imports
 
@@ -27,6 +28,8 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Nagare.Dsl.Application
+    Nagare.Dsl.Broker
+    Nagare.Dsl.Broker.Render
     Nagare.Dsl.Build
     Nagare.Dsl.Cdn.Types
     Nagare.Dsl.Config

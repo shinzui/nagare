@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: events
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/broker: events
+    nagare.dev/broker-provider: redpanda
+spec:
+  serviceName: events
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+      nagare.dev/broker: events
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redpanda
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/broker: events
+        nagare.dev/broker-provider: redpanda
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+      - name: redpanda
+        image: docker.redpanda.com/redpandadata/redpanda:v26.1.8
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/rpk
+        - redpanda
+        - start
+        - --mode
+        - dev-container
+        - --smp
+        - '2'
+        - --memory
+        - 2G
+        - --reserve-memory
+        - 0M
+        - --overprovisioned
+        - --node-id
+        - '0'
+        - --kafka-addr
+        - internal://0.0.0.0:9092
+        - --advertise-kafka-addr
+        - internal://events.personal.svc.cluster.local:9092
+        - --rpc-addr
+        - 0.0.0.0:33145
+        - --advertise-rpc-addr
+        - events-0.events.personal.svc.cluster.local:33145
+        - --set
+        - redpanda.empty_seed_starts_cluster=true
+        - --set
+        - redpanda.auto_create_topics_enabled=false
+        ports:
+        - name: kafka
+          containerPort: 9092
+        - name: admin
+          containerPort: 9644
+        - name: rpc
+          containerPort: 33145
+        resources:
+          requests:
+            cpu: '1'
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 3Gi
+        startupProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: admin
+          failureThreshold: 60
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: admin
+          failureThreshold: 6
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/redpanda/data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: nagare-broker-events-data

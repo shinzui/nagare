@@ -34,10 +34,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `BrokerName`, `TopicName`, `BrokerProvider`, `BrokerTopic`, and `Broker` types with smart constructors.
-- [ ] M2: Add `emitBroker`, `encodeBroker`, `loadBroker`, and load-error tests.
-- [ ] M3: Add provider-neutral renderer helpers, Redpanda v1 manifest rendering, and golden tests.
-- [ ] M4: Export the new modules and integrate them into `Nagare.Dsl.Presets` or docs-friendly helper APIs.
+- [x] M1: Add `BrokerName`, `TopicName`, `BrokerProvider`, `BrokerTopic`, and `Broker` types with smart constructors. Completed 2026-06-21 in `Nagare.Dsl.Broker`; records use strict unprefixed fields and derive `Generic` per the house record-pattern convention.
+- [x] M2: Add `emitBroker`, `encodeBroker`, `loadBroker`, and load-error tests. Completed 2026-06-21; broker JSON uses `kind: Broker`, round-trips through `decodeBroker`, rejects wrong-kind deployment JSON, and has a config-as-program fixture at `cli/nagare-dsl/test/fixtures/broker/redpanda/nagare/Config.hs`.
+- [x] M3: Add provider-neutral renderer helpers, Redpanda v1 manifest rendering, and golden tests. Completed 2026-06-21; goldens pin PVC, Service, default StatefulSet, and larger sizing StatefulSet outputs under `cli/nagare-dsl/test/golden/broker-redpanda*.yaml`.
+- [x] M4: Export the new modules and integrate them into `Nagare.Dsl.Presets` or docs-friendly helper APIs. Completed 2026-06-21; `Nagare.Dsl.Broker` and `Nagare.Dsl.Broker.Render` are exposed from `nagare-dsl.cabal`, while preset helpers were deliberately deferred because existing top-level managed resources use explicit constructors rather than preset overlays.
 
 
 ## Surprises & Discoveries
@@ -45,7 +45,13 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-06-21: The repository's `nix fmt cli/nagare-dsl` command is not available on this platform because the flake does not define `formatter.aarch64-darwin`. The touched Haskell files were formatted directly with `fourmolu --mode inplace ...` using `cli/fourmolu.yaml`; `cabal-gild` was checked but would print a whole-file Cabal reformat rather than a scoped edit.
+
+- 2026-06-21: Existing config-as-program fixture tests initially failed under direct `cabal test` because `runghc` did not expose the local `nagare-dsl` package from the Cabal test environment. Passing `--ghc-arg=-package --ghc-arg=nagare-dsl` to `runghc` fixed the existing deployment/static/server/worker/application fixtures and the new broker fixture.
+
+```text
+All 339 tests passed (5.53s)
+```
 
 
 ## Decision Log
@@ -63,13 +69,41 @@ Record every decision made while working on the plan.
   provisioning until a future plan implements it.
   Date: 2026-06-21
 
+- Decision: Use unprefixed strict record fields and `Generic` derivations for the new broker records.
+  Rationale: The repository follows the `haskell-jitsurei` record-pattern convention at
+  `/Users/shinzui/Keikaku/bokuno/haskell-jitsurei/core/record-patterns.md`: do not prefix record
+  fields, always mark fields strict, use explicit deriving strategies, and use generic-lens `#field`
+  access where fields are read. The broker additions were adjusted to follow that convention.
+  Date: 2026-06-21
+
+- Decision: Keep broker preset helpers out of EP-76.
+  Rationale: Managed databases, the closest existing top-level resource, use explicit constructors
+  rather than `Nagare.Dsl.Presets` overlays. Exporting `Nagare.Dsl.Broker` and
+  `Nagare.Dsl.Broker.Render` gives docs and later CLI plans the stable helper API without inventing a
+  separate preset style for brokers.
+  Date: 2026-06-21
+
+- Decision: Make `runConfig` pass the local `nagare-dsl` package explicitly to `runghc`.
+  Rationale: The previous comment assumed `.ghc.environment.*` made `nagare-dsl` visible, but the
+  direct `cabal test nagare-dsl-test` validation showed `runghc` treating the package as hidden. Using
+  `--ghc-arg=-package --ghc-arg=nagare-dsl` is explicit and keeps every existing config fixture green.
+  Date: 2026-06-21
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-76 completed on 2026-06-21. The DSL now has a provider-neutral broker model, Redpanda and reserved
+Tansu provider tokens, validated broker/topic/version/sizing constructors, JSON emit/load helpers,
+config-as-program loading, and Redpanda v1 Kubernetes rendering with golden coverage. The renderer
+uses provider-neutral names and Nagare labels while keeping Redpanda image, ports, health endpoints,
+and startup flags inside the Redpanda branch. The full `nagare-dsl` test suite passes:
+
+```text
+All 339 tests passed (5.53s)
+```
 
 
 ## Context and Orientation
@@ -224,3 +258,7 @@ encodeBroker :: Broker -> LBS.ByteString
 loadBroker :: FilePath -> IO (Either LoadError Broker)
 decodeBroker :: LBS.ByteString -> Either LoadError Broker
 ```
+
+Revision 2026-06-21: Implemented the plan. Updated progress, discoveries, decisions, and outcomes to
+record the completed broker model, renderer, JSON loading, test evidence, record-pattern convention
+alignment, and the `runConfig` package-exposure fix discovered during validation.
