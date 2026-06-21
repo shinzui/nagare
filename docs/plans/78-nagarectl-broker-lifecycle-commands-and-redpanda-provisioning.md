@@ -34,9 +34,9 @@ This section must always reflect the actual current state of the work.
 
 - [x] M1: Add `broker` command parser and library module stubs to `nagarectl`. Started 2026-06-21 after EP-76 completed.
 - [x] M2: Implement idempotent Redpanda create/apply/wait using EP-76 renderer output.
-- [ ] M3: Implement topic creation and reconciliation for declared topics.
+- [x] M3: Implement topic creation and reconciliation for declared topics.
 - [x] M4: Implement list, get, restart, and delete commands with label-based discovery.
-- [ ] M5: Add dry-run output, tests, and live acceptance transcript. Dry-run output and focused unit tests are in place; live acceptance transcript remains.
+- [x] M5: Add dry-run output, tests, and live acceptance transcript.
 
 
 ## Surprises & Discoveries
@@ -48,6 +48,12 @@ implementation. Provide concise evidence.
   so `nagarectl` tests should assert through `defaultBrokerVersion` and `defaultBrokerSizing` rather
   than copy stale version or sizing literals.
 
+- 2026-06-21: The local workstation's default kubectl context is still `sennari`, so live EP-78
+  acceptance used the documented VM path. A direct IAP tunnel to port `6443` failed because k3s is
+  bound to localhost on `nagare-01`; the successful acceptance used a temporary `kubectl` wrapper that
+  forwarded commands through `scripts/iap-ssh.sh ssh nagare-01 -- sudo k3s kubectl ...` and streamed
+  `kubectl apply -f <local-temp-file>` over stdin.
+
 
 ## Decision Log
 
@@ -58,11 +64,12 @@ Record every decision made while working on the plan.
   going through the executable. Broker lifecycle should follow that pattern.
   Date: 2026-06-21
 
-- Decision: Keep the initial CLI topic path behind typed config instead of adding partial
-  `--topic-*` flags before topic names and ownership behavior are settled.
-  Rationale: `Broker` already carries typed topic declarations from EP-76, but EP-78 still needs the
-  Redpanda reconciliation step. Adding flags without a complete topic identity contract would create
-  a user-facing surface that may need to change.
+- Decision: Expose topic creation from flags as `--topic TOPIC`, `--topic-partitions N`, and
+  `--topic-retention-ms MS`, while still supporting richer topic declarations through `--config`.
+  Rationale: The original plan required CLI control over topic partitions and retention. A repeated
+  explicit topic-name flag avoids implicit topic naming and maps cleanly to EP-76's `BrokerTopic`
+  model. The Redpanda implementation uses `rpk topic create --if-not-exists` followed by
+  `rpk topic describe` compatibility checks so an existing incompatible topic fails loudly.
   Date: 2026-06-21
 
 
@@ -71,11 +78,13 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-Partial implementation landed for lifecycle commands. `nagarectl broker create redpanda NAME` can
-build a typed `Broker` from flags or load one from `--config`, render EP-76 manifests, dry-run them,
-apply them, annotate the StatefulSet, and wait for rollout. `broker list`, `broker get`, `broker
+EP-78 completed on 2026-06-21. `nagarectl broker create redpanda NAME` can build a typed `Broker`
+from flags or load one from `--config`, render EP-76 manifests, dry-run them, apply them, annotate the
+StatefulSet, wait for rollout, and reconcile declared topics. `broker list`, `broker get`, `broker
 restart`, and `broker delete` use the shared `nagare.dev/broker` labels and preserve PVC data by
-default. Remaining gaps are topic reconciliation and live cluster acceptance.
+default. Live acceptance on the Nagare k3s cluster created broker `events` in namespace `broker-live`,
+created topic `jobs`, produced and consumed `ep78-live-ok`, restarted the broker, consumed the same
+record again, and removed the disposable namespace.
 
 
 ## Context and Orientation
@@ -164,6 +173,7 @@ Dry-run acceptance:
 
 ```bash
 nagarectl broker create redpanda events --namespace personal --size 5Gi --dry-run
+nagarectl broker create redpanda events --namespace personal --size 5Gi --topic jobs --topic-partitions 3 --topic-retention-ms 86400000 --dry-run
 nagarectl broker create redpanda events --namespace personal --size 100Gi --cpu 2 --memory 5Gi --redpanda-smp 2 --redpanda-memory 4G --dry-run
 ```
 
@@ -173,10 +183,11 @@ address, and a statement that no cluster changes were applied.
 Live acceptance:
 
 ```bash
-nagarectl broker create redpanda events --namespace broker-live --size 5Gi
+nagarectl broker create redpanda events --namespace broker-live --size 5Gi --topic jobs --topic-partitions 1 --topic-retention-ms 86400000
 nagarectl broker list --namespace broker-live
 nagarectl broker get events --namespace broker-live
 nagarectl broker restart events --namespace broker-live
+kubectl exec -n broker-live pod/events-0 -- /usr/bin/rpk topic consume jobs --offset 0 -n 1 -f '%v' -X brokers=events.broker-live.svc.cluster.local:9092
 ```
 
 
@@ -203,6 +214,35 @@ Validation so far:
   `Nagare.Broker (EP-78)` coverage for broker construction defaults, Redpanda sizing flags, label
   selectors, StatefulSet JSON discovery, image-version fallback, malformed JSON handling, and table
   formatting.
+- 2026-06-21: `fourmolu --mode inplace` on touched `nagarectl` Haskell files passed after adding topic
+  reconciliation. `nix fmt cli/nagarectl cli/nagare-dsl` failed because the flake still does not
+  provide `formatter.aarch64-darwin`.
+- 2026-06-21: `cabal test nagarectl-test` from `cli/nagarectl` passed with 307 tests, adding coverage
+  for CLI topic construction, `rpk topic create` argument construction, `rpk topic describe` parsing,
+  and rendered dry-run topic plans.
+- 2026-06-21: `cabal test nagare-dsl-test` from `cli/nagare-dsl` passed with 339 tests.
+- 2026-06-21: Dry-run acceptance passed for
+  `cabal run exe:nagarectl -- broker create redpanda events --namespace personal --size 5Gi --topic jobs --topic-partitions 3 --topic-retention-ms 86400000 --dry-run`.
+  Output included PVC, Service, StatefulSet manifests, `Would reconcile topics: jobs partitions=3
+  replicationFactor=1 retentionMs=86400000`, bootstrap
+  `events.personal.svc.cluster.local:9092`, and `No cluster changes were applied.`
+- 2026-06-21: Larger-instance dry-run acceptance passed for
+  `cabal run exe:nagarectl -- broker create redpanda events --namespace personal --size 100Gi --cpu 2 --memory 5Gi --redpanda-smp 2 --redpanda-memory 4G --dry-run`.
+  Output showed PVC storage `100Gi`, Redpanda `--smp '2'`, Redpanda `--memory 4G`, and container
+  resource limits `cpu: '2'` and `memory: 5Gi`.
+- 2026-06-21: Live acceptance passed in disposable namespace `broker-live` on the Nagare k3s cluster
+  through the VM `sudo k3s kubectl` path. `nagarectl broker create redpanda events --namespace
+  broker-live --size 5Gi --topic jobs --topic-partitions 1 --topic-retention-ms 86400000` applied the
+  PVC, Service, and StatefulSet, waited for rollout, printed `Reconciled topic jobs`, and reported
+  `Created broker events at events.broker-live.svc.cluster.local:9092`. `broker list` showed
+  `events redpanda v26.1.8 5Gi Ready events.broker-live.svc.cluster.local:9092`. `broker get` showed
+  provider, version, bootstrap, PVC, and Ready `True`. `rpk topic describe jobs` showed `PARTITIONS 1`,
+  `REPLICAS 1`, and dynamic `retention.ms 86400000`. Producing and consuming `ep78-live-ok` succeeded
+  before restart; after `nagarectl broker restart events --namespace broker-live`, consuming offset 0
+  returned `ep78-live-ok` again. `nagarectl broker delete events --namespace broker-live --yes`
+  removed StatefulSet and Service while retaining the PVC, and `kubectl delete namespace broker-live
+  --wait=true` removed the disposable namespace; `kubectl get namespace broker-live` returned
+  `NotFound`.
 
 
 ## Idempotence and Recovery
@@ -237,7 +277,8 @@ runBrokerCreate :: BrokerProvider -> Text -> BrokerCreateParams -> IO ()
 runBrokerList :: Text -> IO ()
 runBrokerGet :: Text -> Text -> IO ()
 runBrokerRestart :: Text -> Text -> IO ()
-runBrokerDelete :: Text -> Text -> Bool -> IO ()
+runBrokerDelete :: BrokerDeleteParams -> IO ()
+reconcileBrokerTopics :: Broker -> IO ()
 ```
 
 The implementation depends on EP-76's `Nagare.Dsl.Broker` and `Nagare.Dsl.Broker.Render`. It may use
@@ -245,3 +286,10 @@ Redpanda's `rpk` CLI inside Kubernetes for topic management if EP-75 validates t
 depend on Haskell Kafka client libraries unless topic operations cannot be done safely through
 provider CLI tools; if a library is needed, use Mori to inspect `hw-kafka-client` or the relevant
 local package source first.
+
+
+## Revision Notes
+
+2026-06-21: Completed EP-78 by adding Redpanda topic reconciliation, explicit topic CLI flags,
+focused unit tests, dry-run verification, live `broker-live` acceptance, and final plan/master-plan
+status updates.

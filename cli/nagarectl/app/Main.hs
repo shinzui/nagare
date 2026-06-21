@@ -588,6 +588,9 @@ data BrokerCreateOpts = BrokerCreateOpts
   , dryRun :: !Bool
   , redpandaSmp :: !(Maybe Int)
   , redpandaMemory :: !(Maybe String)
+  , topics :: ![String]
+  , topicPartitions :: !(Maybe Int)
+  , topicRetentionMs :: !(Maybe Int)
   }
   deriving stock (Generic, Show)
 
@@ -1134,6 +1137,9 @@ brokerCreateOptsParser =
     <*> dryRunOpt
     <*> optional (option auto (long "redpanda-smp" <> metavar "N" <> help "Redpanda core count / --smp"))
     <*> optional (strOption (long "redpanda-memory" <> metavar "QTY" <> help "Redpanda process memory (e.g. 1G)"))
+    <*> many (strOption (long "topic" <> metavar "TOPIC" <> help "Topic to create; repeat for multiple topics"))
+    <*> optional (option auto (long "topic-partitions" <> metavar "N" <> help "Partitions for topics declared with --topic"))
+    <*> optional (option auto (long "topic-retention-ms" <> metavar "MS" <> help "retention.ms for topics declared with --topic"))
 
 brokerDeleteOptsParser :: Parser BrokerDeleteOpts
 brokerDeleteOptsParser =
@@ -2681,6 +2687,9 @@ runBroker = \case
         , dryRun = o ^. #dryRun
         , redpandaSmp = o ^. #redpandaSmp
         , redpandaMemory = T.pack <$> o ^. #redpandaMemory
+        , topics = map T.pack (o ^. #topics)
+        , topicPartitions = o ^. #topicPartitions
+        , topicRetentionMs = o ^. #topicRetentionMs
         }
   BrokerGet o -> runBrokerGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   BrokerRestart o dryRun -> runBrokerRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dryRun
