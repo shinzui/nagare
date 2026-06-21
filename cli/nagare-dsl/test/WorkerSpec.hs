@@ -6,12 +6,15 @@
 -- below as those milestones land.
 module WorkerSpec (workerTests) where
 
+import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDeployment, encodeWorker)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker, loadWorker)
@@ -200,7 +203,8 @@ tcpProbeWorker = minimalWorker {liveness = Just (mkTcpProbe (unsafe (mkPort 9000
 httpProbeWorker :: Worker
 httpProbeWorker =
   minimalWorker
-    {liveness = Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))}
+    { liveness = Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))
+    }
 
 -- | Default timing with @asStartup = True@, built as a full literal so the field
 -- update is not ambiguous between 'ProbeTiming' and the app 'HealthCheck'.
@@ -217,6 +221,9 @@ roundTripTests =
       decodeWorker (toStrict (encodeWorker richWorker)) @?= Right richWorker
   , testCase "minimal worker round-trips" $
       decodeWorker (toStrict (encodeWorker minimalWorker)) @?= Right minimalWorker
+  , testCase "worker broker bindings round-trip" $
+      let boundWorker = minimalWorker & #brokers .~ [workerBrokerBinding]
+       in decodeWorker (toStrict (encodeWorker boundWorker)) @?= Right boundWorker
   , testCase "exec-probe worker round-trips" $
       decodeWorker (toStrict (encodeWorker execProbeWorker)) @?= Right execProbeWorker
   , testCase "tcp-probe worker round-trips" $
@@ -232,6 +239,13 @@ roundTripTests =
         Left (UnexpectedKind "Worker" "<none>") -> pure ()
         other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
   ]
+
+workerBrokerBinding :: BrokerBinding
+workerBrokerBinding =
+  BrokerBinding
+    { name = unsafe (mkBrokerName "events")
+    , topics = [unsafe (mkTopicName "jobs")]
+    }
 
 -- ---------------------------------------------------------------------------
 -- M4 acceptance: the config-as-program fixture loads to the expected Worker via
@@ -276,6 +290,7 @@ helloDep =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , brokers = []
     , tasks = []
     , cdn = Nothing
     }

@@ -95,6 +95,13 @@ topicJSON topic =
     , "retentionMs" .= (topic ^. #retentionMs)
     ]
 
+brokerBindingJSON :: BrokerBinding -> Value
+brokerBindingJSON binding =
+  object
+    [ "name" .= brokerNameText (binding ^. #name)
+    , "topics" .= map topicNameText (binding ^. #topics)
+    ]
+
 -- | Serialize a 'Database' to JSON and write it to stdout. Call this as the last
 -- line of a database project's @Config.hs@ @main@. The top-level
 -- @"kind": "Database"@ discriminator lets the loader dispatch and report a
@@ -280,6 +287,7 @@ workerJSON w =
     , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
     , "volumes" .= map volumeJSON (w ^. #volumes)
     , "databases" .= map databaseNameText (w ^. #databases)
+    , "brokers" .= map brokerBindingJSON (w ^. #brokers)
     , "liveness" .= fmap workerProbeJSON (w ^. #liveness)
     ]
   where
@@ -363,6 +371,7 @@ deploymentJSON dep =
     , "healthCheck" .= fmap healthCheckJSON (dep ^. #healthCheck)
     , "volumes" .= map volumeJSON (dep ^. #volumes)
     , "databases" .= map databaseNameText (dep ^. #databases)
+    , "brokers" .= map brokerBindingJSON (dep ^. #brokers)
     , "tasks" .= map taskJSON (sortOn taskName (dep ^. #tasks))
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
@@ -564,6 +573,7 @@ applicationJSON app =
     , "env" .= map scopedEnvJSON (Map.toAscList (app ^. #env))
     , "databases"
         .= map databaseJSON (sortOn (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases))
+    , "brokers" .= map brokerBindingJSON (app ^. #brokers)
     , "service" .= fmap deploymentJSON (app ^. #service)
     , "workers"
         .= map workerJSON (sortOn (\w -> serviceNameText (w ^. #name)) (app ^. #workers))

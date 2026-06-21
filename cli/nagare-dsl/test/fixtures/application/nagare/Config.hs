@@ -103,6 +103,7 @@ app = do
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
       , appDatabases = [db]
+      , brokers = []
       , service = Just svc
       , workers = [w1, w2]
       , tasks = [migrate]

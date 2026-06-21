@@ -106,17 +106,18 @@ module Nagare.Dsl.Types
 
     -- * Deployment
   , Deployment (..)
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isDigit, isLower)
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.Prelude
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
@@ -581,43 +582,46 @@ data Deployment = Deployment
   { name :: !ServiceName
   , namespace :: !Namespace
   , image :: !ImageRef
-  -- | How the container image at 'image' is produced: a prebuilt image, a
-  -- Dockerfile build, or a Nixpacks build. See 'Nagare.Dsl.Build.BuildSpec'.
   , build :: !BuildSpec
-  -- | Custom domains for the app, each with a canonical marker. An empty list
+  -- ^ How the container image at 'image' is produced: a prebuilt image, a
+  -- Dockerfile build, or a Nixpacks build. See 'Nagare.Dsl.Build.BuildSpec'.
+  , domains :: ![DomainSpec]
+  -- ^ Custom domains for the app, each with a canonical marker. An empty list
   -- means "no custom domain" (the Knative wildcard URL is used). Construct
   -- through 'mkDomains'.
-  , domains :: ![DomainSpec]
   , port :: !Port
-  -- | Env entries are stored by 'EnvName' so 'Data.Map.toAscList' yields a
+  , env :: !(Map EnvName ScopedEnvVar)
+  -- ^ Env entries are stored by 'EnvName' so 'Data.Map.toAscList' yields a
   -- deterministic, name-sorted order for the renderer. Each value carries the
   -- set of scopes it applies to (see 'ScopedEnvVar'); a bare variable defaults
   -- to @{Runtime}@ via 'runtimeScoped'.
-  , env :: !(Map EnvName ScopedEnvVar)
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
-  -- | An optional HTTP health check, rendered as Knative readiness/liveness/
-  -- startup probes (see 'HealthCheck').
   , healthCheck :: !(Maybe HealthCheck)
-  -- | Durable disks attached to the app. Empty (the backward-compatible
+  -- ^ An optional HTTP health check, rendered as Knative readiness/liveness/
+  -- startup probes (see 'HealthCheck').
+  , volumes :: ![Volume]
+  -- ^ Durable disks attached to the app. Empty (the backward-compatible
   -- default) means a stateless app. Each 'Volume' renders to a
   -- 'PersistentVolumeClaim' plus a container @volumeMount@ and pod @volume@
   -- (see 'Nagare.Dsl.Render'). Name/mount-path uniqueness is enforced at load.
-  , volumes :: ![Volume]
-  -- | Names of managed databases this app connects to (MasterPlan 9, IP5).
+  , databases :: ![DatabaseName]
+  -- ^ Names of managed databases this app connects to (MasterPlan 9, IP5).
   -- Empty (the backward-compatible default) means the app uses no managed
   -- database. EP-46 resolves each name to its in-cluster DNS and managed Secret
   -- and injects the connection env at deploy time.
-  , databases :: ![DatabaseName]
-  -- | Scheduled tasks co-located with this app (MasterPlan 10, IP5). Empty (the
+  , brokers :: ![BrokerBinding]
+  -- ^ Names of messaging brokers and topics this app connects to.
+  -- Empty (the backward-compatible default) means the app uses no brokers.
+  , tasks :: ![Task]
+  -- ^ Scheduled tasks co-located with this app (MasterPlan 10, IP5). Empty (the
   -- backward-compatible default) means the app declares no tasks. Each 'Task'
   -- renders to a CronJob at deploy time; a task with @taskImage = Nothing@
   -- inherits this app's resolved image tag and its managed runtime env/secret.
   -- EP-52 resolves the inherited values in @cli/nagarectl@.
-  , tasks :: ![Task]
-  -- | An optional edge CDN fronting the app (MasterPlan 11, EP-55). 'Nothing'
-  -- (the backward-compatible default) means no CDN.
   , cdn :: !(Maybe Cdn)
+  -- ^ An optional edge CDN fronting the app (MasterPlan 11, EP-55). 'Nothing'
+  -- (the backward-compatible default) means no CDN.
   }
   deriving stock (Generic, Eq, Show)
 

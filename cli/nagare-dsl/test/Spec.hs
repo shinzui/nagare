@@ -2,8 +2,10 @@ module Main (main) where
 
 import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
+import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -384,6 +386,7 @@ helloDep =
     , healthCheck = Nothing
     , volumes = []
     , databases = []
+    , brokers = []
     , tasks = []
     , cdn = Nothing
     }
@@ -484,6 +487,9 @@ brokerTests =
             Right broker -> broker @?= redpandaBroker
       , testCase "large broker sizing survives emit -> decode round-trip" $
           decodeBroker (toStrict (encodeBroker largeRedpandaBroker)) @?= Right largeRedpandaBroker
+      , testCase "deployment broker bindings survive emit -> decode round-trip" $
+          let boundDep = helloDep & #brokers .~ [eventsBinding]
+           in decodeDeployment (toStrict (encodeDeployment boundDep)) @?= Right boundDep
       , testCase "decoding a Broker as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeBroker redpandaBroker)) of
             Left (UnexpectedKind "Deployment" "Broker") -> pure ()
@@ -510,6 +516,13 @@ brokerTests =
           pure (fromStrict (renderBrokerStatefulSet largeRedpandaBroker))
       ]
   ]
+
+eventsBinding :: BrokerBinding
+eventsBinding =
+  BrokerBinding
+    { name = unsafe (mkBrokerName "events")
+    , topics = [unsafe (mkTopicName "jobs")]
+    }
 
 -- ---------------------------------------------------------------------------
 -- EP-44: managed databases (model, JSON round-trip, renderer goldens).

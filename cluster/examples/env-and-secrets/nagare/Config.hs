@@ -56,6 +56,7 @@ deployment = do
       , healthCheck = Nothing
       , volumes = []
       , databases = []
+      , brokers = []
       , tasks = []
       , cdn = Nothing
       }

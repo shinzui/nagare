@@ -33,11 +33,23 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add typed broker/topic binding fields to `Deployment`, `Worker`, and `Application`.
-- [ ] M2: Round-trip bindings through JSON emit/load with backward-compatible empty defaults.
+- [x] M1: Add typed broker/topic binding fields to `Deployment`, `Worker`, and `Application`.
+- [x] M2: Round-trip bindings through JSON emit/load with backward-compatible empty defaults.
 - [ ] M3: Implement broker discovery and generated env assembly in `nagarectl`.
 - [ ] M4: Wire generated env into deploy, worker deploy, and app deploy paths.
 - [ ] M5: Add tests and a dry-run example proving env injection.
+
+Update 2026-06-21: M1/M2 landed as a DSL-only slice. `BrokerName`, `TopicName`, and
+`BrokerBinding` now live in `Nagare.Dsl.Broker.Types` and are re-exported by `Nagare.Dsl.Broker`.
+`Deployment`, `Worker`, and `Application` each have `brokers :: [BrokerBinding]`; JSON emit/load
+round-trips the field, and omitted `brokers` decodes as `[]`.
+
+Validation 2026-06-21:
+
+- `fourmolu --mode inplace` passed for the edited `nagare-dsl` source and test modules.
+- `cabal test nagare-dsl-test` from `cli/nagare-dsl` passed: 342 tests.
+- `nix fmt cli/nagare-dsl` failed because the flake does not provide
+  `formatter.aarch64-darwin`.
 
 
 ## Surprises & Discoveries
@@ -45,7 +57,11 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Splitting `BrokerBinding` out of `Nagare.Dsl.Broker` was necessary to avoid an import cycle:
+  `Deployment` lives in `Nagare.Dsl.Types`, while `Nagare.Dsl.Broker` already imports
+  `Nagare.Dsl.Types` for broker resource fields.
+- The project convention for new records is strict, unprefixed fields with `deriving stock
+  (Generic, ...)`; the binding shape uses `BrokerBinding { name, topics }`, not prefixed field names.
 
 
 ## Decision Log
@@ -55,6 +71,12 @@ Record every decision made while working on the plan.
 - Decision: Use Kafka-compatible env names for generated connection settings.
   Rationale: The user wants Redpanda now and Tansu later. `KAFKA_BOOTSTRAP_SERVERS` is the stable
   application-facing contract across both providers.
+  Date: 2026-06-21
+
+- Decision: Put broker leaf reference types in `Nagare.Dsl.Broker.Types` and re-export them from
+  `Nagare.Dsl.Broker`.
+  Rationale: Workload records need `BrokerBinding`, but the full broker resource module depends on
+  workload leaf types from `Nagare.Dsl.Types`; a leaf module keeps the typed API without a cycle.
   Date: 2026-06-21
 
 
@@ -91,7 +113,7 @@ M1 adds type fields. Define `BrokerBinding` in `Nagare.Dsl.Broker` or a small
 
 ```haskell
 data BrokerBinding = BrokerBinding
-  { brokerName :: BrokerName
+  { name :: BrokerName
   , topics :: [TopicName]
   }
 ```
@@ -193,7 +215,7 @@ Expected new or changed modules:
 Expected signatures:
 
 ```haskell
-data BrokerBinding = BrokerBinding { brokerName :: BrokerName, topics :: [TopicName] }
+data BrokerBinding = BrokerBinding { name :: BrokerName, topics :: [TopicName] }
 
 data BrokerConn = BrokerConn
   { brokerProvider :: BrokerProvider
