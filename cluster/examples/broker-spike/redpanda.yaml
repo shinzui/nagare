@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: broker-spike
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redpanda-data
+  namespace: broker-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/broker: events
+    nagare.dev/broker-provider: redpanda
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: broker-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/broker: events
+    nagare.dev/broker-provider: redpanda
+spec:
+  type: ClusterIP
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+    - name: admin
+      port: 9644
+      targetPort: admin
+  selector:
+    app.kubernetes.io/name: redpanda
+    nagare.dev/broker: events
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: broker-spike
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/broker: events
+    nagare.dev/broker-provider: redpanda
+spec:
+  serviceName: redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+      nagare.dev/broker: events
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redpanda
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/broker: events
+        nagare.dev/broker-provider: redpanda
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v26.1.8
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/rpk
+            - redpanda
+            - start
+            - --mode
+            - dev-container
+            - --smp
+            - "1"
+            - --memory
+            - 1G
+            - --reserve-memory
+            - 0M
+            - --overprovisioned
+            - --node-id
+            - "0"
+            - --kafka-addr
+            - internal://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - internal://redpanda.broker-spike.svc.cluster.local:9092
+            - --rpc-addr
+            - 0.0.0.0:33145
+            - --advertise-rpc-addr
+            - redpanda-0.redpanda.broker-spike.svc.cluster.local:33145
+            - --set
+            - redpanda.empty_seed_starts_cluster=true
+            - --set
+            - redpanda.auto_create_topics_enabled=false
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: admin
+              containerPort: 9644
+            - name: rpc
+              containerPort: 33145
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          startupProbe:
+            httpGet:
+              path: /v1/status/ready
+              port: admin
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v1/status/ready
+              port: admin
+            failureThreshold: 6
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redpanda-data
