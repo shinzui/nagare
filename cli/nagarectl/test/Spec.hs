@@ -43,6 +43,7 @@ import Nagare.App
 import Nagare.App.Deployments (appConfigMapName, revisionForTag)
 import Nagare.Broker.Create (BrokerCreateParams (..), buildBroker)
 import Nagare.Broker.Discover (BrokerRow (..), brokerLabelSelector, extractBrokerRows, formatBrokerTable)
+import Nagare.Broker.Topic (TopicStatus (..), parseTopicDescription, renderTopicPlan, rpkTopicCreateArgs)
 import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Cdn.Cloudflare
 import Nagare.Cdn.Provision
@@ -71,9 +72,12 @@ import Nagare.Dsl.Broker
   ( Broker (..)
   , BrokerProvider (..)
   , BrokerSizing (..)
+  , BrokerTopic (..)
   , brokerNameText
   , defaultBrokerSizing
   , defaultBrokerVersion
+  , mkTopicName
+  , topicNameText
   )
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Cdn.Types
@@ -2020,6 +2024,50 @@ brokerTests =
               smp @?= 2
               quantityText memory @?= "4Gi"
             Left e -> assertFailure (T.unpack e)
+      , testCase "builds topics from CLI flags" $
+          case buildBroker Redpanda "events" (mkParams Nothing Nothing Nothing) {topics = ["jobs"], topicPartitions = Just 3, topicRetentionMs = Just 86400000} of
+            Right Broker {topics = [BrokerTopic {name = topicName, partitions, replicationFactor, retentionMs}]} -> do
+              topicNameText topicName @?= "jobs"
+              partitions @?= 3
+              replicationFactor @?= 1
+              retentionMs @?= Just 86400000
+            Right other -> assertFailure ("unexpected broker topics: " <> show other)
+            Left e -> assertFailure (T.unpack e)
+      ]
+  , testGroup
+      "Nagare.Broker.Topic"
+      [ testCase "rpkTopicCreateArgs includes idempotence, sizing, retention, and brokers" $
+          let topic =
+                BrokerTopic
+                  { name = unsafe (mkTopicName "jobs")
+                  , partitions = 3
+                  , replicationFactor = 1
+                  , retentionMs = Just 86400000
+                  }
+           in rpkTopicCreateArgs "events.personal.svc.cluster.local:9092" topic
+                @?= [ "topic"
+                    , "create"
+                    , "--if-not-exists"
+                    , "-p"
+                    , "3"
+                    , "-r"
+                    , "1"
+                    , "-c"
+                    , "retention.ms=86400000"
+                    , "jobs"
+                    , "-X"
+                    , "brokers=events.personal.svc.cluster.local:9092"
+                    ]
+      , testCase "parseTopicDescription reads rpk summary and retention" $
+          parseTopicDescription topicDescribeOutput
+            @?= Right (TopicStatus "jobs" 3 1 (Just 86400000))
+      , testCase "renderTopicPlan includes declared topics" $
+          case buildBroker Redpanda "events" (mkParams Nothing Nothing Nothing) {topics = ["jobs"], topicPartitions = Just 3, topicRetentionMs = Just 86400000} of
+            Right broker ->
+              assertBool
+                "contains topic plan"
+                ("jobs partitions=3 replicationFactor=1 retentionMs=86400000" `T.isInfixOf` renderTopicPlan broker)
+            Left e -> assertFailure (T.unpack e)
       ]
   , testGroup
       "Nagare.Broker.Discover"
@@ -2056,7 +2104,13 @@ brokerTests =
         , dryRun = True
         , redpandaSmp = smp'
         , redpandaMemory = memory'
+        , topics = []
+        , topicPartitions = Nothing
+        , topicRetentionMs = Nothing
         }
+    topicDescribeOutput =
+      BC.pack
+        "SUMMARY\n=======\nNAME        jobs\nPARTITIONS  3\nREPLICAS    1\nCONFIGS\n=======\nKEY           VALUE     SOURCE\nretention.ms  86400000  DYNAMIC_TOPIC_CONFIG\n"
     brokerStsListJson =
       BC.pack
         "{\"items\":[{\"metadata\":{\"name\":\"events\",\"namespace\":\"personal\",\"labels\":{\"nagare.dev/broker\":\"events\",\"nagare.dev/broker-provider\":\"redpanda\",\"nagare.dev/managed-by\":\"nagarectl\"},\"annotations\":{\"nagare.dev/version\":\"v25.2.1\",\"nagare.dev/size\":\"5Gi\"}},\"status\":{\"readyReplicas\":1}}]}"

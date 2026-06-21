@@ -41,6 +41,7 @@ library
     Nagare.Broker.Get
     Nagare.Broker.List
     Nagare.Broker.Restart
+    Nagare.Broker.Topic
     Nagare.Cdn.Cloudflare
     Nagare.Cdn.Provision
     Nagare.Cdn.Status

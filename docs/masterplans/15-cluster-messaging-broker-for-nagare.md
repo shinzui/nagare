@@ -107,7 +107,7 @@ dashboard contract, but the contract must be Nagare-owned.
 |---|-------|------|-----------|-----------|--------|
 | 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Complete |
-| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | In Progress |
+| 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Complete |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Not Started |
 | 79 | Broker observability abstraction dashboards and health checks | docs/plans/79-broker-observability-abstraction-dashboards-and-health-checks.md | EP-76 | EP-75, EP-78 | Not Started |
 | 80 | Messaging broker docs examples and Tansu migration readiness | docs/plans/80-messaging-broker-docs-examples-and-tansu-migration-readiness.md | EP-77, EP-78, EP-79 | EP-75 | Not Started |
@@ -181,9 +181,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-75: Prove Redpanda starts, persists data, creates topics, produces/consumes, and exports metrics on the live cluster.
 - [x] EP-75: Record the provider-neutral Kafka-compatible contract and Tansu migration implications.
 - [x] EP-76: Add typed broker/topic model, JSON emit/load, renderer helpers, and golden tests.
-- [ ] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
-  Parser wiring, Redpanda create/apply/wait, dry-run output, and list/get/restart/delete discovery
-  are implemented and unit-tested; topic reconciliation and live acceptance remain.
+- [x] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
+  Parser wiring, Redpanda create/apply/wait, topic reconciliation, dry-run output, list/get/restart/delete
+  discovery, unit tests, and live acceptance are complete.
 - [ ] EP-77: Add workload broker/topic bindings and generated runtime env injection.
 - [ ] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
 - [ ] EP-80: Add docs, examples, and a Tansu migration readiness note.
@@ -227,6 +227,15 @@ interactions between child plans. Provide concise evidence.
   delete StatefulSet/Service resources while retaining PVC data by default. Validation:
   `cabal test nagarectl-test` passed with 303 tests. EP-78 remains open for topic reconciliation and
   live acceptance.
+
+- 2026-06-21: EP-78 completed topic reconciliation and live acceptance. `nagarectl broker create
+  redpanda events --namespace broker-live --size 5Gi --topic jobs --topic-partitions 1
+  --topic-retention-ms 86400000` reached Ready, created topic `jobs` with dynamic
+  `retention.ms=86400000`, and used bootstrap `events.broker-live.svc.cluster.local:9092`.
+  `broker list`, `broker get`, and `broker restart` all passed; the sentinel message
+  `ep78-live-ok` was consumed before and after restart. Cleanup removed the broker and disposable
+  namespace. Validation: `cabal test nagarectl-test` passed with 307 tests and
+  `cabal test nagare-dsl-test` passed with 339 tests.
 
 
 ## Decision Log
@@ -292,9 +301,17 @@ PVC-backed storage, topic operations, restart persistence, and scrapeable Promet
 implementable child plan is EP-76, which should turn the verified raw manifest shape and contract into
 typed DSL models, renderer helpers, and golden tests.
 
+EP-78 completed on 2026-06-21. The initiative now has an operational CLI path for Redpanda brokers:
+create from flags or typed config, reconcile topics, inspect/list, restart with data persistence, and
+delete broker workload resources while preserving PVC data by default. EP-77 and EP-79 can now proceed
+against a live broker created by `nagarectl`.
+
 
 ## Revision Notes
 
 2026-06-21: Marked EP-75 complete, recorded the live Redpanda substrate findings, and updated the
 coordination decision for EP-76 to render the verified raw Kubernetes shape rather than wrapping the
 Redpanda Helm chart.
+
+2026-06-21: Marked EP-78 complete after topic reconciliation, dry-run verification, and live
+`broker-live` acceptance passed on the Nagare k3s cluster.

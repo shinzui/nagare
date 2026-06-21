@@ -13,6 +13,7 @@ import Data.ByteString (ByteString)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Broker.Topic (reconcileBrokerTopics, renderTopicPlan)
 import Nagare.Deploy (applyManifests, waitForRollout)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render (brokerBootstrapServers, brokerStatefulSetName, renderBroker)
@@ -39,6 +40,9 @@ data BrokerCreateParams = BrokerCreateParams
   , dryRun :: !Bool
   , redpandaSmp :: !(Maybe Int)
   , redpandaMemory :: !(Maybe Text)
+  , topics :: ![Text]
+  , topicPartitions :: !(Maybe Int)
+  , topicRetentionMs :: !(Maybe Int)
   }
   deriving stock (Generic, Show)
 
@@ -56,6 +60,7 @@ buildBroker provider nameT params = do
   resources' <- buildResources (params ^. #cpu) (params ^. #memory)
   redpandaMemory' <- traverse mkQuantity (params ^. #redpandaMemory)
   sizing' <- mkBrokerSizing (Just size') resources' (params ^. #redpandaSmp) redpandaMemory'
+  topics' <- traverse (buildTopic params) (params ^. #topics)
   Right
     Broker
       { name = name'
@@ -64,7 +69,7 @@ buildBroker provider nameT params = do
       , namespace = namespace'
       , storageSize = size'
       , sizing = sizing'
-      , topics = []
+      , topics = topics'
       }
 
 buildResources :: Maybe Text -> Maybe Text -> Either Text (Maybe Resources)
@@ -73,6 +78,11 @@ buildResources mc mm = do
   cl <- traverse mkQuantity mc
   ml <- traverse mkQuantity mm
   Right (Just Resources {cpu = Nothing, memory = Nothing, cpuLimit = cl, memoryLimit = ml})
+
+buildTopic :: BrokerCreateParams -> Text -> Either Text BrokerTopic
+buildTopic params topicT = do
+  topicName' <- mkTopicName topicT
+  mkBrokerTopic topicName' (fromMaybe 1 (params ^. #topicPartitions)) 1 (params ^. #topicRetentionMs)
 
 runBrokerCreate :: BrokerProvider -> Text -> BrokerCreateParams -> IO ()
 runBrokerCreate provider nameT params = do
@@ -90,6 +100,7 @@ runBrokerCreate provider nameT params = do
   if params ^. #dryRun
     then do
       mapM_ printManifest manifests
+      TIO.putStr (renderTopicPlan broker)
       TIO.putStrLn ("Would create broker " <> name <> " (" <> brokerProviderToken (broker ^. #provider) <> ")")
       TIO.putStrLn ("Bootstrap servers: " <> bootstrap)
       TIO.putStrLn "No cluster changes were applied."
@@ -97,6 +108,7 @@ runBrokerCreate provider nameT params = do
       applyManifests manifests
       stampMetadata ns name broker
       waitForRollout ns (brokerStatefulSetName name)
+      reconcileBrokerTopics broker
       TIO.putStrLn ("Created broker " <> name <> " at " <> bootstrap)
 
 stampMetadata :: Text -> Text -> Broker -> IO ()
