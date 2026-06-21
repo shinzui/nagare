@@ -263,6 +263,22 @@ fixtureWorker =
         }
     Left e -> error ("test fixture invalid: " <> e)
 
+brokerExampleWorker :: Worker
+brokerExampleWorker =
+  case webWorker "broker-worker" "gcr.io/knative-samples/helloworld-go" of
+    Right w ->
+      w
+        { command = Just (unsafe (mkCommand ["sh", "-c", "while true; do echo consuming jobs; sleep 5; done"]))
+        , replicas = unsafe (mkReplicas 1)
+        , brokers =
+            [ BrokerBinding
+                { name = unsafe (mkBrokerName "events")
+                , topics = [unsafe (mkTopicName "jobs")]
+                }
+            ]
+        }
+    Left e -> error ("test fixture invalid: " <> e)
+
 loadTests :: [TestTree]
 loadTests =
   [ testCase "loadWorker fixture returns the expected Worker" $ do
@@ -270,6 +286,11 @@ loadTests =
       case result of
         Left err -> assertFailure ("loadWorker returned Left: " <> show err)
         Right w -> w @?= fixtureWorker
+  , testCase "broker-worker example loads with broker binding" $ do
+      result <- loadWorker "../../cluster/examples/broker-worker/nagare/Config.hs"
+      case result of
+        Left err -> assertFailure ("broker-worker example returned Left: " <> show err)
+        Right w -> w @?= brokerExampleWorker
   ]
 
 -- | A minimal request-driven 'Deployment' used only to prove kind discrimination
