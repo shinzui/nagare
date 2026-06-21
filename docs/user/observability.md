@@ -90,6 +90,9 @@ observability` applies `cluster/observability/brokers/vmservicescrape.yaml`,
 which tells VMAgent to scrape broker Services labelled by `nagarectl`, and loads
 the `Nagare Brokers` Grafana dashboard from
 `cluster/observability/grafana/dashboards/nagare-brokers.json`.
+It shows broker up status, uptime, topic/partition count, produce/consume
+throughput where Redpanda exports it, consumer lag when enabled, storage, and
+memory.
 
 The first provider is Redpanda. It exports public Prometheus metrics at
 `/public_metrics` on the Admin API port `9644`; Nagare records those samples

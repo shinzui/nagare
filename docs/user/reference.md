@@ -172,6 +172,19 @@ project's existing bindings).
 See the [Static & full-stack site hosting](static-hosting.md) guide. The webhook
 runner `nagared` (`cluster/bootstrap/nagared/`) does Git-triggered deploys.
 
+## `nagarectl broker` commands
+
+| Command | Does |
+| --- | --- |
+| `nagarectl broker create redpanda NAME` | Provision a Redpanda-backed internal broker with PVC, Service, StatefulSet, and optional topics. |
+| `nagarectl broker create redpanda NAME --dry-run` | Print the broker manifests and topic plan; no cluster changes. |
+| `nagarectl broker list` | List managed brokers in a namespace. |
+| `nagarectl broker get NAME` | Show provider, version, bootstrap, PVC, readiness, metrics endpoint health, and VictoriaMetrics scrape status. |
+| `nagarectl broker restart NAME` | Roll the broker StatefulSet and wait for readiness. |
+| `nagarectl broker delete NAME --yes` | Delete the StatefulSet and Service; keep the PVC unless you delete it explicitly. |
+
+See the [Messaging brokers](messaging-brokers.md) guide.
+
 ## `nagarectl env` / `nagarectl secret` commands (app env & secrets)
 
 The app identity comes from the loaded config (`-f/--config`, default

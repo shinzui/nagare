@@ -122,6 +122,9 @@ you can observe.
      consumer, a stream processor) with a typed `Worker` and `nagarectl worker
      deploy`: it renders an `apps/v1` Deployment with a fixed replica count, never
      scales to zero, needs no HTTP port, and is operated with stock `kubectl`. 🟡
+   - [Messaging brokers](messaging-brokers.md) — provision a Redpanda-backed
+     Kafka-compatible broker, create topics, bind workers/apps to topics, inspect
+     broker health, and understand the future Tansu provider contract. 🟡
 9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
