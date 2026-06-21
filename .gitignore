@@ -27,3 +27,5 @@ keys.txt
 
 # EP-6 live-test harness kubeconfig + tunnels
 .live-test/
+
+.mina/
