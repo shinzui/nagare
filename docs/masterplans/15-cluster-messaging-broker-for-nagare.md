@@ -105,7 +105,7 @@ dashboard contract, but the contract must be Nagare-owned.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | In Progress |
+| 75 | Broker substrate spike and Kafka-compatible provider contract | docs/plans/75-broker-substrate-spike-and-kafka-compatible-provider-contract.md | None | None | Complete |
 | 76 | Typed Broker model and provider-neutral renderer contract | docs/plans/76-typed-broker-model-and-provider-neutral-renderer-contract.md | None | EP-75 | Not Started |
 | 78 | nagarectl broker lifecycle commands and Redpanda provisioning | docs/plans/78-nagarectl-broker-lifecycle-commands-and-redpanda-provisioning.md | EP-76 | EP-75 | Not Started |
 | 77 | Generated broker connection env and topic bindings for workloads | docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md | EP-76 | EP-78 | Not Started |
@@ -178,8 +178,8 @@ EP-80 should wait for EP-77, EP-78, and EP-79.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-75: Prove Redpanda starts, persists data, creates topics, produces/consumes, and exports metrics on the live cluster.
-- [ ] EP-75: Record the provider-neutral Kafka-compatible contract and Tansu migration implications.
+- [x] EP-75: Prove Redpanda starts, persists data, creates topics, produces/consumes, and exports metrics on the live cluster.
+- [x] EP-75: Record the provider-neutral Kafka-compatible contract and Tansu migration implications.
 - [ ] EP-76: Add typed broker/topic model, JSON emit/load, renderer helpers, and golden tests.
 - [ ] EP-78: Add `nagarectl broker` lifecycle commands backed by Redpanda provisioning.
 - [ ] EP-77: Add workload broker/topic bindings and generated runtime env injection.
@@ -197,6 +197,19 @@ interactions between child plans. Provide concise evidence.
   `tan-nb-exp`, region `us-west1`, zone `us-west1-a`, and local kubectl context is `sennari`, so the
   spike must continue through the documented `sudo k3s kubectl` path after `gcloud auth login`
   refreshes credentials. No broker resources were applied before the blocker.
+
+- 2026-06-21: EP-75 completed after `gcloud auth login` and starting the terminated `nagare-01` VM.
+  Redpanda `v26.1.8` runs on the live single-node k3s cluster as a single-replica StatefulSet with a
+  standalone 5Gi `local-path` PVC, an internal ClusterIP Service, and advertised Kafka bootstrap
+  `redpanda.broker-spike.svc.cluster.local:9092`. Topic create, produce, consume, pod restart
+  durability, and `/public_metrics` scraping all passed. The disposable `broker-spike` namespace was
+  deleted after validation.
+
+- 2026-06-21: The Redpanda Helm chart is useful for version/default discovery but should not be the
+  v1 renderer source of truth. Even with external values disabled, the rendered chart retained
+  external listener assumptions and provider sidecars. EP-76 should encode the small raw manifest
+  shape committed at `cluster/examples/broker-spike/redpanda.yaml` and keep Redpanda-specific flags
+  behind provider options.
 
 
 ## Decision Log
@@ -229,9 +242,17 @@ plan.
   config or CLI flags instead of editing generated manifests.
   Date: 2026-06-21
 
-- Decision: Proceed without an Intention ID.
-  Rationale: The MasterPlan skill asks for an intention prompt through an AskUserQuestion tool, but
-  that tool was not available in the active mode. No intention was provided by the user in the request.
+- Decision: EP-76 should render a raw Redpanda Kubernetes shape, not wrap the Redpanda Helm chart.
+  Rationale: EP-75 proved a compact raw manifest is sufficient for Nagare's internal-only single-node
+  broker: one StatefulSet, one standalone PVC, one ClusterIP Service, and explicit Redpanda startup
+  flags. The Helm chart brought external listener and sidecar behavior that is useful for larger
+  Redpanda installations but not part of Nagare's provider-neutral contract.
+  Date: 2026-06-21
+
+- Decision: Use the existing Intention ID from the MasterPlan frontmatter for implementation commits.
+  Rationale: The interactive intention prompt was unavailable in the active mode, but the MasterPlan
+  already carries `intention_01kvncmnzweearjz953y6besqc` in frontmatter. Commits under this MasterPlan
+  should include the matching `Intention:` trailer.
   Date: 2026-06-21
 
 
@@ -240,4 +261,15 @@ plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+EP-75 completed on 2026-06-21. The initiative now has live substrate evidence for the provider-neutral
+broker contract: Redpanda can run in the Nagare cluster with internal-only Kafka bootstrap, durable
+PVC-backed storage, topic operations, restart persistence, and scrapeable Prometheus metrics. The next
+implementable child plan is EP-76, which should turn the verified raw manifest shape and contract into
+typed DSL models, renderer helpers, and golden tests.
+
+
+## Revision Notes
+
+2026-06-21: Marked EP-75 complete, recorded the live Redpanda substrate findings, and updated the
+coordination decision for EP-76 to render the verified raw Kubernetes shape rather than wrapping the
+Redpanda Helm chart.

@@ -37,7 +37,6 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Establish disposable namespace, storage, resource budget, and Redpanda manifests for a single broker.
 - [x] M0 (2026-06-21): Repository and dependency orientation completed. `mori show --full` identified
   this repo as `shinzui/nagare`; `mori registry search kafka` identified local Kafka client libraries
   but the spike still uses `rpk` from Redpanda images rather than adding a Haskell dependency.
@@ -46,12 +45,19 @@ This section must always reflect the actual current state of the work.
   `sudo k3s kubectl`.
 - [x] M0 (2026-06-21): Refreshed the Redpanda Helm repo and pinned the current chart metadata for the
   spike input: `redpanda/redpanda` chart `26.1.6`, app/image `v26.1.8`.
-- [ ] M1 is blocked before applying Kubernetes resources: IAP SSH to `nagare-01` fails because gcloud
-  needs interactive reauthentication and cannot prompt from this non-interactive session.
-- [ ] M2: Verify internal Kafka listener correctness with an in-cluster client, topic creation, produce, and consume.
-- [ ] M3: Verify persistence across pod restart and document backup/restore implications.
-- [ ] M4: Verify metrics endpoint and record provider-neutral observability facts.
-- [ ] M5: Reconcile Redpanda findings with Tansu's known Kafka-compatible contract and update MasterPlan discoveries.
+- [x] M1 (2026-06-21): After interactive gcloud reauthentication and VM start, confirmed `nagare-01`
+  was `Ready` on k3s `v1.35.4+k3s1`, `local-path` was the default storage class, applied
+  `cluster/examples/broker-spike/redpanda.yaml`, and observed one Redpanda pod ready with an internal
+  ClusterIP Service and a 5Gi `local-path` PVC.
+- [x] M2 (2026-06-21): Verified internal Kafka listener correctness from an in-cluster Redpanda client:
+  cluster metadata advertised `redpanda.broker-spike.svc.cluster.local:9092`, topic `jobs` was created,
+  `spike-ok` was produced at offset 2, and consuming offset 2 returned exactly `spike-ok`.
+- [x] M3 (2026-06-21): Deleted `redpanda-0`; StatefulSet recreated it, the same PVC stayed bound, and
+  consuming offset 2 after restart returned `spike-ok`.
+- [x] M4 (2026-06-21): Scraped `http://redpanda.broker-spike.svc.cluster.local:9644/public_metrics`
+  from the in-cluster client and recorded broker, Kafka, and storage metric families for EP-79.
+- [x] M5 (2026-06-21): Reconciled Redpanda findings with the Tansu target contract, updated the
+  MasterPlan discoveries, and cleaned up the disposable `broker-spike` namespace.
 
 
 ## Surprises & Discoveries
@@ -95,6 +101,31 @@ to obtain new credentials.
   bootstrap/topic/metrics level while treating chart values and Redpanda metrics names as provider
   implementation details.
 
+- **The Redpanda Helm chart is not a good v1 renderer source of truth.** Even after setting
+  `external.enabled=false`, `external.service.enabled=false`, and disabling the Kafka/Admin external
+  listeners, the rendered chart still retained a second advertised Kafka address in the generated
+  configurator script and kept REST/schema external container ports. For the spike, a raw manifest was
+  clearer and closer to Nagare's eventual renderer shape: one standalone PVC, one internal ClusterIP
+  Service, one single-replica StatefulSet, no public Service, and an explicit advertised Kafka address.
+
+- **The Redpanda image entrypoint is `rpk`, not a shell.** A `kubectl run ... -- rpk cluster info`
+  invocation becomes `rpk rpk cluster info` and fails. For reusable client work, run the same image
+  with `--command -- /bin/bash -lc "sleep 3600"` and then execute `rpk` commands inside it.
+
+- **`rpk topic produce` requires careful format quoting through nested shells.** A brittle
+  `--format` invocation split `hello-redpanda` into two records (`hello-redpa` and `da`). The reliable
+  form used in the final evidence was:
+
+```bash
+printf "spike-ok\n" | rpk topic produce jobs -f "%v\n" -X brokers=redpanda.broker-spike.svc.cluster.local:9092
+```
+
+- **A raw single-broker Redpanda manifest works on Nagare's single-node cluster.** The verified
+  manifest is committed at `cluster/examples/broker-spike/redpanda.yaml`. It uses Redpanda `v26.1.8`,
+  `--smp 1`, `--memory 1G`, `--reserve-memory 0M`, `--overprovisioned`, a 5Gi standalone
+  `local-path` PVC named `redpanda-data`, internal bootstrap
+  `redpanda.broker-spike.svc.cluster.local:9092`, and Admin API port `9644`.
+
 
 ## Decision Log
 
@@ -125,13 +156,37 @@ Record every decision made while working on the plan.
   attempt to use local kubectl would risk applying broker resources to the wrong cluster.
   Date: 2026-06-21
 
+- Decision: Use a raw Kubernetes manifest for the spike and keep Helm as research input only.
+  Rationale: The Helm chart is useful for version and default discovery, but its generated shape kept
+  provider-specific sidecars and external-listener assumptions that are not part of Nagare's v1
+  internal-only broker contract. The raw manifest is smaller, auditable, and closer to the renderer
+  EP-76 should implement.
+  Date: 2026-06-21
+
+- Decision: Use the stable ClusterIP Service DNS name as the v1 advertised Kafka bootstrap address.
+  Rationale: In a single-broker internal-only deployment, clients should not need a pod ordinal. The
+  live client saw broker metadata for `redpanda.broker-spike.svc.cluster.local:9092` and successfully
+  produced and consumed through that address.
+  Date: 2026-06-21
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-75 completed on 2026-06-21. The spike proved that Redpanda `v26.1.8` can run as a single
+StatefulSet-backed broker on Nagare's single-node k3s cluster with a standalone `local-path` PVC and
+an internal ClusterIP Service. A client pod created topic `jobs`, produced `spike-ok`, consumed it
+through the advertised internal bootstrap address, and consumed the same record after deleting and
+recreating the broker pod. The Admin API `/public_metrics` endpoint is scrapeable from inside the
+cluster and exposes enough broker, Kafka, and storage metrics for EP-79.
+
+The main lesson is that the Redpanda Helm chart is too provider-shaped to serve as Nagare's first
+renderer contract. EP-76 should encode the raw, provider-neutral Kubernetes shape proven here and keep
+Redpanda-specific flags behind provider options. Future Tansu support must satisfy the same user-facing
+contract: an internal Kafka bootstrap address, deterministic topic operations, durable storage through
+its selected storage engine, and Prometheus-compatible broker health metrics.
 
 
 ## Context and Orientation
@@ -234,6 +289,36 @@ The live spike should render or apply values equivalent to single replica, inter
 small persistent volume, then record the actual generated Service, StatefulSet, PVC, and advertised
 Kafka listener before EP-76 relies on them.
 
+The working spike used the committed raw manifest instead of Helm:
+
+```bash
+scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply -f -' < cluster/examples/broker-spike/redpanda.yaml
+```
+
+The cluster accepted the namespace, standalone PVC, internal Service, and StatefulSet:
+
+```text
+namespace/broker-spike created
+persistentvolumeclaim/redpanda-data created
+service/redpanda created
+statefulset.apps/redpanda created
+```
+
+Readiness and storage evidence:
+
+```text
+NAME             READY   STATUS              RESTARTS   AGE
+pod/redpanda-0   0/1     ContainerCreating   0          8s
+
+NAME               TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)             AGE
+service/redpanda   ClusterIP   10.43.45.243   <none>        9092/TCP,9644/TCP   8s
+
+NAME                                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/redpanda-data   Bound    pvc-8d9218aa-12d0-497e-a6fa-b06814d0b17c   5Gi        RWO            local-path     8s
+
+partitioned roll out complete: 1 new pods have been updated...
+```
+
 ```bash
 kubectl -n broker-spike get pods,svc,pvc
 kubectl -n broker-spike rollout status statefulset/redpanda --watch
@@ -256,6 +341,34 @@ Expected evidence is a consumed message body:
 hello
 ```
 
+Actual Kafka protocol evidence used `spike-ok` as the sentinel value. Cluster metadata advertised the
+internal Service DNS, not a public address:
+
+```text
+CLUSTER
+redpanda.83631107-f13d-484b-85cf-d69150317e92
+
+BROKERS
+ID    HOST                                     PORT
+0*    redpanda.broker-spike.svc.cluster.local  9092
+
+TOPIC  STATUS
+jobs   OK
+```
+
+The final produce and consume proof was:
+
+```text
+Produced to partition 0 at offset 2 with timestamp 1782058430369.
+{
+  "topic": "jobs",
+  "value": "spike-ok",
+  "timestamp": 1782058430369,
+  "partition": 0,
+  "offset": 2
+}
+```
+
 For restart durability:
 
 ```bash
@@ -264,6 +377,55 @@ kubectl -n broker-spike rollout status statefulset/redpanda --watch
 ```
 
 Then consume or list offsets again and record the result.
+
+The restart proof was:
+
+```text
+pod "redpanda-0" deleted from broker-spike namespace
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 1 new pods have been updated...
+
+NAME                READY   STATUS    RESTARTS   AGE
+pod/broker-client   1/1     Running   0          2m20s
+pod/redpanda-0      1/1     Running   0          6s
+
+NAME                                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/redpanda-data   Bound    pvc-8d9218aa-12d0-497e-a6fa-b06814d0b17c   5Gi        RWO            local-path     5m15s
+
+{
+  "topic": "jobs",
+  "value": "spike-ok",
+  "timestamp": 1782058430369,
+  "partition": 0,
+  "offset": 2
+}
+```
+
+The metrics proof was:
+
+```text
+# HELP redpanda_application_build Redpanda build information
+redpanda_application_build{redpanda_revision="c7962c091d86f51435f38ef443173344c4e94287",redpanda_version="v26.1.8"} 1.000000
+# HELP redpanda_cluster_brokers Number of configured brokers in the cluster
+redpanda_cluster_brokers{} 1.000000
+# HELP redpanda_cluster_topics Number of topics in the cluster
+redpanda_cluster_topics{} 2.000000
+# HELP redpanda_cluster_unavailable_partitions Number of partitions that lack quorum among replicants
+redpanda_cluster_unavailable_partitions{} 0.000000
+# HELP redpanda_kafka_records_fetched_total Total number of records fetched
+# HELP redpanda_kafka_records_produced_total Total number of records produced
+# HELP redpanda_kafka_request_latency_seconds Internal latency of kafka produce requests
+# HELP redpanda_kafka_under_replicated_replicas Number of under replicated replicas (i.e. replicas that are live, but not at the latest offest)
+# HELP redpanda_storage_disk_free_bytes Disk storage bytes free.
+# HELP redpanda_storage_disk_total_bytes Total size of attached storage, in bytes.
+```
+
+Cleanup evidence:
+
+```text
+namespace "broker-spike" deleted
+Error from server (NotFound): namespaces "broker-spike" not found
+```
 
 
 ## Validation and Acceptance
@@ -305,3 +467,22 @@ The interface output of this plan is prose and evidence for:
 - EP-78's `nagarectl broker create redpanda NAME` behavior;
 - EP-77's `KAFKA_BOOTSTRAP_SERVERS` env contract; and
 - EP-79's metrics scrape and dashboard contract.
+
+Verified contract for downstream plans:
+
+| Contract point | EP-75 evidence | Downstream implication |
+|---|---|---|
+| Provider | Redpanda `v26.1.8` works as the first provider. Tansu is not registered in Mori; upstream Tansu docs describe an Apache Kafka API-compatible broker with PostgreSQL, libSQL/SQLite, S3, and memory storage engines. | EP-76 should define `Redpanda` now and reserve `Tansu`; provider-specific process/storage flags stay behind provider options. |
+| Kubernetes shape | Single-replica StatefulSet, standalone 5Gi `local-path` PVC, internal ClusterIP Service, no public Service. | EP-76 should render this small raw shape rather than shelling out to the Helm chart. |
+| Bootstrap address | `redpanda.broker-spike.svc.cluster.local:9092` was advertised in Kafka metadata and used for produce/consume. | EP-77 should inject `KAFKA_BOOTSTRAP_SERVERS` using the broker Service DNS, not a pod ordinal and not a Redpanda-specific variable. |
+| Topic operations | `rpk topic create jobs`, `rpk topic produce`, and `rpk topic consume` worked from an in-cluster client. | EP-78 can implement topic create/list/delete with provider-specific commands behind Nagare's topic model. |
+| Durability | `spike-ok` survived deleting `redpanda-0` and consuming the same offset after StatefulSet recovery. | EP-76/EP-78 should keep PVC ownership explicit and must not default to `emptyDir`. |
+| Observability | `/public_metrics` on Admin port `9644` exposed broker, Kafka, and storage metric families. | EP-79 should scrape the provider Admin metrics endpoint and normalize dashboard panels around broker count, topic/partition health, produce/fetch records, request latency, under-replicated replicas, and disk free/total. |
+
+
+## Revision Notes
+
+2026-06-21: Implemented EP-75 on the live Nagare cluster, added the verified raw Redpanda spike
+manifest, recorded command evidence for startup, topic operations, restart persistence, metrics, and
+cleanup, and converted the plan's downstream contract from provisional assumptions into verified
+facts.
