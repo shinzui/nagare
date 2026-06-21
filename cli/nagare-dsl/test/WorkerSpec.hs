@@ -265,19 +265,34 @@ fixtureWorker =
 
 brokerExampleWorker :: Worker
 brokerExampleWorker =
-  case webWorker "broker-worker" "gcr.io/knative-samples/helloworld-go" of
-    Right w ->
-      w
-        { command = Just (unsafe (mkCommand ["sh", "-c", "while true; do echo consuming jobs; sleep 5; done"]))
-        , replicas = unsafe (mkReplicas 1)
-        , brokers =
-            [ BrokerBinding
-                { name = unsafe (mkBrokerName "events")
-                , topics = [unsafe (mkTopicName "jobs")]
-                }
-            ]
-        }
-    Left e -> error ("test fixture invalid: " <> e)
+  Worker
+    { name = unsafe (mkServiceName "broker-worker")
+    , namespace = defaultNamespace
+    , image = unsafe (mkImageRef "docker.redpanda.com/redpandadata/redpanda")
+    , build = PrebuiltImage (unsafe (mkTag "v26.1.8"))
+    , command =
+        Just
+          ( unsafe
+              ( mkCommand
+                  [ "sh"
+                  , "-c"
+                  , "while true; do rpk topic consume \"$NAGARE_TOPIC_JOBS\" --offset start -n 1 -X brokers=\"$KAFKA_BOOTSTRAP_SERVERS\" || true; sleep 5; done"
+                  ]
+              )
+          )
+    , replicas = unsafe (mkReplicas 1)
+    , env = Map.empty
+    , resources = Nothing
+    , volumes = []
+    , databases = []
+    , brokers =
+        [ BrokerBinding
+            { name = unsafe (mkBrokerName "events")
+            , topics = [unsafe (mkTopicName "jobs")]
+            }
+        ]
+    , liveness = Nothing
+    }
 
 loadTests :: [TestTree]
 loadTests =

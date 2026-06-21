@@ -148,6 +148,106 @@ project` (or the env var) is `tan-nb-exp`. See
 
 ---
 
+## Broker pod is not Ready
+
+**Symptom.** `nagarectl broker get events` shows `Ready: False` or health says
+`pod/events-0 not Ready`.
+
+**Likely causes.**
+
+- Redpanda startup flags are invalid for the node size.
+- The PVC could not mount or the data disk is full.
+- The pod is waiting for an image pull.
+
+**Fix.**
+
+```bash
+kubectl describe pod/events-0 -n personal
+kubectl logs pod/events-0 -n personal --tail=100
+kubectl get pvc nagare-broker-events-data -n personal
+```
+
+On the small VM, keep Redpanda `--redpanda-smp` and `--redpanda-memory` modest.
+For a larger VM, use the sizing flags in
+[Messaging brokers](messaging-brokers.md#sizing) instead of editing manifests.
+
+---
+
+## Broker metrics are missing
+
+**Symptom.** `broker get` says `/public_metrics reachable` but
+`metrics scrape` is WARN, or the `Nagare Brokers` dashboard is empty.
+
+**Fix.**
+
+```bash
+kubectl get vmservicescrape nagare-brokers -n monitoring -o yaml
+kubectl get --raw '/api/v1/namespaces/monitoring/services/vmagent-vmks-victoria-metrics-k8s-stack:8429/proxy/targets' | grep nagare-brokers
+kubectl get --raw '/api/v1/namespaces/monitoring/services/vmsingle-vmks-victoria-metrics-k8s-stack:8429/proxy/api/v1/query?query=up%7Bjob%3D%22nagare-brokers%22%7D'
+```
+
+The VMAgent target should have labels `job="nagare-brokers"`,
+`nagare_broker="<name>"`, and `nagare_broker_provider="redpanda"`. Re-run
+`just observability` if the scrape object or dashboard ConfigMap is missing.
+
+---
+
+## Worker deploy fails because a broker or topic is missing
+
+**Symptom.** `nagarectl worker deploy` or `nagarectl deploy` fails before
+printing a manifest, saying the broker or topic cannot be found.
+
+**Cause.** Workload broker bindings are checked against live broker state during
+deploy. The binding does not create the broker or topic.
+
+**Fix.**
+
+```bash
+nagarectl broker list --namespace personal
+nagarectl broker create redpanda events --namespace personal --topic jobs
+```
+
+Then rerun the workload deploy.
+
+---
+
+## Kafka clients cannot connect to the broker
+
+**Symptom.** A workload has `KAFKA_BOOTSTRAP_SERVERS`, but the client times out
+or reports an unreachable advertised broker.
+
+**Cause.** Kafka clients use broker metadata after the initial bootstrap. The
+advertised listener must be reachable from the client pod, not just from the
+broker pod.
+
+**Fix.** Use the generated `KAFKA_BOOTSTRAP_SERVERS` value. Do not hand-write a
+different Kubernetes DNS name in app config. Confirm the Service resolves inside
+the cluster:
+
+```bash
+kubectl exec -n personal deploy/<workload> -- getent hosts events.personal.svc.cluster.local
+```
+
+---
+
+## Broker storage pressure
+
+**Symptom.** Broker logs show low disk space, the dashboard storage panel rises,
+or pod scheduling fails due to disk pressure.
+
+**Fix.**
+
+- Increase broker storage with a new broker/PVC plan before data grows further.
+- Lower topic retention (`--topic-retention-ms`) for disposable streams.
+- Delete unused retained PVCs only after confirming you no longer need the data:
+
+```bash
+kubectl get pvc -n personal | grep nagare-broker
+kubectl delete pvc nagare-broker-events-data -n personal
+```
+
+---
+
 ## Where the authoritative record lives
 
 If a symptom here doesn't match what you see, or you hit something new, check the
