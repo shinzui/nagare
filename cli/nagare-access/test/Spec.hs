@@ -13,6 +13,7 @@ import Nagare.Access.Challenge
   )
 import Nagare.Access.Config
 import Nagare.Access.Cookie
+import Nagare.Access.Credential
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status404, status502)
 import Network.Wai (Request, requestHeaders)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
@@ -27,6 +28,7 @@ main =
       [ configTests
       , backendMapTests
       , cookieTests
+      , credentialTests
       , challengeTests
       , appTests
       ]
@@ -112,6 +114,28 @@ cookieTests =
         hdr @?= ("Set-Cookie", "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax")
     , testCase "cookie values reject header separators" $
         assertBool "expected Left" (isLeft (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "bad;token" 900))
+    ]
+
+credentialTests :: TestTree
+credentialTests =
+  testGroup
+    "credentials"
+    [ testCase "extracts nagare_session from Cookie" $
+        extractCredential [("Cookie", "theme=dark; nagare_session=jwt.cookie; other=1")]
+          @?= Just (SessionCookie "jwt.cookie")
+    , testCase "cookie credential wins over bearer token" $
+        extractCredential [("Authorization", "Bearer jwt.bearer"), ("Cookie", "nagare_session=jwt.cookie")]
+          @?= Just (SessionCookie "jwt.cookie")
+    , testCase "falls back to bearer authorization" $
+        extractCredential [("Authorization", "Bearer jwt.bearer")]
+          @?= Just (BearerToken "jwt.bearer")
+    , testCase "bearer scheme is case-insensitive" $
+        extractCredential [("Authorization", "bearer jwt.bearer")]
+          @?= Just (BearerToken "jwt.bearer")
+    , testCase "rejects empty session cookie" $
+        extractCredential [("Cookie", "nagare_session=; other=1")] @?= Nothing
+    , testCase "rejects unsupported authorization scheme" $
+        extractCredential [("Authorization", "Basic nope")] @?= Nothing
     ]
 
 appTests :: TestTree
