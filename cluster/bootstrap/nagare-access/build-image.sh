@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
+ARTIFACT_REPOSITORY="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
+PLATFORM="${NAGARE_CONTAINER_PLATFORM:-linux/amd64}"
+TAG="${1:-$(git -C "$ROOT" rev-parse --short HEAD)}"
+
+PROJECT="${CLOUDSDK_CORE_PROJECT:-}"
+if [[ -z "$PROJECT" ]]; then
+  PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+fi
+
+if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
+  echo "CLOUDSDK_CORE_PROJECT is not set and gcloud has no active project." >&2
+  exit 1
+fi
+
+IMAGE="${NAGARE_ACCESS_IMAGE:-${REGISTRY_HOST}/${PROJECT}/${ARTIFACT_REPOSITORY}/nagare-access:${TAG}}"
+
+docker build \
+  --platform "$PLATFORM" \
+  -f "$ROOT/cli/nagare-access/Dockerfile" \
+  -t "$IMAGE" \
+  "$ROOT"
+
+if [[ "${NAGARE_ACCESS_PUSH:-1}" == "1" ]]; then
+  gcloud auth configure-docker "$REGISTRY_HOST" --quiet
+  docker push "$IMAGE"
+fi
+
+echo "$IMAGE"

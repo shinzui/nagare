@@ -1,0 +1,57 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: nagare-access
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-access
+    app.kubernetes.io/part-of: nagare-auth-plane
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/max-scale: "1"
+    spec:
+      containers:
+        - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/nagare-access:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NAGARE_ACCESS_LISTEN
+              value: ":8080"
+            - name: NAGARE_ACCESS_SHOMEI_URL
+              value: "http://shomei.nagare-system.svc.cluster.local"
+            - name: NAGARE_ACCESS_SHOMEI_ISSUER
+              value: "nagare-shomei"
+            - name: NAGARE_ACCESS_SHOMEI_AUDIENCE
+              value: "nagare-access"
+            - name: NAGARE_ACCESS_EN_URL
+              value: "http://en.nagare-system.svc.cluster.local"
+            - name: NAGARE_ACCESS_COOKIE_DOMAIN
+              value: ".apps.example.com"
+            - name: NAGARE_ACCESS_COOKIE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-access
+                  key: cookie-key
+            - name: NAGARE_ACCESS_BACKENDS
+              value: "/etc/nagare-access/backends/backends.json"
+            - name: NAGARE_ACCESS_DECISION_TTL
+              value: "30"
+          readinessProbe:
+            httpGet:
+              path: /_nagare/healthz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /_nagare/healthz
+              port: 8080
+          volumeMounts:
+            - name: backends
+              mountPath: /etc/nagare-access/backends
+              readOnly: true
+      volumes:
+        - name: backends
+          configMap:
+            name: nagare-access-backends
