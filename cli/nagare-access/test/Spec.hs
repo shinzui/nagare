@@ -1,10 +1,11 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Main (main) where
 
 import Control.Exception (bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
-import Data.Aeson (Value, eitherDecode, object, (.=))
+import Data.Aeson (ToJSON, Value, decode, eitherDecode, encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
@@ -13,6 +14,9 @@ import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Effectful (IOE, runEff)
+import Effectful.Error.Static (Error, runErrorNoCallStack)
+import En.Check qualified as EnCheck
 import En.Client
   ( CaveatContextWire (..)
   , CheckDecisionWire (..)
@@ -22,7 +26,19 @@ import En.Client
   , ObjectRefWire (..)
   , SubjectWire (..)
   )
+import En.Conformance.Kikan qualified as Kikan
+import En.Effect.ConsistencyStore (ConsistencyStore)
+import En.Effect.TupleStore (TupleStore)
+import En.Error (EnError)
+import En.Lookup qualified as EnLookup
+import En.Reachability (ReachabilityGraph, compileSchema)
+import En.Schema qualified as EnRaw
+import En.Schema.Builder qualified as EnBuilder
+import En.Servant.API qualified as EnApi
+import En.Servant.Seam (Env (..))
+import En.Tuple qualified as EnTuple
 import GHC.Stack (HasCallStack)
+import Hasql.Pool qualified as HasqlPool
 import Nagare.Access.App (app, appWithBackends, appWithRuntime, textResponse)
 import Nagare.Access.Auth
 import Nagare.Access.BackendMap
@@ -41,17 +57,26 @@ import Nagare.Access.En
 import Nagare.Access.Jwks
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
+import Nagare.Access.ShomeiClient
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
+import Network.HTTP.Types (HeaderName, Status, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
-import Shomei.Config (ShomeiConfig (..))
+import Shomei.Client qualified as ShomeiClient
+import Shomei.Config (ShomeiConfig (..), defaultShomeiConfig)
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
+import Shomei.Domain.SigningKey (SigningAlgorithm (ES256))
 import Shomei.Error (TokenError (..))
+import Shomei.Migrations.TestSupport (withShomeiMigratedDatabase)
+import Shomei.Postgres.Pool (acquirePool)
+import Shomei.Servant.DTO qualified as ShomeiDTO
+import Shomei.Server.App qualified as ShomeiServer
+import Shomei.Server.Boot qualified as ShomeiBoot
+import Shomei.Server.Keys (bootstrapKeys)
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -286,6 +311,61 @@ shomeiTests =
         cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
         verifyShomeiCredential (JWKSet []) cfg (BearerToken "not-a-jwt")
           >>= (@?= Left InvalidCredential)
+    , testCase "login, refresh, and MFA adapters use shomei HTTP wire protocol" $
+        testWithApplication (pure shomeiAdapterStubApp) $ \port -> do
+          cfg <- authConfigFromEnv (replaceEnv "NAGARE_ACCESS_SHOMEI_URL" ("http://127.0.0.1:" <> show port) completeAuthEnv)
+          env <- shomeiLoginEnvFromAuthPlane cfg
+
+          loginWithShomei
+            env
+            LoginCredentials
+              { loginCredentialId = Just "alice"
+              , loginCredentialEmail = Nothing
+              , loginCredentialPassword = "secret"
+              }
+            >>= ( @?=
+                    LoginSucceeded
+                      SessionTokens
+                        { accessToken = "access.from-login"
+                        , refreshToken = Just "refresh.from-login"
+                        , expiresIn = 900
+                        }
+                )
+
+          loginWithShomei
+            env
+            LoginCredentials
+              { loginCredentialId = Just "mfa"
+              , loginCredentialEmail = Nothing
+              , loginCredentialPassword = "secret"
+              }
+            >>= ( @?=
+                    LoginMfaRequired
+                      MfaChallenge
+                        { mfaCeremonyId = "ceremony-1"
+                        , mfaOptions = object ["challenge" .= ("abc" :: Text)]
+                        }
+                )
+
+          refreshWithShomei env "refresh.old"
+            >>= ( @?=
+                    LoginSucceeded
+                      SessionTokens
+                        { accessToken = "access.from-refresh"
+                        , refreshToken = Just "refresh.from-refresh"
+                        , expiresIn = 901
+                        }
+                )
+
+          completeMfaWithShomei env MfaCompletion {mfaCompletionCeremonyId = "ceremony-1", mfaCompletionAssertion = object ["id" .= ("credential-1" :: Text)]}
+            >>= ( @?=
+                    LoginSucceeded
+                      SessionTokens
+                        { accessToken = "access.from-mfa"
+                        , refreshToken = Just "refresh.from-mfa"
+                        , expiresIn = 902
+                        }
+                )
     ]
 
 enTests :: TestTree
@@ -310,6 +390,16 @@ enTests =
         assertBool "expected Right" (not (isLeft env))
         badEnv <- enClientEnvFromAuthPlane manager (cfg {enUrl = "not a url"})
         assertBool "expected Left" (isLeft badEnv)
+    , testCase "authorizes through the real en HTTP client and servant app" $
+        testWithApplication (pure (enAccessApp [grantAppAccessTuple "tools.example.com" "alice"])) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          cfg <- completeAuthConfig
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show port)})
+
+          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+            >>= (@?= AccessAllowed)
+          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "bob"} "tools.example.com"
+            >>= (@?= AccessDenied)
     ]
 
 decisionCacheTests :: TestTree
@@ -692,6 +782,101 @@ appTests =
             (appWithRuntime backends services)
         simpleStatus res @?= status200
         readIORef seen >>= (@?= ["tools.example.com"])
+    , testCase "request path uses real en over HTTP before proxying to an upstream" $
+        testWithApplication (pure (enAccessApp [grantAppAccessTuple "tools.example.com" "alice"])) $ \enPort ->
+          testWithApplication (pure identityUpstreamApp) $ \upstreamPort -> do
+            manager <- HC.newManager HC.defaultManagerSettings
+            cfg <- completeAuthConfig
+            clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show enPort)})
+            backends <- assertRight (backendMapFromList [("tools.example.com", "http://127.0.0.1:" <> Text.pack (show upstreamPort))])
+            let services =
+                  testServices
+                    { verifyCredential = \case
+                        BearerToken "alice-token" -> pure (Right AuthenticatedUser {userSubject = "alice"})
+                        BearerToken "bob-token" -> pure (Right AuthenticatedUser {userSubject = "bob"})
+                        _ -> pure (Left InvalidCredential)
+                    , authorizeUser = authorizeWithEn clientEnv
+                    , forwardAuthorized = proxyForwarder manager
+                    }
+                authedReq token =
+                  request $
+                    withHeader hHost "tools.example.com" $
+                      withHeader "Authorization" ("Bearer " <> token) $
+                        setPath defaultRequest "/"
+
+            allowed <- runSession (authedReq "alice-token") (appWithRuntime backends services)
+            simpleStatus allowed @?= status200
+            simpleBody allowed @?= "upstream saw user alice"
+
+            denied <- runSession (authedReq "bob-token") (appWithRuntime backends services)
+            simpleStatus denied @?= status403
+    , testCase "real shomei JWT plus real en authorization proxies an allowed request" $
+        withRealShomeiServer $ \shomeiPort -> do
+          let shomeiBaseUrl = "http://127.0.0.1:" <> show shomeiPort
+              password = "A-long-random-password-42"
+          shomeiClientEnv <- ShomeiClient.shomeiClientEnv shomeiBaseUrl
+          signup <-
+            ShomeiClient.signup
+              shomeiClientEnv
+              ShomeiDTO.SignupRequest
+                { ShomeiDTO.loginId = Just "alice"
+                , ShomeiDTO.email = Just "alice@example.com"
+                , ShomeiDTO.password = password
+                , ShomeiDTO.displayName = "Alice"
+                }
+              >>= either (assertFailure . ("signup failed: " <>) . show) pure
+          let subject = signup.user.userId
+          testWithApplication (pure (enAccessApp [grantAppAccessTuple "tools.example.com" subject])) $ \enPort ->
+            testWithApplication (pure identityUpstreamApp) $ \upstreamPort -> do
+              manager <- HC.newManager HC.defaultManagerSettings
+              let authCfg =
+                    AuthPlaneConfig
+                      { shomeiUrl = Text.pack shomeiBaseUrl
+                      , shomeiIssuer = "shomei"
+                      , shomeiAudience = "shomei-clients"
+                      , enUrl = Text.pack ("http://127.0.0.1:" <> show enPort)
+                      , cookieDomain = ".apps.example.com"
+                      , cookieKey = Just "cookie-secret"
+                      }
+              jwksCache <- newJwksCache 0 (pure 0) (fetchJwksFromShomei manager authCfg)
+              enClientEnv <- assertRight =<< enClientEnvFromAuthPlane manager authCfg
+              shomeiLoginEnv <- shomeiLoginEnvFromAuthPlane authCfg
+              decisionCache <- newDecisionCache 0 (pure 0)
+              backends <- assertRight (backendMapFromList [("tools.example.com", "http://127.0.0.1:" <> Text.pack (show upstreamPort))])
+              let services =
+                    AccessServices
+                      { verifyCredential = verifyShomeiCredentialCached jwksCache authCfg
+                      , authorizeUser = authorizeWithEn enClientEnv
+                      , forwardAuthorized = proxyForwarder manager
+                      , loginUser = loginWithShomei shomeiLoginEnv
+                      , completeMfa = completeMfaWithShomei shomeiLoginEnv
+                      , refreshUserSession = refreshWithShomei shomeiLoginEnv
+                      , newCsrfToken = pure "csrf-token"
+                      , decisionCache
+                      , cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                      }
+                  accessApp = appWithRuntime backends services
+                  loginReq =
+                    SRequest
+                      ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                          withHeader "Content-Type" "application/x-www-form-urlencoded" $
+                            (setPath defaultRequest "/_nagare/login") {requestMethod = "POST"}
+                      )
+                      ("loginId=alice&password=" <> LBS.fromStrict (TE.encodeUtf8 password) <> "&csrf=csrf-token&rd=%2F")
+              loginRes <- runSession (srequest loginReq) accessApp
+              simpleStatus loginRes @?= status302
+              sessionValue <- setCookieValue "nagare_session" loginRes
+
+              allowed <-
+                runSession
+                  ( request $
+                      withHeader hHost "tools.example.com" $
+                        withHeader "Cookie" ("nagare_session=" <> sessionValue) $
+                          setPath defaultRequest "/"
+                  )
+                  accessApp
+              simpleStatus allowed @?= status200
+              simpleBody allowed @?= "upstream saw user " <> LBS.fromStrict (TE.encodeUtf8 subject)
     , testCase "unknown protected host returns a clear backend error" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "other.example.com" (setPath defaultRequest "/"))) (appWithBackends backends)
@@ -723,6 +908,12 @@ refreshCookieValue key token = do
   hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" key) token 2592000)
   maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
 
+setCookieValue :: ByteString -> SResponse -> IO ByteString
+setCookieValue name res =
+  case [value | header <- simpleHeaders res, Just value <- [cookieValueFromSetCookie name header]] of
+    value : _ -> pure value
+    [] -> assertFailure ("missing Set-Cookie for " <> show name)
+
 completeAuthEnv :: [(String, String)]
 completeAuthEnv =
   [ ("NAGARE_ACCESS_SHOMEI_URL", "http://shomei.nagare-system.svc.cluster.local")
@@ -750,6 +941,119 @@ withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
   req {requestHeaders = (name, value) : requestHeaders req}
 
+shomeiAdapterStubApp :: Wai.Application
+shomeiAdapterStubApp req respond =
+  case (requestMethod req, Wai.pathInfo req) of
+    ("POST", ["auth", "login"]) -> do
+      body <- Wai.strictRequestBody req
+      case decode body of
+        Just (ShomeiDTO.LoginRequest (Just "alice") _ "secret") ->
+          respondJson status200 (ShomeiDTO.LoginCompleteResponse shomeiUser (ShomeiDTO.TokenPairResponse "access.from-login" "refresh.from-login" 900))
+        Just (ShomeiDTO.LoginRequest (Just "mfa") _ "secret") ->
+          respondJson status200 (ShomeiDTO.LoginMfaRequiredResponse "ceremony-1" (object ["challenge" .= ("abc" :: Text)]))
+        _ ->
+          respondJson status401 (object ["error" .= ("invalid_login" :: Text)])
+    ("POST", ["auth", "refresh"]) -> do
+      body <- Wai.strictRequestBody req
+      case decode body of
+        Just (ShomeiDTO.RefreshRequest "refresh.old") ->
+          respondJson status200 (ShomeiDTO.TokenPairResponse "access.from-refresh" "refresh.from-refresh" 901)
+        _ ->
+          respondJson status401 (object ["error" .= ("invalid_refresh" :: Text)])
+    ("POST", ["auth", "mfa", "complete"]) -> do
+      body <- Wai.strictRequestBody req
+      case decode body of
+        Just (ShomeiDTO.MfaCompleteRequest "ceremony-1" _) ->
+          respondJson status200 (ShomeiDTO.TokenPairResponse "access.from-mfa" "refresh.from-mfa" 902)
+        _ ->
+          respondJson status401 (object ["error" .= ("invalid_mfa" :: Text)])
+    _ ->
+      respond (Wai.responseLBS status404 [] "not found")
+  where
+    respondJson :: (ToJSON a) => Status -> a -> IO Wai.ResponseReceived
+    respondJson status value =
+      respond (Wai.responseLBS status [("Content-Type", "application/json")] (encode value))
+
+shomeiUser :: ShomeiDTO.UserResponse
+shomeiUser =
+  ShomeiDTO.UserResponse
+    { ShomeiDTO.userId = "user-1"
+    , ShomeiDTO.loginId = "alice"
+    , ShomeiDTO.email = Just "alice@example.com"
+    , ShomeiDTO.displayName = "Alice"
+    , ShomeiDTO.status = "active"
+    }
+
+type EnAccessEffects = '[ConsistencyStore, TupleStore, Error EnError, IOE]
+
+enAccessApp :: [EnTuple.Tuple] -> Wai.Application
+enAccessApp tuples =
+  EnApi.app env
+  where
+    env :: Env EnAccessEffects
+    env =
+      Env
+        { runPorts =
+            runEff
+              . runErrorNoCallStack
+              . Kikan.runTupleStoreInMemory tuples
+              . Kikan.runConsistencyStoreInMemory
+        , graph = nagareAccessGraph
+        , checkOperation = EnCheck.check
+        , lookupWithDeadlineOperation = EnLookup.lookupWithDeadline
+        , maxBatchSize = 20
+        }
+
+nagareAccessGraph :: ReachabilityGraph
+nagareAccessGraph =
+  either (error . show) id (compileSchema nagareAccessSchema)
+
+nagareAccessSchema :: EnRaw.Schema
+nagareAccessSchema =
+  either (error . show) id $ do
+    userObject <- EnBuilder.object "user" []
+    appObject <-
+      EnBuilder.object
+        "app"
+        [ EnBuilder.relation "viewer" [EnBuilder.subject "user"] EnBuilder.this
+        , EnBuilder.permission "access" (EnBuilder.computed "viewer")
+        ]
+    EnBuilder.build [userObject, appObject]
+
+grantAppAccessTuple :: Text -> Text -> EnTuple.Tuple
+grantAppAccessTuple host user =
+  EnTuple.Tuple
+    { EnTuple.object = appRef host
+    , EnTuple.relation = EnRaw.RelationName "viewer"
+    , EnTuple.subject = EnTuple.SubjectId (userRef user)
+    , EnTuple.caveat = Nothing
+    }
+
+appRef :: Text -> EnTuple.ObjectRef
+appRef host =
+  EnTuple.ObjectRef {EnTuple.objectType = EnRaw.ObjectType "app", EnTuple.objectId = host}
+
+userRef :: Text -> EnTuple.ObjectRef
+userRef user =
+  EnTuple.ObjectRef {EnTuple.objectType = EnRaw.ObjectType "user", EnTuple.objectId = user}
+
+withRealShomeiServer :: (Int -> IO a) -> IO a
+withRealShomeiServer action =
+  withShomeiMigratedDatabase $ \connStr ->
+    bracket (acquirePool 4 connStr) HasqlPool.release $ \pool -> do
+      (key, jwks) <- bootstrapKeys ES256 pool
+      manager <- HC.newManager HC.defaultManagerSettings
+      let shomeiCfg = defaultShomeiConfig (Issuer "shomei") (Audience "shomei-clients")
+          env =
+            ShomeiServer.Env
+              { ShomeiServer.envPool = pool
+              , ShomeiServer.envConfig = shomeiCfg
+              , ShomeiServer.envKey = key
+              , ShomeiServer.envJwks = jwks
+              , ShomeiServer.envHttpManager = manager
+              }
+      testWithApplication (pure (ShomeiBoot.application env)) action
+
 streamingUpstreamApp :: Wai.Application
 streamingUpstreamApp _req respond =
   respond $
@@ -763,6 +1067,18 @@ streamingUpstreamApp _req respond =
           flush
           write (Builder.byteString "event: two\n\n")
           flush
+      )
+
+identityUpstreamApp :: Wai.Application
+identityUpstreamApp req respond =
+  respond $
+    Wai.responseLBS
+      status200
+      []
+      ( case lookup "X-Forwarded-User" (requestHeaders req) of
+          Just "alice" -> "upstream saw user alice"
+          Just other -> "upstream saw user " <> LBS.fromStrict other
+          Nothing -> "upstream saw no user"
       )
 
 websocketProxyApp :: Int -> Wai.Application
