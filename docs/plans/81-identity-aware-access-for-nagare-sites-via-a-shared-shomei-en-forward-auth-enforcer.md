@@ -83,10 +83,17 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   health endpoint, listen parsing, safe return-destination validation, and the 302-vs-401
   challenge classifier. Added package metadata in `mori.dhall` and a root flake build/test
   check.
+- [x] **M1b — backend map, cookie headers, and concrete unauthenticated responses.** Completed
+  2026-06-24. Added parsing/lookup for the `NAGARE_ACCESS_BACKENDS` JSON host→upstream map,
+  deterministic `Set-Cookie` header construction for the shared session cookie and `__Host`
+  CSRF cookie, and WAI behavior for protected hosts with no token: document requests get 302
+  to login, JSON/API requests get 401 JSON, and unknown hosts get a clear backend error. The
+  executable now reads `NAGARE_ACCESS_BACKENDS` as an optional JSON file path and fails fast
+  on malformed map data.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  `shomei-jwt`, login flow via `shomei-client`, cookie management, en authZ via `en-client`,
-  JWKS caching, decision caching, reverse-proxy forwarding, WebSocket/SSE handling, and
-  integration tests against shomei+en.
+  `shomei-jwt`, login flow via `shomei-client`, session-cookie parsing/refresh semantics, en
+  authZ via `en-client`, JWKS caching, decision caching, reverse-proxy forwarding,
+  WebSocket/SSE handling, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -199,6 +206,22 @@ cabal.project` lists `../nagare-dsl`, matching the plan's per-package workspace 
 `cli/nagare-access`. Attempting `nix fmt flake.nix` failed because this flake does not expose
 `formatter.aarch64-darwin`; the flake change is a small check stanza matching the existing
 Haskell checks and was left manually formatted in the surrounding style.
+
+**M1b implementation evidence (2026-06-24).** The enforcer now has `Nagare.Access.BackendMap`
+for the `NAGARE_ACCESS_BACKENDS` JSON file contract, `Nagare.Access.Cookie` for the session
+and CSRF `Set-Cookie` headers, and `Nagare.Access.Response` for shared 302/401/403 response
+construction. `Nagare.Access.App.appWithBackends` uses the host map to distinguish configured
+protected hosts from misrouted hosts, then returns the correct unauthenticated response shape
+until token verification lands. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 27 tests passed (0.01s)
+All 354 tests passed (6.23s)
+```
+
+The repo now ignores Cabal `dist-newstyle/` and `.ghc.environment.*` outputs so repeated local
+validation does not leave untracked build artifacts in each Cabal workspace.
 
 
 ## Decision Log
