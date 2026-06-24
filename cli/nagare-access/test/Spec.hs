@@ -1,9 +1,20 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 module Main (main) where
 
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.ByteString (ByteString)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
+import En.Client
+  ( CaveatContextWire (..)
+  , CheckDecisionWire (..)
+  , CheckRequestWire (..)
+  , CheckResponseWire (..)
+  , ConsistencyWire (..)
+  , ObjectRefWire (..)
+  , SubjectWire (..)
+  )
 import GHC.Stack (HasCallStack)
 import Nagare.Access.App (app, appWithBackends, appWithRuntime, textResponse)
 import Nagare.Access.Auth
@@ -19,6 +30,7 @@ import Nagare.Access.Config
 import Nagare.Access.Cookie
 import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
+import Nagare.Access.En
 import Nagare.Access.Jwks
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
@@ -43,6 +55,7 @@ main =
       , credentialTests
       , jwksTests
       , shomeiTests
+      , enTests
       , decisionCacheTests
       , proxyTests
       , challengeTests
@@ -253,6 +266,30 @@ shomeiTests =
         cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
         verifyShomeiCredential (JWKSet []) cfg (BearerToken "not-a-jwt")
           >>= (@?= Left InvalidCredential)
+    ]
+
+enTests :: TestTree
+enTests =
+  testGroup
+    "en"
+    [ testCase "builds the app access check for the authenticated user and host" $ do
+        let req = buildCheckRequest AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+        req.consistency @?= MinimizeLatencyWire
+        req.context @?= CaveatContextWire mempty
+        req.subject @?= SubjectIdWire ObjectRefWire {objectType = "user", objectId = "alice"}
+        req.permission @?= "access"
+        req.object @?= ObjectRefWire {objectType = "app", objectId = "tools.example.com"}
+    , testCase "maps en decisions into access decisions" $ do
+        checkResponseToDecision (CheckResponseWire AllowedWire) @?= AccessAllowed
+        checkResponseToDecision (CheckResponseWire DeniedWire) @?= AccessDenied
+        checkResponseToDecision (CheckResponseWire (ConditionalWire [])) @?= AccessConditional
+    , testCase "rejects malformed en base URLs when constructing the client env" $ do
+        manager <- HC.newManager HC.defaultManagerSettings
+        cfg <- completeAuthConfig
+        env <- enClientEnvFromAuthPlane manager cfg
+        assertBool "expected Right" (not (isLeft env))
+        badEnv <- enClientEnvFromAuthPlane manager (cfg {enUrl = "not a url"})
+        assertBool "expected Left" (isLeft badEnv)
     ]
 
 decisionCacheTests :: TestTree

@@ -32,9 +32,10 @@
         let
           ghc = pkgs.haskell.compiler.ghc912;
           # Tooling for the cabal-based checks: the pinned GHC + cabal, the C deps
-          # (zlib via pkg-config), git (for the cradle source-repository-package),
-          # and CA certs (for Hackage/GitHub https).
-          haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.pkg-config pkgs.git pkgs.cacert ];
+          # (zlib via pkg-config, PostgreSQL/libpq for en-client's current dependency
+          # closure), git (for source-repository-package dependencies), and CA certs
+          # (for Hackage/GitHub https).
+          haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.postgresql pkgs.pkg-config pkgs.git pkgs.cacert ];
           cabalEnv = ''
             export HOME="$PWD/.home"
             export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
@@ -209,6 +210,7 @@
               pkgs.haskell.packages.ghc912.fourmolu
               pkgs.haskell.packages.ghc912.cabal-gild
               pkgs.zlib
+              pkgs.postgresql
               pkgs.pkg-config
             ];
             shellHook = ''
@@ -228,6 +230,7 @@
               pkgs.haskell.compiler.ghc912
               pkgs.cabal-install
               pkgs.zlib
+              pkgs.postgresql
               pkgs.pkg-config
             ];
           };

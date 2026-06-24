@@ -20,3 +20,33 @@ source-repository-package
   location: https://github.com/shinzui/shomei.git
   tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
   subdir: shomei-jwt
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/en.git
+  tag: d27bb440b4b125c9844be95a02d00f54c1eec261
+  subdir: en-core
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/en.git
+  tag: d27bb440b4b125c9844be95a02d00f54c1eec261
+  subdir: en-migrations
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/en.git
+  tag: d27bb440b4b125c9844be95a02d00f54c1eec261
+  subdir: en-postgres
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/en.git
+  tag: d27bb440b4b125c9844be95a02d00f54c1eec261
+  subdir: en-servant
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/en.git
+  tag: d27bb440b4b125c9844be95a02d00f54c1eec261
+  subdir: en-client
