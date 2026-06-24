@@ -3,6 +3,8 @@ module Main (main) where
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.UUID (toText)
+import Data.UUID.V4 (nextRandom)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..))
 import Nagare.Access.BackendMap (BackendMap, decodeBackendMap, emptyBackendMap)
@@ -13,6 +15,7 @@ import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Proxy (newProxyManager, proxyForwarder)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
+import Nagare.Access.ShomeiClient (loginWithShomei, shomeiLoginEnvFromAuthPlane)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import System.Environment (getEnvironment)
@@ -48,12 +51,15 @@ buildAccessServices runtime cfg = do
       currentSeconds
       (fetchJwksFromShomei manager cfg)
   enEnv <- either (fail . Text.unpack) pure =<< enClientEnvFromAuthPlane manager cfg
+  shomeiLoginEnv <- shomeiLoginEnvFromAuthPlane cfg
   decisionCache <- newDecisionCache (decisionTtlSeconds runtime) currentSeconds
   pure
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
       , authorizeUser = authorizeWithEn enEnv
       , forwardAuthorized = proxyForwarder manager
+      , loginUser = loginWithShomei shomeiLoginEnv
+      , newCsrfToken = toText <$> nextRandom
       , decisionCache
       , cookieSettings = Just (defaultCookieSettings (cookieDomain cfg))
       }

@@ -38,6 +38,7 @@ library
     Nagare.Access.Proxy
     Nagare.Access.Response
     Nagare.Access.Shomei
+    Nagare.Access.ShomeiClient
 
   build-depends:
     aeson,
@@ -51,8 +52,10 @@ library
     http-types,
     jose,
     servant-client,
+    shomei-client,
     shomei-core,
     shomei-jwt,
+    shomei-servant,
     text,
     wai,
 
@@ -66,6 +69,7 @@ executable nagare-access
     nagare-access,
     text,
     time,
+    uuid,
     wai,
     warp,
 
@@ -85,6 +89,7 @@ test-suite nagare-access-test
     jose,
     nagare-access,
     servant-client,
+    shomei-client,
     shomei-core,
     tasty >=1.4,
     tasty-hunit >=0.10,
