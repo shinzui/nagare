@@ -7,8 +7,10 @@ module Nagare.Access.Proxy
   )
 where
 
-import Control.Exception (try)
+import Control.Exception (finally, try)
+import Control.Monad (unless)
 import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -30,7 +32,7 @@ proxyForwarder manager user publicHost target waiReq = do
     Left err ->
       pure (badGatewayResponse err)
     Right proxyReq -> do
-      upstream <- try (HC.httpLbs proxyReq manager)
+      upstream <- try (HC.responseOpen proxyReq manager)
       pure $ case upstream of
         Left (err :: HC.HttpException) ->
           badGatewayResponse ("upstream request failed: " <> Text.pack (show err))
@@ -39,7 +41,6 @@ proxyForwarder manager user publicHost target waiReq = do
 
 buildProxyRequest :: AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO (Either Text HC.Request)
 buildProxyRequest user publicHost target waiReq = do
-  body <- Wai.strictRequestBody waiReq
   parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl target)))
   pure $ case parsed of
     Left (err :: HC.HttpException) ->
@@ -50,26 +51,43 @@ buildProxyRequest user publicHost target waiReq = do
           { HC.method = Wai.requestMethod waiReq
           , HC.path = appendPaths (HC.path baseReq) (Wai.rawPathInfo waiReq)
           , HC.queryString = Wai.rawQueryString waiReq
-          , HC.requestBody = HC.RequestBodyLBS body
+          , HC.requestBody = HC.RequestBodyStreamChunked ($ Wai.getRequestBodyChunk waiReq)
           , HC.requestHeaders =
               hardenRequestHeaders publicHost user (Wai.requestHeaders waiReq)
+          , HC.decompress = const False
           , HC.redirectCount = 0
           }
 
-proxyResponseToWai :: HC.Response LBS.ByteString -> Wai.Response
+proxyResponseToWai :: HC.Response HC.BodyReader -> Wai.Response
 proxyResponseToWai response =
-  Wai.responseLBS
+  Wai.responseStream
     (HC.responseStatus response)
     (filterResponseHeaders (HC.responseHeaders response))
-    (HC.responseBody response)
+    ( \write flush ->
+        streamResponseBody (HC.responseBody response) write flush
+          `finally` HC.responseClose response
+    )
+
+streamResponseBody :: HC.BodyReader -> (Builder.Builder -> IO ()) -> IO () -> IO ()
+streamResponseBody reader write flush = do
+  chunk <- HC.brRead reader
+  unless (BS.null chunk) $ do
+    write (Builder.byteString chunk)
+    flush
+    streamResponseBody reader write flush
 
 hardenRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenRequestHeaders publicHost user headers =
-  filterRequestHeaders headers
+  ensureAcceptEncodingHeader (filterRequestHeaders headers)
     <> [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
        ]
+
+ensureAcceptEncodingHeader :: [Header] -> [Header]
+ensureAcceptEncodingHeader headers
+  | any ((== "Accept-Encoding") . fst) headers = headers
+  | otherwise = ("Accept-Encoding", "") : headers
 
 filterRequestHeaders :: [Header] -> [Header]
 filterRequestHeaders =

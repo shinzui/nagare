@@ -170,8 +170,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   when the key is configured, missing/expired access tokens transparently call shomei
   `refresh`, rotated access+refresh cookies are attached to the forwarded response, and failed
   refresh clears both auth cookies before returning the existing content-negotiated challenge.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** WebSocket/SSE and large-body
-  streaming, MFA browser ceremony completion, and integration tests against shomei+en.
+- [x] **M1o — streaming proxy request and response bodies.** Completed 2026-06-24.
+  Replaced the initial buffered proxy body path with `http-client` `RequestBodyStreamChunked`
+  and `responseOpen`/`BodyReader`, bridged to WAI `responseStream`, and disabled transparent
+  decompression so proxied response headers continue to describe the bytes sent downstream.
+  Tests now pin the streaming request-body constructor and exercise an SSE-like upstream through
+  a local Warp app.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** WebSocket `Upgrade` tunneling,
+  MFA browser ceremony completion, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -501,6 +507,31 @@ All 76 tests passed (0.01s)
 All 354 tests passed (5.99s)
 ```
 
+**M1o implementation evidence (2026-06-24).** `Nagare.Access.Proxy` now streams normal HTTP
+request and response bodies instead of buffering them. The request bridge uses
+`RequestBodyStreamChunked ($ Wai.getRequestBodyChunk waiReq)`, which avoids
+`Wai.strictRequestBody`; the response bridge uses `http-client` `responseOpen` to receive an
+upstream `BodyReader`, then returns a WAI `responseStream` that writes each chunk and closes the
+upstream response with `responseClose` in a `finally` handler. The proxy disables
+`http-client` transparent decompression and suppresses its implicit `Accept-Encoding: gzip`
+header when the browser did not send `Accept-Encoding`, so forwarded `Content-Encoding` and
+`Content-Length` headers continue to describe the bytes sent downstream. WebSocket `Upgrade`
+traffic remains separate because it needs WAI raw response support and a bidirectional tunnel,
+not the normal `responseStream` body path. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Up to date
+
+cli/nagare-access$ nix develop --command cabal test all
+All 77 tests passed (0.02s)
+All 354 tests passed (6.48s)
+```
+
+The attempted repo-root command `nix develop --command cabal build all` failed because this
+repository still has no root `cabal.project`; Cabal validation for this slice must run from
+`cli/nagare-access/`, whose workspace includes `nagare-access` and `../nagare-dsl`.
+
 
 ## Decision Log
 
@@ -689,6 +720,19 @@ Record every decision made while working on the plan.
   Rationale: This creates a real, tested forwarding surface now, hardens the trusted identity
   headers before any upstream app can consume them, and avoids adding an unregistered proxy
   library before the project has proven exactly which streaming semantics it needs.
+  Date: 2026-06-24
+
+- Decision: **Stream normal HTTP/SSE bodies with `http-client` and WAI primitives; keep
+  WebSocket `Upgrade` as a separate raw-tunnel task.** The local `http-client` source exposes
+  `RequestBodyStreamChunked`, `responseOpen`, `BodyReader`, `brRead`, and `responseClose`; the
+  local WAI source exposes `responseStream`. Those APIs cover large uploads, large downloads,
+  and server-sent events because they are still ordinary HTTP request/response bodies. They do
+  not grant bidirectional raw socket ownership after an `Upgrade: websocket` handshake, so
+  WebSocket support remains in M1 as a later `responseRaw`/tunnel design rather than being
+  hidden inside the body-streaming slice.
+  Rationale: This removes the memory-risking buffered path immediately while keeping the
+  harder WebSocket semantics explicit and testable. It also avoids incorrectly treating
+  WebSockets as just another response body, which would fail real browser WebSocket clients.
   Date: 2026-06-24
 
 - Decision: **Parse auth-plane environment now, but defer direct `shomei-jwt`/`en-client`
