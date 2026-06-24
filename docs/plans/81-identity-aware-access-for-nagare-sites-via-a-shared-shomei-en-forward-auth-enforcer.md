@@ -112,11 +112,21 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   following, and maps upstream responses back to WAI responses. This is the initial buffered
   request/response forwarder; WebSocket upgrade handling, SSE/large-body streaming, and
   end-to-end shomei+en integration remain in M1.
+- [x] **M1g — runtime auth-plane environment parsing.** Completed 2026-06-24. Added a typed
+  `RuntimeConfig` and `AuthPlaneConfig` parser for `NAGARE_ACCESS_LISTEN`,
+  `NAGARE_ACCESS_BACKENDS`, `NAGARE_ACCESS_SHOMEI_URL`,
+  `NAGARE_ACCESS_SHOMEI_ISSUER`, `NAGARE_ACCESS_SHOMEI_AUDIENCE`,
+  `NAGARE_ACCESS_EN_URL`, `NAGARE_ACCESS_COOKIE_DOMAIN`, `NAGARE_ACCESS_COOKIE_KEY`, and
+  `NAGARE_ACCESS_DECISION_TTL`. The executable now uses this parser for listen/backend config.
+  With no auth env, the auth plane remains absent; if any auth-plane setting is present, the
+  required auth settings must all be valid, so partial configuration fails fast before request
+  handling starts. `NAGARE_ACCESS_DECISION_TTL` defaults to 30 seconds and accepts `0` to
+  disable caching.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
   `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
   authZ via `en-client`, JWKS caching, WebSocket/SSE and large-body streaming, wiring the
-  executable to real auth/proxy services, userinfo/logout/login endpoints, runtime env parsing
-  for auth-plane settings, and integration tests against shomei+en.
+  executable to real shomei/en/proxy services, userinfo/logout/login endpoints, and integration
+  tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -296,6 +306,19 @@ streaming/WebSocket work explicitly for the remaining M1 items. Validation:
 cli/nagare-access$ cabal test all
 All 45 tests passed (0.01s)
 All 354 tests passed (5.73s)
+```
+
+**M1g implementation evidence (2026-06-24).** `Nagare.Access.Config` now has the typed runtime
+config record needed before wiring shomei, en, cookies, and the decision cache into the
+executable. `parseRuntimeConfig` keeps the auth plane optional when no auth env is present, but
+rejects partial/malformed auth env once any auth setting appears. `app/Main.hs` now uses this
+single parser instead of reading `NAGARE_ACCESS_LISTEN` and `NAGARE_ACCESS_BACKENDS`
+separately. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 51 tests passed (0.01s)
+All 354 tests passed (5.88s)
 ```
 
 
@@ -486,6 +509,20 @@ Record every decision made while working on the plan.
   Rationale: This creates a real, tested forwarding surface now, hardens the trusted identity
   headers before any upstream app can consume them, and avoids adding an unregistered proxy
   library before the project has proven exactly which streaming semantics it needs.
+  Date: 2026-06-24
+
+- Decision: **Parse auth-plane environment now, but defer direct `shomei-jwt`/`en-client`
+  package wiring until dependency sourcing is reproducible.** `mori registry show
+  shinzui/shomei --full` confirmed the shomei source and APIs, but the current
+  `nagare-access` flake check copies only the nagare repository into the build tree. Adding a
+  committed sibling path such as `../../../shomei/shomei-jwt` to
+  `cli/nagare-access/cabal.project` would work only on the local machine layout and would fail
+  in the flake check. The next direct shomei/en integration should first add a reproducible
+  source-repository-package, flake input, or in-repo vendoring strategy for these own-project
+  packages. Until then, `RuntimeConfig` captures the required URL/issuer/audience/cookie/cache
+  settings without importing those packages.
+  Rationale: This moves M1 forward on the executable's real configuration contract while
+  avoiding a machine-local dependency path in committed build metadata.
   Date: 2026-06-24
 
 
@@ -1427,3 +1464,8 @@ Contracts at milestone boundaries:
   validation evidence, and a Decision Log entry explaining why `nagare-access` now uses a
   direct `http-client`/`http-client-tls` forwarder while keeping WebSocket/SSE and large-body
   streaming in the remaining M1 scope. No change to the chosen topology or auth model.
+
+- 2026-06-24 — Recorded M1g, runtime auth-plane environment parsing. Added progress,
+  validation evidence, and a Decision Log entry explaining why direct `shomei-jwt`/`en-client`
+  imports are deferred until dependency sourcing is reproducible in flake checks. No change to
+  the runtime env contract already described in the plan.

@@ -55,6 +55,46 @@ configTests =
         listenPort <$> parseListen "127.0.0.1:9090" @?= Right 9090
     , testCase "bad port is rejected" $
         assertBool "expected Left" (isLeft (parseListen "nope"))
+    , testCase "runtime config defaults auth plane off and decision cache to 30 seconds" $ do
+        cfg <- assertRight (parseRuntimeConfig [])
+        runtimeListen cfg @?= defaultListen
+        authPlaneConfig cfg @?= Nothing
+        decisionTtlSeconds cfg @?= 30
+        backendMapPath cfg @?= Nothing
+    , testCase "runtime config reads backend map path and zero decision ttl" $ do
+        cfg <-
+          assertRight
+            ( parseRuntimeConfig
+                [ ("NAGARE_ACCESS_BACKENDS", "/etc/nagare/backends.json")
+                , ("NAGARE_ACCESS_DECISION_TTL", "0")
+                ]
+            )
+        backendMapPath cfg @?= Just "/etc/nagare/backends.json"
+        decisionTtlSeconds cfg @?= 0
+    , testCase "runtime config reads complete auth plane settings" $ do
+        cfg <- assertRight (parseRuntimeConfig completeAuthEnv)
+        authPlaneConfig cfg
+          @?= Just
+            AuthPlaneConfig
+              { shomeiUrl = "http://shomei.nagare-system.svc.cluster.local"
+              , shomeiIssuer = "https://auth.apps.example.com"
+              , shomeiAudience = "nagare-access"
+              , enUrl = "http://en.nagare-system.svc.cluster.local"
+              , cookieDomain = ".apps.example.com"
+              , cookieKey = Just "cookie-secret"
+              }
+    , testCase "runtime config rejects partial auth plane settings" $
+        assertBool
+          "expected Left"
+          (isLeft (parseRuntimeConfig [("NAGARE_ACCESS_SHOMEI_URL", "http://shomei")]))
+    , testCase "runtime config rejects malformed auth urls" $
+        assertBool
+          "expected Left"
+          (isLeft (parseRuntimeConfig (replaceEnv "NAGARE_ACCESS_SHOMEI_URL" "shomei" completeAuthEnv)))
+    , testCase "runtime config rejects negative decision ttl" $
+        assertBool
+          "expected Left"
+          (isLeft (parseRuntimeConfig [("NAGARE_ACCESS_DECISION_TTL", "-1")]))
     ]
 
 challengeTests :: TestTree
@@ -308,6 +348,20 @@ isLeft = either (const True) (const False)
 assertRight :: (HasCallStack, Show a) => Either a b -> IO b
 assertRight (Left err) = assertFailure ("expected Right, got Left " <> show err)
 assertRight (Right value) = pure value
+
+completeAuthEnv :: [(String, String)]
+completeAuthEnv =
+  [ ("NAGARE_ACCESS_SHOMEI_URL", "http://shomei.nagare-system.svc.cluster.local")
+  , ("NAGARE_ACCESS_SHOMEI_ISSUER", "https://auth.apps.example.com")
+  , ("NAGARE_ACCESS_SHOMEI_AUDIENCE", "nagare-access")
+  , ("NAGARE_ACCESS_EN_URL", "http://en.nagare-system.svc.cluster.local")
+  , ("NAGARE_ACCESS_COOKIE_DOMAIN", ".apps.example.com")
+  , ("NAGARE_ACCESS_COOKIE_KEY", "cookie-secret")
+  ]
+
+replaceEnv :: String -> String -> [(String, String)] -> [(String, String)]
+replaceEnv name value =
+  map (\entry@(k, _) -> if k == name then (name, value) else entry)
 
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
