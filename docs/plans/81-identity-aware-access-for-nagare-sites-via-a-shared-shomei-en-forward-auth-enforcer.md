@@ -98,10 +98,16 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `Nagare.Access.DecisionCache`, a short-lived in-process cache keyed by `(subject, host)`
   with an injectable clock, TTL expiry, and `0`/negative TTL disablement. This is the cache the
   future en-client authorization call will use to avoid one en round-trip per static asset.
+- [x] **M1e — authenticated request-path wiring.** Completed 2026-06-24. Added
+  `Nagare.Access.Auth` and `appWithRuntime`, so protected requests now flow through credential
+  extraction, injected token verification, cached authorization, 403 handling for denied or
+  conditional decisions, and an injected forwarder for allowed requests. Authorization uses the
+  backend map's canonical host, stripping any request `Host` port before building the decision
+  key.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
   `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
-  authZ via `en-client`, JWKS caching, wiring the decision cache into the request path,
-  reverse-proxy forwarding, WebSocket/SSE handling, userinfo/logout/login endpoints, and
+  authZ via `en-client`, JWKS caching, concrete reverse-proxy forwarding, WebSocket/SSE
+  handling, userinfo/logout/login endpoints, runtime env parsing for auth-plane settings, and
   integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
@@ -253,6 +259,19 @@ between subjects and hosts. Validation:
 cli/nagare-access$ cabal test all
 All 37 tests passed (0.01s)
 All 354 tests passed (5.76s)
+```
+
+**M1e implementation evidence (2026-06-24).** `Nagare.Access.App.appWithRuntime` now wires
+the protected request path through injectable auth services: no or invalid credential returns
+the existing content-negotiated challenge, denied or conditional authorization returns 403, an
+allowed decision calls the forwarder, and the decision cache is used per canonical
+`(subject, host)`. This keeps the app fail-closed by default while giving the upcoming
+`shomei-jwt`, `en-client`, and reverse-proxy modules concrete integration points. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 43 tests passed (0.01s)
+All 354 tests passed (6.07s)
 ```
 
 

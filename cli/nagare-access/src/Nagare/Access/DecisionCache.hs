@@ -4,6 +4,7 @@ module Nagare.Access.DecisionCache
   , DecisionCache
   , DecisionKey (..)
   , cacheLookupOrLoad
+  , disabledDecisionCache
   , newDecisionCache
   )
 where
@@ -48,6 +49,9 @@ newDecisionCache :: Int -> IO Int -> IO DecisionCache
 newDecisionCache ttl now
   | ttl <= 0 = pure DecisionCacheDisabled
   | otherwise = DecisionCache ttl now <$> newIORef Map.empty
+
+disabledDecisionCache :: DecisionCache
+disabledDecisionCache = DecisionCacheDisabled
 
 cacheLookupOrLoad :: DecisionCache -> DecisionKey -> IO AccessDecision -> IO AccessDecision
 cacheLookupOrLoad DecisionCacheDisabled _ loadDecision =
