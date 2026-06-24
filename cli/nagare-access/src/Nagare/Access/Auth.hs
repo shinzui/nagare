@@ -26,6 +26,6 @@ data AuthFailure
 data AccessServices = AccessServices
   { verifyCredential :: !(Credential -> IO (Either AuthFailure AuthenticatedUser))
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AccessDecision)
-  , forwardAuthorized :: !(AuthenticatedUser -> BackendTarget -> Request -> IO Response)
+  , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
   , decisionCache :: !DecisionCache
   }

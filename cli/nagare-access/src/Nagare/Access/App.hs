@@ -69,7 +69,7 @@ handleProtected services host req target =
               (authorizeUser services user host)
           case decision of
             AccessAllowed ->
-              forwardAuthorized services user target req
+              forwardAuthorized services user host target req
             AccessDenied ->
               pure (forbiddenResponse requestShape)
             AccessConditional ->
@@ -87,7 +87,7 @@ defaultAccessServices =
   AccessServices
     { verifyCredential = \_ -> pure (Left InvalidCredential)
     , authorizeUser = \_ _ -> pure AccessDenied
-    , forwardAuthorized = \_ _ _ -> pure (textResponse status404 "not found")
+    , forwardAuthorized = \_ _ _ _ -> pure (textResponse status404 "not found")
     , decisionCache = disabledDecisionCache
     }
 

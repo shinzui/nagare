@@ -18,8 +18,10 @@ import Nagare.Access.Config
 import Nagare.Access.Cookie
 import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
+import Nagare.Access.Proxy
+import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status403, status404, status502)
-import Network.Wai (Request, requestHeaders)
+import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -34,6 +36,7 @@ main =
       , cookieTests
       , credentialTests
       , decisionCacheTests
+      , proxyTests
       , challengeTests
       , appTests
       ]
@@ -189,6 +192,39 @@ decisionCacheTests =
         readIORef loads >>= (@?= 3)
     ]
 
+proxyTests :: TestTree
+proxyTests =
+  testGroup
+    "proxy"
+    [ testCase "builds upstream request from backend base URL and original path/query" $ do
+        let waiReq =
+              (setPath defaultRequest "/assets/app.js")
+                { requestMethod = "POST"
+                , rawQueryString = "?v=1"
+                }
+            user = AuthenticatedUser {userSubject = "user:alice"}
+            target = BackendTarget "http://tools.personal.svc.cluster.local/base"
+        proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
+        HC.method proxyReq @?= "POST"
+        HC.path proxyReq @?= "/base/assets/app.js"
+        HC.queryString proxyReq @?= "?v=1"
+    , testCase "strips spoofable and hop-by-hop request headers before injecting trusted identity" $ do
+        let waiReq =
+              withHeader "X-Forwarded-User" "user:mallory" $
+                withHeader "X-Forwarded-Host" "evil.example" $
+                  withHeader "Connection" "upgrade" $
+                    withHeader hHost "tools.example.com" $
+                      setPath defaultRequest "/"
+            user = AuthenticatedUser {userSubject = "user:alice"}
+            target = BackendTarget "http://tools.personal.svc.cluster.local"
+        proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
+        lookup "X-Forwarded-User" (HC.requestHeaders proxyReq) @?= Just "user:alice"
+        lookup "X-Forwarded-Host" (HC.requestHeaders proxyReq) @?= Just "tools.example.com"
+        lookup "X-Forwarded-Proto" (HC.requestHeaders proxyReq) @?= Just "https"
+        lookup "Connection" (HC.requestHeaders proxyReq) @?= Nothing
+        lookup hHost (HC.requestHeaders proxyReq) @?= Nothing
+    ]
+
 appTests :: TestTree
 appTests =
   testGroup
@@ -282,6 +318,6 @@ testServices =
   AccessServices
     { verifyCredential = \_ -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
     , authorizeUser = \_ _ -> pure AccessAllowed
-    , forwardAuthorized = \_ _ _ -> pure (textResponse status200 "proxied")
+    , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , decisionCache = disabledDecisionCache
     }
