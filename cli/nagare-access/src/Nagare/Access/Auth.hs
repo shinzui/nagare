@@ -8,6 +8,7 @@ where
 
 import Data.Text (Text)
 import Nagare.Access.BackendMap (BackendTarget)
+import Nagare.Access.Cookie (CookieSettings)
 import Nagare.Access.Credential (Credential)
 import Nagare.Access.DecisionCache (AccessDecision, DecisionCache)
 import Network.Wai (Request, Response)
@@ -28,4 +29,5 @@ data AccessServices = AccessServices
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AccessDecision)
   , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
   , decisionCache :: !DecisionCache
+  , cookieSettings :: !(Maybe CookieSettings)
   }

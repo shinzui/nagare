@@ -6,7 +6,8 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..))
 import Nagare.Access.BackendMap (BackendMap, decodeBackendMap, emptyBackendMap)
-import Nagare.Access.Config (AuthPlaneConfig, RuntimeConfig (..), listenPort, parseRuntimeConfig)
+import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
+import Nagare.Access.Cookie (defaultCookieSettings)
 import Nagare.Access.DecisionCache (newDecisionCache)
 import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
@@ -54,6 +55,7 @@ buildAccessServices runtime cfg = do
       , authorizeUser = authorizeWithEn enEnv
       , forwardAuthorized = proxyForwarder manager
       , decisionCache
+      , cookieSettings = Just (defaultCookieSettings (cookieDomain cfg))
       }
 
 loadBackends :: Maybe FilePath -> IO BackendMap
