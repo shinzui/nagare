@@ -327,6 +327,7 @@ helloDep =
     , volumes = []
     , databases = []
     , brokers = []
+    , access = Nothing
     , tasks = []
     , cdn = Nothing
     }

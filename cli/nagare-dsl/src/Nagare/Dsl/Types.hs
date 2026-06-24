@@ -114,6 +114,7 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
@@ -613,6 +614,10 @@ data Deployment = Deployment
   , brokers :: ![BrokerBinding]
   -- ^ Names of messaging brokers and topics this app connects to.
   -- Empty (the backward-compatible default) means the app uses no brokers.
+  , access :: !(Maybe AccessPolicy)
+  -- ^ Optional identity-aware access policy. 'Nothing' means public; 'Just'
+  -- means deploy-time wiring must route this web Service through the shared
+  -- nagare-access enforcer. The renderer emits no YAML for this field.
   , tasks :: ![Task]
   -- ^ Scheduled tasks co-located with this app (MasterPlan 10, IP5). Empty (the
   -- backward-compatible default) means the app declares no tasks. Each 'Task'

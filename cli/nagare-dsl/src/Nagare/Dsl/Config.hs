@@ -32,6 +32,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Access
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
@@ -100,6 +101,13 @@ brokerBindingJSON binding =
   object
     [ "name" .= brokerNameText (binding ^. #name)
     , "topics" .= map topicNameText (binding ^. #topics)
+    ]
+
+accessPolicyJSON :: AccessPolicy -> Value
+accessPolicyJSON policy =
+  object
+    [ "audience" .= fmap audienceText (policy ^. #audience)
+    , "permission" .= accessPermissionText (policy ^. #permission)
     ]
 
 -- | Serialize a 'Database' to JSON and write it to stdout. Call this as the last
@@ -372,6 +380,7 @@ deploymentJSON dep =
     , "volumes" .= map volumeJSON (dep ^. #volumes)
     , "databases" .= map databaseNameText (dep ^. #databases)
     , "brokers" .= map brokerBindingJSON (dep ^. #brokers)
+    , "access" .= fmap accessPolicyJSON (dep ^. #access)
     , "tasks" .= map taskJSON (sortOn taskName (dep ^. #tasks))
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
@@ -574,6 +583,7 @@ applicationJSON app =
     , "databases"
         .= map databaseJSON (sortOn (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases))
     , "brokers" .= map brokerBindingJSON (app ^. #brokers)
+    , "access" .= fmap accessPolicyJSON (app ^. #access)
     , "service" .= fmap deploymentJSON (app ^. #service)
     , "workers"
         .= map workerJSON (sortOn (\w -> serviceNameText (w ^. #name)) (app ^. #workers))

@@ -38,6 +38,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Nagare.Dsl.Access
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
@@ -241,6 +242,7 @@ data JsonDeployment = JsonDeployment
   , jdVolumes :: ![JsonVolume]
   , jdDatabases :: ![Text]
   , jdBrokers :: ![JsonBrokerBinding]
+  , jdAccess :: !(Maybe JsonAccessPolicy)
   , jdTasks :: ![JsonTask]
   , jdCdn :: !(Maybe JsonCdn)
   }
@@ -266,6 +268,7 @@ instance FromJSON JsonDeployment where
       <*> o .:? "volumes" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "brokers" .!= []
+      <*> o .:? "access"
       <*> o .:? "tasks" .!= []
       <*> o .:? "cdn"
 
@@ -290,6 +293,7 @@ toDeployment jd = do
   vols' <- toVolumes (jdVolumes jd)
   dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jdBrokers jd)
+  access' <- traverse toAccessPolicy (jdAccess jd)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
   -- constructor, including EP-50's inherit-image-requires-an-app invariant), then
   -- enforce the two deploy-level cross-task invariants.
@@ -326,9 +330,28 @@ toDeployment jd = do
       , volumes = vols'
       , databases = dbRefs'
       , brokers = brokerRefs'
+      , access = access'
       , tasks = tasks'
       , cdn = cdn'
       }
+
+data JsonAccessPolicy = JsonAccessPolicy
+  { japAudience :: !(Maybe Text)
+  , japPermission :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonAccessPolicy where
+  parseJSON = withObject "AccessPolicy" $ \o ->
+    JsonAccessPolicy
+      <$> o .:? "audience"
+      <*> o .:? "permission" .!= "access"
+
+toAccessPolicy :: JsonAccessPolicy -> Either LoadError AccessPolicy
+toAccessPolicy j = do
+  audience' <- traverse (first (MarshalError "access.audience") . mkAudience) (japAudience j)
+  permission' <- first (MarshalError "access.permission") $ mkAccessPermission (japPermission j)
+  Right AccessPolicy {audience = audience', permission = permission'}
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
 -- on its @kind@ and re-running the smart constructors. A missing per-kind field
@@ -1073,6 +1096,7 @@ data JsonApplication = JsonApplication
   , jaEnv :: ![JsonEnvEntry]
   , jaDatabases :: ![JsonDatabase]
   , jaBrokers :: ![JsonBrokerBinding]
+  , jaAccess :: !(Maybe JsonAccessPolicy)
   , jaService :: !(Maybe JsonDeployment)
   , jaWorkers :: ![JsonWorker]
   , jaTasks :: ![JsonTask]
@@ -1088,6 +1112,7 @@ instance FromJSON JsonApplication where
       <*> o .:? "env" .!= []
       <*> o .:? "databases" .!= []
       <*> o .:? "brokers" .!= []
+      <*> o .:? "access"
       <*> o .:? "service"
       <*> o .:? "workers" .!= []
       <*> o .:? "tasks" .!= []
@@ -1107,6 +1132,7 @@ toApplication j = do
   env' <- mapM toEnvEntry (jaEnv j)
   dbs' <- traverse toDatabase (jaDatabases j)
   brokerRefs' <- traverse (toBrokerBinding "brokers") (jaBrokers j)
+  access' <- traverse toAccessPolicy (jaAccess j)
   svc' <- traverse toDeployment (jaService j)
   wks' <- traverse toWorker (jaWorkers j)
   tks' <- traverse toTask (jaTasks j)
@@ -1118,6 +1144,7 @@ toApplication j = do
           , env = Map.fromList env'
           , appDatabases = dbs'
           , brokers = brokerRefs'
+          , access = access'
           , service = svc'
           , workers = wks'
           , tasks = tks'
