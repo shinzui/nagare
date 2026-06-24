@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Exception (bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (Value, eitherDecode, object, (.=))
 import Data.ByteString (ByteString)
@@ -42,6 +43,8 @@ import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
+import Network.Socket qualified as Socket
+import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
@@ -49,6 +52,7 @@ import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request,
 import Shomei.Config (ShomeiConfig (..))
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
 import Shomei.Error (TokenError (..))
+import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -398,6 +402,17 @@ proxyTests =
           simpleBody res @?= "event: one\n\nevent: two\n\n"
           lookup "Content-Type" (simpleHeaders res) @?= Just "text/event-stream"
           lookup "Connection" (simpleHeaders res) @?= Nothing
+    , testCase "tunnels websocket upgrade bytes after upstream 101" $
+        testWithApplication (pure websocketUpstreamApp) $ \upstreamPort ->
+          testWithApplication (pure (websocketProxyApp upstreamPort)) $ \proxyPort ->
+            withTcpConnection proxyPort $ \socket -> do
+              SocketBS.sendAll socket websocketUpgradeRequest
+              response <- readUntil socket "\r\n\r\n"
+              assertBool "expected 101 response" ("HTTP/1.1 101 Switching Protocols" `BS.isPrefixOf` response)
+              assertBool "expected websocket accept header" ("Sec-WebSocket-Accept: test-accept" `BS.isInfixOf` response)
+              SocketBS.sendAll socket "hello"
+              echoed <- assertSocketRead socket
+              echoed @?= "upstream:hello"
     ]
 
 appTests :: TestTree
@@ -678,6 +693,75 @@ streamingUpstreamApp _req respond =
           write (Builder.byteString "event: two\n\n")
           flush
       )
+
+websocketProxyApp :: Int -> Wai.Application
+websocketProxyApp upstreamPort req respond = do
+  manager <- HC.newManager HC.defaultManagerSettings
+  let user = AuthenticatedUser {userSubject = "user:alice"}
+      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort))
+  proxyForwarder manager user "tools.example.com" target req >>= respond
+
+websocketUpstreamApp :: Wai.Application
+websocketUpstreamApp _req respond =
+  respond $
+    Wai.responseRaw
+      ( \src sink -> do
+          sink $
+            BS.concat
+              [ "HTTP/1.1 101 Switching Protocols\r\n"
+              , "Upgrade: websocket\r\n"
+              , "Connection: Upgrade\r\n"
+              , "Sec-WebSocket-Accept: test-accept\r\n"
+              , "\r\n"
+              ]
+          chunk <- src
+          sink ("upstream:" <> chunk)
+      )
+      (Wai.responseLBS status400 [] "raw unsupported")
+
+websocketUpgradeRequest :: ByteString
+websocketUpgradeRequest =
+  BS.concat
+    [ "GET /socket HTTP/1.1\r\n"
+    , "Host: tools.example.com\r\n"
+    , "Connection: Upgrade\r\n"
+    , "Upgrade: websocket\r\n"
+    , "Sec-WebSocket-Key: test-key\r\n"
+    , "Sec-WebSocket-Version: 13\r\n"
+    , "\r\n"
+    ]
+
+withTcpConnection :: Int -> (Socket.Socket -> IO a) -> IO a
+withTcpConnection port =
+  bracket open Socket.close
+  where
+    open = do
+      let hints =
+            Socket.defaultHints
+              { Socket.addrSocketType = Socket.Stream
+              }
+      addr : _ <- Socket.getAddrInfo (Just hints) (Just "127.0.0.1") (Just (show port))
+      socket <- Socket.socket (Socket.addrFamily addr) (Socket.addrSocketType addr) (Socket.addrProtocol addr)
+      Socket.connect socket (Socket.addrAddress addr)
+      pure socket
+
+readUntil :: Socket.Socket -> ByteString -> IO ByteString
+readUntil socket needle =
+  go BS.empty
+  where
+    go acc
+      | needle `BS.isInfixOf` acc = pure acc
+      | otherwise = do
+          chunk <- assertSocketRead socket
+          go (acc <> chunk)
+
+assertSocketRead :: Socket.Socket -> IO ByteString
+assertSocketRead socket = do
+  result <- timeout 1000000 (SocketBS.recv socket 4096)
+  case result of
+    Just chunk | not (BS.null chunk) -> pure chunk
+    Just _ -> assertFailure "socket closed before expected bytes"
+    Nothing -> assertFailure "timed out waiting for socket bytes"
 
 testServices :: AccessServices
 testServices =

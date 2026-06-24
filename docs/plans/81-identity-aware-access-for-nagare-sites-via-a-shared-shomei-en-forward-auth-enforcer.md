@@ -176,8 +176,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   decompression so proxied response headers continue to describe the bytes sent downstream.
   Tests now pin the streaming request-body constructor and exercise an SSE-like upstream through
   a local Warp app.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** WebSocket `Upgrade` tunneling,
-  MFA browser ceremony completion, and integration tests against shomei+en.
+- [x] **M1p — WebSocket `Upgrade` tunneling.** Completed 2026-06-24. Added a WAI
+  `responseRaw` path for authenticated WebSocket upgrade requests. The raw callback opens an
+  interactive upstream `http-client` connection, forwards the upstream 101 response bytes to the
+  browser, then relays bytes in both directions until either side closes. A raw-socket test
+  drives an upgrade request through the proxy to a local Warp upstream and verifies post-101
+  bytes are tunneled.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** MFA browser ceremony
+  completion and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -532,6 +538,27 @@ The attempted repo-root command `nix develop --command cabal build all` failed b
 repository still has no root `cabal.project`; Cabal validation for this slice must run from
 `cli/nagare-access/`, whose workspace includes `nagare-access` and `../nagare-dsl`.
 
+**M1p implementation evidence (2026-06-24).** `Nagare.Access.Proxy` now recognizes WebSocket
+upgrade requests by requiring both `Connection: Upgrade` and `Upgrade: websocket` tokens. Those
+requests use a separate header hardening path that still strips spoofable identity headers but
+preserves the upgrade and `Sec-WebSocket-*` handshake headers. The WAI response is
+`responseRaw`; inside the raw callback the proxy uses `http-client`'s documented
+`withConnection` hook for interactive protocols plus its internal request/header helpers to
+send the upstream request, parse the upstream status and headers, write the raw HTTP response to
+the browser, and then relay bytes in both directions. The regression test starts a raw Warp
+upstream, sends an HTTP/1.1 upgrade request through the proxy over a real TCP socket, confirms a
+`101 Switching Protocols` response, then sends `hello` and observes `upstream:hello` back over
+the tunnel. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 78 tests passed (0.04s)
+All 354 tests passed (6.80s)
+```
+
 
 ## Decision Log
 
@@ -733,6 +760,21 @@ Record every decision made while working on the plan.
   Rationale: This removes the memory-risking buffered path immediately while keeping the
   harder WebSocket semantics explicit and testable. It also avoids incorrectly treating
   WebSockets as just another response body, which would fail real browser WebSocket clients.
+  Date: 2026-06-24
+
+- Decision: **Implement WebSocket proxying as a WAI raw response backed by an interactive
+  `http-client` connection.** `mori registry search websockets` found no registered WebSocket
+  package to read or depend on. The WAI/Warp source already exposes and tests `responseRaw` for
+  upgrade situations, and `http-client` documents `withConnection` as the hook to use when a
+  caller must read and write interactively through a connection, such as WebSocket protocol
+  traffic. The implementation therefore uses `responseRaw` for the browser side and
+  `withConnection` plus `Network.HTTP.Client.Internal` request/header helpers for the upstream
+  side. The internal-module usage is deliberately isolated to `Nagare.Access.Proxy`'s upgrade
+  path; normal HTTP and SSE continue to use stable `responseOpen`/`responseStream`.
+  Rationale: This provides real byte tunneling without adding an unread/unregistered WebSocket
+  dependency or terminating the WebSocket protocol in the enforcer. It also keeps the browser
+  handshake owned by the upstream app: the proxy forwards the upstream 101 response rather than
+  fabricating one itself.
   Date: 2026-06-24
 
 - Decision: **Parse auth-plane environment now, but defer direct `shomei-jwt`/`en-client`
