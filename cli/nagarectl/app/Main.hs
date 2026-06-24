@@ -21,7 +21,7 @@
 module Main (main) where
 
 import Control.Exception (bracket_)
-import Control.Monad (forM, forM_, unless)
+import Control.Monad (forM, forM_, unless, void)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.Map (Map)
@@ -30,6 +30,7 @@ import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
 import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.App
   ( AppSummary (..)
@@ -252,6 +253,25 @@ data AppDeployOpts = AppDeployOpts
 newtype WorkerCommand = WorkerDeploy WorkerDeployOpts
   deriving stock (Generic, Show)
 
+data AccessCommand
+  = AccessGrant AccessGrantOpts
+  | AccessRevoke AccessGrantOpts
+  | AccessList AccessListOpts
+  deriving stock (Generic, Show)
+
+data AccessGrantOpts = AccessGrantOpts
+  { enUrl :: !(Maybe String)
+  , host :: !String
+  , user :: !String
+  }
+  deriving stock (Generic, Show)
+
+data AccessListOpts = AccessListOpts
+  { enUrl :: !(Maybe String)
+  , host :: !String
+  }
+  deriving stock (Generic, Show)
+
 -- | Options for @site deploy@ (and, with a @--name@, @site preview deploy@).
 data SiteDeployOpts = SiteDeployOpts
   { file :: !FilePath
@@ -366,6 +386,7 @@ data Command
   | Db DbCommand
   | Task TaskCommand
   | Worker WorkerCommand
+  | Access AccessCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
   | Init InitOpts
@@ -890,6 +911,29 @@ workerDeployOptsParser defaultFile =
     <*> ghcEnvOpt
     <*> dryRunOpt
 
+accessGrantOptsParser :: Parser AccessGrantOpts
+accessGrantOptsParser =
+  AccessGrantOpts
+    <$> enUrlOpt
+    <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
+    <*> strOption (long "user" <> metavar "USER" <> help "Shomei user id to grant or revoke")
+
+accessListOptsParser :: Parser AccessListOpts
+accessListOptsParser =
+  AccessListOpts
+    <$> enUrlOpt
+    <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
+
+enUrlOpt :: Parser (Maybe String)
+enUrlOpt =
+  optional
+    ( strOption
+        ( long "en-url"
+            <> metavar "URL"
+            <> help "en-server URL (default: NAGARE_EN_URL)"
+        )
+    )
+
 siteDeployOptsParser :: FilePath -> Parser SiteDeployOpts
 siteDeployOptsParser defaultFile =
   SiteDeployOpts
@@ -1226,6 +1270,7 @@ opts =
             <> command "db" dbCmd
             <> command "task" taskCmd
             <> command "worker" workerCmd
+            <> command "access" accessCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
             <> command "init" initCmd
@@ -1318,6 +1363,31 @@ opts =
                 (Worker . WorkerDeploy <$> workerDeployOptsParser defaultConfigFile <**> helper)
                 (progDesc "Build, push, and run a long-running worker (apps/v1 Deployment) from the current directory")
             )
+        )
+    accessCmd =
+      info
+        (Access <$> accessSubparser <**> helper)
+        (fullDesc <> progDesc "Manage identity-aware access grants for protected sites")
+    accessSubparser =
+      subparser
+        ( command
+            "grant"
+            ( info
+                (AccessGrant <$> accessGrantOptsParser <**> helper)
+                (progDesc "Grant a shomei user access to a protected host")
+            )
+            <> command
+              "revoke"
+              ( info
+                  (AccessRevoke <$> accessGrantOptsParser <**> helper)
+                  (progDesc "Revoke a shomei user's access to a protected host")
+              )
+            <> command
+              "list"
+              ( info
+                  (AccessList <$> accessListOptsParser <**> helper)
+                  (progDesc "List users who currently expand to access on a protected host")
+              )
         )
     siteCmd =
       info
@@ -1779,6 +1849,7 @@ main =
     Db dcmd -> runDb dcmd
     Task tcmd -> runTask tcmd
     Worker wcmd -> runWorker wcmd
+    Access acmd -> runAccess acmd
     ServerStatus o -> runServerStatus o
     Doctor o -> runDoctor o
     Init o -> runInit o
@@ -2769,6 +2840,30 @@ runWorker = \case
         , wdpDockerfileOverride = o ^. #dockerfileOverride
         , wdpDryRun = o ^. #dryRun
         }
+
+runAccess :: AccessCommand -> IO ()
+runAccess = \case
+  AccessGrant o ->
+    runAccessGrant
+      AccessGrantParams
+        { agpEnUrl = T.pack <$> o ^. #enUrl
+        , agpHost = T.pack (o ^. #host)
+        , agpUser = T.pack (o ^. #user)
+        }
+  AccessRevoke o ->
+    runAccessRevoke
+      AccessGrantParams
+        { agpEnUrl = T.pack <$> o ^. #enUrl
+        , agpHost = T.pack (o ^. #host)
+        , agpUser = T.pack (o ^. #user)
+        }
+  AccessList o ->
+    void $
+      runAccessList
+        AccessListParams
+          { alpEnUrl = T.pack <$> o ^. #enUrl
+          , alpHost = T.pack (o ^. #host)
+          }
 
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
 -- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is

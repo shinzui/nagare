@@ -202,10 +202,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   after the app `ksvc` is Ready, and covered the fail-closed preflight, protected backend-map
   upsert, protected route-to-enforcer action, public backend removal, public route-to-app
   action, and wildcard-host DomainMapping override deletion in `nagarectl-test`.
-- [ ] **M3b — Finish deploy-time access operations.** Ensure the en "app" object for the
-  hostname exists or is schema-valid, add `nagarectl access grant/revoke/list` wrappers over
-  en tuple operations, and verify the resolver against the real M4 bootstrap bundle once that
-  bundle exists.
+- [x] **M3b — `nagarectl access grant/revoke/list`.** Completed 2026-06-24. Added
+  `Nagare.Access.Grants` and top-level `nagarectl access grant`, `nagarectl access revoke`,
+  and `nagarectl access list` commands. Grant/revoke write and delete `app:<host>#viewer`
+  tuples for shomei users through en's HTTP JSON API; list expands `app:<host>#access` and
+  prints the expanded users. The commands accept `--en-url` or `NAGARE_EN_URL`.
+- [ ] **M3c — Remaining deploy-time access verification.** Ensure the en "app" object for the
+  hostname is schema-valid in the installed M4 bundle and verify the resolver plus grant
+  commands against the real M4 bootstrap bundle once that bundle exists.
 - [ ] **M4 — Cluster bootstrap (optional, opt-in plane).** Build+push the enforcer image (no
   existing pipeline — must be created), then idempotent bootstrap of `shomei-server`,
   `en-server`, and the `nagare-access` enforcer (a Knative `ksvc`, `min-scale=1`; + internal
@@ -657,6 +661,32 @@ All 354 tests passed (6.68s)
 All 321 tests passed (1.69s)
 ```
 
+**M3b implementation evidence (2026-06-24).** `cli/nagarectl/src/Nagare/Access/Grants.hs`
+now owns the operator grant commands. It builds the same en model used by the enforcer:
+`app:<public-host>#viewer@user:<shomei-user>` grants access and `app:<public-host>#access` is
+the permission expanded for listing. `nagarectl access grant --host HOST --user USER` sends
+`POST /tuples`, `nagarectl access revoke --host HOST --user USER` sends `DELETE /tuples`, and
+`nagarectl access list --host HOST` sends `POST /expand`. All three commands resolve the en
+server URL from `--en-url` first and `NAGARE_EN_URL` second, then fail with an actionable
+message if neither is set.
+
+The test suite now includes `cli/nagarectl/test/AccessGrantsSpec.hs`, which pins hostname
+canonicalization, the generic en JSON shape for `SubjectIdWire`, and expansion-tree subject
+collection. `cli/nagarectl/app/Main.hs` wires the commands under the existing top-level parser,
+and `cli/nagarectl/nagarectl.cabal` exposes the new module plus the small `http-types`
+dependency needed for method constants and content headers.
+
+Validation after formatting:
+
+```text
+cli/nagarectl$ nix develop --command cabal build all
+Up to date
+
+cli/nagarectl$ nix develop --command cabal test all --test-options=--hide-successes
+All 324 tests passed (1.43s)
+All 354 tests passed (6.49s)
+```
+
 
 ## Decision Log
 
@@ -1010,6 +1040,27 @@ Record every decision made while working on the plan.
   host form without changing the DSL surface or app renderer. It is idempotent and reversible:
   protected deploys re-apply the same override, while public deploys remove it with
   `--ignore-not-found`.
+  Date: 2026-06-24
+
+- Decision: **Use raw en HTTP JSON in `nagarectl access`, not the `en-client` dependency
+  closure.** The grant commands only need en's stable wire endpoints (`POST /tuples`,
+  `DELETE /tuples`, and `POST /expand`) and the tiny `ObjectRefWire`/`SubjectWire`/`TupleWire`
+  JSON shapes already confirmed from `en-servant`. Pulling `en-client` into `nagarectl` would
+  also pull `en-servant` and its current server/Postgres closure into the deploy CLI, while the
+  enforcer package already carries that heavier dependency where it is needed for per-request
+  authorization. `nagarectl` therefore keeps a local, tested HTTP wrapper for these operator
+  commands.
+  Rationale: This keeps the CLI's dependency surface small and avoids adding server-side en
+  build requirements to ordinary deploy workflows solely for three administrative tuple
+  operations.
+  Date: 2026-06-24
+
+- Decision: **Use en `expand`, not `lookup`, for `nagarectl access list --host`.** en's
+  `lookup` endpoint starts from a subject and returns objects the subject can access; the
+  operator command starts from one host and needs the subjects that expand to its `access`
+  permission. `POST /expand` is the endpoint with the correct direction for that question.
+  Rationale: Listing grants by host must be object-to-subject expansion. Using lookup would
+  require one request per possible user and would not answer the command's question.
   Date: 2026-06-24
 
 
@@ -1982,3 +2033,10 @@ Contracts at milestone boundaries:
   settings through `AccessServices`. Remaining M1 browser work is now the actual login form,
   CSRF validation, shomei-client login/refresh semantics, streaming proxy behavior, and real
   shomei+en integration tests.
+
+- 2026-06-24 — Recorded M3b, the `nagarectl access grant/revoke/list` operator commands. Split
+  the old broad M3b item so this completed CLI slice is checked off while M3c keeps the
+  remaining real M4 bootstrap-bundle validation open. Added validation evidence and two
+  Decision Log entries: `nagarectl` uses a small raw en HTTP wrapper instead of taking the
+  heavier `en-client` dependency closure, and `access list --host` uses en `expand` because
+  the command starts from an object/host and needs subjects.

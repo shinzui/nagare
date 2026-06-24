@@ -8,6 +8,7 @@
 -- build/output-preparation state machine.
 module Main (main) where
 
+import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
 import Control.Exception (finally)
@@ -273,6 +274,7 @@ main = do
       , testGroup "EP-62 rendered Job project" backupProjectTests
       , testGroup "EP-62 qualifyImage" qualifyImageTests
       , initTests
+      , accessGrantsTests
       , accessResolveTests
       , appDeployTests
       ]
