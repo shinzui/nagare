@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Data.ByteString (ByteString)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import GHC.Stack (HasCallStack)
 import Nagare.Access.App (app, appWithBackends)
 import Nagare.Access.BackendMap
@@ -14,6 +15,7 @@ import Nagare.Access.Challenge
 import Nagare.Access.Config
 import Nagare.Access.Cookie
 import Nagare.Access.Credential
+import Nagare.Access.DecisionCache
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status404, status502)
 import Network.Wai (Request, requestHeaders)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
@@ -29,6 +31,7 @@ main =
       , backendMapTests
       , cookieTests
       , credentialTests
+      , decisionCacheTests
       , challengeTests
       , appTests
       ]
@@ -136,6 +139,49 @@ credentialTests =
         extractCredential [("Cookie", "nagare_session=; other=1")] @?= Nothing
     , testCase "rejects unsupported authorization scheme" $
         extractCredential [("Authorization", "Basic nope")] @?= Nothing
+    ]
+
+decisionCacheTests :: TestTree
+decisionCacheTests =
+  testGroup
+    "decision cache"
+    [ testCase "cache hit reuses the previous decision" $ do
+        clock <- newIORef 100
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (readIORef clock)
+        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
+            load = modifyIORef' loads (+ 1) >> pure AccessAllowed
+        first <- cacheLookupOrLoad cache key load
+        second <- cacheLookupOrLoad cache key load
+        first @?= AccessAllowed
+        second @?= AccessAllowed
+        readIORef loads >>= (@?= 1)
+    , testCase "expired entry reloads" $ do
+        clock <- newIORef 100
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (readIORef clock)
+        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
+            load = modifyIORef' loads (+ 1) >> pure AccessDenied
+        cacheLookupOrLoad cache key load >>= (@?= AccessDenied)
+        modifyIORef' clock (+ 30)
+        cacheLookupOrLoad cache key load >>= (@?= AccessDenied)
+        readIORef loads >>= (@?= 2)
+    , testCase "zero ttl disables caching" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 0 (pure 100)
+        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
+            load = modifyIORef' loads (+ 1) >> pure AccessConditional
+        cacheLookupOrLoad cache key load >>= (@?= AccessConditional)
+        cacheLookupOrLoad cache key load >>= (@?= AccessConditional)
+        readIORef loads >>= (@?= 2)
+    , testCase "subject and host both participate in the cache key" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (pure 100)
+        let load = modifyIORef' loads (+ 1) >> pure AccessAllowed
+        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "tools.example.com"} load >>= (@?= AccessAllowed)
+        cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "tools.example.com"} load >>= (@?= AccessAllowed)
+        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "admin.example.com"} load >>= (@?= AccessAllowed)
+        readIORef loads >>= (@?= 3)
     ]
 
 appTests :: TestTree

@@ -94,11 +94,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `Nagare.Access.Credential`, which extracts the raw access token from the `nagare_session`
   cookie first and falls back to `Authorization: Bearer ...`, rejecting empty or malformed
   values without adding a new cookie parsing dependency.
+- [x] **M1d — en decision cache primitive.** Completed 2026-06-24. Added
+  `Nagare.Access.DecisionCache`, a short-lived in-process cache keyed by `(subject, host)`
+  with an injectable clock, TTL expiry, and `0`/negative TTL disablement. This is the cache the
+  future en-client authorization call will use to avoid one en round-trip per static asset.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
   `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
-  authZ via `en-client`, JWKS caching, decision caching, reverse-proxy forwarding,
-  WebSocket/SSE handling, userinfo/logout/login endpoints, and integration tests against
-  shomei+en.
+  authZ via `en-client`, JWKS caching, wiring the decision cache into the request path,
+  reverse-proxy forwarding, WebSocket/SSE handling, userinfo/logout/login endpoints, and
+  integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -238,6 +242,17 @@ and one bearer scheme before handing the raw token to shomei verification. Valid
 cli/nagare-access$ cabal test all
 All 33 tests passed (0.01s)
 All 354 tests passed (5.66s)
+```
+
+**M1d implementation evidence (2026-06-24).** `Nagare.Access.DecisionCache` implements the
+per-`(subject, host)` decision cache required before putting en authorization on the hot
+request path. Tests cover cache hits, TTL expiry, zero-TTL disablement, and key isolation
+between subjects and hosts. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 37 tests passed (0.01s)
+All 354 tests passed (5.76s)
 ```
 
 
