@@ -100,6 +100,9 @@ you can observe.
    - [Static & full-stack site hosting](static-hosting.md) — host a website or a
      full-stack app (TanStack Start) the Cloudflare-Pages way: `nagarectl site
      deploy`, previews, rollbacks, redirects/headers, and Git webhooks. 🟡
+   - [Identity-aware access](access.md) — protect a site with `access =
+     requireLogin`, install the optional shomei+en+nagare-access auth plane, and
+     manage per-host grants with `nagarectl access grant|revoke|list`. 🟡
    - [CDN (edge caching)](cdn.md) — front a static site, a TanStack Start app, or
      any app with Cloudflare or Google Cloud CDN via a typed `cdn` field:
      `nagarectl cdn list|status|purge|disable`, the cache model, and the DNS /

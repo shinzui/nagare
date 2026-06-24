@@ -231,8 +231,11 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 - [ ] **M5b — Live end-to-end acceptance.** Deploy `cluster/examples/protected-hello` against
   the target cluster after M4b, reproduce the Purpose curl transcript, and capture the
   authorized-vs-unauthorized 403/200 evidence in Outcomes & Retrospective.
-- [ ] **Docs.** A user guide `docs/user/access.md` (or the nagare-docs equivalent) plus an
-  entry in the example index.
+- [x] **Docs.** Completed 2026-06-24. Added `docs/user/access.md` covering the
+  `access = Just requireLogin` one-liner, optional auth-plane install, enforcer image build
+  helper, `nagarectl access grant/revoke/list`, request behavior, cookie/security model, the
+  protected-hello verification flow, and the future Envoy Gateway `ext_authz` direction. Linked
+  it from `docs/user/README.md`.
 
 
 ## Surprises & Discoveries
@@ -792,6 +795,14 @@ cli/nagarectl$ nix develop --command cabal exec -v0 -- \
   ../../cluster/examples/protected-hello/nagare/Config.hs
 {"access":{"audience":null,"permission":"access"},"brokers":[],"build":{"kind":"PrebuiltImage","tag":"latest"},"cpuLimit":null,"cpuRequest":"250m","databases":[],"domains":[{"canonical":true,"domain":"protected-hello.apps.example.com"}],"env":[{"kind":"Literal","scopes":["Runtime"],"value":"Nagare","varName":"TARGET"}],"healthCheck":null,"image":"gcr.io/knative-samples/helloworld-go","memoryLimit":null,"memoryRequest":"128Mi","name":"protected-hello","namespace":"personal","port":8080,"scaleMax":3,"scaleMin":0,"tasks":[],"volumes":[]}
 ```
+
+**Docs implementation evidence (2026-06-24).** `docs/user/access.md` now documents the user
+and operator workflow for protected sites: the typed `access = Just requireLogin` field, the
+optional `cluster/bootstrap/{shomei,en,nagare-access}/` install, the `nagare-access` image
+build helper, `nagarectl access grant/revoke/list`, request outcomes for unauthenticated,
+ungranted, and granted users, the parent-domain cookie/security model, and the future Envoy
+Gateway `ext_authz` direction. `docs/user/README.md` links the guide under the app-deployment
+section next to static hosting and CDN.
 
 
 ## Decision Log
@@ -2182,3 +2193,8 @@ Contracts at milestone boundaries:
   `cluster/examples/protected-hello/` with a compile-checked `access = Just requireLogin`
   Deployment and a README runbook. Split live acceptance into M5b because the real 302/403/200
   transcript still depends on M4b installing the auth plane on the target cluster.
+
+- 2026-06-24 — Recorded the docs milestone. Added `docs/user/access.md` and linked it from
+  `docs/user/README.md`, covering the opt-in config field, auth-plane bootstrap, grant
+  commands, request behavior, cookie/security model, protected-hello verification flow, and
+  future Envoy Gateway direction. Live transcripts remain tracked under M5b.
