@@ -197,10 +197,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
-- [ ] **M3 — Deploy-time wiring in `nagarectl`.** Resolve the `access` binding: preflight that
-  the auth plane is installed (fail closed with an actionable error if not), ensure the en
-  "app" object for the hostname exists, register the host→backend mapping the enforcer reads,
-  and repoint the public route to the enforcer. Inject enforcer config.
+- [x] **M3a — Deploy-time access resolver in `nagarectl`.** Completed 2026-06-24. Added
+  `Nagare.Access.Resolve`, wired it into both `nagarectl deploy` and `nagarectl app deploy`
+  after the app `ksvc` is Ready, and covered the fail-closed preflight, protected backend-map
+  upsert, protected route-to-enforcer action, public backend removal, public route-to-app
+  action, and wildcard-host DomainMapping override deletion in `nagarectl-test`.
+- [ ] **M3b — Finish deploy-time access operations.** Ensure the en "app" object for the
+  hostname exists or is schema-valid, add `nagarectl access grant/revoke/list` wrappers over
+  en tuple operations, and verify the resolver against the real M4 bootstrap bundle once that
+  bundle exists.
 - [ ] **M4 — Cluster bootstrap (optional, opt-in plane).** Build+push the enforcer image (no
   existing pipeline — must be created), then idempotent bootstrap of `shomei-server`,
   `en-server`, and the `nagare-access` enforcer (a Knative `ksvc`, `min-scale=1`; + internal
@@ -627,6 +632,31 @@ All 85 tests passed (0.87s)
 All 354 tests passed (7.08s)
 ```
 
+**M3a implementation evidence (2026-06-24).** `cli/nagarectl/src/Nagare/Access/Resolve.hs`
+now owns the deploy-time access resolver. The resolver keeps public deploys public by removing
+the host from the enforcer backend map and restoring the route to the app; protected deploys
+first check for the optional auth plane (`ksvc/nagare-access` and `service/nagare-access` in
+`nagare-system`), then write the host to the `nagare-access-backends` ConfigMap and apply a
+DomainMapping pointing the public host at the shared enforcer. `cli/nagarectl/app/Main.hs` and
+`cli/nagarectl/src/Nagare/App/Deploy.hs` call this resolver after the app Service is applied
+and Ready, so both single-Service and aggregate app deploys honor the DSL `access` field.
+
+The new `cli/nagarectl/test/AccessResolveSpec.hs` tests the route planner, the fail-closed
+preflight, protected backend-map upsert and route-to-enforcer action, public backend removal
+and route-to-app action, and wildcard-host rollback by deleting the protective DomainMapping
+override.
+
+Validation after formatting:
+
+```text
+cli/nagarectl$ nix develop --command cabal build all
+Linking .../nagarectl
+
+cli/nagarectl$ nix develop --command cabal test all
+All 354 tests passed (6.68s)
+All 321 tests passed (1.69s)
+```
+
 
 ## Decision Log
 
@@ -966,6 +996,20 @@ Record every decision made while working on the plan.
   Rationale: M1's last open risk was that individually-correct shomei, en, and proxy adapters
   might not compose on the browser request path. A normal-suite integration test proves that
   composition every time `cabal test all` runs from `cli/nagare-access`.
+  Date: 2026-06-24
+
+- Decision: **Represent protected wildcard hosts with a temporary DomainMapping override.**
+  Custom domains already have DomainMapping objects, so the access resolver can apply the same
+  DomainMapping name with its target switched between the app and the enforcer. A deployment
+  with no custom domains normally uses Knative's generated wildcard host
+  `<service>.<namespace>.<baseDomain>` and has no DomainMapping object of its own; for a
+  protected wildcard host, the resolver creates a DomainMapping for that exact host pointing at
+  the enforcer, and when the site becomes public again it deletes that override so Knative's
+  default generated route serves the app directly.
+  Rationale: This gives `access = requireLogin` a route object to repoint even for the default
+  host form without changing the DSL surface or app renderer. It is idempotent and reversible:
+  protected deploys re-apply the same override, while public deploys remove it with
+  `--ignore-not-found`.
   Date: 2026-06-24
 
 

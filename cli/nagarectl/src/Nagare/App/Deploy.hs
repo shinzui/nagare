@@ -57,6 +57,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Yaml
+import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.Build (addBuildArgs, performBuild)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
 import Nagare.Deploy (applyManifests, waitForReady, waitForWorkerRollout)
@@ -514,6 +515,7 @@ applyServicePhase :: RolloutEnv -> Deployment -> IO ()
 applyServicePhase env svc = do
   applyManifests (map snd (renderServiceObjects env svc))
   waitForReady (serviceNameText (svc ^. #name)) (reNamespace env)
+  resolveDeploymentAccess (reBaseDomain env) svc
 
 -- | Apply one Worker (PVCs first, then the Deployment) and wait for the rollout.
 applyWorkerPhase :: RolloutEnv -> Worker -> IO ()
