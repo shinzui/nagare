@@ -182,8 +182,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   browser, then relays bytes in both directions until either side closes. A raw-socket test
   drives an upgrade request through the proxy to a local Warp upstream and verifies post-101
   bytes are tunneled.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** MFA browser ceremony
-  completion and integration tests against shomei+en.
+- [x] **M1q — MFA browser ceremony completion.** Completed 2026-06-24. Preserved shomei's
+  `ceremonyId` and WebAuthn `options` when password login returns `mfa_required`, rendered a
+  passkey challenge page that calls `navigator.credentials.get()`, added
+  `POST /_nagare/mfa/complete` to submit the assertion JSON with CSRF protection, and wired the
+  real shomei `mfaComplete` client call so a successful ceremony sets the same access and
+  refresh cookies as password login.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Integration tests against
+  shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -559,6 +565,32 @@ All 78 tests passed (0.04s)
 All 354 tests passed (6.80s)
 ```
 
+**M1q implementation evidence (2026-06-24).** The shomei source was rechecked through
+`mori registry show shinzui/shomei --full`; the local checkout's actual package layout is
+top-level `shomei-client/`, `shomei-servant/`, and so on, despite the registry metadata showing
+`packages/...` paths. `Shomei.Servant.DTO.LoginResponse` has the documented
+`LoginMfaRequiredResponse { ceremonyId, options }`, and `Shomei.Client.mfaComplete` calls
+`POST /auth/mfa/complete` with `MfaCompleteRequest { ceremonyId, assertion }` to receive a
+`TokenPairResponse`. `Nagare.Access.Auth.LoginMfaRequired` now carries that ceremony id and
+options, `AccessServices` has a `completeMfa` service, `Nagare.Access.ShomeiClient` maps the
+real shomei `mfaComplete` client into the existing `LoginOutcome` shape, and `app/Main.hs`
+wires it in production. `Nagare.Access.App` now renders a passkey challenge page after
+password login returns MFA, uses browser-side JavaScript to convert shomei's WebAuthn JSON
+options into `ArrayBuffer` fields for `navigator.credentials.get()`, submits the assertion JSON
+to `POST /_nagare/mfa/complete` with the existing CSRF token, and returns JSON containing the
+validated redirect path while setting access and refresh cookies. Tests cover rendering the
+challenge page, successful completion with rotated cookies, and CSRF rejection before shomei is
+called. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 81 tests passed (0.01s)
+All 354 tests passed (6.44s)
+```
+
 
 ## Decision Log
 
@@ -850,8 +882,8 @@ Record every decision made while working on the plan.
   slice deliberately does not store it yet because the plan still needs a cookie-key wrapping
   design and refresh-token rotation semantics. MFA is surfaced as `401 mfa required` for now;
   browser WebAuthn ceremony completion remains a separate remaining M1 item. Superseded for
-  current behavior by the later `nagare_refresh` cookie decision; retained here as the M1m scope
-  decision.
+  current behavior by the later `nagare_refresh` cookie decision and by the M1q WebAuthn MFA
+  completion decision; retained here as the M1m scope decision.
   Rationale: This lands a working shomei-backed password login without inventing a weak
   long-lived refresh-token cookie format. Keeping refresh renewal explicit preserves the
   fail-closed behavior: sessions expire after the access-token lifetime until the refresh slice
@@ -869,6 +901,19 @@ Record every decision made while working on the plan.
   custom encryption scheme or server-side session database. Shomei still owns refresh-token
   rotation and theft detection; the enforcer only stores the latest opaque token and clears both
   auth cookies when refresh fails.
+  Date: 2026-06-24
+
+- Decision: **Complete shomei MFA in the enforcer with a small WebAuthn bridge page, not by
+  redirecting the browser to shomei.** shomei has no hosted login UI; it returns
+  `ceremonyId` plus WebAuthn `options` from `POST /auth/login`, and expects the browser's
+  assertion JSON at `POST /auth/mfa/complete`. The enforcer therefore keeps owning the
+  browser-facing login surface: it renders a page that calls `navigator.credentials.get()` with
+  shomei's options, posts the assertion to `/_nagare/mfa/complete`, and sets the same
+  `nagare_session` / `nagare_refresh` cookies after shomei returns tokens.
+  Rationale: This preserves the single shared-domain session-cookie model and avoids adding a
+  second browser origin or redirect target for shomei. CSRF remains enforced by reusing the
+  `__Host-nagare_csrf` token issued by the login form; the actual WebAuthn assertion is still
+  verified by shomei.
   Date: 2026-06-24
 
 

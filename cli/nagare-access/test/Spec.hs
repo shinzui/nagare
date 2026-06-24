@@ -494,6 +494,77 @@ appTests =
                       }
                   ]
               )
+    , testCase "login submit with MFA renders a passkey challenge page" $ do
+        let services =
+              testServices
+                { loginUser = \_ ->
+                    pure
+                      ( LoginMfaRequired
+                          MfaChallenge
+                            { mfaCeremonyId = "ceremony-1"
+                            , mfaOptions = object ["challenge" .= ("abc" :: Text), "allowCredentials" .= ([] :: [Value])]
+                            }
+                      )
+                }
+            req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    withHeader "Content-Type" "application/x-www-form-urlencoded" $
+                      (setPath defaultRequest "/_nagare/login") {requestMethod = "POST"}
+                )
+                "loginId=alice&password=secret&csrf=csrf-token&rd=%2Ftools"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap services)
+        simpleStatus res @?= status200
+        assertBool "expected ceremony id" (bodyContains "ceremony-1" res)
+        assertBool "expected WebAuthn options" (bodyContains "\"challenge\":\"abc\"" res)
+        assertBool "expected MFA completion endpoint" (bodyContains "/_nagare/mfa/complete" res)
+    , testCase "mfa completion sets session cookies and returns redirect JSON" $ do
+        seen <- newIORef []
+        let assertion = object ["id" .= ("credential-1" :: Text)]
+            services =
+              testServices
+                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                , completeMfa = \completion -> do
+                    modifyIORef' seen (<> [completion])
+                    pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                }
+            req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    withHeader "Content-Type" "application/json" $
+                      (setPath defaultRequest "/_nagare/mfa/complete") {requestMethod = "POST"}
+                )
+                "{\"ceremonyId\":\"ceremony-1\",\"csrf\":\"csrf-token\",\"rd\":\"/tools\",\"assertion\":{\"id\":\"credential-1\"}}"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap services)
+        simpleStatus res @?= status200
+        jsonBody res @?= Right (object ["redirect" .= ("/tools" :: Text)])
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "nagare_session=access.jwt; Domain=.apps.example.com; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
+        length (filter ((== "Set-Cookie") . fst) (simpleHeaders res)) @?= 2
+        readIORef seen
+          >>= ( @?=
+                  [ MfaCompletion
+                      { mfaCompletionCeremonyId = "ceremony-1"
+                      , mfaCompletionAssertion = assertion
+                      }
+                  ]
+              )
+    , testCase "mfa completion rejects csrf mismatch before calling shomei" $ do
+        calls <- newIORef (0 :: Int)
+        let services =
+              testServices
+                { completeMfa = \_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run")
+                }
+            req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    withHeader "Content-Type" "application/json" $
+                      (setPath defaultRequest "/_nagare/mfa/complete") {requestMethod = "POST"}
+                )
+                "{\"ceremonyId\":\"ceremony-1\",\"csrf\":\"other-token\",\"rd\":\"/tools\",\"assertion\":{}}"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap services)
+        simpleStatus res @?= status400
+        readIORef calls >>= (@?= 0)
     , testCase "login submit rejects csrf mismatch before calling shomei" $ do
         calls <- newIORef (0 :: Int)
         let services =
@@ -770,6 +841,7 @@ testServices =
     , authorizeUser = \_ _ -> pure AccessAllowed
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , loginUser = \_ -> pure (LoginFailed "invalid login")
+    , completeMfa = \_ -> pure (LoginFailed "mfa failed")
     , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
