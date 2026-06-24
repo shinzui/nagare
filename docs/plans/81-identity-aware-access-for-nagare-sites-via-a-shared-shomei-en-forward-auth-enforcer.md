@@ -188,8 +188,12 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `POST /_nagare/mfa/complete` to submit the assertion JSON with CSRF protection, and wired the
   real shomei `mfaComplete` client call so a successful ceremony sets the same access and
   refresh cookies as password login.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Integration tests against
-  shomei+en.
+- [x] **M1r — real `nagare-access` enforcer integration coverage.** Completed 2026-06-24.
+  Added integration tests for the shomei HTTP login/refresh/MFA adapter, the real `en-client`
+  talking over HTTP to an in-process `en-servant` app, and a full request-path test where a
+  real DB-backed `shomei-server` signs a JWT, `nagare-access` fetches the JWKS and verifies the
+  session cookie, `en` authorizes the shomei user id, and the proxy forwards the request to an
+  upstream WAI app.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -591,6 +595,38 @@ All 81 tests passed (0.01s)
 All 354 tests passed (6.44s)
 ```
 
+**M1r implementation evidence (2026-06-24).** The remaining M1 integration-test gap is now
+covered in `cli/nagare-access/test/Spec.hs`. The shomei adapter test drives
+`loginWithShomei`, `refreshWithShomei`, and `completeMfaWithShomei` through the real
+`shomei-client` Servant client against a local WAI app that emits `Shomei.Servant.DTO` wire
+values. The en adapter test drives `authorizeWithEn` through the real `en-client` HTTP client
+against an in-process `En.Servant.API.app` with an in-memory `app#viewer -> access` schema.
+The full request-path test provisions a fresh ephemeral PostgreSQL database with
+`shomei-migrations:test-support`, boots a real `shomei-server` WAI app in-process, signs up a
+user, submits the enforcer login form, extracts the `nagare_session` cookie, verifies that JWT
+through `fetchJwksFromShomei`/`verifyShomeiCredentialCached`, authorizes the shomei user id
+through en, and confirms the proxy forwards to an upstream that sees the trusted
+`X-Forwarded-User` header. This keeps the DB-backed shomei server proof in the normal
+`nagare-access` test suite rather than a hand-run script.
+
+Adding the DB-backed shomei harness required test-only `source-repository-package` pins for
+`shomei-migrations`, `shomei-postgres`, `shomei-webauthn`, `shomei-server`, `ephemeral-pg`,
+`codd`, and the shomei WebAuthn fork. Cabal initially selected Hackage `time-1.12.2`, which
+made en's `Lift UTCTime` derivation fail; `cli/nagare-access/cabal.project` now constrains
+`time ==1.14`, matching the GHC 9.12.3 package DB, and carries the same targeted
+`allow-newer: haxl:time` relaxation used by shomei's own workspace.
+
+Validation after formatting:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Up to date
+
+cli/nagare-access$ nix develop --command cabal test all
+All 85 tests passed (0.87s)
+All 354 tests passed (7.08s)
+```
+
 
 ## Decision Log
 
@@ -914,6 +950,22 @@ Record every decision made while working on the plan.
   second browser origin or redirect target for shomei. CSRF remains enforced by reusing the
   `__Host-nagare_csrf` token issued by the login form; the actual WebAuthn assertion is still
   verified by shomei.
+  Date: 2026-06-24
+
+- Decision: **Keep the shomei+en request-path integration test in `nagare-access-test`, with
+  shomei-server dependencies test-only.** The test suite now boots the real shomei WAI app
+  against ephemeral PostgreSQL and the real en Servant app in-memory, then drives the enforcer
+  through login, JWKS verification, en authorization, and proxy forwarding. This is heavier than
+  a pure unit test, but it is the strongest local evidence for the M1 contract and avoids a
+  separate script that can rot. The required shomei-server, migrations, WebAuthn, codd, and
+  ephemeral-pg pins live in `cli/nagare-access/cabal.project`; production `library` and
+  executable dependencies are unchanged, while the test suite explicitly depends on the
+  shomei-server test-support closure. The `time ==1.14` constraint and `allow-newer:
+  haxl:time` relaxation are copied in spirit from shomei's workspace so en and shomei solve
+  together under this repo's GHC 9.12.3 shell.
+  Rationale: M1's last open risk was that individually-correct shomei, en, and proxy adapters
+  might not compose on the browser request path. A normal-suite integration test proves that
+  composition every time `cabal test all` runs from `cli/nagare-access`.
   Date: 2026-06-24
 
 

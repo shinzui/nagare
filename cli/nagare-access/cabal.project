@@ -5,6 +5,9 @@
 -- closure.
 write-ghc-environment-files: always
 
+constraints:
+  time ==1.14
+
 packages:
   .
   ../nagare-dsl
@@ -32,6 +35,57 @@ source-repository-package
   location: https://github.com/shinzui/shomei.git
   tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
   subdir: shomei-client
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/shomei.git
+  tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
+  subdir: shomei-migrations
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/shomei.git
+  tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
+  subdir: shomei-postgres
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/shomei.git
+  tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
+  subdir: shomei-webauthn
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/shomei.git
+  tag: af09acecee6bafa3cf0087c5397c0f85da7aa1cc
+  subdir: shomei-server
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/ephemeral-pg.git
+  tag: 304c160f25570ea5e225baf5024778c93f434b56
+
+source-repository-package
+  type: git
+  location: https://github.com/mzabani/codd.git
+  tag: c32d365b56a7da482647410e68ed763e73fe4442
+
+package codd
+  tests: False
+  benchmarks: False
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/webauthn.git
+  tag: c274e23a5e31aac8932bac6398b65e8bca584a99
+
+package webauthn
+  tests: False
+  benchmarks: False
+
+allow-newer:
+  haxl:time,
+  webauthn:*
 
 source-repository-package
   type: git
