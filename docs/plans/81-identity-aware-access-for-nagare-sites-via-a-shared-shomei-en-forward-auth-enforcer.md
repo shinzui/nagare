@@ -131,10 +131,18 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `AuthenticatedUser.userSubject`, maps expired tokens to `ExpiredCredential`, and treats
   malformed/signature/issuer/audience failures as invalid credentials. JWKS fetching/caching
   and executable wiring remain separate M1 work.
+- [x] **M1i — JWKS fetch and cache.** Completed 2026-06-24. Added
+  `Nagare.Access.Jwks`, which constructs the shomei JWKS URL
+  `/.well-known/jwks.json`, fetches it with `http-client`, decodes the `{"keys":[...]}` JSON
+  document into jose's `JWKSet`, and caches successful fetches behind an injectable TTL clock.
+  Added `verifyShomeiCredentialCached` so the shomei adapter can fail closed with
+  `VerificationUnavailable` when keys cannot be loaded, instead of pretending the credential is
+  invalid. This narrows remaining token-verification work to wiring the executable's runtime
+  services through the cache.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  live JWKS data, login flow via `shomei-client`, refresh-token/session renewal semantics, en
-  authZ via `en-client` including reproducible en package sourcing, JWKS caching, WebSocket/SSE
-  and large-body streaming, wiring the executable to real shomei/en/proxy services,
+  live JWKS data wired into the executable, login flow via `shomei-client`, refresh-token/session
+  renewal semantics, en authZ via `en-client` including reproducible en package sourcing,
+  WebSocket/SSE and large-body streaming, wiring the executable to real shomei/en/proxy services,
   userinfo/logout/login endpoints, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
@@ -345,6 +353,22 @@ Linking .../nagare-access
 cli/nagare-access$ cabal test all
 All 54 tests passed (0.00s)
 All 354 tests passed (5.71s)
+```
+
+**M1i implementation evidence (2026-06-24).** `Nagare.Access.Jwks` now owns the shomei key
+fetching boundary. It uses jose's `JWKSet` Aeson instance, confirmed in the local `hs-jose`
+source (`Crypto.JOSE.JWK` parses `{"keys": ...}`), and shomei's documented/served
+`/.well-known/jwks.json` route. Tests cover URL construction, decode failure/success shape,
+success caching, TTL expiry, `0` TTL disablement, and unavailable JWKS mapping through the
+cached shomei verifier. Validation:
+
+```text
+cli/nagare-access$ cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ cabal test all
+All 61 tests passed (0.01s)
+All 354 tests passed (5.94s)
 ```
 
 
@@ -1514,3 +1538,7 @@ Contracts at milestone boundaries:
   and a Decision Log entry for the reproducible shomei source-repository-package pins. This
   narrows the remaining token-verification work to JWKS fetching/caching and wiring the
   executable's `AccessServices` to the adapter.
+
+- 2026-06-24 — Recorded M1i, JWKS fetch/cache support. Added progress and validation evidence
+  for the `Nagare.Access.Jwks` module and the cached shomei verifier path. Remaining
+  token-verification work is now executable wiring, not another missing library boundary.
