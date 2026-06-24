@@ -35,6 +35,7 @@ library
     Nagare.Access.DecisionCache
     Nagare.Access.Proxy
     Nagare.Access.Response
+    Nagare.Access.Shomei
 
   build-depends:
     aeson,
@@ -44,6 +45,9 @@ library
     http-client,
     http-client-tls,
     http-types,
+    jose,
+    shomei-core,
+    shomei-jwt,
     text,
     wai,
 
@@ -53,6 +57,7 @@ executable nagare-access
   hs-source-dirs: app
   build-depends:
     base,
+    bytestring,
     nagare-access,
     text,
     warp,
@@ -68,7 +73,9 @@ test-suite nagare-access-test
     bytestring,
     http-client,
     http-types,
+    jose,
     nagare-access,
+    shomei-core,
     tasty >=1.4,
     tasty-hunit >=0.10,
     text,

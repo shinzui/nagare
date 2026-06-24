@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Crypto.JOSE.JWK (JWKSet (..))
 import Data.ByteString (ByteString)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
@@ -19,10 +20,14 @@ import Nagare.Access.Cookie
 import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
 import Nagare.Access.Proxy
+import Nagare.Access.Shomei
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status403, status404, status502)
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
+import Shomei.Config (ShomeiConfig (..))
+import Shomei.Domain.Claims (Audience (..), Issuer (..))
+import Shomei.Error (TokenError (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -35,6 +40,7 @@ main =
       , backendMapTests
       , cookieTests
       , credentialTests
+      , shomeiTests
       , decisionCacheTests
       , proxyTests
       , challengeTests
@@ -187,6 +193,25 @@ credentialTests =
         extractCredential [("Cookie", "nagare_session=; other=1")] @?= Nothing
     , testCase "rejects unsupported authorization scheme" $
         extractCredential [("Authorization", "Basic nope")] @?= Nothing
+    ]
+
+shomeiTests :: TestTree
+shomeiTests =
+  testGroup
+    "shomei"
+    [ testCase "shomei config is derived from auth-plane issuer and audience" $ do
+        runtime <- assertRight (parseRuntimeConfig completeAuthEnv)
+        cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
+        let shomeiCfg = shomeiConfigFromAuthPlane cfg
+        issuer shomeiCfg @?= Issuer "https://auth.apps.example.com"
+        audience shomeiCfg @?= Audience "nagare-access"
+    , testCase "expired shomei tokens map to expired credentials" $
+        tokenErrorToAuthFailure TokenExpired @?= ExpiredCredential
+    , testCase "malformed shomei token verifies as an invalid credential" $ do
+        runtime <- assertRight (parseRuntimeConfig completeAuthEnv)
+        cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
+        verifyShomeiCredential (JWKSet []) cfg (BearerToken "not-a-jwt")
+          >>= (@?= Left InvalidCredential)
     ]
 
 decisionCacheTests :: TestTree
