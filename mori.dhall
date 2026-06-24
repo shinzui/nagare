@@ -57,5 +57,13 @@ in  Schema.Project::{
         , description = Some
             "The deploy CLI. `nagarectl deploy` loads a project's typed config-as-program (nagare/Config.hs, via nagare-dsl), builds and pushes the image, renders and applies a Knative Service, wires secrets and domains, waits for readiness, and prints the URL — hiding Kubernetes from the developer."
         }
+      , Schema.Package::{
+        , name = "nagare-access"
+        , type = Schema.PackageType.Application
+        , language = Schema.Language.Haskell
+        , path = Some "cli/nagare-access"
+        , description = Some
+            "Shared forward-auth enforcer for protected Nagare sites. It will verify shomei sessions, check en authorization, and proxy authorized requests to cluster-local backends."
+        }
       ]
     }

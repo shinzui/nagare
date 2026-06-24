@@ -78,9 +78,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   token, calls `en` check, and forwards to a dummy upstream. Confirm 302 / 403 / 200 paths
   by hand. Prove a Knative route can be pointed at a stand-in backend that then forwards to a
   cluster-local `ksvc`. Record findings in Surprises & Discoveries.
-- [ ] **M1 — The `nagare-access` enforcer service** (new Haskell package `cli/nagare-access/`,
-  own `cabal.project`). Token verify via `shomei-jwt`, login flow via `shomei-client`, cookie
-  management, en authZ via `en-client`, reverse-proxy forward. Unit + integration tests green.
+- [x] **M1a — `nagare-access` package scaffold and pure request-policy helpers.** Completed
+  2026-06-24. Added `cli/nagare-access/` with its own `cabal.project`, executable, WAI
+  health endpoint, listen parsing, safe return-destination validation, and the 302-vs-401
+  challenge classifier. Added package metadata in `mori.dhall` and a root flake build/test
+  check.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
+  `shomei-jwt`, login flow via `shomei-client`, cookie management, en authZ via `en-client`,
+  JWKS caching, decision caching, reverse-proxy forwarding, WebSocket/SSE handling, and
+  integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -169,6 +175,30 @@ failed because those files use postpositive `qualified` imports and the standalo
 invocation did not enable that parser extension. The formatter was rerun only on the library
 and test modules it can parse cleanly; the fixture/example edits are one-line `access =
 Nothing` initializers and were left otherwise untouched.
+
+**M1a implementation evidence (2026-06-24).** `cli/nagare-access/` now exists as a standalone
+Haskell package with a runnable `nagare-access` executable and tested pure helpers. The package
+currently exposes only the request-independent pieces needed before wiring shomei/en:
+`Nagare.Access.Config` parses `NAGARE_ACCESS_LISTEN`; `Nagare.Access.Challenge` validates
+same-host return destinations and classifies unauthenticated requests as document redirects or
+JSON API challenges; `Nagare.Access.App` serves `GET /_nagare/healthz` and a 404 fallback.
+Validation:
+
+```text
+cli/nagare-access$ cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ cabal test all
+All 15 tests passed (0.00s)
+All 354 tests passed (5.87s)
+```
+
+The same workspace test run also executes `nagare-dsl-test` because `cli/nagare-access/
+cabal.project` lists `../nagare-dsl`, matching the plan's per-package workspace pattern.
+`mori show --full` now reports `nagare-access` as a Haskell application package at
+`cli/nagare-access`. Attempting `nix fmt flake.nix` failed because this flake does not expose
+`formatter.aarch64-darwin`; the flake change is a small check stanza matching the existing
+Haskell checks and was left manually formatted in the surrounding style.
 
 
 ## Decision Log
@@ -334,6 +364,16 @@ Record every decision made while working on the plan.
   Rationale: This mirrors the broker-binding pattern: the DSL carries typed intent, while
   `nagarectl` performs all cluster side effects. Making absence public preserves backward
   compatibility and keeps the one-line opt-in (`access = Just requireLogin`) explicit.
+  Date: 2026-06-24
+
+- Decision: **Bootstrap `nagare-access` as a compiling package before adding shomei/en
+  dependencies.** The initial package contains the WAI shell and pure request-policy helpers
+  only; shomei/en dependencies will be added when the modules that actually use them land.
+  Rationale: This keeps the first M1 slice buildable and testable while still creating the
+  intended standalone package boundary. It avoids adding a large auth/proxy dependency closure
+  to a cabal file before any code proves the imports and API usage. The package-level boundary,
+  executable name, workspace shape, health endpoint, and SPA challenge semantics are now
+  fixed for the remaining M1 work.
   Date: 2026-06-24
 
 
