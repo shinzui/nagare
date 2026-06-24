@@ -15,6 +15,10 @@ result-*
 # direnv cache
 .direnv/
 
+# Cabal workspace outputs
+dist-newstyle/
+.ghc.environment.*
+
 # Pulumi in-repo home, state backend, and TypeScript deps (see .envrc / EP-2)
 infra/pulumi/.pulumi-home/
 infra/pulumi/.pulumi-state/

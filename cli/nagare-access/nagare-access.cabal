@@ -26,12 +26,17 @@ library
   hs-source-dirs: src
   exposed-modules:
     Nagare.Access.App
+    Nagare.Access.BackendMap
     Nagare.Access.Challenge
     Nagare.Access.Config
+    Nagare.Access.Cookie
+    Nagare.Access.Response
 
   build-depends:
+    aeson,
     base >=4.17 && <5,
     bytestring,
+    containers,
     http-types,
     text,
     wai,
@@ -53,6 +58,7 @@ test-suite nagare-access-test
   hs-source-dirs: test
   build-depends:
     base,
+    aeson,
     bytestring,
     http-types,
     nagare-access,
