@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Crypto.JOSE.JWK (JWKSet (..))
+import Data.Aeson (Value, eitherDecode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
@@ -379,6 +380,26 @@ appTests =
     , testCase "unknown route returns 404" $ do
         res <- runSession (request (setPath defaultRequest "/")) app
         simpleStatus res @?= status404
+    , testCase "userinfo without a valid token returns JSON 401" $ do
+        res <- runSession (request (setPath defaultRequest "/_nagare/userinfo")) (appWithRuntime emptyBackendMap testServices)
+        simpleStatus res @?= status401
+        jsonBody res @?= Right (object ["authenticated" .= False])
+    , testCase "userinfo with a valid token returns the authenticated subject" $ do
+        res <-
+          runSession
+            (request (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/_nagare/userinfo")))
+            (appWithRuntime emptyBackendMap testServices)
+        simpleStatus res @?= status200
+        jsonBody res @?= Right (object ["authenticated" .= True, "user" .= ("user:alice" :: Text)])
+    , testCase "logout redirects to login and clears the configured shared session cookie" $ do
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/logout"))
+            (appWithRuntime emptyBackendMap (testServices {cookieSettings = Just (defaultCookieSettings ".apps.example.com")}))
+        simpleStatus res @?= status302
+        lookup hLocation (simpleHeaders res) @?= Just "/_nagare/login"
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "nagare_session=; Domain=.apps.example.com; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax"
     , testCase "protected host without a token returns a document redirect" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "tools.example.com" (withHeader hAccept "text/html" (setPath defaultRequest "/")))) (appWithBackends backends)
@@ -452,6 +473,10 @@ assertRight :: (HasCallStack, Show a) => Either a b -> IO b
 assertRight (Left err) = assertFailure ("expected Right, got Left " <> show err)
 assertRight (Right value) = pure value
 
+jsonBody :: SResponse -> Either String Value
+jsonBody =
+  eitherDecode . simpleBody
+
 completeAuthEnv :: [(String, String)]
 completeAuthEnv =
   [ ("NAGARE_ACCESS_SHOMEI_URL", "http://shomei.nagare-system.svc.cluster.local")
@@ -486,4 +511,5 @@ testServices =
     , authorizeUser = \_ _ -> pure AccessAllowed
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , decisionCache = disabledDecisionCache
+    , cookieSettings = Nothing
     }

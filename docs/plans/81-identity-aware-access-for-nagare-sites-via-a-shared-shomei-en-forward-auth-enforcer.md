@@ -153,10 +153,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   shomei verifier, a Servant `ClientEnv` for en, the configured en decision cache, and the
   concrete proxy forwarder. With no auth-plane environment, the executable keeps the existing
   `appWithBackends` path.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  login flow via `shomei-client`, refresh-token/session renewal semantics, WebSocket/SSE and
-  large-body streaming,
-  userinfo/logout/login endpoints, and integration tests against shomei+en.
+- [x] **M1l — reserved userinfo/logout endpoints.** Completed 2026-06-24. Added
+  `GET /_nagare/userinfo`, which verifies the request credential and returns JSON
+  `{ "authenticated": true, "user": "<subject>" }` or `401 { "authenticated": false }`, and
+  `GET /_nagare/logout`, which redirects to `/_nagare/login` and clears the shared
+  `nagare_session` cookie when runtime cookie settings are configured.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Login flow via
+  `shomei-client`, refresh-token/session renewal semantics, WebSocket/SSE and large-body
+  streaming, full login-form CSRF handling, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -426,6 +430,25 @@ All 64 tests passed (0.01s)
 All 354 tests passed (6.94s)
 ```
 
+**M1l implementation evidence (2026-06-24).** `Nagare.Access.App.appWithRuntime` now
+special-cases two more reserved endpoints before backend-map lookup. `GET /_nagare/userinfo`
+uses the configured `verifyCredential` service and returns JSON for SPA callers without
+requiring a protected host entry in the backend map. `GET /_nagare/logout` redirects to
+`/_nagare/login`; because logout must clear the shared-domain cookie, `AccessServices` now
+carries optional `CookieSettings`, and `app/Main.hs` populates them from
+`NAGARE_ACCESS_COOKIE_DOMAIN` when the auth plane is configured. Unit tests cover
+unauthenticated userinfo, authenticated userinfo, and logout's `Set-Cookie` clearing header.
+Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 67 tests passed (0.01s)
+All 354 tests passed (6.20s)
+```
+
 
 ## Decision Log
 
@@ -669,6 +692,17 @@ Record every decision made while working on the plan.
   Rationale: This wires real token verification now without conflating authorization staleness
   with key-rotation polling. Five minutes is short enough for shomei key rotation in this first
   pass and avoids fetching keys per request.
+  Date: 2026-06-24
+
+- Decision: **Carry optional cookie settings on `AccessServices` for reserved endpoints.**
+  Most request-path auth behavior only needs token verification, en authorization, and
+  forwarding, but `GET /_nagare/logout` must emit a `Set-Cookie` header with the configured
+  parent-domain cookie scope. Rather than make `Nagare.Access.App` depend directly on
+  `RuntimeConfig`, `AccessServices` now carries `cookieSettings :: Maybe CookieSettings`.
+  `app/Main.hs` sets it when the auth plane is configured; tests and no-auth-plane defaults use
+  `Nothing`.
+  Rationale: This keeps the WAI app injectable in tests while giving reserved endpoints access
+  to the one runtime value they need for browser-session behavior.
   Date: 2026-06-24
 
 
@@ -1635,3 +1669,9 @@ Contracts at milestone boundaries:
   validation evidence, and a Decision Log entry for the first fixed JWKS cache TTL. Remaining M1
   work is now focused on browser/session endpoints, refresh semantics, streaming proxy behavior,
   and real shomei+en integration tests.
+
+- 2026-06-24 — Recorded M1l, reserved `/_nagare/userinfo` and `/_nagare/logout` endpoints.
+  Added progress, validation evidence, and a Decision Log entry for carrying optional cookie
+  settings through `AccessServices`. Remaining M1 browser work is now the actual login form,
+  CSRF validation, shomei-client login/refresh semantics, streaming proxy behavior, and real
+  shomei+en integration tests.
