@@ -139,10 +139,18 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `VerificationUnavailable` when keys cannot be loaded, instead of pretending the credential is
   invalid. This narrows remaining token-verification work to wiring the executable's runtime
   services through the cache.
+- [x] **M1j — en authorization adapter.** Completed 2026-06-24. Pinned en's `en-core`,
+  `en-migrations`, `en-postgres`, `en-servant`, and `en-client` packages in
+  `cli/nagare-access/cabal.project` with Cabal `source-repository-package` stanzas at commit
+  `d27bb440b4b125c9844be95a02d00f54c1eec261`, added `Nagare.Access.En`, and mapped the real
+  `En.Client.EnClient.check` API into the existing `AuthenticatedUser -> host ->
+  AccessDecision` shape. The adapter builds checks for subject object type `user`, object type
+  `app`, object id = canonical public host, permission `access`, and consistency
+  `MinimizeLatencyWire`; en client failures fail closed as `AccessDenied`.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
   live JWKS data wired into the executable, login flow via `shomei-client`, refresh-token/session
-  renewal semantics, en authZ via `en-client` including reproducible en package sourcing,
-  WebSocket/SSE and large-body streaming, wiring the executable to real shomei/en/proxy services,
+  renewal semantics, wiring the executable to real shomei/en/proxy services,
+  WebSocket/SSE and large-body streaming,
   userinfo/logout/login endpoints, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
@@ -371,6 +379,29 @@ All 61 tests passed (0.01s)
 All 354 tests passed (5.94s)
 ```
 
+**M1j implementation evidence (2026-06-24).** `Nagare.Access.En` now owns the en authorization
+boundary. `mori registry show shinzui/en --full` confirmed the registered source path
+`/Users/shinzui/Keikaku/bokuno/en` and the `en-client`, `en-servant`, and `en-core` package
+layout; `mori registry docs shinzui/en` returned no curated docs, so the implementation read
+the source directly. `en-client/src/En/Client.hs` exposes `EnClient.check :: CheckRequestWire
+-> ClientM CheckResponseWire`, and `en-servant/src/En/Servant/API.hs` defines
+`CheckRequestWire`, `CheckResponseWire`, `AllowedWire`, `DeniedWire`, `ConditionalWire`,
+`SubjectIdWire`, `ObjectRefWire`, and `MinimizeLatencyWire`. The adapter builds the exact
+`app:<host>` / `access` check from the Decision Log and converts en responses into the local
+`AccessDecision` type. Because `en-servant` currently exposes server modules in the same
+library, `en-client`'s transitive closure includes `en-postgres`; `flake.nix` now includes
+`pkgs.postgresql` in the Cabal check/dev-shell tooling so `postgresql-libpq` can find
+`pg_config`. Validation was run through the flake shell so the native dependency is present:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 64 tests passed (0.01s)
+All 354 tests passed (6.54s)
+```
+
 
 ## Decision Log
 
@@ -587,6 +618,21 @@ Record every decision made while working on the plan.
   are already the local pattern in `cli/nagarectl/cabal.project` for non-Hackage dependencies.
   Pinning by commit keeps the flake check's copied source tree reproducible enough for this
   project's current relaxed-sandbox Cabal checks.
+  Date: 2026-06-24
+
+- Decision: **Pin en through Cabal source repositories for the authorization adapter, and add
+  PostgreSQL tooling to the flake's Cabal environments.** The en repository has an HTTPS GitHub
+  remote and a local checkout at `d27bb440b4b125c9844be95a02d00f54c1eec261`. `cli/nagare-access/
+  cabal.project` now pins the real en subdirectories `en-core`, `en-migrations`, `en-postgres`,
+  `en-servant`, and `en-client`. The enforcer only calls `en-client`, but `en-client` depends on
+  `en-servant`, whose exposed library includes server modules that depend on `en-postgres`;
+  therefore the package closure currently requires libpq. `flake.nix` now adds
+  `pkgs.postgresql` next to `zlib`/`pkg-config` in `haskellTooling`, the default dev shell, and
+  the Haskell dev shell so local and flake-check Cabal builds provide `pg_config`.
+  Rationale: The plan requires the real `en-client` API rather than an ad hoc HTTP client, and
+  source-repository-package pins avoid committing machine-local sibling paths. Adding the narrow
+  native PostgreSQL tool keeps this exact dependency path buildable until en splits wire/client
+  types from server/Postgres modules.
   Date: 2026-06-24
 
 
@@ -1542,3 +1588,9 @@ Contracts at milestone boundaries:
 - 2026-06-24 — Recorded M1i, JWKS fetch/cache support. Added progress and validation evidence
   for the `Nagare.Access.Jwks` module and the cached shomei verifier path. Remaining
   token-verification work is now executable wiring, not another missing library boundary.
+
+- 2026-06-24 — Recorded M1j, the en authorization adapter. Added progress, validation evidence,
+  and a Decision Log entry for reproducible en source-repository-package pins and the
+  `pkgs.postgresql` flake-tooling addition required by the current `en-client` dependency
+  closure. No change to the authorization model: en object type remains `app`, object id remains
+  the public hostname, and permission remains `access`.

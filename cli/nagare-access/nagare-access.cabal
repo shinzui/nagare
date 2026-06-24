@@ -33,6 +33,7 @@ library
     Nagare.Access.Cookie
     Nagare.Access.Credential
     Nagare.Access.DecisionCache
+    Nagare.Access.En
     Nagare.Access.Jwks
     Nagare.Access.Proxy
     Nagare.Access.Response
@@ -43,10 +44,13 @@ library
     base >=4.17 && <5,
     bytestring,
     containers,
+    en-client,
+    en-servant,
     http-client,
     http-client-tls,
     http-types,
     jose,
+    servant-client,
     shomei-core,
     shomei-jwt,
     text,
@@ -72,10 +76,13 @@ test-suite nagare-access-test
     base,
     aeson,
     bytestring,
+    en-client,
+    en-servant,
     http-client,
     http-types,
     jose,
     nagare-access,
+    servant-client,
     shomei-core,
     tasty >=1.4,
     tasty-hunit >=0.10,
