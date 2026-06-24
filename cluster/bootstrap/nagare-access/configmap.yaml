@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nagare-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-access-backends
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-access
+    app.kubernetes.io/part-of: nagare-auth-plane
+    nagare.dev/managed-by: nagarectl
+data:
+  backends.json: "{}"

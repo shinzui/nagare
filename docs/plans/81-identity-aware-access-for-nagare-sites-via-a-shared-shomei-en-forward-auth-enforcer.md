@@ -210,12 +210,19 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 - [ ] **M3c — Remaining deploy-time access verification.** Ensure the en "app" object for the
   hostname is schema-valid in the installed M4 bundle and verify the resolver plus grant
   commands against the real M4 bootstrap bundle once that bundle exists.
-- [ ] **M4 — Cluster bootstrap (optional, opt-in plane).** Build+push the enforcer image (no
-  existing pipeline — must be created), then idempotent bootstrap of `shomei-server`,
-  `en-server`, and the `nagare-access` enforcer (a Knative `ksvc`, `min-scale=1`; + internal
-  Service + ConfigMap + Secret) in a new `nagare-system` namespace, plus JWKS / DB / cookie-key
-  secrets. Its own `kubectl apply` bundle, NOT part of `just cluster-bootstrap`, following the
-  nagared precedent.
+- [x] **M4a — Auth-plane bootstrap manifests and `nagare-access` image path.** Completed
+  2026-06-24. Added `cli/nagare-access/Dockerfile`, an Artifact Registry build/push helper at
+  `cluster/bootstrap/nagare-access/build-image.sh`, and opt-in `kubectl apply` directories for
+  `cluster/bootstrap/shomei/`, `cluster/bootstrap/en/`, and
+  `cluster/bootstrap/nagare-access/`. The en bundle mounts the Nagare `app.en` schema with
+  `object user {}` and `object app { relation viewer: user permission access: viewer }`; the
+  enforcer bundle is a Knative Service with `min-scale=1`, the backend-map ConfigMap, and the
+  cookie-key Secret template.
+- [ ] **M4b — Remaining live bootstrap hardening and verification.** Build and push real
+  shomei/en images or document their release image source, run en migrations as part of the
+  deployment workflow, apply the auth-plane bundle to the target cluster, verify Ready status
+  for shomei/en/nagare-access, and prove `nagarectl`'s M3 preflight succeeds against the
+  installed bundle.
 - [ ] **M5 — End-to-end acceptance.** `cluster/examples/protected-hello` deploys; the curl
   transcript in Purpose reproduces; an authorized vs unauthorized user differ as specified.
 - [ ] **Docs.** A user guide `docs/user/access.md` (or the nagare-docs equivalent) plus an
@@ -687,6 +694,76 @@ All 324 tests passed (1.43s)
 All 354 tests passed (6.49s)
 ```
 
+**M4a implementation evidence (2026-06-24).** The first optional auth-plane bootstrap slice is
+now present on disk. `cluster/bootstrap/shomei/` contains a `shomei-db` Secret template and a
+Deployment+Service for `shomei`, using the real shomei env contract:
+`PG_CONNECTION_STRING`, `SHOMEI_PORT`, `SHOMEI_ISSUER`, and `SHOMEI_AUDIENCE`.
+`cluster/bootstrap/en/` contains an `en-db` Secret template, an `en-schema` ConfigMap with the
+Nagare authorization schema, and a Deployment+Service for `en` using `EN_DATABASE_URL`,
+`EN_PORT`, and `EN_SCHEMA_PATH`. `cluster/bootstrap/nagare-access/` contains the backend-map
+ConfigMap, cookie-key Secret template, a Knative `Service` named `nagare-access` in
+`nagare-system`, and `build-image.sh`, which builds `cli/nagare-access/Dockerfile` for
+`linux/amd64`, tags it under the configured Artifact Registry repository, and pushes by
+default.
+
+Dependency-source checks before writing the manifests confirmed a useful difference in startup
+behavior: shomei's `Shomei.Server.Boot.buildEnv` runs its migrations and bootstraps an active
+signing key on server startup, while en's `en-server` expects the `en-migrations` schema to
+already exist and fails with a message pointing at `En.Migrations.migrationsDir` if the
+database is not migrated. The first M4 bundle therefore documents en migrations as remaining
+operator work rather than pretending `en-server` migrates itself.
+
+Validation:
+
+```text
+$ kubectl apply --dry-run=client --validate=false -f cluster/bootstrap/shomei/
+namespace/nagare-system created (dry run)
+secret/shomei-db created (dry run)
+namespace/nagare-system created (dry run)
+deployment.apps/shomei created (dry run)
+service/shomei created (dry run)
+
+$ kubectl apply --dry-run=client --validate=false -f cluster/bootstrap/en/
+namespace/nagare-system created (dry run)
+configmap/en-schema created (dry run)
+namespace/nagare-system created (dry run)
+secret/en-db created (dry run)
+namespace/nagare-system created (dry run)
+deployment.apps/en created (dry run)
+service/en created (dry run)
+
+$ ruby -e 'require "yaml"; ARGV.each { |p| YAML.load_stream(File.read(p)); puts "ok #{p}" }' \
+    cluster/bootstrap/nagare-access/service.yaml \
+    cluster/bootstrap/nagare-access/configmap.yaml \
+    cluster/bootstrap/nagare-access/secret.example.yaml \
+    cluster/bootstrap/en/service.yaml \
+    cluster/bootstrap/en/configmap.yaml \
+    cluster/bootstrap/en/secret.example.yaml \
+    cluster/bootstrap/shomei/service.yaml \
+    cluster/bootstrap/shomei/secret.example.yaml
+ok cluster/bootstrap/nagare-access/service.yaml
+ok cluster/bootstrap/nagare-access/configmap.yaml
+ok cluster/bootstrap/nagare-access/secret.example.yaml
+ok cluster/bootstrap/en/service.yaml
+ok cluster/bootstrap/en/configmap.yaml
+ok cluster/bootstrap/en/secret.example.yaml
+ok cluster/bootstrap/shomei/service.yaml
+ok cluster/bootstrap/shomei/secret.example.yaml
+
+cli/nagare-access$ nix develop --command cabal build all
+Up to date
+
+cli/nagare-access$ nix develop --command cabal test all --test-options=--hide-successes
+All 85 tests passed (0.88s)
+All 354 tests passed (6.61s)
+```
+
+Local `kubectl apply --dry-run=client --validate=false -f cluster/bootstrap/nagare-access/`
+successfully parsed the Namespace, ConfigMap, and Secret, then failed to map the Knative
+`serving.knative.dev/v1 Service` because the local client was not connected to a cluster with
+Knative Serving CRDs installed. The manifest was therefore YAML-parsed locally and remains to
+be server-side dry-run/applied against the target Knative cluster in M4b.
+
 
 ## Decision Log
 
@@ -1061,6 +1138,30 @@ Record every decision made while working on the plan.
   permission. `POST /expand` is the endpoint with the correct direction for that question.
   Rationale: Listing grants by host must be object-to-subject expansion. Using lookup would
   require one request per possible user and would not answer the command's question.
+  Date: 2026-06-24
+
+- Decision: **Use a repository-root Docker build for the first `nagare-access` image path.**
+  `cli/nagare-access/Dockerfile` is built from the repository root so it can copy both
+  `cli/nagare-access/` and the sibling `cli/nagare-dsl/` package that the Cabal workspace
+  lists. The bootstrap helper `cluster/bootstrap/nagare-access/build-image.sh` tags the result
+  as `${NAGARE_REGISTRY_HOST}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/nagare-access:<tag>`
+  for `linux/amd64` and pushes it by default.
+  Rationale: The repo did not have reusable image-build machinery for in-cluster services, and
+  a root-context Docker build is the smallest explicit path that preserves the standalone
+  `nagare-access` package boundary while producing the platform image the single-node cluster
+  needs.
+  Date: 2026-06-24
+
+- Decision: **Ship the first auth-plane bootstrap as opt-in apply-able templates, not a
+  turnkey `just cluster-bootstrap` addition.** The new `cluster/bootstrap/shomei/`,
+  `cluster/bootstrap/en/`, and `cluster/bootstrap/nagare-access/` directories each include the
+  `nagare-system` Namespace so applying any one directory is idempotent, but the core
+  `just cluster-bootstrap` recipe remains unchanged.
+  Rationale: This preserves the plan's cluster-wide optionality guarantee: operators who never
+  use `access = requireLogin` do not install shomei, en, or the enforcer. The example image
+  refs, database connection Secret templates, cookie key, and cookie domain are intentionally
+  operator-edited until M4b verifies the exact target-cluster release images and database
+  wiring.
   Date: 2026-06-24
 
 
@@ -2040,3 +2141,10 @@ Contracts at milestone boundaries:
   Decision Log entries: `nagarectl` uses a small raw en HTTP wrapper instead of taking the
   heavier `en-client` dependency closure, and `access list --host` uses en `expand` because
   the command starts from an object/host and needs subjects.
+
+- 2026-06-24 — Recorded M4a, the first optional auth-plane bootstrap slice. Added
+  `nagare-access` image build metadata plus `cluster/bootstrap/{shomei,en,nagare-access}/`
+  apply-able templates, validation evidence, and Decision Log entries for the root-context
+  Docker build and opt-in bootstrap shape. Split remaining M4 work into M4b because live
+  target-cluster apply, shomei/en release images, en migrations, and M3 preflight verification
+  still need real-cluster evidence.

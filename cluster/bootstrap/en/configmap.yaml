@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nagare-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: en-schema
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: en
+    app.kubernetes.io/part-of: nagare-auth-plane
+data:
+  app.en: |
+    object user {}
+
+    object app {
+      relation viewer: user
+      permission access: viewer
+    }
