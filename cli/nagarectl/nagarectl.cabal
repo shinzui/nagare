@@ -31,6 +31,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.Access.Grants
     Nagare.Access.Resolve
     Nagare.App
     Nagare.App.Deploy
@@ -112,6 +113,7 @@ library
     generic-lens ^>=2.2,
     http-client,
     http-client-tls,
+    http-types,
     lens ^>=5.3,
     memory,
     nagare-dsl,
@@ -162,6 +164,7 @@ test-suite nagarectl-test
   main-is: Spec.hs
   hs-source-dirs: test
   other-modules:
+    AccessGrantsSpec
     AccessResolveSpec
     AppDeploySpec
   build-depends:
