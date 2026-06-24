@@ -104,11 +104,19 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   conditional decisions, and an injected forwarder for allowed requests. Authorization uses the
   backend map's canonical host, stripping any request `Host` port before building the decision
   key.
+- [x] **M1f — basic reverse-proxy forwarding.** Completed 2026-06-24. Added
+  `Nagare.Access.Proxy`, a concrete `http-client` forwarder for authorized requests. It builds
+  upstream requests from the backend map target, preserves method/path/query/body, strips
+  hop-by-hop headers and inbound spoofable `X-Forwarded-*` identity headers, injects trusted
+  `X-Forwarded-User`, `X-Forwarded-Host`, and `X-Forwarded-Proto`, disables upstream redirect
+  following, and maps upstream responses back to WAI responses. This is the initial buffered
+  request/response forwarder; WebSocket upgrade handling, SSE/large-body streaming, and
+  end-to-end shomei+en integration remain in M1.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
   `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
-  authZ via `en-client`, JWKS caching, concrete reverse-proxy forwarding, WebSocket/SSE
-  handling, userinfo/logout/login endpoints, runtime env parsing for auth-plane settings, and
-  integration tests against shomei+en.
+  authZ via `en-client`, JWKS caching, WebSocket/SSE and large-body streaming, wiring the
+  executable to real auth/proxy services, userinfo/logout/login endpoints, runtime env parsing
+  for auth-plane settings, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -272,6 +280,22 @@ allowed decision calls the forwarder, and the decision cache is used per canonic
 cli/nagare-access$ cabal test all
 All 43 tests passed (0.01s)
 All 354 tests passed (6.07s)
+```
+
+**M1f implementation evidence (2026-06-24).** `Nagare.Access.Proxy` now provides the first
+concrete forwarding layer. The dependency lookup before implementation found
+`snoyberg/http-client` in the local `mori` registry at
+`/Users/shinzui/Keikaku/hub/haskell/http-client-project` and no registered
+`http-reverse-proxy` package, so this slice uses the same `http-client`/`http-client-tls`
+family already used by `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs`. The proxy builder reads
+the WAI request body strictly, constructs an upstream `Network.HTTP.Client.Request`, strips
+hop-by-hop and spoofable identity headers, injects trusted `X-Forwarded-*` headers, and leaves
+streaming/WebSocket work explicitly for the remaining M1 items. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 45 tests passed (0.01s)
+All 354 tests passed (5.73s)
 ```
 
 
@@ -448,6 +472,20 @@ Record every decision made while working on the plan.
   to a cabal file before any code proves the imports and API usage. The package-level boundary,
   executable name, workspace shape, health endpoint, and SPA challenge semantics are now
   fixed for the remaining M1 work.
+  Date: 2026-06-24
+
+- Decision: **Use a hand-rolled `http-client` forwarder before introducing a streaming proxy
+  abstraction.** `mori registry search http-client` found the local `snoyberg/http-client`
+  corpus and `mori registry search http-reverse-proxy` found no registered reverse-proxy
+  package. The existing nagare code already uses `http-client` in
+  `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs`, and the source confirms `parseRequest`,
+  record updates for `method`/`path`/`queryString`/`requestHeaders`/`requestBody`, `httpLbs`,
+  and response accessors are stable enough for this package. This first forwarder buffers
+  request and response bodies with `strictRequestBody`/`httpLbs`; the M1 streaming item remains
+  open for WebSocket upgrades, SSE, and large response bodies.
+  Rationale: This creates a real, tested forwarding surface now, hardens the trusted identity
+  headers before any upstream app can consume them, and avoids adding an unregistered proxy
+  library before the project has proven exactly which streaming semantics it needs.
   Date: 2026-06-24
 
 
@@ -1384,3 +1422,8 @@ Contracts at milestone boundaries:
   step 4 now explicitly confirms the DomainMapping→`ksvc`→cluster-local chain and writes the
   result into the M4 decision. Updated the M4 acceptance to check `kubectl get ksvc` for the
   enforcer. No change to the chosen path, the request-handling behavior, or the DSL surface.
+
+- 2026-06-24 — Recorded M1f, the first concrete reverse-proxy forwarding slice. Added progress,
+  validation evidence, and a Decision Log entry explaining why `nagare-access` now uses a
+  direct `http-client`/`http-client-tls` forwarder while keeping WebSocket/SSE and large-body
+  streaming in the remaining M1 scope. No change to the chosen topology or auth model.

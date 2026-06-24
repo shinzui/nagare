@@ -33,6 +33,7 @@ library
     Nagare.Access.Cookie
     Nagare.Access.Credential
     Nagare.Access.DecisionCache
+    Nagare.Access.Proxy
     Nagare.Access.Response
 
   build-depends:
@@ -40,6 +41,8 @@ library
     base >=4.17 && <5,
     bytestring,
     containers,
+    http-client,
+    http-client-tls,
     http-types,
     text,
     wai,
@@ -63,6 +66,7 @@ test-suite nagare-access-test
     base,
     aeson,
     bytestring,
+    http-client,
     http-types,
     nagare-access,
     tasty >=1.4,
