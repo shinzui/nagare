@@ -15,7 +15,7 @@ import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Proxy (newProxyManager, proxyForwarder)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
-import Nagare.Access.ShomeiClient (loginWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
+import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import System.Environment (getEnvironment)
@@ -59,6 +59,7 @@ buildAccessServices runtime cfg = do
       , authorizeUser = authorizeWithEn enEnv
       , forwardAuthorized = proxyForwarder manager
       , loginUser = loginWithShomei shomeiLoginEnv
+      , completeMfa = completeMfaWithShomei shomeiLoginEnv
       , refreshUserSession = refreshWithShomei shomeiLoginEnv
       , newCsrfToken = toText <$> nextRandom
       , decisionCache
