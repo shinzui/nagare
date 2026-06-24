@@ -158,9 +158,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `{ "authenticated": true, "user": "<subject>" }` or `401 { "authenticated": false }`, and
   `GET /_nagare/logout`, which redirects to `/_nagare/login` and clears the shared
   `nagare_session` cookie when runtime cookie settings are configured.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Login flow via
-  `shomei-client`, refresh-token/session renewal semantics, WebSocket/SSE and large-body
-  streaming, full login-form CSRF handling, and integration tests against shomei+en.
+- [x] **M1m — shomei-backed login form and session cookie issuance.** Completed 2026-06-24.
+  Added `GET /_nagare/login` and `POST /_nagare/login` to the enforcer. The form sets a
+  `__Host-nagare_csrf` cookie, preserves only safe same-host return destinations, validates the
+  submitted CSRF token before calling shomei, calls the real `shomei-client` login API through
+  `Nagare.Access.ShomeiClient`, and sets the shared-domain `nagare_session` access-token cookie
+  on success before redirecting back to the requested path.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Refresh-token/session renewal
+  semantics, WebSocket/SSE and large-body streaming, refresh-token cookie/key wrapping, MFA
+  browser ceremony completion, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -449,6 +455,27 @@ All 67 tests passed (0.01s)
 All 354 tests passed (6.20s)
 ```
 
+**M1m implementation evidence (2026-06-24).** `Nagare.Access.App.appWithRuntime` now handles
+`GET /_nagare/login` and `POST /_nagare/login` before backend lookup. The GET path mints an
+injectable CSRF token, emits the existing `__Host-nagare_csrf` cookie header, renders a minimal
+HTML form, and normalizes unsafe `rd` values to `/`. The POST path parses
+`application/x-www-form-urlencoded` bodies with `http-types`, validates the hidden CSRF token
+against the `__Host-nagare_csrf` cookie before invoking the login service, accepts either
+`loginId` or `email` plus a password, and on success sets the shared-domain `nagare_session`
+cookie before a `302` redirect. `Nagare.Access.ShomeiClient` maps the real
+`Shomei.Client.login` / `Shomei.Servant.DTO.LoginResponse` API into the local
+`LoginCredentials -> LoginOutcome` service shape, and `app/Main.hs` wires it using
+`NAGARE_ACCESS_SHOMEI_URL` plus UUID-v4 CSRF tokens. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 72 tests passed (0.01s)
+All 354 tests passed (6.32s)
+```
+
 
 ## Decision Log
 
@@ -703,6 +730,19 @@ Record every decision made while working on the plan.
   `Nothing`.
   Rationale: This keeps the WAI app injectable in tests while giving reserved endpoints access
   to the one runtime value they need for browser-session behavior.
+  Date: 2026-06-24
+
+- Decision: **Implement the first login slice with an access-token cookie only; defer refresh-token
+  storage and renewal.** `POST /_nagare/login` now calls shomei and stores the returned access
+  token in `nagare_session` with `Max-Age = expiresIn`, making browser login immediately usable
+  for the existing verifier path. The shomei response also returns a refresh token, but this
+  slice deliberately does not store it yet because the plan still needs a cookie-key wrapping
+  design and refresh-token rotation semantics. MFA is surfaced as `401 mfa required` for now;
+  browser WebAuthn ceremony completion remains a separate remaining M1 item.
+  Rationale: This lands a working shomei-backed password login without inventing a weak
+  long-lived refresh-token cookie format. Keeping refresh renewal explicit preserves the
+  fail-closed behavior: sessions expire after the access-token lifetime until the refresh slice
+  is implemented.
   Date: 2026-06-24
 
 

@@ -5,6 +5,8 @@ module Main (main) where
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (Value, eitherDecode, object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import En.Client
@@ -36,9 +38,9 @@ import Nagare.Access.Jwks
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status403, status404, status502)
+import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
-import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
+import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
 import Shomei.Config (ShomeiConfig (..))
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
 import Shomei.Error (TokenError (..))
@@ -400,6 +402,77 @@ appTests =
         lookup hLocation (simpleHeaders res) @?= Just "/_nagare/login"
         lookup "Set-Cookie" (simpleHeaders res)
           @?= Just "nagare_session=; Domain=.apps.example.com; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax"
+    , testCase "login form sets csrf cookie and preserves a safe return destination" $ do
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/login?rd=%2Ftools%3Ftab%3D1"))
+            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+        simpleStatus res @?= status200
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
+        assertBool "expected hidden csrf" (bodyContains "name=\"csrf\" value=\"csrf-token\"" res)
+        assertBool "expected hidden rd" (bodyContains "name=\"rd\" value=\"/tools?tab=1\"" res)
+    , testCase "login form rejects an unsafe return destination by falling back to root" $ do
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/login?rd=https%3A%2F%2Fevil.example"))
+            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+        simpleStatus res @?= status200
+        assertBool "expected root rd" (bodyContains "name=\"rd\" value=\"/\"" res)
+    , testCase "login submit with valid csrf sets the shared session cookie and redirects" $ do
+        seen <- newIORef []
+        let services =
+              testServices
+                { cookieSettings = Just (defaultCookieSettings ".apps.example.com")
+                , loginUser = \credentials -> do
+                    modifyIORef' seen (<> [credentials])
+                    pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                }
+            req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    withHeader "Content-Type" "application/x-www-form-urlencoded" $
+                      (setPath defaultRequest "/_nagare/login") {requestMethod = "POST"}
+                )
+                "loginId=alice&password=secret&csrf=csrf-token&rd=%2Ftools"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap services)
+        simpleStatus res @?= status302
+        lookup hLocation (simpleHeaders res) @?= Just "/tools"
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "nagare_session=access.jwt; Domain=.apps.example.com; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
+        readIORef seen
+          >>= ( @?=
+                  [ LoginCredentials
+                      { loginCredentialId = Just "alice"
+                      , loginCredentialEmail = Nothing
+                      , loginCredentialPassword = "secret"
+                      }
+                  ]
+              )
+    , testCase "login submit rejects csrf mismatch before calling shomei" $ do
+        calls <- newIORef (0 :: Int)
+        let services =
+              testServices
+                { loginUser = \_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run")
+                }
+            req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    (setPath defaultRequest "/_nagare/login") {requestMethod = "POST"}
+                )
+                "loginId=alice&password=secret&csrf=other-token&rd=%2Ftools"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap services)
+        simpleStatus res @?= status403
+        readIORef calls >>= (@?= 0)
+    , testCase "login submit requires a principal and password" $ do
+        let req =
+              SRequest
+                ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
+                    (setPath defaultRequest "/_nagare/login") {requestMethod = "POST"}
+                )
+                "loginId=&password=&csrf=csrf-token&rd=%2Ftools"
+        res <- runSession (srequest req) (appWithRuntime emptyBackendMap testServices)
+        simpleStatus res @?= status400
     , testCase "protected host without a token returns a document redirect" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "tools.example.com" (withHeader hAccept "text/html" (setPath defaultRequest "/")))) (appWithBackends backends)
@@ -477,6 +550,10 @@ jsonBody :: SResponse -> Either String Value
 jsonBody =
   eitherDecode . simpleBody
 
+bodyContains :: ByteString -> SResponse -> Bool
+bodyContains needle res =
+  needle `BS.isInfixOf` LBS.toStrict (simpleBody res)
+
 completeAuthEnv :: [(String, String)]
 completeAuthEnv =
   [ ("NAGARE_ACCESS_SHOMEI_URL", "http://shomei.nagare-system.svc.cluster.local")
@@ -510,6 +587,8 @@ testServices =
     { verifyCredential = \_ -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
     , authorizeUser = \_ _ -> pure AccessAllowed
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
+    , loginUser = \_ -> pure (LoginFailed "invalid login")
+    , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
     }

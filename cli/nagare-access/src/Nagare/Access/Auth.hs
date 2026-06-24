@@ -3,6 +3,9 @@ module Nagare.Access.Auth
   ( AccessServices (..)
   , AuthFailure (..)
   , AuthenticatedUser (..)
+  , LoginCredentials (..)
+  , LoginOutcome (..)
+  , SessionTokens (..)
   )
 where
 
@@ -24,10 +27,32 @@ data AuthFailure
   | VerificationUnavailable Text
   deriving stock (Eq, Show)
 
+data LoginCredentials = LoginCredentials
+  { loginCredentialId :: !(Maybe Text)
+  , loginCredentialEmail :: !(Maybe Text)
+  , loginCredentialPassword :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data SessionTokens = SessionTokens
+  { accessToken :: !Text
+  , refreshToken :: !(Maybe Text)
+  , expiresIn :: !Int
+  }
+  deriving stock (Eq, Show)
+
+data LoginOutcome
+  = LoginSucceeded !SessionTokens
+  | LoginMfaRequired
+  | LoginFailed !Text
+  deriving stock (Eq, Show)
+
 data AccessServices = AccessServices
   { verifyCredential :: !(Credential -> IO (Either AuthFailure AuthenticatedUser))
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AccessDecision)
   , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
+  , loginUser :: !(LoginCredentials -> IO LoginOutcome)
+  , newCsrfToken :: !(IO Text)
   , decisionCache :: !DecisionCache
   , cookieSettings :: !(Maybe CookieSettings)
   }
