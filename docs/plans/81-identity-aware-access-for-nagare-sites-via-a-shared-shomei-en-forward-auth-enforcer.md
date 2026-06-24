@@ -223,8 +223,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   deployment workflow, apply the auth-plane bundle to the target cluster, verify Ready status
   for shomei/en/nagare-access, and prove `nagarectl`'s M3 preflight succeeds against the
   installed bundle.
-- [ ] **M5 — End-to-end acceptance.** `cluster/examples/protected-hello` deploys; the curl
-  transcript in Purpose reproduces; an authorized vs unauthorized user differ as specified.
+- [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
+  `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
+  public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
+  requireLogin`, plus a README runbook for deploy, unauthenticated redirect, grant, revoke,
+  and expected 403/200 behavior.
+- [ ] **M5b — Live end-to-end acceptance.** Deploy `cluster/examples/protected-hello` against
+  the target cluster after M4b, reproduce the Purpose curl transcript, and capture the
+  authorized-vs-unauthorized 403/200 evidence in Outcomes & Retrospective.
 - [ ] **Docs.** A user guide `docs/user/access.md` (or the nagare-docs equivalent) plus an
   entry in the example index.
 
@@ -763,6 +769,29 @@ successfully parsed the Namespace, ConfigMap, and Secret, then failed to map the
 `serving.knative.dev/v1 Service` because the local client was not connected to a cluster with
 Knative Serving CRDs installed. The manifest was therefore YAML-parsed locally and remains to
 be server-side dry-run/applied against the target Knative cluster in M4b.
+
+**M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
+the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
+plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
+sets the custom domain to `protected-hello.apps.example.com`, and sets
+`access = Just requireLogin`. The example README records the expected deploy behavior: with the
+auth plane absent the deploy should fail closed, and with the auth plane installed an
+unauthenticated document request should redirect to `/_nagare/login`, an authenticated
+ungranted user should receive `403`, and `nagarectl access grant --host
+protected-hello.apps.example.com --user alice` should flip that user to `200`.
+
+Validation:
+
+```text
+cli/nagarectl$ nix develop --command cabal build all
+Up to date
+
+cli/nagarectl$ nix develop --command cabal exec -v0 -- \
+  runghc -XGHC2024 \
+  -i../../cluster/examples/protected-hello/nagare \
+  ../../cluster/examples/protected-hello/nagare/Config.hs
+{"access":{"audience":null,"permission":"access"},"brokers":[],"build":{"kind":"PrebuiltImage","tag":"latest"},"cpuLimit":null,"cpuRequest":"250m","databases":[],"domains":[{"canonical":true,"domain":"protected-hello.apps.example.com"}],"env":[{"kind":"Literal","scopes":["Runtime"],"value":"Nagare","varName":"TARGET"}],"healthCheck":null,"image":"gcr.io/knative-samples/helloworld-go","memoryLimit":null,"memoryRequest":"128Mi","name":"protected-hello","namespace":"personal","port":8080,"scaleMax":3,"scaleMin":0,"tasks":[],"volumes":[]}
+```
 
 
 ## Decision Log
@@ -2148,3 +2177,8 @@ Contracts at milestone boundaries:
   Docker build and opt-in bootstrap shape. Split remaining M4 work into M4b because live
   target-cluster apply, shomei/en release images, en migrations, and M3 preflight verification
   still need real-cluster evidence.
+
+- 2026-06-24 — Recorded M5a, the protected example artifact. Added
+  `cluster/examples/protected-hello/` with a compile-checked `access = Just requireLogin`
+  Deployment and a README runbook. Split live acceptance into M5b because the real 302/403/200
+  transcript still depends on M4b installing the auth plane on the target cluster.
