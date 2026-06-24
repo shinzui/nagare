@@ -122,11 +122,20 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   required auth settings must all be valid, so partial configuration fails fast before request
   handling starts. `NAGARE_ACCESS_DECISION_TTL` defaults to 30 seconds and accepts `0` to
   disable caching.
+- [x] **M1h — shomei JWT verifier adapter.** Completed 2026-06-24. Pinned shomei's
+  `shomei-core` and `shomei-jwt` packages in `cli/nagare-access/cabal.project` with
+  Cabal `source-repository-package` stanzas at commit
+  `af09acecee6bafa3cf0087c5397c0f85da7aa1cc`, added `Nagare.Access.Shomei`, and mapped
+  `Shomei.Jwt.Verify.verifyToken` into the existing `verifyCredential` shape. The adapter
+  derives `ShomeiConfig` from `AuthPlaneConfig`, converts verified `AuthClaims.subject` to
+  `AuthenticatedUser.userSubject`, maps expired tokens to `ExpiredCredential`, and treats
+  malformed/signature/issuer/audience failures as invalid credentials. JWKS fetching/caching
+  and executable wiring remain separate M1 work.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
-  authZ via `en-client`, JWKS caching, WebSocket/SSE and large-body streaming, wiring the
-  executable to real shomei/en/proxy services, userinfo/logout/login endpoints, and integration
-  tests against shomei+en.
+  live JWKS data, login flow via `shomei-client`, refresh-token/session renewal semantics, en
+  authZ via `en-client` including reproducible en package sourcing, JWKS caching, WebSocket/SSE
+  and large-body streaming, wiring the executable to real shomei/en/proxy services,
+  userinfo/logout/login endpoints, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -319,6 +328,23 @@ separately. Validation:
 cli/nagare-access$ cabal test all
 All 51 tests passed (0.01s)
 All 354 tests passed (5.88s)
+```
+
+**M1h implementation evidence (2026-06-24).** `cli/nagare-access/cabal.project` now pins the
+own-project shomei packages with reproducible `source-repository-package` stanzas instead of a
+machine-local sibling path. `Nagare.Access.Shomei` calls the real
+`Shomei.Jwt.Verify.verifyToken` API confirmed during pre-implementation validation, builds the
+`ShomeiConfig` from the parsed auth-plane issuer/audience, converts `AuthClaims.subject` via
+`Shomei.Id.idText`, and maps shomei `TokenError` values into the enforcer's `AuthFailure`
+type. Validation:
+
+```text
+cli/nagare-access$ cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ cabal test all
+All 54 tests passed (0.00s)
+All 354 tests passed (5.71s)
 ```
 
 
@@ -523,6 +549,20 @@ Record every decision made while working on the plan.
   settings without importing those packages.
   Rationale: This moves M1 forward on the executable's real configuration contract while
   avoiding a machine-local dependency path in committed build metadata.
+  Date: 2026-06-24
+
+- Decision: **Pin shomei through Cabal source repositories for the verifier adapter.** The
+  shomei repository has an HTTPS GitHub remote and a clean local checkout at
+  `af09acecee6bafa3cf0087c5397c0f85da7aa1cc`. `cli/nagare-access/cabal.project` now pins
+  `shomei-core` and `shomei-jwt` from that commit using the real repo subdirectories
+  `shomei-core` and `shomei-jwt`. This resolves the shomei side of the dependency-sourcing
+  issue without committing `/Users/...` paths. en remains unpinned until the first `en-client`
+  adapter lands, at which point it should use the same source-repository pattern with the en
+  repo's real subdirectories.
+  Rationale: The verifier adapter needs actual `shomei-jwt` code, and Cabal source repositories
+  are already the local pattern in `cli/nagarectl/cabal.project` for non-Hackage dependencies.
+  Pinning by commit keeps the flake check's copied source tree reproducible enough for this
+  project's current relaxed-sandbox Cabal checks.
   Date: 2026-06-24
 
 
@@ -1469,3 +1509,8 @@ Contracts at milestone boundaries:
   validation evidence, and a Decision Log entry explaining why direct `shomei-jwt`/`en-client`
   imports are deferred until dependency sourcing is reproducible in flake checks. No change to
   the runtime env contract already described in the plan.
+
+- 2026-06-24 — Recorded M1h, shomei JWT verifier adapter. Added progress, validation evidence,
+  and a Decision Log entry for the reproducible shomei source-repository-package pins. This
+  narrows the remaining token-verification work to JWKS fetching/caching and wiring the
+  executable's `AccessServices` to the adapter.
