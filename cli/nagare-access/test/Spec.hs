@@ -19,6 +19,7 @@ import Nagare.Access.Config
 import Nagare.Access.Cookie
 import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
+import Nagare.Access.Jwks
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Network.HTTP.Client qualified as HC
@@ -40,6 +41,7 @@ main =
       , backendMapTests
       , cookieTests
       , credentialTests
+      , jwksTests
       , shomeiTests
       , decisionCacheTests
       , proxyTests
@@ -193,6 +195,45 @@ credentialTests =
         extractCredential [("Cookie", "nagare_session=; other=1")] @?= Nothing
     , testCase "rejects unsupported authorization scheme" $
         extractCredential [("Authorization", "Basic nope")] @?= Nothing
+    ]
+
+jwksTests :: TestTree
+jwksTests =
+  testGroup
+    "jwks"
+    [ testCase "jwks url appends the well-known path" $ do
+        cfg <- completeAuthConfig
+        jwksUrlFor cfg @?= "http://shomei.nagare-system.svc.cluster.local/.well-known/jwks.json"
+    , testCase "jwks url tolerates a trailing shomei url slash" $ do
+        cfg <- authConfigFromEnv (replaceEnv "NAGARE_ACCESS_SHOMEI_URL" "http://shomei/" completeAuthEnv)
+        jwksUrlFor cfg @?= "http://shomei/.well-known/jwks.json"
+    , testCase "decodes an empty jwks document" $
+        decodeJwks "{\"keys\":[]}" @?= Right (JWKSet [])
+    , testCase "cached jwks reuses a fresh successful fetch" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newJwksCache 30 (pure 100) (modifyIORef' loads (+ 1) >> pure (Right (JWKSet [])))
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        readIORef loads >>= (@?= 1)
+    , testCase "cached jwks reloads after ttl expiry" $ do
+        now <- newIORef 100
+        loads <- newIORef (0 :: Int)
+        cache <- newJwksCache 30 (readIORef now) (modifyIORef' loads (+ 1) >> pure (Right (JWKSet [])))
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        modifyIORef' now (+ 30)
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        readIORef loads >>= (@?= 2)
+    , testCase "zero ttl disables jwks caching" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newJwksCache 0 (pure 100) (modifyIORef' loads (+ 1) >> pure (Right (JWKSet [])))
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        getCachedJwks cache >>= (@?= Right (JWKSet []))
+        readIORef loads >>= (@?= 2)
+    , testCase "cached shomei verifier reports unavailable jwks" $ do
+        cfg <- completeAuthConfig
+        cache <- newJwksCache 30 (pure 100) (pure (Left "jwks down"))
+        verifyShomeiCredentialCached cache cfg (BearerToken "not-a-jwt")
+          >>= (@?= Left (VerificationUnavailable "jwks down"))
     ]
 
 shomeiTests :: TestTree
@@ -387,6 +428,15 @@ completeAuthEnv =
 replaceEnv :: String -> String -> [(String, String)] -> [(String, String)]
 replaceEnv name value =
   map (\entry@(k, _) -> if k == name then (name, value) else entry)
+
+completeAuthConfig :: IO AuthPlaneConfig
+completeAuthConfig =
+  authConfigFromEnv completeAuthEnv
+
+authConfigFromEnv :: [(String, String)] -> IO AuthPlaneConfig
+authConfigFromEnv env = do
+  runtime <- assertRight (parseRuntimeConfig env)
+  maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
 
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =

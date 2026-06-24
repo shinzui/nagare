@@ -33,6 +33,7 @@ library
     Nagare.Access.Cookie
     Nagare.Access.Credential
     Nagare.Access.DecisionCache
+    Nagare.Access.Jwks
     Nagare.Access.Proxy
     Nagare.Access.Response
     Nagare.Access.Shomei

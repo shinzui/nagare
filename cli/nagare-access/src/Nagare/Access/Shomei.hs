@@ -3,6 +3,7 @@ module Nagare.Access.Shomei
   ( shomeiConfigFromAuthPlane
   , tokenErrorToAuthFailure
   , verifyShomeiCredential
+  , verifyShomeiCredentialCached
   )
 where
 
@@ -10,6 +11,7 @@ import Crypto.JOSE.JWK (JWKSet)
 import Nagare.Access.Auth (AuthFailure (..), AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.Credential (Credential, credentialToken)
+import Nagare.Access.Jwks (JwksCache, getCachedJwks)
 import Shomei.Config (ShomeiConfig, defaultShomeiConfig)
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
 import Shomei.Domain.Claims qualified as Claims
@@ -23,6 +25,13 @@ verifyShomeiCredential jwks cfg credential = do
   pure $ case verified of
     Left err -> Left (tokenErrorToAuthFailure err)
     Right claims -> Right (claimsToUser claims)
+
+verifyShomeiCredentialCached :: JwksCache -> AuthPlaneConfig -> Credential -> IO (Either AuthFailure AuthenticatedUser)
+verifyShomeiCredentialCached cache cfg credential = do
+  loaded <- getCachedJwks cache
+  case loaded of
+    Left err -> pure (Left (VerificationUnavailable err))
+    Right jwks -> verifyShomeiCredential jwks cfg credential
 
 shomeiConfigFromAuthPlane :: AuthPlaneConfig -> ShomeiConfig
 shomeiConfigFromAuthPlane cfg =
