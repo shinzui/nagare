@@ -31,6 +31,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.Access.Resolve
     Nagare.App
     Nagare.App.Deploy
     Nagare.App.Deployments
@@ -161,6 +162,7 @@ test-suite nagarectl-test
   main-is: Spec.hs
   hs-source-dirs: test
   other-modules:
+    AccessResolveSpec
     AppDeploySpec
   build-depends:
     aeson,

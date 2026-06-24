@@ -30,6 +30,7 @@ import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -2125,6 +2126,7 @@ runDeploy dopts = do
         applyManifests taskBytes
         TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
       waitForReady name ns
+      resolveDeploymentAccess bd dep'
       reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The
       -- deployment id is the resolved image tag (= NAGARE_RELEASE_ID, = --tag).
