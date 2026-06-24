@@ -126,6 +126,7 @@ app = do
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
       , appDatabases = [db]
       , brokers = []
+      , access = Nothing
       , service = Just svc
       , workers = [w1, w2]
       , tasks = [migrate]

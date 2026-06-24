@@ -1425,6 +1425,7 @@ mkDemoDep envMap =
     , volumes = []
     , databases = []
     , brokers = []
+    , access = Nothing
     , tasks = []
     , cdn = Nothing
     }

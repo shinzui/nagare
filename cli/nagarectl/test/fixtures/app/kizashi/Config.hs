@@ -101,6 +101,7 @@ app = do
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
       , appDatabases = [db]
       , brokers = []
+      , access = Nothing
       , service = Just svc
       , workers = [bindDb worker, bindDb escalation, bindDb agent]
       , tasks = [migrate]

@@ -13,6 +13,7 @@ import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Access
 import Nagare.Dsl.Application
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment)
@@ -101,6 +102,7 @@ multiAppRec =
     , env = Map.fromList [(unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))]
     , appDatabases = [kizashiDb]
     , brokers = []
+    , access = Nothing
     , service = Just kizashiServe
     , -- canonical (name-sorted) order: the encoder sorts workers by name, so a
       -- pre-sorted fixture round-trips to itself (kizashi-agent-worker < kizashi-worker).
@@ -126,6 +128,7 @@ serviceLessAppRec =
     , env = Map.empty
     , appDatabases = []
     , brokers = []
+    , access = Nothing
     , service = Nothing
     , workers = [plainWorker]
     , tasks = [migrateTask]
@@ -174,6 +177,9 @@ roundTripTests =
   , testCase "application broker bindings round-trip" $
       let boundApp = unsafe (mkApplication (multiAppRec & #brokers .~ [appBrokerBinding]))
        in decodeApplication (toStrict (encodeApplication boundApp)) @?= Right boundApp
+  , testCase "application access policy round-trips" $
+      let protectedApp = unsafe (mkApplication (multiAppRec & #access .~ Just requireLogin))
+       in decodeApplication (toStrict (encodeApplication protectedApp)) @?= Right protectedApp
   , testCase "service-less application round-trips" $
       decodeApplication (toStrict (encodeApplication serviceLessApp)) @?= Right serviceLessApp
   , testCase "decoding an Application as a Deployment is UnexpectedKind" $

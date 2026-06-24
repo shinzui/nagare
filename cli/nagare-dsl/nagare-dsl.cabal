@@ -27,6 +27,7 @@ library
   import:          common
   hs-source-dirs:  src
   exposed-modules:
+    Nagare.Dsl.Access
     Nagare.Dsl.Application
     Nagare.Dsl.Broker
     Nagare.Dsl.Broker.Render

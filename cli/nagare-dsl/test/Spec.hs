@@ -12,6 +12,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import LoadSpec (loadTests)
+import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render
   ( renderBrokerPvc
@@ -55,6 +56,7 @@ main =
       , testGroup "Nagare.Dsl extended model (EP-29)" extendedModelTests
       , testGroup "Nagare.Dsl.Build" buildSpecTests
       , testGroup "Nagare.Dsl.Load" loadGoldenTests
+      , testGroup "Nagare.Dsl.Access" accessTests
       , testGroup "Nagare.Dsl.Broker (EP-76)" brokerTests
       , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
@@ -387,6 +389,7 @@ helloDep =
     , volumes = []
     , databases = []
     , brokers = []
+    , access = Nothing
     , tasks = []
     , cdn = Nothing
     }
@@ -523,6 +526,45 @@ eventsBinding =
     { name = unsafe (mkBrokerName "events")
     , topics = [unsafe (mkTopicName "jobs")]
     }
+
+-- ---------------------------------------------------------------------------
+-- EP-81 M2: identity-aware access policy (model and JSON round-trip only).
+
+accessTests :: [TestTree]
+accessTests =
+  [ testGroup
+      "constructors"
+      [ testCase "requireLogin uses the default access permission and no custom audience" $ do
+          audience requireLogin @?= Nothing
+          accessPermissionText (permission requireLogin) @?= "access"
+      , testCase "mkAudience accepts a simple audience" $
+          fmap audienceText (mkAudience "nagare") @?= Right "nagare"
+      , testCase "mkAudience rejects empty" $
+          assertLeftContains "empty" (mkAudience "")
+      , testCase "mkAudience rejects whitespace" $
+          assertLeftContains "whitespace" (mkAudience "nagare apps")
+      , testCase "mkAudience rejects URI schemes" $
+          assertLeftContains "scheme" (mkAudience "https://nagare")
+      , testCase "mkAccessPermission accepts lowercase identifier tokens" $
+          fmap accessPermissionText (mkAccessPermission "site_access") @?= Right "site_access"
+      , testCase "mkAccessPermission rejects uppercase" $
+          assertLeftContains "invalid" (mkAccessPermission "Access")
+      ]
+  , testGroup
+      "deployment contract"
+      [ testCase "deployment access policy survives emit -> decode round-trip" $
+          let protected = helloDep & #access .~ Just requireLogin
+           in decodeDeployment (toStrict (encodeDeployment protected)) @?= Right protected
+      , testCase "deployment access is invisible to the Knative renderer" $
+          renderService (helloDep & #access .~ Just requireLogin) "20260602-120000"
+            @?= renderService helloDep "20260602-120000"
+      , testCase "invalid decoded access permission is a precise MarshalError" $
+          case decodeDeployment
+            "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/x/y\",\"build\":{\"kind\":\"PrebuiltImage\",\"tag\":\"v1\"},\"domains\":[],\"port\":8080,\"env\":[],\"brokers\":[],\"access\":{\"permission\":\"Access\"}}" of
+            Left (MarshalError "access.permission" _) -> pure ()
+            other -> assertFailure ("expected MarshalError access.permission, got: " <> show other)
+      ]
+  ]
 
 -- ---------------------------------------------------------------------------
 -- EP-44: managed databases (model, JSON round-trip, renderer goldens).

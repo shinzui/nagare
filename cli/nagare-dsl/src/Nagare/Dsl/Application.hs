@@ -35,6 +35,7 @@ where
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Set qualified as Set
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Database (Database (..), databaseNameText)
 import Nagare.Dsl.Prelude
@@ -76,6 +77,9 @@ data Application = Application
   -- database whose 'dbName' appears here (the 'declared databases' invariant).
   , brokers :: ![BrokerBinding]
   -- ^ shared broker/topic bindings declared once on the app.
+  , access :: !(Maybe AccessPolicy)
+  -- ^ optional identity-aware access for the app's web service. Workers are not
+  -- internet-facing and therefore do not carry this setting.
   , service :: !(Maybe Deployment)
   -- ^ the optional request-driven web Service. 'Nothing' for an app with no
   -- HTTP front (e.g. workers + a migration task only).
