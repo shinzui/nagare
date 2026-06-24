@@ -26,6 +26,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Nagare.Access.App
+    Nagare.Access.Auth
     Nagare.Access.BackendMap
     Nagare.Access.Challenge
     Nagare.Access.Config

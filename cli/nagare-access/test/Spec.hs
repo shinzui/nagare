@@ -2,8 +2,10 @@ module Main (main) where
 
 import Data.ByteString (ByteString)
 import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.Text (Text)
 import GHC.Stack (HasCallStack)
-import Nagare.Access.App (app, appWithBackends)
+import Nagare.Access.App (app, appWithBackends, appWithRuntime, textResponse)
+import Nagare.Access.Auth
 import Nagare.Access.BackendMap
 import Nagare.Access.Challenge
   ( ChallengeMode (..)
@@ -16,7 +18,7 @@ import Nagare.Access.Config
 import Nagare.Access.Cookie
 import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
-import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status404, status502)
+import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status401, status403, status404, status502)
 import Network.Wai (Request, requestHeaders)
 import Network.Wai.Test (SResponse (..), defaultRequest, request, runSession, setPath)
 import Test.Tasty
@@ -88,6 +90,9 @@ backendMapTests =
     , testCase "lookup strips Host header port" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local")
+    , testCase "lookup can return the canonical host used for auth decisions" $ do
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        lookupBackendWithHost "Tools.Example.com:443" backends @?= Just ("tools.example.com", BackendTarget "http://tools.personal.svc.cluster.local")
     , testCase "rejects non-object JSON" $
         assertBool "expected Left" (isLeft (decodeBackendMap "[]"))
     , testCase "rejects non-string upstreams" $
@@ -205,6 +210,55 @@ appTests =
         res <- runSession (request (withHeader hHost "tools.example.com" (withHeader hAccept "application/json" (setPath defaultRequest "/api")))) (appWithBackends backends)
         simpleStatus res @?= status401
         simpleBody res @?= "{\"error\":\"unauthenticated\",\"login\":\"/_nagare/login?rd=%2Fapi\"}"
+    , testCase "protected request with invalid token returns a challenge" $ do
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        res <-
+          runSession
+            (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer invalid" (withHeader hAccept "application/json" (setPath defaultRequest "/api")))))
+            (appWithRuntime backends (testServices {verifyCredential = \_ -> pure (Left InvalidCredential)}))
+        simpleStatus res @?= status401
+    , testCase "denied protected request returns 403" $ do
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        res <-
+          runSession
+            (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
+            (appWithRuntime backends (testServices {authorizeUser = \_ _ -> pure AccessDenied}))
+        simpleStatus res @?= status403
+        simpleBody res @?= "Forbidden"
+    , testCase "allowed protected request is forwarded" $ do
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        res <-
+          runSession
+            (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
+            (appWithRuntime backends testServices)
+        simpleStatus res @?= status200
+        simpleBody res @?= "proxied\n"
+    , testCase "authorization decisions are cached per subject and host" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (pure 100)
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        let services =
+              testServices
+                { decisionCache = cache
+                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure AccessAllowed
+                }
+            req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
+        runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
+        runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
+        readIORef loads >>= (@?= 1)
+    , testCase "authorization receives the canonical host without the request port" $ do
+        seen <- newIORef ([] :: [Text])
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        let services =
+              testServices
+                { authorizeUser = \_ host -> modifyIORef' seen (<> [host]) >> pure AccessAllowed
+                }
+        res <-
+          runSession
+            (request (withHeader hHost "Tools.Example.com:443" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
+            (appWithRuntime backends services)
+        simpleStatus res @?= status200
+        readIORef seen >>= (@?= ["tools.example.com"])
     , testCase "unknown protected host returns a clear backend error" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "other.example.com" (setPath defaultRequest "/"))) (appWithBackends backends)
@@ -222,3 +276,12 @@ assertRight (Right value) = pure value
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
   req {requestHeaders = (name, value) : requestHeaders req}
+
+testServices :: AccessServices
+testServices =
+  AccessServices
+    { verifyCredential = \_ -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
+    , authorizeUser = \_ _ -> pure AccessAllowed
+    , forwardAuthorized = \_ _ _ -> pure (textResponse status200 "proxied")
+    , decisionCache = disabledDecisionCache
+    }

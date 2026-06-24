@@ -6,6 +6,7 @@ module Nagare.Access.BackendMap
   , decodeBackendMap
   , emptyBackendMap
   , lookupBackend
+  , lookupBackendWithHost
   )
 where
 
@@ -51,6 +52,12 @@ lookupBackend rawHost (BackendMap entries) =
   case canonicalHost rawHost of
     Left _ -> Nothing
     Right host -> Map.lookup host entries
+
+lookupBackendWithHost :: Text -> BackendMap -> Maybe (Text, BackendTarget)
+lookupBackendWithHost rawHost (BackendMap entries) =
+  case canonicalHost rawHost of
+    Left _ -> Nothing
+    Right host -> (host,) <$> Map.lookup host entries
 
 rejectNonStringValues :: KeyMap.KeyMap Value -> BackendMap -> Either Text BackendMap
 rejectNonStringValues obj parsed =
