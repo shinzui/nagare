@@ -98,3 +98,4 @@ test-suite nagare-access-test
     text,
     wai,
     wai-extra,
+    warp,

@@ -6,9 +6,11 @@ import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (Value, eitherDecode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import En.Client
   ( CaveatContextWire (..)
@@ -41,6 +43,8 @@ import Nagare.Access.Shomei
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
 import Shomei.Config (ShomeiConfig (..))
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
@@ -363,6 +367,9 @@ proxyTests =
         HC.method proxyReq @?= "POST"
         HC.path proxyReq @?= "/base/assets/app.js"
         HC.queryString proxyReq @?= "?v=1"
+        case HC.requestBody proxyReq of
+          HC.RequestBodyStreamChunked _ -> pure ()
+          _ -> assertFailure "expected proxy request body to stream"
     , testCase "strips spoofable and hop-by-hop request headers before injecting trusted identity" $ do
         let waiReq =
               withHeader "X-Forwarded-User" "user:mallory" $
@@ -378,6 +385,19 @@ proxyTests =
         lookup "X-Forwarded-Proto" (HC.requestHeaders proxyReq) @?= Just "https"
         lookup "Connection" (HC.requestHeaders proxyReq) @?= Nothing
         lookup hHost (HC.requestHeaders proxyReq) @?= Nothing
+        lookup "Accept-Encoding" (HC.requestHeaders proxyReq) @?= Just ""
+    , testCase "streams upstream response bodies through WAI" $
+        testWithApplication (pure streamingUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          let user = AuthenticatedUser {userSubject = "user:alice"}
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port))
+              proxyApp req respond =
+                proxyForwarder manager user "tools.example.com" target req >>= respond
+          res <- runSession (request (setPath defaultRequest "/events")) proxyApp
+          simpleStatus res @?= status200
+          simpleBody res @?= "event: one\n\nevent: two\n\n"
+          lookup "Content-Type" (simpleHeaders res) @?= Just "text/event-stream"
+          lookup "Connection" (simpleHeaders res) @?= Nothing
     ]
 
 appTests :: TestTree
@@ -643,6 +663,21 @@ authConfigFromEnv env = do
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
   req {requestHeaders = (name, value) : requestHeaders req}
+
+streamingUpstreamApp :: Wai.Application
+streamingUpstreamApp _req respond =
+  respond $
+    Wai.responseStream
+      status200
+      [ ("Content-Type", "text/event-stream")
+      , ("Connection", "keep-alive")
+      ]
+      ( \write flush -> do
+          write (Builder.byteString "event: one\n\n")
+          flush
+          write (Builder.byteString "event: two\n\n")
+          flush
+      )
 
 testServices :: AccessServices
 testServices =
