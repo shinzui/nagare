@@ -72,6 +72,19 @@
               touch "$out"
             '';
 
+          # Build + test nagare-access (the shared forward-auth enforcer).
+          nagare-access-build-test = pkgs.runCommand "nagare-access-build-test"
+            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            ''
+              cp -r "$src" build && chmod -R +w build
+              cd build/cli/nagare-access
+              ${cabalEnv}
+              cabal update
+              cabal build all
+              cabal test nagare-access-test --test-show-details=streaming
+              touch "$out"
+            '';
+
           # Compile-and-run every shipped cluster/examples/*/nagare/Config.hs through
           # the loader's runghc contract (runghc -XGHC2024 -i<dir>), resolving
           # nagare-dsl via `cabal exec` from the nagarectl package. This is the guard

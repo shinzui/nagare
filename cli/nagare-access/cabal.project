@@ -1,0 +1,10 @@
+-- cli/nagare-access/cabal.project
+--
+-- Standalone workspace for the nagare-access forward-auth enforcer. It is kept
+-- separate from nagarectl so shomei/en/proxy dependencies do not enter the CLI
+-- closure.
+write-ghc-environment-files: always
+
+packages:
+  .
+  ../nagare-dsl

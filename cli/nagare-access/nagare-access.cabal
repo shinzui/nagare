@@ -1,0 +1,63 @@
+cabal-version: 3.0
+name: nagare-access
+version: 0.1.0.0
+synopsis: Shared identity-aware access enforcer for Nagare sites.
+description:
+  nagare-access is the shared forward-auth enforcer used by protected Nagare
+  sites. It verifies shomei sessions, checks en authorization, and proxies
+  authorized requests to cluster-local backends.
+
+build-type: Simple
+
+common common
+  default-language: GHC2024
+  default-extensions:
+    DuplicateRecordFields
+    OverloadedStrings
+    PackageImports
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -threaded
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Access.App
+    Nagare.Access.Challenge
+    Nagare.Access.Config
+
+  build-depends:
+    base >=4.17 && <5,
+    bytestring,
+    http-types,
+    text,
+    wai,
+
+executable nagare-access
+  import: common
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    nagare-access,
+    text,
+    warp,
+
+test-suite nagare-access-test
+  import: common
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    bytestring,
+    http-types,
+    nagare-access,
+    tasty >=1.4,
+    tasty-hunit >=0.10,
+    text,
+    wai,
+    wai-extra,
