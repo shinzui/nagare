@@ -164,9 +164,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   submitted CSRF token before calling shomei, calls the real `shomei-client` login API through
   `Nagare.Access.ShomeiClient`, and sets the shared-domain `nagare_session` access-token cookie
   on success before redirecting back to the requested path.
-- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Refresh-token/session renewal
-  semantics, WebSocket/SSE and large-body streaming, refresh-token cookie/key wrapping, MFA
-  browser ceremony completion, and integration tests against shomei+en.
+- [x] **M1n — refresh-token cookie wrapping and session renewal.** Completed 2026-06-24. Added
+  the authenticated `nagare_refresh` cookie, wrapped as `v1.<base64url refresh>.<base64url
+  hmac>` with HMAC-SHA256 keyed by `NAGARE_ACCESS_COOKIE_KEY`; login now sets the refresh cookie
+  when the key is configured, missing/expired access tokens transparently call shomei
+  `refresh`, rotated access+refresh cookies are attached to the forwarded response, and failed
+  refresh clears both auth cookies before returning the existing content-negotiated challenge.
+- [ ] **M1 remaining — real `nagare-access` enforcer behavior.** WebSocket/SSE and large-body
+  streaming, MFA browser ceremony completion, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -476,6 +481,26 @@ All 72 tests passed (0.01s)
 All 354 tests passed (6.32s)
 ```
 
+**M1n implementation evidence (2026-06-24).** `Nagare.Access.Cookie` now wraps refresh tokens
+in an authenticated cookie value using HMAC-SHA256 and base64url-unpadded segments from
+`crypton`/`ram`, keyed by `NAGARE_ACCESS_COOKIE_KEY`. `CookieSettings` carries the optional key,
+`app/Main.hs` populates it when configured, and `Nagare.Access.ShomeiClient` maps shomei
+`refresh` into the existing `LoginOutcome` shape. `Nagare.Access.App` now attempts refresh when
+the access credential is missing or invalid/expired and a valid `nagare_refresh` cookie is
+present; on success it verifies the new access token, authorizes as usual, forwards the request,
+and attaches rotated access+refresh `Set-Cookie` headers to the upstream response. On failed
+refresh it clears both auth cookies and returns the same 302-or-401 challenge path as any other
+unauthenticated request. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 76 tests passed (0.01s)
+All 354 tests passed (5.99s)
+```
+
 
 ## Decision Log
 
@@ -738,11 +763,26 @@ Record every decision made while working on the plan.
   for the existing verifier path. The shomei response also returns a refresh token, but this
   slice deliberately does not store it yet because the plan still needs a cookie-key wrapping
   design and refresh-token rotation semantics. MFA is surfaced as `401 mfa required` for now;
-  browser WebAuthn ceremony completion remains a separate remaining M1 item.
+  browser WebAuthn ceremony completion remains a separate remaining M1 item. Superseded for
+  current behavior by the later `nagare_refresh` cookie decision; retained here as the M1m scope
+  decision.
   Rationale: This lands a working shomei-backed password login without inventing a weak
   long-lived refresh-token cookie format. Keeping refresh renewal explicit preserves the
   fail-closed behavior: sessions expire after the access-token lifetime until the refresh slice
   is implemented.
+  Date: 2026-06-24
+
+- Decision: **Store refresh tokens in a separate authenticated `nagare_refresh` cookie.** The
+  cookie value format is `v1.<base64url refresh token>.<base64url HMAC-SHA256>`, where the HMAC
+  signs the version and encoded refresh token using `NAGARE_ACCESS_COOKIE_KEY`. The cookie uses
+  the same parent-domain, `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` attributes as the
+  access cookie, but a longer 30-day max age matching shomei's default refresh-token lifetime.
+  The value is authenticated, not encrypted; the refresh token is already an opaque random
+  bearer secret, and the cookie is not readable by JavaScript because it is `HttpOnly`.
+  Rationale: This satisfies the plan's tamper-prevention requirement without introducing a
+  custom encryption scheme or server-side session database. Shomei still owns refresh-token
+  rotation and theft detection; the enforcer only stores the latest opaque token and clears both
+  auth cookies when refresh fails.
   Date: 2026-06-24
 
 

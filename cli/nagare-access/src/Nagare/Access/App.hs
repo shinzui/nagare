@@ -17,13 +17,22 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth
 import Nagare.Access.BackendMap
-import Nagare.Access.Challenge (classifyChallenge, safeReturnDestination)
-import Nagare.Access.Cookie (clearSessionCookieHeader, csrfCookieHeader, sessionCookieHeader)
-import Nagare.Access.Credential (extractCredential)
+import Nagare.Access.Challenge (ChallengeMode, classifyChallenge, safeReturnDestination)
+import Nagare.Access.Cookie
+  ( CookieSettings (cookieKey)
+  , clearRefreshCookieHeader
+  , clearSessionCookieHeader
+  , csrfCookieHeader
+  , decodeRefreshCookieValue
+  , refreshCookieHeader
+  , sessionCookieHeader
+  )
+import Nagare.Access.Credential (Credential (SessionCookie), extractCredential)
 import Nagare.Access.DecisionCache
 import Nagare.Access.Response (challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFromWai)
 import Network.HTTP.Types
-  ( HeaderName
+  ( Header
+  , HeaderName
   , Status
   , hHost
   , hLocation
@@ -40,6 +49,7 @@ import Network.Wai
   ( Application
   , Request
   , Response
+  , mapResponseHeaders
   , pathInfo
   , rawQueryString
   , requestHeaders
@@ -47,6 +57,9 @@ import Network.Wai
   , responseLBS
   , strictRequestBody
   )
+
+defaultRefreshCookieMaxAgeSeconds :: Int
+defaultRefreshCookieMaxAgeSeconds = 30 * 24 * 60 * 60
 
 app :: Application
 app = appWithBackends emptyBackendMap
@@ -76,31 +89,60 @@ appWithRuntime backends services req respond =
           respond =<< handleProtected services host req target
 
 handleProtected :: AccessServices -> Text -> Request -> BackendTarget -> IO Response
-handleProtected services host req target =
-  case extractCredential (requestHeaders req) of
-    Nothing ->
-      pure (challengeResponse challenge)
-    Just credential -> do
-      verified <- verifyCredential services credential
-      case verified of
-        Left _ ->
-          pure (challengeResponse challenge)
-        Right user -> do
-          decision <-
-            cacheLookupOrLoad
-              (decisionCache services)
-              DecisionKey {subject = userSubject user, host = host}
-              (authorizeUser services user host)
-          case decision of
-            AccessAllowed ->
-              forwardAuthorized services user host target req
-            AccessDenied ->
-              pure (forbiddenResponse requestShape)
-            AccessConditional ->
-              pure (forbiddenResponse requestShape)
+handleProtected services host req target = do
+  authenticated <- authenticateRequest services req challenge
+  case authenticated of
+    Left response ->
+      pure response
+    Right (user, responseHeaders) -> do
+      decision <-
+        cacheLookupOrLoad
+          (decisionCache services)
+          DecisionKey {subject = userSubject user, host = host}
+          (authorizeUser services user host)
+      case decision of
+        AccessAllowed ->
+          addResponseHeaders responseHeaders <$> forwardAuthorized services user host target req
+        AccessDenied ->
+          pure (addResponseHeaders responseHeaders (forbiddenResponse requestShape))
+        AccessConditional ->
+          pure (addResponseHeaders responseHeaders (forbiddenResponse requestShape))
   where
     requestShape = requestShapeFromWai req
     challenge = classifyChallenge requestShape
+
+authenticateRequest :: AccessServices -> Request -> ChallengeMode -> IO (Either Response (AuthenticatedUser, [Header]))
+authenticateRequest services req challenge =
+  case extractCredential (requestHeaders req) of
+    Nothing ->
+      refreshOrChallenge services req challenge
+    Just credential -> do
+      verified <- verifyCredential services credential
+      case verified of
+        Right user ->
+          pure (Right (user, []))
+        Left _ ->
+          refreshOrChallenge services req challenge
+
+refreshOrChallenge :: AccessServices -> Request -> ChallengeMode -> IO (Either Response (AuthenticatedUser, [Header]))
+refreshOrChallenge services req challenge =
+  case refreshTokenFromRequest services req of
+    Nothing ->
+      pure (Left (challengeResponse challenge))
+    Just refreshToken -> do
+      outcome <- refreshUserSession services refreshToken
+      case outcome of
+        LoginSucceeded tokens -> do
+          verified <- verifyCredential services (SessionCookie (accessToken tokens))
+          case verified of
+            Right user ->
+              pure (Right (user, either (const []) id (sessionHeaders services tokens)))
+            Left _ ->
+              pure (Left (clearAuthCookies services (challengeResponse challenge)))
+        LoginMfaRequired ->
+          pure (Left (clearAuthCookies services (challengeResponse challenge)))
+        LoginFailed _ ->
+          pure (Left (clearAuthCookies services (challengeResponse challenge)))
 
 lookupHost :: Request -> Maybe Text
 lookupHost req =
@@ -113,6 +155,7 @@ defaultAccessServices =
     , authorizeUser = \_ _ -> pure AccessDenied
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status404 "not found")
     , loginUser = \_ -> pure (LoginFailed "login is not configured")
+    , refreshUserSession = \_ -> pure (LoginFailed "refresh is not configured")
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
@@ -148,9 +191,7 @@ logoutResponse services =
   where
     headers =
       [(hLocation, "/_nagare/login")]
-        <> case cookieSettings services >>= either (const Nothing) Just . clearSessionCookieHeader of
-          Nothing -> []
-          Just header -> [header]
+        <> clearAuthCookieHeaders services
 
 jsonResponse :: Status -> Value -> Response
 jsonResponse status body =
@@ -207,15 +248,49 @@ submitLogin services form =
 
 loginSuccessResponse :: AccessServices -> SessionTokens -> Text -> Response
 loginSuccessResponse services tokens returnDestination =
+  case sessionHeaders services tokens of
+    Left err ->
+      textResponse status500 err
+    Right headers ->
+      responseLBS status302 ((hLocation, TE.encodeUtf8 returnDestination) : headers) ""
+
+sessionHeaders :: AccessServices -> SessionTokens -> Either Text [Header]
+sessionHeaders services tokens = do
+  settings <- maybe (Left "login is not configured") Right (cookieSettings services)
+  sessionHeader <- sessionCookieHeader settings (accessToken tokens) (expiresIn tokens)
+  refreshHeaders <-
+    case refreshToken tokens of
+      Nothing ->
+        Right []
+      Just refresh ->
+        case cookieKey settings of
+          Nothing -> Right []
+          Just _ -> do
+            refreshHeader <- refreshCookieHeader settings refresh defaultRefreshCookieMaxAgeSeconds
+            Right [refreshHeader]
+  Right (sessionHeader : refreshHeaders)
+
+refreshTokenFromRequest :: AccessServices -> Request -> Maybe Text
+refreshTokenFromRequest services req = do
+  settings <- cookieSettings services
+  key <- cookieKey settings
+  value <- cookieTextValue "nagare_refresh" (requestHeaders req)
+  decodeRefreshCookieValue key value
+
+clearAuthCookies :: AccessServices -> Response -> Response
+clearAuthCookies services =
+  addResponseHeaders (clearAuthCookieHeaders services)
+
+clearAuthCookieHeaders :: AccessServices -> [Header]
+clearAuthCookieHeaders services =
   case cookieSettings services of
-    Nothing ->
-      textResponse status500 "login is not configured"
+    Nothing -> []
     Just settings ->
-      case sessionCookieHeader settings (accessToken tokens) (expiresIn tokens) of
-        Left err ->
-          textResponse status500 err
-        Right sessionHeader ->
-          responseLBS status302 [(hLocation, TE.encodeUtf8 returnDestination), sessionHeader] ""
+      [header | Right header <- [clearSessionCookieHeader settings, clearRefreshCookieHeader settings]]
+
+addResponseHeaders :: [Header] -> Response -> Response
+addResponseHeaders headers =
+  mapResponseHeaders (headers <>)
 
 loginCredentialsFromForm :: [(BS.ByteString, Maybe BS.ByteString)] -> Maybe LoginCredentials
 loginCredentialsFromForm form = do

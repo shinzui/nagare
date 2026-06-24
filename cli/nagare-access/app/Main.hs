@@ -9,13 +9,13 @@ import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..))
 import Nagare.Access.BackendMap (BackendMap, decodeBackendMap, emptyBackendMap)
 import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
-import Nagare.Access.Cookie (defaultCookieSettings)
+import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookieSettings)
 import Nagare.Access.DecisionCache (newDecisionCache)
 import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
 import Nagare.Access.Proxy (newProxyManager, proxyForwarder)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
-import Nagare.Access.ShomeiClient (loginWithShomei, shomeiLoginEnvFromAuthPlane)
+import Nagare.Access.ShomeiClient (loginWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import System.Environment (getEnvironment)
@@ -59,10 +59,17 @@ buildAccessServices runtime cfg = do
       , authorizeUser = authorizeWithEn enEnv
       , forwardAuthorized = proxyForwarder manager
       , loginUser = loginWithShomei shomeiLoginEnv
+      , refreshUserSession = refreshWithShomei shomeiLoginEnv
       , newCsrfToken = toText <$> nextRandom
       , decisionCache
-      , cookieSettings = Just (defaultCookieSettings (cookieDomain cfg))
+      , cookieSettings = Just (cookieSettingsFromAuthPlane cfg)
       }
+
+cookieSettingsFromAuthPlane :: AuthPlaneConfig -> CookieSettings
+cookieSettingsFromAuthPlane cfg =
+  case cookieKey cfg of
+    Nothing -> defaultCookieSettings (cookieDomain cfg)
+    Just key -> signedCookieSettings (cookieDomain cfg) key
 
 loadBackends :: Maybe FilePath -> IO BackendMap
 loadBackends Nothing = pure emptyBackendMap
