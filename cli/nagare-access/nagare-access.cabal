@@ -65,6 +65,8 @@ executable nagare-access
     bytestring,
     nagare-access,
     text,
+    time,
+    wai,
     warp,
 
 test-suite nagare-access-test

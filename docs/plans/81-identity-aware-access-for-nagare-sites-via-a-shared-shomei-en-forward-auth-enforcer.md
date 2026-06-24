@@ -147,10 +147,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   AccessDecision` shape. The adapter builds checks for subject object type `user`, object type
   `app`, object id = canonical public host, permission `access`, and consistency
   `MinimizeLatencyWire`; en client failures fail closed as `AccessDenied`.
+- [x] **M1k — executable runtime auth-service wiring.** Completed 2026-06-24. `app/Main.hs`
+  now constructs real `AccessServices` when the auth-plane environment is present: a TLS
+  `http-client` manager, a 5-minute JWKS cache backed by `fetchJwksFromShomei`, the cached
+  shomei verifier, a Servant `ClientEnv` for en, the configured en decision cache, and the
+  concrete proxy forwarder. With no auth-plane environment, the executable keeps the existing
+  `appWithBackends` path.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  live JWKS data wired into the executable, login flow via `shomei-client`, refresh-token/session
-  renewal semantics, wiring the executable to real shomei/en/proxy services,
-  WebSocket/SSE and large-body streaming,
+  login flow via `shomei-client`, refresh-token/session renewal semantics, WebSocket/SSE and
+  large-body streaming,
   userinfo/logout/login endpoints, and integration tests against shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
@@ -402,6 +407,25 @@ All 64 tests passed (0.01s)
 All 354 tests passed (6.54s)
 ```
 
+**M1k implementation evidence (2026-06-24).** The executable now uses the real auth services
+when `parseRuntimeConfig` yields `Just AuthPlaneConfig`. `app/Main.hs` builds one shared
+TLS-capable `http-client` manager, a `JwksCache` that refreshes shomei keys every 300 seconds,
+an en Servant `ClientEnv` from `NAGARE_ACCESS_EN_URL`, a `DecisionCache` using
+`NAGARE_ACCESS_DECISION_TTL`, and an `AccessServices` record that wires
+`verifyShomeiCredentialCached`, `authorizeWithEn`, and `proxyForwarder` into `appWithRuntime`.
+This makes the executable exercise the M1h/M1i/M1j adapters rather than only the injected test
+seams. `appWithBackends` remains the no-auth-plane path so a process started without auth env
+keeps the earlier behavior. Validation:
+
+```text
+cli/nagare-access$ nix develop --command cabal build all
+Linking .../nagare-access
+
+cli/nagare-access$ nix develop --command cabal test all
+All 64 tests passed (0.01s)
+All 354 tests passed (6.94s)
+```
+
 
 ## Decision Log
 
@@ -633,6 +657,18 @@ Record every decision made while working on the plan.
   source-repository-package pins avoid committing machine-local sibling paths. Adding the narrow
   native PostgreSQL tool keeps this exact dependency path buildable until en splits wire/client
   types from server/Postgres modules.
+  Date: 2026-06-24
+
+- Decision: **Use a fixed 300-second JWKS cache TTL for the first executable wiring.** The
+  runtime config already exposes `NAGARE_ACCESS_DECISION_TTL` for en authorization decisions,
+  but that knob has different semantics from public-key refresh. `app/Main.hs` therefore uses a
+  separate constant, `defaultJwksTtlSeconds = 300`, when constructing `JwksCache`; decision
+  caching still uses the configured TTL. A later hardening pass can add
+  `NAGARE_ACCESS_JWKS_TTL` or refresh-on-`kid`-miss behavior without changing the request-path
+  service interfaces.
+  Rationale: This wires real token verification now without conflating authorization staleness
+  with key-rotation polling. Five minutes is short enough for shomei key rotation in this first
+  pass and avoids fetching keys per request.
   Date: 2026-06-24
 
 
@@ -1594,3 +1630,8 @@ Contracts at milestone boundaries:
   `pkgs.postgresql` flake-tooling addition required by the current `en-client` dependency
   closure. No change to the authorization model: en object type remains `app`, object id remains
   the public hostname, and permission remains `access`.
+
+- 2026-06-24 — Recorded M1k, executable runtime auth-service wiring. Added progress,
+  validation evidence, and a Decision Log entry for the first fixed JWKS cache TTL. Remaining M1
+  work is now focused on browser/session endpoints, refresh semantics, streaming proxy behavior,
+  and real shomei+en integration tests.
