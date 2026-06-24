@@ -90,10 +90,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   to login, JSON/API requests get 401 JSON, and unknown hosts get a clear backend error. The
   executable now reads `NAGARE_ACCESS_BACKENDS` as an optional JSON file path and fails fast
   on malformed map data.
+- [x] **M1c — raw credential extraction.** Completed 2026-06-24. Added
+  `Nagare.Access.Credential`, which extracts the raw access token from the `nagare_session`
+  cookie first and falls back to `Authorization: Bearer ...`, rejecting empty or malformed
+  values without adding a new cookie parsing dependency.
 - [ ] **M1 remaining — real `nagare-access` enforcer behavior.** Token verify via
-  `shomei-jwt`, login flow via `shomei-client`, session-cookie parsing/refresh semantics, en
+  `shomei-jwt`, login flow via `shomei-client`, refresh-token/session renewal semantics, en
   authZ via `en-client`, JWKS caching, decision caching, reverse-proxy forwarding,
-  WebSocket/SSE handling, and integration tests against shomei+en.
+  WebSocket/SSE handling, userinfo/logout/login endpoints, and integration tests against
+  shomei+en.
 - [x] **M2 — DSL `access` binding.** Completed 2026-06-24. New `AccessPolicy` type + `requireLogin` /
   `mkAudience` smart constructors; `access :: Maybe AccessPolicy` field on `Deployment` and
   on the `Application` web service. Render/round-trip tests green.
@@ -222,6 +227,18 @@ All 354 tests passed (6.23s)
 
 The repo now ignores Cabal `dist-newstyle/` and `.ghc.environment.*` outputs so repeated local
 validation does not leave untracked build artifacts in each Cabal workspace.
+
+**M1c implementation evidence (2026-06-24).** `Nagare.Access.Credential` now provides the
+request credential extraction rule from the handler contract: prefer the `nagare_session`
+cookie, otherwise accept a case-insensitive `Authorization: Bearer ...` header. The parser is
+intentionally small and dependency-free because the enforcer only needs one known cookie name
+and one bearer scheme before handing the raw token to shomei verification. Validation:
+
+```text
+cli/nagare-access$ cabal test all
+All 33 tests passed (0.01s)
+All 354 tests passed (5.66s)
+```
 
 
 ## Decision Log

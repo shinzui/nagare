@@ -30,6 +30,7 @@ library
     Nagare.Access.Challenge
     Nagare.Access.Config
     Nagare.Access.Cookie
+    Nagare.Access.Credential
     Nagare.Access.Response
 
   build-depends:
