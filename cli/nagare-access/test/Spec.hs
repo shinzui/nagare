@@ -9,6 +9,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
+import Data.Text.Encoding qualified as TE
 import En.Client
   ( CaveatContextWire (..)
   , CheckDecisionWire (..)
@@ -189,6 +190,14 @@ cookieTests =
         hdr @?= ("Set-Cookie", "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax")
     , testCase "cookie values reject header separators" $
         assertBool "expected Left" (isLeft (sessionCookieHeader (defaultCookieSettings ".apps.example.com") "bad;token" 900))
+    , testCase "refresh cookie wraps the token with an authenticated value" $ do
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
+        decodeRefreshCookieValue "cookie-secret" (TE.decodeUtf8 value) @?= Just "refresh.token"
+    , testCase "refresh cookie rejects a tampered value" $ do
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
+        decodeRefreshCookieValue "cookie-secret" (TE.decodeUtf8 (value <> "x")) @?= Nothing
     ]
 
 credentialTests :: TestTree
@@ -423,7 +432,7 @@ appTests =
         seen <- newIORef []
         let services =
               testServices
-                { cookieSettings = Just (defaultCookieSettings ".apps.example.com")
+                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
                 , loginUser = \credentials -> do
                     modifyIORef' seen (<> [credentials])
                     pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
@@ -440,6 +449,7 @@ appTests =
         lookup hLocation (simpleHeaders res) @?= Just "/tools"
         lookup "Set-Cookie" (simpleHeaders res)
           @?= Just "nagare_session=access.jwt; Domain=.apps.example.com; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
+        length (filter ((== "Set-Cookie") . fst) (simpleHeaders res)) @?= 2
         readIORef seen
           >>= ( @?=
                   [ LoginCredentials
@@ -473,6 +483,50 @@ appTests =
                 "loginId=&password=&csrf=csrf-token&rd=%2Ftools"
         res <- runSession (srequest req) (appWithRuntime emptyBackendMap testServices)
         simpleStatus res @?= status400
+    , testCase "missing access cookie refreshes the session and forwards the request" $ do
+        refreshCookie <- refreshCookieValue "cookie-secret" "refresh.old"
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        let services =
+              testServices
+                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                , verifyCredential = \credential ->
+                    case credential of
+                      SessionCookie "access.new" -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
+                      _ -> pure (Left InvalidCredential)
+                , refreshUserSession = \token -> do
+                    token @?= "refresh.old"
+                    pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900})
+                }
+        res <-
+          runSession
+            (request (withHeader "Cookie" ("nagare_refresh=" <> refreshCookie) (withHeader hHost "tools.example.com" (setPath defaultRequest "/"))))
+            (appWithRuntime backends services)
+        simpleStatus res @?= status200
+        simpleBody res @?= "proxied\n"
+        lookup "Set-Cookie" (simpleHeaders res)
+          @?= Just "nagare_session=access.new; Domain=.apps.example.com; Path=/; Max-Age=900; HttpOnly; Secure; SameSite=Lax"
+        length (filter ((== "Set-Cookie") . fst) (simpleHeaders res)) @?= 2
+    , testCase "failed refresh clears auth cookies and returns the existing challenge" $ do
+        refreshCookie <- refreshCookieValue "cookie-secret" "refresh.old"
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        let services =
+              testServices
+                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                , verifyCredential = \_ -> pure (Left ExpiredCredential)
+                , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
+                }
+        res <-
+          runSession
+            ( request
+                ( withHeader "Cookie" ("nagare_refresh=" <> refreshCookie) $
+                    withHeader hHost "tools.example.com" $
+                      withHeader hAccept "application/json" $
+                        setPath defaultRequest "/api"
+                )
+            )
+            (appWithRuntime backends services)
+        simpleStatus res @?= status401
+        length (filter ((== "Set-Cookie") . fst) (simpleHeaders res)) @?= 2
     , testCase "protected host without a token returns a document redirect" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "tools.example.com" (withHeader hAccept "text/html" (setPath defaultRequest "/")))) (appWithBackends backends)
@@ -554,6 +608,15 @@ bodyContains :: ByteString -> SResponse -> Bool
 bodyContains needle res =
   needle `BS.isInfixOf` LBS.toStrict (simpleBody res)
 
+cookieValueFromSetCookie :: ByteString -> (HeaderName, ByteString) -> Maybe ByteString
+cookieValueFromSetCookie name (_, value) =
+  BS.stripPrefix (name <> "=") value >>= Just . fst . BS.break (== 59)
+
+refreshCookieValue :: Text -> Text -> IO ByteString
+refreshCookieValue key token = do
+  hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" key) token 2592000)
+  maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
+
 completeAuthEnv :: [(String, String)]
 completeAuthEnv =
   [ ("NAGARE_ACCESS_SHOMEI_URL", "http://shomei.nagare-system.svc.cluster.local")
@@ -588,6 +651,7 @@ testServices =
     , authorizeUser = \_ _ -> pure AccessAllowed
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , loginUser = \_ -> pure (LoginFailed "invalid login")
+    , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing

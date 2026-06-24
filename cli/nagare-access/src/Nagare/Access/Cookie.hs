@@ -2,12 +2,21 @@
 module Nagare.Access.Cookie
   ( CookieSettings (..)
   , clearSessionCookieHeader
+  , clearRefreshCookieHeader
   , csrfCookieHeader
+  , decodeRefreshCookieValue
   , defaultCookieSettings
+  , refreshCookieHeader
   , sessionCookieHeader
+  , signedCookieSettings
   )
 where
 
+import Crypto.Hash (Digest, SHA256, digestFromByteString)
+import Crypto.MAC.HMAC (HMAC (..), hmac)
+import Data.ByteArray (convert)
+import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertFromBase, convertToBase)
+import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
@@ -19,6 +28,7 @@ import Network.HTTP.Types.Header (Header)
 data CookieSettings = CookieSettings
   { cookieDomain :: !Text
   , cookieSecure :: !Bool
+  , cookieKey :: !(Maybe Text)
   }
   deriving stock (Eq, Show)
 
@@ -27,6 +37,15 @@ defaultCookieSettings domain =
   CookieSettings
     { cookieDomain = domain
     , cookieSecure = True
+    , cookieKey = Nothing
+    }
+
+signedCookieSettings :: Text -> Text -> CookieSettings
+signedCookieSettings domain key =
+  CookieSettings
+    { cookieDomain = domain
+    , cookieSecure = True
+    , cookieKey = Just key
     }
 
 sessionCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
@@ -53,6 +72,37 @@ clearSessionCookieHeader settings = do
   pure
     ( "Set-Cookie"
     , "nagare_session=; Domain="
+        <> domain
+        <> "; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly"
+        <> LBS.toStrict (Builder.toLazyByteString (securePart settings))
+        <> "; SameSite=Lax"
+    )
+
+refreshCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
+refreshCookieHeader settings refreshToken maxAgeSeconds = do
+  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
+  key <- maybe (Left "NAGARE_ACCESS_COOKIE_KEY is required for refresh cookies") Right (cookieKey settings)
+  value <- encodeRefreshCookieValue key refreshToken
+  pure
+    ( "Set-Cookie"
+    , LBS.toStrict . Builder.toLazyByteString $
+        Builder.byteString "nagare_refresh="
+          <> Builder.byteString value
+          <> Builder.byteString "; Domain="
+          <> Builder.byteString domain
+          <> Builder.byteString "; Path=/; Max-Age="
+          <> Builder.intDec maxAgeSeconds
+          <> Builder.byteString "; HttpOnly"
+          <> securePart settings
+          <> Builder.byteString "; SameSite=Lax"
+    )
+
+clearRefreshCookieHeader :: CookieSettings -> Either Text Header
+clearRefreshCookieHeader settings = do
+  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
+  pure
+    ( "Set-Cookie"
+    , "nagare_refresh=; Domain="
         <> domain
         <> "; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly"
         <> LBS.toStrict (Builder.toLazyByteString (securePart settings))
@@ -87,3 +137,35 @@ safeCookiePart label value
 badCookieChar :: Char -> Bool
 badCookieChar c =
   c <= ' ' || c == ';' || c == ',' || c == '\DEL'
+
+encodeRefreshCookieValue :: Text -> Text -> Either Text BC.ByteString
+encodeRefreshCookieValue key refreshToken = do
+  keyBytes <- safeCookiePart "cookie key" key
+  tokenBytes <- safeCookiePart "refresh token" refreshToken
+  let tokenPart = b64 tokenBytes
+      signedPart = "v1." <> tokenPart
+      macPart = b64 (macBytes keyBytes signedPart)
+  pure (signedPart <> "." <> macPart)
+
+decodeRefreshCookieValue :: Text -> Text -> Maybe Text
+decodeRefreshCookieValue key value = do
+  [version, tokenPartText, macPartText] <- pure (Text.splitOn "." value)
+  if version == "v1" then Just () else Nothing
+  let keyBytes = TE.encodeUtf8 key
+      tokenPart = TE.encodeUtf8 tokenPartText
+      macPart = TE.encodeUtf8 macPartText
+      signedPart = "v1." <> tokenPart
+  tokenBytes <- either (const Nothing) Just (convertFromBase Base64URLUnpadded tokenPart :: Either String BS.ByteString)
+  providedMacBytes <- either (const Nothing) Just (convertFromBase Base64URLUnpadded macPart :: Either String BS.ByteString)
+  providedDigest <- digestFromByteString providedMacBytes :: Maybe (Digest SHA256)
+  if (HMAC providedDigest :: HMAC SHA256) == hmac keyBytes signedPart
+    then either (const Nothing) Just (TE.decodeUtf8' tokenBytes)
+    else Nothing
+
+macBytes :: BC.ByteString -> BC.ByteString -> BC.ByteString
+macBytes key message =
+  convert (hmacGetDigest (hmac key message :: HMAC SHA256))
+
+b64 :: BS.ByteString -> BS.ByteString
+b64 =
+  convertToBase Base64URLUnpadded

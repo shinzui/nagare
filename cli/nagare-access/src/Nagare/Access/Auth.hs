@@ -52,6 +52,7 @@ data AccessServices = AccessServices
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AccessDecision)
   , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
   , loginUser :: !(LoginCredentials -> IO LoginOutcome)
+  , refreshUserSession :: !(Text -> IO LoginOutcome)
   , newCsrfToken :: !(IO Text)
   , decisionCache :: !DecisionCache
   , cookieSettings :: !(Maybe CookieSettings)
