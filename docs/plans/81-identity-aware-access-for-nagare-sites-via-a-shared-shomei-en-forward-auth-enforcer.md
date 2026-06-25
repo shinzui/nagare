@@ -853,6 +853,26 @@ $ docker manifest inspect docker.io/mzabani/codd:latest
 }
 ```
 
+Live target-cluster apply was not attempted from the current kube context. The active context
+was `sennari`, a GKE cluster with Ready nodes but none of Nagare's expected namespaces
+(`nagare-system`, `personal`, `knative-serving`, `kourier-system`) and no Knative Serving CRDs
+(`services.serving.knative.dev`, `domainmappings.serving.knative.dev`). Applying the Nagare
+auth-plane bundle there would target the wrong cluster. Evidence:
+
+```text
+$ kubectl config current-context
+sennari
+
+$ kubectl get namespace nagare-system personal knative-serving kourier-system --ignore-not-found
+
+$ kubectl get crd services.serving.knative.dev domainmappings.serving.knative.dev --ignore-not-found
+
+$ kubectl get nodes
+NAME                               STATUS   ROLES    AGE    VERSION
+gke-sennari-pool-1-3dc72b9e-0n9j   Ready    <none>   2d8h   v1.34.7-gke.1499000
+...
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
