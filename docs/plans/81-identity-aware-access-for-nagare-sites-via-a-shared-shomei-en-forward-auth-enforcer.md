@@ -242,11 +242,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `NAGARE_AUTH_BUILDER=k3s-import` for the single-node `nagare-01` cluster: it builds on the
   remote amd64 node with Podman through Nix, saves the image, and imports it directly into k3s
   containerd under a `dev.local/nagare-auth/<service>:<tag>` name. The first real `en` build
-  succeeded and imported `dev.local/nagare-auth/en:k3s-test`. Remaining M4b work is live-cluster
-  work: complete shomei and nagare-access image builds/imports or push real image references,
-  apply the shomei/en/nagare-access workloads to the target `nagare-01` context with non-latest
-  imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds against
-  the installed bundle.
+  succeeded and imported `dev.local/nagare-auth/en:k3s-test`. The first real `shomei` build also
+  succeeded after the generated Cabal workspace stopped using stale local `hs-jose` and
+  `tweag/webauthn` checkouts and instead pinned `hs-jose@d00ad179`,
+  `servant-openapi@558b7b9`, `openapi-hs@dfcd77d`, and the Shomei WebAuthn fork at
+  `c274e23`; it imported `dev.local/nagare-auth/shomei:k3s-test`. Remaining M4b work is
+  live-cluster work: complete the nagare-access image build/import or push a real image
+  reference, apply the shomei/en/nagare-access workloads to the target `nagare-01` context with
+  non-latest imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight
+  succeeds against the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -1192,7 +1196,8 @@ Warning  Failed  ...  Failed to pull image "docker.io/mzabani/codd:latest": ... 
 represented by checked-in build machinery instead of only README instructions. The new
 `cluster/bootstrap/auth-images/build-local-image.sh` helper builds one of `nagare-access`,
 `shomei`, or `en` from a temporary Docker context containing local checkouts of Nagare, shomei,
-en, codd, hs-jose, and webauthn. The helper generates a Cabal workspace that uses local package
+en, and codd, plus pinned public git dependencies for jose, servant-openapi, openapi-hs, and the
+Shomei WebAuthn fork. The helper generates a Cabal workspace that uses local package
 paths for shomei/en rather than Cabal `source-repository-package` private GitHub fetches, uses
 `haskell:9.12.4` to match the shomei/en workspaces, defaults to `linux/amd64`, and exposes
 `NAGARE_AUTH_PUSH=0` for no-push validation. `cluster/bootstrap/shomei/build-image.sh` and
@@ -1335,6 +1340,31 @@ dev.local/nagare-auth/en:k3s-test
 $ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/en:k3s-test'
 REF                               TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
 dev.local/nagare-auth/en:k3s-test application/vnd.docker.distribution.manifest.v2+json sha256:c9c9a715e559a11f51c2cc5685fc3983bd1030b2d9e9a7682783752c2a957e97 173.5 MiB linux/amd64 io.cri-containerd.image=managed
+```
+
+The first `shomei` `k3s-import` attempt exposed stale generated dependency sources. Local
+`hs-jose` resolved to `jose-0.12` and failed under GHC 9.12/crypton 1.1/ram at the
+`Crypto.JOSE.AESKW` and `Crypto.JOSE.JWA.JWK` byte-array constraints. After pinning the
+reachable `sumo/hs-jose` `jose-0.13` commit, the generated project then needed the shomei
+EP-27 OpenAPI pins; `servant-openapi@558b7b9` and `openapi-hs@dfcd77d` fixed that. A later
+attempt failed in the local upstream `tweag/webauthn` checkout at
+`Crypto.WebAuthn.Internal.ToJSONOrphans` with a `memory` `ByteArrayAccess (Digest h)` instance
+gap. The mori corpus and shomei's own `cabal.project` point downstream consumers at the patched
+`shinzui/webauthn` fork, so the generated Cabal project now pins `webauthn@c274e23` instead of
+copying the stale local upstream checkout. With those pins, `shomei` built and imported into k3s:
+
+```text
+$ NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/shomei/build-image.sh k3s-test
+...
+Installing library .../jose-0.13-.../lib
+Installing library .../servant-openapi-4.0.0-.../lib
+Installing library .../webauthn-0.11.0.0-.../lib
+Linking .../shomei-server
+Successfully tagged dev.local/nagare-auth/shomei:k3s-test
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/shomei:k3s-test'
+REF                                      TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
+dev.local/nagare-auth/shomei:k3s-test   application/vnd.docker.distribution.manifest.v2+json  sha256:da00b800d6bc702f4a832d70c7a884cf4acf2dab103c0f03d7bf801e58673a3b  345.7 MiB linux/amd64 io.cri-containerd.image=managed
 ```
 
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
@@ -1838,8 +1868,9 @@ Record every decision made while working on the plan.
 
 - Decision: **Build auth-plane images from local source checkouts when upstream release images
   are unavailable.** `cluster/bootstrap/auth-images/build-local-image.sh` now constructs a
-  temporary Docker context containing Nagare plus local shomei, en, codd, hs-jose, and webauthn
-  checkouts, writes a service-specific `cabal.project` with local package paths, and builds
+  temporary Docker context containing Nagare plus local shomei, en, and codd checkouts, pins
+  jose, servant-openapi, openapi-hs, and the Shomei WebAuthn fork as public git dependencies,
+  writes a service-specific `cabal.project` with local package paths, and builds
   one of `nagare-access`, `shomei`, or `en` with the shared
   `cluster/bootstrap/auth-images/Dockerfile.local-haskell`. The helper defaults to
   `haskell:9.12.4`, `linux/amd64`, `NAGARE_AUTH_CABAL_BUILD_FLAGS=--jobs=1`, and Artifact
@@ -1855,13 +1886,17 @@ Record every decision made while working on the plan.
   Rationale: The earlier clean Docker path still required private GitHub credentials for Cabal
   to fetch `shinzui/shomei` and `shinzui/en`, and shomei/en do not currently publish working
   release images. A local-source context makes the install contract explicit and reproducible
-  from the checked-out dependency source already required by this plan. The first no-push amd64
-  validation reached Cabal but exhausted the local aarch64 Colima VM while emulating amd64, so
-  Cloud Build is the repeatable remote-builder path for non-amd64 local hosts. Cloud Build was
-  enabled in `tan-nb-exp`, but the first submit failed with IAM `PERMISSION_DENIED` for the only
-  active gcloud account. The `k3s-import` backend is the lowest-friction path for the current
-  single-node deployment because it avoids registry push/pull IAM entirely while still producing
-  the same amd64 image on the target machine; it is not a general multi-node distribution path.
+  from the checked-out dependency source already required by this plan. The helper deliberately
+  copies only dependency checkouts that are current for GHC 9.12 and uses public pins for
+  `jose`, `servant-openapi`, `openapi-hs`, and the Shomei WebAuthn fork, because the local mori
+  `hs-jose` and upstream `tweag/webauthn` checkouts are stale for the active crypton/ram stack.
+  The first no-push amd64 validation reached Cabal but exhausted the local aarch64 Colima VM
+  while emulating amd64, so Cloud Build is the repeatable remote-builder path for non-amd64
+  local hosts. Cloud Build was enabled in `tan-nb-exp`, but the first submit failed with IAM
+  `PERMISSION_DENIED` for the only active gcloud account. The `k3s-import` backend is the
+  lowest-friction path for the current single-node deployment because it avoids registry
+  push/pull IAM entirely while still producing the same amd64 image on the target machine; it is
+  not a general multi-node distribution path.
   Date: 2026-06-25
 
 
@@ -2879,5 +2914,10 @@ Contracts at milestone boundaries:
   `nagare-01` cluster. The backend builds local-source auth-plane images on the remote amd64 node
   with Podman from Nix and imports them directly into k3s containerd under
   `dev.local/nagare-auth/<service>:<tag>` names. The first real `en` image build/import succeeded
-  as `dev.local/nagare-auth/en:k3s-test`; M4b remains open for shomei and nagare-access image
-  builds/imports, workload apply, Ready verification, and real `nagarectl` preflight evidence.
+  as `dev.local/nagare-auth/en:k3s-test`.
+- 2026-06-25 — Fixed the generated local-source Cabal workspace for `shomei` images by replacing
+  stale local `hs-jose` and upstream `tweag/webauthn` copies with public pins for
+  `hs-jose@d00ad179`, `servant-openapi@558b7b9`, `openapi-hs@dfcd77d`, and
+  `shinzui/webauthn@c274e23`. The target-node `k3s-import` run built and imported
+  `dev.local/nagare-auth/shomei:k3s-test`; M4b remains open for nagare-access image import plus
+  workload apply, Ready verification, and real `nagarectl` preflight evidence.
