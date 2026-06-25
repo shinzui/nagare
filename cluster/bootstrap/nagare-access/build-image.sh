@@ -18,9 +18,14 @@ if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
 fi
 
 IMAGE="${NAGARE_ACCESS_IMAGE:-${REGISTRY_HOST}/${PROJECT}/${ARTIFACT_REPOSITORY}/nagare-access:${TAG}}"
+BUILD_ARGS=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  BUILD_ARGS+=(--secret id=github_token,env=GITHUB_TOKEN)
+fi
 
 docker build \
   --platform "$PLATFORM" \
+  "${BUILD_ARGS[@]}" \
   -f "$ROOT/cli/nagare-access/Dockerfile" \
   -t "$IMAGE" \
   "$ROOT"

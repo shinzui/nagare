@@ -980,12 +980,36 @@ NAME                         DATA   AGE
 configmap/kube-root-ca.crt   1      83s
 ```
 
-Local no-push validation of the updated `nagare-access` Dockerfile could not start because the
-Docker daemon was not running:
+Local no-push validation of the updated `nagare-access` Dockerfile found and fixed one image
+build bug, then exposed the remaining credential prerequisite. Initially the helper could not
+connect to Docker because Docker was pointed at a stale Colima socket; after `colima restart`,
+the build reached Docker Hub and showed that the original `haskell:9.12.2-slim` base image tag
+does not exist. `cli/nagare-access/Dockerfile` now uses the existing `haskell:9.12.2` build
+stage tag. The next no-push build reached Cabal dependency fetching and failed because the
+Docker build environment has no credentials for the private `shinzui/shomei` and `shinzui/en`
+source repositories pinned in `cli/nagare-access/cabal.project`. The Dockerfile and build helper
+now accept an optional BuildKit secret from `GITHUB_TOKEN`; no token was present in this
+environment, so a complete image build/push remains open.
 
 ```text
 $ NAGARE_ACCESS_PUSH=0 cluster/bootstrap/nagare-access/build-image.sh test-local
 ERROR: Cannot connect to the Docker daemon at unix:///Users/shinzui/.colima/docker.sock. Is the docker daemon running?
+
+$ colima restart
+...
+time="2026-06-24T17:24:03-07:00" level=info msg=done
+
+$ NAGARE_ACCESS_PUSH=0 cluster/bootstrap/nagare-access/build-image.sh test-local
+ERROR: failed to build: failed to solve: haskell:9.12.2-slim: failed to resolve source metadata for docker.io/library/haskell:9.12.2-slim: not found
+
+$ docker manifest inspect docker.io/library/haskell:9.12.2 >/dev/null && echo haskell:9.12.2
+haskell:9.12.2
+
+$ NAGARE_ACCESS_PUSH=0 cluster/bootstrap/nagare-access/build-image.sh test-local
+fatal: could not read Username for 'https://github.com': No such device or address
+
+$ if [ -n "${GITHUB_TOKEN:-}" ]; then echo present; else echo absent; fi
+absent
 ```
 
 The safe live prerequisites that do not require DB credentials or image availability were then
@@ -1492,6 +1516,19 @@ Record every decision made while working on the plan.
   Rationale: The enforcer is request-path infrastructure for private sites. Tightening these
   defaults while the bootstrap manifest is still being hardened is low-risk and removes a
   target-cluster warning from the acceptance path.
+  Date: 2026-06-24
+
+- Decision: **Keep the `nagare-access` Docker build on Docker Hub `haskell:9.12.2` and pass
+  private GitHub access as a BuildKit secret.** Docker Hub does not publish
+  `haskell:9.12.2-slim`, so the build stage now uses `haskell:9.12.2`. The Cabal workspace pins
+  private own-project source repositories (`shinzui/shomei`, `shinzui/en`, and related forks),
+  so a clean Docker build needs credentials. `cluster/bootstrap/nagare-access/build-image.sh`
+  passes `GITHUB_TOKEN` as a BuildKit secret when it is set, and the Dockerfile temporarily
+  rewrites `https://github.com/` fetches only inside the build layer before removing that Git
+  config.
+  Rationale: The enforcer image must be buildable in a clean Docker environment without baking a
+  token into the image or repository. BuildKit secrets are the narrowest available mechanism for
+  the current Cabal source-repository-package setup.
   Date: 2026-06-24
 
 
