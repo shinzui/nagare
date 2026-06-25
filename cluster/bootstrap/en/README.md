@@ -18,9 +18,9 @@ Before serving real traffic, run en's PostgreSQL migrations from the en release
 artifact against the database in `EN_DATABASE_URL`; `en-server` expects the
 schema tables to exist at startup. The current en repository does not publish a
 container image or a migration executable; the `image:` in `service.yaml` is an
-operator-provided release image until en publishes one. Build and mirror an
-`en-server` image from the en repository, then edit `service.yaml` before
-applying it.
+operator-provided release image until en publishes one or Nagare adds an en
+image helper. Build and mirror an `en-server` image from the en repository, then
+edit `service.yaml` before applying it.
 
 `migrations.yaml` is the Nagare bootstrap wrapper for en's codd-managed SQL
 migrations. It mounts the current en migration files into a Kubernetes Job and
