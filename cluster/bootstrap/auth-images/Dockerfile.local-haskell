@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1.7
+#
+# Generic local-source image builder for Nagare's optional auth plane. The build
+# context is produced by build-local-image.sh and contains a workspace/
+# directory with cabal.project plus local checkouts of nagare, shomei, en, and
+# the patched dependency packages needed by shomei.
+FROM haskell:9.12.4 AS build
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    libpq-dev \
+    pkg-config \
+    zlib1g-dev \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY workspace/ workspace/
+
+WORKDIR /src/workspace
+ARG CABAL_TARGETS
+ARG CABAL_BINARIES
+ARG CABAL_BUILD_FLAGS=--jobs=1
+RUN --mount=type=cache,target=/root/.cabal/packages \
+  set -eu; \
+  cabal update; \
+  cabal build ${CABAL_BUILD_FLAGS} ${CABAL_TARGETS}; \
+  mkdir -p /out/bin; \
+  for target in ${CABAL_BINARIES}; do \
+    binary_name="${target#exe:}"; \
+    cp "$(cabal list-bin "$target")" "/out/bin/${binary_name}"; \
+  done
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    grep \
+    libffi8 \
+    libgmp10 \
+    libpq5 \
+    sed \
+    zlib1g \
+  && groupadd --system nagare \
+  && useradd --system --gid nagare --home-dir /nonexistent --shell /usr/sbin/nologin nagare \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY runtime/ /
+COPY --from=build /out/bin/ /usr/local/bin/
+
+RUN chmod 0555 /usr/local/bin/* \
+  && chown -R nagare:nagare /usr/local/bin
+
+USER nagare
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/auth-entrypoint"]
