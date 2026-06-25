@@ -19,6 +19,13 @@ pushes it by default, and prints the image reference. Set `NAGARE_AUTH_PUSH=0`
 to build locally without pushing. Edit `service.yaml` to use the printed image
 before applying.
 
+On Apple Silicon or another non-amd64 local Docker host, use Cloud Build for the
+real amd64 image:
+
+```bash
+NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/shomei/build-image.sh
+```
+
 Override `SHOMEI_SRC`, `CODD_SRC`, `JOSE_SRC`, or `WEBAUTHN_SRC` if the local
 dependency checkouts live somewhere other than the helper's default paths.
 
