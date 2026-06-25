@@ -10,6 +10,7 @@ private shomei/en repositories during Docker build.
 
 Relevant environment variables:
   NAGARE_AUTH_PUSH=0             Build locally without pushing.
+  NAGARE_AUTH_BUILDER=docker     Builder: docker or cloud-build.
   NAGARE_AUTH_TAG=<tag>          Default tag when [tag] is omitted.
   NAGARE_AUTH_IMAGE=<image>      Exact image reference override.
   NAGARE_ACCESS_IMAGE=<image>    Exact image override for nagare-access.
@@ -19,6 +20,9 @@ Relevant environment variables:
   NAGARE_ARTIFACT_REGISTRY_ID=<repo>  Default: nagare
   NAGARE_CONTAINER_PLATFORM=<platform> Default: linux/amd64
   NAGARE_AUTH_CABAL_BUILD_FLAGS=<flags> Default: --jobs=1
+  NAGARE_AUTH_CLOUD_BUILD_REGION=<region> Default: us-west1
+  NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE=<type> Default: e2-highcpu-32
+  NAGARE_AUTH_CLOUD_BUILD_TIMEOUT=<duration> Default: 2h
   SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
   EN_SRC=<path>                  Default: ../en sibling checkout.
   CODD_SRC=<path>                Default: local mori codd checkout package dir.
@@ -48,10 +52,24 @@ registry_host="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
 artifact_repository="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
 platform="${NAGARE_CONTAINER_PLATFORM:-linux/amd64}"
 push="${NAGARE_AUTH_PUSH:-1}"
+builder="${NAGARE_AUTH_BUILDER:-docker}"
+
+case "$builder" in
+  docker|cloud-build) ;;
+  *) fail "unsupported NAGARE_AUTH_BUILDER=$builder; expected docker or cloud-build" ;;
+esac
+
+if [[ "$builder" == "cloud-build" && "$push" != "1" ]]; then
+  fail "NAGARE_AUTH_BUILDER=cloud-build requires NAGARE_AUTH_PUSH=1 because the image is produced remotely"
+fi
 
 project="${CLOUDSDK_CORE_PROJECT:-}"
 if [[ -z "$project" ]]; then
   project="$(gcloud config get-value project 2>/dev/null || true)"
+fi
+
+if [[ "$builder" == "cloud-build" && ( -z "$project" || "$project" == "(unset)" ) ]]; then
+  fail "NAGARE_AUTH_BUILDER=cloud-build requires CLOUDSDK_CORE_PROJECT or an active gcloud project"
 fi
 
 image_override="${NAGARE_AUTH_IMAGE:-}"
@@ -105,6 +123,7 @@ copy_tree() {
 }
 
 mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
+cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
 copy_tree "$root" "$tmpdir/workspace/nagare"
 copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
 copy_tree "$en_src" "$tmpdir/workspace/en"
@@ -232,18 +251,53 @@ esac
 
 chmod 0555 "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
 
-docker build \
-  --platform "$platform" \
-  --build-arg "CABAL_TARGETS=${cabal_targets[*]}" \
-  --build-arg "CABAL_BINARIES=${cabal_binaries[*]}" \
-  --build-arg "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}" \
-  -f "$script_dir/Dockerfile.local-haskell" \
-  -t "$image" \
-  "$tmpdir"
+if [[ "$builder" == "cloud-build" ]]; then
+  region="${NAGARE_AUTH_CLOUD_BUILD_REGION:-us-west1}"
+  machine_type="${NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE:-e2-highcpu-32}"
+  timeout="${NAGARE_AUTH_CLOUD_BUILD_TIMEOUT:-2h}"
+  cat > "$tmpdir/cloudbuild.yaml" <<EOF
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --platform
+      - "$platform"
+      - --build-arg
+      - "CABAL_TARGETS=${cabal_targets[*]}"
+      - --build-arg
+      - "CABAL_BINARIES=${cabal_binaries[*]}"
+      - --build-arg
+      - "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}"
+      - -f
+      - Dockerfile.local-haskell
+      - -t
+      - "$image"
+      - .
+images:
+  - "$image"
+EOF
+  gcloud builds submit "$tmpdir" \
+    --config "$tmpdir/cloudbuild.yaml" \
+    --project "$project" \
+    --region "$region" \
+    --machine-type "$machine_type" \
+    --timeout "$timeout"
+else
+  docker build \
+    --platform "$platform" \
+    --build-arg "CABAL_TARGETS=${cabal_targets[*]}" \
+    --build-arg "CABAL_BINARIES=${cabal_binaries[*]}" \
+    --build-arg "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}" \
+    -f "$tmpdir/Dockerfile.local-haskell" \
+    -t "$image" \
+    "$tmpdir"
 
-if [[ "$push" == "1" ]]; then
-  gcloud auth configure-docker "$registry_host" --quiet
-  docker push "$image"
+  if [[ "$push" == "1" ]]; then
+    gcloud auth configure-docker "$registry_host" --quiet
+    docker push "$image"
+  fi
 fi
 
 echo "$image"

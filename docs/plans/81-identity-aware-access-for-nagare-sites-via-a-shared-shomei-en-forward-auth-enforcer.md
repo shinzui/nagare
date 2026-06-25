@@ -235,11 +235,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   2026-06-25, `cluster/bootstrap/auth-images/` added a shared local-source Docker build path plus
   `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`, so
   shomei/en/nagare-access no longer depend on a nonexistent upstream release image or private
-  GitHub fetches during image build. Remaining M4b work is live-cluster work: complete amd64 image
-  builds on a builder with enough memory, push real nagare-access/shomei/en image references or
-  replace the templates with verified release digests, apply the shomei/en/nagare-access
-  workloads to the target `nagare-01` context, verify Ready status, and prove `nagarectl`'s M3
-  preflight succeeds against the installed bundle.
+  GitHub fetches during image build. The helper now also supports
+  `NAGARE_AUTH_BUILDER=cloud-build` for non-amd64 local hosts; Cloud Build was enabled in
+  `tan-nb-exp`, but submitting the first `en` build failed because the only active gcloud account
+  lacks Cloud Build submit permission. Remaining M4b work is live-cluster work: complete amd64
+  image builds on a builder with enough memory and IAM, push real nagare-access/shomei/en image
+  references or replace the templates with verified release digests, apply the
+  shomei/en/nagare-access workloads to the target `nagare-01` context, verify Ready status, and
+  prove `nagarectl`'s M3 preflight succeeds against the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -1240,6 +1243,31 @@ $ kubectl config current-context
 sennari
 ```
 
+The helper then gained a remote amd64 builder mode:
+`NAGARE_AUTH_BUILDER=cloud-build` copies the same generated local-source context to Cloud Build,
+runs Docker with `DOCKER_BUILDKIT=1`, and defaults to machine type `e2-highcpu-32`. This is the
+right shape for the target `nagare-01` amd64 node when the local Docker host is Apple Silicon,
+but the first build submission could not start because the active gcloud account lacks Cloud
+Build submit permission in `tan-nb-exp`. Cloud Build itself was enabled successfully, and
+Artifact Registry already had the `us-west1/nagare` Docker repository.
+
+```text
+$ gcloud services list --enabled --filter='NAME:cloudbuild.googleapis.com OR NAME:artifactregistry.googleapis.com' --format='value(NAME)'
+artifactregistry.googleapis.com
+
+$ gcloud services enable cloudbuild.googleapis.com --project=tan-nb-exp
+Operation "operations/acf.p2-1087727631858-0356f4a1-1a9c-4e52-80f5-a6ecdd9136d6" finished successfully.
+
+$ NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/en/build-image.sh cloudbuild-test
+Creating temporary archive of 4243 file(s) totalling 305.0 MiB before compression.
+Uploading tarball of [/var/folders/.../nagare-auth-image.fmQvxV] to [gs://tan-nb-exp_cloudbuild/source/1782349952.506533-2476653fe03143f0b84b26eb23349013.tgz]
+ERROR: (gcloud.builds.submit) PERMISSION_DENIED: The caller does not have permission. This command is authenticated as nadeem@topagentnetwork.com which is the active account specified by the [core/account] property
+
+$ gcloud auth list --format='table(account,status)'
+ACCOUNT                     ACTIVE
+nadeem@topagentnetwork.com  *
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
@@ -1749,13 +1777,18 @@ Record every decision made while working on the plan.
   Registry-compatible image names, while `NAGARE_AUTH_PUSH=0` keeps validation local.
   `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh` delegate
   directly to it, and `cluster/bootstrap/nagare-access/build-image.sh` opts into it with
-  `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`.
+  `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. The same helper supports
+  `NAGARE_AUTH_BUILDER=cloud-build`, which uploads the generated context to Cloud Build, uses
+  Docker BuildKit, and defaults to an `e2-highcpu-32` remote builder for amd64 images.
   Rationale: The earlier clean Docker path still required private GitHub credentials for Cabal
   to fetch `shinzui/shomei` and `shinzui/en`, and shomei/en do not currently publish working
   release images. A local-source context makes the install contract explicit and reproducible
   from the checked-out dependency source already required by this plan. The first no-push amd64
   validation reached Cabal but exhausted the local aarch64 Colima VM while emulating amd64, so
-  final M4b image publication still requires a native or larger amd64 builder.
+  Cloud Build is the repeatable remote-builder path for non-amd64 local hosts. Cloud Build was
+  enabled in `tan-nb-exp`, but the first submit failed with IAM `PERMISSION_DENIED` for the only
+  active gcloud account, so final M4b image publication still requires build-submit permission or
+  another amd64 builder.
   Date: 2026-06-25
 
 
@@ -2761,8 +2794,10 @@ Contracts at milestone boundaries:
 
 - 2026-06-25 — Added and recorded the local-source auth-plane image builder. The repo now has a
   shared `cluster/bootstrap/auth-images/` Dockerfile/helper plus shomei/en wrappers, and
-  `nagare-access` can opt into the same local-source context. Updated M4b Progress, Surprises &
-  Discoveries, Decision Log, and bootstrap READMEs to reflect that image references are no
-  longer purely operator-provided, while live M4b remains open because amd64 no-push validation
-  exhausted the local aarch64 Colima builder and the active Kubernetes context was not the
-  target `nagare-01` cluster.
+  `nagare-access` can opt into the same local-source context. The helper now also has a
+  Cloud Build backend for amd64 images from non-amd64 local hosts; Cloud Build was enabled in
+  `tan-nb-exp`, but the first submit failed because the active gcloud account lacks permission.
+  Updated M4b Progress, Surprises & Discoveries, Decision Log, and bootstrap READMEs to reflect
+  that image references are no longer purely operator-provided, while live M4b remains open
+  because amd64 no-push validation exhausted the local aarch64 Colima builder, Cloud Build submit
+  is blocked by IAM, and the active Kubernetes context was not the target `nagare-01` cluster.

@@ -28,6 +28,13 @@ delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
 temporary context from the local Nagare, shomei, en, codd, hs-jose, and webauthn
 checkouts before building the same `nagare-access` executable.
 
+On Apple Silicon or another non-amd64 local Docker host, combine the local-source
+path with Cloud Build for the real amd64 image:
+
+```bash
+NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/nagare-access/build-image.sh
+```
+
 shomei and en now have matching local-source image helpers at
 `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`.
 Their manifests expect managed PostgreSQL databases named `shomei-db` and
