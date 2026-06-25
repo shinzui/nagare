@@ -18,6 +18,11 @@ pushes it by default, and prints the image reference. Set
 `NAGARE_ACCESS_PUSH=0` to build locally without pushing. Edit `service.yaml` to
 use the printed image before applying.
 
+shomei and en do not currently expose equivalent image build outputs in their
+flakes. Their bootstrap manifests intentionally keep operator-provided image
+references until those upstream projects publish release images or Nagare adds
+dedicated build helpers for them.
+
 ## Install
 
 Create a real cookie key secret from the example, update `service.yaml` with the

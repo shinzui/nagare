@@ -3,10 +3,16 @@
 This directory bootstraps the shomei authentication service for Nagare's
 optional auth plane. Install it only when protected sites are needed.
 
-The manifest expects a container image that provides `shomei-server`. shomei's
-server startup runs database migrations idempotently and ensures an active
-signing key, so the pod only needs a valid PostgreSQL connection string and the
-issuer/audience values that `nagare-access` will verify.
+The manifest expects a container image that provides `shomei-server`. The
+shomei repository contains a runtime Dockerfile, but its flake does not publish
+a container-image output; the `image:` in `service.yaml` is therefore an
+operator-provided release image until shomei publishes one. Build and mirror a
+`shomei-server` image from the shomei repository, then edit `service.yaml`
+before applying it.
+
+shomei's server startup runs database migrations idempotently and ensures an
+active signing key, so the pod only needs a valid PostgreSQL connection string
+and the issuer/audience values that `nagare-access` will verify.
 
 ```bash
 cp cluster/bootstrap/shomei/secret.example.yaml /tmp/shomei-secret.yaml
