@@ -15,6 +15,7 @@ import Test.Tasty.HUnit
 
 data Event
   = Wrote !(Map.Map Text Text)
+  | Reloaded
   | Routed !Text !Text !RouteOp
   deriving stock (Eq, Show)
 
@@ -37,7 +38,7 @@ accessResolveTests =
           Left (ExitFailure _) -> pure ()
           Right () -> assertFailure "expected resolveAccessRouteWithOps to exit"
         readIORef events >>= (@?= [])
-    , testCase "protected route writes host backend and points the DomainMapping at nagare-access" $ do
+    , testCase "protected route writes host backend and points the DomainMapping at central nagare-access" $ do
         events <- newIORef []
         let initial = Map.singleton "other.example.com" "http://other.personal.svc.cluster.local"
             ops = fakeOps True (Right (Just initial)) events
@@ -50,7 +51,8 @@ accessResolveTests =
                           , ("tools.example.com", "http://notes.personal.svc.cluster.local")
                           ]
                       )
-                  , Routed "personal" "tools.example.com" (RouteTo (RouteTarget "nagare-access" "nagare-system"))
+                  , Reloaded
+                  , Routed "personal" "tools.example.com" (RouteTo (RouteTarget "serving.knative.dev/v1" "Service" "nagare-access" "nagare-system"))
                   ]
               )
     , testCase "public custom domain removes the backend entry and routes directly to the app service" $ do
@@ -65,7 +67,8 @@ accessResolveTests =
         readIORef events
           >>= ( @?=
                   [ Wrote (Map.singleton "other.example.com" "http://other.personal.svc.cluster.local")
-                  , Routed "personal" "tools.example.com" (RouteTo (RouteTarget "notes" "personal"))
+                  , Reloaded
+                  , Routed "personal" "tools.example.com" (RouteTo (RouteTarget "serving.knative.dev/v1" "Service" "notes" "personal"))
                   ]
               )
     , testCase "public default host deletes the protective DomainMapping override and does not create a backend map" $ do
@@ -84,6 +87,7 @@ fakeOps present loaded events =
     { checkEnforcerPresent = pure present
     , loadBackendMap = pure loaded
     , writeBackendMap = \m -> writeEvent (Wrote m)
+    , reloadBackendMap = writeEvent Reloaded
     , applyRouteOp = \ns host op -> writeEvent (Routed ns host op)
     }
   where

@@ -49,6 +49,8 @@ spec:
                   key: POSTGRES_DB
             - name: PG_CONNECTION_STRING
               value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
+            - name: DATABASE_URL
+              value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
             - name: SHOMEI_PORT
               value: "8080"
             - name: SHOMEI_ISSUER

@@ -97,8 +97,9 @@ this site sets `access = requireLogin`, but the nagare auth plane is not install
 ```
 
 When the plane is installed, `nagarectl` writes the host to the
-`nagare-access-backends` ConfigMap and points the host's DomainMapping at the
-shared `nagare-access` Knative Service.
+`nagare-access-backends` ConfigMap, removes the app-namespace DomainMapping for
+that host, and owns the protected host's DomainMapping in `nagare-system` so it
+can target the shared `nagare-access` Knative Service.
 
 ## Manage grants
 
