@@ -33,9 +33,12 @@ RUN apt-get update \
     libgmp10 \
     libpq5 \
     zlib1g \
+  && groupadd --system nagare \
+  && useradd --system --gid nagare --home-dir /nonexistent --shell /usr/sbin/nologin nagare \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/bin/nagare-access /usr/local/bin/nagare-access
 
+USER nagare
 EXPOSE 8080
 ENTRYPOINT ["nagare-access"]

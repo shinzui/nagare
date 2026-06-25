@@ -220,11 +220,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   cookie-key Secret template.
 - [ ] **M4b — Remaining live bootstrap hardening and verification.** Local bootstrap hardening
   progressed on 2026-06-24: shomei/en image provenance is now documented from the dependency
-  source, and `cluster/bootstrap/en/migrations.yaml` runs en's codd migrations as an explicit
-  Kubernetes Job before `en-server` starts. Remaining M4b work is live-cluster work: build and
-  push real shomei/en images or replace the templates with verified release digests, apply the
-  auth-plane bundle to the target cluster, verify Ready status for shomei/en/nagare-access, and
-  prove `nagarectl`'s M3 preflight succeeds against the installed bundle.
+  source, `cluster/bootstrap/en/migrations.yaml` runs en's codd migrations as an explicit
+  Kubernetes Job before `en-server` starts, `nagare-system` now exists on the target `nagare-01`
+  cluster, and all auth-plane manifests pass server-side dry-run against that cluster. Remaining
+  M4b work is live-cluster work: build and push real nagare-access/shomei/en images or replace
+  the templates with verified release digests, create real auth-plane database/cookie Secrets,
+  apply the auth-plane bundle to the target cluster, verify Ready status for
+  shomei/en/nagare-access, and prove `nagarectl`'s M3 preflight succeeds against the installed
+  bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -777,13 +780,16 @@ be server-side dry-run/applied against the target Knative cluster in M4b.
 
 **M4b local bootstrap-hardening evidence (2026-06-24).** Dependency-source inspection sharpened
 the remaining auth-plane install contract. `mori registry show shinzui/shomei --full` and
-`mori registry show shinzui/en --full` located the local shomei and en repositories. Their
-flakes only expose default Haskell package builds; they do not publish Docker image outputs.
-shomei has a runtime `Dockerfile` and `deploy/entrypoint.sh`, but its runtime image expects
-binaries supplied by a build stage, so the Nagare manifest must treat `shomei-server` as an
-operator-built or upstream-published image until a dedicated release image exists. en has no
-Dockerfile or flake image output in the inspected source, so its bootstrap manifest has the
-same operator-provided image status.
+`mori registry show shinzui/en --full` located the local shomei and en repositories. A later
+source check corrected the shomei side: shomei's runtime `Dockerfile` is only a secondary path,
+and `flake.module.nix` advertises a reproducible `.#dockerImage` output that should build
+`shomei-server:latest` with the server/admin binaries, `dhall-to-json`, BusyBox, and CA
+certificates. Validation from the Nagare worktree showed that output is not currently usable:
+`nix build /Users/shinzui/Keikaku/bokuno/shomei#dockerImage` fails in `cabal2nix` because the
+flake's `callCabal2nix` target points at the multi-package repo root, which has no root `.cabal`
+or `package.yaml`. en still has no Dockerfile, `flake.module.nix`, or flake image output in the
+inspected source, so both shomei and en remain operator-provided image references until shomei's
+flake image is fixed and en gains a verified build path.
 
 The en migration workflow is now explicit in `cluster/bootstrap/en/migrations.yaml`. en's own
 `en-migrations` package exposes only `migrationsDir = "db/migrations"` and the two SQL files
@@ -871,6 +877,114 @@ $ kubectl get nodes
 NAME                               STATUS   ROLES    AGE    VERSION
 gke-sennari-pool-1-3dc72b9e-0n9j   Ready    <none>   2d8h   v1.34.7-gke.1499000
 ...
+```
+
+The actual `nagare-01` k3s cluster is reachable through `scripts/iap-ssh.sh` and has Knative
+Serving installed. The local `just live-test` kubeconfig tunnel opened and printed PIDs, but the
+local API forward dropped before `kubectl` could connect (`127.0.0.1:16443` refused
+connections). Direct remote `sudo k3s kubectl` over IAP works and shows the cluster is the right
+target. It also shows the auth-plane namespace/resources are absent, and Artifact Registry does
+not yet contain `nagare-access`, `shomei`, or `en` images. Therefore a real apply would not be a
+valid M4b acceptance run yet: the templates still need real image refs plus real database/cookie
+Secrets.
+
+```text
+$ gcloud compute instances describe nagare-01 --zone=us-west1-a --project=tan-nb-exp --format=value\(status\)
+RUNNING
+
+$ just live-test
+KUBECONFIG=/Users/shinzui/Keikaku/bokuno/nagare/.live-test/kubeconfig.yaml
+# k3s API forwarded to https://127.0.0.1:16443 (ssh -L pid 51999, IAP tunnel pid 51392)
+
+$ KUBECONFIG=/Users/shinzui/Keikaku/bokuno/nagare/.live-test/kubeconfig.yaml kubectl get nodes
+The connection to the server 127.0.0.1:16443 was refused - did you specify the right host or port?
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'systemctl is-active k3s; sudo k3s kubectl get nodes'
+active
+NAME        STATUS   ROLES           AGE   VERSION
+nagare-01   Ready    control-plane   21d   v1.35.4+k3s1
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl get namespace nagare-system personal knative-serving kourier-system --ignore-not-found'
+NAME              STATUS   AGE
+personal          Active   21d
+knative-serving   Active   21d
+kourier-system    Active   21d
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl get crd services.serving.knative.dev domainmappings.serving.knative.dev --ignore-not-found'
+NAME                                 CREATED AT
+services.serving.knative.dev         2026-06-03T04:03:48Z
+domainmappings.serving.knative.dev   2026-06-03T04:03:47Z
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get all,configmap,secret,ksvc,domainmapping --ignore-not-found'
+
+$ gcloud artifacts docker images list us-west1-docker.pkg.dev/tan-nb-exp/nagare --include-tags --format='table(IMAGE,TAGS)'
+IMAGE                                                     TAGS
+us-west1-docker.pkg.dev/tan-nb-exp/nagare/audit-build
+us-west1-docker.pkg.dev/tan-nb-exp/nagare/audit-static    20260610-234750
+us-west1-docker.pkg.dev/tan-nb-exp/nagare/nixapp
+us-west1-docker.pkg.dev/tan-nb-exp/nagare/uploads-volume  20260611-050844
+```
+
+An attempted no-push validation of a shomei image helper also found that shomei's advertised
+flake image output is currently broken. The helper was not kept in Nagare; shomei remains an
+operator-provided image reference until that upstream flake output is fixed or another verified
+build path exists.
+
+```text
+$ SHOMEI_PUSH=0 cluster/bootstrap/shomei/build-image.sh test-local
+error: Cannot build '/nix/store/nqfkibpmk79xcml1l3x5lgzy758i3cj1-cabal2nix-shomei.drv'.
+Last 7 log lines:
+> cabal2nix: user error (*** Found neither a .cabal file nor package.yaml. Exiting.)
+```
+
+After creating the required `nagare-system` namespace on the target cluster, all auth-plane
+manifests passed server-side dry-run. The first `nagare-access` dry-run emitted a Knative
+security-default warning, so `cluster/bootstrap/nagare-access/service.yaml` now declares
+`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `runAsNonRoot: true`, and
+`seccompProfile: RuntimeDefault`, and `cli/nagare-access/Dockerfile` creates/runs as a non-root
+`nagare` system user. The repeated dry-run for `nagare-access` was clean.
+
+```text
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl create namespace nagare-system --dry-run=client -o yaml | sudo k3s kubectl apply -f -'
+namespace/nagare-system created
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply --dry-run=server --validate=true -f /tmp/nagare-auth-plane-81/shomei/'
+namespace/nagare-system configured (server dry run)
+secret/shomei-db created (server dry run)
+namespace/nagare-system configured (server dry run)
+deployment.apps/shomei created (server dry run)
+service/shomei created (server dry run)
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply --dry-run=server --validate=true -f /tmp/nagare-auth-plane-81/en/'
+namespace/nagare-system configured (server dry run)
+configmap/en-schema created (server dry run)
+namespace/nagare-system configured (server dry run)
+configmap/en-migrations created (server dry run)
+job.batch/en-migrate created (server dry run)
+namespace/nagare-system configured (server dry run)
+secret/en-db created (server dry run)
+namespace/nagare-system configured (server dry run)
+deployment.apps/en created (server dry run)
+service/en created (server dry run)
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply --dry-run=server --validate=true -f /tmp/nagare-auth-plane-81/nagare-access/'
+namespace/nagare-system configured (server dry run)
+configmap/nagare-access-backends created (server dry run)
+namespace/nagare-system configured (server dry run)
+secret/nagare-access created (server dry run)
+service.serving.knative.dev/nagare-access created (server dry run)
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get all,configmap,secret,ksvc,domainmapping --ignore-not-found'
+NAME                         DATA   AGE
+configmap/kube-root-ca.crt   1      83s
+```
+
+Local no-push validation of the updated `nagare-access` Dockerfile could not start because the
+Docker daemon was not running:
+
+```text
+$ NAGARE_ACCESS_PUSH=0 cluster/bootstrap/nagare-access/build-image.sh test-local
+ERROR: Cannot connect to the Docker daemon at unix:///Users/shinzui/.colima/docker.sock. Is the docker daemon running?
 ```
 
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
@@ -1320,16 +1434,27 @@ Record every decision made while working on the plan.
   meaningful.
   Date: 2026-06-24
 
-- Decision: **Document shomei/en images as operator-provided until upstream release images
-  exist.** The inspected shomei and en flakes expose Haskell package builds but no container
-  image outputs. shomei has a runtime Dockerfile whose comments say binaries must be supplied
-  by a build stage; en has no Dockerfile or image derivation in the local source. The bootstrap
-  READMEs now state that the `image:` fields in `cluster/bootstrap/shomei/service.yaml` and
-  `cluster/bootstrap/en/service.yaml` must be replaced with operator-built or upstream-published
-  images before live apply.
-  Rationale: M4b needs a truthful install contract. Shipping a fake build helper or an
-  unverified image reference would make the auth plane look more complete than it is and would
-  fail late in the cluster.
+- Decision: **Keep shomei/en image references operator-provided until their image build paths are
+  verified.** shomei advertises `packages.dockerImage` in `flake.module.nix`, but
+  `SHOMEI_PUSH=0 cluster/bootstrap/shomei/build-image.sh test-local` failed during validation
+  when `nix build ../shomei#dockerImage` reached `cabal2nix` and found neither a root `.cabal`
+  file nor `package.yaml`. That helper was not kept. en's inspected source has no Dockerfile or
+  image derivation. `cluster/bootstrap/shomei/service.yaml` and
+  `cluster/bootstrap/en/service.yaml` therefore remain operator-provided image references until
+  shomei's flake image is fixed and en publishes a release image or this plan adds separately
+  verified helpers.
+  Rationale: M4b needs a truthful install contract. Shipping an unverified helper would make the
+  auth plane look more complete than it is and would fail late in the cluster.
+  Date: 2026-06-24
+
+- Decision: **Harden the `nagare-access` Knative container security context now.** Server-side
+  dry-run against the target Knative cluster accepted the enforcer manifest but warned that
+  several Kubernetes default values are insecure. The manifest now sets explicit no-privilege,
+  drop-all-capabilities, non-root, RuntimeDefault-seccomp settings, and the Dockerfile creates a
+  non-root `nagare` user so `runAsNonRoot: true` has a matching image-level user.
+  Rationale: The enforcer is request-path infrastructure for private sites. Tightening these
+  defaults while the bootstrap manifest is still being hardened is low-risk and removes a
+  target-cluster warning from the acceptance path.
   Date: 2026-06-24
 
 

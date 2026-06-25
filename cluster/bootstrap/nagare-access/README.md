@@ -18,10 +18,11 @@ pushes it by default, and prints the image reference. Set
 `NAGARE_ACCESS_PUSH=0` to build locally without pushing. Edit `service.yaml` to
 use the printed image before applying.
 
-shomei and en do not currently expose equivalent image build outputs in their
-flakes. Their bootstrap manifests intentionally keep operator-provided image
-references until those upstream projects publish release images or Nagare adds
-dedicated build helpers for them.
+shomei advertises a Nix flake `.#dockerImage` output, but validation from this
+Nagare worktree currently fails before it produces an image. en does not
+currently expose an equivalent image build output. Their bootstrap manifests
+therefore keep operator-provided image references until those upstream images
+are fixed/published or Nagare adds dedicated, verified build helpers for them.
 
 ## Install
 

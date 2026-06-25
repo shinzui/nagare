@@ -15,6 +15,14 @@ spec:
     spec:
       containers:
         - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/nagare-access:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - containerPort: 8080
           env:
