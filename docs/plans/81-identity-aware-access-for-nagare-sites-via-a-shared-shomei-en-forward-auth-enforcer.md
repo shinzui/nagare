@@ -231,11 +231,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   shomei/en Secret templates were removed. A live attempt to use database name `shomei` exposed
   a Service-name collision with the auth service, so the managed databases are named
   `shomei-db` and `en-db`. The corrected managed PostgreSQL databases are live and Ready on
-  `nagare-01`, and the replacement psql-based `en-migrate` Job completed successfully.
-  Remaining M4b work is live-cluster work: build and push real nagare-access/shomei/en images or
+  `nagare-01`, and the replacement psql-based `en-migrate` Job completed successfully. Later on
+  2026-06-25, `cluster/bootstrap/auth-images/` added a shared local-source Docker build path plus
+  `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`, so
+  shomei/en/nagare-access no longer depend on a nonexistent upstream release image or private
+  GitHub fetches during image build. Remaining M4b work is live-cluster work: complete amd64 image
+  builds on a builder with enough memory, push real nagare-access/shomei/en image references or
   replace the templates with verified release digests, apply the shomei/en/nagare-access
-  workloads, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds against the
-  installed bundle.
+  workloads to the target `nagare-01` context, verify Ready status, and prove `nagarectl`'s M3
+  preflight succeeds against the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -1177,6 +1181,65 @@ $ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system describ
 Warning  Failed  ...  Failed to pull image "docker.io/mzabani/codd:latest": ... json: cannot unmarshal string into Go struct field ImageConfig.config.Entrypoint of type []string
 ```
 
+**M4b local-source image helper evidence (2026-06-25).** The auth-plane image gap is now
+represented by checked-in build machinery instead of only README instructions. The new
+`cluster/bootstrap/auth-images/build-local-image.sh` helper builds one of `nagare-access`,
+`shomei`, or `en` from a temporary Docker context containing local checkouts of Nagare, shomei,
+en, codd, hs-jose, and webauthn. The helper generates a Cabal workspace that uses local package
+paths for shomei/en rather than Cabal `source-repository-package` private GitHub fetches, uses
+`haskell:9.12.4` to match the shomei/en workspaces, defaults to `linux/amd64`, and exposes
+`NAGARE_AUTH_PUSH=0` for no-push validation. `cluster/bootstrap/shomei/build-image.sh` and
+`cluster/bootstrap/en/build-image.sh` are thin wrappers over the common helper, while
+`cluster/bootstrap/nagare-access/build-image.sh` can opt into the local-source path with
+`NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`.
+
+Cheap validation passed:
+
+```text
+$ bash -n cluster/bootstrap/auth-images/build-local-image.sh
+$ bash -n cluster/bootstrap/nagare-access/build-image.sh
+$ bash -n cluster/bootstrap/shomei/build-image.sh
+$ bash -n cluster/bootstrap/en/build-image.sh
+$ git diff --check
+```
+
+No-push Docker validation of the `en` image reached the generated local Cabal workspace and did
+not fail on missing private source repositories, but this local Docker VM could not complete the
+amd64 build. The builder is an aarch64 Colima VM with 8 GB RAM emulating `linux/amd64`, and
+BuildKit killed Cabal for memory even after the Dockerfile defaulted to `--jobs=1`. The target
+cluster needs amd64 images, so M4b still needs a native/larger amd64 builder or a remote build
+before the manifests can be applied.
+
+```text
+$ docker manifest inspect docker.io/library/haskell:9.12.4 >/dev/null && echo haskell-9.12.4-ok
+haskell-9.12.4-ok
+
+$ NAGARE_AUTH_PUSH=0 cluster/bootstrap/en/build-image.sh test-local
+...
+#15 104.7 Killed
+ERROR: failed to build: failed to solve: ResourceExhausted: process "... cabal build exe:en-server ..." did not complete successfully: cannot allocate memory
+
+$ NAGARE_AUTH_PUSH=0 cluster/bootstrap/en/build-image.sh test-local
+...
+#15 135.9 Killed
+ERROR: failed to build: failed to solve: ResourceExhausted: process "... cabal build ${CABAL_BUILD_FLAGS} ${CABAL_TARGETS} ..." did not complete successfully: cannot allocate memory
+
+$ docker info --format 'arch={{.Architecture}} os={{.OSType}} cpus={{.NCPU}} mem={{.MemTotal}}'
+arch=aarch64 os=linux cpus=4 mem=8308084736
+
+$ colima status
+arch: aarch64
+runtime: docker
+```
+
+Live apply validation was deliberately not attempted in this slice because the active Kubernetes
+context was not the target `nagare-01` k3s cluster.
+
+```text
+$ kubectl config current-context
+sennari
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
@@ -1624,8 +1687,8 @@ Record every decision made while working on the plan.
   en-owned migration executable once a valid image exists.
   Date: 2026-06-25
 
-- Decision: **Keep shomei/en image references operator-provided until their image build paths are
-  verified.** shomei advertises `packages.dockerImage` in `flake.module.nix`, but
+- Decision: **Temporarily kept shomei/en image references operator-provided until their image
+  build paths were verified.** shomei advertises `packages.dockerImage` in `flake.module.nix`, but
   `SHOMEI_PUSH=0 cluster/bootstrap/shomei/build-image.sh test-local` failed during validation
   when `nix build ../shomei#dockerImage` reached `cabal2nix` and found neither a root `.cabal`
   file nor `package.yaml`. That helper was not kept. en's inspected source has no Dockerfile or
@@ -1674,6 +1737,25 @@ Record every decision made while working on the plan.
   from being accidentally applied as real credentials, and avoids Kubernetes Service name
   collisions with the auth services named `shomei` and `en`. The remaining `nagare-access`
   cookie-key example uses a `.tmpl` suffix for the same reason.
+  Date: 2026-06-25
+
+- Decision: **Build auth-plane images from local source checkouts when upstream release images
+  are unavailable.** `cluster/bootstrap/auth-images/build-local-image.sh` now constructs a
+  temporary Docker context containing Nagare plus local shomei, en, codd, hs-jose, and webauthn
+  checkouts, writes a service-specific `cabal.project` with local package paths, and builds
+  one of `nagare-access`, `shomei`, or `en` with the shared
+  `cluster/bootstrap/auth-images/Dockerfile.local-haskell`. The helper defaults to
+  `haskell:9.12.4`, `linux/amd64`, `NAGARE_AUTH_CABAL_BUILD_FLAGS=--jobs=1`, and Artifact
+  Registry-compatible image names, while `NAGARE_AUTH_PUSH=0` keeps validation local.
+  `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh` delegate
+  directly to it, and `cluster/bootstrap/nagare-access/build-image.sh` opts into it with
+  `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`.
+  Rationale: The earlier clean Docker path still required private GitHub credentials for Cabal
+  to fetch `shinzui/shomei` and `shinzui/en`, and shomei/en do not currently publish working
+  release images. A local-source context makes the install contract explicit and reproducible
+  from the checked-out dependency source already required by this plan. The first no-push amd64
+  validation reached Cabal but exhausted the local aarch64 Colima VM while emulating amd64, so
+  final M4b image publication still requires a native or larger amd64 builder.
   Date: 2026-06-25
 
 
@@ -2676,3 +2758,11 @@ Contracts at milestone boundaries:
   `docs/user/README.md`, covering the opt-in config field, auth-plane bootstrap, grant
   commands, request behavior, cookie/security model, protected-hello verification flow, and
   future Envoy Gateway direction. Live transcripts remain tracked under M5b.
+
+- 2026-06-25 — Added and recorded the local-source auth-plane image builder. The repo now has a
+  shared `cluster/bootstrap/auth-images/` Dockerfile/helper plus shomei/en wrappers, and
+  `nagare-access` can opt into the same local-source context. Updated M4b Progress, Surprises &
+  Discoveries, Decision Log, and bootstrap READMEs to reflect that image references are no
+  longer purely operator-provided, while live M4b remains open because amd64 no-push validation
+  exhausted the local aarch64 Colima builder and the active Kubernetes context was not the
+  target `nagare-01` cluster.

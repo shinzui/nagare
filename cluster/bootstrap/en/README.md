@@ -14,13 +14,25 @@ object app {
 }
 ```
 
-Before serving real traffic, run en's PostgreSQL migrations from the en release
-artifact against the database in `EN_DATABASE_URL`; `en-server` expects the
-schema tables to exist at startup. The current en repository does not publish a
-container image or a migration executable; the `image:` in `service.yaml` is an
-operator-provided release image until en publishes one or Nagare adds an en
-image helper. Build and mirror an `en-server` image from the en repository, then
-edit `service.yaml` before applying it.
+Before serving real traffic, run en's PostgreSQL migrations against the database
+in `EN_DATABASE_URL`; `en-server` expects the schema tables to exist at startup.
+Build the `en-server` image from the local en checkout with:
+
+```bash
+cluster/bootstrap/en/build-image.sh
+```
+
+The script delegates to `cluster/bootstrap/auth-images/build-local-image.sh`,
+which assembles a temporary Docker context from the local Nagare, shomei, en,
+codd, hs-jose, and webauthn checkouts. It builds for `linux/amd64`, tags the
+image as
+`$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/en:<git-sha>`,
+pushes it by default, and prints the image reference. Set `NAGARE_AUTH_PUSH=0`
+to build locally without pushing. Edit `service.yaml` to use the printed image
+before applying.
+
+Override `EN_SRC` or `CODD_SRC` if the local checkouts live somewhere other than
+the helper's default paths.
 
 The service and migration Job both read `POSTGRES_USER`, `POSTGRES_PASSWORD`,
 and `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-en-db`. The
@@ -48,6 +60,7 @@ kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply 
 nagarectl db create postgres en-db --namespace nagare-system
 kubectl apply -f cluster/bootstrap/en/migrations.yaml
 kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
+cluster/bootstrap/en/build-image.sh
 kubectl apply -f cluster/bootstrap/en/configmap.yaml
 kubectl apply -f cluster/bootstrap/en/service.yaml
 ```

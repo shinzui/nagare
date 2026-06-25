@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+if [[ "${NAGARE_AUTH_LOCAL_SOURCES:-0}" == "1" || "${NAGARE_ACCESS_LOCAL_SOURCES:-0}" == "1" ]]; then
+  exec "$ROOT/cluster/bootstrap/auth-images/build-local-image.sh" nagare-access "$@"
+fi
+
 REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
 ARTIFACT_REPOSITORY="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
 PLATFORM="${NAGARE_CONTAINER_PLATFORM:-linux/amd64}"

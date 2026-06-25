@@ -22,11 +22,14 @@ consumes it as a BuildKit secret and removes the temporary Git rewrite before
 committing the build layer. Edit `service.yaml` to use the printed image before
 applying.
 
-shomei advertises a Nix flake `.#dockerImage` output, but validation from this
-Nagare worktree currently fails before it produces an image. en does not
-currently expose an equivalent image build output. Their bootstrap manifests
-therefore keep operator-provided image references until those upstream images
-are fixed/published or Nagare adds dedicated, verified build helpers for them.
+To avoid private GitHub fetches during Docker build, set
+`NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
+delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
+temporary context from the local Nagare, shomei, en, codd, hs-jose, and webauthn
+checkouts before building the same `nagare-access` executable.
+
+shomei and en now have matching local-source image helpers at
+`cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`.
 Their manifests expect managed PostgreSQL databases named `shomei-db` and
 `en-db` in the `nagare-system` namespace, created with
 `nagarectl db create postgres ...`.
