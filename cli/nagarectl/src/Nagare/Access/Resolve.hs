@@ -96,11 +96,8 @@ authPlaneMissingMessage :: Text
 authPlaneMissingMessage =
   T.unlines
     [ "this site sets `access = requireLogin`, but the nagare auth plane is not installed."
-    , "       Install it once with:"
-    , "         kubectl apply -f cluster/bootstrap/shomei/"
-    , "         kubectl apply -f cluster/bootstrap/en/"
-    , "         kubectl apply -f cluster/bootstrap/nagare-access/"
-    , "       Then redeploy. (See docs/user/access.md.)"
+    , "       Install it once with the managed DB, shomei, en, and nagare-access sequence in docs/user/access.md."
+    , "       Then redeploy."
     ]
 
 -- | Resolve one host as an existing custom DomainMapping. The route-aware

@@ -28,11 +28,27 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            - name: PG_CONNECTION_STRING
+            - name: PGHOST
+              value: shomei-db.nagare-system.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
               valueFrom:
                 secretKeyRef:
-                  name: shomei-db
-                  key: PG_CONNECTION_STRING
+                  name: nagare-db-shomei-db
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-shomei-db
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-shomei-db
+                  key: POSTGRES_DB
+            - name: PG_CONNECTION_STRING
+              value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
             - name: SHOMEI_PORT
               value: "8080"
             - name: SHOMEI_ISSUER

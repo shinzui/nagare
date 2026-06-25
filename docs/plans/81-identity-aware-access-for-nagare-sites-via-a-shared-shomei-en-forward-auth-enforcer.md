@@ -220,13 +220,20 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   cookie-key Secret template.
 - [ ] **M4b — Remaining live bootstrap hardening and verification.** Local bootstrap hardening
   progressed on 2026-06-24: shomei/en image provenance is now documented from the dependency
-  source, `cluster/bootstrap/en/migrations.yaml` runs en's codd migrations as an explicit
+  source, `cluster/bootstrap/en/migrations.yaml` runs en's SQL migrations as an explicit
   Kubernetes Job before `en-server` starts, `nagare-system` now exists on the target `nagare-01`
   cluster, all auth-plane manifests pass server-side dry-run against that cluster, and the safe
   live prerequisites (`en-schema`, empty backend map, real `nagare-access` cookie-key Secret)
-  are applied. Remaining M4b work is live-cluster work: build and push real
-  nagare-access/shomei/en images or replace the templates with verified release digests, create
-  real auth-plane database Secrets, run the en migration Job, apply the shomei/en/nagare-access
+  are applied. On 2026-06-25, the shomei/en bootstrap manifests were aligned with Nagare's
+  managed database Secret contract: shomei now reads `PG_CONNECTION_STRING` from
+  `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from `nagare-db-shomei-db`, and en
+  plus the en migration Job read the same key set from `nagare-db-en-db`; the stale bespoke
+  shomei/en Secret templates were removed. A live attempt to use database name `shomei` exposed
+  a Service-name collision with the auth service, so the managed databases are named
+  `shomei-db` and `en-db`. The corrected managed PostgreSQL databases are live and Ready on
+  `nagare-01`, and the replacement psql-based `en-migrate` Job completed successfully.
+  Remaining M4b work is live-cluster work: build and push real nagare-access/shomei/en images or
+  replace the templates with verified release digests, apply the shomei/en/nagare-access
   workloads, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds against the
   installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
@@ -1048,6 +1055,128 @@ NAME                   TYPE     DATA   AGE
 secret/nagare-access   Opaque   1      33s
 ```
 
+**M4b managed-database Secret alignment (2026-06-25).** A source check of Nagare's managed DB
+code showed that `nagarectl db create postgres <name> --namespace <ns>` renders an Opaque
+Secret named `nagare-db-<name>` with keys `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB`,
+and `DATABASE_URL`, where the URL points at `<name>.<namespace>.svc.cluster.local:5432`. The
+auth-plane manifests previously expected bespoke Secrets named `shomei-db` and `en-db`, which
+would have required a parallel manual credential path and made `kubectl apply -f
+cluster/bootstrap/shomei/` or `cluster/bootstrap/en/` accidentally apply placeholder Secrets.
+The current manifests now reuse Nagare's managed DB contract directly: `shomei` reads
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from Secret `nagare-db-shomei-db`,
+while `en` and `en-migrate` read the same key set from Secret `nagare-db-en-db`. The shomei/en
+`secret.example.yaml` files were removed; the only remaining hand-edited Secret template in
+the auth plane is the `nagare-access` cookie key, and it is named
+`secret.example.yaml.tmpl` so directory-wide `kubectl apply -f cluster/bootstrap/nagare-access/`
+cannot accidentally apply the placeholder over the real Secret.
+
+Validation:
+
+```text
+$ ruby -e 'require "yaml"; ARGV.each { |p| YAML.load_stream(File.read(p)); puts "ok #{p}" }' \
+    cluster/bootstrap/shomei/service.yaml \
+    cluster/bootstrap/en/service.yaml \
+    cluster/bootstrap/en/configmap.yaml \
+    cluster/bootstrap/en/migrations.yaml \
+    cluster/bootstrap/nagare-access/service.yaml \
+    cluster/bootstrap/nagare-access/configmap.yaml \
+    cluster/bootstrap/nagare-access/secret.example.yaml.tmpl
+ok cluster/bootstrap/shomei/service.yaml
+ok cluster/bootstrap/en/service.yaml
+ok cluster/bootstrap/en/configmap.yaml
+ok cluster/bootstrap/en/migrations.yaml
+ok cluster/bootstrap/nagare-access/service.yaml
+ok cluster/bootstrap/nagare-access/configmap.yaml
+ok cluster/bootstrap/nagare-access/secret.example.yaml.tmpl
+```
+
+The first live managed DB create used the database name `shomei`, which created a Service named
+`shomei` and therefore conflicted with the planned shomei auth Service. Those empty, just-created
+resources were deleted, and the contract was corrected to use managed DB names `shomei-db` and
+`en-db`. Applying those dry-run-rendered managed DB manifests through remote `sudo k3s kubectl`
+created Ready StatefulSets and nonempty managed Secret keys without storing the generated
+passwords in repository files.
+
+```text
+$ nix develop --command cabal exec -v0 nagarectl -- db create postgres shomei-db --namespace nagare-system --dry-run | ... | scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply -f -'
+secret/nagare-db-shomei-db created
+persistentvolumeclaim/nagare-db-shomei-db-data created
+service/shomei-db created
+statefulset.apps/shomei-db created
+cronjob.batch/nagare-dbbackup-shomei-db created
+
+$ nix develop --command cabal exec -v0 nagarectl -- db create postgres en-db --namespace nagare-system --dry-run | ... | scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply -f -'
+secret/nagare-db-en-db created
+persistentvolumeclaim/nagare-db-en-db-data created
+service/en-db created
+statefulset.apps/en-db created
+cronjob.batch/nagare-dbbackup-en-db created
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get statefulset,service,pvc,secret,cronjob | grep -E "shomei-db|en-db|nagare-db"'
+statefulset.apps/en-db       1/1     25s
+statefulset.apps/shomei-db   1/1     24s
+service/en-db                ClusterIP   ...   5432/TCP
+service/shomei-db            ClusterIP   ...   5432/TCP
+secret/nagare-db-en-db       Opaque      4
+secret/nagare-db-shomei-db   Opaque      4
+```
+
+The initial codd-based en migration Job could not run on `nagare-01`: containerd rejected
+`docker.io/mzabani/codd:latest` because the image config encodes `Entrypoint` as a string
+instead of the OCI array shape. The local codd source's Nix image definition uses the same
+string `Entrypoint`, so the bootstrap switched to a `postgres:18`/`psql` Job that applies en's
+two SQL migration files only when `public.relation_tuple` is absent. This keeps the current
+first-install path idempotent with an image the cluster already pulls, and it should be replaced
+with codd when en publishes a valid migration image or executable.
+
+The replacement psql Job initially used the managed `DATABASE_URL` key and failed because the
+generated password contained URL metacharacters that were not percent-encoded. The auth-plane
+manifests now avoid the managed URL key and consume `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` separately. shomei and en construct libpq keyword connection strings inside the
+container, and the migration Job uses `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and
+`PGDATABASE`.
+
+After replacing the failed Job with the `PG*` version, the live migration completed and the
+current `nagare-system` namespace contains Ready managed DB StatefulSets, the completed
+migration Job, the en schema/migrations/backend-map ConfigMaps, and the real nagare-access
+cookie Secret. shomei, en, and nagare-access workloads are still intentionally not applied
+because their real image references are unresolved.
+
+```text
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=180s'
+job.batch/en-migrate condition met
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system logs job/en-migrate --tail=80'
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get all,configmap,secret,ksvc,domainmapping --ignore-not-found'
+pod/en-db-0            1/1     Running
+pod/en-migrate-4tqqq   0/1     Completed
+pod/shomei-db-0        1/1     Running
+statefulset.apps/en-db       1/1
+statefulset.apps/shomei-db   1/1
+job.batch/en-migrate   Complete   1/1
+configmap/en-migrations            2
+configmap/en-schema                1
+configmap/nagare-access-backends   1
+secret/nagare-access         Opaque   1
+secret/nagare-db-en-db       Opaque   4
+secret/nagare-db-shomei-db   Opaque   4
+```
+
+```text
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system describe pod/en-migrate-jtg4g | tail -n 60'
+Warning  Failed  ...  Failed to pull image "docker.io/mzabani/codd:latest": ... json: cannot unmarshal string into Go struct field ImageConfig.config.Entrypoint of type []string
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
@@ -1213,10 +1342,10 @@ Record every decision made while working on the plan.
 - Decision: **`nagarectl` preflights enforcer presence before wiring a protected site, and fails
   closed with an actionable error if the auth plane is absent.** When `resolveAccess` is asked to
   protect a host (`Just policy`) it first checks the enforcer Service exists in `nagare-system`;
-  if not, the deploy aborts with a message naming the fix (`access=requireLogin requires the auth
-  plane — run: kubectl apply -f cluster/bootstrap/nagare-access/`) and the route is **not**
-  repointed. Without this, M3 would silently repoint a host's route at a nonexistent enforcer
-  Service and break the site with an opaque 5xx.
+  if not, the deploy aborts with a message pointing at the managed DB, shomei, en, and
+  nagare-access install sequence in `docs/user/access.md`, and the route is **not** repointed.
+  Without this, M3 would silently repoint a host's route at a nonexistent enforcer Service and
+  break the site with an opaque 5xx.
   Rationale: Closes the gap that "the plane is optional" otherwise opens; preserves the
   fail-closed property (a broken-but-loud deploy beats a silently dead site).
   Date: 2026-06-24
@@ -1479,21 +1608,21 @@ Record every decision made while working on the plan.
   wiring.
   Date: 2026-06-24
 
-- Decision: **Run en migrations with an explicit codd Job and no expected-schema check for the
-  first bootstrap bundle.** en's `en-migrations` package currently ships SQL files and a
-  `migrationsDir` pointer, but no standalone migration executable and no codd
-  expected-schema snapshot. The Kubernetes bootstrap therefore mounts those SQL files into
-  `cluster/bootstrap/en/migrations.yaml` with codd-compatible dashed timestamp keys and runs
-  `codd up --no-check --wait 60` with `CODD_CONNECTION` sourced from the `en-db` Secret. This
-  mirrors shomei's production migration behavior, where `runShomeiMigrationsNoCheck` applies
-  embedded SQL at startup without schema verification. If en later publishes an embedded
-  migration binary or expected schema snapshot, this Job should be replaced with that release
-  artifact and `--strict-check`.
+- Decision: **Run en migrations with a `postgres:18` psql bootstrap Job until en publishes a
+  valid migration image or executable.** en's `en-migrations` package currently ships SQL files
+  and a `migrationsDir` pointer, but no standalone migration executable. The first bootstrap
+  attempted to run those SQL files through codd, but `docker.io/mzabani/codd:latest` is not
+  pullable by the target cluster's containerd because its image config has a string `Entrypoint`;
+  the local codd Nix image definition has the same issue. The Kubernetes bootstrap therefore
+  mounts en's two SQL files into `cluster/bootstrap/en/migrations.yaml` and runs `psql` from
+  `postgres:18` against Secret `nagare-db-en-db` keys `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+  `POSTGRES_DB`. The script checks `to_regclass('public.relation_tuple')` first and exits
+  successfully when the schema is already present.
   Rationale: `en-server` fails if its tables do not exist, so migrations must be part of the
-  install workflow. A codd Job is idempotent and matches the actual tool contract, while
-  strict verification would be misleading until en ships the schema files needed to make it
-  meaningful.
-  Date: 2026-06-24
+  install workflow. The psql Job is narrower than codd but idempotent for the current en schema
+  and uses an image the cluster already needs for managed Postgres. Replace it with codd or an
+  en-owned migration executable once a valid image exists.
+  Date: 2026-06-25
 
 - Decision: **Keep shomei/en image references operator-provided until their image build paths are
   verified.** shomei advertises `packages.dockerImage` in `flake.module.nix`, but
@@ -1530,6 +1659,22 @@ Record every decision made while working on the plan.
   token into the image or repository. BuildKit secrets are the narrowest available mechanism for
   the current Cabal source-repository-package setup.
   Date: 2026-06-24
+
+- Decision: **Use Nagare managed databases named `shomei-db` and `en-db` instead of bespoke auth-plane DB
+  Secrets.** The bootstrap manifests now expect the `nagare-system` namespace to exist, then
+  `nagarectl db create postgres shomei-db --namespace nagare-system` and
+  `nagarectl db create postgres en-db --namespace nagare-system` to create the PostgreSQL
+  StatefulSets, Services, and managed credential Secrets. shomei maps Secret
+  `nagare-db-shomei-db` keys `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` into a
+  libpq keyword `PG_CONNECTION_STRING`. en maps Secret `nagare-db-en-db` keys `POSTGRES_USER`,
+  `POSTGRES_PASSWORD`, and `POSTGRES_DB` into a libpq keyword `EN_DATABASE_URL`; the
+  `en-migrate` Job consumes the same keys through standard `PG*` environment variables.
+  Rationale: This reuses the existing Nagare DB lifecycle, backup, and Secret naming contract,
+  avoids a second manual credential format, prevents placeholder shomei/en Secret templates
+  from being accidentally applied as real credentials, and avoids Kubernetes Service name
+  collisions with the auth services named `shomei` and `en`. The remaining `nagare-access`
+  cookie-key example uses a `.tmpl` suffix for the same reason.
+  Date: 2026-06-25
 
 
 ## Outcomes & Retrospective
@@ -2064,11 +2209,8 @@ What exists at the end, in `cli/nagarectl/src/Nagare/`:
 
      ```text
      error: this site sets `access = requireLogin`, but the nagare auth plane is not installed.
-            Install it once with:
-              kubectl apply -f cluster/bootstrap/shomei/
-              kubectl apply -f cluster/bootstrap/en/
-              kubectl apply -f cluster/bootstrap/nagare-access/
-            Then redeploy. (See docs/user/access.md.)
+            Install it once with the managed DB, shomei, en, and nagare-access sequence in docs/user/access.md.
+            Then redeploy.
      ```
 
      This guarantees a protected site is never wired to a nonexistent enforcer (which would yield
@@ -2244,12 +2386,21 @@ M4/M5 (nagare repo), against the configured target cluster (never another projec
 ```bash
 # bootstrap the auth plane (idempotent). The cluster-wide bootstrap entrypoint is the justfile
 # recipe `just cluster-bootstrap` (NOT scripts/bootstrap-cluster.sh, which does not exist).
-# The new components follow the nagared precedent — a directory of kubectl-apply manifests
-# applied by the operator:
+# The new components follow the nagared precedent: apply-able manifests plus a hand-edited
+# Secret template for operator-owned secret material.
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f cluster/bootstrap/shomei/
-kubectl apply -f cluster/bootstrap/en/
-kubectl apply -f cluster/bootstrap/nagare-access/
+nagarectl db create postgres shomei-db --namespace nagare-system
+nagarectl db create postgres en-db --namespace nagare-system
+kubectl apply -f cluster/bootstrap/shomei/service.yaml
+kubectl apply -f cluster/bootstrap/en/migrations.yaml
+kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
+kubectl apply -f cluster/bootstrap/en/configmap.yaml
+kubectl apply -f cluster/bootstrap/en/service.yaml
+cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
+# edit /tmp/nagare-access-secret.yaml: set cookie-key to a long random value
+kubectl apply -f /tmp/nagare-access-secret.yaml
+kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
+kubectl apply -f cluster/bootstrap/nagare-access/service.yaml
 
 # deploy the protected example
 nagarectl app deploy --config cluster/examples/protected-hello

@@ -89,35 +89,46 @@ spec:
     spec:
       restartPolicy: OnFailure
       containers:
-        - name: codd
-          image: docker.io/mzabani/codd:latest
-          imagePullPolicy: Always
+        - name: migrate
+          image: postgres:18
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ceu
           args:
-            - up
-            - --no-check
-            - --wait
-            - "60"
+            - |
+              if [ "$(psql -tAc "select to_regclass('public.relation_tuple') is not null")" = "t" ]; then
+                echo "en schema already present; skipping"
+                exit 0
+              fi
+
+              psql -v ON_ERROR_STOP=1 -f /migrations/2026-06-23-04-41-57-create-relation-tuples.sql
+              psql -v ON_ERROR_STOP=1 -f /migrations/2026-06-23-16-00-00-historical-read-indexes.sql
           env:
-            - name: CODD_CONNECTION
+            - name: PGHOST
+              value: en-db.nagare-system.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
               valueFrom:
                 secretKeyRef:
-                  name: en-db
-                  key: EN_DATABASE_URL
-            - name: CODD_MIGRATION_DIRS
-              value: /migrations
-            - name: CODD_EXPECTED_SCHEMA_DIR
-              value: /tmp/codd-expected-schema
-            - name: CODD_SCHEMAS
-              value: public
+                  name: nagare-db-en-db
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_DB
           volumeMounts:
             - name: migrations
               mountPath: /migrations
               readOnly: true
-            - name: expected-schema
-              mountPath: /tmp/codd-expected-schema
       volumes:
         - name: migrations
           configMap:
             name: en-migrations
-        - name: expected-schema
-          emptyDir: {}
