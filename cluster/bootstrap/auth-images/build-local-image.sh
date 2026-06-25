@@ -28,8 +28,6 @@ Relevant environment variables:
   SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
   EN_SRC=<path>                  Default: ../en sibling checkout.
   CODD_SRC=<path>                Default: local mori codd checkout package dir.
-  JOSE_SRC=<path>                Default: local mori hs-jose package dir.
-  WEBAUTHN_SRC=<path>            Default: local mori webauthn package dir.
 USAGE
 }
 
@@ -96,10 +94,8 @@ fi
 shomei_src="${SHOMEI_SRC:-/Users/shinzui/Keikaku/bokuno/shomei}"
 en_src="${EN_SRC:-/Users/shinzui/Keikaku/bokuno/en}"
 codd_src="${CODD_SRC:-/Users/shinzui/Keikaku/hub/haskell/codd-project/codd}"
-jose_src="${JOSE_SRC:-/Users/shinzui/Keikaku/hub/haskell/jose-project/hs-jose}"
-webauthn_src="${WEBAUTHN_SRC:-/Users/shinzui/Keikaku/hub/haskell/webauthn-project/webauthn}"
 
-for path in "$shomei_src" "$en_src" "$codd_src" "$jose_src" "$webauthn_src"; do
+for path in "$shomei_src" "$en_src" "$codd_src"; do
   [[ -d "$path" ]] || fail "required source directory does not exist: $path"
 done
 
@@ -132,16 +128,36 @@ copy_tree "$root" "$tmpdir/workspace/nagare"
 copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
 copy_tree "$en_src" "$tmpdir/workspace/en"
 copy_tree "$codd_src" "$tmpdir/workspace/deps/codd"
-copy_tree "$jose_src" "$tmpdir/workspace/deps/jose"
-copy_tree "$webauthn_src" "$tmpdir/workspace/deps/webauthn"
 
 write_common_cabal_tail() {
   cat <<'EOF'
   deps/codd
-  deps/jose
-  deps/webauthn
+
+source-repository-package
+  type: git
+  location: https://github.com/sumo/hs-jose.git
+  tag: d00ad1794287ddd2d839b927690b580e58183fd9
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/servant-openapi.git
+  tag: 558b7b9ee3aaf3bff70a4cf1d6c8e2ed4eaccbde
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/openapi-hs.git
+  tag: dfcd77d1af494fb3b968c7318e09830f4882dbcc
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/webauthn.git
+  tag: c274e23a5e31aac8932bac6398b65e8bca584a99
 
 package codd
+  tests: False
+  benchmarks: False
+
+package jose
   tests: False
   benchmarks: False
 

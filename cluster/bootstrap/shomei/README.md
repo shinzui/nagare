@@ -12,7 +12,8 @@ cluster/bootstrap/shomei/build-image.sh
 
 The script delegates to `cluster/bootstrap/auth-images/build-local-image.sh`,
 which assembles a temporary Docker context from the local Nagare, shomei, en,
-codd, hs-jose, and webauthn checkouts. It builds for `linux/amd64`, tags the
+codd checkout, plus pinned public git dependencies for jose, servant-openapi,
+openapi-hs, and the Shomei WebAuthn fork. It builds for `linux/amd64`, tags the
 image as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/shomei:<git-sha>`,
 pushes it by default, and prints the image reference. Set `NAGARE_AUTH_PUSH=0`
@@ -39,8 +40,8 @@ printed image in `service.yaml`; `dev.local` is already skipped by Knative's
 controller-side tag resolver, and the non-`latest` tag lets kubelet use the
 locally imported image.
 
-Override `SHOMEI_SRC`, `CODD_SRC`, `JOSE_SRC`, or `WEBAUTHN_SRC` if the local
-dependency checkouts live somewhere other than the helper's default paths.
+Override `SHOMEI_SRC` or `CODD_SRC` if the local dependency checkouts live
+somewhere other than the helper's default paths.
 
 shomei's server startup runs database migrations idempotently and ensures an
 active signing key. The manifest reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and

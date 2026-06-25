@@ -25,8 +25,10 @@ applying.
 To avoid private GitHub fetches during Docker build, set
 `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
 delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
-temporary context from the local Nagare, shomei, en, codd, hs-jose, and webauthn
-checkouts before building the same `nagare-access` executable.
+temporary context from the local Nagare, shomei, en, and codd checkouts plus
+pinned public git dependencies for jose, servant-openapi, openapi-hs, and the
+Shomei WebAuthn fork before building the same
+`nagare-access` executable.
 
 On Apple Silicon or another non-amd64 local Docker host, combine the local-source
 path with Cloud Build for the real amd64 image:
