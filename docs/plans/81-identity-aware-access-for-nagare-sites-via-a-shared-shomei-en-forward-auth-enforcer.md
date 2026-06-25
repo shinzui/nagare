@@ -246,11 +246,12 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   succeeded after the generated Cabal workspace stopped using stale local `hs-jose` and
   `tweag/webauthn` checkouts and instead pinned `hs-jose@d00ad179`,
   `servant-openapi@558b7b9`, `openapi-hs@dfcd77d`, and the Shomei WebAuthn fork at
-  `c274e23`; it imported `dev.local/nagare-auth/shomei:k3s-test`. Remaining M4b work is
-  live-cluster work: complete the nagare-access image build/import or push a real image
-  reference, apply the shomei/en/nagare-access workloads to the target `nagare-01` context with
-  non-latest imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight
-  succeeds against the installed bundle.
+  `c274e23`; it imported `dev.local/nagare-auth/shomei:k3s-test`. The
+  `nagare-access` local-source build also completed on `nagare-01` with those pins and imported
+  `dev.local/nagare-auth/nagare-access:k3s-test`. Remaining M4b work is live-cluster work:
+  apply the shomei/en/nagare-access workloads to the target `nagare-01` context with non-latest
+  imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds
+  against the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -1365,6 +1366,24 @@ Successfully tagged dev.local/nagare-auth/shomei:k3s-test
 $ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/shomei:k3s-test'
 REF                                      TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
 dev.local/nagare-auth/shomei:k3s-test   application/vnd.docker.distribution.manifest.v2+json  sha256:da00b800d6bc702f4a832d70c7a884cf4acf2dab103c0f03d7bf801e58673a3b  345.7 MiB linux/amd64 io.cri-containerd.image=managed
+```
+
+The `nagare-access` wrapper used the same generated local-source workspace and remote
+`k3s-import` builder. The build compiled the local `en-*`, `shomei-*`, and `nagare-access`
+packages, linked the `nagare-access` executable, committed the runtime image, imported it into
+k3s, and verified the imported image by exact name:
+
+```text
+$ NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/nagare-access/build-image.sh k3s-test
+...
+Linking .../nagare-access
+Successfully tagged dev.local/nagare-auth/nagare-access:k3s-test
+REF                                          TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
+dev.local/nagare-auth/nagare-access:k3s-test application/vnd.docker.distribution.manifest.v2+json sha256:9d7cb460dd8247a1f3ec10762bc74393223f2a560d80f9da707a3020f19ddbdd 200.5 MiB linux/amd64 io.cri-containerd.image=managed
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/nagare-access:k3s-test'
+REF                                          TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
+dev.local/nagare-auth/nagare-access:k3s-test application/vnd.docker.distribution.manifest.v2+json sha256:9d7cb460dd8247a1f3ec10762bc74393223f2a560d80f9da707a3020f19ddbdd 200.5 MiB linux/amd64 io.cri-containerd.image=managed
 ```
 
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
@@ -2919,5 +2938,12 @@ Contracts at milestone boundaries:
   stale local `hs-jose` and upstream `tweag/webauthn` copies with public pins for
   `hs-jose@d00ad179`, `servant-openapi@558b7b9`, `openapi-hs@dfcd77d`, and
   `shinzui/webauthn@c274e23`. The target-node `k3s-import` run built and imported
-  `dev.local/nagare-auth/shomei:k3s-test`; M4b remains open for nagare-access image import plus
-  workload apply, Ready verification, and real `nagarectl` preflight evidence.
+  `dev.local/nagare-auth/shomei:k3s-test`; at that point M4b remained open for nagare-access
+  image import plus workload apply, Ready verification, and real `nagarectl` preflight evidence.
+
+- 2026-06-25 — Built and imported the `nagare-access` auth image on the target node using
+  `NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=k3s-import`. The imported k3s image is
+  `dev.local/nagare-auth/nagare-access:k3s-test` with digest
+  `sha256:9d7cb460dd8247a1f3ec10762bc74393223f2a560d80f9da707a3020f19ddbdd`. M4b now has all
+  three auth-plane images imported on `nagare-01`; remaining work is workload apply, Ready
+  verification, and real `nagarectl` preflight evidence.
