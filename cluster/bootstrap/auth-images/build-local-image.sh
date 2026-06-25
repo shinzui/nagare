@@ -10,7 +10,7 @@ private shomei/en repositories during Docker build.
 
 Relevant environment variables:
   NAGARE_AUTH_PUSH=0             Build locally without pushing.
-  NAGARE_AUTH_BUILDER=docker     Builder: docker or cloud-build.
+  NAGARE_AUTH_BUILDER=docker     Builder: docker, cloud-build, or k3s-import.
   NAGARE_AUTH_TAG=<tag>          Default tag when [tag] is omitted.
   NAGARE_AUTH_IMAGE=<image>      Exact image reference override.
   NAGARE_ACCESS_IMAGE=<image>    Exact image override for nagare-access.
@@ -23,6 +23,8 @@ Relevant environment variables:
   NAGARE_AUTH_CLOUD_BUILD_REGION=<region> Default: us-west1
   NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE=<type> Default: e2-highcpu-32
   NAGARE_AUTH_CLOUD_BUILD_TIMEOUT=<duration> Default: 2h
+  NAGARE_AUTH_REMOTE_INSTANCE=<instance> Default: nagare-01
+  NAGARE_AUTH_K3S_IMAGE_PREFIX=<prefix> Default: dev.local/nagare-auth
   SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
   EN_SRC=<path>                  Default: ../en sibling checkout.
   CODD_SRC=<path>                Default: local mori codd checkout package dir.
@@ -55,8 +57,8 @@ push="${NAGARE_AUTH_PUSH:-1}"
 builder="${NAGARE_AUTH_BUILDER:-docker}"
 
 case "$builder" in
-  docker|cloud-build) ;;
-  *) fail "unsupported NAGARE_AUTH_BUILDER=$builder; expected docker or cloud-build" ;;
+  docker|cloud-build|k3s-import) ;;
+  *) fail "unsupported NAGARE_AUTH_BUILDER=$builder; expected docker, cloud-build, or k3s-import" ;;
 esac
 
 if [[ "$builder" == "cloud-build" && "$push" != "1" ]]; then
@@ -81,6 +83,8 @@ esac
 
 if [[ -n "$image_override" ]]; then
   image="$image_override"
+elif [[ "$builder" == "k3s-import" ]]; then
+  image="${NAGARE_AUTH_K3S_IMAGE_PREFIX:-dev.local/nagare-auth}/${service}:${tag}"
 elif [[ -n "$project" && "$project" != "(unset)" ]]; then
   image="${registry_host}/${project}/${artifact_repository}/${service}:${tag}"
 elif [[ "$push" == "1" ]]; then
@@ -284,6 +288,52 @@ EOF
     --region "$region" \
     --machine-type "$machine_type" \
     --timeout "$timeout"
+elif [[ "$builder" == "k3s-import" ]]; then
+  remote_instance="${NAGARE_AUTH_REMOTE_INSTANCE:-nagare-01}"
+  safe_tag="${tag//[^A-Za-z0-9_.-]/-}"
+  archive="${TMPDIR:-/tmp}/nagare-auth-image-${service}-${safe_tag}-$$.tar.gz"
+  remote_archive="/tmp/nagare-auth-image-${service}-${safe_tag}-$$.tar.gz"
+  rm -f "$archive"
+  trap 'cleanup; rm -f "$archive"' EXIT
+  tar -C "$tmpdir" -czf "$archive" .
+  "$root/scripts/iap-ssh.sh" scp "$archive" "${remote_instance}:${remote_archive}"
+  remote_script=$(cat <<EOF
+set -euo pipefail
+remote_archive=$(printf '%q' "$remote_archive")
+image=$(printf '%q' "$image")
+platform=$(printf '%q' "$platform")
+cabal_targets=$(printf '%q' "${cabal_targets[*]}")
+cabal_binaries=$(printf '%q' "${cabal_binaries[*]}")
+cabal_build_flags=$(printf '%q' "${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}")
+workdir=\$(mktemp -d /tmp/nagare-auth-build.XXXXXX)
+cleanup() {
+  set +e
+  if [ -n "\${workdir:-}" ] && [ -d "\$workdir" ]; then
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman image rm "\$image" >/dev/null 2>&1 || true
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman system reset -f >/dev/null 2>&1 || true
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman unshare rm -rf "\$workdir/home/.local/share/containers" >/dev/null 2>&1 || true
+    rm -rf "\$workdir"
+  fi
+  rm -f "\$remote_archive"
+}
+trap cleanup EXIT
+tar -xzf "\$remote_archive" -C "\$workdir"
+mkdir -p "\$workdir/home/.config/containers"
+printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' > "\$workdir/home/.config/containers/policy.json"
+HOME="\$workdir/home" nix shell nixpkgs#podman -c podman build \
+  --platform "\$platform" \
+  --build-arg "CABAL_TARGETS=\$cabal_targets" \
+  --build-arg "CABAL_BINARIES=\$cabal_binaries" \
+  --build-arg "CABAL_BUILD_FLAGS=\$cabal_build_flags" \
+  -f "\$workdir/Dockerfile.local-haskell" \
+  -t "\$image" \
+  "\$workdir"
+HOME="\$workdir/home" nix shell nixpkgs#podman -c podman save -o "\$workdir/image.tar" "\$image"
+sudo k3s ctr images import "\$workdir/image.tar" >/dev/null
+sudo k3s ctr images list name=="\$image"
+EOF
+)
+  "$root/scripts/iap-ssh.sh" ssh "$remote_instance" -- "$remote_script"
 else
   docker build \
     --platform "$platform" \

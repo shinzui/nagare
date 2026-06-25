@@ -238,11 +238,15 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   GitHub fetches during image build. The helper now also supports
   `NAGARE_AUTH_BUILDER=cloud-build` for non-amd64 local hosts; Cloud Build was enabled in
   `tan-nb-exp`, but submitting the first `en` build failed because the only active gcloud account
-  lacks Cloud Build submit permission. Remaining M4b work is live-cluster work: complete amd64
-  image builds on a builder with enough memory and IAM, push real nagare-access/shomei/en image
-  references or replace the templates with verified release digests, apply the
-  shomei/en/nagare-access workloads to the target `nagare-01` context, verify Ready status, and
-  prove `nagarectl`'s M3 preflight succeeds against the installed bundle.
+  lacks Cloud Build submit permission. The helper now also supports
+  `NAGARE_AUTH_BUILDER=k3s-import` for the single-node `nagare-01` cluster: it builds on the
+  remote amd64 node with Podman through Nix, saves the image, and imports it directly into k3s
+  containerd under a `dev.local/nagare-auth/<service>:<tag>` name. The first real `en` build
+  succeeded and imported `dev.local/nagare-auth/en:k3s-test`. Remaining M4b work is live-cluster
+  work: complete shomei and nagare-access image builds/imports or push real image references,
+  apply the shomei/en/nagare-access workloads to the target `nagare-01` context with non-latest
+  imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds against
+  the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -1268,6 +1272,71 @@ ACCOUNT                     ACTIVE
 nadeem@topagentnetwork.com  *
 ```
 
+The helper then gained a single-node remote import mode for the real `nagare-01` cluster.
+`NAGARE_AUTH_BUILDER=k3s-import` sends the generated local-source context to `nagare-01`, builds
+with `podman` from `nixpkgs#podman`, saves the resulting image as a Docker archive, and imports it
+with `sudo k3s ctr images import`. The Dockerfile had to use fully qualified base-image names
+(`docker.io/library/haskell:9.12.4` and `docker.io/library/debian:bookworm-slim`) because Podman
+does not have Docker's default short-name behavior in the temporary build environment. The
+BuildKit cache mount was also removed from the shared Dockerfile because Podman/buildah does not
+support that Dockerfile frontend extension in this path.
+
+Before the real image build, a tiny Podman smoke test proved that `nagare-01` can build and import
+a `dev.local` image into k3s containerd. The `dev.local` prefix is already covered by Knative's
+tag-resolution skip configuration, and a non-`latest` tag lets Kubernetes use the imported local
+image with the default `IfNotPresent` pull policy.
+
+```text
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'uname -m; nix shell nixpkgs#podman -c podman --version; sudo k3s kubectl get nodes -o custom-columns=NAME:.metadata.name,ARCH:.status.nodeInfo.architecture,KUBELET:.status.nodeInfo.kubeletVersion'
+x86_64
+podman version 5.8.2
+NAME        ARCH    KUBELET
+nagare-01   amd64   v1.35.4+k3s1
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/podman-smoke:test'
+REF                                           TYPE                                                 DIGEST                                                                  SIZE     PLATFORMS   LABELS
+dev.local/nagare-auth/podman-smoke:test      application/vnd.docker.distribution.manifest.v2+json sha256:...                                                               ...      linux/amd64 io.cri-containerd.image=managed
+```
+
+The first real `en` image build initially reached the local `en-core` source and failed because
+`CaveatValue` derived `Lift`, but its `ValueTimestamp UTCTime` constructor has no `Lift UTCTime`
+instance under the repo's declared GHC 9.12.4 compiler. The fix is in the sibling `en` checkout:
+`en-core/src/En/Caveat/Value.hs` now has a manual `Lift CaveatValue` instance that lifts
+timestamps through their `Show`/`Read` representation. That dependency-side fix was validated
+locally before rerunning the remote image build, then committed in the `en` checkout as
+`a8bf91a fix(core): support lifting timestamp caveat values`.
+
+```text
+$ cd /Users/shinzui/Keikaku/bokuno/en
+$ nix develop --command cabal build en-core
+Build profile: -w ghc-9.12.4 -O1
+...
+Up to date
+
+$ nix develop --command cabal build exe:en-server
+Build profile: -w ghc-9.12.4 -O1
+...
+Linking .../en-server
+```
+
+With that patch in the generated context, the remote build compiled `en-server`, committed the
+runtime image, imported it into k3s, and verified the imported image by exact name.
+
+```text
+$ NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/en/build-image.sh k3s-test
+...
+[2/2] COMMIT dev.local/nagare-auth/en:k3s-test
+Successfully tagged dev.local/nagare-auth/en:k3s-test
+...
+REF                               TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
+dev.local/nagare-auth/en:k3s-test application/vnd.docker.distribution.manifest.v2+json sha256:c9c9a715e559a11f51c2cc5685fc3983bd1030b2d9e9a7682783752c2a957e97 173.5 MiB linux/amd64 io.cri-containerd.image=managed
+dev.local/nagare-auth/en:k3s-test
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s ctr images list name==dev.local/nagare-auth/en:k3s-test'
+REF                               TYPE                                                 DIGEST                                                                  SIZE      PLATFORMS   LABELS
+dev.local/nagare-auth/en:k3s-test application/vnd.docker.distribution.manifest.v2+json sha256:c9c9a715e559a11f51c2cc5685fc3983bd1030b2d9e9a7682783752c2a957e97 173.5 MiB linux/amd64 io.cri-containerd.image=managed
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
@@ -1779,7 +1848,10 @@ Record every decision made while working on the plan.
   directly to it, and `cluster/bootstrap/nagare-access/build-image.sh` opts into it with
   `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. The same helper supports
   `NAGARE_AUTH_BUILDER=cloud-build`, which uploads the generated context to Cloud Build, uses
-  Docker BuildKit, and defaults to an `e2-highcpu-32` remote builder for amd64 images.
+  Docker BuildKit, and defaults to an `e2-highcpu-32` remote builder for amd64 images. For the
+  current single-node `nagare-01` cluster, the helper also supports
+  `NAGARE_AUTH_BUILDER=k3s-import`, which builds with Podman on the remote amd64 node and imports
+  the resulting `dev.local/nagare-auth/<service>:<tag>` image directly into k3s containerd.
   Rationale: The earlier clean Docker path still required private GitHub credentials for Cabal
   to fetch `shinzui/shomei` and `shinzui/en`, and shomei/en do not currently publish working
   release images. A local-source context makes the install contract explicit and reproducible
@@ -1787,8 +1859,9 @@ Record every decision made while working on the plan.
   validation reached Cabal but exhausted the local aarch64 Colima VM while emulating amd64, so
   Cloud Build is the repeatable remote-builder path for non-amd64 local hosts. Cloud Build was
   enabled in `tan-nb-exp`, but the first submit failed with IAM `PERMISSION_DENIED` for the only
-  active gcloud account, so final M4b image publication still requires build-submit permission or
-  another amd64 builder.
+  active gcloud account. The `k3s-import` backend is the lowest-friction path for the current
+  single-node deployment because it avoids registry push/pull IAM entirely while still producing
+  the same amd64 image on the target machine; it is not a general multi-node distribution path.
   Date: 2026-06-25
 
 
@@ -2801,3 +2874,10 @@ Contracts at milestone boundaries:
   that image references are no longer purely operator-provided, while live M4b remains open
   because amd64 no-push validation exhausted the local aarch64 Colima builder, Cloud Build submit
   is blocked by IAM, and the active Kubernetes context was not the target `nagare-01` cluster.
+
+- 2026-06-25 — Added and recorded the `k3s-import` image-builder backend for the single-node
+  `nagare-01` cluster. The backend builds local-source auth-plane images on the remote amd64 node
+  with Podman from Nix and imports them directly into k3s containerd under
+  `dev.local/nagare-auth/<service>:<tag>` names. The first real `en` image build/import succeeded
+  as `dev.local/nagare-auth/en:k3s-test`; M4b remains open for shomei and nagare-access image
+  builds/imports, workload apply, Ready verification, and real `nagarectl` preflight evidence.

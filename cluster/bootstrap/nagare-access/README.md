@@ -35,6 +35,19 @@ path with Cloud Build for the real amd64 image:
 NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/nagare-access/build-image.sh
 ```
 
+For the single-node `nagare-01` cluster, combine the local-source path with the
+k3s import builder to build on the amd64 VM with Nix-provided podman and import
+the image into k3s containerd:
+
+```bash
+NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/nagare-access/build-image.sh
+```
+
+This prints an image such as `dev.local/nagare-auth/nagare-access:<git-sha>`.
+Use the printed image in `service.yaml`; `dev.local` is already skipped by
+Knative's controller-side tag resolver, and the non-`latest` tag lets kubelet use
+the locally imported image.
+
 shomei and en now have matching local-source image helpers at
 `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`.
 Their manifests expect managed PostgreSQL databases named `shomei-db` and
