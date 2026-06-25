@@ -15,8 +15,12 @@ cluster/bootstrap/nagare-access/build-image.sh
 The script builds `cli/nagare-access/Dockerfile` for `linux/amd64`, tags it as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/nagare-access:<git-sha>`,
 pushes it by default, and prints the image reference. Set
-`NAGARE_ACCESS_PUSH=0` to build locally without pushing. Edit `service.yaml` to
-use the printed image before applying.
+`NAGARE_ACCESS_PUSH=0` to build locally without pushing. Because the Cabal
+workspace pins private `shinzui/shomei` and `shinzui/en` source repositories,
+set `GITHUB_TOKEN` when building in a fresh Docker environment; the Dockerfile
+consumes it as a BuildKit secret and removes the temporary Git rewrite before
+committing the build layer. Edit `service.yaml` to use the printed image before
+applying.
 
 shomei advertises a Nix flake `.#dockerImage` output, but validation from this
 Nagare worktree currently fails before it produces an image. en does not
