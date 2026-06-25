@@ -4,7 +4,7 @@
 # context is produced by build-local-image.sh and contains a workspace/
 # directory with cabal.project plus local checkouts of nagare, shomei, en, and
 # the patched dependency packages needed by shomei.
-FROM haskell:9.12.4 AS build
+FROM docker.io/library/haskell:9.12.4 AS build
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -22,8 +22,7 @@ WORKDIR /src/workspace
 ARG CABAL_TARGETS
 ARG CABAL_BINARIES
 ARG CABAL_BUILD_FLAGS=--jobs=1
-RUN --mount=type=cache,target=/root/.cabal/packages \
-  set -eu; \
+RUN set -eu; \
   cabal update; \
   cabal build ${CABAL_BUILD_FLAGS} ${CABAL_TARGETS}; \
   mkdir -p /out/bin; \
@@ -32,7 +31,7 @@ RUN --mount=type=cache,target=/root/.cabal/packages \
     cp "$(cabal list-bin "$target")" "/out/bin/${binary_name}"; \
   done
 
-FROM debian:bookworm-slim
+FROM docker.io/library/debian:bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \

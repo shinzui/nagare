@@ -26,6 +26,19 @@ real amd64 image:
 NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/shomei/build-image.sh
 ```
 
+For the single-node `nagare-01` cluster, you can avoid a registry push entirely
+by building on the amd64 VM with Nix-provided podman and importing the image into
+k3s containerd:
+
+```bash
+NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/shomei/build-image.sh
+```
+
+This prints an image such as `dev.local/nagare-auth/shomei:<git-sha>`. Use the
+printed image in `service.yaml`; `dev.local` is already skipped by Knative's
+controller-side tag resolver, and the non-`latest` tag lets kubelet use the
+locally imported image.
+
 Override `SHOMEI_SRC`, `CODD_SRC`, `JOSE_SRC`, or `WEBAUTHN_SRC` if the local
 dependency checkouts live somewhere other than the helper's default paths.
 
