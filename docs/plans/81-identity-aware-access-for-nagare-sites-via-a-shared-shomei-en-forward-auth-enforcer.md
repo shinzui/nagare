@@ -73,11 +73,10 @@ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' https://protected-hell
 Use a checklist to summarize granular steps. Every stopping point must be documented here,
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 
-- [ ] **M0 — Spike: prove the request-path insertion and the shomei+en integration.** Stand
-  up shomei-server and en-server locally; write a ~100-line WAI proxy that verifies a shomei
-  token, calls `en` check, and forwards to a dummy upstream. Confirm 302 / 403 / 200 paths
-  by hand. Prove a Knative route can be pointed at a stand-in backend that then forwards to a
-  cluster-local `ksvc`. Record findings in Surprises & Discoveries.
+- [x] **M0 — Spike: prove the request-path insertion and the shomei+en integration.** Completed
+  2026-06-25 by the stronger live M5b acceptance path rather than a disposable local spike:
+  the target cluster now proves 302 / 403 / 200 through the real `nagare-access` enforcer,
+  shomei, en, Kourier, and a protected Knative app.
 - [x] **M1a — `nagare-access` package scaffold and pure request-policy helpers.** Completed
   2026-06-24. Added `cli/nagare-access/` with its own `cabal.project`, executable, WAI
   health endpoint, listen parsing, safe return-destination validation, and the 302-vs-401
@@ -207,18 +206,23 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   and `nagarectl access list` commands. Grant/revoke write and delete `app:<host>#viewer`
   tuples for shomei users through en's HTTP JSON API; list expands `app:<host>#access` and
   prints the expanded users. The commands accept `--en-url` or `NAGARE_EN_URL`.
-- [ ] **M3c — Remaining deploy-time access verification.** Ensure the en "app" object for the
-  hostname is schema-valid in the installed M4 bundle and verify the resolver plus grant
-  commands against the real M4 bootstrap bundle once that bundle exists.
+- [x] **M3c — Remaining deploy-time access verification.** Completed 2026-06-25. The installed
+  en schema now uses the valid text-DSL form `permission access = viewer`; the live
+  `protected-hello` deploy wrote `app:protected-hello.apps.example.com#viewer` backend/grant
+  data against the real M4 bundle. Live routing exposed a Knative namespace constraint:
+  protected custom-host DomainMappings must live in `nagare-system` with the central enforcer,
+  not in the app namespace with a cross-namespace ref. `Nagare.Access.Resolve` now deletes the
+  app-namespace DomainMapping, applies the protected host DomainMapping in `nagare-system`,
+  and restarts the enforcer revision after backend-map writes so it reloads the mounted map.
 - [x] **M4a — Auth-plane bootstrap manifests and `nagare-access` image path.** Completed
   2026-06-24. Added `cli/nagare-access/Dockerfile`, an Artifact Registry build/push helper at
   `cluster/bootstrap/nagare-access/build-image.sh`, and opt-in `kubectl apply` directories for
   `cluster/bootstrap/shomei/`, `cluster/bootstrap/en/`, and
   `cluster/bootstrap/nagare-access/`. The en bundle mounts the Nagare `app.en` schema with
-  `object user {}` and `object app { relation viewer: user permission access: viewer }`; the
+  `object user {}` and `object app { relation viewer: user permission access = viewer }`; the
   enforcer bundle is a Knative Service with `min-scale=1`, the backend-map ConfigMap, and the
   cookie-key Secret template.
-- [ ] **M4b — Remaining live bootstrap hardening and verification.** Local bootstrap hardening
+- [x] **M4b — Remaining live bootstrap hardening and verification.** Completed 2026-06-25. Local bootstrap hardening
   progressed on 2026-06-24: shomei/en image provenance is now documented from the dependency
   source, `cluster/bootstrap/en/migrations.yaml` runs en's SQL migrations as an explicit
   Kubernetes Job before `en-server` starts, `nagare-system` now exists on the target `nagare-01`
@@ -248,18 +252,23 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `servant-openapi@558b7b9`, `openapi-hs@dfcd77d`, and the Shomei WebAuthn fork at
   `c274e23`; it imported `dev.local/nagare-auth/shomei:k3s-test`. The
   `nagare-access` local-source build also completed on `nagare-01` with those pins and imported
-  `dev.local/nagare-auth/nagare-access:k3s-test`. Remaining M4b work is live-cluster work:
-  apply the shomei/en/nagare-access workloads to the target `nagare-01` context with non-latest
-  imported-image tags, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds
-  against the installed bundle.
+  `dev.local/nagare-auth/nagare-access:k3s-test`. The workloads were then applied to
+  `nagare-01` with non-latest imported-image tags: `shomei` and `en` Deployments are Ready,
+  `nagare-access` KService is Ready on revision `nagare-access-00004`, and
+  `GET /_nagare/healthz` through the protected host route reaches the enforcer. The M3 deploy
+  preflight succeeded against the installed bundle during the live `protected-hello` deploy.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
   requireLogin`, plus a README runbook for deploy, unauthenticated redirect, grant, revoke,
   and expected 403/200 behavior.
-- [ ] **M5b — Live end-to-end acceptance.** Deploy `cluster/examples/protected-hello` against
-  the target cluster after M4b, reproduce the Purpose curl transcript, and capture the
-  authorized-vs-unauthorized 403/200 evidence in Outcomes & Retrospective.
+- [x] **M5b — Live end-to-end acceptance.** Completed 2026-06-25. Deployed
+  `cluster/examples/protected-hello` against `nagare-01`; unauthenticated traffic to
+  `protected-hello.apps.example.com` returns `302 Location: /_nagare/login?rd=%2F`;
+  authenticated traffic for shomei user `user_01kvyxnas7ez2a1qy6kvyg11by` returned `403
+  Forbidden` before the en tuple existed; after writing
+  `app:protected-hello.apps.example.com#viewer@user:user_01kvyxnas7ez2a1qy6kvyg11by`, the same
+  flow returned `200 OK` with body `Hello Nagare!`.
 - [x] **Docs.** Completed 2026-06-24. Added `docs/user/access.md` covering the
   `access = Just requireLogin` one-liner, optional auth-plane install, enforcer image build
   helper, `nagarectl access grant/revoke/list`, request behavior, cookie/security model, the
@@ -2108,7 +2117,7 @@ confirmed by reading its source:
   ```text
   object app {
     relation viewer: user
-    permission access: viewer
+    permission access = viewer
   }
   ```
 
@@ -2243,7 +2252,7 @@ Work:
    `shomei-admin` (`users create --loginId alice --password ...`). In the en repo: `nix
    develop`, start `en-server` with `EN_DATABASE_URL`, `EN_SCHEMA_PATH` pointed at an `app.en`
    file containing the **text-DSL** schema from Context (`object app { relation viewer: user
-   permission access: viewer }`) — not Haskell, not JSON; `en-server` parses it with
+   permission access = viewer }`) — not Haskell, not JSON; `en-server` parses it with
    `parseSchema`. Fetch
    `http://localhost:8080/.well-known/jwks.json` from shomei to confirm the JWKS shape.
 2. Write a ~100-line WAI app (in the scratchpad) that: extracts a token from the
@@ -2600,7 +2609,7 @@ curl -s localhost:8080/.well-known/jwks.json | jq .   # confirm JWKS shape
 # en (/Users/shinzui/Keikaku/bokuno/en)
 nix develop
 # app.en — en's TEXT schema DSL (parsed by en-server via parseSchema), NOT Haskell/JSON:
-#   object app { relation viewer: user  permission access: viewer }
+#   object app { relation viewer: user  permission access = viewer }
 EN_DATABASE_URL="host=$PGHOST dbname=en user=$(id -un)" EN_PORT=8090 EN_SCHEMA_PATH=./app.en \
   cabal run en-server &
 ```
@@ -2947,3 +2956,17 @@ Contracts at milestone boundaries:
   `sha256:9d7cb460dd8247a1f3ec10762bc74393223f2a560d80f9da707a3020f19ddbdd`. M4b now has all
   three auth-plane images imported on `nagare-01`; remaining work is workload apply, Ready
   verification, and real `nagarectl` preflight evidence.
+
+- 2026-06-25 — Completed the live auth-plane and protected-example acceptance on `nagare-01`.
+  Startup failures found during workload apply were fixed in manifests: shomei's entrypoint
+  needs `DATABASE_URL` for `shomei-admin`, and en's text schema needs
+  `permission access = viewer`. `shomei` and `en` rolled out Ready, `nagare-access` rolled out
+  Ready after pinning a numeric non-root UID/GID, and `protected-hello` deployed successfully.
+  The live deploy found that Knative rejects cross-namespace DomainMapping refs; the resolver now
+  applies protected host DomainMappings in `nagare-system` (where the central enforcer lives) and
+  removes the app-namespace DomainMapping. It also patches the enforcer KService template after
+  backend-map writes so the startup-loaded mounted map is re-read by a new revision. Final live
+  transcript: unauthenticated `GET /` through Kourier returned `302` to `/_nagare/login?rd=%2F`;
+  authenticated shomei user `user_01kvyxnas7ez2a1qy6kvyg11by` returned `403 Forbidden` before
+  the en grant; after writing the viewer tuple, the same flow returned `200 OK` and
+  `Hello Nagare!`.

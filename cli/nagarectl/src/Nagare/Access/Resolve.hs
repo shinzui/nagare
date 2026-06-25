@@ -37,6 +37,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Nagare.Deploy (applyManifests)
 import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -75,7 +76,9 @@ data AccessRoute = AccessRoute
   deriving stock (Eq, Show)
 
 data RouteTarget = RouteTarget
-  { rtName :: !Text
+  { rtApiVersion :: !Text
+  , rtKind :: !Text
+  , rtName :: !Text
   , rtNamespace :: !Text
   }
   deriving stock (Eq, Show)
@@ -89,6 +92,7 @@ data AccessOps = AccessOps
   { checkEnforcerPresent :: !(IO Bool)
   , loadBackendMap :: !(IO (Either Text (Maybe (Map Text Text))))
   , writeBackendMap :: !(Map Text Text -> IO ())
+  , reloadBackendMap :: !(IO ())
   , applyRouteOp :: !(Text -> Text -> RouteOp -> IO ())
   }
 
@@ -125,7 +129,8 @@ resolveAccessRouteWithOps ops ns name route policy =
       let host = canonicalHost (arHost route)
           updated = Map.insert host (upstreamFor ns name) backends
       writeBackendMap ops updated
-      applyRouteOp ops (namespaceText ns) host (RouteTo (RouteTarget enforcerName backendConfigMapNamespace))
+      reloadBackendMap ops
+      applyRouteOp ops (namespaceText ns) host (RouteTo (knativeServiceTarget enforcerName backendConfigMapNamespace))
     Nothing -> do
       loaded <- loadBackendMap ops
       case loaded of
@@ -133,11 +138,13 @@ resolveAccessRouteWithOps ops ns name route policy =
         Right Nothing -> pure ()
         Right (Just backends) -> do
           let withoutHost = Map.delete (canonicalHost (arHost route)) backends
-          when (withoutHost /= backends) (writeBackendMap ops withoutHost)
+          when (withoutHost /= backends) $ do
+            writeBackendMap ops withoutHost
+            reloadBackendMap ops
       let host = canonicalHost (arHost route)
       case arMode route of
         ExistingDomainMapping ->
-          applyRouteOp ops (namespaceText ns) host (RouteTo (RouteTarget (serviceNameText name) (namespaceText ns)))
+          applyRouteOp ops (namespaceText ns) host (RouteTo (knativeServiceTarget (serviceNameText name) (namespaceText ns)))
         DefaultKnativeHost ->
           applyRouteOp ops (namespaceText ns) host DeleteRouteOverride
   where
@@ -165,6 +172,10 @@ deploymentAccessRoutes baseDomain dep =
 upstreamFor :: Namespace -> ServiceName -> Text
 upstreamFor ns name =
   "http://" <> serviceNameText name <> "." <> namespaceText ns <> ".svc.cluster.local"
+
+knativeServiceTarget :: Text -> Text -> RouteTarget
+knativeServiceTarget =
+  RouteTarget "serving.knative.dev/v1" "Service"
 
 renderBackendConfigMap :: Map Text Text -> ByteString
 renderBackendConfigMap backends =
@@ -199,8 +210,8 @@ renderAccessDomainMapping objectNamespace host target =
             .= object
               [ "ref"
                   .= object
-                    [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                    , "kind" .= ("Service" :: Text)
+                    [ "apiVersion" .= rtApiVersion target
+                    , "kind" .= rtKind target
                     , "name" .= rtName target
                     , "namespace" .= rtNamespace target
                     ]
@@ -216,20 +227,62 @@ kubectlAccessOps =
         pure (ksvc && svc)
     , loadBackendMap = loadBackendMapFromCluster
     , writeBackendMap = applyManifests . (: []) . renderBackendConfigMap
+    , reloadBackendMap = reloadEnforcerBackendMap
     , applyRouteOp = \objectNamespace host -> \case
-        RouteTo target -> applyManifests [renderAccessDomainMapping objectNamespace host target]
-        DeleteRouteOverride ->
-          run_ $
-            cmd "kubectl"
-              & addArgs
-                [ "delete"
-                , "domainmapping"
-                , T.unpack host
-                , "-n"
-                , T.unpack objectNamespace
-                , "--ignore-not-found"
-                ]
+        RouteTo target
+          | isCentralEnforcer target -> do
+              deleteDomainMapping objectNamespace host
+              applyManifests [renderAccessDomainMapping backendConfigMapNamespace host target]
+          | otherwise -> do
+              deleteDomainMapping backendConfigMapNamespace host
+              applyManifests [renderAccessDomainMapping objectNamespace host target]
+        DeleteRouteOverride -> do
+          deleteDomainMapping objectNamespace host
+          deleteDomainMapping backendConfigMapNamespace host
     }
+
+reloadEnforcerBackendMap :: IO ()
+reloadEnforcerBackendMap = do
+  stamp <- T.pack . show . (floor :: POSIXTime -> Int) <$> getPOSIXTime
+  run_ $
+    cmd "kubectl"
+      & addArgs
+        [ "patch"
+        , "ksvc"
+        , T.unpack enforcerName
+        , "-n"
+        , T.unpack backendConfigMapNamespace
+        , "--type"
+        , "merge"
+        , "-p"
+        , T.unpack (reloadPatch stamp)
+        ]
+
+reloadPatch :: Text -> Text
+reloadPatch stamp =
+  "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"nagare.dev/backend-map-reload\":\""
+    <> stamp
+    <> "\"}}}}}"
+
+isCentralEnforcer :: RouteTarget -> Bool
+isCentralEnforcer target =
+  rtApiVersion target == "serving.knative.dev/v1"
+    && rtKind target == "Service"
+    && rtName target == enforcerName
+    && rtNamespace target == backendConfigMapNamespace
+
+deleteDomainMapping :: Text -> Text -> IO ()
+deleteDomainMapping objectNamespace host =
+  run_ $
+    cmd "kubectl"
+      & addArgs
+        [ "delete"
+        , "domainmapping"
+        , T.unpack host
+        , "-n"
+        , T.unpack objectNamespace
+        , "--ignore-not-found"
+        ]
 
 kubectlExists :: [String] -> IO Bool
 kubectlExists args = do

@@ -17,5 +17,5 @@ data:
 
     object app {
       relation viewer: user
-      permission access: viewer
+      permission access = viewer
     }
