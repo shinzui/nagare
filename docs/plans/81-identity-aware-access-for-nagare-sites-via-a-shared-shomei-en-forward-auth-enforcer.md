@@ -222,12 +222,13 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   progressed on 2026-06-24: shomei/en image provenance is now documented from the dependency
   source, `cluster/bootstrap/en/migrations.yaml` runs en's codd migrations as an explicit
   Kubernetes Job before `en-server` starts, `nagare-system` now exists on the target `nagare-01`
-  cluster, and all auth-plane manifests pass server-side dry-run against that cluster. Remaining
-  M4b work is live-cluster work: build and push real nagare-access/shomei/en images or replace
-  the templates with verified release digests, create real auth-plane database/cookie Secrets,
-  apply the auth-plane bundle to the target cluster, verify Ready status for
-  shomei/en/nagare-access, and prove `nagarectl`'s M3 preflight succeeds against the installed
-  bundle.
+  cluster, all auth-plane manifests pass server-side dry-run against that cluster, and the safe
+  live prerequisites (`en-schema`, empty backend map, real `nagare-access` cookie-key Secret)
+  are applied. Remaining M4b work is live-cluster work: build and push real
+  nagare-access/shomei/en images or replace the templates with verified release digests, create
+  real auth-plane database Secrets, run the en migration Job, apply the shomei/en/nagare-access
+  workloads, verify Ready status, and prove `nagarectl`'s M3 preflight succeeds against the
+  installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -985,6 +986,42 @@ Docker daemon was not running:
 ```text
 $ NAGARE_ACCESS_PUSH=0 cluster/bootstrap/nagare-access/build-image.sh test-local
 ERROR: Cannot connect to the Docker daemon at unix:///Users/shinzui/.colima/docker.sock. Is the docker daemon running?
+```
+
+The safe live prerequisites that do not require DB credentials or image availability were then
+applied to `nagare-01`: the en schema ConfigMap, the empty nagare-access backend map, and a real
+random cookie-key Secret. The first cookie-key attempt used `openssl` on the VM, but NixOS did
+not have `openssl` on PATH and the shell command still created an empty Secret; it was
+immediately corrected with a `set -euo pipefail` command using `/dev/urandom` and `base64`.
+Verification checked only the decoded byte count, not the secret value.
+
+```text
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply -f /tmp/nagare-auth-plane-81/en/configmap.yaml'
+namespace/nagare-system configured
+configmap/en-schema created
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl apply -f /tmp/nagare-auth-plane-81/nagare-access/configmap.yaml'
+namespace/nagare-system configured
+configmap/nagare-access-backends created
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'COOKIE_KEY="$(openssl rand -base64 48)"; sudo k3s kubectl -n nagare-system create secret generic nagare-access --from-literal=cookie-key="$COOKIE_KEY" --dry-run=client -o yaml | sudo k3s kubectl apply -f -'
+bash: line 1: openssl: command not found
+secret/nagare-access created
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'set -euo pipefail; COOKIE_KEY="$(dd if=/dev/urandom bs=48 count=1 2>/dev/null | base64)"; test -n "$COOKIE_KEY"; sudo k3s kubectl -n nagare-system create secret generic nagare-access --from-literal=cookie-key="$COOKIE_KEY" --dry-run=client -o yaml | sudo k3s kubectl apply -f -'
+secret/nagare-access configured
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get secret nagare-access -o jsonpath="{.data.cookie-key}" | base64 -d | wc -c'
+64
+
+$ scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl -n nagare-system get all,configmap,secret,ksvc,domainmapping --ignore-not-found'
+NAME                               DATA   AGE
+configmap/en-schema                1      33s
+configmap/kube-root-ca.crt         1      3m35s
+configmap/nagare-access-backends   1      33s
+
+NAME                   TYPE     DATA   AGE
+secret/nagare-access   Opaque   1      33s
 ```
 
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
