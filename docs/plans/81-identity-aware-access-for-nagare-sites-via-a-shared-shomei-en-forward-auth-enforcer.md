@@ -218,11 +218,13 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
   `object user {}` and `object app { relation viewer: user permission access: viewer }`; the
   enforcer bundle is a Knative Service with `min-scale=1`, the backend-map ConfigMap, and the
   cookie-key Secret template.
-- [ ] **M4b — Remaining live bootstrap hardening and verification.** Build and push real
-  shomei/en images or document their release image source, run en migrations as part of the
-  deployment workflow, apply the auth-plane bundle to the target cluster, verify Ready status
-  for shomei/en/nagare-access, and prove `nagarectl`'s M3 preflight succeeds against the
-  installed bundle.
+- [ ] **M4b — Remaining live bootstrap hardening and verification.** Local bootstrap hardening
+  progressed on 2026-06-24: shomei/en image provenance is now documented from the dependency
+  source, and `cluster/bootstrap/en/migrations.yaml` runs en's codd migrations as an explicit
+  Kubernetes Job before `en-server` starts. Remaining M4b work is live-cluster work: build and
+  push real shomei/en images or replace the templates with verified release digests, apply the
+  auth-plane bundle to the target cluster, verify Ready status for shomei/en/nagare-access, and
+  prove `nagarectl`'s M3 preflight succeeds against the installed bundle.
 - [x] **M5a — Protected example artifact.** Completed 2026-06-24. Added
   `cluster/examples/protected-hello/nagare/Config.hs`, a compile-checked Deployment using the
   public Knative hello image, `protected-hello.apps.example.com`, and `access = Just
@@ -773,6 +775,84 @@ successfully parsed the Namespace, ConfigMap, and Secret, then failed to map the
 Knative Serving CRDs installed. The manifest was therefore YAML-parsed locally and remains to
 be server-side dry-run/applied against the target Knative cluster in M4b.
 
+**M4b local bootstrap-hardening evidence (2026-06-24).** Dependency-source inspection sharpened
+the remaining auth-plane install contract. `mori registry show shinzui/shomei --full` and
+`mori registry show shinzui/en --full` located the local shomei and en repositories. Their
+flakes only expose default Haskell package builds; they do not publish Docker image outputs.
+shomei has a runtime `Dockerfile` and `deploy/entrypoint.sh`, but its runtime image expects
+binaries supplied by a build stage, so the Nagare manifest must treat `shomei-server` as an
+operator-built or upstream-published image until a dedicated release image exists. en has no
+Dockerfile or flake image output in the inspected source, so its bootstrap manifest has the
+same operator-provided image status.
+
+The en migration workflow is now explicit in `cluster/bootstrap/en/migrations.yaml`. en's own
+`en-migrations` package exposes only `migrationsDir = "db/migrations"` and the two SQL files
+under that directory; it does not provide a migration executable. codd's local docs and source
+confirm the CLI contract: it reads `CODD_CONNECTION`, `CODD_MIGRATION_DIRS`, and
+`CODD_EXPECTED_SCHEMA_DIR`, and `codd up --no-check --wait 60` applies pending migrations
+without expected-schema verification. The codd parser requires dashed timestamp filenames
+(`YYYY-MM-DD-HH-MM-SS-...`), while en's checked-in SQL files currently use compact timestamp
+names (`YYYYMMDD...`), so the Kubernetes ConfigMap keys use codd-compatible names while
+preserving the SQL content. Because en currently ships no codd expected-schema snapshot, the
+Job mirrors shomei's production behavior and uses `--no-check` rather than pretending strict
+schema verification is available. A read-only Docker manifest lookup showed
+`docker.io/mzabani/codd:0.1.8` is not published, while `docker.io/mzabani/codd:latest` exists;
+the README therefore tells operators to mirror or digest-pin the codd image before production
+use.
+
+Validation:
+
+```text
+$ ruby -e 'require "yaml"; ARGV.each { |p| YAML.load_stream(File.read(p)); puts "ok #{p}" }' \
+    cluster/bootstrap/en/migrations.yaml \
+    cluster/bootstrap/en/service.yaml \
+    cluster/bootstrap/en/configmap.yaml \
+    cluster/bootstrap/en/secret.example.yaml \
+    cluster/bootstrap/shomei/service.yaml \
+    cluster/bootstrap/shomei/secret.example.yaml \
+    cluster/bootstrap/nagare-access/service.yaml \
+    cluster/bootstrap/nagare-access/configmap.yaml \
+    cluster/bootstrap/nagare-access/secret.example.yaml
+ok cluster/bootstrap/en/migrations.yaml
+ok cluster/bootstrap/en/service.yaml
+ok cluster/bootstrap/en/configmap.yaml
+ok cluster/bootstrap/en/secret.example.yaml
+ok cluster/bootstrap/shomei/service.yaml
+ok cluster/bootstrap/shomei/secret.example.yaml
+ok cluster/bootstrap/nagare-access/service.yaml
+ok cluster/bootstrap/nagare-access/configmap.yaml
+ok cluster/bootstrap/nagare-access/secret.example.yaml
+
+$ kubectl apply --dry-run=client --validate=false -f cluster/bootstrap/en/
+namespace/nagare-system created (dry run)
+configmap/en-schema created (dry run)
+namespace/nagare-system created (dry run)
+configmap/en-migrations created (dry run)
+job.batch/en-migrate created (dry run)
+namespace/nagare-system created (dry run)
+secret/en-db created (dry run)
+namespace/nagare-system created (dry run)
+deployment.apps/en created (dry run)
+service/en created (dry run)
+
+$ docker manifest inspect docker.io/mzabani/codd:0.1.8
+no such manifest: docker.io/mzabani/codd:0.1.8
+
+$ docker manifest inspect docker.io/mzabani/codd:latest
+{
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+        "config": {
+                "digest": "sha256:6b75ebd204c55e338f37c0287f68780d4f3a35995584b8d51bb15a9e1f16266f"
+        },
+        "layers": [
+                {
+                        "digest": "sha256:fe3cd06e3b57f9431eaf00f17bda9f3b4d31b6ff569e92ef7785c6dfa0c54a96"
+                }
+        ]
+}
+```
+
 **M5a implementation evidence (2026-06-24).** `cluster/examples/protected-hello/` now contains
 the protected hello example the Purpose section refers to. Its `nagare/Config.hs` mirrors the
 plain hello example but uses a prebuilt `gcr.io/knative-samples/helloworld-go:latest` image,
@@ -1202,6 +1282,34 @@ Record every decision made while working on the plan.
   refs, database connection Secret templates, cookie key, and cookie domain are intentionally
   operator-edited until M4b verifies the exact target-cluster release images and database
   wiring.
+  Date: 2026-06-24
+
+- Decision: **Run en migrations with an explicit codd Job and no expected-schema check for the
+  first bootstrap bundle.** en's `en-migrations` package currently ships SQL files and a
+  `migrationsDir` pointer, but no standalone migration executable and no codd
+  expected-schema snapshot. The Kubernetes bootstrap therefore mounts those SQL files into
+  `cluster/bootstrap/en/migrations.yaml` with codd-compatible dashed timestamp keys and runs
+  `codd up --no-check --wait 60` with `CODD_CONNECTION` sourced from the `en-db` Secret. This
+  mirrors shomei's production migration behavior, where `runShomeiMigrationsNoCheck` applies
+  embedded SQL at startup without schema verification. If en later publishes an embedded
+  migration binary or expected schema snapshot, this Job should be replaced with that release
+  artifact and `--strict-check`.
+  Rationale: `en-server` fails if its tables do not exist, so migrations must be part of the
+  install workflow. A codd Job is idempotent and matches the actual tool contract, while
+  strict verification would be misleading until en ships the schema files needed to make it
+  meaningful.
+  Date: 2026-06-24
+
+- Decision: **Document shomei/en images as operator-provided until upstream release images
+  exist.** The inspected shomei and en flakes expose Haskell package builds but no container
+  image outputs. shomei has a runtime Dockerfile whose comments say binaries must be supplied
+  by a build stage; en has no Dockerfile or image derivation in the local source. The bootstrap
+  READMEs now state that the `image:` fields in `cluster/bootstrap/shomei/service.yaml` and
+  `cluster/bootstrap/en/service.yaml` must be replaced with operator-built or upstream-published
+  images before live apply.
+  Rationale: M4b needs a truthful install contract. Shipping a fake build helper or an
+  unverified image reference would make the auth plane look more complete than it is and would
+  fail late in the cluster.
   Date: 2026-06-24
 
 

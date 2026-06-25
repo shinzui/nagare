@@ -33,9 +33,20 @@ The auth plane is not part of `just cluster-bootstrap`. Install it only on
 clusters that need protected sites:
 
 ```bash
-kubectl apply -f cluster/bootstrap/shomei/
-kubectl apply -f cluster/bootstrap/en/
-kubectl apply -f cluster/bootstrap/nagare-access/
+cp cluster/bootstrap/shomei/secret.example.yaml /tmp/shomei-secret.yaml
+cp cluster/bootstrap/en/secret.example.yaml /tmp/en-secret.yaml
+cp cluster/bootstrap/nagare-access/secret.example.yaml /tmp/nagare-access-secret.yaml
+# edit the three /tmp/*-secret.yaml files before applying them
+kubectl apply -f /tmp/shomei-secret.yaml
+kubectl apply -f cluster/bootstrap/shomei/service.yaml
+kubectl apply -f /tmp/en-secret.yaml
+kubectl apply -f cluster/bootstrap/en/migrations.yaml
+kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
+kubectl apply -f cluster/bootstrap/en/configmap.yaml
+kubectl apply -f cluster/bootstrap/en/service.yaml
+kubectl apply -f /tmp/nagare-access-secret.yaml
+kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
+kubectl apply -f cluster/bootstrap/nagare-access/service.yaml
 ```
 
 Before applying for real, edit the Secret templates and image references in
@@ -56,8 +67,8 @@ cluster/bootstrap/nagare-access/build-image.sh
 ```
 
 shomei runs its migrations during startup. en currently expects its PostgreSQL
-migrations to have been run before `en-server` starts; that live migration step
-is still part of the pending auth-plane hardening work.
+migrations to have been run before `en-server` starts; the bootstrap wrapper is
+`cluster/bootstrap/en/migrations.yaml`.
 
 ## Deploy a protected site
 
