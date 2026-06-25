@@ -12,13 +12,16 @@ image, build and mirror a `shomei-server` image from the shomei repository and
 edit `service.yaml` before applying it.
 
 shomei's server startup runs database migrations idempotently and ensures an
-active signing key, so the pod only needs a valid PostgreSQL connection string
-and the issuer/audience values that `nagare-access` will verify.
+active signing key. The manifest reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` from Nagare's managed database Secret `nagare-db-shomei-db`, then
+builds `PG_CONNECTION_STRING` as a libpq keyword connection string. Create the
+database `shomei-db` in `nagare-system` before applying the service. The database
+name intentionally differs from the service name `shomei` to avoid a Kubernetes
+Service name collision.
 
 ```bash
-cp cluster/bootstrap/shomei/secret.example.yaml /tmp/shomei-secret.yaml
-# edit /tmp/shomei-secret.yaml: set PG_CONNECTION_STRING
-kubectl apply -f /tmp/shomei-secret.yaml
+kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
+nagarectl db create postgres shomei-db --namespace nagare-system
 kubectl apply -f cluster/bootstrap/shomei/service.yaml
 ```
 

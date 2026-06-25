@@ -33,13 +33,15 @@ The auth plane is not part of `just cluster-bootstrap`. Install it only on
 clusters that need protected sites:
 
 ```bash
-cp cluster/bootstrap/shomei/secret.example.yaml /tmp/shomei-secret.yaml
-cp cluster/bootstrap/en/secret.example.yaml /tmp/en-secret.yaml
-cp cluster/bootstrap/nagare-access/secret.example.yaml /tmp/nagare-access-secret.yaml
-# edit the three /tmp/*-secret.yaml files before applying them
-kubectl apply -f /tmp/shomei-secret.yaml
+kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
+
+nagarectl db create postgres shomei-db --namespace nagare-system
+nagarectl db create postgres en-db --namespace nagare-system
+
+cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
+# edit /tmp/nagare-access-secret.yaml before applying it
+
 kubectl apply -f cluster/bootstrap/shomei/service.yaml
-kubectl apply -f /tmp/en-secret.yaml
 kubectl apply -f cluster/bootstrap/en/migrations.yaml
 kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
 kubectl apply -f cluster/bootstrap/en/configmap.yaml
@@ -49,16 +51,22 @@ kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
 kubectl apply -f cluster/bootstrap/nagare-access/service.yaml
 ```
 
-Before applying for real, edit the Secret templates and image references in
-those directories:
+Before applying for real, edit the Secret template and image references in those
+directories:
 
-- `cluster/bootstrap/shomei/secret.example.yaml` needs `PG_CONNECTION_STRING`.
-- `cluster/bootstrap/en/secret.example.yaml` needs `EN_DATABASE_URL`.
-- `cluster/bootstrap/nagare-access/secret.example.yaml` needs a long random
+- `cluster/bootstrap/nagare-access/secret.example.yaml.tmpl` needs a long random
   `cookie-key`.
 - `cluster/bootstrap/nagare-access/service.yaml` needs the target
   `NAGARE_ACCESS_COOKIE_DOMAIN`, for example `.apps.example.com`.
 - The `image:` values must point at images available to the target cluster.
+
+The shomei and en manifests read `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` from Nagare's managed DB Secrets `nagare-db-shomei-db` and
+`nagare-db-en-db`. They use libpq keyword connection strings / `PG*` environment
+variables rather than the managed `DATABASE_URL` key, because generated database
+passwords may contain URL metacharacters. The database names include `-db` so
+their Kubernetes Services do not collide with the auth services named `shomei`
+and `en`.
 
 Build and push the enforcer image with:
 
@@ -68,7 +76,8 @@ cluster/bootstrap/nagare-access/build-image.sh
 
 shomei runs its migrations during startup. en currently expects its PostgreSQL
 migrations to have been run before `en-server` starts; the bootstrap wrapper is
-`cluster/bootstrap/en/migrations.yaml`.
+`cluster/bootstrap/en/migrations.yaml`, which uses `psql` from the `postgres:18`
+image and skips when the en tables already exist.
 
 ## Deploy a protected site
 
@@ -83,11 +92,8 @@ route:
 
 ```text
 this site sets `access = requireLogin`, but the nagare auth plane is not installed.
-       Install it once with:
-         kubectl apply -f cluster/bootstrap/shomei/
-         kubectl apply -f cluster/bootstrap/en/
-         kubectl apply -f cluster/bootstrap/nagare-access/
-       Then redeploy. (See docs/user/access.md.)
+       Install it once with the managed DB, shomei, en, and nagare-access sequence in docs/user/access.md.
+       Then redeploy.
 ```
 
 When the plane is installed, `nagarectl` writes the host to the

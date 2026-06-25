@@ -27,6 +27,9 @@ Nagare worktree currently fails before it produces an image. en does not
 currently expose an equivalent image build output. Their bootstrap manifests
 therefore keep operator-provided image references until those upstream images
 are fixed/published or Nagare adds dedicated, verified build helpers for them.
+Their manifests expect managed PostgreSQL databases named `shomei-db` and
+`en-db` in the `nagare-system` namespace, created with
+`nagarectl db create postgres ...`.
 
 ## Install
 
@@ -34,7 +37,7 @@ Create a real cookie key secret from the example, update `service.yaml` with the
 image and cookie domain for the target base domain, then apply:
 
 ```bash
-cp cluster/bootstrap/nagare-access/secret.example.yaml /tmp/nagare-access-secret.yaml
+cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
 # edit /tmp/nagare-access-secret.yaml: set cookie-key to a long random value
 kubectl apply -f /tmp/nagare-access-secret.yaml
 kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml

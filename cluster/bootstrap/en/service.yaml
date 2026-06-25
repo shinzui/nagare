@@ -28,11 +28,27 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            - name: EN_DATABASE_URL
+            - name: PGHOST
+              value: en-db.nagare-system.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
               valueFrom:
                 secretKeyRef:
-                  name: en-db
-                  key: EN_DATABASE_URL
+                  name: nagare-db-en-db
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_DB
+            - name: EN_DATABASE_URL
+              value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
             - name: EN_PORT
               value: "8080"
             - name: EN_SCHEMA_PATH
