@@ -250,3 +250,14 @@ live-test:
 [group('test')]
 smoke:
     scripts/live-smoke.sh
+
+# EP-86 (docs/plans/86): LOCAL smoke test — the cloud `smoke`'s zero-cloud twin.
+# Assumes the EP-82 local cluster (stands it up with just local-up +
+# local-bootstrap + local-minio if it is down); sets NAGARE_MODE=local so the GCP
+# guardrail steps aside, deploys uploads-volume, round-trips a volume snapshot
+# through local MinIO, verifies HTTP 200, and tears down. NO gcloud / IAP / GCS.
+# Needs only Docker + the dev shell.
+# Run the LOCAL smoke test (zero-cloud deploy, MinIO snapshot/restore, HTTP 200).
+[group('test')]
+local-smoke:
+    scripts/local-smoke.sh
