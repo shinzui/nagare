@@ -4,7 +4,9 @@
 > and local MinIO data-movement backends implemented.** The typed `volumes` model,
 > renderer, deploy-time PVC provisioning, `nagarectl storage` commands, restore
 > verb, and backup policy exist. Live cluster drills still depend on the target
-> you are operating.
+> you are operating — though the **local MinIO snapshot/restore round-trip is now
+> verified end-to-end** by `just local-smoke` (see
+> [Local development](local-development.md#run-the-local-smoke-test)).
 
 This guide is for **app developers whose app needs to keep data across restarts**
 — a SQLite database, uploaded files, a generated cache. By default a Nagare app

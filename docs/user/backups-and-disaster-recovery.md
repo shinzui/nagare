@@ -1,9 +1,11 @@
 # Backups and disaster recovery
 
 > **Status:** 🟡 Database backups and app-volume snapshots/restores are built for
-> both cloud mode (GCS) and local mode (MinIO). Full host disaster-recovery drills
-> and some app-specific backup patterns, such as continuous Litestream restore
-> drills and dashboard export, are still deferred.
+> both cloud mode (GCS) and local mode (MinIO); the **local MinIO volume
+> snapshot/restore path is verified end-to-end** by `just local-smoke` (see
+> [Local development](local-development.md#run-the-local-smoke-test)). Full host
+> disaster-recovery drills and some app-specific backup patterns, such as
+> continuous Litestream restore drills and dashboard export, are still deferred.
 
 The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 `nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Nagare

@@ -4,8 +4,11 @@
 >
 > The DSL field, `nagarectl` deploy-time resolver, grant/revoke/list commands,
 > enforcer service, bootstrap manifests, protected example, and shared-host
-> routing model exist and have tests. Local-mode auth-plane/TLS parity is still
-> deferred to MasterPlan 16 EP-85.
+> routing model exist and have tests. The auth plane also runs in **local mode**
+> (MasterPlan 16 EP-85): the three images build into the local registry, shomei/en
+> run on local managed Postgres, and a locally-trusted `nagare-local-ca` issuer
+> provides the HTTPS WebAuthn needs — see
+> [Local development → optional auth plane](local-development.md#optional-the-auth-plane).
 
 Identity-aware access lets a public Nagare URL stay reachable from the internet
 while requiring a signed-in shomei user and an en authorization grant before the
@@ -28,6 +31,13 @@ deployment = do
 `app:<public-host>`.
 
 ## Install the optional auth plane
+
+> **Local mode:** the steps below are the cloud install. To run the auth plane on
+> a local k3d cluster, use the scripted local installer
+> `cluster/bootstrap/local-auth/install.sh`, which builds the three images into the
+> local registry, creates the `shomei-db`/`en-db` managed Postgres, applies the
+> manifests, and stands up the `nagare-local-ca` issuer with Knative auto-TLS. See
+> [Local development → optional auth plane](local-development.md#optional-the-auth-plane).
 
 The auth plane is not part of `just cluster-bootstrap`. Install it only on
 clusters that need protected sites:
