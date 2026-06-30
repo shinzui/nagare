@@ -316,6 +316,20 @@ interactions between child plans. Provide concise evidence.
   **EP-83 must assume this prerequisite is met** for its `docker push` step; it does not need extra
   code, but its docs/runbook (and EP-86's) should reference the prerequisite. Date: 2026-06-29.
 
+- **The local k3s must be pinned to k8s >= 1.34 (EP-82 → affects EP-85, EP-86).** k3d's default k3s
+  was v1.21.7, too old for both cert-manager v1.20.2 (CRD `selectableFields`) and Knative v1.22.0
+  (which hard-refuses k8s < 1.34.0). EP-82 added a `k3s_image := "rancher/k3s:v1.34.6-k3s1"` pin to
+  `just local-up`. Any plan that recreates the local cluster (EP-86's smoke teardown/setup) must use
+  `just local-up` (which carries the pin), not raw `k3d cluster create`. The pin moves in lockstep
+  with the `knative_version`/`certmanager_version` pins. Date: 2026-06-29.
+
+- **Literal `curl http://<app>.<base-domain>` can be intercepted by a host process on port 80
+  (EP-82 → affects EP-86).** On the development host used here a pre-existing Caddy holds host port
+  80, so the k3d `80:80@loadbalancer` mapping is shadowed; the real Knative path was proven via
+  `kubectl -n kourier-system port-forward svc/kourier` + a `Host:` header (200, `server: envoy`,
+  expected body). EP-86's `just local-smoke` should curl through a Kourier port-forward (robust to
+  host port-80 conflicts) rather than assuming host port 80 is free. Date: 2026-06-29.
+
 
 ## Decision Log
 
