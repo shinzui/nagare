@@ -75,16 +75,20 @@ This section must always reflect the actual current state of the work.
 
 **M1 — Local-target contract**
 
-- [ ] M1.1 — Create the tracked `nagare.local.env.example` at the repo root with the canonical
+- [x] M1.1 — Create the tracked `nagare.local.env.example` at the repo root with the canonical
       `export VAR=value` lines: `NAGARE_MODE=local`, `NAGARE_REGISTRY_HOST`, `NAGARE_BASE_DOMAIN`,
       `NAGARE_TARGET_PLATFORM`, `NAGARE_LOCAL_OBJECT_STORE`, plus explanatory comments and the
-      worked-example loopback values.
-- [ ] M1.2 — Add `nagare.local.env` (the real, per-operator local profile) to `.gitignore`.
-- [ ] M1.3 — Make `.envrc` local-mode-aware: source `nagare.local.env` when `NAGARE_MODE=local`,
+      worked-example loopback values. (Done 2026-06-29.)
+- [x] M1.2 — Add `nagare.local.env` (the real, per-operator local profile) to `.gitignore`.
+      (Done 2026-06-29.)
+- [x] M1.3 — Make `.envrc` local-mode-aware: source `nagare.local.env` when `NAGARE_MODE=local`,
       WITHOUT changing the existing cloud `CLOUDSDK_*` defaults when local mode is off.
-- [ ] M1.4 — Verify M1 in `bash`/`direnv`: with no local profile the cloud defaults are intact;
+      (Done 2026-06-29.)
+- [x] M1.4 — Verify M1 in `bash`/`direnv`: with no local profile the cloud defaults are intact;
       with `NAGARE_MODE=local` set and a local profile present, `echo $NAGARE_BASE_DOMAIN` prints
-      the loopback domain.
+      the loopback domain. (Done 2026-06-29 — verified with an isolated bash harness reproducing
+      the `.envrc` local block with a `source_env` stub; full `direnv exec` skipped to avoid a
+      heavy `use flake` rebuild. See Surprises & Discoveries.)
 
 **M2 — `just local-up` / `just local-down`**
 
@@ -122,7 +126,13 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- M1 verification used an isolated `bash` harness (a `source_env()` stub plus the exact `.envrc`
+  local-mode block under `env -i`) rather than `direnv exec .`, because `.envrc` ends in `use flake`
+  and a fresh `direnv allow` would trigger a multi-GB flake re-evaluation. The harness proved both
+  acceptance cases: with the local profile present the shell carries
+  `NAGARE_MODE=local NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000`
+  while `CLOUDSDK_CORE_PROJECT` stays `tan-nb-exp`; with the profile absent no local var leaks and the
+  cloud default is intact. Date: 2026-06-29.
 
 
 ## Decision Log
