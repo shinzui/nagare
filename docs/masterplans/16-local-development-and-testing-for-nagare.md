@@ -153,7 +153,7 @@ exists *for* the auth plane (WebAuthn secure context) and is meaningless without
 | 82 | Local cluster, registry, and local-target bootstrap for nagare | docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md | None | None | Complete |
 | 83 | Decouple nagarectl deploy and build from GCP for local mode | docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md | EP-82 | None | Complete |
 | 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | Complete |
-| 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Not Started |
+| 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Complete |
 | 86 | Local smoke test parity and developer documentation for nagare | docs/plans/86-local-smoke-test-parity-and-developer-documentation-for-nagare.md | EP-82 | EP-83, EP-84, EP-85 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -294,8 +294,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-83: the static `site` and `server` deploy paths work in local mode (host-arch build platform, local registry, loopback domain). (Done 2026-06-29 — static-site served HTTP 200; server path verified by shared construction; M4.2 → no `--platform` change.)
 - [x] EP-84: managed databases (Postgres `pgdemo`, Redis `rdemo`), the Redpanda broker (`demo`), a scheduled-task CronJob, and a `local-path` volume app (`uploads-volume`) demonstrated running `Ready`/`Bound`/`Complete` on the local cluster. (Done 2026-06-29.)
 - [x] EP-84: `Nagare.Cluster.GcsJob` renders a local-object-store (MinIO) Job in local mode; `db backup`/`db restore --into-live` round-tripped `hello-local` and `storage snapshot`/`storage restore --into-live` round-tripped `hello-volume` through MinIO with no GCS/metadata server; cloud bytes unchanged (`NAGARE_MODE` unset dry-run). (Done 2026-06-29.)
-- [ ] EP-85: Shomei, en, and nagare-access images build+push to the local registry and install with a local managed Postgres; a local TLS issuer provides a locally-trusted cert.
-- [ ] EP-85: an app marked "require login" is fronted by the local auth plane and completes a login over locally-trusted HTTPS.
+- [x] EP-85: Shomei, en, and nagare-access images build+push to the local registry (`k3d-registry.localhost:5000/<svc>:dev`, no gcloud) and install with local managed Postgres (`shomei-db`/`en-db`); the `nagare-local-ca` `ca` `ClusterIssuer` provides a locally-trusted cert and Knative auto-TLS is repointed at it. (Done 2026-06-29.)
+- [x] EP-85: an app marked "require login" (`protected-hello`, public host derived from `NAGARE_BASE_DOMAIN` → `protected-hello.127-0-0-1.sslip.io`) is fronted by the local auth plane and the full progression 302 → 403 → (`access grant`) 200 → (`revoke`) 403 was observed over the local-CA HTTPS origin; `access list` reflects the viewer. The WebAuthn *passkey* ceremony is a documented interactive operator hand-off (needs a browser + authenticator + the CA trusted) — the no-passkey password login over HTTPS exercises the full enforcer/Shomei/en chain and the `__Host-` cookie round-trip proves the secure context. (Done 2026-06-29.)
 - [ ] EP-86: `just local-smoke` runs deploy → snapshot/restore → HTTP 200 → teardown locally with zero cloud dependencies.
 - [ ] EP-86: `docs/user/local-development.md` documents the full local workflow; the local mode is reconciled with `CLAUDE.md`/getting-started.
 
@@ -355,6 +355,34 @@ interactions between child plans. Provide concise evidence.
   the last `/`. Any later plan that qualifies an image against the ported registry (EP-84's data
   images, EP-85's auth-plane images) now works because the fix is in the shared DSL constructor; no
   per-plan action needed, but EP-84/EP-85 should expect their image refs to carry the `:5000` port.
+  Date: 2026-06-29.
+
+- **A protected app needs an *explicit* enforcer-mapped domain; the `protected-hello` example now
+  derives it from `NAGARE_BASE_DOMAIN` (EP-85 → affects EP-86).** `Nagare.Access.Resolve.deploymentAccessRoutes`
+  only routes a host through the enforcer when the Deployment has an explicit `domains` entry; the
+  example hard-coded the cloud host `protected-hello.apps.example.com`, unreachable locally. The
+  example's `main` now reads `NAGARE_BASE_DOMAIN` (inherited by the `runghc` config loader) and emits
+  `protected-hello.<baseDomain>` — byte-identical in the cloud, `protected-hello.127-0-0-1.sslip.io`
+  locally. **EP-86's smoke test must target the base-domain-derived host, not a hard-coded one**, and
+  any new protected example should follow this base-relative pattern. Date: 2026-06-29.
+
+- **The full require-login flow is testable headlessly except the WebAuthn passkey gesture (EP-85 →
+  affects EP-86).** Shomei only demands the passkey once an account *has* one
+  (`shomei-core/.../Workflow.hs:228`), so a no-passkey password login over local HTTPS drives the
+  whole enforcer/Shomei/en chain (302 → 403 → grant→200 → revoke→403, proven). The `__Host-` session/
+  CSRF cookies only round-trip over a Secure context, so this also proves the local TLS satisfies the
+  secure-context rule. EP-86's `just local-smoke` can assert the 302/403/200/403 progression with
+  `curl --cacert` and a no-passkey user; the passkey ceremony itself stays a manual browser step.
+  Also: the enforcer caches decisions ~30 s and en caches reads ~5 s, so the smoke test must **poll**
+  around grant/revoke, not assert instantly. Date: 2026-06-29.
+
+- **macOS AirPlay Receiver shadows the local registry's host port 5000 (EP-85 → affects EP-86).**
+  `curl http://k3d-registry.localhost:5000/v2/_catalog` from the host returns `403`/`Server: AirTunes`
+  (Control Center holds `*:5000`), but the docker daemon (in its Linux VM) still pushes/pulls fine.
+  EP-86's smoke/runbook should check registry contents via
+  `docker exec k3d-registry.localhost wget -qO- http://localhost:5000/v2/_catalog`, not a host-side
+  `curl :5000`, or have the operator disable AirPlay Receiver. The auth images are also slow
+  from-scratch Haskell builds (~47 min for all three) — reuse `:dev` tags rather than rebuilding.
   Date: 2026-06-29.
 
 
