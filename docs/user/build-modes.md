@@ -2,10 +2,8 @@
 
 > **Status:** 🟡 **Built and tested.** The typed model, the CLI dispatch, and the
 > Nixpacks builder are implemented and unit-tested; `nagarectl deploy --dry-run`
-> shows the planned build for each mode today. Prebuilt and Dockerfile builds are
-> exercised offline; a Nixpacks build has been run end-to-end (build → push to
-> Artifact Registry). The *live* Knative apply is deferred until `nagare-01` is
-> back up, like the rest of [Deploying apps](deploying-apps.md).
+> shows the planned build for each mode today. Build/push is target-aware:
+> Artifact Registry in cloud mode, the k3d registry in local mode.
 
 Every `Deployment` carries a typed `build` field that says **how** its container
 image is produced. There are three modes:
@@ -104,7 +102,7 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- first show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
+  base <- first show (webService "web" "web")
   df   <- first show (mkFilePathText "Dockerfile")
   ctx  <- first show (mkFilePathText ".")
   let args = Map.fromList [("SITE_MESSAGE", "hello from a build arg")]
@@ -168,7 +166,7 @@ import Nagare.Dsl.Types (Deployment (..))
 
 deployment :: Either String Deployment
 deployment = do
-  base <- first show (webService "web" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/web")
+  base <- first show (webService "web" "web")
   ctx  <- first show (mkFilePathText ".")
   Right (base {build = NixpacksBuild {context = ctx, buildArgs = Map.empty}})
 

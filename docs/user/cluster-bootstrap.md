@@ -1,12 +1,8 @@
 # Cluster bootstrap
 
-> **Status:** 🔭 Planned (EP-4) — **not built yet.**
->
-> This is a *target* runbook describing the intended bootstrap. The manifests
-> under `cluster/bootstrap/` do not exist on disk yet (the directory is a
-> placeholder), and the `just cluster-bootstrap` recipe references paths that
-> EP-4 will create. Treat every command here as the design, not a working step,
-> until EP-4 lands. The authoritative status is the MasterPlan Progress section.
+> **Status:** ✅ Cloud bootstrap is implemented and verified live. Local bootstrap
+> is also implemented as `just local-bootstrap`, using the same Knative/Kourier
+> stack with cloud-coupled DNS-01/TLS steps skipped.
 
 Cluster bootstrap turns the bare k3s node into an app platform: **Knative
 Serving** (one image → a scale-to-zero web service), **Kourier** (the Knative
@@ -46,14 +42,32 @@ kept enabled (only Traefik is disabled).
 just cluster-bootstrap
 ```
 
-which (per the `justfile`) applies, in order:
+which (per the `justfile`) creates namespaces and applies, in order:
 
 ```bash
-kubectl apply -f cluster/bootstrap/cert-manager
-kubectl apply -f cluster/bootstrap/knative-serving
-kubectl apply -f cluster/bootstrap/kourier
-kubectl apply -f cluster/bootstrap/config-domain
+cert-manager
+cluster/bootstrap/cert-manager/letsencrypt-dns.yaml
+Knative Serving CRDs and core
+Kourier
+cluster/bootstrap/knative-serving/config-network.yaml
+config-domain from `pulumi stack output baseDomain`
+net-certmanager
+cluster/bootstrap/knative-serving/config-certmanager.yaml
+cluster/bootstrap/knative-serving/config-features.yaml
+cluster/bootstrap/knative-serving/config-deployment.yaml
 ```
+
+For laptop development, use:
+
+```bash
+just local-up
+just local-bootstrap
+```
+
+`local-bootstrap` installs cert-manager, Knative, Kourier, and net-certmanager,
+but intentionally does not apply the GCP DNS-01 issuer or enable external-domain
+TLS. It reads `NAGARE_BASE_DOMAIN` from `nagare.local.env` and configures
+`registriesSkippingTagResolving` for `NAGARE_REGISTRY_HOST`.
 
 ## DNS and TLS model
 
@@ -78,7 +92,9 @@ with `external-domain-tls: Enabled`.
 > See the [spec corrections](../initial-spec.md#spec-accuracy-corrections-2026-06-02).
 
 `DomainMapping` (`serving.knative.dev/v1beta1`) is enabled by default — no
-feature flag — and maps a custom hostname onto a Knative service.
+feature flag — and maps a custom hostname onto a Knative service. Local mode is
+HTTP-first at `*.127-0-0-1.sslip.io`; local TLS for protected apps is tracked
+separately.
 
 ## Smoke test
 

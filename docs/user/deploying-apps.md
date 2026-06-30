@@ -1,14 +1,9 @@
 # Deploying apps
 
-> **Status:** 🟡 **Built, not yet exercised against the live cluster.**
->
-> The deploy tool (`nagarectl`) and the typed config library (`nagare-dsl`)
-> exist and are tested: `nagarectl deploy --dry-run` loads a typed config,
-> validates it, and renders the exact Knative manifests offline today. The
-> *live* leg — build → push → apply → wait → URL — is implemented but has not
-> been run end-to-end because `nagare-01` is currently powered down. Treat the
-> "Verify against the cluster" steps as the intended behaviour until the box is
-> back up.
+> **Status:** 🟡 Built and tested through CLI/render coverage. The live deploy path
+> supports both cloud mode and local mode: short image names are qualified through
+> the active target, Docker auth is skipped for the local registry, and local
+> apps serve on the loopback base domain.
 
 This is the one page aimed at **app developers** rather than platform operators:
 how a personal project becomes a running HTTPS service on Nagare. The promise is
@@ -184,8 +179,9 @@ What it does, in order:
 5. --dry-run? Print the manifests, the planned build action, and URL, then stop.
    Otherwise, dispatch on the config's build mode: a prebuilt image skips Docker
    entirely; a Dockerfile or Nixpacks build configures Docker auth, builds the
-   image, and pushes it. Then apply the manifests, wait for the Knative Ready
-   condition, and print the live URL.
+   image, and pushes it. In cloud mode Docker auth targets Artifact Registry; in
+   local mode it is skipped and the image goes to the k3d registry. Then apply
+   the manifests, wait for the Knative Ready condition, and print the live URL.
 ```
 
 ### Build modes
@@ -327,22 +323,24 @@ Pick the lightest tier that fits the app (full detail in the
 | Tier | Use when | How |
 | --- | --- | --- |
 | **1 — Stateless** | APIs, web apps, tools with no durable local state. | Knative Service only; scales to zero. |
-| **2 — Small stateful** | Personal apps, low write volume. | SQLite on a host-mounted path under `/var/lib/nagare/sqlite`, with **Litestream** streaming to GCS. |
-| **3 — Important shared state** | Data you really don't want to lose, higher write volume. | Host Postgres (`/var/lib/nagare/postgres`) with backups, or managed Cloud SQL / Neon / Supabase. |
+| **2 — Small stateful** | Personal apps, low write volume. | SQLite on a PVC-backed app volume, optionally with Litestream for hot database replication. |
+| **3 — Important shared state** | Data you really don't want to lose, higher write volume. | Managed in-cluster Postgres/Redis/ClickHouse for single-node use, or Cloud SQL / Neon / Supabase for managed HA. |
 
 For tier 2 you no longer need a hand-mounted host path: declare a durable
 **volume** in your typed config and Nagare provisions a PVC, mounts it, and can
-snapshot it to GCS — see **[Persistent storage](persistent-storage.md)** (the
-SQLite-on-PVC example pairs a durable volume with Litestream).
+snapshot it to the active object store — GCS in cloud mode, MinIO in local mode;
+see **[Persistent storage](persistent-storage.md)**. The SQLite-on-PVC example
+pairs a durable volume with Litestream.
 
 For tier 3, you can now run a **managed database** in-cluster: a typed `Database`
 (Postgres, Redis, or ClickHouse) provisioned and operated with `nagarectl db`,
 connected to your app by name (the app receives `DATABASE_URL`/`REDIS_URL`/
-`CLICKHOUSE_URL` injected from a Secret), and backed up to GCS on a schedule with
-a tested restore path — see **[Managed databases](managed-databases.md)**. Each
-database is a single replica on the single node (no HA); for managed HA, Cloud
-SQL / Neon / Supabase remain options. Secrets an app needs (`EnvSecretRef` /
-`secretEnv`) are managed with sops+age — see [Secrets](secrets.md).
+`CLICKHOUSE_URL` injected from a Secret), and backed up to GCS or local MinIO on
+a schedule with a tested restore path — see
+**[Managed databases](managed-databases.md)**. Each database is a single replica
+on the single node (no HA); for managed HA, Cloud SQL / Neon / Supabase remain
+options. Runtime app secrets are managed with `nagarectl secret`; see
+[Environment and secrets](env-and-secrets.md).
 
 Need to run work **on a schedule** (a nightly cleanup) or **once on demand** (a
 one-off migration)? Declare a typed `Task` in your app's `tasks` list and operate
@@ -397,11 +395,15 @@ nagarectl app deploy --dry-run --json -f nagare/Config.hs | jq '[.objects[].kind
 
 ## Verify (against a running cluster)
 
-> Deferred until `nagare-01` is back up; these are the intended steps.
-
 ```bash
 just status                                  # ksvc Ready with a URL
 curl https://notes.personal.<baseDomain>     # the app answers over HTTPS
+```
+
+In local mode, the bootstrap is HTTP-first:
+
+```bash
+curl http://notes.personal.127-0-0-1.sslip.io
 ```
 
 ## Next

@@ -1,12 +1,9 @@
 # Backups and disaster recovery
 
-> **Status:** 🔭 Planned (EP-7) — automated backup tooling **not built yet.**
->
-> The backup *destinations* exist today (Pulumi creates the
-> `tan-nb-exp-nagare-backups` GCS bucket and grants the node service account
-> `roles/storage.objectAdmin` on it). The *jobs* that write to it — Litestream
-> for SQLite, Postgres dumps/WAL archiving, dashboard export — are EP-7 and not
-> implemented. The recovery runbook below is the target end-state.
+> **Status:** 🟡 Database backups and app-volume snapshots/restores are built for
+> both cloud mode (GCS) and local mode (MinIO). Full host disaster-recovery drills
+> and some app-specific backup patterns, such as continuous Litestream restore
+> drills and dashboard export, are still deferred.
 
 The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 `nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Nagare
@@ -23,28 +20,36 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | NixOS host config | **Git** (this repo) | ✅ |
 | Pulumi infra program | **Git** (this repo) | ✅ |
 | Pulumi **state** | In-repo `file://` backend under `infra/pulumi/.pulumi-state` | ✅ (commit/back up the repo) |
-| Kubernetes manifests | **Git** (`cluster/`) | ✅ once EP-4/5 land |
+| Kubernetes manifests | **Git** (`cluster/`) | ✅ |
 | Secrets | **sops-encrypted in Git** + host age key offline | 🟡 (see [Secrets](secrets.md)) |
-| SQLite app data | **Litestream → GCS** (`/var/lib/nagare/sqlite`) | 🔭 EP-7 |
-| Postgres | `pg_dump` / WAL archive → GCS (`/var/lib/nagare/postgres`) | 🔭 EP-7 |
-| App volumes (PVCs) | `nagarectl storage snapshot` → GCS (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ EP-36 |
-| Managed databases | `nagarectl db backup` / daily CronJob → GCS (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ EP-47 |
-| Grafana dashboards | **Git** (exported as code) | 🔭 EP-5/EP-7 |
+| SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
+| Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
+| App volumes (PVCs) | `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ |
+| Managed databases | `nagarectl db backup` / daily CronJob → GCS or MinIO (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ |
+| Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 
-The backup bucket is `tan-nb-exp-nagare-backups` (uniform bucket-level access,
-`forceDestroy: false` so it can't be wiped by a careless `pulumi destroy`). The
-node service account already has object-admin on it, so backup jobs running on
-the VM can write with ambient credentials.
+In cloud mode, the backup bucket is `tan-nb-exp-nagare-backups` by default
+(uniform bucket-level access, `forceDestroy: false` so it can't be wiped by a
+careless `pulumi destroy`). The node service account has object-admin on it, so
+backup jobs running on the VM can write with ambient credentials. In local mode,
+the same commands target MinIO at
+`http://minio.nagare-system.svc.cluster.local:9000/nagare-backups`.
 
 ### App volumes: backup-included by default, opt out explicitly
 
 A durable volume attached to an app (EP-34/EP-35) is part of the backup story by
 default. `nagarectl storage snapshot APP VOLUME` tars the volume's contents to
-`gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` (a
-short-lived in-cluster Job mounts the PVC read-only and streams the archive to
-GCS), and keeps the last N snapshots per volume (`--keep`, default 7). Restore a
-snapshot into a disposable scratch PVC — never over live data — with
+the active object store:
+
+```text
+cloud: gs://<backup-bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz
+local: s3://nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz
+```
+
+A short-lived in-cluster Job mounts the PVC read-only and streams the archive to
+the store, then keeps the last N snapshots per volume (`--keep`, default 7).
+Restore a snapshot into a disposable scratch PVC — never over live data — with
 `nagarectl storage restore APP VOLUME <ts>` (it restores into a scratch PVC by
 default; pass `--into-live` to target the live PVC).
 
@@ -56,9 +61,10 @@ See **[Managed databases](managed-databases.md)** for the full guide (declaring 
 from the moment it is created. `db create` provisions a daily
 **CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a native dump (ClickHouse) — gzips it, and uploads it to
-`gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`, keeping the
-last N (`--keep`, default 7). Take one on demand with `nagarectl db backup NAME`;
-list them with `gsutil ls gs://tan-nb-exp-nagare-backups/databases/<name>/`.
+`databases/<name>/<timestamp>.<ext>` in the active object store, keeping the last
+N (`--keep`, default 7). Take one on demand with `nagarectl db backup NAME`; list
+cloud backups with `gsutil ls gs://<backup-bucket>/databases/<name>/`, or inspect
+local MinIO through the cluster when running local mode.
 
 Restore is **scratch-first**: `nagarectl db restore NAME BACKUP_ID` loads the
 chosen dump into a disposable target (`<db>_restore_scratch` for
@@ -106,7 +112,8 @@ Rebuilding `nagare-01` from nothing:
         Dashboards restore from Git.
 
 5. Restore data
-      → Litestream restores SQLite from GCS; Postgres restores from dump/WAL.
+      → managed database restores and volume restores read from GCS; app-specific
+        Litestream or host-Postgres restores are run by the app/host runbook.
 
 6. Redeploy apps
       → nagarectl deploy for each app (or kubectl apply the manifests in Git).
@@ -118,7 +125,7 @@ Step-by-step, each maps to a page in this guide:
 2. [Host image and first boot](host-image-and-boot.md)
 3. [Secrets](secrets.md)
 4. [Cluster bootstrap](cluster-bootstrap.md) + [Observability](observability.md)
-5. this page (Litestream / Postgres restore — EP-7)
+5. this page (managed database, volume, and app-specific restore procedures)
 6. [Deploying apps](deploying-apps.md)
 
 ## Two failure modes worth distinguishing
@@ -130,13 +137,15 @@ Step-by-step, each maps to a page in this guide:
   a disk that already has a filesystem — your data is not touched.
 - **Everything lost (disk too).** Same steps, but the new blank disk
   auto-formats and step 5's restore-from-GCS is mandatory. This is the case the
-  Litestream/Postgres backups protect against.
+  database and volume backups protect against.
 
 ## Drill it
 
-A backup you've never restored is a hypothesis. Once EP-7 lands, periodically:
+A backup you've never restored is a hypothesis. Periodically:
 
-- restore a SQLite DB from GCS into a scratch path and diff it, and
+- restore a managed database into its scratch target,
+- restore an app volume into its scratch PVC,
+- restore a SQLite/Litestream app through that app's runbook, and
 - spin a throwaway from-scratch rebuild (or at least `pulumi preview` + an image
   build) to confirm the runbook still matches reality.
 

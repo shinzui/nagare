@@ -3,18 +3,19 @@
 > **Status:** ✅ Working
 
 This page gets your workstation ready to operate Nagare: the toolchain, the
-project-pinned dev shell, `direnv`, and the GCP project-isolation guardrails.
+project-pinned dev shell, `direnv`, the GCP project-isolation guardrails, and the
+local-mode switch.
 Everything else in this guide assumes you have done this once.
 
 ---
 
 ## What you're operating
 
-Nagare is a single GCP Compute Engine VM (`nagare-01`) running NixOS, k3s, and
-(eventually) Knative + the Victoria observability stack. You operate it entirely
-from this repository: Pulumi owns the cloud, a Nix flake owns the host image,
-and a `justfile` wraps the common steps. There is no separate control plane and
-no shared state outside this repo plus a handful of encrypted secrets.
+In cloud mode, Nagare is a single GCP Compute Engine VM (`nagare-01`) running
+NixOS, k3s, Knative, and the Victoria observability stack. In local mode, the
+same app platform runs on k3d with a local registry and MinIO object store. You
+operate both targets entirely from this repository: Pulumi owns the cloud, a Nix
+flake owns the host image, and a `justfile` wraps the common steps.
 
 ## Prerequisites
 
@@ -28,7 +29,8 @@ You need, on your workstation:
   example is `tan-nb-exp`); see [GCP prerequisites](gcp-prerequisites.md) for the
   auth, IAM roles, project, and API setup, and
   [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) for the
-  from-zero runbook.
+  from-zero runbook. This is required for cloud mode, not for local mode.
+- **Docker** if you want local mode (`just local-up` uses k3d).
 - An **SSH key** (`~/.ssh/id_ed25519`). The operator public key baked into
   `nagare-01` is in `nixos/hosts/nagare-01/users.nix`; if your key differs,
   see [Day-2 host changes](day-2-host-changes.md) to add it.
@@ -96,6 +98,12 @@ project is '…', expected '\<your target>'."*, you're outside the dev shell or 
 `gcloud` config overrides the env var. Re-enter the shell (`direnv allow` /
 `nix develop`) and retry.
 
+For local mode, copy `nagare.local.env.example` to `nagare.local.env`, set
+`NAGARE_MODE=local`, and re-enter the shell. In that mode the guardrail steps
+aside intentionally, `nagarectl` uses the local registry and loopback base
+domain, and backup Jobs use local MinIO instead of GCS. See
+[Local development](local-development.md).
+
 **One target per checkout** — to point at a different GCP project, change the
 profile (or run `nagarectl init --force`), don't run two at once. The full
 configurable-isolation policy is in [`CLAUDE.md`](../../CLAUDE.md); the architectural
@@ -129,6 +137,9 @@ just infra-preview   # preview cloud changes
 just infra-up        # apply cloud changes
 just host-image      # build + register the NixOS GCE image
 just host-switch     # apply day-2 host config over Tailscale
+just local-up        # create local k3d cluster + registry
+just local-bootstrap # install Knative/Kourier locally
+just local-minio     # install local MinIO backup store
 just status          # kubectl: pods + Knative services across namespaces
 ```
 
