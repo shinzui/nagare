@@ -152,7 +152,7 @@ exists *for* the auth plane (WebAuthn secure context) and is meaningless without
 |---|-------|------|-----------|-----------|--------|
 | 82 | Local cluster, registry, and local-target bootstrap for nagare | docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md | None | None | Complete |
 | 83 | Decouple nagarectl deploy and build from GCP for local mode | docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md | EP-82 | None | Complete |
-| 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | In Progress |
+| 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | Complete |
 | 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Not Started |
 | 86 | Local smoke test parity and developer documentation for nagare | docs/plans/86-local-smoke-test-parity-and-developer-documentation-for-nagare.md | EP-82 | EP-83, EP-84, EP-85 | Not Started |
 
@@ -292,8 +292,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-82: `just local-bootstrap` installs Knative + Kourier on the local cluster HTTP-first (no DNS-01, loopback `config-domain`, local registry in `registriesSkippingTagResolving`); `scripts/lib/target.sh` is local-mode-aware (cloud branch still fail-closed). (Done 2026-06-29.)
 - [x] EP-83: `Nagare.Target` resolves a `Mode`; `configureDockerAuth` is skipped/local in local mode; `nagarectl deploy` builds, pushes to the local registry, applies, and returns HTTP 200 from a loopback hostname with no gcloud. (Done 2026-06-29 — dockerfile-app served HTTP 200; zero-gcloud proven by a failing-shim redeploy.)
 - [x] EP-83: the static `site` and `server` deploy paths work in local mode (host-arch build platform, local registry, loopback domain). (Done 2026-06-29 — static-site served HTTP 200; server path verified by shared construction; M4.2 → no `--platform` change.)
-- [ ] EP-84: managed databases, the Redpanda broker, scheduled-task CronJobs, and local-path volumes are demonstrated running on the local cluster.
-- [ ] EP-84: `Nagare.Cluster.GcsJob` renders a local-object-store (MinIO) Job in local mode; `db backup`/`db restore` and `storage snapshot`/`storage restore` round-trip locally with no GCS/metadata server.
+- [x] EP-84: managed databases (Postgres `pgdemo`, Redis `rdemo`), the Redpanda broker (`demo`), a scheduled-task CronJob, and a `local-path` volume app (`uploads-volume`) demonstrated running `Ready`/`Bound`/`Complete` on the local cluster. (Done 2026-06-29.)
+- [x] EP-84: `Nagare.Cluster.GcsJob` renders a local-object-store (MinIO) Job in local mode; `db backup`/`db restore --into-live` round-tripped `hello-local` and `storage snapshot`/`storage restore --into-live` round-tripped `hello-volume` through MinIO with no GCS/metadata server; cloud bytes unchanged (`NAGARE_MODE` unset dry-run). (Done 2026-06-29.)
 - [ ] EP-85: Shomei, en, and nagare-access images build+push to the local registry and install with a local managed Postgres; a local TLS issuer provides a locally-trusted cert.
 - [ ] EP-85: an app marked "require login" is fronted by the local auth plane and completes a login over locally-trusted HTTPS.
 - [ ] EP-86: `just local-smoke` runs deploy → snapshot/restore → HTTP 200 → teardown locally with zero cloud dependencies.
@@ -329,6 +329,25 @@ interactions between child plans. Provide concise evidence.
   `kubectl -n kourier-system port-forward svc/kourier` + a `Host:` header (200, `server: envoy`,
   expected body). EP-86's `just local-smoke` should curl through a Kourier port-forward (robust to
   host port-80 conflicts) rather than assuming host port 80 is free. Date: 2026-06-29.
+
+- **The local data-movement client image lacks `tar`/`gzip`, and the creds Secret is
+  namespace-local (EP-84 → affects EP-85, EP-86).** Two gaps surfaced on the first live local
+  backup. (1) `amazon/aws-cli:latest` (and `minio/mc:latest`) ship neither `tar` nor `gzip`, so
+  `gzip | aws s3 cp -` wrote a 0-byte object; EP-84's fix is a `dnf install -y -q tar gzip`
+  preamble in the MinIO data-movement shells (local mode only; cloud bytes unchanged), adding
+  ~12 s to the first such Job. **EP-86's `just local-smoke` inherits this one-time cost.** (2)
+  The Job's `secretKeyRef` to `nagare-minio-credentials` is namespace-local, so
+  `cluster/local/minio/minio.yaml` seeds the Secret into both `nagare-system` and the default
+  app/db namespace `personal`; **apps/databases in other namespaces need it copied there, which
+  EP-86's runbook must document** (analogous to EP-82's insecure-registry prerequisite). EP-85's
+  auth-plane Postgres lives in its own namespace and uses `db backup` only if its operator runs
+  one, but EP-85 should be aware the creds Secret is per-namespace. Date: 2026-06-29.
+
+- **A local managed Postgres comes up `Ready` and connects with no GCP (EP-84 → unblocks EP-85's
+  soft dep).** `nagarectl db create postgres pgdemo` brought up the StatefulSet `1/1` with a
+  `local-path` PVC `Bound` and the backup CronJob rendered against MinIO — confirming the
+  managed-Postgres create path EP-85 soft-depends on works locally. EP-85 can stand up the
+  Shomei/en Postgres the same way. Date: 2026-06-29.
 
 - **The DSL image-ref validator needed a fix for the ported local registry (EP-83 → affects
   EP-84/EP-85).** `Nagare.Dsl.Types.mkImageRef` rejected every `:`, which broke
