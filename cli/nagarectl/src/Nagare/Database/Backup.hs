@@ -12,10 +12,9 @@
 -- deferred to EP-48 (and is additionally gated on the in-pod-ADC routing fix the
 -- MasterPlan records — see EP-43 Surprises).
 module Nagare.Database.Backup
-  ( -- * Pure GCS path / extension helpers
+  ( -- * Pure object-key / extension helpers
     dbBackupObjectPath
-  , dbBackupGsUrl
-  , dbBackupPrefix
+  , dbBackupKeyPrefix
   , backupExt
   , backupRawExt
 
@@ -47,7 +46,19 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
+import Nagare.Cluster.GcsJob
+  ( DataMovementJob (..)
+  , StoreBackend (..)
+  , dataMovementJobSpec
+  , storeCpFromStdin
+  , storeEnv
+  , storeHostAliases
+  , storeImage
+  , storeLs
+  , storeObjectUrl
+  , storePrefixUrl
+  , storeRmStdin
+  )
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
@@ -56,23 +67,22 @@ import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
 -- ---------------------------------------------------------------------------
--- Pure GCS path / extension helpers
+-- Pure object-key / extension helpers
 
--- | The GCS object path /within the bucket/ for one database backup (IP6):
--- @databases/\<name\>/\<timestamp\>.\<ext\>@. Bucket kept out so it is trivially
+-- | The object key /within the bucket/ for one database backup (IP6):
+-- @databases/\<name\>/\<timestamp\>.\<ext\>@. Backend-independent (EP-84 keeps
+-- the key layout stable across GCS and MinIO); the @gs://@/@s3://@ URL is formed
+-- by 'Nagare.Cluster.GcsJob.storeObjectUrl'. Bucket kept out so it is trivially
 -- testable.
 dbBackupObjectPath :: Text -> Text -> Text -> Text
 dbBackupObjectPath name timestamp ext =
   "databases/" <> name <> "/" <> timestamp <> "." <> ext
 
--- | The full @gs://@ URL for one database backup.
-dbBackupGsUrl :: Text -> Text -> Text -> Text -> Text
-dbBackupGsUrl bucket name timestamp ext =
-  "gs://" <> bucket <> "/" <> dbBackupObjectPath name timestamp ext
-
--- | The @gs://@ prefix under which a database's backups live (for listing/prune).
-dbBackupPrefix :: Text -> Text -> Text
-dbBackupPrefix bucket name = "gs://" <> bucket <> "/databases/" <> name <> "/"
+-- | The object-key prefix under which a database's backups live (for
+-- listing/prune): @databases/\<name\>/@. Wrap with
+-- 'Nagare.Cluster.GcsJob.storePrefixUrl' to form the backend URL.
+dbBackupKeyPrefix :: Text -> Text
+dbBackupKeyPrefix name = "databases/" <> name <> "/"
 
 -- | The final (gzipped) object extension per engine.
 backupExt :: Engine -> Text
@@ -110,8 +120,9 @@ data BackupJobInputs = BackupJobInputs
   , bjiKeep :: !Int
   , bjiSelfPrune :: !Bool
   -- ^ when True (the CronJob), the upload container prunes inline after upload
-  , bjiProject :: !Text
-  -- ^ the GCP project for the upload container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
+  , bjiBackend :: !StoreBackend
+  -- ^ the object-store backend (EP-84): GCS in cloud mode, MinIO in local mode.
+  -- Drives the upload container's image, env, destination URL, and shell verbs.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -133,6 +144,7 @@ backupJobSpecValue i =
   dataMovementJobSpec
     DataMovementJob
       { dmjTemplateLabels = Just (labelsValue i)
+      , dmjHostAliases = storeHostAliases (bjiBackend i)
       , dmjInitContainers = [dumpContainer i]
       , dmjContainers = [uploadContainer i]
       , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
@@ -166,13 +178,14 @@ dumpContainer i =
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
--- | The upload main container: @google/cloud-sdk:slim@, gzip the dump and
--- @gsutil cp@ to @$DEST@; when 'bjiSelfPrune' it then keeps the last N.
+-- | The upload main container: the backend's data-movement image, gzip the dump
+-- and copy stdin to @$DEST@ (@gsutil@/@aws s3@); when 'bjiSelfPrune' it then
+-- keeps the last N.
 uploadContainer :: BackupJobInputs -> Value
 uploadContainer i =
   object
     [ "name" .= ("upload" :: Text)
-    , "image" .= gcsContainerImage
+    , "image" .= storeImage (bjiBackend i)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [uploadShell i]
     , "env"
@@ -181,7 +194,7 @@ uploadContainer i =
             , plainEnv "PREFIX" (bjiPrefix i)
             , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
             ]
-              ++ metadataEnv (bjiProject i)
+              ++ storeEnv (bjiBackend i)
           )
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -229,20 +242,28 @@ dumpShell ClickHouse svc =
     <> "$CH --query \"SHOW TABLES FROM default\" | while read t; do "
     <> "$CH --query \"SELECT * FROM default.\\`$t\\` FORMAT Native\"; done > /dump/backup.native"
 
--- | The upload shell: gzip + @gsutil cp@; with self-prune, keep the last N.
+-- | The upload shell: gzip + a backend copy from stdin to @$DEST@; with
+-- self-prune, keep the last N (backend list + delete). The cloud (@gsutil@)
+-- bytes are unchanged; the MinIO path emits @aws s3 … --endpoint-url@.
 uploadShell :: BackupJobInputs -> Text
 uploadShell i =
   base <> if bjiSelfPrune i then "; " <> prune else ""
   where
+    backend = bjiBackend i
     raw = backupRawExt (bjiEngine i)
     base =
       "set -e; gzip -9 -c /dump/backup."
         <> raw
-        <> " | gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp - \"$DEST\""
+        <> " | "
+        <> storeCpFromStdin backend "\"$DEST\""
     -- keep the last $KEEP objects under $PREFIX (newest sort last with reverse sort)
     prune =
-      "echo pruning; gsutil ls \"$PREFIX\" | sort -r | tail -n +$((KEEP+1)) "
-        <> "| (grep . | gsutil -m rm -I || true)"
+      "echo pruning; "
+        <> storeLs backend "\"$PREFIX\""
+        <> " | sort -r | tail -n +$((KEEP+1)) "
+        <> "| (grep . | "
+        <> storeRmStdin backend
+        <> " || true)"
 
 -- | Inputs to the CronJob renderer: the schedule plus the shared backup body.
 data BackupCronInputs = BackupCronInputs
@@ -275,8 +296,9 @@ renderBackupCronJob i =
 -- | Convenience renderer for the scheduled-backup CronJob of a database, from
 -- its identity (the values EP-45's @db create@ has on hand). Self-pruning, daily
 -- default schedule. EP-45 applies this at create time unless retention = Delete.
-renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> Text -> Int -> Text -> ByteString
-renderDbBackupCronJob ns name eng version bucket keep project =
+-- The @backend@ (EP-84) selects GCS or MinIO for the upload.
+renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJob ns name eng version backend keep =
   renderBackupCronJob
     BackupCronInputs
       { bciSchedule = defaultBackupSchedule
@@ -290,11 +312,11 @@ renderDbBackupCronJob ns name eng version bucket keep project =
             , bjiSecretName = dbSecretName name
             , bjiName = name
             , bjiDestUrl =
-                "gs://" <> bucket <> "/databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt eng
-            , bjiPrefix = dbBackupPrefix bucket name
+                storeObjectUrl backend ("databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt eng)
+            , bjiPrefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             , bjiKeep = keep
             , bjiSelfPrune = True
-            , bjiProject = project
+            , bjiBackend = backend
             }
       }
 
@@ -305,8 +327,8 @@ renderDbBackupCronJob ns name eng version bucket keep project =
 -- the one-shot backup Job, wait for completion, prune to keep-last-N (reusing
 -- 'snapshotsToPrune'), and (unless @--dry-run@) report the destination. With
 -- @--dry-run@, print the Job (and the CronJob) manifests and apply nothing.
-runDbBackup :: Text -> Text -> Text -> Int -> Text -> Bool -> IO ()
-runDbBackup ns name bucket keep project dryRun = do
+runDbBackup :: Text -> Text -> StoreBackend -> Int -> Bool -> IO ()
+runDbBackup ns name backend keep dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
@@ -318,8 +340,8 @@ runDbBackup ns name bucket keep project dryRun = do
             ext = backupExt eng
             image = engineImage eng <> ":" <> drVersion r
             secret = dbSecretName name
-            dest = dbBackupGsUrl bucket name ts ext
-            prefix = dbBackupPrefix bucket name
+            dest = storeObjectUrl backend (dbBackupObjectPath name ts ext)
+            prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             jobName = T.take 63 (T.toLower ("nagare-dbbackup-" <> name <> "-" <> ts))
             jobInputs =
               BackupJobInputs
@@ -334,7 +356,7 @@ runDbBackup ns name bucket keep project dryRun = do
                 , bjiPrefix = prefix
                 , bjiKeep = keep
                 , bjiSelfPrune = False
-                , bjiProject = project
+                , bjiBackend = backend
                 }
             cronInputs =
               BackupCronInputs
@@ -342,7 +364,7 @@ runDbBackup ns name bucket keep project dryRun = do
                 , bciBase =
                     jobInputs
                       { bjiJobName = "nagare-dbbackup-" <> name
-                      , bjiDestUrl = "gs://" <> bucket <> "/databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> ext
+                      , bjiDestUrl = storeObjectUrl backend ("databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> ext)
                       , bjiSelfPrune = True
                       }
                 }
@@ -357,7 +379,13 @@ runDbBackup ns name bucket keep project dryRun = do
             applyJob (renderBackupJob jobInputs)
             waitForJob ns jobName
             run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
-            pruneBackups prefix keep
+            -- Laptop-side prune uses @gsutil@ and the cloud bucket; in local mode
+            -- the MinIO Service is in-cluster (unreachable from the laptop), so the
+            -- on-demand prune is skipped and retention is left to the in-pod
+            -- self-prune (the CronJob) — EP-84 Decision Log.
+            case backend of
+              GcsBackend {} -> pruneBackups prefix keep
+              MinioBackend {} -> pure ()
             TIO.putStrLn ("Backup written: " <> dest)
 
 applyJob :: ByteString -> IO ()

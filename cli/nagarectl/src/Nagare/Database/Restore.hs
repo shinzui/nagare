@@ -10,7 +10,7 @@
 -- unit-testable without a cluster; the live restore drill is deferred to EP-48
 -- (and gated on the in-pod-ADC routing fix the MasterPlan records).
 module Nagare.Database.Restore
-  ( isGsUrl
+  ( isObjectUrl
   , resolveBackupObject
   , RestoreJobInputs (..)
   , renderRestoreJob
@@ -29,8 +29,17 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
-import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupGsUrl)
+import Nagare.Cluster.GcsJob
+  ( DataMovementJob (..)
+  , StoreBackend
+  , dataMovementJobSpec
+  , storeCpToStdout
+  , storeEnv
+  , storeHostAliases
+  , storeImage
+  , storeObjectUrl
+  )
+import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
@@ -38,16 +47,17 @@ import System.Exit (ExitCode (..), exitFailure)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
--- | Is the BACKUP_ID already a full @gs://@ URL?
-isGsUrl :: Text -> Bool
-isGsUrl = T.isPrefixOf "gs://"
+-- | Is the BACKUP_ID already a full object URL (@gs://@ in cloud mode or
+-- @s3://@ in local mode)?
+isObjectUrl :: Text -> Bool
+isObjectUrl t = "gs://" `T.isPrefixOf` t || "s3://" `T.isPrefixOf` t
 
--- | Resolve a BACKUP_ID to a full @gs://@ object URL: a full URL is used
--- verbatim; a bare timestamp is composed against the bucket/name/ext.
-resolveBackupObject :: Text -> Text -> Text -> Text -> Text
-resolveBackupObject bucket name ext backupId
-  | isGsUrl backupId = backupId
-  | otherwise = dbBackupGsUrl bucket name backupId ext
+-- | Resolve a BACKUP_ID to a full object URL for the backend: a full URL is used
+-- verbatim; a bare timestamp is composed against the backend/name/ext (EP-84).
+resolveBackupObject :: StoreBackend -> Text -> Text -> Text -> Text
+resolveBackupObject backend name ext backupId
+  | isObjectUrl backupId = backupId
+  | otherwise = storeObjectUrl backend (dbBackupObjectPath name backupId ext)
 
 data RestoreJobInputs = RestoreJobInputs
   { rjiNamespace :: !Text
@@ -59,8 +69,9 @@ data RestoreJobInputs = RestoreJobInputs
   , rjiName :: !Text
   , rjiSrcUrl :: !Text
   , rjiLiveTarget :: !Bool
-  , rjiProject :: !Text
-  -- ^ the GCP project for the download container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
+  , rjiBackend :: !StoreBackend
+  -- ^ the object-store backend (EP-84): drives the download container's image,
+  -- env, and copy-from-store shell.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -81,6 +92,7 @@ renderRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { dmjTemplateLabels = Just labels
+              , dmjHostAliases = storeHostAliases (rjiBackend i)
               , dmjInitContainers = [downloadContainer i]
               , dmjContainers = [restoreContainer i]
               , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
@@ -100,12 +112,12 @@ downloadContainer :: RestoreJobInputs -> Value
 downloadContainer i =
   object
     [ "name" .= ("download" :: Text)
-    , "image" .= gcsContainerImage
+    , "image" .= storeImage (rjiBackend i)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [downloadShell (rjiEngine i)]
+    , "args" .= toJSON [downloadShell (rjiBackend i) (rjiEngine i)]
     , "env"
         .= toJSON
-          (plainEnv "SRC" (rjiSrcUrl i) : metadataEnv (rjiProject i))
+          (plainEnv "SRC" (rjiSrcUrl i) : storeEnv (rjiBackend i))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -142,9 +154,9 @@ restoreEnv ClickHouse secret =
   , secretEnv "CLICKHOUSE_PASSWORD" secret "CLICKHOUSE_PASSWORD"
   ]
 
-downloadShell :: Engine -> Text
-downloadShell eng =
-  "set -e; gsutil cp \"$SRC\" - | gunzip > /dump/backup." <> backupRawExt eng
+downloadShell :: StoreBackend -> Engine -> Text
+downloadShell backend eng =
+  "set -e; " <> storeCpToStdout backend "\"$SRC\"" <> " | gunzip > /dump/backup." <> backupRawExt eng
 
 -- | The per-engine restore shell. Scratch-first: Postgres/ClickHouse restore into
 -- @\<db\>_restore_scratch@ unless @live@. Redis restore is whole-instance and is
@@ -192,8 +204,8 @@ warn True = "echo 'WARNING: restoring into the LIVE database'; "
 warn False = ""
 
 -- | Run @db restore NAME BACKUP_ID@.
-runDbRestore :: Text -> Text -> Text -> Bool -> Text -> Text -> Bool -> IO ()
-runDbRestore ns name backupId live bucket project dryRun = do
+runDbRestore :: Text -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
+runDbRestore ns name backupId live backend dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
@@ -202,7 +214,7 @@ runDbRestore ns name backupId live bucket project dryRun = do
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
-            src = resolveBackupObject bucket name (backupExt eng) backupId
+            src = resolveBackupObject backend name (backupExt eng) backupId
             image = engineImage eng <> ":" <> drVersion r
             jobName = T.take 63 (T.toLower ("nagare-dbrestore-" <> name <> "-" <> ts))
             inputs =
@@ -216,7 +228,7 @@ runDbRestore ns name backupId live bucket project dryRun = do
                 , rjiName = name
                 , rjiSrcUrl = src
                 , rjiLiveTarget = live
-                , rjiProject = project
+                , rjiBackend = backend
                 }
         if dryRun
           then do

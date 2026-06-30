@@ -51,7 +51,7 @@ import Nagare.Dsl.Types
   , quantityText
   )
 import Nagare.Env.Store (extractSecretData)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Target (TargetProfile (..), resolveTargetProfile, storeBackendFor)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -135,7 +135,8 @@ runDbCreate eng nameT params = do
       backsUp = (db ^. #retention) /= Delete
   tp <- resolveTargetProfile
   let bucket = tpBackupBucket tp
-      cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) bucket 7 (tpProject tp)
+  backend <- either dieT pure (storeBackendFor tp bucket)
+  let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
   if dcpDryRun params
     then do
       pw <- generatePassword

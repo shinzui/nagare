@@ -31,8 +31,17 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
-import Nagare.Database.Restore (isGsUrl)
+import Nagare.Cluster.GcsJob
+  ( DataMovementJob (..)
+  , StoreBackend
+  , dataMovementJobSpec
+  , storeCpToStdout
+  , storeEnv
+  , storeHostAliases
+  , storeImage
+  , storeObjectUrl
+  )
+import Nagare.Database.Restore (isObjectUrl)
 import Nagare.Dsl.Types
   ( Deployment
   , Volume
@@ -42,7 +51,7 @@ import Nagare.Dsl.Types
   , volumeNameText
   )
 import Nagare.Storage.Discover (pvcName)
-import Nagare.Storage.Snapshot (snapshotGsUrl, snapshotTimestamp)
+import Nagare.Storage.Snapshot (snapshotObjectPath, snapshotTimestamp)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
@@ -54,11 +63,12 @@ data StorageRestoreJobInputs = StorageRestoreJobInputs
   , sriClaimName :: !Text
   -- ^ the PVC the restore writes into (scratch or live)
   , sriSrcUrl :: !Text
-  -- ^ the @gs://@ @tar.gz@ object to restore
+  -- ^ the @tar.gz@ object to restore (@gs://@ in cloud, @s3://@ in local)
   , sriMountPath :: !Text
   -- ^ in-Job mount path, e.g. @/restore@
-  , sriProject :: !Text
-  -- ^ the GCP project for the restore container's @CLOUDSDK_CORE_PROJECT@
+  , sriBackend :: !StoreBackend
+  -- ^ the object-store backend (EP-84): drives the restore container's image,
+  -- env, and copy-from-store shell.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -82,6 +92,7 @@ renderStorageRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { dmjTemplateLabels = Nothing
+              , dmjHostAliases = storeHostAliases (sriBackend i)
               , dmjInitContainers = []
               , dmjContainers = [restoreContainer i]
               , dmjVolumes =
@@ -97,20 +108,23 @@ restoreContainer :: StorageRestoreJobInputs -> Value
 restoreContainer i =
   object
     [ "name" .= ("restore" :: Text)
-    , "image" .= gcsContainerImage
+    , "image" .= storeImage (sriBackend i)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [restoreShell (sriMountPath i)]
-    , "env" .= toJSON (plainEnv "SRC" (sriSrcUrl i) : metadataEnv (sriProject i))
+    , "args" .= toJSON [restoreShell (sriBackend i) (sriMountPath i)]
+    , "env" .= toJSON (plainEnv "SRC" (sriSrcUrl i) : storeEnv (sriBackend i))
     , "volumeMounts"
         .= toJSON
           [object ["name" .= ("restore" :: Text), "mountPath" .= sriMountPath i]]
     ]
 
--- | Stream the archive from GCS and untar it into the mount, then list the
+-- | Stream the archive from the store and untar it into the mount, then list the
 -- restored tree (the same shell the deleted @scripts/restore-volume.sh@ ran).
-restoreShell :: Text -> Text
-restoreShell mount =
-  "set -e; gsutil cp \"$SRC\" - | tar -C "
+-- The cloud (@gsutil@) bytes are unchanged; MinIO uses @aws s3@.
+restoreShell :: StoreBackend -> Text -> Text
+restoreShell backend mount =
+  "set -e; "
+    <> storeCpToStdout backend "\"$SRC\""
+    <> " | tar -C "
     <> mount
     <> " -xzf -; echo '--- restored tree (first 50 entries) ---'; find "
     <> mount
@@ -153,8 +167,8 @@ renderScratchPvc ns name size =
 -- is never mounted. @BACKUP_ID@ is a bare snapshot timestamp (composed against the
 -- bucket\/app\/volume) or a full @gs://@ URL. With @dryRun@, print the manifests
 -- and apply nothing.
-runStorageRestore :: Deployment -> Text -> Text -> Bool -> Text -> Text -> Bool -> IO ()
-runStorageRestore dep volume backupId live bucket project dryRun = do
+runStorageRestore :: Deployment -> Text -> Text -> Bool -> StoreBackend -> Bool -> IO ()
+runStorageRestore dep volume backupId live backend dryRun = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       vols = dep ^. #volumes
@@ -167,7 +181,7 @@ runStorageRestore dep volume backupId live bucket project dryRun = do
           livePvc = pvcName app volume
           scratchPvc = T.take 63 (T.toLower (livePvc <> "-restore-scratch"))
           claim = if live then livePvc else scratchPvc
-          src = if isGsUrl backupId then backupId else snapshotGsUrl bucket app volume backupId
+          src = if isObjectUrl backupId then backupId else storeObjectUrl backend (snapshotObjectPath app volume backupId)
           size = scratchSize volume vols
           jobName = T.take 63 (T.toLower ("nagare-volrestore-" <> app <> "-" <> volume <> "-" <> ts))
           job =
@@ -177,7 +191,7 @@ runStorageRestore dep volume backupId live bucket project dryRun = do
               , sriClaimName = claim
               , sriSrcUrl = src
               , sriMountPath = "/restore"
-              , sriProject = project
+              , sriBackend = backend
               }
       if dryRun
         then do
