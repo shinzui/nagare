@@ -11,13 +11,35 @@
 -- unchanged. EP-63's @nagarectl init@ reuses this record.
 module Nagare.Target
   ( TargetProfile (..)
+  , Mode (..)
+  , parseMode
   , resolveTargetProfile
   , registryPrefix
   ) where
 
+import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Environment (lookupEnv)
+
+-- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
+-- public type — EP-84 and EP-85 import it and must not re-derive the mode from the
+-- environment themselves). 'Cloud' is the original GCP target; 'Local' selects the
+-- local k3d cluster + local registry from EP-82. Resolved from @NAGARE_MODE@ in
+-- 'resolveTargetProfile'; with the variable unset the mode is 'Cloud', so existing
+-- behavior is unchanged.
+data Mode = Cloud | Local
+  deriving stock (Eq, Show)
+
+-- | Parse the @NAGARE_MODE@ value. The string @"local"@ (case-insensitive) selects
+-- 'Local'; anything else — including 'Nothing' (unset), @"cloud"@, and any
+-- unrecognized value — is 'Cloud'. Defaulting unknown values to 'Cloud' keeps the
+-- fail-safe direction: a typo never silently points a cloud operator at a
+-- nonexistent local cluster.
+parseMode :: Maybe String -> Mode
+parseMode m = case fmap (map toLower) m of
+  Just "local" -> Local
+  _ -> Cloud
 
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
@@ -45,6 +67,10 @@ data TargetProfile = TargetProfile
   -- default @"linux/amd64"@. Passed verbatim to @docker build --platform@ and
   -- @nixpacks build --platform@ (EP-3). The node is amd64; an operator whose
   -- node differs overrides this in @nagare.target.env@.
+  , tpMode :: !Mode
+  -- ^ NAGARE_MODE; 'Local' selects the EP-82 local cluster, default 'Cloud'
+  -- (unset or any non-@local@ value). Drives conditional Docker auth in
+  -- 'Nagare.Image.configureDockerAuth' (EP-83).
   }
   deriving stock (Eq, Show)
 
@@ -71,6 +97,9 @@ resolveTargetProfile = do
   baseDomain <- envOr "NAGARE_BASE_DOMAIN" "apps.example.com"
   instanceName <- envOr "NAGARE_INSTANCE_NAME" "nagare-01"
   targetPlatform <- envOr "NAGARE_TARGET_PLATFORM" "linux/amd64"
+  -- 'parseMode' reads the raw 'Maybe String' from 'lookupEnv' (not 'envOr'): an
+  -- empty NAGARE_MODE="" is "not local", which 'parseMode' already yields as 'Cloud'.
+  mode <- parseMode <$> lookupEnv "NAGARE_MODE"
   pure
     TargetProfile
       { tpProject = project
@@ -83,6 +112,7 @@ resolveTargetProfile = do
       , tpBaseDomain = baseDomain
       , tpInstanceName = instanceName
       , tpTargetPlatform = targetPlatform
+      , tpMode = mode
       }
 
 -- | Read an env var, falling back to @def@ when it is unset OR set to the empty
