@@ -222,6 +222,12 @@ unitTests =
       [ testCase "accepts path" $ assertRight (mkImageRef "gcr.io/foo/bar")
       , testCase "rejects empty" $ assertLeftContains "empty" (mkImageRef "")
       , testCase "rejects tagged path" $ assertLeftContains "tag" (mkImageRef "gcr.io/foo/bar:latest")
+      , -- EP-83: a ported registry host (k3d local registry) has a colon BEFORE the
+        -- first '/', which is the port, not a tag — it must be accepted.
+        testCase "accepts ported registry host" $
+          assertRight (mkImageRef "k3d-registry.localhost:5000/tan-nb-exp/nagare/dockerfile-app")
+      , testCase "rejects tag even with a ported registry host" $
+          assertLeftContains "tag" (mkImageRef "k3d-registry.localhost:5000/foo/bar:latest")
       ]
   , testGroup
       "mkPort"
