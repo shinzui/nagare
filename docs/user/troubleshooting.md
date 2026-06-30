@@ -134,6 +134,52 @@ project` (or the env var) is `tan-nb-exp`. See
 
 ---
 
+## Local Docker push says "server gave HTTP response to HTTPS client"
+
+**Symptom.** In local mode, `nagarectl deploy` builds an image but Docker fails
+when pushing to `k3d-registry.localhost:5000`.
+
+**Cause.** The k3d registry is plain HTTP. Docker automatically trusts bare
+`localhost` and `127.0.0.0/8`, but not the named host
+`k3d-registry.localhost`, so it tries HTTPS unless the registry is marked
+insecure.
+
+**Fix.** Add `k3d-registry.localhost:5000` to your Docker daemon's
+`insecure-registries` and restart Docker. If your resolver does not honor
+`.localhost`, also add:
+
+```text
+127.0.0.1 k3d-registry.localhost
+```
+
+See `nagare.local.env.example` and [Local development](local-development.md).
+
+---
+
+## Local backup says `NAGARE_LOCAL_OBJECT_STORE` is unset or malformed
+
+**Symptom.** `nagarectl db backup`, `db restore`, `storage snapshot`, or
+`storage restore` fails immediately in local mode with a message about
+`NAGARE_LOCAL_OBJECT_STORE`.
+
+**Cause.** Local data-movement Jobs need an S3 endpoint and bucket so they can
+target MinIO instead of GCS. The value must have the form
+`<endpoint-url>/<bucket>`.
+
+**Fix.**
+
+```bash
+cp nagare.local.env.example nagare.local.env
+export NAGARE_MODE=local
+direnv allow
+just local-minio
+```
+
+The default value is
+`http://minio.nagare-system.svc.cluster.local:9000/nagare-backups`.
+
+---
+
 ## `kubectl` can't reach the cluster
 
 **Likely causes.**

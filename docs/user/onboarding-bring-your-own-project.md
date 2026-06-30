@@ -2,9 +2,8 @@
 
 > **Status:** ✅ Working — this is the consolidated zero-to-running runbook. Each
 > numbered step carries its own real status badge inline, so you are never misled
-> about what is built. Where a step's own page still shows a stale "🔭 Planned"
-> badge, this runbook states the authoritative status from
-> [MasterPlan 1](../masterplans/1-bootstrap-nagare-personal-paas.md).
+> about what is built. For laptop-only testing without GCP, use
+> [Local development](local-development.md) instead.
 
 From an empty GCP project and a domain you own to a running nagare, using only this
 page and the pages it links. The default worked example targets project `tan-nb-exp`,
@@ -179,19 +178,17 @@ just observability         # VictoriaMetrics/Logs/Traces + OTel Collector + Graf
 ```
 
 See [cluster bootstrap](cluster-bootstrap.md) and [observability](observability.md).
-**Status note (honesty):** MasterPlan 1 records EP-4 and EP-5 as **Complete and verified
-live**; those two pages still carry "🔭 Planned" badges that are being reconciled — trust
-the MasterPlan. The HTTPS smoke test (a hello service answering over a valid Let's Encrypt
-cert under your wildcard) depends on Step 6's DNS delegation having propagated.
+The HTTPS smoke test (a hello service answering over a valid Let's Encrypt cert
+under your wildcard) depends on Step 6's DNS delegation having propagated.
 
-## Step 11 — Deploy your first app  🟡  *(built; live deploy pending — EP-6)*
+## Step 11 — Deploy your first app  🟡  *(built; target-aware deploy path)*
 
 See [deploying apps](deploying-apps.md) and [config reference](config-reference.md). An
 app's `nagare/Config.hs` now supplies only the image **name** (e.g. `mkImageRef "notes"`);
 the registry prefix comes from your target profile at deploy time. A `/`-bearing ref (a
 public image) is used as-is.
 
-## Step 12 — Backups and recovery  ✅  *(EP-7; full DR drill deferred)*
+## Step 12 — Backups and recovery  🟡  *(DB/volume backups built; full DR drill deferred)*
 
 See [backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [runbooks](../runbooks/disaster-recovery.md). Keep two things off-machine: the host **age

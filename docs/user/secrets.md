@@ -1,8 +1,9 @@
 # Secrets
 
-> **Status:** 🟡 In progress — host secrets via sops-nix work today
-> (one secret: the Tailscale auth key). Cluster secrets (sops+age for Kubernetes)
-> and the broader secret tooling are 🔭 **Planned (EP-7)**.
+> **Status:** 🟡 In progress. Host secrets via sops-nix work today. Runtime app
+> secrets are managed with `nagarectl secret` (see
+> [Environment and secrets](env-and-secrets.md)). Git-encrypted cluster bootstrap
+> secrets via sops+age are still planned.
 
 Nagare keeps secrets simple and rebuildable: **encrypted in Git**, decrypted on
 the host at activation. There's no external secret manager — sops + age is
@@ -11,7 +12,8 @@ disposable single-node platform.
 
 ```text
 Host secrets:     sops-nix  (decrypt at NixOS activation)
-Cluster secrets:  sops + age (decrypt into Kubernetes Secrets)   [planned, EP-7]
+App runtime:      nagarectl secret (Kubernetes Secret per app/scope)
+Cluster bootstrap secrets: sops + age (planned decrypt into Kubernetes Secrets)
 Encrypted files:  committed to Git
 ```
 
@@ -78,23 +80,29 @@ activation; without it the host can't bring up anything that depends on a secret
 
 3. Apply: `just host-switch` (see [Day-2 host changes](day-2-host-changes.md)).
 
-## Cluster secrets (apps) — 🔭 Planned (EP-7)
+## App runtime secrets — ✅
 
-App secrets referenced from a typed config via `EnvSecretRef` / the `secretEnv`
-preset (see [Config reference](config-reference.md)) will be managed the same
-way — sops+age encrypted in Git, decrypted into Kubernetes `Secret` objects in
-the app's namespace. The exact wiring (a sops decrypt step in the deploy flow,
-or a sops-rendered manifest applied during bootstrap) is owned by EP-7 and isn't
-implemented yet. Until then, create app secrets manually with `kubectl create
-secret` in the target namespace.
+Use `nagarectl secret` for per-app runtime, build, and preview secrets. Values
+are read from stdin, written to Kubernetes `Secret` objects, and consumed by the
+rendered Service through optional `envFrom` blocks. See
+[Environment and secrets](env-and-secrets.md) for the full command reference.
+
+## Cluster bootstrap secrets — 🔭 Planned
+
+Platform-level Kubernetes secrets that should be reproducible from Git, such as
+bootstrap credentials for optional cluster services, will be managed with
+sops+age encrypted files and rendered into Kubernetes `Secret` objects. The exact
+wiring is still planned. Until then, use explicit templates or `kubectl create
+secret` for those platform bootstrap cases.
 
 ## Rotation
 
 - **Tailscale auth key:** edit the sops file, `just host-switch`.
 - **Host age key:** regenerate, re-encrypt all secrets to the new public key,
   update `.sops.yaml`, re-place the private key on the host, rebuild.
-- **App/cluster secrets:** (planned) edit the sops file and re-run the deploy /
-  bootstrap step that materializes them.
+- **App runtime secrets:** use `nagarectl secret set/delete`.
+- **Cluster bootstrap secrets:** until the sops renderer exists, update the
+  explicit template or recreate the Kubernetes Secret.
 
 ## What's committed vs. what isn't
 

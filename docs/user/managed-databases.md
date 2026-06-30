@@ -1,16 +1,14 @@
 # Managed databases
 
-> 🟡 **In progress.** Built and dry-run-verified end to end (typed model,
-> renderer, `nagarectl db` CLI, app connection-env injection, backups/restore).
-> The full **live** end-to-end run is pending only because `nagare-01` is often
-> `TERMINATED`. The in-pod GCS auth that backups depend on is **fixed** (a `/32`
-> metadata route + MASQUERADE on the node, and `hostAliases` on the backup Jobs —
-> verified live, with the litestream sidecar resumed).
+> 🟡 **In progress.** Built and tested through render/unit coverage: typed model,
+> renderer, `nagarectl db` CLI, app connection-env injection, backups, and
+> scratch-first restore. Backup Jobs now target GCS in cloud mode or MinIO in
+> local mode.
 
 For **app developers** whose app needs a database — PostgreSQL, Redis, or
 ClickHouse. You declare a database in typed config; Nagare provisions a durable,
 single-replica database with generated credentials, wires it into your app by
-name, and backs it up to GCS on a schedule.
+name, and backs it up to the active object store on a schedule.
 
 A database is **not** an app `Deployment` and **not** a Knative Service. It is a
 long-lived `Database` value you provision and operate through the `nagarectl db`
@@ -52,7 +50,7 @@ only in a Kubernetes Secret and is delivered to the app by reference.
   and lives only in the Secret. Apps read it by reference, never by copying it.
 - A **retention policy** says what happens to the data disk when the database is
   deleted: `Retain` (keep the PVC and its data — the default) or `Delete`
-  (destroy it). This is independent of GCS backups.
+  (destroy it). This is independent of object-store backups.
 
 > **Three hard constraints, up front.**
 > - **Single replica on a single node.** No high availability, no replication, no
@@ -127,7 +125,7 @@ The platform defaults to **modern engine majors**, all verified on the cluster:
 - `resources` (optional) sets CPU/memory requests and limits on the engine
   container. **For ClickHouse, set a memory limit** (see the constraint above).
 - `retention` is `Retain` (keep the disk on `db delete`) or `Delete` (remove it).
-  GCS backups are a separate mechanism.
+  object-store backups are a separate mechanism.
 
 
 ## Provisioning and operating: `nagarectl db`
@@ -139,7 +137,7 @@ nagarectl db get NAME              # detail: engine, version, host, retention, r
 nagarectl db shell NAME            # interactive psql / redis-cli / clickhouse-client inside the pod
 nagarectl db restart NAME          # roll the StatefulSet pod and wait for ready
 nagarectl db delete NAME --yes     # delete, honoring RetentionPolicy (guarded by --yes)
-nagarectl db backup NAME           # logical dump to GCS, keep-last-N retention
+nagarectl db backup NAME           # logical dump to GCS or MinIO, keep-last-N retention
 nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
 ```
 
@@ -247,18 +245,21 @@ rendered `deploy` shows, for a Postgres reference:
 ## Backups and restore
 
 Every `nagarectl db create` provisions a **daily, self-pruning CronJob** that
-backs the database up to GCS — a managed database is backup-included by default
-(unless `retention = Delete`, which marks it throwaway). Take one on demand:
+backs the database up to the active object store — GCS in cloud mode, MinIO in
+local mode. A managed database is backup-included by default unless
+`retention = Delete`, which marks it throwaway. Take one on demand:
 
 ```bash
 nagarectl db backup pg-main
-gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/
+gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 ```
 
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native dump for ClickHouse), gzipped, at
-`gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`, with
-keep-last-N retention (`--keep`, default 7).
+`databases/<name>/<timestamp>.<ext>` in the active store, with keep-last-N
+retention (`--keep`, default 7). In cloud mode that key is under
+`gs://<backup-bucket>/`; in local mode it is under `s3://nagare-backups/` on
+MinIO.
 
 Restore is **scratch-first**: by default the dump is loaded into a disposable
 target (`<db>_restore_scratch` for Postgres/ClickHouse) so live data is untouched
@@ -273,7 +274,7 @@ See [Backups and disaster recovery](backups-and-disaster-recovery.md) and the
 [disaster-recovery runbook](../runbooks/disaster-recovery.md) for the full restore
 drill and procedure.
 
-> **In-pod GCS auth (fixed 2026-06-10).** Earlier, in-pod GCS upload was blocked
+> **Cloud-mode in-pod GCS auth (fixed 2026-06-10).** Earlier, in-pod GCS upload was blocked
 > because k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the GCE
 > metadata IP `169.254.169.254` into the VXLAN overlay (the litestream sidecar
 > failed the same way). The fix, in `nixos/hosts/nagare-01/networking.nix`, pins a
@@ -283,6 +284,10 @@ drill and procedure.
 > Verified live (host + in-pod `gsutil`; litestream resumed). The route is applied
 > on the running node and committed to NixOS — a `just host-switch` (or the next
 > image rebuild) persists it across reboots.
+>
+> **Local mode.** When `NAGARE_MODE=local`, the same backup/restore renderers use
+> the local MinIO backend from `NAGARE_LOCAL_OBJECT_STORE` and the
+> `nagare-minio-credentials` Secret installed by `just local-minio`.
 
 
 ## Constraints and limits

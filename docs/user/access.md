@@ -1,11 +1,11 @@
 # Identity-aware access
 
-> **Status:** 🟡 **Built locally, live auth-plane acceptance pending.**
+> **Status:** 🟡 **Built, with live routing fixes in place.**
 >
 > The DSL field, `nagarectl` deploy-time resolver, grant/revoke/list commands,
-> enforcer service, bootstrap manifests, and protected example exist and have
-> local tests. The final live run still needs the optional auth plane applied to
-> the target cluster with real shomei/en images and migrated databases.
+> enforcer service, bootstrap manifests, protected example, and shared-host
+> routing model exist and have tests. Local-mode auth-plane/TLS parity is still
+> deferred to MasterPlan 16 EP-85.
 
 Identity-aware access lets a public Nagare URL stay reachable from the internet
 while requiring a signed-in shomei user and an en authorization grant before the

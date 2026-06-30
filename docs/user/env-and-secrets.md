@@ -1,13 +1,11 @@
 # Environment and secrets
 
-> **Status:** 🟡 **Built and tested offline; live walkthrough pending `nagare-01`.**
+> **Status:** 🟡 **Built and tested offline; applies to any active Kubernetes target.**
 >
 > The scoped env model, the `nagarectl env`/`secret` CLI, the generated `NAGARE_*`
 > variables, and build/preview application all exist and are tested. Every command on
-> this page works in `--dry-run` today (no cluster). The *live* legs — deploy, set,
-> curl, sync, preview — are the intended behaviour against the cluster on GCP project
-> `tan-nb-exp`, region `us-west1`; they are pending `nagare-01` being powered on, the
-> same caveat as [Deploying apps](deploying-apps.md).
+> this page works in `--dry-run` today (no cluster), and live writes use whichever
+> Kubernetes target your current kubeconfig points at.
 
 ## What this page is
 

@@ -1,14 +1,13 @@
 # Static & full-stack site hosting
 
-> **Status:** 🟡 **Built and tested offline; live deploy pending `nagare-01`.**
+> **Status:** 🟡 **Built and tested offline; cloud and local deploy targets are supported.**
 >
 > The typed model, renderers, CLI, and the webhook runner (`nagared`) exist and
 > are tested: `nagarectl site deploy --dry-run` loads a typed config and prints
 > the exact generated Nginx config / Dockerfile and Knative manifests offline
-> today. The *live* leg — build → push → apply → wait → URL — is implemented but
-> has not been run end-to-end because `nagare-01` is currently powered down (the
-> same caveat as [Deploying apps](deploying-apps.md)). Treat the "live deploy"
-> steps as the intended behaviour until the box is back up.
+> today. The live leg is the same target-aware build → push → apply → wait → URL
+> path as [Deploying apps](deploying-apps.md): Artifact Registry in cloud mode,
+> the local k3d registry in local mode.
 
 This page is for **app developers** who want to host a website on Nagare the way
 Cloudflare Pages hosts one: push a project, get an HTTPS URL, with previews,

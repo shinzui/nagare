@@ -10,13 +10,11 @@ Nagare is a cheap, single-node **personal PaaS** that runs on one GCP Compute
 Engine instance. It lets you deploy many small projects without thinking about
 servers, while staying simple enough to rebuild the entire system from scratch.
 
-> **Status:** Bootstrapping. The build is coordinated by the MasterPlan at
-> [`docs/masterplans/1-bootstrap-nagare-personal-paas.md`](docs/masterplans/1-bootstrap-nagare-personal-paas.md),
-> which decomposes the work into seven child ExecPlans under
-> [`docs/plans/`](docs/plans/). The foundation (Nix dev shell, repository
-> skeleton, conventions) is plan
-> [`docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md`](docs/plans/1-repository-scaffolding-and-nix-flake-dev-environment.md).
-> See the full design spec at [`docs/initial-spec.md`](docs/initial-spec.md).
+> **Status:** Active personal-PaaS implementation. The cloud path provisions a
+> single GCP/NixOS/k3s host; local mode can now run the app platform on k3d with a
+> local registry and MinIO backup backend. Current operator docs start at
+> [`docs/user/README.md`](docs/user/README.md), and the full design rationale is
+> in [`docs/initial-spec.md`](docs/initial-spec.md).
 
 ---
 
@@ -37,15 +35,16 @@ Service, wires up secrets and domains, waits for readiness, and prints the URL.
 
 | Layer | Choice |
 | --- | --- |
-| **Cloud** | GCP Compute Engine, static IP, Cloud DNS, GCS backups — managed with [Pulumi](https://www.pulumi.com/) |
+| **Cloud** | GCP Compute Engine, static IP, Cloud DNS, Artifact Registry, GCS backups — managed with [Pulumi](https://www.pulumi.com/) |
+| **Local dev** | [k3d](https://k3d.io/) cluster, local registry, loopback app domain, MinIO object store |
 | **Host** | [NixOS](https://nixos.org/) — users, SSH, firewall, disks, Tailscale, sops-nix, backups |
 | **Cluster** | [k3s](https://k3s.io/) (Traefik disabled; built-in ServiceLB kept for Kourier) |
-| **Apps** | Knative Serving, scale-to-zero web services |
+| **Apps** | Knative Serving web services, static/full-stack sites, workers, scheduled tasks |
 | **Ingress** | [Kourier](https://github.com/knative-extensions/net-kourier) / Envoy |
 | **TLS** | cert-manager + Let's Encrypt (wildcard via DNS-01) |
 | **Observability** | [VictoriaMetrics](https://victoriametrics.com/), VictoriaLogs, VictoriaTraces, OpenTelemetry Collector |
 | **Dashboards** | [Grafana](https://grafana.com/) |
-| **Data** | SQLite + Litestream → GCS; host Postgres or Cloud SQL for important shared state |
+| **Data** | PVC-backed app volumes, managed Postgres/Redis/ClickHouse, Redpanda brokers, GCS or MinIO backups |
 
 The Victoria stack replaces Prometheus + Loki + Tempo because it has lower
 operational overhead and memory usage — a better fit for a cheap single-node
@@ -72,12 +71,21 @@ GCP
               ├── sops-nix
               ├── backup tooling
               └── mounted persistent data disk
+
+Local mode
+  └── Docker
+        └── k3d / k3s
+              ├── local registry
+              ├── Knative Serving + Kourier
+              ├── local-path storage
+              └── MinIO backup store
 ```
 
 Three flows define the system:
 
-- **Code → deployments.** `nagarectl deploy` turns a repo into a running Knative service.
+- **Code → deployments.** `nagarectl deploy` turns a repo into a running Knative service; `nagarectl app deploy` can roll out a service, workers, databases, and tasks together.
 - **Traffic → services.** Requests flow through Envoy/Kourier into scale-to-zero Knative services.
+- **Data → object store.** Database backups and volume snapshots go to GCS in cloud mode or MinIO in local mode.
 - **Telemetry → Grafana.** Metrics, logs, and traces flow into the Victoria stack and surface in Grafana.
 
 ## Ownership boundaries
@@ -107,7 +115,7 @@ Data disk: 100–200GB balanced persistent disk
 
 ## Deploying an app
 
-Each app repo provides a `Dockerfile` and a typed, compile-checked
+Each app repo provides a build mode (Dockerfile, Nixpacks, or prebuilt image) and a typed, compile-checked
 `nagare/Config.hs` (the config-as-program substrate — no YAML). It imports the
 `nagare-dsl` library and binds a top-level `Deployment` value through
 maximal-safety smart constructors, so a non-DNS name, a `max < min` scale, a
@@ -126,7 +134,7 @@ deployment :: Either String Deployment
 deployment = do
   name' <- first show (mkServiceName "notes")
   ns' <- first show (mkNamespace "personal")
-  img' <- first show (mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes")
+  img' <- first show (mkImageRef "notes")
   dom' <- first show (mkDomain "notes.example.com")
   port' <- first show (mkPort 8080)
   dbUrl <- first show (mkEnvName "DATABASE_URL")
@@ -147,7 +155,8 @@ main = either (ioError . userError) emitDeployment deployment
 ```
 
 `nagarectl deploy` compiles-and-runs that file to obtain the validated
-`Deployment`, renders the Knative manifests, and applies them. (The former
+`Deployment`, qualifies short image names through the active target profile,
+renders the Knative manifests, and applies them. (The former
 untyped `nagare.yaml` contract was replaced by this typed DSL; see
 `docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md`.)
 
@@ -165,33 +174,36 @@ nagare/
   nixos/hosts/         # NixOS host config for nagare-01
   cluster/
     bootstrap/         # cert-manager, knative-serving, kourier, config-domain
+    local/             # local-only MinIO and local-mode support manifests
     observability/     # victoria-metrics / -logs / -traces, otel-collector, grafana
-    examples/          # hello-knative-service
-  cli/nagarectl/       # the deploy CLI
+    examples/          # app, site, database, broker, worker, and task examples
+  cli/nagarectl/       # deploy and operations CLI
+  cli/nagare-dsl/      # typed config DSL and manifest renderers
+  cli/nagare-access/   # shared forward-auth enforcer for protected apps
 ```
 
-## Implementation phases
+## Current capabilities
 
-1. Provision GCP infrastructure with Pulumi.
-2. Boot NixOS with k3s.
-3. Install Knative Serving and Kourier.
-4. Configure wildcard DNS and TLS.
-5. Install VictoriaMetrics + Grafana.
-6. Install VictoriaLogs.
-7. Install VictoriaTraces + OpenTelemetry Collector.
-8. Build `nagarectl deploy`.
-9. Add backups (Litestream, sops, dashboards in Git).
-
-The **MVP** is done when Pulumi provisions the VM, NixOS boots with k3s, Knative
-+ Kourier are running, DNS and TLS work, a hello-world service deploys, the
-Victoria stack collects metrics/logs/traces visible in Grafana, `nagarectl` can
-deploy an app from its typed `nagare/Config.hs`, and important data is backed up.
+- Bring your own GCP project with `nagarectl init`, then provision the cloud
+  perimeter with Pulumi.
+- Boot or update the NixOS/k3s host, bootstrap Knative/Kourier/cert-manager, and
+  install the Victoria observability stack.
+- Run the platform locally with `just local-up`, `just local-bootstrap`, and
+  `just local-minio`.
+- Deploy Knative apps from typed `nagare/Config.hs` configs using prebuilt,
+  Dockerfile, or Nixpacks build modes.
+- Operate app env/secrets, app lifecycle, static/full-stack sites, CDN plans,
+  persistent volumes, managed databases, scheduled tasks, workers, Redpanda
+  brokers, and identity-aware access through `nagarectl`.
+- Back up managed databases and app volumes to GCS in cloud mode or MinIO in
+  local mode, with scratch-first restore commands.
 
 ## Philosophy
 
-The machine should be **disposable** — recovery is `pulumi up`,
-`nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. The
-platform is successful if rebuilding it is boring.
+The machine should be **disposable** — cloud recovery is `pulumi up`,
+`nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Local
+mode keeps that same operational shape on a laptop so core paths can be tested
+without a cloud bill.
 
 Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
@@ -207,4 +219,6 @@ those.)
 
 ---
 
-See [`docs/initial-spec.md`](docs/initial-spec.md) for the full design spec.
+Start with [`docs/user/README.md`](docs/user/README.md) for operator docs, or
+[`docs/user/local-development.md`](docs/user/local-development.md) to run Nagare
+locally.

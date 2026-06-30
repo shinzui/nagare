@@ -1,20 +1,17 @@
 # Persistent storage
 
-> **Status:** 🟡 **Built and dry-run-verified.** The typed `volumes` model, the
-> renderer, deploy-time PVC provisioning, the `nagarectl storage` commands, and
-> the snapshot/backup policy are implemented and unit/golden-tested;
-> `nagarectl deploy --dry-run` renders the PVC + volumeMount offline today, and
-> the Knative cluster has PVC volumes enabled (EP-33, verified live). The *live*
-> end-to-end legs (deploy on the cluster, snapshot to GCS, restore drill) are run
-> from the two examples below; where `nagare-01` is down they are marked
-> "dry-run verified; live deferred", like the rest of [Deploying apps](deploying-apps.md).
+> **Status:** 🟡 **Built and tested through render/unit coverage, with cloud GCS
+> and local MinIO data-movement backends implemented.** The typed `volumes` model,
+> renderer, deploy-time PVC provisioning, `nagarectl storage` commands, restore
+> verb, and backup policy exist. Live cluster drills still depend on the target
+> you are operating.
 
 This guide is for **app developers whose app needs to keep data across restarts**
 — a SQLite database, uploaded files, a generated cache. By default a Nagare app
 is stateless: its Knative Service runs a container whose filesystem is wiped on
 every pod restart or scale-to-zero. Declare a **volume** in your typed config and
 Nagare provisions a durable disk, mounts it into your container, lets you inspect
-it from the CLI, and can back it up to GCS.
+it from the CLI, and can back it up to GCS in cloud mode or MinIO in local mode.
 
 
 ## Concepts
@@ -33,7 +30,7 @@ it from the CLI, and can back it up to GCS.
   read-write." Nagare is intentionally single-node, so every volume is RWO.
 - A **retention policy** says what happens to the disk when the app is *deleted*:
   `Retain` (keep the disk and its data — the default and safest) or `Delete`
-  (destroy it). This is independent of GCS backups.
+  (destroy it). This is independent of object-store backups.
 
 > **Durable volume vs container filesystem.** A file at `/data/app.db` (inside a
 > volume mounted at `/data`) survives pod restarts, revision rolls, and
@@ -191,7 +188,8 @@ A volume declared in the config but not yet deployed shows `STATUS = MISSING` an
 nagarectl storage inspect notes data
 ```
 
-Snapshot a volume's contents to the GCS backup bucket (see next section):
+Snapshot a volume's contents to the active backup store (GCS in cloud mode,
+MinIO in local mode; see next section):
 
 ```bash
 nagarectl storage snapshot notes data
@@ -200,20 +198,21 @@ nagarectl storage snapshot notes data
 
 ## Backup ownership and the deploy-time warning
 
-Every app volume is, by an explicit policy, **either** included in the GCS backup
-flow **or** explicitly excluded — and an excluded volume triggers a **warning at
+Every app volume is, by an explicit policy, **either** included in the object-store
+backup flow **or** explicitly excluded — and an excluded volume triggers a **warning at
 deploy time**, so no volume is ever silently unprotected:
 
 - `retention = Retain` (the default) ⇒ **backup-included**: `nagarectl storage
   snapshot APP VOLUME` tars the volume's contents to
-  `gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` (the
-  same bucket the Postgres and Litestream backups use). The newest few snapshots
-  per volume are kept (`--keep`, default 7); older ones are pruned.
+  `volumes/<app>/<volume>/<timestamp>.tar.gz` in the active store. In cloud mode
+  that is `gs://<backup-bucket>/...`; in local mode it is
+  `s3://nagare-backups/...` on MinIO. The newest few snapshots per volume are
+  kept (`--keep`, default 7); older ones are pruned.
 - `retention = Delete` ⇒ **backup-excluded**: `nagarectl deploy` prints, to
   stderr, `warning: volume '<vol>' on app '<app>' is NOT backed up (backup
   excluded in config)`.
 
-Retention controls the *local disk* on app deletion; a GCS snapshot is a
+Retention controls the *local disk* on app deletion; an object-store snapshot is a
 *separate* durable copy. The two are independent.
 
 > **Hot databases.** `nagarectl storage snapshot` copies files at the moment it

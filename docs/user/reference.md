@@ -45,9 +45,23 @@ single source of truth for the GCP target; `nagarectl init` writes it. Precedenc
 | `NAGARE_BACKUP_BUCKET` | `tan-nb-exp-nagare-backups` | `<project>-nagare-backups` |
 | `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
+| `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
 
 See [Getting started](getting-started.md) and [`CLAUDE.md`](../../CLAUDE.md) for the
 configurable-isolation model.
+
+## Local profile variables (`nagare.local.env`)
+
+The git-ignored `nagare.local.env` (schema in `nagare.local.env.example`) selects
+the local k3d target when `NAGARE_MODE=local`.
+
+| Variable | Default example | Purpose |
+| --- | --- | --- |
+| `NAGARE_MODE` | `local` | mode switch; unset or `cloud` keeps cloud behavior |
+| `NAGARE_REGISTRY_HOST` | `k3d-registry.localhost:5000` | local image registry |
+| `NAGARE_BASE_DOMAIN` | `127-0-0-1.sslip.io` | loopback wildcard app domain |
+| `NAGARE_TARGET_PLATFORM` | `linux/arm64` in the example | local image build platform |
+| `NAGARE_LOCAL_OBJECT_STORE` | `http://minio.nagare-system.svc.cluster.local:9000/nagare-backups` | MinIO endpoint + bucket for local backups |
 
 ## `justfile` recipes
 
@@ -58,9 +72,14 @@ configurable-isolation model.
 | `just infra-up` | `pulumi up` the cloud perimeter | EP-2 |
 | `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
 | `just host-switch` | `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo` | EP-3 |
-| `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 🔭 |
-| `just observability` | Install the Victoria stack + Grafana via Helm | EP-5 🔭 |
-| `just deploy-hello` | Apply the sample Knative service | EP-4 🔭 |
+| `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ |
+| `just cluster-enable-tls` | Enable Knative external-domain TLS after DNS delegation | EP-4 |
+| `just local-up` | Create local k3d cluster + local registry | MP-16 EP-82 |
+| `just local-bootstrap` | Install Knative/Kourier locally, HTTP-first | MP-16 EP-82 |
+| `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
+| `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
+| `just observability` | Install the Victoria stack + Grafana via Helm | EP-5 ✅ |
+| `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 
 ## Pulumi config keys (`infra/pulumi/Pulumi.dev.yaml`)
@@ -217,14 +236,17 @@ volume *before* the Service.
 | --- | --- |
 | `nagarectl storage list APP` | List the app's volumes: volume name, PVC name, size, bound status, node path (`MISSING` if a declared volume has no PVC yet). |
 | `nagarectl storage inspect APP VOLUME` | `kubectl describe` the volume's PVC in detail. |
-| `nagarectl storage snapshot APP VOLUME [--bucket B] [--keep N]` | Tar the volume's contents to the GCS backup bucket (keeps the newest `N`, default 7). |
+| `nagarectl storage snapshot APP VOLUME [--bucket B] [--keep N]` | Tar the volume's contents to the active backup store (GCS or local MinIO; keeps the newest `N`, default 7). |
+| `nagarectl storage restore APP VOLUME BACKUP_ID [--bucket B] [--into-live] [--dry-run]` | Restore a snapshot, scratch-first by default. |
 
 PVCs are named deterministically `nagare-vol-<app>-<volume>` and labelled
 `nagare.dev/managed-by: nagarectl` + `nagare.dev/app=<app>` + `nagare.dev/volume=<volume>`
 (the storage commands discover them by these labels). Snapshots land at
-`gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz`. A
-volume's data lives on the host under `/var/lib/nagare/local-path/` (see *On-host
-storage layout* above). Restore with `nagarectl storage restore APP VOLUME <id>` (scratch-first).
+`gs://<backup-bucket>/volumes/<app>/<volume>/<timestamp>.tar.gz` in cloud mode or
+`s3://nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` in local mode. A
+volume's data lives on the host under `/var/lib/nagare/local-path/` (or the k3d
+node's local-path storage in local mode). Restore with
+`nagarectl storage restore APP VOLUME <id>` (scratch-first).
 See the [Persistent storage](persistent-storage.md) guide.
 
 ## `nagarectl db` commands (managed databases)
@@ -244,13 +266,14 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db shell NAME` | Interactive `psql`/`redis-cli`/`clickhouse-client` inside the pod. |
 | `nagarectl db restart NAME` | Roll the StatefulSet and wait for ready. |
 | `nagarectl db delete NAME --yes` | Delete, honoring `RetentionPolicy` (guarded by `--yes`). |
-| `nagarectl db backup NAME [--bucket B] [--keep N]` | Logical dump to GCS; keep-last-N retention. |
+| `nagarectl db backup NAME [--bucket B] [--keep N]` | Logical dump to GCS or local MinIO; keep-last-N retention. |
 | `nagarectl db restore NAME BACKUP_ID [--into-live]` | Restore a backup, scratch-first (or into the live DB). |
 
 All mutating commands support `--dry-run`. An app references a database by name
 (the `databases` field on `Deployment`) and receives the per-engine connection
 env at deploy time. Backups land at
-`gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>`. See the
+`gs://<backup-bucket>/databases/<name>/<timestamp>.<ext>` in cloud mode or
+`s3://nagare-backups/databases/<name>/<timestamp>.<ext>` in local mode. See the
 [Managed databases](managed-databases.md) guide.
 
 ## Domain model
@@ -262,6 +285,8 @@ Public  (optional):    <your-host>                      e.g. notes.example.com  
 
 Wildcard `*.<baseDomain>` `A` record → static IP, created by Pulumi. Wildcard
 TLS via cert-manager DNS-01 (HTTP-01 can't issue wildcards).
+
+Local mode uses `*.127-0-0-1.sslip.io` over HTTP by default.
 
 ## Related docs
 
