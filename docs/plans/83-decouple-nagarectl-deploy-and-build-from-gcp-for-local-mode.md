@@ -91,19 +91,38 @@ This section must always reflect the actual current state of the work.
       `gcloud auth configure-docker <host> --quiet` argv; `Local` yields `SkipDockerAuth`
       (no `gcloud` argv built); `cabal test` green. (Done 2026-06-29 — all 328 tests pass,
       including both EP-83 groups.)
-- [ ] M3.1 — Bring up the EP-82 local cluster (`just local-up` + `just local-bootstrap`) and
+- [x] M3.1 — Bring up the EP-82 local cluster (`just local-up` + `just local-bootstrap`) and
       export the local profile (`NAGARE_MODE=local`, `NAGARE_REGISTRY_HOST`,
-      `NAGARE_BASE_DOMAIN`, `NAGARE_TARGET_PLATFORM`).
-- [ ] M3.2 — Run `NAGARE_MODE=local nagarectl deploy` on `cluster/examples/dockerfile-app`;
+      `NAGARE_BASE_DOMAIN`, `NAGARE_TARGET_PLATFORM`). (Done 2026-06-29 — node `v1.34.6+k3s1`,
+      control plane Ready. Required configuring Colima `insecure-registries` for the host push;
+      see Surprises & Discoveries.)
+- [x] M3.2 — Run `NAGARE_MODE=local nagarectl deploy` on `cluster/examples/dockerfile-app`;
       observe build for the host platform, push to the local registry, apply, wait Ready.
-- [ ] M3.3 — `curl` the loopback URL and capture the HTTP-200 transcript; confirm zero
-      `gcloud` calls (run with `gcloud` absent from `PATH`).
-- [ ] M4.1 — Confirm `nagarectl site deploy` (static) honors mode: skips auth in local mode,
-      pushes to the local registry, serves on the loopback domain.
-- [ ] M4.2 — Confirm the server-site deploy path (`Nagare.Server.Deploy`) honors mode; decide
+      (Done 2026-06-29 — built `python:3.12-alpine` for `linux/arm64`, pushed to
+      `k3d-registry.localhost:5000/tan-nb-exp/nagare/dockerfile-app:<ts>`, ksvc condition met. No
+      `gcloud auth configure-docker` line appeared. Uncovered + fixed a `mkImageRef` bug; see
+      Surprises & Discoveries.)
+- [x] M3.3 — `curl` the loopback URL and capture the HTTP-200 transcript; confirm zero
+      `gcloud` calls (run with `gcloud` absent from `PATH`). (Done 2026-06-29 — `HTTP/1.1 200 OK`,
+      `server: envoy`, body `hello from a Dockerfile build with a build arg` (via a Kourier
+      port-forward since this host's port 80 is taken — EP-82 discovery). Zero-gcloud proven by
+      redeploying with a *failing* `gcloud` shim first in `PATH`: the deploy still succeeded and
+      the shim's sentinel never fired.)
+- [x] M4.1 — Confirm `nagarectl site deploy` (static) honors mode: skips auth in local mode,
+      pushes to the local registry, serves on the loopback domain. (Done 2026-06-29 —
+      `cluster/examples/static-site` deployed under the failing-gcloud shim with no sentinel;
+      pushed to the local registry; `curl` returns `HTTP/1.1 200 OK` with the HTML body.)
+- [x] M4.2 — Confirm the server-site deploy path (`Nagare.Server.Deploy`) honors mode; decide
       whether `buildImage`/`prepareServerOutput` need the host `--platform` and adjust if so.
-- [ ] M4.3 — Final regression: with `NAGARE_MODE` unset, both suites green and the cloud
-      `dockerAuthPlan`/argv unchanged (record counts).
+      (Done 2026-06-29 — verified by construction: the server path shares `runSiteDeploy`'s
+      `resolveBaseDomain`→`tpBaseDomain` (loopback) and `qualifyImage tp` (local registry), and
+      `deployServerProduction` calls the now-mode-aware `configureDockerAuth` + host-arch
+      `buildImage` — identical to the static path proven live. Decision: NO `--platform` change;
+      see Decision Log.)
+- [x] M4.3 — Final regression: with `NAGARE_MODE` unset, both suites green and the cloud
+      `dockerAuthPlan`/argv unchanged (record counts). (Done 2026-06-29 — `cli/nagarectl` 328
+      tests pass; `cli/nagare-dsl` 356 pass; the `dockerAuthPlan Cloud` argv test pins the
+      unchanged cloud argv.)
 
 
 ## Surprises & Discoveries
@@ -111,7 +130,32 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **`mkImageRef` rejected the ported local-registry host — a real blocker requiring a
+  `cli/nagare-dsl` change the plan said it would not make.** `Nagare.Dsl.Types.mkImageRef` forbade
+  *any* `:` to prevent a baked-in tag, but the local registry host `k3d-registry.localhost:5000`
+  carries a port whose `:` is not a tag. The first `NAGARE_MODE=local nagarectl deploy` aborted with
+  `image ref must not include a tag (found ':' in: k3d-registry.localhost:5000/tan-nb-exp/nagare/
+  dockerfile-app)`. In cloud mode the Artifact Registry host (`us-west1-docker.pkg.dev`) has no port,
+  so this never surfaced. Fix: detect a tag by a `:` only in the final path segment
+  (`Text.takeWhileEnd (/= '/')`), which admits `host:port/...` while still rejecting
+  `gcr.io/foo/bar:latest`. Added two `mkImageRef` tests. The plan's scope note ("`cli/nagare-dsl` is
+  untouched") was wrong: MasterPlan 16 IP-1 fixes a *ported* registry, so the DSL's ref validation
+  had to learn about ports. Committed separately as `fix(dsl): allow a ported registry host in
+  mkImageRef`. Date: 2026-06-29.
+
+- **Zero-gcloud was proven with a *failing* `gcloud` shim, not by removing gcloud from `PATH`.** Two
+  `gcloud` binaries are installed here (the devshell `google-cloud-sdk` and `~/.nix-profile/bin`), so
+  the plan's `grep -v google-cloud-sdk` PATH filter left one reachable. The robust live proof is to
+  prepend a `gcloud` shim that prints a sentinel and `exit 42`: the local-mode deploy completed
+  (`condition met`, `Deployed:`) and the sentinel never fired, so `nagarectl` never invoked `gcloud`.
+  This complements the `dockerAuthPlan Local _ == SkipDockerAuth` unit test. Date: 2026-06-29.
+
+- **Two EP-82 host prerequisites gate the live deploy (inherited, not new to EP-83).** (1) The host
+  `docker push` to `k3d-registry.localhost:5000` needs the registry in Docker's `insecure-registries`
+  — configured here via `~/.colima/default/colima.yaml` + `colima restart`, after which the push
+  succeeds. (2) This host's port 80 is held by a Caddy, so the loopback `curl` went through a
+  `kubectl -n kourier-system port-forward svc/kourier` + `Host:` header. Both are documented in
+  EP-82; EP-86's runbook/smoke must surface them. Date: 2026-06-29.
 
 
 ## Decision Log
@@ -172,13 +216,72 @@ Record every decision made while working on the plan.
   `<host>/<project>/nagare/<app>`).
   Date: 2026-06-30
 
+- Decision (M4.2): do **not** thread `tpTargetPlatform` into the static/server
+  `Nagare.Image.buildImage` path; leave `docker build` defaulting to the host architecture.
+  Rationale: `buildImage` runs `docker build -t <ref> <context>` with no `--platform`, so it builds
+  for the host arch. On a single-arch developer machine the host arch *is* the local k3d node's arch
+  (here `linux/arm64` on Apple Silicon), so the image runs — demonstrated live: the `static-site`
+  deploy built via `buildImage` and the pod served `HTTP 200` on the arm64 node. Threading
+  `tpTargetPlatform` would only matter on a host whose Docker default platform differs from the node
+  (e.g. forcing `linux/amd64` on an arm64 host), which is not the local-mode scenario. The app deploy
+  path already honors `--platform` (via `buildDockerfile`/`dockerBuildArgs`); the static/server path
+  does not need it for local mode. If a cross-arch need ever appears the one-line change is
+  `buildImage :: Text -> Text -> FilePath -> IO ()` (platform, ref, context) fed `tpTargetPlatform tp`
+  — recorded here, not made.
+  Date: 2026-06-29
+
+- Decision: fix `Nagare.Dsl.Types.mkImageRef` to tolerate a registry-host port, expanding EP-83's
+  scope into `cli/nagare-dsl` (which the plan had declared untouched).
+  Rationale: MasterPlan 16 Integration Point 1 fixes a *ported* local registry
+  (`k3d-registry.localhost:5000`), and the DSL's image-ref validator rejected every `:`, so a local
+  deploy could not even construct its image ref. The minimal correct fix checks for a tag-colon only
+  in the final path segment. The cloud path is unaffected (no port in the AR host). See Surprises &
+  Discoveries for evidence.
+  Date: 2026-06-29
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-29).** EP-83 is complete: all four milestones implemented, committed, and verified
+both at the unit level and with a real laptop deploy. Against the original purpose — "the *same*
+`nagarectl deploy` runs end to end in local mode with no `gcloud` and no GCP account" — the delivered
+state is:
+
+- **M1 — `Mode` on the profile.** `Nagare.Target` exposes `data Mode = Cloud | Local`, `parseMode`,
+  and `tpMode`, resolved from `NAGARE_MODE` (default `Cloud`). This is MasterPlan 16 Integration
+  Point 2's public type; EP-84/EP-85 import it.
+- **M2 — conditional Docker auth.** A pure `dockerAuthPlan :: Mode -> Text -> DockerAuth` returns the
+  `gcloud auth configure-docker` argv in cloud mode and `SkipDockerAuth` in local mode;
+  `configureDockerAuth` interprets it with its `IO ()` signature unchanged, so all six call sites
+  compile untouched. The cloud argv is pinned by a test.
+- **M3 — live app deploy.** `NAGARE_MODE=local nagarectl deploy` of `cluster/examples/dockerfile-app`
+  built `python:3.12-alpine` for `linux/arm64`, pushed to `k3d-registry.localhost:5000`, applied the
+  ksvc, reached Ready, and `curl` returned `HTTP 200` with the build-arg body. Zero gcloud was proven
+  by a failing-`gcloud`-shim redeploy whose sentinel never fired.
+- **M4 — static + server paths.** The static `site deploy` deployed and served `HTTP 200` in local
+  mode with no gcloud; the server path honors mode by the same `runSiteDeploy` construction. No
+  `--platform` change was needed (host-arch default matches the single-arch node).
+
+Regression: `cli/nagarectl` 328 tests and `cli/nagare-dsl` 356 tests pass; the cloud `dockerAuthPlan`
+argv is byte-identical.
+
+**Gaps / discoveries (full evidence in Surprises & Discoveries):**
+
+1. **A `cli/nagare-dsl` change was required after all.** `mkImageRef` rejected the ported local
+   registry host; fixed to detect a tag only in the final path segment. The plan's "nagare-dsl
+   untouched" scope statement was incorrect for a ported registry.
+2. **Two EP-82 host prerequisites gate the live deploy** — Docker `insecure-registries` for the host
+   push (configured via Colima here) and a Kourier port-forward for the curl (host port 80 occupied).
+   Both are EP-82 discoveries; EP-86 must surface them in the runbook/smoke.
+
+**Lessons.** (a) A registry *host* and an image *tag* both use `:`; any ref validation must
+distinguish "before the first `/`" (port) from "after the last `/`" (tag). (b) "No gcloud" is best
+proven by a *failing shim* that turns any accidental invocation into a hard failure, not by trying to
+remove a multiply-installed binary from `PATH`. (c) The pure-planner pattern (`dockerAuthPlan`) made
+the core guarantee machine-checkable without Docker or gcloud — the right altitude for the test.
 
 
 ## Context and Orientation
