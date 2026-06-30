@@ -171,12 +171,19 @@ namespaceText (Namespace t) = t
 newtype ImageRef = ImageRef Text
   deriving stock (Generic, Eq, Ord, Show)
 
--- | Validate and construct an 'ImageRef': non-empty and containing no colon
--- (the tag is appended separately by 'Nagare.Dsl.Render.renderService').
+-- | Validate and construct an 'ImageRef': non-empty and carrying no tag (the tag
+-- is appended separately by 'Nagare.Dsl.Render.renderService'). In a Docker image
+-- reference @host[:port]/repository[:tag]@ the tag colon appears only in the final
+-- path segment (after the last @\/@); a colon before the first @\/@ is the
+-- registry's port. So a tag is detected by a colon in the last segment only —
+-- this admits a ported registry host such as @k3d-registry.localhost:5000/...@
+-- (EP-83/EP-82 local mode) while still rejecting a baked-in tag like
+-- @gcr.io/foo/bar:latest@.
 mkImageRef :: Text -> Either Text ImageRef
 mkImageRef t
   | Text.null t = Left "image ref must not be empty"
-  | Text.elem ':' t = Left ("image ref must not include a tag (found ':' in: " <> t <> ")")
+  | Text.elem ':' (Text.takeWhileEnd (/= '/') t) =
+      Left ("image ref must not include a tag (found ':' in: " <> t <> ")")
   | otherwise = Right (ImageRef t)
 
 imageRefText :: ImageRef -> Text
