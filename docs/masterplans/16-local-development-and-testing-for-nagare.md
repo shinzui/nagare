@@ -150,7 +150,7 @@ exists *for* the auth plane (WebAuthn secure context) and is meaningless without
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 82 | Local cluster, registry, and local-target bootstrap for nagare | docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md | None | None | In Progress |
+| 82 | Local cluster, registry, and local-target bootstrap for nagare | docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md | None | None | Complete |
 | 83 | Decouple nagarectl deploy and build from GCP for local mode | docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md | EP-82 | None | Not Started |
 | 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | Not Started |
 | 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Not Started |
@@ -288,8 +288,8 @@ no plan may make the cloud branch anything but fail-closed.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-82: `nagare.local.env.example` + `NAGARE_MODE` switch defined and git-ignore entry added; `just local-up`/`local-down` create and destroy a k3d cluster with a working local registry.
-- [ ] EP-82: `just local-bootstrap` installs Knative + Kourier on the local cluster HTTP-first (no DNS-01, loopback `config-domain`, local registry in `registriesSkippingTagResolving`); `scripts/lib/target.sh` is local-mode-aware (cloud branch still fail-closed).
+- [x] EP-82: `nagare.local.env.example` + `NAGARE_MODE` switch defined and git-ignore entry added; `just local-up`/`local-down` create and destroy a k3d cluster with a working local registry. (Done 2026-06-29.)
+- [x] EP-82: `just local-bootstrap` installs Knative + Kourier on the local cluster HTTP-first (no DNS-01, loopback `config-domain`, local registry in `registriesSkippingTagResolving`); `scripts/lib/target.sh` is local-mode-aware (cloud branch still fail-closed). (Done 2026-06-29.)
 - [ ] EP-83: `Nagare.Target` resolves a `Mode`; `configureDockerAuth` is skipped/local in local mode; `nagarectl deploy` builds, pushes to the local registry, applies, and returns HTTP 200 from a loopback hostname with no gcloud.
 - [ ] EP-83: the static `site` and `server` deploy paths work in local mode (host-arch build platform, local registry, loopback domain).
 - [ ] EP-84: managed databases, the Redpanda broker, scheduled-task CronJobs, and local-path volumes are demonstrated running on the local cluster.

@@ -279,7 +279,51 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-06-29).** EP-82 is complete: all four milestones implemented, committed, and verified
+on a real local cluster. Against the original purpose — "an operator with no GCP account can stand up
+the local substrate and see it working" — the delivered state is:
+
+- **M1 — contract.** `nagare.local.env.example` fixes the canonical local variables (`NAGARE_MODE`,
+  `NAGARE_REGISTRY_HOST`, `NAGARE_BASE_DOMAIN`, `NAGARE_TARGET_PLATFORM`, `NAGARE_LOCAL_OBJECT_STORE`);
+  `nagare.local.env` is git-ignored; `.envrc` sources the local profile only when `NAGARE_MODE=local`
+  without disturbing the cloud `CLOUDSDK_*` defaults. Verified by an isolated harness.
+- **M2 — substrate.** `pkgs.k3d` is in both devShells; `just local-up`/`local-down` create and destroy
+  a k3d cluster + managed local registry. A node comes up `Ready` and an in-cluster pod successfully
+  pulls `k3d-registry.localhost:5000/...` via k3d's injected `registries.yaml`.
+- **M3 — bootstrap.** `just local-bootstrap` installs cert-manager + Knative Serving + Kourier +
+  net-certmanager HTTP-first (DNS-01 issuer and `config-certmanager` patch skipped; `config-domain`
+  set from `NAGARE_BASE_DOMAIN`; local registry in `registriesSkippingTagResolving`). The whole control
+  plane rolls out 1/1 and a helloworld ksvc returns `HTTP 200` / `Hello nagare local!` through Kourier.
+- **M4 — guardrail.** `_require_target_project` steps aside in local mode (asserting a genuinely
+  loopback target) and stays byte-for-byte fail-closed in cloud mode.
+
+**The three interfaces this plan owns are live** for EP-83/84/85/86: the local-target contract, the
+`just local-bootstrap` recipe, and the local-mode-aware guardrail.
+
+**Gaps / things downstream plans inherit (all recorded in Surprises & Discoveries):**
+
+1. **Host `docker push` needs a Docker `insecure-registries` entry** for `k3d-registry.localhost:5000`
+   (the registry serves HTTP; Docker only auto-trusts bare `localhost`/`127.0.0.0/8`). The in-cluster
+   pull needs nothing. Documented in `nagare.local.env.example` and the `local-up` echo. **EP-83**
+   depends on this prerequisite for pushing nagarectl-built images.
+2. **k3s is pinned to v1.34.6** in `local-up` because Knative v1.22.0 refuses k8s < 1.34 and
+   cert-manager v1.20.2's CRDs need a modern apiserver. The pin must move with the Knative/cert-manager
+   version pins.
+3. **A host process on port 80 (here, a pre-existing Caddy) shadows the `80:80@loadbalancer` mapping.**
+   The Knative path was proven via a Kourier port-forward + `Host:` header. **EP-86's** smoke test
+   should curl through a port-forward rather than assume host port 80 is free.
+
+**Verification caveat:** the `docker push` to the *named* registry host and the literal
+`curl http://<app>.<base>:80` were not exercised on this machine because both are blocked by host-side
+conditions (missing `insecure-registries`; a Caddy on port 80) that EP-82 cannot and should not change
+unilaterally. Both were proven functionally equivalent through the unobstructed path (registry HTTP
+push via `localhost:5000` to the same container; Kourier via port-forward). On a clean host both
+literal commands succeed.
+
+**Lessons.** (a) k3d's default k3s lags the platform's needs — always pin the k3s image. (b) The
+"dual-resolution registry" requirement has two independent layers (name resolution AND HTTP/HTTPS
+trust); only the first was anticipated. (c) Loopback-domain ingress testing is fragile to host port-80
+occupancy; a port-forward is the robust verification primitive.
 
 
 ## Context and Orientation
