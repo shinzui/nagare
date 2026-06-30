@@ -78,6 +78,7 @@ the local k3d target when `NAGARE_MODE=local`.
 | `just local-bootstrap` | Install Knative/Kourier locally, HTTP-first | MP-16 EP-82 |
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
+| `just local-smoke` | Local zero-cloud smoke: deploy → volume snapshot/restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 ✅ |
 | `just observability` | Install the Victoria stack + Grafana via Helm | EP-5 ✅ |
 | `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |

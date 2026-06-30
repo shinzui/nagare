@@ -50,7 +50,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48), MP-16 EP-84 | 🟡 Built; cloud GCS and local MinIO backup paths implemented |
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
 | Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
-| Local development and testing | MP-16 (EP-82–86) | 🟡 Local cluster, deploy path, data services, and MinIO complete; local auth/smoke docs pending |
+| Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `just local-smoke` |
 | Backups, secrets, disaster recovery | EP-7, MP-16 EP-84 | 🟡 DB/volume backup tooling works; full DR drill and some app-specific backups deferred |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
