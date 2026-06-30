@@ -8,6 +8,10 @@ CLAUDE.local.md
 # the repository stays project-agnostic.
 nagare.target.env
 
+# Per-operator LOCAL-mode profile (EP-82). The tracked schema/example is
+# nagare.local.env.example; the real, per-operator file is never committed.
+nagare.local.env
+
 # Nix build outputs
 result
 result-*
