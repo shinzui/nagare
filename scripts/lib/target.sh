@@ -43,6 +43,27 @@ export NAGARE_SSH_USER
 # configured target. Returns/exits non-zero on mismatch. Call it once at the top
 # of any script that talks to GCP, AFTER sourcing this file.
 _require_target_project() {
+  # Local mode (MasterPlan 16 / EP-82, IP-6): there is no GCP project to protect,
+  # so the GCP guardrail steps aside — but assert the local target is genuinely
+  # loopback, never real cloud resources, so a misconfigured profile cannot
+  # silently bypass protection while pointing at GCP.
+  if [ "${NAGARE_MODE:-}" = "local" ]; then
+    case "${NAGARE_BASE_DOMAIN:-}" in
+      *sslip.io|*nip.io|*127.0.0.1*|*127-0-0-1*) : ;;
+      *)
+        echo "refusing local run: NAGARE_MODE=local but NAGARE_BASE_DOMAIN='${NAGARE_BASE_DOMAIN:-<unset>}' is not a loopback wildcard." >&2
+        return 1 ;;
+    esac
+    case "${NAGARE_REGISTRY_HOST:-}" in
+      *.pkg.dev|*.pkg.dev:*)
+        echo "refusing local run: NAGARE_MODE=local but NAGARE_REGISTRY_HOST='${NAGARE_REGISTRY_HOST}' is an Artifact Registry host." >&2
+        return 1 ;;
+    esac
+    return 0
+  fi
+
+  # Cloud mode (unchanged, fail-closed): abort unless gcloud's active project
+  # equals the configured target.
   local active
   active="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
   if [ "${active}" != "${TARGET_PROJECT}" ]; then

@@ -130,12 +130,20 @@ This section must always reflect the actual current state of the work.
 
 **M4 — Local-mode-aware guardrail**
 
-- [ ] M4.1 — Make `scripts/lib/target.sh`'s `_require_target_project` short-circuit to success
+- [x] M4.1 — Make `scripts/lib/target.sh`'s `_require_target_project` short-circuit to success
       when `NAGARE_MODE=local`; keep the cloud branch fail-closed when unset/`cloud`.
-- [ ] M4.2 — Add the complementary assertion that local mode is genuinely not pointed at real
-      cloud resources (loopback base domain / local registry host).
-- [ ] M4.3 — Verify M4: in local mode the guardrail returns 0 with no `gcloud`; in cloud mode a
-      project mismatch still exits non-zero with the existing message.
+      (Done 2026-06-29.)
+- [x] M4.2 — Add the complementary assertion that local mode is genuinely not pointed at real
+      cloud resources (loopback base domain / local registry host). (Done 2026-06-29.)
+- [x] M4.3 — Verify M4: in local mode the guardrail returns 0 with no `gcloud`; in cloud mode a
+      project mismatch still exits non-zero with the existing message. (Done 2026-06-29. local +
+      loopback → rc=0 (no gcloud); local + `*.pkg.dev` registry → rc=1; local + non-loopback
+      base domain → rc=1; cloud + gcloud reporting a foreign project → rc=1 with the original
+      message; cloud + correct project → rc=0. Note: the cloud mismatch must be exercised with
+      `CLOUDSDK_CORE_PROJECT` unset and a differing `gcloud config` project — if you instead
+      `export CLOUDSDK_CORE_PROJECT=other` with no `nagare.target.env`, `TARGET_PROJECT` derives
+      from that same value so there is no mismatch; this is pre-existing cloud-branch behavior,
+      unchanged by M4. See Surprises & Discoveries.)
 
 
 ## Surprises & Discoveries
@@ -189,6 +197,17 @@ implementation. Provide concise evidence.
   helloworld.personal.127-0-0-1.sslip.io' http://127.0.0.1:18080/` returns `HTTP 200`, `server: envoy`,
   body `Hello nagare local!`. EP-86's smoke test should either require host port 80 free or curl
   through a port-forward as done here. Date: 2026-06-29.
+
+- **The cloud guardrail only "bites" via the gcloud fallback, not via an exported
+  `CLOUDSDK_CORE_PROJECT`.** The plan's M4 Case 2 (`CLOUDSDK_CORE_PROJECT=someone-elses-project ...`
+  expecting rc=1) does NOT fail-closed as written, because `TARGET_PROJECT="${CLOUDSDK_CORE_PROJECT:-
+  tan-nb-exp}"` derives the *expected* project from the very same env var as the *active* project, so
+  they always match (rc=0). This is original, pre-M4 behavior — the cloud branch is byte-for-byte
+  unchanged. The real fail-closed path is: `CLOUDSDK_CORE_PROJECT` unset (so `TARGET_PROJECT` falls
+  back to the profile/default) and `gcloud config get-value project` returning a *different* project.
+  Verified with a `gcloud` stub: foreign project → `rc=1` with `refusing to run: gcloud active
+  project is 'someone-elses-project', expected 'tan-nb-exp'`; correct project → `rc=0`. Date:
+  2026-06-29.
 
 
 ## Decision Log
