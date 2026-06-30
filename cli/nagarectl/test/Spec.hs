@@ -2468,11 +2468,14 @@ storeBackendModeTests =
               assertBool "metadata dns" ("metadata.google.internal" `T.isInfixOf` y)
               assertBool "metadata ip" ("169.254.169.254" `T.isInfixOf` y)
               assertBool "gs url" ("gs://" `T.isInfixOf` y)
+              assertBool "no tar/gzip install in cloud" (not ("dnf install" `T.isInfixOf` y))
             MinioBackend {} -> do
               assertBool "minio image" ("amazon/aws-cli" `T.isInfixOf` y)
               assertBool "s3 url" ("s3://" `T.isInfixOf` y)
               assertBool "endpoint" ("--endpoint-url" `T.isInfixOf` y)
               assertBool "secret ref" ("nagare-minio-credentials" `T.isInfixOf` y)
+              -- amazon/aws-cli ships no tar/gzip; the Job installs them (EP-84).
+              assertBool "installs tar+gzip" ("dnf install -y -q tar gzip" `T.isInfixOf` y)
               assertBool "no metadata ip" (not ("169.254.169.254" `T.isInfixOf` y))
               assertBool "no metadata dns" (not ("metadata.google.internal" `T.isInfixOf` y))
       | (name, render) <-

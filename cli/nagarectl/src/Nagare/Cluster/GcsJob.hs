@@ -37,6 +37,7 @@ module Nagare.Cluster.GcsJob
   , storeImage
   , storeHostAliases
   , storeEnv
+  , storeShellPreamble
   , storeObjectUrl
   , storePrefixUrl
   , storeCpFromStdin
@@ -158,6 +159,19 @@ storeEnv (MinioBackend ref) =
         [ "name" .= (n :: Text)
         , "valueFrom" .= object ["secretKeyRef" .= object ["name" .= secret, "key" .= (key :: Text)]]
         ]
+
+-- | A shell preamble the data-movement container runs (after @set -e@) before
+-- the transfer. Empty for GCS, so the cloud shells are byte-for-byte unchanged.
+-- For MinIO it installs @tar@ and @gzip@ into the @amazon/aws-cli@ image, which
+-- ships neither (verified 2026-06-29) — the snapshot (@tar -czf -@) and backup
+-- (@gzip -9 -c@) pipelines need them in the same container as the S3 client, and
+-- the volume Job is single-container so the work cannot be offloaded. The install
+-- is idempotent and reaches a package mirror, so a local backup needs network
+-- (the Job already pulls its image over the network, so this adds no new
+-- assumption). EP-84 Surprises records this.
+storeShellPreamble :: StoreBackend -> Text
+storeShellPreamble GcsBackend {} = ""
+storeShellPreamble (MinioBackend _) = "dnf install -y -q tar gzip >/dev/null 2>&1; "
 
 -- | The full object URL for a stable key (@"databases/…"@ / @"volumes/…"@):
 -- @gs://\<bucket>/\<key>@ for GCS, @s3://\<bucket>/\<key>@ for MinIO. The key

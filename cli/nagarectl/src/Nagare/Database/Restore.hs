@@ -38,6 +38,7 @@ import Nagare.Cluster.GcsJob
   , storeHostAliases
   , storeImage
   , storeObjectUrl
+  , storeShellPreamble
   )
 import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
@@ -156,7 +157,11 @@ restoreEnv ClickHouse secret =
 
 downloadShell :: StoreBackend -> Engine -> Text
 downloadShell backend eng =
-  "set -e; " <> storeCpToStdout backend "\"$SRC\"" <> " | gunzip > /dump/backup." <> backupRawExt eng
+  "set -e; "
+    <> storeShellPreamble backend
+    <> storeCpToStdout backend "\"$SRC\""
+    <> " | gunzip > /dump/backup."
+    <> backupRawExt eng
 
 -- | The per-engine restore shell. Scratch-first: Postgres/ClickHouse restore into
 -- @\<db\>_restore_scratch@ unless @live@. Redis restore is whole-instance and is

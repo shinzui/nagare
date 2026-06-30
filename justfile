@@ -198,6 +198,9 @@ local-bootstrap:
 # Install the local MinIO object store for backups/snapshots (EP-84).
 [group('local')]
 local-minio:
+    # Ensure the default app/db namespace exists so the seeded credentials Secret
+    # applies even if local-minio is run before local-bootstrap.
+    kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
     kubectl apply -f cluster/local/minio/minio.yaml
     kubectl -n nagare-system rollout status deploy/minio
     kubectl -n nagare-system wait --for=condition=complete --timeout=120s job/minio-make-bucket

@@ -55,6 +55,7 @@ import Nagare.Cluster.GcsJob
   , storeImage
   , storeObjectUrl
   , storePrefixUrl
+  , storeShellPreamble
   )
 import Nagare.Dsl.Types
   ( Deployment
@@ -188,7 +189,9 @@ jobValue i =
     -- Tar the mount and stream straight to the store; $DEST comes from the env
     -- above. The cloud (@gsutil@) bytes are unchanged; MinIO uses @aws s3@.
     snapshotShell =
-      "set -e; tar -C "
+      "set -e; "
+        <> storeShellPreamble (sjiBackend i)
+        <> "tar -C "
         <> sjiMountPath i
         <> " -czf - . | "
         <> storeCpFromStdin (sjiBackend i) "\"$DEST\"" ::

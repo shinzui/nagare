@@ -20,6 +20,23 @@ stringData:
   AWS_ACCESS_KEY_ID: minioadmin
   AWS_SECRET_ACCESS_KEY: minioadmin
 ---
+# The data-movement Job (db backup/restore, storage snapshot/restore) runs in the
+# app/db namespace (default `personal`) and references this Secret by name via
+# secretKeyRef, which is namespace-local — so the credentials must also exist in
+# that namespace. We seed `personal` (the default). Apps/databases in a different
+# namespace need this Secret copied there too (see the EP-84 runbook / nagarectl
+# docs). `personal` is created by `just local-bootstrap`, which `just local-minio`
+# runs after.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-minio-credentials
+  namespace: personal
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

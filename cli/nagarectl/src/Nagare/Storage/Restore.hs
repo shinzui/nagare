@@ -40,6 +40,7 @@ import Nagare.Cluster.GcsJob
   , storeHostAliases
   , storeImage
   , storeObjectUrl
+  , storeShellPreamble
   )
 import Nagare.Database.Restore (isObjectUrl)
 import Nagare.Dsl.Types
@@ -123,6 +124,7 @@ restoreContainer i =
 restoreShell :: StoreBackend -> Text -> Text
 restoreShell backend mount =
   "set -e; "
+    <> storeShellPreamble backend
     <> storeCpToStdout backend "\"$SRC\""
     <> " | tar -C "
     <> mount

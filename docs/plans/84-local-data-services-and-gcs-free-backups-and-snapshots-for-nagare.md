@@ -65,12 +65,16 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1.1 — On the EP-82 local cluster, `nagarectl db create postgres pgdemo` brings up a
-      Postgres StatefulSet `Ready`; capture `kubectl get statefulset,pod,pvc,svc` evidence.
-- [ ] M1.2 — `nagarectl db create redis rdemo` brings up a Redis StatefulSet `Ready`;
-      capture evidence.
-- [ ] M1.3 — `nagarectl broker create demo` (Redpanda) brings up the broker StatefulSet,
-      ClusterIP Service, and PVC `Ready`; capture evidence.
+- [x] M1.1 — On the EP-82 local cluster, `nagarectl db create postgres pgdemo` brought up the
+      Postgres StatefulSet `pgdemo 1/1` (pod `Running`, PVC `nagare-db-pgdemo-data Bound` on
+      `local-path`). The backup CronJob it applies rendered the local MinIO backend
+      (`amazon/aws-cli`, `aws s3 … --endpoint-url`, `s3://`, `nagare-minio-credentials`, no
+      metadata) — proving end-to-end local-mode wiring through `db create`. (Done 2026-06-29.)
+- [x] M1.2 — `nagarectl db create redis rdemo` brought up `rdemo 1/1` (PVC `nagare-db-rdemo-data
+      Bound`, 2Gi `local-path`). (Done 2026-06-29.)
+- [x] M1.3 — `nagarectl broker create redpanda demo` brought up the broker StatefulSet `demo
+      1/1`, ClusterIP Service `demo` (9092/9644), and PVC `nagare-broker-demo-data Bound` (5Gi
+      `local-path`). (Done 2026-06-29.)
 - [ ] M1.4 — A scheduled task deploys as a native CronJob and a manually-triggered run
       `Complete`s; capture `kubectl get cronjob,job` evidence.
 - [ ] M1.5 — An app declaring a persistent volume deploys and its `local-path` PVC binds
@@ -101,8 +105,12 @@ This section must always reflect the actual current state of the work.
       `--endpoint-url` + `nagare-minio-credentials` secret ref, no metadata); cloud-invariance
       held by the still-green `gcsJobHostAliasesTests`/`backupProjectTests`/`backupRestoreTests`.
       `cabal test`: all 338 pass. (Done 2026-06-29.)
-- [ ] M4.1 — End-to-end DB round-trip on the local cluster: write a sentinel row,
-      `db backup`, delete it, `db restore --into live`, read it back. Capture transcript.
+- [x] M4.1 — End-to-end DB round-trip on the local cluster: wrote `sentinel('hello-local')`
+      into `pgdemo`, `db backup pgdemo` → `s3://nagare-backups/databases/pgdemo/20260630T043501Z.sql.gz`
+      (550 bytes, in MinIO), dropped the table, `db restore pgdemo 20260630T043501Z --into-live`,
+      `SELECT v FROM sentinel` returned `hello-local`. No GCS, no metadata server (the rendered
+      Job uses `amazon/aws-cli` + `aws s3 … --endpoint-url` + `secretKeyRef
+      nagare-minio-credentials`, no `169.254.169.254`/`metadata.google.internal`). (Done 2026-06-29.)
 - [ ] M4.2 — End-to-end volume round-trip: write a sentinel file, `storage snapshot`, delete
       it, `storage restore --into-live`, read it back. Capture transcript.
 - [ ] M4.3 — Confirm cloud-mode bytes unchanged: `nagarectl db backup --dry-run` /
@@ -113,6 +121,32 @@ This section must always reflect the actual current state of the work.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
+
+- **`amazon/aws-cli:latest` ships neither `tar` nor `gzip` (M3/M4 → fix landed).** The plan's
+  Decision Log assumed "the image's Amazon Linux base ships tar and gzip"; on 2026-06-29 a
+  probe (`command -v gzip tar` in both `amazon/aws-cli:latest` and `minio/mc:latest`) found
+  __both images ship neither__. The first live `db backup` therefore wrote a **0-byte** object:
+  `gzip -9 -c … | aws s3 cp -` failed on the missing `gzip` (no `pipefail`, so the Job still
+  "succeeded") and streamed empty stdin. Because the volume snapshot/restore Jobs are
+  single-container (they co-mount the PVC and must `tar` in the same container as the S3
+  client), the work cannot be offloaded to the engine container — so the fix is a
+  `storeShellPreamble` that runs `dnf install -y -q tar gzip` (the image has `dnf`) before the
+  transfer, in local mode only; cloud shells get an empty preamble and stay byte-for-byte
+  identical. The install adds ~12 s per local Job and needs a package mirror (the Job already
+  pulls its image over the network, so no new offline assumption). After the fix the same
+  backup wrote a 550-byte object and the M4.1 round-trip returned `hello-local`. EP-86's smoke
+  test inherits this (its first local backup pays the one-time install). Date: 2026-06-29.
+
+- **The MinIO credentials Secret is namespace-local, but the data-movement Job runs in the
+  app/db namespace (M4 → manifest fix).** The Job's `secretKeyRef` to `nagare-minio-credentials`
+  resolves in the Job's __own__ namespace (`personal` by default), not `nagare-system` where
+  MinIO lives — the first live backup hit `CreateContainerConfigError` because the Secret was
+  absent from `personal`. Fix: `cluster/local/minio/minio.yaml` now seeds
+  `nagare-minio-credentials` into both `nagare-system` (for MinIO itself) and `personal` (the
+  default app/db namespace), and `just local-minio` ensures `personal` exists first. Apps or
+  databases created in a non-default namespace need the Secret copied there too — a documented
+  prerequisite (EP-86's runbook should note it), analogous to EP-82's insecure-registry
+  prerequisite. Date: 2026-06-29.
 
 - **The local self-prune lists basenames, not URLs, so its `storeLs`/`storeRmStdin` pair is
   internally consistent rather than symmetric with the GCS pair (M3).** `gsutil ls "$PREFIX"`
