@@ -1,0 +1,63 @@
+# Local-mode TLS issuer for nagare (MasterPlan 16 Integration Point 5 / EP-85).
+#
+# The cloud path mints browser-trusted wildcard certs from Let's Encrypt via a
+# DNS-01 ACME challenge against a real Cloud DNS zone
+# (cluster/bootstrap/cert-manager/letsencrypt-dns.yaml), which EP-82's local
+# bootstrap deliberately skips: Let's Encrypt cannot sign loopback names like
+# *.127-0-0-1.sslip.io. This replaces it with a self-signed local CA the
+# developer trusts on their own machine. A `ca` issuer can mint WILDCARD certs
+# with no ACME challenge, so the same Knative per-namespace wildcard auto-TLS
+# wiring works locally — just pointed at this issuer.
+#
+# Bootstrap chain: a selfSigned issuer signs a 10-year CA Certificate whose
+# key/cert land in the Secret `nagare-local-ca` in the cert-manager namespace
+# (cert-manager's --cluster-resource-namespace, where a ClusterIssuer of kind
+# `ca` reads its signing Secret); the `nagare-local-ca` ClusterIssuer then signs
+# leaf certs from it.
+#
+# Apply:  kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml
+# Trust the root on your machine (see cluster/bootstrap/local-tls/README.md):
+#   kubectl -n cert-manager get secret nagare-local-ca \
+#     -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/nagare-local-ca.pem
+#   # macOS:
+#   sudo security add-trusted-cert -d -r trustRoot \
+#     -k /Library/Keychains/System.keychain /tmp/nagare-local-ca.pem
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: nagare-local-selfsigned
+  labels:
+    app.kubernetes.io/part-of: nagare-local-tls
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nagare-local-ca
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: nagare-local-tls
+spec:
+  isCA: true
+  commonName: nagare-local-ca
+  secretName: nagare-local-ca
+  duration: 87600h # 10 years
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: nagare-local-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: nagare-local-ca
+  labels:
+    app.kubernetes.io/part-of: nagare-local-tls
+spec:
+  ca:
+    secretName: nagare-local-ca

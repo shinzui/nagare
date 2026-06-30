@@ -50,9 +50,13 @@ esac
 tag="${1:-${NAGARE_AUTH_TAG:-$(git -C "$root" rev-parse --short HEAD)}}"
 registry_host="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
 artifact_repository="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
-platform="${NAGARE_CONTAINER_PLATFORM:-linux/amd64}"
+# Local mode (NAGARE_MODE=local, MasterPlan 16 Integration Point 1) builds for
+# the host architecture so the image runs on the local k3d node; default the
+# container platform to NAGARE_TARGET_PLATFORM from the profile when set.
+platform="${NAGARE_CONTAINER_PLATFORM:-${NAGARE_TARGET_PLATFORM:-linux/amd64}}"
 push="${NAGARE_AUTH_PUSH:-1}"
 builder="${NAGARE_AUTH_BUILDER:-docker}"
+mode="${NAGARE_MODE:-cloud}"
 
 case "$builder" in
   docker|cloud-build|k3s-import) ;;
@@ -64,7 +68,9 @@ if [[ "$builder" == "cloud-build" && "$push" != "1" ]]; then
 fi
 
 project="${CLOUDSDK_CORE_PROJECT:-}"
-if [[ -z "$project" ]]; then
+# In local mode there is no GCP project and gcloud must never be invoked
+# (MasterPlan 16 Integration Point 2): skip the project lookup entirely.
+if [[ -z "$project" && "$mode" != "local" ]]; then
   project="$(gcloud config get-value project 2>/dev/null || true)"
 fi
 
@@ -81,6 +87,9 @@ esac
 
 if [[ -n "$image_override" ]]; then
   image="$image_override"
+elif [[ "$mode" == "local" ]]; then
+  # Local registry name: <registry-host>/<service>:<tag>, no GCP project segment.
+  image="${NAGARE_REGISTRY_HOST:?NAGARE_REGISTRY_HOST must be set in local mode}/${service}:${tag}"
 elif [[ "$builder" == "k3s-import" ]]; then
   image="${NAGARE_AUTH_K3S_IMAGE_PREFIX:-dev.local/nagare-auth}/${service}:${tag}"
 elif [[ -n "$project" && "$project" != "(unset)" ]]; then
@@ -361,8 +370,15 @@ else
     "$tmpdir"
 
   if [[ "$push" == "1" ]]; then
-    gcloud auth configure-docker "$registry_host" --quiet
-    docker push "$image"
+    if [[ "$mode" == "local" ]]; then
+      # Local registry is plain HTTP and unauthenticated; push straight to it
+      # without gcloud (MasterPlan 16 Integration Point 2). The host-side
+      # insecure-registries prerequisite is documented in nagare.local.env.example.
+      docker push "$image"
+    else
+      gcloud auth configure-docker "$registry_host" --quiet
+      docker push "$image"
+    fi
   fi
 fi
 

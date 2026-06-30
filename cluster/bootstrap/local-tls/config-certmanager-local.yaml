@@ -1,0 +1,11 @@
+# Local-mode patch body for the knative-serving `config-certmanager` ConfigMap.
+# Points Knative's cert-manager bridge at the local CA issuer (nagare-local-ca)
+# instead of the cloud DNS-01 issuer (letsencrypt-dns, which EP-82's local
+# bootstrap skips). Mirror of cluster/bootstrap/knative-serving/config-certmanager.yaml.
+#
+#   kubectl -n knative-serving patch configmap config-certmanager \
+#     --type merge --patch "$(cat cluster/bootstrap/local-tls/config-certmanager-local.yaml)"
+data:
+  issuerRef: |
+    kind: ClusterIssuer
+    name: nagare-local-ca
