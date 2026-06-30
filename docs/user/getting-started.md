@@ -149,3 +149,13 @@ The full recipe list with what each does is in the [Reference](reference.md).
 
 You're set up. Stand up the cloud perimeter:
 **[Provisioning with Pulumi →](provisioning-with-pulumi.md)**
+
+### Running nagare locally
+
+Don't want a GCP account yet? **Local mode** runs the whole platform on a k3d
+cluster on your laptop — same `nagarectl` commands, a local registry, a loopback
+apps domain, and MinIO instead of GCS — so you can test the real use cases
+(deploy, managed databases, snapshot/restore, require-login) with no cloud bill.
+Start the local cluster with `just local-up && just local-bootstrap`, then follow
+**[Local development →](local-development.md)**. A single `just local-smoke`
+exercises deploy → snapshot/restore → HTTP 200 → teardown end to end, zero-cloud.

@@ -154,7 +154,7 @@ exists *for* the auth plane (WebAuthn secure context) and is meaningless without
 | 83 | Decouple nagarectl deploy and build from GCP for local mode | docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md | EP-82 | None | Complete |
 | 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | Complete |
 | 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Complete |
-| 86 | Local smoke test parity and developer documentation for nagare | docs/plans/86-local-smoke-test-parity-and-developer-documentation-for-nagare.md | EP-82 | EP-83, EP-84, EP-85 | Not Started |
+| 86 | Local smoke test parity and developer documentation for nagare | docs/plans/86-local-smoke-test-parity-and-developer-documentation-for-nagare.md | EP-82 | EP-83, EP-84, EP-85 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-82, EP-84).
@@ -296,8 +296,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-84: `Nagare.Cluster.GcsJob` renders a local-object-store (MinIO) Job in local mode; `db backup`/`db restore --into-live` round-tripped `hello-local` and `storage snapshot`/`storage restore --into-live` round-tripped `hello-volume` through MinIO with no GCS/metadata server; cloud bytes unchanged (`NAGARE_MODE` unset dry-run). (Done 2026-06-29.)
 - [x] EP-85: Shomei, en, and nagare-access images build+push to the local registry (`k3d-registry.localhost:5000/<svc>:dev`, no gcloud) and install with local managed Postgres (`shomei-db`/`en-db`); the `nagare-local-ca` `ca` `ClusterIssuer` provides a locally-trusted cert and Knative auto-TLS is repointed at it. (Done 2026-06-29.)
 - [x] EP-85: an app marked "require login" (`protected-hello`, public host derived from `NAGARE_BASE_DOMAIN` → `protected-hello.127-0-0-1.sslip.io`) is fronted by the local auth plane and the full progression 302 → 403 → (`access grant`) 200 → (`revoke`) 403 was observed over the local-CA HTTPS origin; `access list` reflects the viewer. The WebAuthn *passkey* ceremony is a documented interactive operator hand-off (needs a browser + authenticator + the CA trusted) — the no-passkey password login over HTTPS exercises the full enforcer/Shomei/en chain and the `__Host-` cookie round-trip proves the secure context. (Done 2026-06-29.)
-- [ ] EP-86: `just local-smoke` runs deploy → snapshot/restore → HTTP 200 → teardown locally with zero cloud dependencies.
-- [ ] EP-86: `docs/user/local-development.md` documents the full local workflow; the local mode is reconciled with `CLAUDE.md`/getting-started.
+- [x] EP-86: `just local-smoke` runs deploy → snapshot/restore → HTTP 200 → teardown locally with zero cloud dependencies. (Done 2026-06-30 — exit 0, snapshot `s3://` MinIO not `gs://`, transcript free of `gcloud`/`gsutil`/`gs://`/IAP; teardown removed the app, restore-scratch PVC, and the MinIO object; cloud guardrail still fail-closes with `NAGARE_MODE` unset.)
+- [x] EP-86: `docs/user/local-development.md` documents the full local workflow (auth-plane + smoke + troubleshooting sections completed, status → 🟢); `docs/user/getting-started.md` and `CLAUDE.md` reconciled (local mode blessed as a by-design guardrail bypass). (Done 2026-06-30.)
 
 
 ## Surprises & Discoveries
@@ -385,6 +385,17 @@ interactions between child plans. Provide concise evidence.
   from-scratch Haskell builds (~47 min for all three) — reuse `:dev` tags rather than rebuilding.
   Date: 2026-06-29.
 
+- **The EP-86 smoke had to diverge from `live-smoke.sh`'s `nagarectl` surface in three places (EP-86,
+  closing the initiative).** The cloud script is the reference, but the current CLI drifted: `app
+  delete` has **no `--yes` flag** (and no prompt — it resolves DomainMappings from the cluster when the
+  config file is absent), there is **no `storage delete` verb** (only list/inspect/snapshot/restore),
+  and with EP-85 installed apps serve **HTTPS** (auto-TLS at `nagare-local-ca`), not the plain HTTP the
+  plan assumed. The local smoke deletes with `app delete NAME -n NS`, removes the MinIO object with a
+  throwaway `minio/mc` pod, and reaches the app over HTTP through a Kourier port-forward + `Host:`
+  header — which also sidesteps the host-proxy-on-:80 hazard EP-82's Surprise #3 flagged. Lesson for any
+  future parity test: verify against the *running* CLI and a *real* run, not the twin script. Date:
+  2026-06-30.
+
 
 ## Decision Log
 
@@ -443,4 +454,37 @@ plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+**Complete — all five child plans (EP-82–EP-86) shipped; the vision is met.** An operator with only
+Docker and the dev shell can now run nagare end to end on their laptop with no GCP account: `just
+local-up` + `local-bootstrap` (+ `local-minio`) stand up a k3d cluster with a local registry and the
+same Knative + Kourier stack the cloud uses; `NAGARE_MODE=local` (from `nagare.local.env`) selects the
+parallel local target; the *same* `nagarectl deploy` builds for the host arch, pushes to
+`k3d-registry.localhost:5000` with no gcloud, and serves apps at `<app>.127-0-0-1.sslip.io`; managed
+databases, the Redpanda broker, scheduled CronJobs, and local-path volumes run as-is; `db
+backup`/`storage snapshot` and their restores round-trip through local MinIO (`s3://`) instead of GCS;
+and a "require login" app is fronted by the real Shomei + en + nagare-access plane behind a
+locally-trusted CA. The capstone, `just local-smoke`, runs the cloud smoke's exact deploy →
+snapshot/restore → HTTP 200 → teardown scenario locally and exits 0 — the "can't test nagare on a
+laptop" gap is closed. The existing cloud path is byte-for-byte unchanged when `NAGARE_MODE` is unset,
+and the project-isolation guardrail still fail-closes in cloud mode while stepping aside (loopback-only)
+in local mode.
+
+**What held vs. what shifted.** The decomposition held exactly: five plans, four waves, EP-84/EP-85
+genuinely parallel after EP-83, EP-86 finalized last. The central decision — local mode as a *parallel
+target* selected by `NAGARE_MODE`, not an overload of `nagare.target.env` — paid off: every layer reads
+one switch and "cloud vs. laptop" stayed unambiguous. The substitutions that turned out non-trivial were
+all at the substrate edges, not the application core: a host-side `insecure-registries` prerequisite for
+`docker push` (EP-82), pinning k3s ≥ 1.34 for cert-manager/Knative (EP-82), the data-movement client
+image lacking `tar`/`gzip` and the creds Secret being namespace-local (EP-84), and — at the finish —
+the smoke needing a Kourier port-forward to dodge a host proxy on :80 and three `nagarectl` calls that
+had drifted from the reference `live-smoke.sh` (EP-86).
+
+**Gaps / deferred (all as scoped).** No CI wiring for `just local-smoke` (needs Docker-in-Docker;
+recorded as a future option). The WebAuthn passkey *gesture* stays a manual browser step; the rest of
+the auth chain is exercised headlessly. CDN, the NixOS host, and Pulumi provisioning were out of scope
+and untouched. Local TLS is locally-trusted only, never publicly valid — exactly the WebAuthn
+secure-context need, nothing more.
+
+**Lesson worth carrying forward.** A "twin of the existing script/path" plan must be validated against
+the *running* system, not the reference artifact: the CLI surface, the TLS posture, and the host network
+all drifted from what the cloud smoke assumed, and only a real local run surfaced it.
