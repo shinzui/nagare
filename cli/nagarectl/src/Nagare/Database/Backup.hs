@@ -58,6 +58,7 @@ import Nagare.Cluster.GcsJob
   , storeObjectUrl
   , storePrefixUrl
   , storeRmStdin
+  , storeShellPreamble
   )
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
@@ -252,7 +253,9 @@ uploadShell i =
     backend = bjiBackend i
     raw = backupRawExt (bjiEngine i)
     base =
-      "set -e; gzip -9 -c /dump/backup."
+      "set -e; "
+        <> storeShellPreamble backend
+        <> "gzip -9 -c /dump/backup."
         <> raw
         <> " | "
         <> storeCpFromStdin backend "\"$DEST\""
