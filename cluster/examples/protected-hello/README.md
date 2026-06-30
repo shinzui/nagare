@@ -30,11 +30,18 @@ example can be exercised live.
 nagarectl deploy -f cluster/examples/protected-hello/nagare/Config.hs
 ```
 
-The configured host is:
+The public host is derived from `NAGARE_BASE_DOMAIN`, so the same example works
+against any target:
 
 ```text
-protected-hello.apps.example.com
+cloud (default):  protected-hello.apps.example.com
+local mode:       protected-hello.127-0-0-1.sslip.io   # NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io
 ```
+
+In local mode (`NAGARE_MODE=local`) install the auth plane and TLS with
+`cluster/bootstrap/local-auth/install.sh` and `cluster/bootstrap/local-tls/`
+instead of the cloud manifests above (see those READMEs and
+`docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md`).
 
 With the auth plane absent, this deploy should fail closed with the actionable
 "nagare auth plane is not installed" error and make no route/backend changes.
