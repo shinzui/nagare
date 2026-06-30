@@ -305,7 +305,16 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- **Local-mode host `docker push` requires a Docker `insecure-registries` entry for
+  `NAGARE_REGISTRY_HOST` (EP-82 → affects EP-83).** Integration Point 1 calls the local registry a
+  "value that resolves both from the host doing `docker push` and from in-cluster containerd"; EP-82
+  verification found name resolution is not the issue (`.localhost` is loopback by RFC 6761) — the
+  registry serves plain HTTP and Docker attempts HTTPS for the *named* host, failing with `server gave
+  HTTP response to HTTPS client`. The in-cluster pull works unaffected (k3d injects `registries.yaml`).
+  So local mode has a host-side operator prerequisite: add `k3d-registry.localhost:5000` to Docker's
+  `insecure-registries` (Docker Desktop/Colima/Linux variants documented in `nagare.local.env.example`).
+  **EP-83 must assume this prerequisite is met** for its `docker push` step; it does not need extra
+  code, but its docs/runbook (and EP-86's) should reference the prerequisite. Date: 2026-06-29.
 
 
 ## Decision Log

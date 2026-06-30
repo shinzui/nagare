@@ -188,6 +188,10 @@
               # Kubernetes + Helm clients — EP-4/EP-5/EP-6.
               pkgs.kubectl
               pkgs.kubernetes-helm
+              # k3d runs k3s inside Docker for local-mode development — EP-82
+              # (MasterPlan 16). `just local-up` uses it to stand up the local
+              # cluster + registry; needs a running Docker daemon.
+              pkgs.k3d
               # Secret encryption — EP-3/EP-7.
               pkgs.sops
               pkgs.age
@@ -232,6 +236,8 @@
               pkgs.zlib
               pkgs.postgresql
               pkgs.pkg-config
+              # k3d for local-mode development parity with the default shell — EP-82.
+              pkgs.k3d
             ];
           };
         });

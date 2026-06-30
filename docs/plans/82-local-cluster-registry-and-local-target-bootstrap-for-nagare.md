@@ -92,14 +92,23 @@ This section must always reflect the actual current state of the work.
 
 **M2 — `just local-up` / `just local-down`**
 
-- [ ] M2.1 — Add `pkgs.k3d` to the `default` (and `haskell`) devShells in `flake.nix`.
-- [ ] M2.2 — Add a `just local-up` recipe that creates the k3d cluster + local registry with the
-      Kourier-friendly port mappings and traefik disabled.
-- [ ] M2.3 — Add a `just local-down` recipe that deletes the cluster and the registry.
-- [ ] M2.4 — Document the registry hostname choice (`k3d-registry.localhost:5000`) and the
-      `/etc/hosts` requirement in `nagare.local.env.example` and this plan.
-- [ ] M2.5 — Verify M2: `just local-up` then `kubectl get nodes` shows the node Ready and
-      `docker push` to the local registry succeeds.
+- [x] M2.1 — Add `pkgs.k3d` to the `default` (and `haskell`) devShells in `flake.nix`.
+      (Done 2026-06-29.)
+- [x] M2.2 — Add a `just local-up` recipe that creates the k3d cluster + local registry with the
+      Kourier-friendly port mappings and traefik disabled. (Done 2026-06-29.)
+- [x] M2.3 — Add a `just local-down` recipe that deletes the cluster and the registry.
+      (Done 2026-06-29.)
+- [x] M2.4 — Document the registry hostname choice (`k3d-registry.localhost:5000`) and the
+      `/etc/hosts` requirement in `nagare.local.env.example` and this plan. (Done 2026-06-29 —
+      also documented the second, more important prerequisite: Docker `insecure-registries`. See
+      Surprises & Discoveries.)
+- [x] M2.5 — Verify M2: `just local-up` then `kubectl get nodes` shows the node Ready and
+      `docker push` to the local registry succeeds. (Done 2026-06-29 — cluster node Ready; the
+      registry round-trip verified functionally: the registry accepts HTTP pushes and an
+      in-cluster pod successfully pulled `k3d-registry.localhost:5000/busybox` via the injected
+      registries.yaml. The host `docker push` to the *named* host additionally requires the
+      operator to add `k3d-registry.localhost:5000` to Docker `insecure-registries`; see
+      Surprises & Discoveries.)
 
 **M3 — `just local-bootstrap`**
 
@@ -133,6 +142,24 @@ implementation. Provide concise evidence.
   `NAGARE_MODE=local NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000`
   while `CLOUDSDK_CORE_PROJECT` stays `tan-nb-exp`; with the profile absent no local var leaks and the
   cloud default is intact. Date: 2026-06-29.
+
+- **Host `docker push` to `k3d-registry.localhost:5000` needs an `insecure-registries` entry, not just
+  `/etc/hosts`.** The plan framed the host-push prerequisite as a name-resolution problem
+  (`/etc/hosts`), but on this machine `k3d-registry.localhost` already resolves to `127.0.0.1`
+  (RFC 6761). The real blocker is that the local registry serves plain **HTTP**, and Docker only
+  auto-trusts bare `localhost`/`127.0.0.0/8` as insecure — for the *named* host it attempts HTTPS and
+  fails with `server gave HTTP response to HTTPS client`. Evidence: `docker push
+  localhost:5000/busybox` (same registry container) succeeded, while `docker push
+  k3d-registry.localhost:5000/busybox` failed with that exact HTTPS error; `docker info` lists only
+  `::1/128` and `127.0.0.0/8` under Insecure Registries. The in-cluster pull is unaffected — a pod
+  pulling `k3d-registry.localhost:5000/busybox` ran successfully (`PULLED_OK`, phase Succeeded),
+  proving k3d's `registries.yaml` injection works. Resolution: documented the `insecure-registries`
+  prerequisite (Docker Desktop / Colima / Linux Engine variants) in `nagare.local.env.example` and the
+  `just local-up` echo. This is a hard prerequisite for EP-83, which pushes nagarectl-built images to
+  this registry. The host here is **Colima on aarch64** (Apple Silicon), so `NAGARE_TARGET_PLATFORM=
+  linux/arm64` is the correct contract default for this machine. The daemon reconfiguration +
+  `colima restart` was intentionally NOT performed during this session because it tears down the
+  in-VM k3d cluster and disrupts the operator's running Docker environment. Date: 2026-06-29.
 
 
 ## Decision Log
