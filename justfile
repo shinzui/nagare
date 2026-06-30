@@ -109,6 +109,35 @@ cluster-enable-tls:
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
     @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
 
+# EP-82 (docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md):
+# stand up the LOCAL development substrate — a k3d (k3s-in-Docker) cluster plus a
+# managed local registry — so nagare can be exercised on a laptop with NO GCP
+# account. Requires a running Docker daemon. Pair with `just local-bootstrap`.
+# `--registry-create k3d-registry.localhost:0.0.0.0:5000` starts a registry
+# container, injects a registries.yaml so in-cluster pulls of
+# k3d-registry.localhost:5000/... resolve to it, AND binds it to host 0.0.0.0:5000
+# so `docker push` reaches it. Traefik is disabled so it does not claim host
+# port 80 and collide with Kourier; host 80/443 map to the cluster load balancer.
+# Create the local k3d cluster + registry (NixOS/cloud substrate substitute).
+[group('local')]
+local-up:
+    k3d cluster create nagare-local \
+      --registry-create k3d-registry.localhost:0.0.0.0:5000 \
+      --port "80:80@loadbalancer" \
+      --port "443:443@loadbalancer" \
+      --k3s-arg "--disable=traefik@server:0"
+    @echo "Cluster up. For host 'docker push' to k3d-registry.localhost:5000 you need (see nagare.local.env.example):"
+    @echo "  1) name resolution: add '127.0.0.1 k3d-registry.localhost' to /etc/hosts if your resolver ignores .localhost"
+    @echo "  2) insecure registry: add 'k3d-registry.localhost:5000' to your Docker daemon insecure-registries and restart it"
+    @echo "  (the in-cluster pull needs neither — k3d wires it automatically)"
+
+# EP-82: tear down the local cluster (deleting it also removes the managed
+# registry container).
+# Delete the local k3d cluster + registry.
+[group('local')]
+local-down:
+    k3d cluster delete nagare-local
+
 # EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md): install the
 # VictoriaMetrics/Logs/Traces stack + OpenTelemetry Collector + Grafana via Helm.
 # The script owns the pinned chart versions and the install order; it is idempotent
