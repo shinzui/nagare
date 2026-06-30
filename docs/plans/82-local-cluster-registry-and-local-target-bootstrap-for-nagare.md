@@ -112,13 +112,21 @@ This section must always reflect the actual current state of the work.
 
 **M3 — `just local-bootstrap`**
 
-- [ ] M3.1 — Add a `just local-bootstrap` recipe that installs cert-manager + Knative Serving +
+- [x] M3.1 — Add a `just local-bootstrap` recipe that installs cert-manager + Knative Serving +
       Kourier + net-certmanager reusing the pinned versions, SKIPS `letsencrypt-dns.yaml` and the
       `config-certmanager` patch, sets `config-domain` from `NAGARE_BASE_DOMAIN`, and puts the
-      LOCAL registry host into `registriesSkippingTagResolving`.
-- [ ] M3.2 — Verify M3: `kubectl get pods -A` shows knative-serving/kourier/cert-manager Ready;
+      LOCAL registry host into `registriesSkippingTagResolving`. (Done 2026-06-29. Also added a
+      `k3s_image` pin to `just local-up` — k3d defaulted to an old k3s; Knative v1.22.0 needs
+      k8s >= 1.34. See Surprises & Discoveries.)
+- [x] M3.2 — Verify M3: `kubectl get pods -A` shows knative-serving/kourier/cert-manager Ready;
       `config-domain` shows the loopback base domain; a hand-applied helloworld Knative Service
-      returns HTTP 200 via Kourier.
+      returns HTTP 200 via Kourier. (Done 2026-06-29. All control-plane pods Running 1/1;
+      `config-domain` has `127-0-0-1.sslip.io: ""`; `registriesSkippingTagResolving` ends with
+      `k3d-registry.localhost:5000`; `clusterissuer letsencrypt-dns` is NotFound (DNS-01 skipped).
+      The helloworld ksvc returns `HTTP 200` + `server: envoy` + body `Hello nagare local!` via
+      Kourier, and `*.127-0-0-1.sslip.io` resolves to 127.0.0.1. The curl was issued against
+      Kourier directly (port-forward + Host header) because this host already runs a Caddy on
+      port 80; see Surprises & Discoveries.)
 
 **M4 — Local-mode-aware guardrail**
 
@@ -160,6 +168,27 @@ implementation. Provide concise evidence.
   linux/arm64` is the correct contract default for this machine. The daemon reconfiguration +
   `colima restart` was intentionally NOT performed during this session because it tears down the
   in-VM k3d cluster and disrupts the operator's running Docker environment. Date: 2026-06-29.
+
+- **k3d's default k3s is too old for the platform; pin k3s >= 1.34 in `local-up`.** The k3d binary
+  from nixpkgs created a k3s **v1.21.7** node by default. Two failures cascaded: (1) cert-manager
+  v1.20.2's CRDs use the `selectableFields` field that the old apiserver rejected ("unknown field
+  selectableFields"); (2) after bumping to v1.31.7, Knative v1.22.0's controller crash-looped with
+  `kubernetes version "1.31.7+k3s1" is not compatible, need at least "1.34.0-0"`. Both resolved by
+  pinning `k3s_image := "rancher/k3s:v1.34.6-k3s1"` (a new `just` variable) and passing `--image` to
+  `k3d cluster create`. After the bump the node is `v1.34.6+k3s1` and the whole control plane
+  (controller, webhook, activator, autoscaler, kourier-gateway, net-kourier, net-certmanager) rolls
+  out 1/1. The pin must move in lockstep with the knative/certmanager version pins. Date: 2026-06-29.
+
+- **This host runs a Caddy on port 80, so the literal `curl http://<app>.127-0-0-1.sslip.io` is
+  intercepted before reaching Kourier.** k3d published the cluster load balancer at host `0.0.0.0:80`
+  correctly, but a pre-existing macOS host process (`caddy run --config .../local-web-proxy.Caddyfile`,
+  running since Jun 17) holds host port 80 and answered the curl with an empty `200` / `Server: Caddy`.
+  This is a machine-specific port conflict, not an EP-82 defect — on a host with port 80 free the
+  `80:80@loadbalancer` mapping is reached directly. Knative ingress was instead proven against Kourier
+  directly: `kubectl -n kourier-system port-forward svc/kourier 18080:80` then `curl -H 'Host:
+  helloworld.personal.127-0-0-1.sslip.io' http://127.0.0.1:18080/` returns `HTTP 200`, `server: envoy`,
+  body `Hello nagare local!`. EP-86's smoke test should either require host port 80 free or curl
+  through a port-forward as done here. Date: 2026-06-29.
 
 
 ## Decision Log
