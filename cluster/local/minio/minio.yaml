@@ -1,0 +1,93 @@
+# Local MinIO object store (EP-84, MasterPlan 16) — the S3-compatible stand-in
+# for GCS used by `db backup`/`db restore` and `storage snapshot`/`storage
+# restore` in local mode. Applied by `just local-minio` AFTER `just
+# local-bootstrap`. Lives under cluster/local/ (a local-only path) so it is never
+# applied to the cloud cluster. In-cluster the S3 endpoint is
+# http://minio.nagare-system.svc.cluster.local:9000 with bucket nagare-backups —
+# the NAGARE_LOCAL_OBJECT_STORE contract value from nagare.local.env.example.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nagare-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-minio-credentials
+  namespace: nagare-system
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: nagare-system
+  labels: { app: minio }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_ACCESS_KEY_ID } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_SECRET_ACCESS_KEY } }
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: nagare-system
+spec:
+  type: ClusterIP
+  selector: { app: minio }
+  ports:
+    - { name: s3, port: 9000, targetPort: s3 }
+    - { name: console, port: 9001, targetPort: console }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-make-bucket
+  namespace: nagare-system
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              until mc alias set local http://minio:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY";
+              do echo waiting for minio; sleep 2; done;
+              mc mb --ignore-existing local/nagare-backups;
+              mc ls local
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_SECRET_ACCESS_KEY } }

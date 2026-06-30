@@ -188,6 +188,21 @@ local-bootstrap:
       kubectl -n knative-serving patch configmap config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
 
+# EP-84 (docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md):
+# install the local MinIO object store — the S3-compatible stand-in for GCS that
+# `db backup`/`db restore` and `storage snapshot`/`storage restore` move data
+# through in local mode. Run AFTER `just local-bootstrap`; it does not duplicate
+# any cluster setup. In-cluster S3 endpoint:
+# http://minio.nagare-system.svc.cluster.local:9000 (bucket nagare-backups) — the
+# NAGARE_LOCAL_OBJECT_STORE contract value.
+# Install the local MinIO object store for backups/snapshots (EP-84).
+[group('local')]
+local-minio:
+    kubectl apply -f cluster/local/minio/minio.yaml
+    kubectl -n nagare-system rollout status deploy/minio
+    kubectl -n nagare-system wait --for=condition=complete --timeout=120s job/minio-make-bucket
+    @echo "MinIO ready at http://minio.nagare-system.svc.cluster.local:9000 (bucket: nagare-backups)"
+
 # EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md): install the
 # VictoriaMetrics/Logs/Traces stack + OpenTelemetry Collector + Grafana via Helm.
 # The script owns the pinned chart versions and the install order; it is idempotent

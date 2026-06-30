@@ -76,12 +76,15 @@ This section must always reflect the actual current state of the work.
 - [ ] M1.5 — An app declaring a persistent volume deploys and its `local-path` PVC binds
       `Bound`; capture evidence. Note and fix any incidental GCP assumption that surfaces
       (none expected).
-- [ ] M2.1 — Add `cluster/local/minio/minio.yaml` (Namespace + Deployment + Service + the
-      `nagare-minio-credentials` Secret + a one-shot bucket-create Job).
-- [ ] M2.2 — Add a `just local-minio` recipe that applies the MinIO manifest and waits for it
-      `Ready`; reference (do not duplicate) EP-82's `just local-bootstrap`.
-- [ ] M2.3 — `just local-minio` brings MinIO up; `mc ls`/`aws s3 ls` against the bucket
-      succeeds from an in-cluster probe pod; capture evidence.
+- [x] M2.1 — Added `cluster/local/minio/minio.yaml` (Namespace `nagare-system` + Deployment +
+      ClusterIP Service on 9000/9001 + the `nagare-minio-credentials` Secret + a one-shot
+      `minio-make-bucket` Job creating `nagare-backups`). (Done 2026-06-29.)
+- [x] M2.2 — Added the `just local-minio` recipe (`[group('local')]`, matching EP-82's local
+      recipes) that applies the manifest, waits on `deploy/minio` rollout, and waits for the
+      bucket Job to complete; it references but does not duplicate `just local-bootstrap`. (Done 2026-06-29.)
+- [x] M2.3 — `just local-minio` brought MinIO up (`deploy/minio 1/1`, `job/minio-make-bucket
+      Complete`); an in-cluster `amazon/aws-cli` probe pod ran
+      `aws s3 ls s3://nagare-backups --endpoint-url http://minio:9000` and exited 0. (Done 2026-06-29.)
 - [x] M3.1 — Add `tpLocalObjectStore :: Text` to `TargetProfile` (resolved from
       `NAGARE_LOCAL_OBJECT_STORE`) in `cli/nagarectl/src/Nagare/Target.hs`. (Done 2026-06-29.)
 - [x] M3.2 — Introduce the `StoreBackend` type and its helpers in
