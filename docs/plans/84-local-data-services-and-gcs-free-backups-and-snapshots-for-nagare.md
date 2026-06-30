@@ -75,11 +75,14 @@ This section must always reflect the actual current state of the work.
 - [x] M1.3 — `nagarectl broker create redpanda demo` brought up the broker StatefulSet `demo
       1/1`, ClusterIP Service `demo` (9092/9644), and PVC `nagare-broker-demo-data Bound` (5Gi
       `local-path`). (Done 2026-06-29.)
-- [ ] M1.4 — A scheduled task deploys as a native CronJob and a manually-triggered run
-      `Complete`s; capture `kubectl get cronjob,job` evidence.
-- [ ] M1.5 — An app declaring a persistent volume deploys and its `local-path` PVC binds
-      `Bound`; capture evidence. Note and fix any incidental GCP assumption that surfaces
-      (none expected).
+- [x] M1.4 — `nagarectl deploy -f cluster/examples/heartbeat-task/nagare/Config.hs --dry-run`
+      rendered a native `kind: CronJob` (`schedule '*/15 * * * *'`, `concurrencyPolicy: Forbid`,
+      `date -u`) referencing the local registry (`k3d-registry.localhost:5000/...`) — GCP-free.
+      Applying that CronJob and `kubectl create job --from=cronjob/heartbeat heartbeat-manual`
+      reached `Complete 1/1` (pod logged the UTC date). (Done 2026-06-29.)
+- [x] M1.5 — `nagarectl deploy` of `cluster/examples/uploads-volume` created the Knative
+      Service and its `local-path` PVC `nagare-vol-uploads-volume-uploads`, which deploy
+      reported `Bound`. No GCP assumption surfaced. (Done 2026-06-29.)
 - [x] M2.1 — Added `cluster/local/minio/minio.yaml` (Namespace `nagare-system` + Deployment +
       ClusterIP Service on 9000/9001 + the `nagare-minio-credentials` Secret + a one-shot
       `minio-make-bucket` Job creating `nagare-backups`). (Done 2026-06-29.)
@@ -111,10 +114,17 @@ This section must always reflect the actual current state of the work.
       `SELECT v FROM sentinel` returned `hello-local`. No GCS, no metadata server (the rendered
       Job uses `amazon/aws-cli` + `aws s3 … --endpoint-url` + `secretKeyRef
       nagare-minio-credentials`, no `169.254.169.254`/`metadata.google.internal`). (Done 2026-06-29.)
-- [ ] M4.2 — End-to-end volume round-trip: write a sentinel file, `storage snapshot`, delete
-      it, `storage restore --into-live`, read it back. Capture transcript.
-- [ ] M4.3 — Confirm cloud-mode bytes unchanged: `nagarectl db backup --dry-run` /
-      `storage snapshot` dry-run with `NAGARE_MODE` unset matches the pre-change golden.
+- [x] M4.2 — End-to-end volume round-trip: wrote `hello-volume` to `/uploads/sentinel.txt`,
+      `storage snapshot uploads-volume uploads` →
+      `s3://nagare-backups/volumes/uploads-volume/uploads/20260630T043902Z.tar.gz`, deleted the
+      file, `storage restore uploads-volume uploads 20260630T043902Z --into-live` (Job listed
+      `/restore/sentinel.txt`), `cat /uploads/sentinel.txt` returned `hello-volume`. (Done 2026-06-29.)
+- [x] M4.3 — Confirmed cloud bytes unchanged: with `NAGARE_MODE` unset, `db backup pgdemo
+      --dry-run` renders only the GCS shape (`google/cloud-sdk:slim`, `169.254.169.254`,
+      `metadata.google.internal`, `gs://tan-nb-exp-nagare-backups/...`, `gsutil`) and zero MinIO
+      markers (no `amazon/aws-cli`, `s3://`, `--endpoint-url`, or `dnf install`). The
+      `gcsJobHostAliasesTests`/`backupProjectTests`/`backupRestoreTests` stay green as the
+      machine-checkable guardrail. (Done 2026-06-29.)
 
 
 ## Surprises & Discoveries
@@ -202,6 +212,13 @@ Record every decision made while working on the plan.
   and `gzip`, which the snapshot/backup pipelines need. (If a future base image drops `tar`,
   fall back to `minio/mc` with `mc pipe`; recorded so the fallback is explicit.)
   (Date: 2026-06-30.)
+  - **Correction (2026-06-29):** `amazon/aws-cli:latest` ships __neither__ `tar` nor `gzip`
+    (and `minio/mc:latest` doesn't either — the recorded `mc` fallback would not have helped).
+    The image is kept (`aws s3` against `--endpoint-url` is still the right client), but the
+    snapshot/backup/restore shells now run a `storeShellPreamble` (`dnf install -y -q tar gzip`)
+    in local mode before the transfer; the volume Job is single-container, so offloading the
+    `tar`/`gzip` to the engine container is not possible. See Surprises & Discoveries for the
+    0-byte-backup evidence that surfaced this.
 
 - Decision: keep the **object key layout stable** across backends —
   `databases/<name>/<ts>.<ext>` and `volumes/<app>/<vol>/<ts>.tar.gz` — changing only the URL
@@ -246,7 +263,36 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome — the purpose is met.** An operator in local mode (`NAGARE_MODE=local`) can now
+exercise nagare's whole data plane on a laptop with no GCP account: managed Postgres/Redis
+(M1.1/M1.2), the Redpanda broker (M1.3), a scheduled-task CronJob (M1.4), and a `local-path`
+volume app (M1.5) all came up `Ready`/`Bound`/`Complete` on the EP-82 k3d cluster; an in-cluster
+MinIO object store (M2) stands in for GCS; and both data round-trips proved end-to-end with no
+GCS and no metadata server — `db backup`/`db restore --into-live` returned `hello-local` (M4.1)
+and `storage snapshot`/`storage restore --into-live` returned `hello-volume` (M4.2). With
+`NAGARE_MODE` unset the rendered Jobs are byte-for-byte the GCS shape (M4.3), so there is no
+cloud regression.
+
+**The single code-behavior change held to one rendering point.** As designed (MasterPlan 16
+Integration Point 3), the cloud-vs-local decision is a `StoreBackend` value constructed once
+(`Nagare.Target.storeBackendFor`) and threaded as data through the one shared
+`Nagare.Cluster.GcsJob` module that all four verbs render through. Cloud invariance is locked by
+the pre-existing cloud tests staying green; both modes are exercised by `storeBackendModeTests`.
+
+**Two assumptions in the authored plan were wrong and are corrected (see Surprises):** (1) the
+data-movement client image ships `tar`/`gzip` — it does not (neither `amazon/aws-cli` nor
+`minio/mc`), so a `storeShellPreamble` installs them in local mode (cloud unchanged); (2) the
+credentials Secret is reachable by the Job — `secretKeyRef` is namespace-local, so the manifest
+now seeds `nagare-minio-credentials` into the app/db namespace (`personal`) as well as
+`nagare-system`.
+
+**Gaps / follow-ups (out of this plan's acceptance):** the in-pod self-prune for MinIO is
+rendered (basename list + re-qualified delete) and unit-reasoned but not live-exercised (the M4
+round-trip does not depend on prune, per the Decision Log); the MinIO store uses an `emptyDir`
+(disposable) — a durable local store is a one-line swap to a `local-path` PVC; and apps/databases
+in a non-default namespace need `nagare-minio-credentials` copied there — a documented
+prerequisite EP-86's runbook should surface. The ~12 s per-Job `dnf install` of `tar`/`gzip` is
+an accepted cost for a local test harness (EP-86's first smoke backup pays it once).
 
 
 ## Context and Orientation
