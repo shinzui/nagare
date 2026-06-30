@@ -15,11 +15,18 @@ module Nagare.Target
   , parseMode
   , resolveTargetProfile
   , registryPrefix
+  , minioCredentialsSecret
+  , storeBackendFor
   ) where
 
 import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Nagare.Cluster.GcsJob
+  ( MinioRef (..)
+  , StoreBackend (..)
+  , parseLocalObjectStore
+  )
 import System.Environment (lookupEnv)
 
 -- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
@@ -71,6 +78,12 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_MODE; 'Local' selects the EP-82 local cluster, default 'Cloud'
   -- (unset or any non-@local@ value). Drives conditional Docker auth in
   -- 'Nagare.Image.configureDockerAuth' (EP-83).
+  , tpLocalObjectStore :: !Text
+  -- ^ NAGARE_LOCAL_OBJECT_STORE, the in-cluster S3 endpoint + bucket used for
+  -- backups/snapshots in local mode (form @"\<endpoint-url>/\<bucket>"@, e.g.
+  -- @"http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"@).
+  -- Default @""@ (unset); only read in local mode, where EP-82's profile sets
+  -- it. Consumed by EP-84's @StoreBackend@ in 'Nagare.Cluster.GcsJob'.
   }
   deriving stock (Eq, Show)
 
@@ -100,6 +113,7 @@ resolveTargetProfile = do
   -- 'parseMode' reads the raw 'Maybe String' from 'lookupEnv' (not 'envOr'): an
   -- empty NAGARE_MODE="" is "not local", which 'parseMode' already yields as 'Cloud'.
   mode <- parseMode <$> lookupEnv "NAGARE_MODE"
+  localObjectStore <- envOr "NAGARE_LOCAL_OBJECT_STORE" ""
   pure
     TargetProfile
       { tpProject = project
@@ -113,7 +127,36 @@ resolveTargetProfile = do
       , tpInstanceName = instanceName
       , tpTargetPlatform = targetPlatform
       , tpMode = mode
+      , tpLocalObjectStore = localObjectStore
       }
+
+-- | The Kubernetes Secret (in the data-movement Job's namespace) holding the
+-- local MinIO credentials (@AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@). EP-84
+-- creates it in @cluster/local/minio/minio.yaml@; the @secretKeyRef@ env in the
+-- MinIO data-movement Jobs references it by this name.
+minioCredentialsSecret :: Text
+minioCredentialsSecret = "nagare-minio-credentials"
+
+-- | The object-store backend for a profile and a resolved backup bucket (EP-84,
+-- MasterPlan 16 Integration Point 3). This is the __one place__ the cloud-vs-local
+-- backend is chosen, from 'tpMode': 'Cloud' yields a 'GcsBackend' (the cloud path
+-- is byte-for-byte unchanged); 'Local' parses 'tpLocalObjectStore' into a MinIO
+-- endpoint+bucket and yields a 'MinioBackend'. A 'Local' profile whose
+-- @NAGARE_LOCAL_OBJECT_STORE@ is unset/malformed is a 'Left' so the caller can
+-- fail loudly rather than silently target GCS from a laptop.
+storeBackendFor :: TargetProfile -> Text -> Either Text StoreBackend
+storeBackendFor tp bucket = case tpMode tp of
+  Cloud -> Right (GcsBackend (tpProject tp) bucket)
+  Local -> case parseLocalObjectStore (tpLocalObjectStore tp) of
+    Just (endpoint, b) -> Right (MinioBackend (MinioRef endpoint b minioCredentialsSecret))
+    Nothing ->
+      Left
+        ( "local mode (NAGARE_MODE=local) requires NAGARE_LOCAL_OBJECT_STORE to be set to "
+            <> "\"<endpoint-url>/<bucket>\" (e.g. "
+            <> "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups); "
+            <> "it is currently "
+            <> (if T.null (tpLocalObjectStore tp) then "unset" else "malformed: " <> tpLocalObjectStore tp)
+        )
 
 -- | Read an env var, falling back to @def@ when it is unset OR set to the empty
 -- string. Returns 'Text' for direct use in the record.

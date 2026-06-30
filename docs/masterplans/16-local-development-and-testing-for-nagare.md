@@ -152,7 +152,7 @@ exists *for* the auth plane (WebAuthn secure context) and is meaningless without
 |---|-------|------|-----------|-----------|--------|
 | 82 | Local cluster, registry, and local-target bootstrap for nagare | docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md | None | None | Complete |
 | 83 | Decouple nagarectl deploy and build from GCP for local mode | docs/plans/83-decouple-nagarectl-deploy-and-build-from-gcp-for-local-mode.md | EP-82 | None | Complete |
-| 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | Not Started |
+| 84 | Local data services and GCS-free backups and snapshots for nagare | docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md | EP-83 | EP-82 | In Progress |
 | 85 | Local auth plane and TLS for nagare protected apps | docs/plans/85-local-auth-plane-and-tls-for-nagare-protected-apps.md | EP-82, EP-83 | EP-84 | Not Started |
 | 86 | Local smoke test parity and developer documentation for nagare | docs/plans/86-local-smoke-test-parity-and-developer-documentation-for-nagare.md | EP-82 | EP-83, EP-84, EP-85 | Not Started |
 

@@ -82,19 +82,22 @@ This section must always reflect the actual current state of the work.
       `Ready`; reference (do not duplicate) EP-82's `just local-bootstrap`.
 - [ ] M2.3 — `just local-minio` brings MinIO up; `mc ls`/`aws s3 ls` against the bucket
       succeeds from an in-cluster probe pod; capture evidence.
-- [ ] M3.1 — Add `tpLocalObjectStore :: Text` to `TargetProfile` (resolved from
-      `NAGARE_LOCAL_OBJECT_STORE`) in `cli/nagarectl/src/Nagare/Target.hs`.
-- [ ] M3.2 — Introduce the `StoreBackend` type and its helpers in
+- [x] M3.1 — Add `tpLocalObjectStore :: Text` to `TargetProfile` (resolved from
+      `NAGARE_LOCAL_OBJECT_STORE`) in `cli/nagarectl/src/Nagare/Target.hs`. (Done 2026-06-29.)
+- [x] M3.2 — Introduce the `StoreBackend` type and its helpers in
       `cli/nagarectl/src/Nagare/Cluster/GcsJob.hs`; add `dmjHostAliases :: Maybe Value` to
       `DataMovementJob` and make `dataMovementJobSpec` omit `hostAliases` when `Nothing`.
-      Cloud rendering stays byte-for-byte identical.
-- [ ] M3.3 — Thread `StoreBackend` through `Nagare.Database.Backup`, `Nagare.Database.Restore`,
+      Cloud rendering stays byte-for-byte identical. (Done 2026-06-29.)
+- [x] M3.3 — Thread `StoreBackend` through `Nagare.Database.Backup`, `Nagare.Database.Restore`,
       `Nagare.Storage.Snapshot`, and `Nagare.Storage.Restore` (replacing the per-input
       `*Project` field), and construct it once from `tpMode` in the `app/Main.hs` `run*`
-      handlers and in `Nagare.Database.Create`.
-- [ ] M3.4 — Add unit tests asserting each of the four renderers differs correctly by mode
-      (GCS image + metadata + `gs://` vs MinIO image + `s3://` + secret ref, no metadata);
-      `cabal test` green.
+      handlers and in `Nagare.Database.Create`. Centralized in
+      `Nagare.Target.storeBackendFor` so Main and Create share one constructor. (Done 2026-06-29.)
+- [x] M3.4 — Added `storeBackendModeTests` asserting each of the four renderers differs
+      correctly by mode (GCS image + metadata + `gs://` vs `amazon/aws-cli` + `s3://` +
+      `--endpoint-url` + `nagare-minio-credentials` secret ref, no metadata); cloud-invariance
+      held by the still-green `gcsJobHostAliasesTests`/`backupProjectTests`/`backupRestoreTests`.
+      `cabal test`: all 338 pass. (Done 2026-06-29.)
 - [ ] M4.1 — End-to-end DB round-trip on the local cluster: write a sentinel row,
       `db backup`, delete it, `db restore --into live`, read it back. Capture transcript.
 - [ ] M4.2 — End-to-end volume round-trip: write a sentinel file, `storage snapshot`, delete
@@ -108,7 +111,16 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **The local self-prune lists basenames, not URLs, so its `storeLs`/`storeRmStdin` pair is
+  internally consistent rather than symmetric with the GCS pair (M3).** `gsutil ls "$PREFIX"`
+  emits full `gs://…` URLs that `gsutil -m rm -I` consumes directly. `aws s3 ls "$PREFIX"`
+  emits bare object basenames (its last whitespace column), and `aws s3 rm` takes no stdin —
+  so the MinIO `storeLs` pipes `… | awk '{print $NF}'` (basenames) and `storeRmStdin` reads
+  basenames and re-qualifies each against the `$PREFIX` env the upload container already
+  exports (`while read k; do aws s3 rm "$PREFIX$k" …; done`). The `storeLs | sort -r | tail |
+  storeRmStdin` pipeline therefore works for both backends because each backend's listing
+  format matches its own delete. This only affects the in-pod CronJob self-prune; the M4
+  round-trip does not exercise prune (EP-84 Decision Log). Date: 2026-06-29.
 
 
 ## Decision Log
@@ -161,6 +173,25 @@ Record every decision made while working on the plan.
   `storage restore` bare-timestamp resolution) is purely a function of the key tail, so
   preserving the layout reuses every pure helper unchanged and keeps backups taken in one mode
   legible to the listing code in the other. (Date: 2026-06-30.)
+
+- Decision: the cloud-vs-local backend is constructed in __one pure function__,
+  `Nagare.Target.storeBackendFor :: TargetProfile -> Text -> Either Text StoreBackend`, rather
+  than duplicated in `app/Main.hs` and `Nagare.Database.Create`. `Main.resolveStoreBackend`
+  and `Database.Create` both call it; a `Local` profile with an unset/malformed
+  `NAGARE_LOCAL_OBJECT_STORE` returns `Left` so the caller fails loudly instead of silently
+  targeting GCS from a laptop. `Nagare.Target` already bridges the resolved profile to its
+  consumers and importing `StoreBackend` from `Nagare.Cluster.GcsJob` is acyclic (GcsJob is a
+  leaf), so it is the natural single home for the mode→backend mapping. (Date: 2026-06-29.)
+
+- Decision: the database-restore URL predicate `isGsUrl` is generalized to
+  `isObjectUrl` (recognizing both `gs://` and `s3://`) and both restore paths
+  (`Nagare.Database.Restore`, `Nagare.Storage.Restore`) compose bare timestamps via
+  `storeObjectUrl backend (…ObjectPath …)`, so a backup id may be passed as a full URL in
+  either scheme or as a bare timestamp in either mode. The bucket-bound URL helpers
+  `dbBackupGsUrl`/`dbBackupPrefix`/`snapshotGsUrl` are removed in favor of the pure key
+  builders (`dbBackupObjectPath`, `dbBackupKeyPrefix`, `snapshotObjectPath`) wrapped by
+  `storeObjectUrl`/`storePrefixUrl`, keeping the key layout identical across backends.
+  (Date: 2026-06-29.)
 
 - Decision: in local mode, on-demand pruning (the laptop-side `gsutil ls | … | gsutil rm` in
   `runDbBackup`/`runSnapshot`) is **skipped on the laptop**; retention is exercised only by

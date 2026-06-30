@@ -184,7 +184,8 @@ import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
 import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Target (TargetProfile (..), resolveTargetProfile, storeBackendFor)
 import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
 import Nagare.Task.List (runTaskList)
@@ -2738,14 +2739,12 @@ runStorage = \case
     runStorageInspect dep (T.pack vol)
   StorageSnapshot copts vol bucket keep -> do
     dep <- resolveStorageDep copts
-    tp <- resolveTargetProfile
-    b <- resolveBackupBucket bucket
-    runSnapshot dep (T.pack vol) b keep (tpProject tp)
+    backend <- resolveStoreBackend bucket
+    runSnapshot dep (T.pack vol) backend keep
   StorageRestore copts vol backupId bucket live dryRun -> do
     dep <- resolveStorageDep copts
-    tp <- resolveTargetProfile
-    b <- resolveBackupBucket bucket
-    runStorageRestore dep (T.pack vol) (T.pack backupId) live b (tpProject tp) dryRun
+    backend <- resolveStoreBackend bucket
+    runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
 
 -- | Dispatch the @broker@ subcommands (MasterPlan 15, EP-78). The namespace
 -- defaults to @personal@.
@@ -2815,13 +2814,11 @@ runDb = \case
         , ddpDryRun = dbdDryRun o
         }
   DbBackup o -> do
-    tp <- resolveTargetProfile
-    bucket <- resolveBackupBucket (dbbBucket o)
-    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) bucket (dbbKeep o) (tpProject tp) (dbbDryRun o)
+    backend <- resolveStoreBackend (dbbBucket o)
+    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) backend (dbbKeep o) (dbbDryRun o)
   DbRestore o -> do
-    tp <- resolveTargetProfile
-    bucket <- resolveBackupBucket (dbrBucket o)
-    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) bucket (tpProject tp) (dbrDryRun o)
+    backend <- resolveStoreBackend (dbrBucket o)
+    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) backend (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
 
@@ -2913,6 +2910,17 @@ runTask = \case
 resolveBackupBucket :: Maybe String -> IO Text
 resolveBackupBucket (Just b) = pure (T.pack b)
 resolveBackupBucket Nothing = tpBackupBucket <$> resolveTargetProfile
+
+-- | Resolve the object-store backend for the four data-movement verbs (EP-84):
+-- the cloud GCS backend (project + 'resolveBackupBucket') in cloud mode, the
+-- in-cluster MinIO backend (from @NAGARE_LOCAL_OBJECT_STORE@) in local mode. The
+-- backend is constructed __once__ here from 'tpMode' ('storeBackendFor') and
+-- threaded into 'runDbBackup'/'runDbRestore'/'runSnapshot'/'runStorageRestore'.
+resolveStoreBackend :: Maybe String -> IO StoreBackend
+resolveStoreBackend bucketArg = do
+  tp <- resolveTargetProfile
+  bucket <- resolveBackupBucket bucketArg
+  either dieT pure (storeBackendFor tp bucket)
 
 runEnv :: EnvCommand -> IO ()
 runEnv = \case

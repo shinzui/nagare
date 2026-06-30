@@ -14,9 +14,8 @@
 -- separated from the @kubectl@/@gsutil@ IO so they are unit-testable without a
 -- cluster.
 module Nagare.Storage.Snapshot
-  ( -- * Pure GCS path / timestamp helpers
+  ( -- * Pure object-key / timestamp helpers
     snapshotObjectPath
-  , snapshotGsUrl
   , snapshotTimestamp
   , snapshotsToPrune
 
@@ -46,7 +45,17 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Data.Yaml qualified as Y
-import Nagare.Cluster.GcsJob (DataMovementJob (..), dataMovementJobSpec, gcsContainerImage, metadataEnv)
+import Nagare.Cluster.GcsJob
+  ( DataMovementJob (..)
+  , StoreBackend (..)
+  , dataMovementJobSpec
+  , storeCpFromStdin
+  , storeEnv
+  , storeHostAliases
+  , storeImage
+  , storeObjectUrl
+  , storePrefixUrl
+  )
 import Nagare.Dsl.Types
   ( Deployment
   , RetentionPolicy (..)
@@ -63,17 +72,14 @@ import System.IO.Temp (withSystemTempFile)
 -- ---------------------------------------------------------------------------
 -- Pure helpers
 
--- | The GCS object path /within the bucket/ for one snapshot (IP4):
--- @volumes/<app>/<volume>/<timestamp>.tar.gz@. The bucket is deliberately kept
+-- | The object key /within the bucket/ for one snapshot (IP4):
+-- @volumes/<app>/<volume>/<timestamp>.tar.gz@. Backend-independent (EP-84 keeps
+-- the key layout stable across GCS and MinIO); the @gs://@/@s3://@ URL is formed
+-- by 'Nagare.Cluster.GcsJob.storeObjectUrl'. The bucket is deliberately kept
 -- out so this is trivially testable.
 snapshotObjectPath :: Text -> Text -> Text -> Text
 snapshotObjectPath app volume timestamp =
   "volumes/" <> app <> "/" <> volume <> "/" <> timestamp <> ".tar.gz"
-
--- | The full @gs://@ URL for one snapshot.
-snapshotGsUrl :: Text -> Text -> Text -> Text -> Text
-snapshotGsUrl bucket app volume timestamp =
-  "gs://" <> bucket <> "/" <> snapshotObjectPath app volume timestamp
 
 -- | Format a 'UTCTime' as the @YYYYMMDDTHHMMSSZ@ stamp shared with
 -- @scripts/backup-postgres.sh@ (@date -u +%Y%m%dT%H%M%SZ@).
@@ -113,11 +119,12 @@ data SnapshotJobInputs = SnapshotJobInputs
   , sjiJobName :: !Text
   , sjiClaimName :: !Text
   , sjiDestUrl :: !Text
-  -- ^ the @gs://@ URL from 'snapshotGsUrl'
+  -- ^ the object URL from @storeObjectUrl backend (snapshotObjectPath …)@
   , sjiMountPath :: !Text
   -- ^ in-Job mount path, e.g. @/vol@
-  , sjiProject :: !Text
-  -- ^ the GCP project for the snapshot container's @CLOUDSDK_CORE_PROJECT@ (EP-62)
+  , sjiBackend :: !StoreBackend
+  -- ^ the object-store backend (EP-84): drives the snapshot container's image,
+  -- env, and copy-to-store shell.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -147,16 +154,17 @@ jobValue i =
         .= dataMovementJobSpec
           DataMovementJob
             { dmjTemplateLabels = Nothing
+            , dmjHostAliases = storeHostAliases (sjiBackend i)
             , dmjInitContainers = []
             , dmjContainers =
                 [ object
                     [ "name" .= ("snapshot" :: Text)
-                    , "image" .= gcsContainerImage
+                    , "image" .= storeImage (sjiBackend i)
                     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
                     , "args" .= toJSON [snapshotShell]
                     , "env"
                         .= toJSON
-                          (envVar "DEST" (sjiDestUrl i) : metadataEnv (sjiProject i))
+                          (envVar "DEST" (sjiDestUrl i) : storeEnv (sjiBackend i))
                     , "volumeMounts"
                         .= toJSON
                           [ object
@@ -177,11 +185,13 @@ jobValue i =
     ]
   where
     envVar n v = object ["name" .= (n :: Text), "value" .= (v :: Text)]
-    -- Tar the mount and stream straight to GCS; $DEST comes from the env above.
+    -- Tar the mount and stream straight to the store; $DEST comes from the env
+    -- above. The cloud (@gsutil@) bytes are unchanged; MinIO uses @aws s3@.
     snapshotShell =
       "set -e; tar -C "
         <> sjiMountPath i
-        <> " -czf - . | gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp - \"$DEST\"" ::
+        <> " -czf - . | "
+        <> storeCpFromStdin (sjiBackend i) "\"$DEST\"" ::
         Text
 
 -- ---------------------------------------------------------------------------
@@ -192,8 +202,8 @@ jobValue i =
 -- ('pvcName'); errors if the config declares no such volume. The @timestamp@ is
 -- read from the wall clock here (the pure helpers take it as an argument so they
 -- stay deterministic).
-runSnapshot :: Deployment -> Text -> Text -> Int -> Text -> IO ()
-runSnapshot dep volume bucket keep project = do
+runSnapshot :: Deployment -> Text -> StoreBackend -> Int -> IO ()
+runSnapshot dep volume backend keep = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       declared = map (volumeNameText . (^. #volName)) (dep ^. #volumes)
@@ -203,7 +213,7 @@ runSnapshot dep volume bucket keep project = do
       now <- getCurrentTime
       let ts = snapshotTimestamp now
           claim = pvcName app volume
-          dest = snapshotGsUrl bucket app volume ts
+          dest = storeObjectUrl backend (snapshotObjectPath app volume ts)
           jobName = T.take 63 (T.toLower ("nagare-snapshot-" <> app <> "-" <> volume <> "-" <> ts))
           job =
             SnapshotJobInputs
@@ -212,13 +222,13 @@ runSnapshot dep volume bucket keep project = do
               , sjiClaimName = claim
               , sjiDestUrl = dest
               , sjiMountPath = "/vol"
-              , sjiProject = project
+              , sjiBackend = backend
               }
       applyJob (renderSnapshotJob job)
       waitForJob ns jobName
       -- Best-effort cleanup of the completed Job; failure here is non-fatal.
       run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
-      pruneSnapshots bucket app volume keep
+      pruneSnapshots backend app volume keep
       TIO.putStrLn ("Snapshot written: " <> dest)
 
 -- | Apply a rendered manifest via a temp file (mirrors 'Nagare.Deploy.applyManifests').
@@ -253,9 +263,13 @@ waitForJob ns jobName = do
       exitFailure
 
 -- | List the volume's existing snapshots and delete all but the newest @keep@.
-pruneSnapshots :: Text -> Text -> Text -> Int -> IO ()
-pruneSnapshots bucket app volume keep = do
-  let prefix = "gs://" <> bucket <> "/" <> "volumes/" <> app <> "/" <> volume <> "/"
+-- Laptop-side @gsutil@ prune, so it runs only for the GCS backend; in local mode
+-- the MinIO Service is in-cluster (unreachable from the laptop), so on-demand
+-- prune is skipped and retention is left to the in-pod self-prune (EP-84).
+pruneSnapshots :: StoreBackend -> Text -> Text -> Int -> IO ()
+pruneSnapshots MinioBackend {} _ _ _ = pure ()
+pruneSnapshots backend@GcsBackend {} app volume keep = do
+  let prefix = storePrefixUrl backend ("volumes/" <> app <> "/" <> volume <> "/")
   (code, StdoutUntrimmed out) <-
     run $ cmd "gsutil" & addArgs ["ls", T.unpack prefix] & silenceStderr
   case code of

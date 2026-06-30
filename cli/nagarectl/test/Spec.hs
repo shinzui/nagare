@@ -56,12 +56,17 @@ import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Cdn.Cloudflare
 import Nagare.Cdn.Provision
 import Nagare.Cdn.Status
+import Nagare.Cluster.GcsJob
+  ( MinioRef (..)
+  , StoreBackend (..)
+  , parseLocalObjectStore
+  )
 import Nagare.Database.Backup
   ( BackupCronInputs (..)
   , BackupJobInputs (..)
   , backupExt
   , backupRawExt
-  , dbBackupGsUrl
+  , dbBackupKeyPrefix
   , dbBackupObjectPath
   , defaultBackupSchedule
   , renderBackupCronJob
@@ -70,7 +75,7 @@ import Nagare.Database.Backup
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
-import Nagare.Database.Restore (RestoreJobInputs (..), isGsUrl, renderRestoreJob, resolveBackupObject)
+import Nagare.Database.Restore (RestoreJobInputs (..), isObjectUrl, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
   ( ConnectionParts (..)
   , composeConnectionUrl
@@ -258,6 +263,7 @@ main = do
       , testGroup "Nagare.Storage.Discover" storageDiscoverTests
       , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
       , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
+      , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
       , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
       , testGroup "Nagare.Database (EP-45)" databaseTests
       , testGroup "Nagare.Broker (EP-78)" brokerTests
@@ -300,6 +306,7 @@ initProfile =
     , tpInstanceName = "nagare-01"
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
+    , tpLocalObjectStore = ""
     }
 
 initTests :: TestTree
@@ -360,9 +367,10 @@ qualifyImageTests =
         }
 
 -- ---------------------------------------------------------------------------
--- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows 'bjiProject'
--- (fail-before/pass-after evidence: before M2 the value was the literal
--- @tan-nb-exp@ regardless of inputs).
+-- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows the GCS
+-- backend's project (fail-before/pass-after evidence: before EP-62 the value was
+-- the literal @tan-nb-exp@ regardless of inputs). EP-84 carries the project on
+-- 'bjiBackend' ('GcsBackend' project bucket) instead of a separate field.
 
 backupProjectTests :: [TestTree]
 backupProjectTests =
@@ -376,7 +384,7 @@ backupProjectTests =
   ]
   where
     rendered project =
-      TE.decodeUtf8 (renderBackupJob (backupJobInputsPg {bjiProject = project}))
+      TE.decodeUtf8 (renderBackupJob (backupJobInputsPg {bjiBackend = GcsBackend project "tan-nb-exp-nagare-backups"}))
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Target (MasterPlan 12, EP-62): the single GCP-target resolution layer.
@@ -400,6 +408,7 @@ tnbProfile =
     , tpInstanceName = "nagare-01"
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
+    , tpLocalObjectStore = ""
     }
 
 targetProfileTests :: TestTree
@@ -422,6 +431,7 @@ targetProfileTests =
       tpBackupBucket tp0 @?= "tan-nb-exp-nagare-backups"
       registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
       tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
+      tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
       -- (2) project + region override; host derives from region, buckets from project.
       mapM_ unsetEnv allTargetVars
       setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
@@ -448,6 +458,11 @@ targetProfileTests =
       setEnv "NAGARE_TARGET_PLATFORM" ""
       tp4 <- resolveTargetProfile
       tpTargetPlatform tp4 @?= "linux/amd64"
+      -- (5) EP-84: NAGARE_LOCAL_OBJECT_STORE resolves verbatim when set.
+      mapM_ unsetEnv allTargetVars
+      setEnv "NAGARE_LOCAL_OBJECT_STORE" "http://minio:9000/nagare-backups"
+      tp5 <- resolveTargetProfile
+      tpLocalObjectStore tp5 @?= "http://minio:9000/nagare-backups"
   where
     allTargetVars =
       [ "CLOUDSDK_CORE_PROJECT"
@@ -460,6 +475,7 @@ targetProfileTests =
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"
       , "NAGARE_TARGET_PLATFORM"
+      , "NAGARE_LOCAL_OBJECT_STORE"
       ]
 
 -- ---------------------------------------------------------------------------
@@ -2337,6 +2353,19 @@ connectionEnvTests =
 -- ---------------------------------------------------------------------------
 -- EP-47: database backups, retention, restore.
 
+-- | The cloud (GCS) backend carrying the tan-nb-exp worked-example values; the
+-- four renderer fixtures use it so their @gs://@ URLs and @CLOUDSDK_CORE_PROJECT@
+-- are exactly the historic bytes (EP-84 keeps the cloud path unchanged).
+tnbGcsBackend :: StoreBackend
+tnbGcsBackend = GcsBackend "tan-nb-exp" "tan-nb-exp-nagare-backups"
+
+-- | The local (MinIO) backend matching @nagare.local.env.example@'s
+-- @NAGARE_LOCAL_OBJECT_STORE@, for the per-mode renderer tests (EP-84).
+localMinioBackend :: StoreBackend
+localMinioBackend =
+  MinioBackend
+    (MinioRef "http://minio.nagare-system.svc.cluster.local:9000" "nagare-backups" "nagare-minio-credentials")
+
 backupJobInputsPg :: BackupJobInputs
 backupJobInputsPg =
   BackupJobInputs
@@ -2351,7 +2380,7 @@ backupJobInputsPg =
     , bjiPrefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
     , bjiKeep = 7
     , bjiSelfPrune = False
-    , bjiProject = "tan-nb-exp"
+    , bjiBackend = tnbGcsBackend
     }
 
 restoreJobInputsPg :: RestoreJobInputs
@@ -2366,7 +2395,7 @@ restoreJobInputsPg =
     , rjiName = "mydb"
     , rjiSrcUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
     , rjiLiveTarget = False
-    , rjiProject = "tan-nb-exp"
+    , rjiBackend = tnbGcsBackend
     }
 
 snapshotJobInputs :: SnapshotJobInputs
@@ -2377,7 +2406,7 @@ snapshotJobInputs =
     , sjiClaimName = "nagare-vol-myapp-data"
     , sjiDestUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
     , sjiMountPath = "/vol"
-    , sjiProject = "tan-nb-exp"
+    , sjiBackend = tnbGcsBackend
     }
 
 storageRestoreJobInputs :: StorageRestoreJobInputs
@@ -2388,7 +2417,7 @@ storageRestoreJobInputs =
     , sriClaimName = "nagare-vol-myapp-data-restore-scratch"
     , sriSrcUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
     , sriMountPath = "/restore"
-    , sriProject = "tan-nb-exp"
+    , sriBackend = tnbGcsBackend
     }
 
 -- | Recurrence guard (EP-1): every GCS data-movement Job renderer must emit the
@@ -2410,6 +2439,54 @@ gcsJobHostAliasesTests =
       , ("volume restore Job", renderStorageRestoreJob storageRestoreJobInputs)
       ]
   ]
+
+-- | EP-84 (MasterPlan 16 Integration Point 3): each of the four data-movement
+-- Job renderers must differ correctly by store backend. Under 'GcsBackend' it
+-- renders exactly the cloud shape (cloud-sdk image, metadata @hostAliases@/IP,
+-- @gs://@, @gsutil@); under 'MinioBackend' it renders the MinIO shape
+-- (@amazon/aws-cli@, @s3://@, @--endpoint-url@, a @secretKeyRef@ to
+-- @nagare-minio-credentials@) and carries NO metadata server reference. All four
+-- render through the shared 'Nagare.Cluster.GcsJob', so the per-mode branch is
+-- proven once per verb.
+storeBackendModeTests :: [TestTree]
+storeBackendModeTests =
+  parseTests <> renderTests
+  where
+    parseTests =
+      [ testCase "parseLocalObjectStore splits endpoint and bucket on the last /" $
+          parseLocalObjectStore "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"
+            @?= Just ("http://minio.nagare-system.svc.cluster.local:9000", "nagare-backups")
+      , testCase "parseLocalObjectStore rejects an empty string" $
+          parseLocalObjectStore "" @?= Nothing
+      ]
+    renderTests =
+      [ testCase (name <> ": " <> show backend <> " renders the right backend shape") $ do
+          let y = TE.decodeUtf8 (render backend)
+          case backend of
+            GcsBackend {} -> do
+              assertBool "cloud image" ("google/cloud-sdk:slim" `T.isInfixOf` y)
+              assertBool "metadata dns" ("metadata.google.internal" `T.isInfixOf` y)
+              assertBool "metadata ip" ("169.254.169.254" `T.isInfixOf` y)
+              assertBool "gs url" ("gs://" `T.isInfixOf` y)
+            MinioBackend {} -> do
+              assertBool "minio image" ("amazon/aws-cli" `T.isInfixOf` y)
+              assertBool "s3 url" ("s3://" `T.isInfixOf` y)
+              assertBool "endpoint" ("--endpoint-url" `T.isInfixOf` y)
+              assertBool "secret ref" ("nagare-minio-credentials" `T.isInfixOf` y)
+              assertBool "no metadata ip" (not ("169.254.169.254" `T.isInfixOf` y))
+              assertBool "no metadata dns" (not ("metadata.google.internal" `T.isInfixOf` y))
+      | (name, render) <-
+          [ ("db backup Job", \b -> renderBackupJob backupJobInputsPg {bjiBackend = b, bjiDestUrl = destFor b "databases/mydb/20260610T141503Z.sql.gz", bjiPrefix = destFor b "databases/mydb/"})
+          , ("db restore Job", \b -> renderRestoreJob restoreJobInputsPg {rjiBackend = b, rjiSrcUrl = destFor b "databases/mydb/20260610T141503Z.sql.gz"})
+          , ("volume snapshot Job", \b -> renderSnapshotJob snapshotJobInputs {sjiBackend = b, sjiDestUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
+          , ("volume restore Job", \b -> renderStorageRestoreJob storageRestoreJobInputs {sriBackend = b, sriSrcUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
+          ]
+      , backend <- [tnbGcsBackend, localMinioBackend]
+      ]
+    -- The full object URL for a key under the backend's bucket, so each fixture's
+    -- DEST/SRC carries the right scheme for the backend under test.
+    destFor (GcsBackend _ bucket) key = "gs://" <> bucket <> "/" <> key
+    destFor (MinioBackend ref) key = "s3://" <> mrBucket ref <> "/" <> key
 
 -- | EP-6 M1: the GHC-env auto-resolver's testable core. 'findGhcEnvIn' returns
 -- the first @.ghc.environment.*@ across the given dirs (absolute), else Nothing.
@@ -2450,8 +2527,8 @@ backupRestoreTests =
       "pure path / extension / schedule"
       [ testCase "dbBackupObjectPath builds databases/<name>/<ts>.<ext>" $
           dbBackupObjectPath "mydb" "20260610T141503Z" "sql.gz" @?= "databases/mydb/20260610T141503Z.sql.gz"
-      , testCase "dbBackupGsUrl prepends gs://<bucket>/" $
-          dbBackupGsUrl "b" "mydb" "20260610T141503Z" "sql.gz" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
+      , testCase "dbBackupKeyPrefix builds databases/<name>/" $
+          dbBackupKeyPrefix "mydb" @?= "databases/mydb/"
       , testCase "backupExt per engine" $
           map backupExt [Postgres, Redis, ClickHouse] @?= ["sql.gz", "rdb.gz", "native.gz"]
       , testCase "backupRawExt per engine" $
@@ -2480,13 +2557,14 @@ backupRestoreTests =
       ]
   , testGroup
       "restore"
-      [ testCase "isGsUrl" $ do
-          isGsUrl "gs://b/x" @?= True
-          isGsUrl "20260610T141503Z" @?= False
-      , testCase "resolveBackupObject composes a bare timestamp" $
-          resolveBackupObject "b" "mydb" "sql.gz" "20260610T141503Z" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
+      [ testCase "isObjectUrl recognizes gs:// and s3://" $ do
+          isObjectUrl "gs://b/x" @?= True
+          isObjectUrl "s3://b/x" @?= True
+          isObjectUrl "20260610T141503Z" @?= False
+      , testCase "resolveBackupObject composes a bare timestamp (cloud)" $
+          resolveBackupObject (GcsBackend "p" "b") "mydb" "sql.gz" "20260610T141503Z" @?= "gs://b/databases/mydb/20260610T141503Z.sql.gz"
       , testCase "resolveBackupObject passes a full URL through" $
-          resolveBackupObject "b" "mydb" "sql.gz" "gs://other/x.sql.gz" @?= "gs://other/x.sql.gz"
+          resolveBackupObject (GcsBackend "p" "b") "mydb" "sql.gz" "gs://other/x.sql.gz" @?= "gs://other/x.sql.gz"
       , testCase "renderRestoreJob targets a scratch database by default" $ do
           let y = TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg)
           assertBool "kind Job" ("kind: Job" `T.isInfixOf` y)
