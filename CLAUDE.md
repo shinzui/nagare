@@ -18,6 +18,18 @@ it now asserts against the **configured** target project rather than the literal
 the configured target; that applies to reads (listing, describing, querying)
 too. Switching projects means editing the profile, never running two at once.
 
+**Local mode (`NAGARE_MODE=local`) is a supported testing path that bypasses the
+GCP guardrail by design** — and this does **not** weaken the rule above. Local
+mode (MasterPlan 16; see [`docs/user/local-development.md`](docs/user/local-development.md))
+points every primitive at loopback substitutes — a k3d cluster, a local registry,
+MinIO instead of GCS — so there is **no GCP project to protect**. When
+`NAGARE_MODE=local`, `_require_target_project` steps aside (after asserting the
+local target is genuinely loopback, never a real `*.pkg.dev` registry or a
+non-loopback domain, so a misconfigured profile cannot silently disarm protection
+while pointing at GCP). When `NAGARE_MODE` is unset or `cloud`, the guardrail stays
+fail-closed exactly as before. The local smoke test `just local-smoke` relies on
+this short-circuit; the cloud branch must never become anything but fail-closed.
+
 ### How the policy is enforced
 
 1. **The target profile is canonical.** `nagare.target.env` is the single source
