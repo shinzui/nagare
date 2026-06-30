@@ -44,7 +44,7 @@ local-mode differences as imperative overrides:
 |---|---|---|
 | container images | `$NAGARE_REGISTRY_HOST/<svc>:dev` | pull from the local registry |
 | `NAGARE_ACCESS_COOKIE_DOMAIN` | `.$NAGARE_BASE_DOMAIN` | one sign-in covers every local app |
-| `SHOMEI_WEBAUTHN_RP_ID` / `SHOMEI_WEBAUTHN_ORIGINS` | loopback domain / `https://<app-origin>` | the passkey ceremony validates against the loopback HTTPS origin |
+| `SHOMEI_WEBAUTHN_RP_ID` / `SHOMEI_WEBAUTHN_ORIGINS` | `$NAGARE_BASE_DOMAIN` / `https://protected-hello.$NAGARE_BASE_DOMAIN` | the passkey ceremony validates against the loopback HTTPS origin (the protected-hello example derives its public host from the base domain) |
 
 It also generates a real `nagare-access` cookie-key Secret (once), applies the
 `en-schema` + `nagare-access-backends` ConfigMaps, and runs the `en-migrate` Job

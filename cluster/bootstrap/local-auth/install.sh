@@ -36,7 +36,11 @@ base="${NAGARE_BASE_DOMAIN:?NAGARE_BASE_DOMAIN must be set in local mode}"
 tag="${NAGARE_AUTH_TAG:-dev}"
 ns=nagare-system
 
-app_origin="https://protected-hello.personal.${base}"
+# The protected-hello example's public host is protected-hello.<base> (its
+# Config derives the domain from NAGARE_BASE_DOMAIN). The WebAuthn origin must be
+# that exact HTTPS origin; the cookie domain is the loopback parent so one
+# sign-in covers every protected app under the base domain.
+app_origin="https://protected-hello.${base}"
 cookie_domain=".${base}"
 
 echo "==> auth-plane local install: registry=$registry base=$base tag=$tag"
