@@ -12,6 +12,8 @@ module Nagare.Image
   , nixpacksBuildArgs
   , buildNixpacks
   , configureDockerAuth
+  , dockerAuthPlan
+  , DockerAuth (..)
   , pushImage
   , imageRef
   , taggedImageRef
@@ -26,7 +28,7 @@ import Cradle
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText, mkImageRef)
-import Nagare.Target (TargetProfile, registryPrefix, resolveTargetProfile, tpRegistryHost)
+import Nagare.Target (Mode (..), TargetProfile, registryPrefix, resolveTargetProfile, tpMode, tpRegistryHost)
 
 -- | Compute a deploy tag: UTC timestamp in @YYYYMMDD-HHMMSS@ format.
 computeTag :: IO Text
@@ -93,17 +95,35 @@ buildNixpacks :: Text -> Text -> FilePath -> [(Text, Text)] -> IO ()
 buildNixpacks platform ref context args =
   run_ $ cmd "nixpacks" & addArgs (nixpacksBuildArgs platform ref context args)
 
--- | Run @gcloud auth configure-docker \<host> --quiet@ for the resolved Artifact
--- Registry host (EP-62; the host comes from 'Nagare.Target.tpRegistryHost', so an
--- operator's configured target retargets Docker auth without code edits). This
--- writes a Docker credential-helper entry so subsequent pushes authenticate
--- automatically against Artifact Registry.
+-- | The Docker-credential action for a given mode and registry host (EP-83,
+-- MasterPlan 16 Integration Point 2). In 'Cloud' mode it is the
+-- @gcloud auth configure-docker \<host> --quiet@ argv that teaches Docker to
+-- authenticate to Google Artifact Registry. In 'Local' mode it is 'SkipDockerAuth':
+-- the EP-82 local registry is unauthenticated, so no credential helper — and in
+-- particular no @gcloud@ — is invoked. Pure so a test can assert the argv is built
+-- in cloud mode and never built in local mode, with neither Docker nor gcloud
+-- installed.
+data DockerAuth
+  = SkipDockerAuth
+  | GcloudConfigureDocker [String]
+  deriving stock (Eq, Show)
+
+dockerAuthPlan :: Mode -> Text -> DockerAuth
+dockerAuthPlan Local _ = SkipDockerAuth
+dockerAuthPlan Cloud host =
+  GcloudConfigureDocker ["auth", "configure-docker", T.unpack host, "--quiet"]
+
+-- | Configure Docker auth for the resolved target (EP-62, EP-83). In cloud mode this
+-- runs @gcloud auth configure-docker \<host> --quiet@ so a subsequent @docker push@
+-- authenticates to Artifact Registry. In local mode (@NAGARE_MODE=local@, EP-82) it
+-- is a no-op: the local k3d registry needs no credential helper and no @gcloud@ is
+-- invoked. Resolves the profile internally so all call sites are unchanged.
 configureDockerAuth :: IO ()
 configureDockerAuth = do
   tp <- resolveTargetProfile
-  run_ $
-    cmd "gcloud"
-      & addArgs ["auth", "configure-docker", T.unpack (tpRegistryHost tp), "--quiet"]
+  case dockerAuthPlan (tpMode tp) (tpRegistryHost tp) of
+    SkipDockerAuth -> pure ()
+    GcloudConfigureDocker args -> run_ $ cmd "gcloud" & addArgs args
 
 -- | Run @docker push \<image:tag\>@.
 pushImage :: Text -> IO ()

@@ -133,7 +133,7 @@ import Nagare.Env.Generated qualified as Gen
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Env.Store
 import Nagare.GhcEnv (findGhcEnvIn)
-import Nagare.Image (dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
+import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Init
   ( nextStepsText
   , operatorRoles
@@ -210,7 +210,7 @@ import Nagare.Storage.Snapshot
   , snapshotObjectPath
   , snapshotsToPrune
   )
-import Nagare.Target (TargetProfile (..), registryPrefix, resolveTargetProfile)
+import Nagare.Target (Mode (..), TargetProfile (..), parseMode, registryPrefix, resolveTargetProfile)
 import Nagare.Task.Discover
   ( AppScope (..)
   , TaskRow (..)
@@ -273,6 +273,8 @@ main = do
       , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
       , testGroup "EP-62 rendered Job project" backupProjectTests
       , testGroup "EP-62 qualifyImage" qualifyImageTests
+      , modeResolutionTests
+      , dockerAuthPlanTests
       , initTests
       , accessGrantsTests
       , accessResolveTests
@@ -297,6 +299,7 @@ initProfile =
     , tpBaseDomain = "apps.acme.com"
     , tpInstanceName = "nagare-01"
     , tpTargetPlatform = "linux/amd64"
+    , tpMode = Cloud
     }
 
 initTests :: TestTree
@@ -396,6 +399,7 @@ tnbProfile =
     , tpBaseDomain = "apps.example.com"
     , tpInstanceName = "nagare-01"
     , tpTargetPlatform = "linux/amd64"
+    , tpMode = Cloud
     }
 
 targetProfileTests :: TestTree
@@ -457,6 +461,52 @@ targetProfileTests =
       , "NAGARE_INSTANCE_NAME"
       , "NAGARE_TARGET_PLATFORM"
       ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Target mode (MasterPlan 16, EP-83): NAGARE_MODE resolves into a typed
+-- Mode on the profile. The pure parseMode table needs no environment; the
+-- resolveTargetProfile case mutates NAGARE_MODE and restores it with finally.
+
+modeResolutionTests :: TestTree
+modeResolutionTests =
+  testGroup
+    "Nagare.Target mode (EP-83)"
+    [ testCase "parseMode: local (any case) is Local, else Cloud" $ do
+        parseMode (Just "local") @?= Local
+        parseMode (Just "LOCAL") @?= Local
+        parseMode (Just "Local") @?= Local
+        parseMode (Just "cloud") @?= Cloud
+        parseMode (Just "") @?= Cloud
+        parseMode (Just "prod") @?= Cloud
+        parseMode Nothing @?= Cloud
+    , testCase "resolveTargetProfile reads NAGARE_MODE" $ do
+        saved <- lookupEnv "NAGARE_MODE"
+        let restore = maybe (unsetEnv "NAGARE_MODE") (setEnv "NAGARE_MODE") saved
+        flip finally restore $ do
+          unsetEnv "NAGARE_MODE"
+          tpC <- resolveTargetProfile
+          tpMode tpC @?= Cloud
+          setEnv "NAGARE_MODE" "local"
+          tpL <- resolveTargetProfile
+          tpMode tpL @?= Local
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Image.dockerAuthPlan (MasterPlan 16, EP-83): the pure Docker-auth
+-- planner. Cloud mode builds the gcloud configure-docker argv; local mode skips
+-- it entirely — the machine-checkable form of "zero gcloud calls in local mode".
+
+dockerAuthPlanTests :: TestTree
+dockerAuthPlanTests =
+  testGroup
+    "Nagare.Image.dockerAuthPlan (EP-83)"
+    [ testCase "cloud mode builds the gcloud configure-docker argv" $
+        dockerAuthPlan Cloud "us-west1-docker.pkg.dev"
+          @?= GcloudConfigureDocker
+            ["auth", "configure-docker", "us-west1-docker.pkg.dev", "--quiet"]
+    , testCase "local mode skips auth — no gcloud argv is constructed" $
+        dockerAuthPlan Local "k3d-registry.localhost:5000" @?= SkipDockerAuth
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Task (MasterPlan 10, EP-51): the pure discovery/run/logs helpers.

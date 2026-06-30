@@ -69,24 +69,28 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1.1 — Add `data Mode = Cloud | Local` (deriving `Eq`, `Show`) and `parseMode :: Maybe
+- [x] M1.1 — Add `data Mode = Cloud | Local` (deriving `Eq`, `Show`) and `parseMode :: Maybe
       String -> Mode` to `cli/nagarectl/src/Nagare/Target.hs`; export both plus the new
-      `tpMode` accessor.
-- [ ] M1.2 — Extend the `TargetProfile` record with `tpMode :: !Mode`; resolve it in
+      `tpMode` accessor. (Done 2026-06-29.)
+- [x] M1.2 — Extend the `TargetProfile` record with `tpMode :: !Mode`; resolve it in
       `resolveTargetProfile` from `NAGARE_MODE` (default `Cloud`); update every literal
-      `TargetProfile{..}` builder in the test suite to set `tpMode`.
-- [ ] M1.3 — Add `modeResolutionTests` to `cli/nagarectl/test/Spec.hs` (unset → `Cloud`;
+      `TargetProfile{..}` builder in the test suite to set `tpMode`. (Done 2026-06-29 — the only
+      fresh literals are `initProfile`/`tnbProfile` in Spec.hs; `Init.hs` uses record-update on
+      `resolveTargetProfile`, no change.)
+- [x] M1.3 — Add `modeResolutionTests` to `cli/nagarectl/test/Spec.hs` (unset → `Cloud`;
       `local` → `Local`; `cloud`/`LOCAL`/garbage cases) and the `parseMode` pure-table test;
-      `cabal test` green.
-- [ ] M2.1 — Add the pure `data DockerAuth = SkipDockerAuth | GcloudConfigureDocker [String]`
+      `cabal test` green. (Done 2026-06-29.)
+- [x] M2.1 — Add the pure `data DockerAuth = SkipDockerAuth | GcloudConfigureDocker [String]`
       and `dockerAuthPlan :: Mode -> Text -> DockerAuth` to `cli/nagarectl/src/Nagare/Image.hs`;
-      export both.
-- [ ] M2.2 — Reimplement `configureDockerAuth :: IO ()` to resolve the profile, compute
+      export both. (Done 2026-06-29.)
+- [x] M2.2 — Reimplement `configureDockerAuth :: IO ()` to resolve the profile, compute
       `dockerAuthPlan (tpMode tp) (tpRegistryHost tp)`, and run the `gcloud` argv only for
       `GcloudConfigureDocker`; `SkipDockerAuth` is a no-op. All six call sites unchanged.
-- [ ] M2.3 — Add `dockerAuthPlanTests` to `cli/nagarectl/test/Spec.hs`: `Cloud` yields the
+      (Done 2026-06-29 — library + all six call sites recompiled clean.)
+- [x] M2.3 — Add `dockerAuthPlanTests` to `cli/nagarectl/test/Spec.hs`: `Cloud` yields the
       `gcloud auth configure-docker <host> --quiet` argv; `Local` yields `SkipDockerAuth`
-      (no `gcloud` argv built); `cabal test` green.
+      (no `gcloud` argv built); `cabal test` green. (Done 2026-06-29 — all 328 tests pass,
+      including both EP-83 groups.)
 - [ ] M3.1 — Bring up the EP-82 local cluster (`just local-up` + `just local-bootstrap`) and
       export the local profile (`NAGARE_MODE=local`, `NAGARE_REGISTRY_HOST`,
       `NAGARE_BASE_DOMAIN`, `NAGARE_TARGET_PLATFORM`).
