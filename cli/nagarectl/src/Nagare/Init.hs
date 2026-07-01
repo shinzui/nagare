@@ -42,6 +42,7 @@ import Nagare.Ops.Probe (captureTool)
 import Nagare.Target
   ( Mode (..)
   , TargetProfile (..)
+  , pulumiBackendToken
   , resolveTargetProfile
   )
 
@@ -127,6 +128,8 @@ renderTargetEnv tp =
     , "export NAGARE_TARGET_PLATFORM=" <> tpTargetPlatform tp
     , "export NAGARE_MODE=" <> modeToken (tpMode tp)
     , "export NAGARE_LOCAL_OBJECT_STORE=" <> tpLocalObjectStore tp
+    , "export NAGARE_PULUMI_BACKEND=" <> pulumiBackendToken (tpPulumiBackend tp)
+    , "export NAGARE_PULUMI_BACKEND_URL=" <> tpPulumiBackendUrl tp
     ]
   where
     modeToken Cloud = "cloud"

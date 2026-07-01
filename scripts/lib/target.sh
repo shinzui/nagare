@@ -26,6 +26,7 @@ _NAGARE_CONTEXT_VARS=(
   NAGARE_IMAGE_BUCKET NAGARE_BACKUP_BUCKET NAGARE_BASE_DOMAIN
   NAGARE_INSTANCE_NAME NAGARE_TARGET_PLATFORM NAGARE_SSH_USER
   NAGARE_MODE NAGARE_LOCAL_OBJECT_STORE
+  NAGARE_PULUMI_BACKEND NAGARE_PULUMI_BACKEND_URL
 )
 
 _nagare_config_dir() {
@@ -154,6 +155,18 @@ _nagare_resolve_context() {
   export NAGARE_LOCAL_OBJECT_STORE="${NAGARE_LOCAL_OBJECT_STORE:-}"
   export NAGARE_SSH_USER="${NAGARE_SSH_USER:-deploy}"
 
+  # EP-93: Pulumi backend selection. Default to EP-90's per-context local file
+  # backend; `gcs` opts a cloud context into a remote GCS backend. A local-mode
+  # context can never use GCS (the guardrail steps aside in local mode, so there
+  # is no project to protect and no credentials to assume) — downgrade to local
+  # and warn, mirroring the Haskell resolver's effectivePulumiBackend.
+  export NAGARE_PULUMI_BACKEND="${NAGARE_PULUMI_BACKEND:-local}"
+  export NAGARE_PULUMI_BACKEND_URL="${NAGARE_PULUMI_BACKEND_URL:-}"
+  if [ "${NAGARE_MODE}" = "local" ] && [ "${NAGARE_PULUMI_BACKEND}" = "gcs" ]; then
+    echo "nagare: local context '${name}' cannot use NAGARE_PULUMI_BACKEND=gcs; using local file state." >&2
+    export NAGARE_PULUMI_BACKEND="local"
+  fi
+
   if [ "${NAGARE_MODE}" = "local" ]; then
     export NAGARE_REGISTRY_PREFIX="${NAGARE_REGISTRY_HOST:-k3d-registry.localhost:5000}"
   else
@@ -182,14 +195,33 @@ _nagare_select_pulumi_stack() {
 _nagare_export_pulumi_env() {
   local ctx="${NAGARE_CONTEXT:-default}"
   local root="$(_nagare_state_dir)/${ctx}"
-  mkdir -p "${root}/state" "${root}/home"
+  local backend="${NAGARE_PULUMI_BACKEND:-local}"
+  # PULUMI_HOME is ALWAYS the per-context local home (Pulumi keeps its workspace
+  # and credentials cache there even for a remote backend); only the backend URL
+  # differs between local and gcs.
+  mkdir -p "${root}/home"
   : > "${root}/home/passphrase"
   export PULUMI_HOME="${root}/home"
-  export PULUMI_BACKEND_URL="file://${root}/state"
   export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-}"
   export PULUMI_CONFIG_PASSPHRASE_FILE="${root}/home/passphrase"
   export NAGARE_PULUMI_STACK="${ctx}"
-  _nagare_select_pulumi_stack
+  if [ "${backend}" = "gcs" ]; then
+    local url="${NAGARE_PULUMI_BACKEND_URL:-}"
+    if [ -z "${url}" ]; then
+      url="gs://${CLOUDSDK_CORE_PROJECT}-nagare-pulumi-state/nagare/${ctx}"
+    fi
+    export NAGARE_PULUMI_BACKEND_URL="${url}"
+    export PULUMI_BACKEND_URL="${url}"
+    # Remote backend: do NOT eagerly `pulumi stack select` here. This function
+    # runs on every shell source (every `direnv reload`); selecting against gs://
+    # would require GCP credentials + a network round-trip each time. nagarectl
+    # operations and `nagarectl context` (and the migration path) select/init the
+    # stack against GCS when they actually need it.
+  else
+    mkdir -p "${root}/state"
+    export PULUMI_BACKEND_URL="file://${root}/state"
+    _nagare_select_pulumi_stack
+  fi
 }
 
 _nagare_export_pulumi_env

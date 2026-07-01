@@ -188,6 +188,7 @@ import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Target
   ( ActiveTarget (..)
   , ContextName
+  , PulumiBackendKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , clearCurrentContext
@@ -1971,13 +1972,18 @@ activeProfile = resolveActiveContext . fmap T.pack
 activeTarget :: Maybe String -> IO ActiveTarget
 activeTarget = resolveActiveTarget . fmap T.pack
 
-ensurePulumiForContext :: ContextName -> IO ()
-ensurePulumiForContext name = do
+ensurePulumiForContext :: ContextName -> TargetProfile -> IO ()
+ensurePulumiForContext name tp = do
   stateRoot <- nagareStateDir
-  let penv = pulumiEnvFor stateRoot (contextNameText name)
+  let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = peStack penv
   createDirectoryIfMissing True (peHome penv)
-  createDirectoryIfMissing True (T.unpack (T.drop (T.length ("file://" :: Text)) (peBackendUrl penv)))
+  -- Only a local (@file://@) backend has a state directory to create; a GCS
+  -- backend URL is @gs://…@ and must never be treated as a local path.
+  case peKind penv of
+    PulumiBackendLocal ->
+      createDirectoryIfMissing True (T.unpack (T.drop (T.length ("file://" :: Text)) (peBackendUrl penv)))
+    PulumiBackendGcs -> pure ()
   writeFile (peHome penv </> "passphrase") ""
   setEnv "PULUMI_HOME" (peHome penv)
   setEnv "PULUMI_BACKEND_URL" (T.unpack (peBackendUrl penv))
@@ -2004,7 +2010,7 @@ pulumiQuiet args =
 ensurePulumiForActiveContext :: Maybe String -> IO ContextName
 ensurePulumiForActiveContext mctx = do
   active <- activeTarget mctx
-  ensurePulumiForContext (atContextName active)
+  ensurePulumiForContext (atContextName active) (atProfile active)
   pure (atContextName active)
 
 runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
@@ -2093,7 +2099,7 @@ runInit mctx o = do
   -- Seed the Pulumi stack config (unless skipped).
   unless (o ^. #ioSkipSeed) $ do
     putStrLn "Seeding Pulumi stack config from the profile..."
-    unless (o ^. #ioDryRun) (ensurePulumiForContext contextName)
+    unless (o ^. #ioDryRun) (ensurePulumiForContext contextName tp)
     s <- seedPulumiConfig (o ^. #ioDryRun) (contextNameText contextName) tp
     case s of
       Right () -> pure ()
@@ -2139,8 +2145,8 @@ runContext mctx = \case
     if ok
       then do
         setCurrentContext name
-        ensurePulumiForContext name
         tp <- either dieT pure =<< readContextProfile name
+        ensurePulumiForContext name tp
         s <- seedPulumiConfig False (contextNameText name) tp
         case s of
           Right () -> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
@@ -2164,7 +2170,7 @@ runContext mctx = \case
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     when (ccoUse o) $ do
       setCurrentContext name
-      ensurePulumiForContext name
+      ensurePulumiForContext name tp
       s <- seedPulumiConfig False (contextNameText name) tp
       case s of
         Right () -> pure ()

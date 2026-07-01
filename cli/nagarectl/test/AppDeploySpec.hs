@@ -18,7 +18,7 @@ import Data.Text qualified as T
 import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Types (mkImageRef)
-import Nagare.Target (Mode (..), TargetProfile (..))
+import Nagare.Target (Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -65,6 +65,8 @@ testProfile =
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
     , tpLocalObjectStore = ""
+    , tpPulumiBackend = PulumiBackendLocal
+    , tpPulumiBackendUrl = ""
     }
 
 renderTests :: [TestTree]
