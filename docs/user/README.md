@@ -100,9 +100,17 @@ you can observe.
    cert-manager, and wildcard DNS/TLS wiring. ✅
 8. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
    Collector, and Grafana. ✅
+   - [Protecting observability UIs](protecting-observability-uis.md) — publish
+     Grafana, and optionally VictoriaTraces, through the shared
+     Shomei/en-backed `nagare-access` enforcer instead of exposing them
+     directly. 🟡
 9. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
    `nagare/Config.hs`, with the [Config reference](config-reference.md) for the
    full field/constructor catalogue. 🟡
+   - [Using kubefwd for development](kubefwd-development.md) — run one service
+     locally while it calls deployed Nagare databases, brokers, platform
+     services, or peer microservices through their normal `*.svc.cluster.local`
+     names. 🟡
    - [Build modes](build-modes.md) — choose how an app's image is produced:
      prebuilt image, Dockerfile build, or a Dockerfile-free Nixpacks build. 🟡
    - [App lifecycle](app-lifecycle.md) — operate a deployed app without `kubectl`:
