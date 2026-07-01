@@ -76,6 +76,7 @@ library
     Nagare.Ops.Domains
     Nagare.Ops.Probe
     Nagare.Ops.Pulumi
+    Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
     Nagare.Server.Build
     Nagare.Server.Deploy

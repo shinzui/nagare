@@ -56,6 +56,9 @@ data InitOpts = InitOpts
   , ioRegion :: !(Maybe String)
   , ioZone :: !(Maybe String)
   , ioBaseDomain :: !(Maybe String)
+  , ioPulumiBackend :: !(Maybe String)
+  , ioPulumiBackendUrl :: !(Maybe String)
+  , ioPulumiBackendMember :: !(Maybe String)
   , ioForce :: !Bool
   , ioSkipPreflight :: !Bool
   , ioSkipEnable :: !Bool

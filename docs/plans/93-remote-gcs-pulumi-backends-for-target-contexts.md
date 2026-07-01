@@ -67,10 +67,16 @@ be recorded here with the date and enough evidence for the next contributor to r
   context deriving `gs://example-project-nagare-pulumi-state/nagare/gcs-lab`, a local
   context downgrading gcs→local with a warning, and the default context unchanged on the
   EP-90 `file://…/state` backend.
-- [ ] M2: Add GCS backend bootstrap. `nagarectl init` and context creation accept an
-  opt-in GCS backend flag, derive the default bucket/path when no URL is supplied,
-  create or update the state bucket idempotently, enable versioning and uniform
-  bucket-level access, and optionally grant a named CI/operator principal object access.
+- [x] M2 (2026-07-01): Added GCS backend bootstrap in `Nagare.Ops.PulumiBackend` (pure
+  `gcsBucketOfUrl`/`pulumiStateBucket`/`bucket*Args`/`bootstrapCommands` + idempotent
+  `bootstrapPulumiStateBucket` runner: describe → create-if-missing → update → optional
+  IAM grant, with a dry-run that prints the exact `gcloud storage` commands). `nagarectl
+  init` and `nagarectl context create` accept `--pulumi-backend`, `--pulumi-backend-url`,
+  and `--pulumi-backend-member`; the backend + URL persist to the context file, the member
+  is bootstrap-only. Bootstrap is warn-not-fatal so a credential-less machine still writes
+  the context. Evidence: 6 pure tests (355 total PASS); `nagarectl init --dry-run
+  --pulumi-backend gcs` prints the create/update/IAM sequence in cloud mode and correctly
+  emits nothing in local mode (downgraded).
 - [x] M3 (2026-07-01): Made the backend derivation backend-aware inside EP-90's existing
   seam. `_nagare_export_pulumi_env` / `pulumiEnvFor` set `PULUMI_BACKEND_URL` to the
   `gs://` URL for a gcs context while `PULUMI_HOME` stays the per-context *local* home and
