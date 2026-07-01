@@ -175,6 +175,13 @@ import Nagare.Ops.Domains
   , extractDomainMappings
   , formatDomainList
   )
+import Nagare.Ops.PulumiBackend
+  ( bootstrapCommands
+  , bucketCreateArgs
+  , bucketUpdateArgs
+  , gcsBucketOfUrl
+  , pulumiStateBucket
+  )
 import Nagare.Ops.Probe
   ( KourierEvidence (..)
   , Probe (..)
@@ -314,6 +321,7 @@ main = do
       , modeResolutionTests
       , dockerAuthPlanTests
       , initTests
+      , pulumiBackendBootstrapTests
       , accessGrantsTests
       , accessResolveTests
       , appDeployTests
@@ -445,6 +453,55 @@ initTests =
     , testCase "nextStepsText names the ordered just targets" $ do
         assertBool "infra-up" (T.isInfixOf "just infra-up" nextStepsText)
         assertBool "host-image" (T.isInfixOf "just host-image" nextStepsText)
+    ]
+
+-- ---------------------------------------------------------------------------
+-- EP-93: the GCS Pulumi state-bucket bootstrap. Pure bucket derivation + the
+-- exact `gcloud storage` argv the idempotent runner (and its dry-run) emit.
+
+pulumiBackendBootstrapTests :: TestTree
+pulumiBackendBootstrapTests =
+  testGroup
+    "Nagare.Ops.PulumiBackend (EP-93)"
+    [ testCase "gcsBucketOfUrl parses the bucket out of a gs:// URL" $ do
+        gcsBucketOfUrl "gs://acme-prod-nagare-pulumi-state/nagare/labs" @?= Just "acme-prod-nagare-pulumi-state"
+        gcsBucketOfUrl "gs://just-a-bucket" @?= Just "just-a-bucket"
+        gcsBucketOfUrl "file:///tmp/x" @?= Nothing
+        gcsBucketOfUrl "gs://" @?= Nothing
+    , testCase "pulumiStateBucket uses the default state bucket for a gcs context" $
+        pulumiStateBucket "labs" initProfile {tpPulumiBackend = PulumiBackendGcs}
+          @?= Just "acme-prod-nagare-pulumi-state"
+    , testCase "pulumiStateBucket honors an explicit backend URL's bucket" $
+        pulumiStateBucket
+          "labs"
+          initProfile {tpPulumiBackend = PulumiBackendGcs, tpPulumiBackendUrl = "gs://custom-bucket/state/labs"}
+          @?= Just "custom-bucket"
+    , testCase "bucketCreateArgs sets location, uniform access, and public-access prevention" $
+        bucketCreateArgs "acme-prod-nagare-pulumi-state" "acme-prod" "us-west1"
+          @?= [ "storage"
+              , "buckets"
+              , "create"
+              , "gs://acme-prod-nagare-pulumi-state"
+              , "--project=acme-prod"
+              , "--location=us-west1"
+              , "--uniform-bucket-level-access"
+              , "--public-access-prevention"
+              ]
+    , testCase "bucketUpdateArgs enables versioning idempotently (no retention lock)" $
+        bucketUpdateArgs "b"
+          @?= ["storage", "buckets", "update", "gs://b", "--versioning", "--uniform-bucket-level-access", "--public-access-prevention"]
+    , testCase "bootstrapCommands appends an IAM grant only when a member is given" $ do
+        length (bootstrapCommands "b" "p" "us-west1" Nothing) @?= 2
+        let withMember = bootstrapCommands "b" "p" "us-west1" (Just "serviceAccount:ci@p.iam.gserviceaccount.com")
+        length withMember @?= 3
+        last withMember
+          @?= [ "storage"
+              , "buckets"
+              , "add-iam-policy-binding"
+              , "gs://b"
+              , "--member=serviceAccount:ci@p.iam.gserviceaccount.com"
+              , "--role=roles/storage.objectAdmin"
+              ]
     ]
 
 -- ---------------------------------------------------------------------------

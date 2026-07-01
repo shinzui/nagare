@@ -156,6 +156,7 @@ import Nagare.Ops.Domains
   )
 import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
@@ -199,6 +200,7 @@ import Nagare.Target
   , deleteContext
   , listContexts
   , mkContextName
+  , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
   , readContextProfile
@@ -445,6 +447,9 @@ data ContextCreateOpts = ContextCreateOpts
   , ccoTargetPlatform :: !(Maybe String)
   , ccoMode :: !(Maybe String)
   , ccoLocalObjectStore :: !(Maybe String)
+  , ccoPulumiBackend :: !(Maybe String)
+  , ccoPulumiBackendUrl :: !(Maybe String)
+  , ccoPulumiBackendMember :: !(Maybe String)
   , ccoForce :: !Bool
   , ccoUse :: !Bool
   }
@@ -716,6 +721,9 @@ initOptsParser =
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
+    <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
+    <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
     <*> switch (long "force" <> help "Overwrite an existing nagare.target.env")
     <*> switch (long "skip-preflight" <> help "Skip the gcloud auth + operator-IAM checks")
     <*> switch (long "skip-enable" <> help "Skip running scripts/enable-apis.sh")
@@ -740,6 +748,9 @@ contextCreateOptsParser =
     <*> optional (strOption (long "target-platform" <> metavar "PLATFORM" <> help "Docker build platform (default linux/amd64)"))
     <*> optional (strOption (long "mode" <> metavar "MODE" <> help "cloud | local (default cloud)"))
     <*> optional (strOption (long "local-object-store" <> metavar "URL" <> help "Local S3 endpoint/bucket (local mode only)"))
+    <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
+    <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
+    <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during --use bootstrap (not persisted)"))
     <*> switch (long "force" <> help "Overwrite an existing context of this name")
     <*> switch (long "use" <> help "Also set this context as the current context")
 
@@ -1997,6 +2008,19 @@ ensurePulumiForContext name tp = do
       _ <- pulumiQuiet ["-C", "infra/pulumi", "stack", "init", T.unpack stack]
       void (pulumiQuiet ["-C", "infra/pulumi", "stack", "select", T.unpack stack])
 
+-- | Bootstrap the GCS Pulumi state bucket for a context that opts into it. A
+-- local/local-mode context is a no-op. A bootstrap failure (e.g. missing gcloud
+-- credentials) is a warning, not fatal: the context is still written/selected, and
+-- the bucket can be bootstrapped later — the fail-closed guardrail still prevents any
+-- real Pulumi operation from touching the wrong project.
+bootstrapGcsIfNeeded :: Bool -> Text -> TargetProfile -> Maybe Text -> IO ()
+bootstrapGcsIfNeeded dryRun ctx tp mMember = do
+  r <- bootstrapPulumiStateBucket dryRun ctx tp mMember
+  case r of
+    Right () -> pure ()
+    Left msg ->
+      TIO.hPutStrLn stderr ("warning: GCS state-bucket bootstrap did not complete: " <> msg)
+
 pulumiQuiet :: [String] -> IO ExitCode
 pulumiQuiet args =
   runIt `catch` handleMissing
@@ -2064,8 +2088,15 @@ runInit mctx o = do
       Left msg -> TIO.hPutStr stderr msg >> exitFailure
       Right () -> putStrLn "  preflight OK"
 
-  -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver.
-  tp <- profileFromOpts project region zone baseDomain
+  -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver,
+  -- then apply the EP-93 Pulumi backend choice (default local; gcs is cloud-only and
+  -- downgraded in local mode by effectivePulumiBackend).
+  tpBase <- profileFromOpts project region zone baseDomain
+  let tp =
+        tpBase
+          { tpPulumiBackend = parsePulumiBackendKind (o ^. #ioPulumiBackend)
+          , tpPulumiBackendUrl = maybe "" T.pack (o ^. #ioPulumiBackendUrl)
+          }
   contextName <- case o ^. #ioContextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"
@@ -2099,6 +2130,7 @@ runInit mctx o = do
   -- Seed the Pulumi stack config (unless skipped).
   unless (o ^. #ioSkipSeed) $ do
     putStrLn "Seeding Pulumi stack config from the profile..."
+    bootstrapGcsIfNeeded (o ^. #ioDryRun) (contextNameText contextName) tp (T.pack <$> o ^. #ioPulumiBackendMember)
     unless (o ^. #ioDryRun) (ensurePulumiForContext contextName tp)
     s <- seedPulumiConfig (o ^. #ioDryRun) (contextNameText contextName) tp
     case s of
@@ -2170,6 +2202,7 @@ runContext mctx = \case
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     when (ccoUse o) $ do
       setCurrentContext name
+      bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> ccoPulumiBackendMember o)
       ensurePulumiForContext name tp
       s <- seedPulumiConfig False (contextNameText name) tp
       case s of
@@ -2225,6 +2258,8 @@ contextEnvPairs o =
     , pair "NAGARE_TARGET_PLATFORM" (ccoTargetPlatform o)
     , pair "NAGARE_MODE" (ccoMode o)
     , pair "NAGARE_LOCAL_OBJECT_STORE" (ccoLocalObjectStore o)
+    , pair "NAGARE_PULUMI_BACKEND" (ccoPulumiBackend o)
+    , pair "NAGARE_PULUMI_BACKEND_URL" (ccoPulumiBackendUrl o)
     ]
   where
     pair k mv = fmap (\v -> (k, T.pack v)) mv
