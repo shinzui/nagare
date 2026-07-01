@@ -145,6 +145,59 @@ create NAME --use` select the context's backend/stack and regenerate its config.
 See [Provisioning with Pulumi](provisioning-with-pulumi.md) for the cloud
 resource details.
 
+### Remote GCS Pulumi state (opt-in, cloud contexts only)
+
+The local file backend above is the default and works offline. A **cloud**
+context can instead store its Pulumi state in Google Cloud Storage, so the same
+context works from more than one machine and survives a lost laptop. Two context
+fields select it:
+
+```bash
+export NAGARE_PULUMI_BACKEND=gcs
+# optional; defaults to gs://<project>-nagare-pulumi-state/nagare/<context>
+export NAGARE_PULUMI_BACKEND_URL=gs://my-bucket/nagare/prod
+```
+
+Set them when creating a context (they persist to the context file):
+
+```bash
+nagarectl context create prod --project acme-prod --pulumi-backend gcs --use \
+  --pulumi-backend-member serviceAccount:ci@acme-prod.iam.gserviceaccount.com
+```
+
+- **The state bucket is bootstrapped for you.** `nagarectl init`/`context
+  create --use` (and the migration script) create the bucket if missing, enable
+  object versioning, and set uniform bucket-level access + public-access
+  prevention. The bucket defaults to `<project>-nagare-pulumi-state` and is kept
+  separate from the `<project>-nagare-backups` application bucket. Preview the
+  exact `gcloud storage` commands with `nagarectl init --dry-run --pulumi-backend gcs`.
+- **IAM.** The bootstrapping operator needs `roles/storage.admin` on the project
+  (already in the `nagarectl init` operator role set). `--pulumi-backend-member`
+  optionally grants a CI/second-operator principal bucket-scoped
+  `roles/storage.objectAdmin`.
+- **`PULUMI_HOME` stays local.** Only the backend URL points at GCS; Pulumi's
+  workspace and credentials cache remain under the per-context local `home/`.
+- **Local mode can never use GCS.** A `mode=local` context with
+  `NAGARE_PULUMI_BACKEND=gcs` is downgraded to the local file backend with a
+  warning — local mode has no GCP project to protect.
+- **Offline shells stay fast.** Entering a gcs context does not eagerly contact
+  GCS; the stack is selected/initialised by `nagarectl` operations when needed.
+
+**Migrating an existing context between backends** uses Pulumi's supported
+export/import (never file copying):
+
+```bash
+# local -> gcs (exports a timestamped rollback artifact, verifies outputs, then
+# flips the context file to gcs only if baseDomain/backupBucket still match):
+scripts/migrate-pulumi-backend.sh --context prod
+
+# gcs -> local (re-imports the latest artifact; never deletes the GCS bucket):
+scripts/migrate-pulumi-backend.sh --rollback --context prod
+```
+
+The local backend under `…/nagare/<context>/state` is kept as a rollback source;
+remove it only after a successful `pulumi preview` on GCS.
+
 ## Cluster and host rendering
 
 The active context also feeds bootstrap rendering:
