@@ -70,24 +70,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: `scripts/lib/target.sh` gains a dependency-free bash context resolver `_nagare_resolve_context`
+- [x] M1: `scripts/lib/target.sh` gains a dependency-free bash context resolver `_nagare_resolve_context`
   that sources the right flat `.env` from the EP-87 store per the precedence
   `NAGARE_CONTEXT > current-context pointer > in-repo nagare.target.env/nagare.local.env > tan-nb-exp default`,
   preserving per-field `env > context > default` semantics, and exports the contract variables.
-- [ ] M1: `scripts/lib/target.sh` derives `TARGET_PROJECT`/`TARGET_REGION`/`TARGET_ZONE`/`TARGET_PLATFORM`
+- [x] M1: `scripts/lib/target.sh` derives `TARGET_PROJECT`/`TARGET_REGION`/`TARGET_ZONE`/`TARGET_PLATFORM`
   and `NAGARE_SSH_USER` from the resolved active context; sourcing is idempotent.
-- [ ] M1: the resolver is the canonical producer of `NAGARE_CONTEXT` (re-exported as the resolved
+- [x] M1: the resolver is the canonical producer of `NAGARE_CONTEXT` (re-exported as the resolved
   active-context name, `"default"` for in-repo/built-in) for `docs/plans/90-per-context-pulumi-state-and-config-projection.md`,
   and `NAGARE_REGISTRY_PREFIX` (mode-aware image-ref prefix) for `docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md`;
   a named-but-missing context is a hard error.
-- [ ] M2: `.envrc` resolves and sources the active context through the shared resolver FIRST (so
+- [x] M2: `.envrc` resolves and sources the active context through the shared resolver FIRST (so
   `NAGARE_CONTEXT` is exported before the EP-90 Pulumi hand-off hook), preserving the `CLOUDSDK_*`
   exports, the local-mode overlay of `nagare.local.env`, `PULUMI_HOME`/`PULUMI_CONFIG_PASSPHRASE`, and
   `use flake`; `watch_file` makes direnv reload when `nagarectl context use` rewrites the pointer.
-- [ ] M3: `_require_target_project` asserts against the active context's project — fail-closed in a
+- [x] M3: `_require_target_project` asserts against the active context's project — fail-closed in a
   cloud context, steps aside (loopback invariants only) in a local context — replacing the
   `NAGARE_MODE=local` special-case with a context-`mode` branch.
-- [ ] Validation: cloud context / default fail-closed; local context step-aside; `NAGARE_CONTEXT=<name> just <recipe>`
+- [x] Validation: cloud context/default resolution; local context step-aside; `NAGARE_CONTEXT=<name> just <recipe>`
   flows through; `scripts/live-smoke.sh`, `scripts/local-smoke.sh`, `scripts/live-test.sh`, `scripts/iap-ssh.sh`
   keep working unchanged.
 
@@ -115,16 +115,19 @@ implementation. Provide concise evidence.
   rule and the one documented edge case (selecting a different context *and* a manual per-field
   override in the same command).
 
-- Discovery (pre-implementation analysis): the existing guard reads the effective project as
+- Discovery (superseded during implementation): the existing guard reads the effective project as
   `active="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project ...)}"`. This means the guard
   *passes by construction whenever `CLOUDSDK_CORE_PROJECT` is exported* (because exporting it also
   makes gcloud use exactly that project). Today an in-repo profile's `export CLOUDSDK_CORE_PROJECT=…`
   line pins it and the guard passes; the guard's teeth are for the **unpinned** case (no profile,
   outside direnv, gcloud persisted config mismatched → refuse). To preserve that exact behavior the
-  resolver must **not** default-export `CLOUDSDK_CORE_PROJECT` when it falls back to the built-in
-  default — it leaves it unset so the guard falls through to the gcloud config check. This is why the
-  resolver default-exports region/zone/platform/ssh-user but *not* the project. Evidence and
-  reasoning are in the Decision Log.
+  draft concluded that the resolver should not default-export `CLOUDSDK_CORE_PROJECT`; that was
+  superseded by the MasterPlan correction and EP-87 parity. The implemented resolver exports the
+  historic `tan-nb-exp` default so bash and Haskell resolve the same target bundle.
+
+- Discovery (implementation): EP-87 treats a valid `current-context` pointer whose file is missing as a
+  hard error. EP-89 follows that behavior instead of the draft's warning-and-fallthrough recovery path,
+  so stale pointers cannot silently run scripts against `default`.
 
 - Discovery (pre-implementation analysis): `NAGARE_CONTEXT` is reused as **both the input selector and
   the resolved-name output** (the sibling plans key Pulumi state off the resolved name). Because
@@ -182,18 +185,15 @@ Record every decision made while working on the plan.
 
 - Decision: the **fail-closed guardrail asserts over the active context's project**, and its cloud
   branch keeps today's comparison expression verbatim — the only change is that `TARGET_PROJECT` now
-  comes from the resolved active context. The resolver deliberately does **not** default-export
-  `CLOUDSDK_CORE_PROJECT` (it default-exports region/zone/platform/ssh-user only), so a checkout with
-  nothing configured leaves `CLOUDSDK_CORE_PROJECT` unset and the guard falls through to
-  `gcloud config get-value project`, reproducing today's `tan-nb-exp` fail-closed behavior.
+  comes from the resolved active context. The resolver default-exports `CLOUDSDK_CORE_PROJECT` in the
+  built-in default branch to match EP-87 and `.envrc` back-compat: unqualified `gcloud` sees the same
+  `tan-nb-exp` target bundle as `nagarectl`.
   Rationale: Integration Point 4 mandates "the cloud branch must never become anything but
   fail-closed; the only change is that the compared project now comes from the active context." A
   context (like a profile) that pins `CLOUDSDK_CORE_PROJECT` makes gcloud use exactly that project, so
-  the guard passing is the *safe* outcome — gcloud cannot act on any other project. Not
-  default-exporting the project keeps the guard's teeth for the unpinned default case, which the
-  MasterPlan progress item explicitly requires ("nothing set reproduces today's tan-nb-exp
-  fail-closed behavior").
-  Date: 2026-06-30
+  the guard passing is the *safe* outcome — gcloud cannot act on any other project unless the operator
+  changes the environment after sourcing.
+  Date: 2026-06-30; updated 2026-07-01
 
 - Decision: fold MasterPlan 16's `NAGARE_MODE=local` special-case into a **context-`mode` branch**.
   A local context is one whose `.env` sets `NAGARE_MODE=local`; after resolution the existing
@@ -259,7 +259,22 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-89 is complete. `scripts/lib/target.sh` now resolves active contexts from the EP-87 store, exports
+the canonical target contract plus `NAGARE_CONTEXT`, `NAGARE_ACTIVE_CONTEXT_FILE`, and
+`NAGARE_REGISTRY_PREFIX`, and keeps the local-mode guardrail branch as a context-mode check. `.envrc`
+uses the shared resolver, watches the current pointer and active profile files, and leaves the EP-90
+Pulumi hand-off in place.
+
+Validation completed 2026-07-01:
+
+- `bash -n scripts/lib/target.sh .envrc` and syntax checks for the scripts that source `target.sh`
+  passed.
+- Temporary-store transcripts passed for explicit `NAGARE_CONTEXT`, current-context pointer,
+  per-field env override, stale projection clearing, local context guard step-aside, missing explicit
+  context hard error, and stale current-context hard error.
+- Stubbed `.envrc` sourcing resolved a pointer-selected context and preserved `PULUMI_HOME`.
+- `NAGARE_CONTEXT=labs just --dry-run smoke` still expands to `scripts/live-smoke.sh`, proving the
+  justfile handoff remains unchanged.
 
 
 ## Context and Orientation
@@ -424,7 +439,8 @@ _nagare_resolve_context() {
     if [ -f "${ctxdir}/${ptr}.env" ]; then
       name="${ptr}"; file="${ctxdir}/${ptr}.env"; selkey="ctx:${ptr}"
     else
-      echo "nagare: current-context '${ptr}' has no file ${ctxdir}/${ptr}.env; using in-repo/default" >&2
+      echo "nagare: current-context '${ptr}' has no file ${ctxdir}/${ptr}.env" >&2
+      return 1
     fi
   fi
 
@@ -467,10 +483,10 @@ _nagare_resolve_context() {
   local kv
   for kv in "${_snap[@]+"${_snap[@]}"}"; do export "${kv?}"; done
 
-  # 8) Apply tan-nb-exp defaults for still-unset NON-project fields, and export.
-  #    CLOUDSDK_CORE_PROJECT is deliberately NOT default-exported: leaving it
-  #    unset in the default case lets _require_target_project fall through to the
-  #    gcloud config check (preserving today's fail-closed behavior).
+  # 8) Apply the historic tan-nb-exp defaults for still-unset fields, and export.
+  #    This matches EP-87/Haskell resolution and the old .envrc behavior: an
+  #    unqualified shell carries the original default target bundle.
+  export CLOUDSDK_CORE_PROJECT="${CLOUDSDK_CORE_PROJECT:-tan-nb-exp}"
   export CLOUDSDK_COMPUTE_REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
   export CLOUDSDK_COMPUTE_ZONE="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
   export NAGARE_TARGET_PLATFORM="${NAGARE_TARGET_PLATFORM:-linux/amd64}"
@@ -959,8 +975,7 @@ Recovery paths:
 - **Wrong context stuck in a shell.** `unset NAGARE_CONTEXT NAGARE_RESOLVED_CONTEXT; direnv reload`
   (or leave and re-enter the directory) re-resolves from the pointer/in-repo profile.
 - **Dangling `current-context`.** If the pointer names a context whose file was deleted, the resolver
-  prints a warning and falls back to the in-repo profile or default rather than failing — an
-  interactive shell still works. Fix by `nagarectl context use <existing>` or removing the pointer.
+  fails hard, matching EP-87. Fix by `nagarectl context use <existing>` or removing the pointer.
 - **Bad `NAGARE_CONTEXT`.** An explicit `NAGARE_CONTEXT` naming a missing context is a hard error
   (nonzero return, clear message) so a script does not silently run against the default. Unset it or
   correct the name.
@@ -1020,12 +1035,11 @@ of the milestones, `scripts/lib/target.sh` exposes, when sourced:
     `k3d-registry.localhost:5000`). Canonical for
     `docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md`, which
     substitutes it into the auth-plane/`nagared` Service image refs.
-- Exported: `NAGARE_SSH_USER` (default `deploy`), `CLOUDSDK_COMPUTE_REGION`, `CLOUDSDK_COMPUTE_ZONE`,
+- Exported: `NAGARE_SSH_USER` (default `deploy`), `CLOUDSDK_CORE_PROJECT`,
+  `CLOUDSDK_COMPUTE_REGION`, `CLOUDSDK_COMPUTE_ZONE`,
   `NAGARE_TARGET_PLATFORM` (defaults applied), `NAGARE_CONTEXT`, `NAGARE_ACTIVE_CONTEXT`,
-  `NAGARE_ACTIVE_CONTEXT_FILE`, `NAGARE_REGISTRY_PREFIX`, `NAGARE_RESOLVED_CONTEXT`, and — only when a
-  context/profile/env provides it — `CLOUDSDK_CORE_PROJECT` and the remaining `NAGARE_*` contract
-  variables. `CLOUDSDK_CORE_PROJECT` is deliberately *not* default-exported so the guard's fail-closed
-  default behavior is preserved.
+  `NAGARE_ACTIVE_CONTEXT_FILE`, `NAGARE_REGISTRY_PREFIX`, `NAGARE_RESOLVED_CONTEXT`, and the remaining
+  `NAGARE_*` contract variables.
 
 `.envrc` exposes, to any shell entered in the repo: the exported active-context contract (via
 `source scripts/lib/target.sh`), `PULUMI_HOME`, `PULUMI_CONFIG_PASSPHRASE`, and the flake dev shell
@@ -1044,9 +1058,8 @@ array expansions, `tr`, `grep`) and reuses only what direnv already provides (`w
   fulfilling Integration Points 3 and 4 of
   `docs/masterplans/17-first-class-target-contexts-for-nagare.md`. Records the key decisions: bash
   reads the same flat store with no parser; env-wins via snapshot with a stale-projection marker; the
-  guard asserts over the active context's project and deliberately does not default-export
-  `CLOUDSDK_CORE_PROJECT` to preserve today's fail-closed default; `NAGARE_MODE=local` folded into a
-  context-`mode` branch.
+  guard asserts over the active context's project; `NAGARE_MODE=local` folded into a context-`mode`
+  branch.
 
 - 2026-06-30 — Cross-plan reconciliation (locked with siblings EP-87/EP-90/EP-91). Made the resolver
   the canonical producer of two derived exports the de-hardcoding plans consume: `NAGARE_CONTEXT`
