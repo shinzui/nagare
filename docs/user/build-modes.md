@@ -133,10 +133,10 @@ win over the config:
 | Flag | Overrides |
 | --- | --- |
 | `--dockerfile FILE` | the `dockerfile` field |
-| `-c, --context DIR` | the `context` field |
+| `-c, --build-context DIR` | the `context` field |
 
 ```bash
-nagarectl deploy --dockerfile docker/Dockerfile.prod -c services/web
+nagarectl deploy --dockerfile docker/Dockerfile.prod --build-context services/web
 ```
 
 **Gotchas.**

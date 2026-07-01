@@ -14,7 +14,7 @@ It replaces the cloud substrate with local equivalents:
 | Artifact Registry | `k3d-registry.localhost:5000` |
 | Cloud DNS apps domain | `127-0-0-1.sslip.io` loopback wildcard |
 | GCS backup bucket | MinIO in `nagare-system` |
-| GCP project guardrail | bypassed only when `NAGARE_MODE=local` |
+| GCP project guardrail | steps aside only for a `mode=local` context |
 
 The app-facing commands stay the same. In local mode, `nagarectl deploy` builds
 for `NAGARE_TARGET_PLATFORM`, skips `gcloud auth configure-docker`, pushes to the
@@ -30,7 +30,28 @@ deploy URL becomes `https://…` (the secure context WebAuthn requires).
 - Host Docker must be able to push to `k3d-registry.localhost:5000` over HTTP.
   `nagare.local.env.example` includes Docker Desktop, Colima, and Linux notes.
 
-## Create the local target profile
+## Create the local context
+
+The context-native path is:
+
+```bash
+nagarectl context create local --mode local \
+  --registry-host k3d-registry.localhost:5000 \
+  --base-domain 127-0-0-1.sslip.io \
+  --target-platform linux/arm64 \
+  --local-object-store http://minio.nagare-system.svc.cluster.local:9000/nagare-backups \
+  --use
+```
+
+Use `linux/amd64` instead of `linux/arm64` on Intel/AMD hosts. After this,
+`direnv reload` or re-enter the shell so `.envrc` projects the selected context.
+You can also select local mode for one command:
+
+```bash
+NAGARE_CONTEXT=local just local-smoke
+```
+
+The back-compatible in-repo profile path still works:
 
 ```bash
 cp nagare.local.env.example nagare.local.env
@@ -49,7 +70,9 @@ export NAGARE_TARGET_PLATFORM=linux/amd64
 Then enter local mode:
 
 ```bash
-export NAGARE_MODE=local
+nagarectl context use local      # context path
+# or, for the legacy in-repo profile path only:
+# export NAGARE_MODE=local
 direnv allow
 ```
 
@@ -62,6 +85,9 @@ The important contract variables are:
 | `NAGARE_BASE_DOMAIN` | `127-0-0-1.sslip.io` |
 | `NAGARE_TARGET_PLATFORM` | your local node platform |
 | `NAGARE_LOCAL_OBJECT_STORE` | `http://minio.nagare-system.svc.cluster.local:9000/nagare-backups` |
+
+See [Target contexts](contexts.md) for the store layout, precedence, and
+migration from `nagare.local.env`.
 
 ## Bring up the local platform
 

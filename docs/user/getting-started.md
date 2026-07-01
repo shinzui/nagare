@@ -3,8 +3,8 @@
 > **Status:** ✅ Working
 
 This page gets your workstation ready to operate Nagare: the toolchain, the
-project-pinned dev shell, `direnv`, the GCP project-isolation guardrails, and the
-local-mode switch.
+project-pinned dev shell, `direnv`, target contexts, and the GCP
+project-isolation guardrails.
 Everything else in this guide assumes you have done this once.
 
 ---
@@ -67,11 +67,14 @@ just --list      # the available operator recipes
 
 ## Project isolation (read this once, internalize it)
 
-Nagare acts on **one** GCP project at a time, but **which** project is
-*configurable*. The target lives in a git-ignored **target profile**,
-`nagare.target.env` (copy the tracked `nagare.target.env.example` to create one,
-or let [`nagarectl init`](onboarding-bring-your-own-project.md) write it). `.envrc`
-sources that file if present, then exports the three Cloud SDK variables with the
+Nagare acts on **one** cloud project per command, but **which** project is
+*configurable*. The target is the active [context](contexts.md): a named bundle
+selected by `nagarectl --context NAME`, `NAGARE_CONTEXT=NAME`, or
+`nagarectl context use NAME`. `.envrc` resolves that context, then exports the
+Cloud SDK variables and Nagare contract variables for the shell.
+
+The old git-ignored target profile still works as a fallback. With no selected
+context, `.envrc` checks `nagare.target.env` and then exports the
 `tan-nb-exp` / `us-west1` / `us-west1-a` values as **fallback defaults**:
 
 ```bash
@@ -81,16 +84,17 @@ export CLOUDSDK_COMPUTE_REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
 export CLOUDSDK_COMPUTE_ZONE="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 ```
 
-Precedence everywhere: **a value already in your environment > `nagare.target.env`
-> the built-in default**. So any bare `gcloud …` you type inside the repo defaults
-to the configured project, region, and zone — and an operator who does nothing
-keeps the original `tan-nb-exp` behavior. This is **defense in depth, not a license
-to omit flags**:
+Selection precedence: **`--context` / `NAGARE_CONTEXT` > current context >
+in-repo profile > built-in default**. Per-field values still follow
+**environment > context/profile > default**. So any bare `gcloud …` you type
+inside the repo defaults to the active project, region, and zone — and an
+operator who does nothing keeps the original `tan-nb-exp` behavior. This is
+**defense in depth, not a license to omit flags**:
 
 - The guardrail lives in one place, `scripts/lib/target.sh`. Scripts source it and
   call `_require_target_project`, which aborts unless gcloud's active project equals
-  the configured `$TARGET_PROJECT`. It is still **fail-closed** — only the compared
-  value is now configurable.
+  the active cloud context's `$TARGET_PROJECT`. It is still **fail-closed** — only
+  the compared value is now context-driven.
 - Scripts also pass `--project="$TARGET_PROJECT"` explicitly on every call.
 
 If you ever see a script refuse to run with *"refusing to run: gcloud active
@@ -98,33 +102,31 @@ project is '…', expected '\<your target>'."*, you're outside the dev shell or 
 `gcloud` config overrides the env var. Re-enter the shell (`direnv allow` /
 `nix develop`) and retry.
 
-For local mode, copy `nagare.local.env.example` to `nagare.local.env`, set
-`NAGARE_MODE=local`, and re-enter the shell. In that mode the guardrail steps
-aside intentionally, `nagarectl` uses the local registry and loopback base
-domain, and backup Jobs use local MinIO instead of GCS. See
+For local mode, use a `mode=local` context. In that mode the guardrail steps
+aside intentionally after loopback checks, `nagarectl` uses the local registry
+and loopback base domain, and backup Jobs use local MinIO instead of GCS. See
 [Local development](local-development.md).
 
-**One target per checkout** — to point at a different GCP project, change the
-profile (or run `nagarectl init --force`), don't run two at once. The full
-configurable-isolation policy is in [`CLAUDE.md`](../../CLAUDE.md); the architectural
-decision is
-[MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md).
+To point the same checkout at another target, switch contexts with
+`nagarectl context use NAME` or select one command with `--context NAME`; no
+second checkout is needed. The full configurable-isolation policy is in
+[`CLAUDE.md`](../../CLAUDE.md); the architectural decision is
+[MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md).
 
-## Pulumi state is in-repo
+## Pulumi state is per context
 
-`.envrc` also sets:
+`.envrc` also derives a Pulumi file backend and workspace from the active
+context:
 
 ```bash
-export PULUMI_HOME="$PWD/infra/pulumi/.pulumi-home"
-export PULUMI_CONFIG_PASSPHRASE=""   # empty passphrase for now
+export PULUMI_HOME="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/home"
+export PULUMI_BACKEND_URL="file://${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state"
 ```
 
-Pulumi state, credentials, and plugins live **inside the repo** (a `file://`
-backend), not under `~/.pulumi/`, so this project can never collide with another
-Pulumi project on your machine. The secrets provider is the passphrase provider
-with an empty passphrase for now; to harden it later, run
-`pulumi stack change-secrets-provider passphrase` with a real value and update
-`.envrc`. See [Provisioning with Pulumi](provisioning-with-pulumi.md).
+Each context has its own stack and backend, so `labs` and `prod` cannot collide
+on local state. Generated `infra/pulumi/Pulumi.<context>.yaml` files are
+git-ignored projections from the context. See
+[Provisioning with Pulumi](provisioning-with-pulumi.md).
 
 ## The `justfile` is your control surface
 
@@ -143,12 +145,21 @@ just local-minio     # install local MinIO backup store
 just status          # kubectl: pods + Knative services across namespaces
 ```
 
+Recipes honor the active context. For a one-off target selection:
+
+```bash
+NAGARE_CONTEXT=labs just smoke
+```
+
 The full recipe list with what each does is in the [Reference](reference.md).
 
 ## Where to go next
 
 You're set up. Stand up the cloud perimeter:
 **[Provisioning with Pulumi →](provisioning-with-pulumi.md)**
+
+Running more than one target? Define and switch them in
+**[Target contexts →](contexts.md)**.
 
 ### Running nagare locally
 

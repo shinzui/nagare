@@ -98,7 +98,7 @@ deploy time (`nagarectl` computes a UTC timestamp tag, or you pass `--tag`).
 
 You now supply only the app's **image name**, not the full registry path. Write
 `mkImageRef "notes"` (or pass the bare name as `webService`'s second argument). At
-deploy time `nagarectl` derives the registry prefix from your target profile —
+deploy time `nagarectl` derives the registry prefix from your active context —
 `<NAGARE_REGISTRY_HOST>/<CLOUDSDK_CORE_PROJECT>/<NAGARE_ARTIFACT_REGISTRY_ID>` — and
 prefixes the bare name, so the pushed/pulled image is e.g.
 `us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes` for the default-example target. A
@@ -109,12 +109,12 @@ untouched.
 ```haskell
 -- before (project + region baked into application source):
 mkImageRef "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
--- after (just the name; the prefix comes from the target profile at deploy time):
+-- after (just the name; the prefix comes from the active context at deploy time):
 mkImageRef "notes"
 ```
 
-See [MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md)
-Integration Point 4 (the registry-host derivation) and EP-62 for the mechanism.
+See [MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md)
+Integration Point 3 (the active context export) and EP-62 for the mechanism.
 
 ### `Port`
 

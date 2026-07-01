@@ -135,12 +135,12 @@ slow-starting worker is not killed before its first successful check.
 
 ```text
 nagarectl worker deploy [-f|--file FILE] [-t|--tag TAG]
-                        [-c|--context DIR] [--dockerfile FILE]
+                        [-c|--build-context DIR] [--dockerfile FILE]
                         [--ghc-env FILE] [--dry-run]
 ```
 
 It loads `nagare/Config.hs` as a `Worker`, qualifies the image against your
-target profile, builds and pushes the image (unless it is a prebuilt image,
+active context, builds and pushes the image (unless it is a prebuilt image,
 reusing the same build path as `nagarectl deploy`), applies the PVCs (if any) and
 then the `apps/v1` Deployment, and waits for the rollout
 (`kubectl rollout status deployment/<name>`). A worker has no URL, so none is

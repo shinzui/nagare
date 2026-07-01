@@ -15,9 +15,9 @@ the Artifact Registry, the GCS buckets, and finally the VM. The program lives in
 > New to nagare? Start at
 > [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md); this
 > page is the provisioning detail it links. The stack config below is a **derived
-> projection of the target profile** — `nagarectl init` writes it from
-> `nagare.target.env`, so you normally don't hand-edit `Pulumi.dev.yaml` for a new
-> project.
+> projection of the active context** — `nagarectl init NAME` and
+> `nagarectl context use NAME` write `Pulumi.<context>.yaml`, so you normally
+> don't hand-edit Pulumi stack config for a new project.
 
 ---
 
@@ -48,11 +48,16 @@ existing bindings on the target project (which may be a shared project).
 
 ## Configuration
 
-Config is in `infra/pulumi/Pulumi.dev.yaml` (stack `dev`). The keys:
+Each target context maps to a Pulumi stack with the same name. Config is the
+git-ignored projection `infra/pulumi/Pulumi.<context>.yaml`, and state lives in
+that context's file backend under
+`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`. The keys:
+See [Target contexts](contexts.md) for context selection and migration from old
+profile files.
 
 | Key | Required? | Default | Notes |
 | --- | --- | --- | --- |
-| `gcp:project` | yes | `tan-nb-exp` | Your target project (the default example is `tan-nb-exp`). Seeded from the target profile by `nagarectl init`. |
+| `gcp:project` | yes | `tan-nb-exp` | Your target project (the default example is `tan-nb-exp`). Seeded from the context by `nagarectl init NAME` / `context use`. |
 | `gcp:region` | yes | `us-west1` | |
 | `gcp:zone` | yes | `us-west1-a` | |
 | `nagare:imageBucket` | yes | `tan-nb-exp-nagare-images` | Image-staging bucket. |
@@ -68,7 +73,7 @@ Set a value with, e.g.:
 
 ```bash
 cd infra/pulumi
-pulumi config set nagare:baseDomain apps.yourdomain.com
+pulumi config set nagare:baseDomain apps.yourdomain.com --stack "$(nagarectl context current)"
 ```
 
 > **`baseDomain` is a real decision.** The default `apps.example.com` is a

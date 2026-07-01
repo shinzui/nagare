@@ -152,7 +152,9 @@ insecure.
 127.0.0.1 k3d-registry.localhost
 ```
 
-See `nagare.local.env.example` and [Local development](local-development.md).
+See [Local development](local-development.md) and
+[`nagare.local.env.example`](../../nagare.local.env.example) for the same schema
+used by a local context.
 
 ---
 
@@ -169,8 +171,11 @@ target MinIO instead of GCS. The value must have the form
 **Fix.**
 
 ```bash
-cp nagare.local.env.example nagare.local.env
-export NAGARE_MODE=local
+nagarectl context create local --mode local \
+  --registry-host k3d-registry.localhost:5000 \
+  --base-domain 127-0-0-1.sslip.io \
+  --local-object-store http://minio.nagare-system.svc.cluster.local:9000/nagare-backups \
+  --use
 direnv allow
 just local-minio
 ```

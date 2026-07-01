@@ -4,9 +4,10 @@ This is the **operator** documentation for Nagare (流れ, "flow") — the perso
 who *runs* the platform. It covers both supported operating targets:
 
 - **Cloud mode:** one GCP Compute Engine VM running NixOS/k3s, configured by
-  `nagare.target.env`.
+  the active target context (or, for back compatibility, `nagare.target.env`).
 - **Local mode:** a k3d cluster, local registry, loopback app domain, and MinIO
-  object store, configured by `nagare.local.env` and `NAGARE_MODE=local`.
+  object store, configured by a `mode=local` context (or, for back
+  compatibility, `nagare.local.env`).
 
 > If you are instead a **developer deploying an app onto** an already-running
 > Nagare, the page you want is [Deploying apps](deploying-apps.md). Everything
@@ -51,6 +52,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
 | Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
 | Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `just local-smoke` |
+| Target contexts | MP-17 (EP-87–92) | ✅ Working — named cloud/local contexts, `--context`, `NAGARE_CONTEXT`, per-context Pulumi state, and context-rendered bootstrap paths |
 | Backups, secrets, disaster recovery | EP-7, MP-16 EP-84 | 🟡 DB/volume backup tooling works; full DR drill and some app-specific backups deferred |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -79,23 +81,26 @@ you can observe.
   a local registry, HTTP loopback domains, and MinIO backups. 🟡
 
 1. [Getting started](getting-started.md) — prerequisites, the Nix dev shell,
-   `direnv`, and the configurable target profile and fail-closed guardrail. ✅
-2. [Provisioning with Pulumi](provisioning-with-pulumi.md) — create the cloud
+   `direnv`, active target contexts, and the fail-closed guardrail. ✅
+2. [Target contexts](contexts.md) — define `prod`, `labs`, or `local` targets,
+   switch with `nagarectl context use`, and select one command with
+   `--context` / `NAGARE_CONTEXT`. ✅
+3. [Provisioning with Pulumi](provisioning-with-pulumi.md) — create the cloud
    perimeter: VPC, static IP, DNS, disks, service account, registry, buckets. 🟡
-3. [Host image and first boot](host-image-and-boot.md) — build the NixOS GCE
+4. [Host image and first boot](host-image-and-boot.md) — build the NixOS GCE
    image on a remote Linux builder, register it, and boot `nagare-01`. 🟡
-4. [Accessing the host](accessing-the-host.md) — Tailscale SSH, the IAP tunnel,
+5. [Accessing the host](accessing-the-host.md) — Tailscale SSH, the IAP tunnel,
    `scripts/iap-ssh.sh`, and getting a working `kubectl`. 🟡
-5. [Day-2 host changes](day-2-host-changes.md) — `nixos-rebuild switch` over
+6. [Day-2 host changes](day-2-host-changes.md) — `nixos-rebuild switch` over
    Tailscale and how the host config is laid out. 🟡
    - [Resizing the VM](resizing-the-vm.md) — vertical scale to a bigger machine
      type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
      persist. 🟡
-6. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
+7. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
    cert-manager, and wildcard DNS/TLS wiring. ✅
-7. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
+8. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
    Collector, and Grafana. ✅
-8. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
+9. [Deploying apps](deploying-apps.md) — `nagarectl deploy` and the typed
    `nagare/Config.hs`, with the [Config reference](config-reference.md) for the
    full field/constructor catalogue. 🟡
    - [Build modes](build-modes.md) — choose how an app's image is produced:
@@ -134,9 +139,9 @@ you can observe.
    - [Messaging brokers](messaging-brokers.md) — provision a Redpanda-backed
      Kafka-compatible broker, create topics, bind workers/apps to topics, inspect
      broker health, and understand the future Tansu provider contract. 🟡
-9. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
+10. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
-10. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
+11. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
     back up, and the "rebuild from zero" runbook. ✅
 
 Plus two references you'll return to:
@@ -151,23 +156,28 @@ Plus two references you'll return to:
 
 ## One target at a time — and it's yours to choose
 
-In cloud mode, Nagare acts on **one** GCP project at a time, but **which**
-project is configurable, not hard-coded. The target lives in a git-ignored **target
-profile**, `nagare.target.env` (schema in the tracked `nagare.target.env.example`,
-which ships `tan-nb-exp` / `us-west1` / `us-west1-a` / `apps.example.com` as the
-worked default example). `.envrc` sources it; every script's preflight and
-`nagarectl` read it; the guardrail still **fail-closes** — it refuses to run
-unless gcloud's active project equals your *configured* target.
+In cloud mode, Nagare acts on **one** GCP project per command, but **which**
+project is configurable, not hard-coded. The target is the active
+[context](contexts.md): a named bundle in
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/`, selected by
+`nagarectl --context NAME`, `NAGARE_CONTEXT=NAME`, or
+`nagarectl context use NAME`. The guardrail still **fail-closes** — cloud
+scripts refuse to run unless gcloud's active project equals the active context's
+project.
+
+The old git-ignored target profile, `nagare.target.env`, still works as a
+back-compatible fallback when no context is selected. With no context and no
+profile, the built-in defaults reproduce the original `tan-nb-exp` /
+`us-west1` / `apps.example.com` worked example.
 
 To bring your own project from scratch, start at
 **[GCP prerequisites](gcp-prerequisites.md)** and
 **[Bring-your-own-project onboarding](onboarding-bring-your-own-project.md)**. See
 [`CLAUDE.md`](../../CLAUDE.md) for the full configurable-isolation policy,
 [Getting started](getting-started.md) for how it's wired, and
-[MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md)
-for the decision.
+[MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md)
+for the context model.
 
-In local mode, copy `nagare.local.env.example` to `nagare.local.env`, set
-`NAGARE_MODE=local`, and run the local recipes. The GCP project guardrail
-intentionally steps aside only in that mode; see
-[Local development](local-development.md).
+In local mode, select a `mode=local` context and run the local recipes. The GCP
+project guardrail intentionally steps aside only for local contexts after
+checking the target is loopback; see [Local development](local-development.md).

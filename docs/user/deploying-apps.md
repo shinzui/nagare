@@ -190,7 +190,7 @@ The `build` field in `nagare/Config.hs` selects how the image is produced, and
 `nagarectl deploy` dispatches on it: **prebuilt** (deploy an existing image, no
 build), **Dockerfile** (`docker build`), or **Nixpacks** (build from source with
 no Dockerfile). `--dry-run` prints the planned action as a `Build mode:` line, and
-`--dockerfile`/`--context` override the Dockerfile build's paths. See the full
+`--dockerfile`/`--build-context` override the Dockerfile build's paths. See the full
 guide: **[Build modes](build-modes.md)**.
 
 ### Flags
@@ -200,7 +200,7 @@ guide: **[Build modes](build-modes.md)**.
 | `-f, --file FILE` | `nagare/Config.hs` | Path to the typed config file. |
 | `-t, --tag TAG` | UTC `YYYYMMDD-HHMMSS` | Image tag override. |
 | `--base-domain DOMAIN` | `$NAGARE_BASE_DOMAIN`, else `apps.example.com` | Apps base domain for the printed URL. |
-| `-c, --context DIR` | from the config | Override the build-context directory (build modes only). |
+| `-c, --build-context DIR` | from the config | Override the build-context directory (build modes only). |
 | `--dockerfile FILE` | from the config | Override the Dockerfile path (Dockerfile build only). |
 | `--ghc-env FILE` | `$NAGARE_GHC_ENVIRONMENT` | GHC package-environment file for the loader (see below). |
 | `--dry-run` | off | Render and print only; no build/push/apply. |
