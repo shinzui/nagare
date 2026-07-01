@@ -9,14 +9,14 @@ spec:
     # https://acme-staging-v02.api.letsencrypt.org/directory to avoid
     # production rate limits; staging certs are NOT browser-trusted.
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: nadeem@gmail.com
+    email: ${NAGARE_ACME_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-dns-account-key
     solvers:
       - dns01:
           cloudDNS:
             # GCP project that owns the Cloud DNS managed zone (from EP-2).
-            project: tan-nb-exp
+            project: ${CLOUDSDK_CORE_PROJECT}
             # No serviceAccountSecretRef: use the VM's ambient Application
             # Default Credentials (the attached service account holds
             # roles/dns.admin, granted by EP-2). GKE Workload Identity does

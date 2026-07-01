@@ -12,6 +12,10 @@ nagare.target.env
 # nagare.local.env.example; the real, per-operator file is never committed.
 nagare.local.env
 
+# Per-operator NixOS registry host projection (EP-91), generated from the active
+# target context by `just nixos-registry-host`.
+nixos/hosts/nagare-01/registry-host.nix
+
 # Nix build outputs
 result
 result-*

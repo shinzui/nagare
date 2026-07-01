@@ -63,12 +63,15 @@ kubectl apply -f "$bootstrap_dir/en/migrations.yaml"
 echo "==> waiting for en-migrate Job to complete"
 kubectl -n "$ns" wait --for=condition=complete job/en-migrate --timeout=180s
 
-# 4) Workloads (apply the cloud bases, then override image + local env).
-kubectl apply -f "$bootstrap_dir/shomei/service.yaml"
-kubectl apply -f "$bootstrap_dir/en/service.yaml"
-kubectl apply -f "$bootstrap_dir/nagare-access/service.yaml"
+# 4) Workloads (render the shared bases, then override local env).
+NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
+  "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/shomei/service.yaml" | kubectl apply -f -
+NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
+  "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/en/service.yaml" | kubectl apply -f -
+NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
+  "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/nagare-access/service.yaml" | kubectl apply -f -
 
-# 4a) local-registry images
+# 4a) local-registry images (idempotent reinforcement of the rendered values)
 kubectl -n "$ns" set image deployment/shomei "shomei=${registry}/shomei:${tag}"
 kubectl -n "$ns" set image deployment/en "en=${registry}/en:${tag}"
 kubectl -n "$ns" patch ksvc nagare-access --type=json \

@@ -55,7 +55,7 @@ Service name collision.
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
 nagarectl db create postgres shomei-db --namespace nagare-system
 cluster/bootstrap/shomei/build-image.sh
-kubectl apply -f cluster/bootstrap/shomei/service.yaml
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/shomei/service.yaml | kubectl apply -f -
 ```
 
 The issuer and audience in `service.yaml` must match

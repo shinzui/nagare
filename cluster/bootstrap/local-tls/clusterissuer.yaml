@@ -2,7 +2,7 @@
 #
 # The cloud path mints browser-trusted wildcard certs from Let's Encrypt via a
 # DNS-01 ACME challenge against a real Cloud DNS zone
-# (cluster/bootstrap/cert-manager/letsencrypt-dns.yaml), which EP-82's local
+# (cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl), which EP-82's local
 # bootstrap deliberately skips: Let's Encrypt cannot sign loopback names like
 # *.127-0-0-1.sslip.io. This replaces it with a self-signed local CA the
 # developer trusts on their own machine. A `ca` issuer can mint WILDCARD certs

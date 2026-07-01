@@ -2,12 +2,15 @@
 
 let
   # The Artifact Registry Docker host the cluster pulls private images from.
-  # This is the worked-example default and mirrors the target-profile variable
-  # NAGARE_REGISTRY_HOST (default us-west1-docker.pkg.dev). The NixOS flake has no
-  # access to nagare.target.env at build time, so the documented default is
-  # hard-coded here (consistent with how the rest of nixos/ treats project names);
-  # a later cross-project change can parameterize it.
-  registryHost = "us-west1-docker.pkg.dev";
+  # The pure NixOS flake cannot read the active shell context directly, so
+  # operators targeting another registry generate ./registry-host.nix from the
+  # active context. With no generated override, the worked-example default is
+  # byte-for-byte unchanged.
+  registryHostCfg =
+    if builtins.pathExists ./registry-host.nix
+    then import ./registry-host.nix
+    else { registryHost = "us-west1-docker.pkg.dev"; };
+  registryHost = registryHostCfg.registryHost;
 
   # Refresh script: mint a fresh OAuth access token for the node service account
   # from the GCE metadata server and write k3s's per-registry credential file.

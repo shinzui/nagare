@@ -21,13 +21,13 @@ kubectl -n cert-manager rollout status deploy/cert-manager-cainjector
 
 ## Files
 
-- `letsencrypt-dns.yaml` — the cluster-wide DNS-01 `ClusterIssuer`
+- `letsencrypt-dns.yaml.tmpl` — the cluster-wide DNS-01 `ClusterIssuer`
   (`letsencrypt-dns`). Uses ambient Application Default Credentials (no
   `serviceAccountSecretRef`). Apply it and confirm it becomes Ready (this only
   registers/validates the ACME account; it does not require DNS access):
 
   ```bash
-  kubectl apply -f cluster/bootstrap/cert-manager/letsencrypt-dns.yaml
+  cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl | kubectl apply -f -
   kubectl get clusterissuer letsencrypt-dns -o wide   # READY=True within a minute
   ```
 

@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: shomei
-          image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/shomei:latest
+          image: ${NAGARE_REGISTRY_PREFIX}/shomei:${NAGARE_AUTH_TAG}
           ports:
             - containerPort: 8080
           env:
