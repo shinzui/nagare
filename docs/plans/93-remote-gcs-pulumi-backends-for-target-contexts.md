@@ -99,8 +99,12 @@ be recorded here with the date and enough evidence for the next contributor to r
 - [x] M5 (2026-07-01): Documentation + MasterPlan updated. Added a "Remote GCS Pulumi state"
   section to `docs/user/contexts.md` (backend fields, bootstrap, IAM, `PULUMI_HOME`-stays-local,
   local-mode downgrade, offline-fast, and the migration/rollback commands) and a state-backend
-  subsection to `docs/user/provisioning-with-pulumi.md`. Ticked EP-93 in MasterPlan 17
-  (registry row → Complete, progress line, Outcomes, Revision Notes).
+  subsection to `docs/user/provisioning-with-pulumi.md`. Reconciled the rest of `docs/user`:
+  `reference.md` (the two new context vars, the `init`/`context create` flags, and a backend
+  note on the Pulumi-state section), `backups-and-disaster-recovery.md` (the stale "until remote
+  state lands" lines now describe the shipped GCS option), and `getting-started.md` (the
+  file-backend claim now notes the gcs alternative). All four link to the contexts.md anchor.
+  Ticked EP-93 in MasterPlan 17 (registry row → Complete, progress line, Outcomes, Revision Notes).
 
 
 ## Surprises & Discoveries

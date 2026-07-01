@@ -62,6 +62,8 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
+| `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
+| `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
 
 See [Getting started](getting-started.md), [Target contexts](contexts.md), and
 [`CLAUDE.md`](../../CLAUDE.md) for the configurable-isolation model.
@@ -87,7 +89,7 @@ the back-compatible form of a `mode=local` context.
 | `nagarectl context current` | Print the current context name. |
 | `nagarectl context use NAME` | Set the current context, select its Pulumi stack/backend, and regenerate its config projection. |
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
-| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--force`, and `--use`. |
+| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. |
 | `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
 
 `nagarectl --context NAME ...` is the global per-command target selector.
@@ -121,6 +123,13 @@ write `infra/pulumi/Pulumi.<context>.yaml` with `pulumi config set --stack
 <context>`. The generated stack config files are git-ignored; you normally do
 not hand-edit them for a new project. Each context also has its own file backend
 and `PULUMI_HOME` under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/`.
+
+A cloud context can instead store **state** in GCS by setting
+`NAGARE_PULUMI_BACKEND=gcs` (see the context-variable table above); `PULUMI_HOME`
+stays local and only `PULUMI_BACKEND_URL` points at
+`gs://<project>-nagare-pulumi-state/nagare/<context>`. Migrate between backends
+with `scripts/migrate-pulumi-backend.sh`. See
+[Target contexts › Remote GCS Pulumi state](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only).
 
 | Key | Required | Default | Notes |
 | --- | --- | --- | --- |
@@ -195,8 +204,9 @@ it. Only Traefik is disabled.
 
 `nagarectl init [NAME]` is the guided onboarding command (the one command
 permitted to drive Pulumi/gcloud). Flags: `--project`, `--region`, `--zone`,
-`--base-domain`, `--force`, `--skip-preflight`, `--skip-enable`, `--skip-seed`,
-`--dry-run`. With `NAME`, it preflights gcloud auth + the six operator IAM roles,
+`--base-domain`, `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`,
+`--pulumi-backend-member`, `--force`, `--skip-preflight`, `--skip-enable`,
+`--skip-seed`, `--dry-run`. With `NAME`, it preflights gcloud auth + the six operator IAM roles,
 writes a named context, sets it current, runs `enable-apis.sh`, and seeds that
 context's Pulumi keys. Without `NAME`, it writes the legacy `nagare.target.env`.
 See

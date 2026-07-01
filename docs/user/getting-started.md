@@ -125,7 +125,10 @@ export PULUMI_BACKEND_URL="file://${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<
 
 Each context has its own stack and backend, so `labs` and `prod` cannot collide
 on local state. Generated `infra/pulumi/Pulumi.<context>.yaml` files are
-git-ignored projections from the context. See
+git-ignored projections from the context. A cloud context can opt into a remote
+GCS state backend instead (`NAGARE_PULUMI_BACKEND=gcs`), in which case
+`PULUMI_BACKEND_URL` is a `gs://…` URL and `PULUMI_HOME` stays local — see
+[Target contexts](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only). See
 [Provisioning with Pulumi](provisioning-with-pulumi.md).
 
 ## The `justfile` is your control surface
