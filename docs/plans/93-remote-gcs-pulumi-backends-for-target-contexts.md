@@ -96,10 +96,11 @@ be recorded here with the date and enough evidence for the next contributor to r
   deleting the GCS bucket/objects. Idempotent (already-gcs is a no-op; local backend kept).
   Evidence: `bash -n` clean; `--help` works; local-mode context is refused. Forward/rollback
   require live pulumi+gcloud+GCP (manual validation).
-- [ ] M5: Update operator documentation and MasterPlan 17 notes. Document when to use
-  GCS, the bootstrap bucket naming scheme, required IAM, migration and rollback, and the
-  fact that GCS state is a follow-up to EP-90 rather than a replacement for local file
-  state.
+- [x] M5 (2026-07-01): Documentation + MasterPlan updated. Added a "Remote GCS Pulumi state"
+  section to `docs/user/contexts.md` (backend fields, bootstrap, IAM, `PULUMI_HOME`-stays-local,
+  local-mode downgrade, offline-fast, and the migration/rollback commands) and a state-backend
+  subsection to `docs/user/provisioning-with-pulumi.md`. Ticked EP-93 in MasterPlan 17
+  (registry row → Complete, progress line, Outcomes, Revision Notes).
 
 
 ## Surprises & Discoveries
@@ -242,7 +243,38 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-93 is implemented and marked Complete in MasterPlan 17. The opt-in GCS Pulumi backend
+landed as a clean extension of EP-90 rather than a fork, exactly as the validation pass
+required:
+
+- **Purpose met.** A cloud context can set `NAGARE_PULUMI_BACKEND=gcs` (with an optional
+  explicit URL) and its Pulumi state lives in `gs://<project>-nagare-pulumi-state/nagare/<context>`.
+  Local file state stays the default and the only local-mode option; a local context that asks
+  for gcs is downgraded with a warning. A second machine/operator can share a context's state,
+  and `scripts/migrate-pulumi-backend.sh` moves a context between backends with export/import.
+- **One producer, not two.** The backend choice is a single field threaded through the
+  shipped `PulumiEnv`/`pulumiEnvFor` (Haskell) and `_nagare_export_pulumi_env` (bash); no
+  parallel derivation was introduced, and `NAGARE_PULUMI_STACK` + `stack select` (never
+  `PULUMI_STACK`) remained the stack-targeting mechanism.
+- **Two design refinements over the draft** (both from validation): `PULUMI_HOME` stays local
+  for gcs (only the URL changes), and the per-shell eager `stack select` is skipped for gcs so
+  offline shells don't hit GCS on every `direnv reload`. A latent `file://`-strip bug in
+  `ensurePulumiForContext` (which would have mangled a `gs://` URL into a local path) was fixed
+  as part of threading the profile through.
+- **Verification.** `cabal test` = 355 tests pass (13 new across Target/Init and the new
+  `Nagare.Ops.PulumiBackend`). Shell transcripts confirm gcs URL derivation, local-mode
+  downgrade+warn, and unchanged default behavior. `nagarectl init --dry-run --pulumi-backend gcs`
+  prints the exact idempotent `gcloud storage` bootstrap sequence. The migration script is
+  `bash -n` clean with a working cloud-only guardrail.
+- **Gap (intentional).** The live GCS path — actually creating a bucket, running `pulumi up`
+  against it, and the end-to-end migration proof — is deferred to manual validation against a
+  real project, mirroring how EP-90 deferred its live migration proof. Nothing in this plan
+  created or mutated any real GCP resource.
+
+Lesson: validating a follow-up plan against the *shipped* dependency (not its plan text)
+before writing code paid off — the `PULUMI_STACK`-vs-`NAGARE_PULUMI_STACK` and
+`PulumiEnv`-vs-`PulumiBackend` reconciliations would otherwise have produced a divergent
+second derivation that the MasterPlan's "one producer" rule forbids.
 
 
 ## Context and Orientation
@@ -698,3 +730,13 @@ whose state it stores.
     dependency graph, decision log, revision note) is internally consistent and consistent
     with this plan; **no MasterPlan edit was required.**
   Planning only; no source or config was modified.
+
+- 2026-07-01 (implementation) — Implemented M1–M5 across four commits (all trailered
+  `ExecPlan: docs/plans/93-…` + `Intention: intention_01kwdjzg86eyhvbkvgq64hd7zs`):
+  1. `feat(pulumi): opt-in GCS backend kind for target contexts` — the schema/type/shell core.
+  2. `feat(pulumi): bootstrap GCS state bucket for gcs contexts` — `Nagare.Ops.PulumiBackend`
+     + CLI flags.
+  3. `feat(pulumi): add local<->GCS Pulumi backend migration script`.
+  4. docs + MasterPlan (this commit).
+  Progress M1–M5 are checked with evidence; Outcomes & Retrospective is filled. `cabal test`
+  = 355 pass. Live-GCP validation of the GCS path is deferred (no real resources touched).

@@ -82,6 +82,25 @@ pulumi config set nagare:baseDomain apps.yourdomain.com --stack "$(nagarectl con
 > (`service.namespace.<baseDomain>`). You must also delegate this zone from your
 > registrar to the Cloud DNS nameservers — see [Cluster bootstrap](cluster-bootstrap.md).
 
+### State backend: local (default) or GCS (opt-in)
+
+By default each context's Pulumi **state** lives in the local file backend shown
+above. A cloud context can opt into a remote **Google Cloud Storage** backend so
+the context is usable from multiple machines and recoverable after a lost laptop:
+
+```bash
+nagarectl context create prod --project acme-prod --pulumi-backend gcs --use
+# or, on an existing context, migrate with export/import:
+scripts/migrate-pulumi-backend.sh --context prod
+```
+
+This bootstraps a versioned, uniform-access `gs://<project>-nagare-pulumi-state`
+bucket (distinct from the backup bucket), points `PULUMI_BACKEND_URL` at
+`gs://<project>-nagare-pulumi-state/nagare/<context>`, and keeps `PULUMI_HOME`
+local. Local file state remains the default and the only local-mode option. See
+[Remote GCS Pulumi state](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only)
+for the bucket naming, required IAM, and migration/rollback details.
+
 ## Preview and apply
 
 From the dev shell:

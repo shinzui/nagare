@@ -64,9 +64,10 @@ added later if reuse demands it. **Standing up N NixOS *hosts*** — EP-91 param
 registry host so it follows the context, but generating a distinct NixOS host configuration per instance
 (the `nixos/hosts/nagare-01/` tree and `nixosConfigurations.nagare-01`) remains a one-host story; running
 two *cloud* VMs concurrently still implies per-host config, which this initiative does not automate.
-**Migrating Pulumi to a remote/GCS backend** — EP-90 keeps the file backend, only relocating it per
-context (the more Pulumi-idiomatic stack-per-shared-backend model is noted as a follow-on). **Changing
-*what* nagare deploys** — the DSL, the Knative shape, the database engines, and the cloud/local runtime
+**Migrating Pulumi to a remote/GCS backend in the core context initiative** — EP-90 keeps the file
+backend, only relocating it per context. Remote GCS state is tracked as follow-up EP-93 after the
+per-context local-state projection exists. **Changing *what* nagare deploys** — the DSL, the Knative
+shape, the database engines, and the cloud/local runtime
 behavior are unchanged; this initiative changes only *how the target is selected and resolved*. Test
 fixtures and golden files that pin the `tan-nb-exp` worked example are intentional and stay (they assert
 the default-reproduces-tan-nb-exp guarantee); they are not "hardcodes to fix".
@@ -118,6 +119,11 @@ the bootstrap recipes resolve the context through the shell layer). The two touc
 `onboarding-bring-your-own-project.md`, and `local-development.md`, and a documented migration from the
 two profile files to contexts. It soft-depends on all four behavioral plans and is finalized last.
 
+**EP-93** is a follow-up extension, not part of the original Wave 1-4 delivery: after EP-90 has given
+each context a local stack/config projection, EP-93 adds an opt-in GCS Pulumi backend for cloud contexts.
+It preserves EP-90's local backend as the default and local-mode backend, and uses Pulumi export/import
+for migration instead of copying state files.
+
 A central design decision shaping the boundaries (see Decision Log): **contexts are a backward-compatible
 generalization, not a rewrite.** The flat `export VAR=value` format is retained (so the existing bash
 `.envrc`/`target.sh` keep working and need no parser, and an in-repo profile is still honored), the
@@ -150,6 +156,7 @@ normalized contexts**: rejected for v1 as over-engineering (see Scope); flat bun
 | 90 | Per-context Pulumi state and config projection | docs/plans/90-per-context-pulumi-state-and-config-projection.md | EP-87 | EP-88 | Complete |
 | 91 | De-hardcode cluster manifests and NixOS registry from the active context | docs/plans/91-de-hardcode-cluster-manifests-and-nixos-registry-from-the-active-context.md | EP-87 | EP-89 | Complete |
 | 92 | Context documentation and migration from target and local profiles | docs/plans/92-context-documentation-and-migration-from-target-and-local-profiles.md | None | EP-87, EP-88, EP-89, EP-90, EP-91 | Complete |
+| 93 | Remote GCS Pulumi backends for target contexts | docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md | EP-90 | EP-88, EP-89, EP-92 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-87, EP-89).
@@ -167,6 +174,8 @@ Implementation waves (phases):
   image refs, and NixOS registry host from the active context). Disjoint files.
 - **Wave 4 — Docs + migration:** EP-92. The `contexts.md` runbook, doc reconciliation, and the migration
   path from `nagare.target.env`/`nagare.local.env` to contexts. Finalized after the behavioral plans.
+- **Follow-up — Remote Pulumi state:** EP-93. Optional GCS-backed Pulumi state for cloud contexts,
+  layered after EP-90's per-context local state and config projection.
 
 
 ## Dependency Graph
@@ -201,8 +210,14 @@ behavior. Its prose can be drafted from Wave 1 onward and is finalized after EP-
 matches what shipped. It has no hard dependency — docs can be written against the contract even before
 the consumers land — but it is sequenced last.
 
+EP-93 (remote GCS Pulumi backends) **hard-depends on EP-90** because it extends the per-context stack and
+config projection EP-90 establishes. It soft-depends on EP-88/EP-89 because its CLI flags and shell
+exports should reuse the existing context command and resolver surfaces, and on EP-92 so operator docs
+can be reconciled in one place. EP-93 is deliberately after the core context work: it is an opt-in
+remote-state extension, not a prerequisite for first-class contexts.
+
 Parallelism: after EP-87, EP-88 and EP-89 run in parallel (Wave 2); then EP-90 and EP-91 run in parallel
-(Wave 3). EP-92 begins once EP-87 exists and is finalized after Wave 3.
+(Wave 3). EP-92 begins once EP-87 exists and is finalized after Wave 3. EP-93 can begin once EP-90 lands.
 
 
 ## Integration Points
@@ -274,6 +289,8 @@ EP-88's `init` writes this projection; EP-91 does not touch Pulumi. EP-90 owns t
 backend-path, and projection scheme. (The alternative — one shared backend keyed only by stack, or keeping
 a single stack `dev` and relocating just the backend — was rejected: stack-per-context plus a per-context
 backend gives both a legible `pulumi stack ls` and hard filesystem isolation. See Decision Log.)
+Follow-up EP-93 extends this integration point with an optional `NAGARE_PULUMI_BACKEND=gcs` mode for
+cloud contexts; it does not change EP-90's local default.
 
 **6. The manifest templating seam (defined by EP-91; relates to EP-89).** EP-91 enumerates and removes
 every hardcode still *applied to a real target*: `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml`
@@ -302,6 +319,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-90: each context owns its Pulumi state (per-context file backend, stack `<context>`); the tracked `Pulumi.dev.yaml` pinned to `tan-nb-exp` is replaced by a per-context projection regenerated by `nagarectl init`/`context use`.
 - [x] EP-91: the DNS-01 issuer project, the auth-plane + `nagared` Service image refs, and the NixOS `registries.nix` host all render from the active context; a non-`tan-nb-exp` context renders clean (no `tan-nb-exp`/`us-west1-docker.pkg.dev` leaks); cloud and local behavior for `tan-nb-exp`/local contexts unchanged.
 - [x] EP-92: `docs/user/contexts.md` runbook written; `CLAUDE.md`/getting-started/onboarding/local-development reconciled; the `nagare.target.env`/`nagare.local.env` → context migration documented.
+- [x] EP-93: cloud contexts can opt into a GCS Pulumi backend (`NAGARE_PULUMI_BACKEND=gcs` + optional URL); local file state remains the default and the only local-mode option; `nagarectl init`/`context create` bootstrap the state bucket; migration from EP-90 local state to GCS uses `pulumi stack export` / `pulumi stack import` via `scripts/migrate-pulumi-backend.sh`. Live GCS validation is manual/deferred (no live-project changes were made).
 
 
 ## Surprises & Discoveries
@@ -449,15 +467,40 @@ plan.
   build-dir flag is resolved by renaming the latter (a clearer name anyway). Owner approved the breaking
   change (2026-06-30). EP-88 owns the rename; EP-92 updates docs/examples. Date: 2026-06-30
 
+- Decision: add EP-93 as a follow-up to support **optional GCS-backed Pulumi state** for cloud contexts
+  after EP-90's per-context local state lands.
+  Rationale: EP-90 intentionally keeps file backends to ship first-class contexts without adding remote
+  storage, IAM, or bootstrap ordering. The owner now wants remote Pulumi state support on GCP as the next
+  layer. Making it EP-93 preserves the original core scope while giving the remote-state work a concrete
+  dependency boundary and migration plan.
+  Date: 2026-07-01
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-- EP-87 through EP-92 are complete. The Haskell and bash/direnv sides now agree on the context
+- EP-87 through EP-93 are complete. The Haskell and bash/direnv sides now agree on the context
   store, selection precedence, and exported target contract; `nagarectl context` manages the store;
   scripts/just recipes pick up the active context through `scripts/lib/target.sh`; Pulumi state/config
   is per-context; applied bootstrap/Nix values render from the active context; and the operator guide
-  documents creation, selection, migration, and back-compat. The core target-context initiative is
-  complete; remote Pulumi state remains a follow-up.
+  documents creation, selection, migration, and back-compat.
+- EP-93 added the optional remote GCS Pulumi backend for cloud contexts as a clean extension of
+  EP-90: `NAGARE_PULUMI_BACKEND=gcs` (+ optional URL) is one backend-aware derivation in
+  `Nagare.Target.pulumiEnvFor` and `scripts/lib/target.sh`, local file state stays the default and
+  the only local-mode option, the state bucket is bootstrapped idempotently by
+  `nagarectl init`/`context create`, and `scripts/migrate-pulumi-backend.sh` moves a context between
+  backends with `pulumi stack export`/`import`. The whole initiative's Vision — first-class,
+  selectable target contexts with per-context state and zero tracked-file edits for a second instance —
+  is delivered. Only live-GCP validation of the GCS path remains as a manual step.
+
+
+## Revision Notes
+
+- 2026-07-01: Added follow-up EP-93 for optional GCS-backed Pulumi state after EP-90. The original
+  MasterPlan scope still keeps remote state out of the core context delivery; the registry, dependency
+  graph, integration point 5, progress, and decision log now point to the follow-up plan.
+- 2026-07-01: EP-93 implemented and marked Complete. The registry row, the EP-93 progress line, and
+  Outcomes are updated. All child plans (EP-87–EP-93) are now complete; only live-GCP validation of the
+  GCS backend path remains as a manual step.
