@@ -20,7 +20,7 @@
 -- artifacts and URL without side effects.
 module Main (main) where
 
-import Control.Exception (bracket_)
+import Control.Exception (IOException, bracket_, catch)
 import Control.Monad (forM, forM_, unless, void)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
@@ -186,7 +186,9 @@ import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Target
-  ( ContextName
+  ( ActiveTarget (..)
+  , ContextName
+  , PulumiEnv (..)
   , TargetProfile (..)
   , clearCurrentContext
   , contextExists
@@ -197,9 +199,12 @@ import Nagare.Target
   , listContexts
   , mkContextName
   , profileFromContextMap
+  , pulumiEnvFor
   , readContextProfile
   , readCurrentContext
+  , nagareStateDir
   , resolveActiveContext
+  , resolveActiveTarget
   , setCurrentContext
   , storeBackendFor
   )
@@ -214,7 +219,9 @@ import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
+import System.FilePath ((</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
+import System.Process (readProcessWithExitCode)
 import "generic-lens" Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
@@ -1961,8 +1968,48 @@ main =
 activeProfile :: Maybe String -> IO TargetProfile
 activeProfile = resolveActiveContext . fmap T.pack
 
+activeTarget :: Maybe String -> IO ActiveTarget
+activeTarget = resolveActiveTarget . fmap T.pack
+
+ensurePulumiForContext :: ContextName -> IO ()
+ensurePulumiForContext name = do
+  stateRoot <- nagareStateDir
+  let penv = pulumiEnvFor stateRoot (contextNameText name)
+      stack = peStack penv
+  createDirectoryIfMissing True (peHome penv)
+  createDirectoryIfMissing True (T.unpack (T.drop (T.length ("file://" :: Text)) (peBackendUrl penv)))
+  writeFile (peHome penv </> "passphrase") ""
+  setEnv "PULUMI_HOME" (peHome penv)
+  setEnv "PULUMI_BACKEND_URL" (T.unpack (peBackendUrl penv))
+  setEnv "PULUMI_CONFIG_PASSPHRASE" ""
+  setEnv "PULUMI_CONFIG_PASSPHRASE_FILE" (peHome penv </> "passphrase")
+  setEnv "NAGARE_PULUMI_STACK" (T.unpack stack)
+  selected <- pulumiQuiet ["-C", "infra/pulumi", "stack", "select", T.unpack stack]
+  case selected of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> do
+      _ <- pulumiQuiet ["-C", "infra/pulumi", "stack", "init", T.unpack stack]
+      void (pulumiQuiet ["-C", "infra/pulumi", "stack", "select", T.unpack stack])
+
+pulumiQuiet :: [String] -> IO ExitCode
+pulumiQuiet args =
+  runIt `catch` handleMissing
+  where
+    runIt = do
+      (code, _, _) <- readProcessWithExitCode "pulumi" args ""
+      pure code
+    handleMissing :: IOException -> IO ExitCode
+    handleMissing _ = pure (ExitFailure 127)
+
+ensurePulumiForActiveContext :: Maybe String -> IO ContextName
+ensurePulumiForActiveContext mctx = do
+  active <- activeTarget mctx
+  ensurePulumiForContext (atContextName active)
+  pure (atContextName active)
+
 runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
 runServerStatus mctx o = do
+  void (ensurePulumiForActiveContext mctx)
   tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor tp) {ioSkipVm = ssSkipVm o}
   probes <- gatherInventory tp invOpts
@@ -1975,6 +2022,7 @@ runServerStatus mctx o = do
 -- always printed; only the exit code varies).
 runDoctor :: Maybe String -> DoctorOpts -> IO ()
 runDoctor mctx o = do
+  void (ensurePulumiForActiveContext mctx)
   tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor tp) {ioSkipVm = dSkipVm o}
   probes <- gatherInventory tp invOpts
@@ -2012,15 +2060,17 @@ runInit mctx o = do
 
   -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver.
   tp <- profileFromOpts project region zone baseDomain
+  contextName <- case o ^. #ioContextName of
+    Just rawName -> parseContextNameOrDie rawName
+    Nothing -> parseContextNameOrDie "default"
 
   case o ^. #ioContextName of
-    Just rawName -> do
-      name <- parseContextNameOrDie rawName
-      writeNamedContext (o ^. #ioForce) (o ^. #ioDryRun) name tp
-      unless (o ^. #ioDryRun) $ setCurrentContext name
+    Just _ -> do
+      writeNamedContext (o ^. #ioForce) (o ^. #ioDryRun) contextName tp
+      unless (o ^. #ioDryRun) $ setCurrentContext contextName
       if o ^. #ioDryRun
-        then TIO.putStrLn ("DRY RUN — would write context '" <> contextNameText name <> "' and set it current.")
-        else TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' and set it current.")
+        then TIO.putStrLn ("DRY RUN — would write context '" <> contextNameText contextName <> "' and set it current.")
+        else TIO.putStrLn ("Wrote context '" <> contextNameText contextName <> "' and set it current.")
     Nothing -> do
       -- Write the profile idempotently.
       wr <- writeTargetEnv (o ^. #ioForce) (o ^. #ioDryRun) tp
@@ -2043,7 +2093,8 @@ runInit mctx o = do
   -- Seed the Pulumi stack config (unless skipped).
   unless (o ^. #ioSkipSeed) $ do
     putStrLn "Seeding Pulumi stack config from the profile..."
-    s <- seedPulumiConfig (o ^. #ioDryRun) tp
+    unless (o ^. #ioDryRun) (ensurePulumiForContext contextName)
+    s <- seedPulumiConfig (o ^. #ioDryRun) (contextNameText contextName) tp
     case s of
       Right () -> pure ()
       Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl init --skip-preflight --skip-enable`.")
@@ -2086,7 +2137,14 @@ runContext mctx = \case
     name <- parseContextNameOrDie rawName
     ok <- contextExists name
     if ok
-      then setCurrentContext name >> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
+      then do
+        setCurrentContext name
+        ensurePulumiForContext name
+        tp <- either dieT pure =<< readContextProfile name
+        s <- seedPulumiConfig False (contextNameText name) tp
+        case s of
+          Right () -> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
+          Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
       else dieT ("no such context: " <> contextNameText name)
   ContextShow mname -> do
     tp <- case mname of
@@ -2106,6 +2164,11 @@ runContext mctx = \case
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     when (ccoUse o) $ do
       setCurrentContext name
+      ensurePulumiForContext name
+      s <- seedPulumiConfig False (contextNameText name) tp
+      case s of
+        Right () -> pure ()
+        Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextDelete rawName yes -> do
     name <- parseContextNameOrDie rawName
@@ -2182,6 +2245,7 @@ formatContextList cur rows =
 -- still prints, per-app rows empty, cert column @disabled@).
 runDomainsList :: Maybe String -> DomainsListOpts -> IO ()
 runDomainsList mctx o = do
+  void (ensurePulumiForActiveContext mctx)
   base <- resolveDomainsBase mctx (dloBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   nss <-
@@ -2198,6 +2262,7 @@ runDomainsList mctx o = do
 resolveDomainsBase :: Maybe String -> Maybe String -> IO Text
 resolveDomainsBase _ (Just b) = pure (T.pack b)
 resolveDomainsBase mctx Nothing = do
+  void (ensurePulumiForActiveContext mctx)
   mp <- stackOutput "infra/pulumi" "baseDomain"
   case mp of
     Just d | not (T.null d) -> pure d
@@ -2217,6 +2282,7 @@ runCdn mctx = \case
 -- 'Nagare.Cdn.Status.queryCdnRows'.
 runCdnList :: Maybe String -> CdnListOpts -> IO ()
 runCdnList mctx o = do
+  void (ensurePulumiForActiveContext mctx)
   base <- resolveDomainsBase mctx (cloBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   nss <-
@@ -2230,6 +2296,7 @@ runCdnList mctx o = do
 -- discovered" block when the live discovery cannot run yet.
 runCdnStatus :: Maybe String -> CdnStatusOpts -> IO ()
 runCdnStatus mctx o = do
+  void (ensurePulumiForActiveContext mctx)
   base <- resolveDomainsBase mctx (csoBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   let ns = appNamespace (csoNamespace o)
@@ -2265,6 +2332,7 @@ runCdnPurge o = do
 runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
 runCdnDisable mctx o = do
   let host = T.pack (cdoHost o)
+  void (ensurePulumiForActiveContext mctx)
   tp <- activeProfile mctx
   refs <- gatherGcpStackRefs tp
   let gArgs =
@@ -2543,6 +2611,7 @@ deployServer mctx tp sopts site0 bd = do
 cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
 cdnDeployStep _ _ Nothing _ _ _ = pure ()
 cdnDeployStep mctx dry (Just c) hostnames ns service = do
+  void (ensurePulumiForActiveContext mctx)
   originIp <- fromMaybe "<publicIp>" <$> stackOutput "infra/pulumi" "publicIp"
   tp <- activeProfile mctx
   refs <- gatherGcpStackRefs tp

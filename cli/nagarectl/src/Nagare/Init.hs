@@ -149,11 +149,11 @@ seedKeys tp =
   , ("nagare:instanceName", tpInstanceName tp)
   ]
 
--- | The argv for one @pulumi -C infra/pulumi config set KEY VALUE@. Pure so it is
--- unit-testable without Pulumi.
-pulumiConfigSetArgs :: Text -> Text -> [String]
-pulumiConfigSetArgs key value =
-  ["-C", "infra/pulumi", "config", "set", T.unpack key, T.unpack value]
+-- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.
+-- Pure so it is unit-testable without Pulumi.
+pulumiConfigSetArgs :: Text -> Text -> Text -> [String]
+pulumiConfigSetArgs stack key value =
+  ["-C", "infra/pulumi", "config", "set", "--stack", T.unpack stack, T.unpack key, T.unpack value]
 
 -- | The ordered follow-on commands printed after a successful init.
 nextStepsText :: Text
@@ -202,16 +202,16 @@ enableApis dryRun = do
 -- | @pulumi config set@ each seed key from the profile, against the infra/pulumi
 -- stack. Stops and returns the first failing key (with its exit code) so the
 -- handler can report a precise, recoverable error. @dryRun@ prints the argv.
-seedPulumiConfig :: Bool -> TargetProfile -> IO (Either (Text, ExitCode) ())
-seedPulumiConfig dryRun tp = go (seedKeys tp)
+seedPulumiConfig :: Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())
+seedPulumiConfig dryRun stack tp = go (seedKeys tp)
   where
     go [] = pure (Right ())
     go ((k, v) : rest)
       | dryRun = do
-          TIO.putStrLn ("  pulumi " <> T.pack (unwords (pulumiConfigSetArgs k v)))
+          TIO.putStrLn ("  pulumi " <> T.pack (unwords (pulumiConfigSetArgs stack k v)))
           go rest
       | otherwise = do
-          code <- run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs k v)
+          code <- run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs stack k v)
           case code of
             ExitSuccess -> go rest
             ExitFailure _ -> pure (Left (k, code))

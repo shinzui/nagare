@@ -10,12 +10,15 @@
 -- the original tan-nb-exp / us-west1 / us-west1-a setup, so existing behavior is
 -- unchanged. EP-63's @nagarectl init@ reuses this record.
 module Nagare.Target
-  ( TargetProfile (..)
+  ( ActiveTarget (..)
+  , TargetProfile (..)
   , Mode (..)
+  , PulumiEnv (..)
   , ContextName
   , mkContextName
   , contextNameText
   , nagareConfigDir
+  , nagareStateDir
   , contextsDir
   , contextFilePath
   , currentContextPath
@@ -31,7 +34,9 @@ module Nagare.Target
   , readContextMap
   , readCurrentContext
   , profileFromContextMap
+  , pulumiEnvFor
   , resolveActiveContext
+  , resolveActiveTarget
   , resolveTargetProfile
   , registryPrefix
   , minioCredentialsSecret
@@ -84,6 +89,9 @@ newtype ContextName = ContextName Text
 contextNameText :: ContextName -> Text
 contextNameText (ContextName t) = t
 
+defaultContextName :: ContextName
+defaultContextName = ContextName "default"
+
 mkContextName :: Text -> Either Text ContextName
 mkContextName raw
   | T.null raw = Left "context name must not be empty"
@@ -106,6 +114,17 @@ nagareConfigDir = do
   let base = case xdg of
         Just p | not (null p) -> p
         _ -> maybe ".config" (</> ".config") home
+  pure (base </> "nagare")
+
+-- | The nagare user-level state root: @${XDG_STATE_HOME:-$HOME/.local/state}/nagare@.
+-- EP-90 uses this for per-context Pulumi backend and home directories.
+nagareStateDir :: IO FilePath
+nagareStateDir = do
+  xdg <- lookupEnv "XDG_STATE_HOME"
+  home <- lookupEnv "HOME"
+  let base = case xdg of
+        Just p | not (null p) -> p
+        _ -> maybe ".local/state" (</> ".local" </> "state") home
   pure (base </> "nagare")
 
 contextsDir :: IO FilePath
@@ -212,6 +231,32 @@ data TargetProfile = TargetProfile
   }
   deriving stock (Eq, Show)
 
+-- | The active context identity plus its resolved target bundle. The synthetic
+-- context name @"default"@ represents the legacy in-repo/default profile path.
+data ActiveTarget = ActiveTarget
+  { atContextName :: !ContextName
+  , atProfile :: !TargetProfile
+  }
+  deriving stock (Eq, Show)
+
+-- | The Pulumi process environment derived for a context (EP-90). The stack name
+-- is the context name.
+data PulumiEnv = PulumiEnv
+  { peHome :: !FilePath
+  , peBackendUrl :: !Text
+  , peStack :: !Text
+  }
+  deriving stock (Eq, Show)
+
+pulumiEnvFor :: FilePath -> Text -> PulumiEnv
+pulumiEnvFor stateRoot ctx =
+  let root = stateRoot </> T.unpack ctx
+   in PulumiEnv
+        { peHome = root </> "home"
+        , peBackendUrl = "file://" <> T.pack (root </> "state")
+        , peStack = ctx
+        }
+
 -- | The Artifact Registry image-name prefix: @"\<host>/\<project>/\<repo-id>"@. An
 -- app's short image name is appended to this to form a full image ref (EP-62 M3,
 -- MasterPlan 12 Integration Point 4).
@@ -262,10 +307,16 @@ readCurrentContext = do
       t <- T.strip <$> TIO.readFile path
       pure (either (const Nothing) Just (mkContextName t))
 
+data ContextSelection
+  = NoContextSelection
+  | NamedContext ContextName
+  | SyntheticDefaultContext
+
 -- | Resolve the explicitly-selected context name, if any. The caller's argument
--- wins over NAGARE_CONTEXT. Both are validated before file lookup.
-selectContextName :: Maybe Text -> IO (Either Text (Maybe ContextName))
-selectContextName arg = do
+-- wins over NAGARE_CONTEXT. The literal @"default"@ means the synthetic
+-- back-compat context, matching scripts/lib/target.sh.
+selectContextSelection :: Maybe Text -> IO (Either Text ContextSelection)
+selectContextSelection arg = do
   envName <- lookupEnv "NAGARE_CONTEXT"
   let raw = case arg of
         Just a | not (T.null a) -> Just a
@@ -273,29 +324,31 @@ selectContextName arg = do
           Just e | not (null e) -> Just (T.pack e)
           _ -> Nothing
   pure $ case raw of
-    Nothing -> Right Nothing
-    Just r -> Just <$> mkContextName r
+    Nothing -> Right NoContextSelection
+    Just "default" -> Right SyntheticDefaultContext
+    Just r -> NamedContext <$> mkContextName r
 
--- | The active context's variable map. Precedence: explicit/NAGARE_CONTEXT named
--- context > current-context pointer > in-repo profile > empty map. A named
--- context whose file is missing is an error.
-loadActiveContextMap :: Maybe Text -> IO (Either Text (Map String Text))
+-- | The active context's name and variable map. Precedence:
+-- explicit/NAGARE_CONTEXT named context > current-context pointer > in-repo
+-- profile > empty map. A named context whose file is missing is an error.
+loadActiveContextMap :: Maybe Text -> IO (Either Text (ContextName, Map String Text))
 loadActiveContextMap arg = do
-  sel <- selectContextName arg
+  sel <- selectContextSelection arg
   case sel of
     Left err -> pure (Left ("invalid context name: " <> err))
-    Right (Just name) -> requireNamed name
-    Right Nothing -> do
+    Right (NamedContext name) -> requireNamed name
+    Right SyntheticDefaultContext -> Right . (\ctx -> (defaultContextName, ctx)) <$> inRepoMap
+    Right NoContextSelection -> do
       ptr <- readCurrentContext
       case ptr of
         Just name -> requireNamed name
-        Nothing -> Right <$> inRepoMap
+        Nothing -> Right . (\ctx -> (defaultContextName, ctx)) <$> inRepoMap
   where
     requireNamed name = do
       path <- contextFilePath name
       m <- readContextMap path
       pure $ case m of
-        Just kv -> Right kv
+        Just kv -> Right (name, kv)
         Nothing ->
           Left ("context \"" <> contextNameText name <> "\" not found (expected " <> T.pack path <> ")")
 
@@ -409,16 +462,21 @@ resolveProfileFrom ctx = do
       , tpLocalObjectStore = localObjectStore
       }
 
--- | Resolve the active context into a fully-derived 'TargetProfile'. The
--- argument is an explicit context name (later fed by the --context flag);
--- 'Nothing' means NAGARE_CONTEXT, then current-context, then in-repo profile,
--- then defaults. Named-but-missing contexts throw to fail closed.
-resolveActiveContext :: Maybe Text -> IO TargetProfile
-resolveActiveContext arg = do
+-- | Resolve the active context into a context name plus fully-derived
+-- 'TargetProfile'. The argument is an explicit context name (fed by the
+-- --context flag); 'Nothing' means NAGARE_CONTEXT, then current-context, then
+-- in-repo profile, then defaults. Named-but-missing contexts throw to fail
+-- closed.
+resolveActiveTarget :: Maybe Text -> IO ActiveTarget
+resolveActiveTarget arg = do
   e <- loadActiveContextMap arg
   case e of
     Left err -> ioError (userError (T.unpack err))
-    Right ctx -> resolveProfileFrom ctx
+    Right (name, ctx) -> ActiveTarget name <$> resolveProfileFrom ctx
+
+-- | Back-compat entry point for consumers that only need the target bundle.
+resolveActiveContext :: Maybe Text -> IO TargetProfile
+resolveActiveContext arg = atProfile <$> resolveActiveTarget arg
 
 -- | Back-compat entry point: resolve with no explicit context selection.
 resolveTargetProfile :: IO TargetProfile

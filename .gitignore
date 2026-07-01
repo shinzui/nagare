@@ -27,6 +27,7 @@ dist-newstyle/
 infra/pulumi/.pulumi-home/
 infra/pulumi/.pulumi-state/
 infra/pulumi/node_modules/
+infra/pulumi/Pulumi.*.yaml
 
 # Never commit age private keys (EP-7)
 keys.txt

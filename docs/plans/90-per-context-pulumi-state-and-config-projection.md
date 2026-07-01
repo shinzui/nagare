@@ -92,27 +92,27 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M0: Prototype — confirm the installed `pulumi` (v3.239.0) honours `PULUMI_BACKEND_URL`
+- [x] M0: Prototype — confirm the installed `pulumi` (v3.239.0) honours `PULUMI_BACKEND_URL`
   for backend selection, that `pulumi stack init <name>` / `stack select <name>` create and
   select a stack named after the context (writing `Pulumi.<name>.yaml` in the project dir),
   and that the selected stack persists in the per-context `PULUMI_HOME` workspace; record the
   transcript.
-- [ ] M1: Per-context Pulumi **state + stack** — `.envrc` and `scripts/lib/target.sh` derive
+- [x] M1: Per-context Pulumi **state + stack** — `.envrc` and `scripts/lib/target.sh` derive
   `PULUMI_HOME` and `PULUMI_BACKEND_URL` from the active context name (`NAGARE_CONTEXT`) under
   `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/{state,home}`, and select the stack
   `<context>` (creating it if absent); two contexts produce two isolated state trees and two
   stacks.
-- [ ] M2: Per-context **config projection** — the tracked `infra/pulumi/Pulumi.dev.yaml`
+- [x] M2: Per-context **config projection** — the tracked `infra/pulumi/Pulumi.dev.yaml`
   removed; `infra/pulumi/Pulumi.*.yaml` git-ignored; `seedPulumiConfig` (in
   `cli/nagarectl/src/Nagare/Init.hs`) writes `Pulumi.<context>.yaml` for the active stack;
   `nagarectl init` / `nagarectl context use` (EP-88) regenerate it; `nagareImageSelfLink`
   persists per context.
-- [ ] M3: Caller wiring — every `pulumi` invocation (the justfile `infra-up` /
+- [x] M3: Caller wiring — every `pulumi` invocation (the justfile `infra-up` /
   `cluster-bootstrap`, `scripts/upload-images.sh`, `scripts/live-smoke.sh`,
   `cli/nagarectl/src/Nagare/Ops/Pulumi.hs` `stackOutput`, and `nagarectl --context <name>`)
   selects the active context's backend + stack; verified by two `stack ls` rows and no tracked
   `tan-nb-exp`.
-- [ ] M4: Migration & recovery — the existing in-repo `infra/pulumi/.pulumi-state` and
+- [x] M4: Migration & recovery — the existing in-repo `infra/pulumi/.pulumi-state` and
   `Pulumi.dev.yaml` are relocated into the synthetic `default` context's tree and its stack
   renamed to `default`; documented recovery for a lost stack.
 
@@ -133,8 +133,16 @@ implementation. Provide concise evidence.
   `context use`) means later bare `pulumi -C infra/pulumi stack output …` calls in that
   context resolve to the right stack without repeating `--stack`. Record whether this holds, or
   whether callers must pass `--stack "$NAGARE_PULUMI_STACK"` explicitly.
-
-(Otherwise none yet.)
+- (M0, confirmed) The installed Pulumi v3.239.0 honors `PULUMI_BACKEND_URL=file://<dir>` and writes
+  stack config as `Pulumi.<stack>.yaml`; a stack selected in one process is remembered by the same
+  `PULUMI_HOME` in a later process. Transcript:
+  `stack init labs` created `Pulumi.labs.yaml`; `stack init tan-nb-exp` created
+  `Pulumi.tan-nb-exp.yaml`; `stack --show-name` under the first home printed `labs`; separate
+  `state/.pulumi` directories were created for the two homes.
+- (M3) `pulumi stack init` from Haskell did not accept an empty
+  `PULUMI_CONFIG_PASSPHRASE` reliably, even though the same empty export works from the shell. Using
+  a zero-byte `PULUMI_CONFIG_PASSPHRASE_FILE` under the per-context Pulumi home keeps the same empty
+  passphrase semantics and makes non-interactive stack initialization deterministic.
 
 
 ## Decision Log
@@ -194,13 +202,45 @@ Record every decision made while working on the plan.
   cross-plan naming split. `Nagare.Target.pulumiEnvFor` keys off the resolved `NAGARE_CONTEXT`.
   Date: 2026-06-30
 
+- Decision: **Use a zero-byte passphrase file for non-interactive CLI stack initialization**, while
+  preserving the existing empty-passphrase provider contract. `scripts/lib/target.sh` and
+  `nagarectl` create `${PULUMI_HOME}/passphrase` and export `PULUMI_CONFIG_PASSPHRASE_FILE` to it;
+  `.envrc` still exports `PULUMI_CONFIG_PASSPHRASE=""` for the shell path.
+  Rationale: Pulumi v3.239.0 accepted an empty passphrase env var from the shell, but the
+  Haskell-launched `stack init` reported it as unset. The zero-byte file is explicit, works in both
+  paths, and does not introduce a real secret.
+  Date: 2026-07-01
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-90 is implemented. Pulumi state/home/backend now derive from the active context under
+`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>`, and the selected Pulumi stack name is the
+context name. The tracked `infra/pulumi/Pulumi.dev.yaml` has been removed from git; generated
+`infra/pulumi/Pulumi.*.yaml` stack projections are ignored; `nagarectl init`, `context use`, and
+`context create --use` seed the active context's stack config.
+
+Validation completed:
+
+- `pulumi version` / scratch prototype confirmed `PULUMI_BACKEND_URL`, stack config filenames, and
+  selected-stack persistence per `PULUMI_HOME`.
+- `bash -n scripts/lib/target.sh` and `bash -n .envrc` passed.
+- `cabal build -v0 exe:nagarectl` passed; only pre-existing `flag` / `header` shadow warnings remain.
+- `cabal test -v0` passed: 342 tests.
+- Disposable context transcript with temp `XDG_CONFIG_HOME` and `XDG_STATE_HOME` created
+  `ep90-pass-62339`, selected stack `ep90-pass-62339`, exported
+  `PULUMI_BACKEND_URL=file://…/nagare/ep90-pass-62339/state`, and
+  `pulumi -C infra/pulumi config get gcp:project --stack ep90-pass-62339` returned `ep90-proj`.
+  The generated `Pulumi.ep90-pass-62339.yaml` contained the projected `gcp:*` and `nagare:*` keys.
+- `git ls-files infra/pulumi` lists `Pulumi.yaml` but no `Pulumi.*.yaml` stack config; tracked
+  `infra/pulumi` no longer contains `tan-nb-exp`.
+
+Not run: the live `pulumi preview` migration proof against the existing cloud stack, because that
+requires choosing the operator's real migration context and live GCP state. The copy-not-move recovery
+procedure remains in M4 for the operator migration/docs pass.
 
 
 ## Context and Orientation
@@ -728,17 +768,17 @@ Acceptance is **behavioral**, not "code compiles":
 
 **Haskell interfaces (in `cli/nagarectl/src/Nagare/Target.hs` and `…/Nagare/Init.hs`).**
 
-- `Nagare.Target.pulumiEnvFor :: Text -> PulumiEnv` — **new, pure.** Maps a context name to a small
-  record `PulumiEnv { peHome :: FilePath, peBackendUrl :: Text, peStack :: Text }` using the scheme
-  above, where `peStack` equals the context name. Unit-tested in `cli/nagarectl/test/Spec.hs`. This
-  is the Pulumi-state-location + stack-name that EP-87's context model carries (Integration Point 5):
-  EP-87 stores the context name and exposes it on `TargetProfile`; this plan owns the derivation.
+- `Nagare.Target.pulumiEnvFor :: FilePath -> Text -> PulumiEnv` — **new, pure.** Maps a resolved
+  nagare state root plus context name to `PulumiEnv { peHome :: FilePath, peBackendUrl :: Text,
+  peStack :: Text }` using the scheme above, where `peStack` equals the context name. Unit-tested in
+  `cli/nagarectl/test/Spec.hs`. `nagareStateDir :: IO FilePath` owns the XDG lookup; keeping the
+  pure function root-explicit avoids hidden environment reads in the unit-tested derivation.
 - `cli/nagarectl/app/Main.hs` — apply `pulumiEnvFor` to the resolved active context early: `setEnv`
   `PULUMI_HOME`/`PULUMI_BACKEND_URL`, then `pulumi -C infra/pulumi stack select <peStack>` (init if
   absent), so `seedPulumiConfig` and every `Nagare.Ops.Pulumi.stackOutput` shell out in the correct
   per-context backend + stack. Required for `nagarectl --context <name> …` where the resolved context
   differs from the ambient shell.
-- `cli/nagarectl/src/Nagare/Init.hs` — `seedPulumiConfig :: Bool -> TargetProfile -> IO (Either (Text, ExitCode) ())`
+- `cli/nagarectl/src/Nagare/Init.hs` — `seedPulumiConfig :: Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())`
   is **kept** (same eight `seedKeys`), now writing `Pulumi.<ctx>.yaml` for the active stack — either
   because the environment selects the stack, or by threading `--stack <ctx>` into
   `pulumiConfigSetArgs :: Text -> Text -> Text -> [String]` (adding a context parameter). It remains

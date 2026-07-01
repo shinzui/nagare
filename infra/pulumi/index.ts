@@ -6,9 +6,9 @@ import { buildSshCommand } from "./src/outputs";
 const cfg = new pulumi.Config();
 const gcpCfg = new pulumi.Config("gcp");
 
-const gcpProject = gcpCfg.require("project");   // "tan-nb-exp"
-const region = gcpCfg.require("region");        // "us-west1"
-const zone = gcpCfg.require("zone");            // "us-west1-a"
+const gcpProject = gcpCfg.require("project");
+const region = gcpCfg.require("region");
+const zone = gcpCfg.require("zone");
 
 // Project-specific config with defaults so a fresh checkout previews
 // without extra setup. Local variable names are suffixed `Cfg` so they
@@ -21,7 +21,7 @@ const dataDiskSizeGbCfg = cfg.getNumber("dataDiskSizeGb") ?? 100;
 const baseDomainCfg = cfg.get("baseDomain") ?? "apps.example.com";
 const artifactRegistryIdCfg = cfg.get("artifactRegistryId") ?? "nagare";
 const backupBucketNameCfg = cfg.get("backupBucket") ?? `${gcpProject}-nagare-backups`;
-const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.dev.yaml
+const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.<context>.yaml
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.

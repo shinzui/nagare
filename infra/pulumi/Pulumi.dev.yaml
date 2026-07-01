@@ -1,8 +1,0 @@
-encryptionsalt: v1:lZdyzLa0QaQ=:v1:BlCRz+tX+iTBc9FC:yTuViqunFExom4euMWPn/bVOlg20MA==
-config:
-  gcp:project: tan-nb-exp
-  gcp:region: us-west1
-  gcp:zone: us-west1-a
-  nagare:baseDomain: apps.example.com
-  nagare:imageBucket: tan-nb-exp-nagare-images
-  nagare:nagareImageSelfLink: https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/nagare-image-gnq7zw6pwd1a

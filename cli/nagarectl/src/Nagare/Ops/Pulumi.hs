@@ -1,11 +1,11 @@
 -- | Read authoritative platform values from the Pulumi stack (Integration Point
 -- IP2 of MasterPlan 8).
 --
--- Pulumi state is file-backed in-repo (see @CLAUDE.md@:
--- @login file://./infra/pulumi/.pulumi-state@ with the passphrase provider;
--- @.envrc@ sets @PULUMI_HOME@/@PULUMI_CONFIG_PASSPHRASE@). The stack outputs this
--- initiative reads — defined in @infra/pulumi/index.ts@ — are @publicIp@,
--- @baseDomain@, @backupBucket@, and @artifactRegistry@.
+-- Pulumi state is selected per active target context (EP-90): @.envrc@ and
+-- @nagarectl --context@ set @PULUMI_HOME@, @PULUMI_BACKEND_URL@, and the selected
+-- stack before this helper runs. The stack outputs this initiative reads —
+-- defined in @infra/pulumi/index.ts@ — are @publicIp@, @baseDomain@,
+-- @backupBucket@, and @artifactRegistry@.
 --
 -- @nagarectl domains list@ (@docs/plans/40-...@) reuses 'stackOutput' to resolve
 -- the base domain rather than re-implementing a Pulumi reader. The existing
