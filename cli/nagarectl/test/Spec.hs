@@ -219,17 +219,21 @@ import Nagare.Target
   ( ActiveTarget (..)
   , ContextName
   , Mode (..)
+  , PulumiBackendKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , clearCurrentContext
   , contextExists
   , contextFilePath
   , contextNameText
+  , defaultGcsPulumiBackendUrl
   , deleteContext
+  , effectivePulumiBackend
   , listContexts
   , mkContextName
   , parseContextEnv
   , parseMode
+  , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
   , readContextProfile
@@ -335,6 +339,8 @@ initProfile =
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
     , tpLocalObjectStore = ""
+    , tpPulumiBackend = PulumiBackendLocal
+    , tpPulumiBackendUrl = ""
     }
 
 initTests :: TestTree
@@ -378,13 +384,62 @@ initTests =
     , testCase "pulumiConfigSetArgs targets the active context stack" $
         pulumiConfigSetArgs "labs" "gcp:project" "acme-prod"
           @?= ["-C", "infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
-    , testCase "pulumiEnvFor derives per-context backend, home, and stack" $
-        pulumiEnvFor "/tmp/nagare-state" "labs"
+    , testCase "pulumiEnvFor derives a per-context LOCAL backend, home, and stack" $
+        pulumiEnvFor "/tmp/nagare-state" "labs" initProfile
           @?= PulumiEnv
             { peHome = "/tmp/nagare-state/labs/home"
             , peBackendUrl = "file:///tmp/nagare-state/labs/state"
             , peStack = "labs"
+            , peKind = PulumiBackendLocal
             }
+    , testCase "renderTargetEnv emits the Pulumi backend fields (default local, EP-93)" $ do
+        let out = renderTargetEnv initProfile
+        assertBool "backend kind (default local)" (T.isInfixOf "export NAGARE_PULUMI_BACKEND=local" out)
+        assertBool "backend url (empty by default)" (T.isInfixOf "export NAGARE_PULUMI_BACKEND_URL=" out)
+    , testCase "parsePulumiBackendKind: only 'gcs' selects GCS; unset/typo is local" $ do
+        parsePulumiBackendKind (Just "gcs") @?= PulumiBackendGcs
+        parsePulumiBackendKind (Just "GCS") @?= PulumiBackendGcs
+        parsePulumiBackendKind (Just "local") @?= PulumiBackendLocal
+        parsePulumiBackendKind (Just "gcss") @?= PulumiBackendLocal
+        parsePulumiBackendKind Nothing @?= PulumiBackendLocal
+    , testCase "defaultGcsPulumiBackendUrl uses the state bucket + context path" $
+        defaultGcsPulumiBackendUrl "labs" initProfile
+          @?= "gs://acme-prod-nagare-pulumi-state/nagare/labs"
+    , testCase "pulumiEnvFor derives a GCS backend URL when kind=gcs and no explicit URL" $
+        pulumiEnvFor "/tmp/nagare-state" "labs" initProfile {tpPulumiBackend = PulumiBackendGcs}
+          @?= PulumiEnv
+            { peHome = "/tmp/nagare-state/labs/home"
+            , peBackendUrl = "gs://acme-prod-nagare-pulumi-state/nagare/labs"
+            , peStack = "labs"
+            , peKind = PulumiBackendGcs
+            }
+    , testCase "pulumiEnvFor honors an explicit GCS backend URL" $
+        peBackendUrl
+          ( pulumiEnvFor
+              "/tmp/nagare-state"
+              "labs"
+              initProfile {tpPulumiBackend = PulumiBackendGcs, tpPulumiBackendUrl = "gs://custom-bucket/state/labs"}
+          )
+          @?= "gs://custom-bucket/state/labs"
+    , testCase "a local-mode context can never use GCS (downgraded to local)" $ do
+        let localGcs = initProfile {tpMode = Local, tpPulumiBackend = PulumiBackendGcs}
+        effectivePulumiBackend localGcs @?= PulumiBackendLocal
+        peKind (pulumiEnvFor "/tmp/nagare-state" "labs" localGcs) @?= PulumiBackendLocal
+        assertBool
+          "local-mode gcs falls back to a file:// backend"
+          (T.isPrefixOf "file://" (peBackendUrl (pulumiEnvFor "/tmp/nagare-state" "labs" localGcs)))
+    , testCase "profileFromContextMap parses NAGARE_PULUMI_BACKEND + URL (EP-93)" $ do
+        let ctx =
+              parseContextEnv $
+                T.unlines
+                  [ "export CLOUDSDK_CORE_PROJECT=acme-prod"
+                  , "export NAGARE_MODE=cloud"
+                  , "export NAGARE_PULUMI_BACKEND=gcs"
+                  , "export NAGARE_PULUMI_BACKEND_URL=gs://acme-prod-nagare-pulumi-state/nagare/prod"
+                  ]
+            tp = profileFromContextMap ctx
+        tpPulumiBackend tp @?= PulumiBackendGcs
+        tpPulumiBackendUrl tp @?= "gs://acme-prod-nagare-pulumi-state/nagare/prod"
     , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
         assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
     , testCase "nextStepsText names the ordered just targets" $ do
@@ -458,6 +513,8 @@ tnbProfile =
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
     , tpLocalObjectStore = ""
+    , tpPulumiBackend = PulumiBackendLocal
+    , tpPulumiBackendUrl = ""
     }
 
 targetProfileTests :: TestTree

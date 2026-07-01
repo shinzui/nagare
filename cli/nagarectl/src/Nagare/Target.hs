@@ -14,6 +14,7 @@ module Nagare.Target
   , TargetProfile (..)
   , Mode (..)
   , PulumiEnv (..)
+  , PulumiBackendKind (..)
   , ContextName
   , mkContextName
   , contextNameText
@@ -35,6 +36,10 @@ module Nagare.Target
   , readCurrentContext
   , profileFromContextMap
   , pulumiEnvFor
+  , parsePulumiBackendKind
+  , pulumiBackendToken
+  , defaultGcsPulumiBackendUrl
+  , effectivePulumiBackend
   , resolveActiveContext
   , resolveActiveTarget
   , resolveTargetProfile
@@ -77,6 +82,29 @@ parseMode :: Maybe String -> Mode
 parseMode m = case fmap (map toLower) m of
   Just "local" -> Local
   _ -> Cloud
+
+-- | Which backend Pulumi stores stack state in for a context (EP-93). 'PulumiBackendLocal'
+-- is EP-90's per-context @file://@ backend and is the default and the only local-mode
+-- option; 'PulumiBackendGcs' is an opt-in remote Google Cloud Storage backend for
+-- @mode=cloud@ contexts. Resolved from @NAGARE_PULUMI_BACKEND@; unset is 'PulumiBackendLocal',
+-- so existing contexts keep their local file state.
+data PulumiBackendKind = PulumiBackendLocal | PulumiBackendGcs
+  deriving stock (Eq, Show)
+
+-- | Parse @NAGARE_PULUMI_BACKEND@. Only @"gcs"@ (case-insensitive) selects GCS; anything
+-- else — including 'Nothing' (unset), @"local"@, and any typo — is 'PulumiBackendLocal'.
+-- Defaulting the unknown case to local keeps the fail-safe direction: a misspelling never
+-- silently points state at a remote bucket.
+parsePulumiBackendKind :: Maybe String -> PulumiBackendKind
+parsePulumiBackendKind m = case fmap (map toLower) m of
+  Just "gcs" -> PulumiBackendGcs
+  _ -> PulumiBackendLocal
+
+-- | The @NAGARE_PULUMI_BACKEND@ token for a backend kind (the inverse of
+-- 'parsePulumiBackendKind'), used by the context-file renderer.
+pulumiBackendToken :: PulumiBackendKind -> Text
+pulumiBackendToken PulumiBackendLocal = "local"
+pulumiBackendToken PulumiBackendGcs = "gcs"
 
 -- | The name of a stored context. It is used verbatim as a filename
 -- (@<name>.env@) and as the value of the @current-context@ pointer, so it is
@@ -228,6 +256,14 @@ data TargetProfile = TargetProfile
   -- @"http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"@).
   -- Default @""@ (unset); only read in local mode, where EP-82's profile sets
   -- it. Consumed by EP-84's @StoreBackend@ in 'Nagare.Cluster.GcsJob'.
+  , tpPulumiBackend :: !PulumiBackendKind
+  -- ^ NAGARE_PULUMI_BACKEND (EP-93); 'PulumiBackendGcs' opts a cloud context into
+  -- remote GCS Pulumi state, default 'PulumiBackendLocal' (EP-90's per-context
+  -- @file://@ backend). Downgraded to local in local mode by 'effectivePulumiBackend'.
+  , tpPulumiBackendUrl :: !Text
+  -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
+  -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
+  -- 'defaultGcsPulumiBackendUrl'.
   }
   deriving stock (Eq, Show)
 
@@ -239,22 +275,54 @@ data ActiveTarget = ActiveTarget
   }
   deriving stock (Eq, Show)
 
--- | The Pulumi process environment derived for a context (EP-90). The stack name
--- is the context name.
+-- | The Pulumi process environment derived for a context (EP-90, extended by
+-- EP-93). The stack name is the context name. 'peHome' is always the per-context
+-- __local__ Pulumi home (Pulumi keeps its workspace and credentials cache there even
+-- for a remote backend); only 'peBackendUrl' changes between backends.
 data PulumiEnv = PulumiEnv
   { peHome :: !FilePath
   , peBackendUrl :: !Text
   , peStack :: !Text
+  , peKind :: !PulumiBackendKind
   }
   deriving stock (Eq, Show)
 
-pulumiEnvFor :: FilePath -> Text -> PulumiEnv
-pulumiEnvFor stateRoot ctx =
+-- | The backend a context actually uses. A @mode=local@ context can never use GCS:
+-- local mode points every primitive at loopback substitutes and the GCP guardrail
+-- steps aside, so there is no project to protect and no credentials to assume. A
+-- @gcs@ setting on a local context is therefore downgraded to 'PulumiBackendLocal'
+-- (the shell resolver and 'Nagare.Init' surface a warning when this happens).
+effectivePulumiBackend :: TargetProfile -> PulumiBackendKind
+effectivePulumiBackend tp = case tpMode tp of
+  Local -> PulumiBackendLocal
+  Cloud -> tpPulumiBackend tp
+
+-- | The default GCS Pulumi backend URL for a context when @NAGARE_PULUMI_BACKEND=gcs@
+-- is set without an explicit URL: @gs://\<project>-nagare-pulumi-state/nagare/\<context>@.
+-- The state bucket is kept distinct from the application backup bucket so IAM,
+-- lifecycle, and deletion boundaries stay clear (EP-93 Decision Log).
+defaultGcsPulumiBackendUrl :: Text -> TargetProfile -> Text
+defaultGcsPulumiBackendUrl ctx tp =
+  "gs://" <> tpProject tp <> "-nagare-pulumi-state/nagare/" <> ctx
+
+-- | Derive the Pulumi environment for a context from the nagare state root, the
+-- context name, and its profile. Local backends get EP-90's @file://\<root>/state@
+-- URL; GCS backends get the explicit 'tpPulumiBackendUrl' or, when empty, the
+-- 'defaultGcsPulumiBackendUrl'. 'peHome' is the local @\<root>/home@ in both cases.
+pulumiEnvFor :: FilePath -> Text -> TargetProfile -> PulumiEnv
+pulumiEnvFor stateRoot ctx tp =
   let root = stateRoot </> T.unpack ctx
+      kind = effectivePulumiBackend tp
+      url = case kind of
+        PulumiBackendLocal -> "file://" <> T.pack (root </> "state")
+        PulumiBackendGcs
+          | T.null (tpPulumiBackendUrl tp) -> defaultGcsPulumiBackendUrl ctx tp
+          | otherwise -> tpPulumiBackendUrl tp
    in PulumiEnv
         { peHome = root </> "home"
-        , peBackendUrl = "file://" <> T.pack (root </> "state")
+        , peBackendUrl = url
         , peStack = ctx
+        , peKind = kind
         }
 
 -- | The Artifact Registry image-name prefix: @"\<host>/\<project>/\<repo-id>"@. An
@@ -417,6 +485,8 @@ profileFromContextMap ctx =
       targetPlatform = mapOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
       mode = parseMode (mapRaw ctx "NAGARE_MODE")
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
+      pulumiBackend = parsePulumiBackendKind (mapRaw ctx "NAGARE_PULUMI_BACKEND")
+      pulumiBackendUrl = mapOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
    in TargetProfile
         { tpProject = project
         , tpRegion = region
@@ -430,6 +500,8 @@ profileFromContextMap ctx =
         , tpTargetPlatform = targetPlatform
         , tpMode = mode
         , tpLocalObjectStore = localObjectStore
+        , tpPulumiBackend = pulumiBackend
+        , tpPulumiBackendUrl = pulumiBackendUrl
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -446,6 +518,8 @@ resolveProfileFrom ctx = do
   targetPlatform <- ctxOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
   mode <- parseMode <$> ctxRaw ctx "NAGARE_MODE"
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
+  pulumiBackend <- parsePulumiBackendKind <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND"
+  pulumiBackendUrl <- ctxOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
   pure
     TargetProfile
       { tpProject = project
@@ -460,6 +534,8 @@ resolveProfileFrom ctx = do
       , tpTargetPlatform = targetPlatform
       , tpMode = mode
       , tpLocalObjectStore = localObjectStore
+      , tpPulumiBackend = pulumiBackend
+      , tpPulumiBackendUrl = pulumiBackendUrl
       }
 
 -- | Resolve the active context into a context name plus fully-derived
