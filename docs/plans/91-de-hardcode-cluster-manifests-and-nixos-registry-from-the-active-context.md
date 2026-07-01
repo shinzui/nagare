@@ -95,11 +95,11 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: The DNS-01 `ClusterIssuer` project is rendered from the active context at apply time (`just cluster-bootstrap` applies a templated `letsencrypt-dns.yaml`); rendering with a `tan-nb-exp` context reproduces today's file byte-for-byte, and rendering with a `labs` context yields `project: tan-labs`.
-- [ ] M1: Decide and record whether the ACME contact `email:` is parameterized (default preserved either way).
-- [ ] M2: The four auth-plane / `nagared` `Service` image references render from the active context's registry prefix at apply/build time; the cloud install path and the local installer (`cluster/bootstrap/local-auth/install.sh`) both produce non-`tan-nb-exp` images under a `labs` context, and `tan-nb-exp`/local render identically to today.
-- [ ] M3: `nixos/hosts/nagare-01/registries.nix` reads its `registryHost` from a context-derived source (within the single-host boundary), defaulting to `us-west1-docker.pkg.dev` when absent so the flake still evaluates and reproduces today.
-- [ ] M4 (verification): Under a `labs` context, the rendered output of M1+M2+M3 contains no `tan-nb-exp` and no `us-west1-docker.pkg.dev`; under a `tan-nb-exp` context (and in local mode) the rendered output is byte-identical to today.
+- [x] M1: The DNS-01 `ClusterIssuer` project is rendered from the active context at apply time (`just cluster-bootstrap` applies a templated `letsencrypt-dns.yaml`); rendering with a `tan-nb-exp` context reproduces today's file byte-for-byte, and rendering with a `labs` context yields `project: tan-labs`.
+- [x] M1: Decide and record whether the ACME contact `email:` is parameterized (default preserved either way).
+- [x] M2: The four auth-plane / `nagared` `Service` image references render from the active context's registry prefix at apply/build time; the cloud install path and the local installer (`cluster/bootstrap/local-auth/install.sh`) both produce non-`tan-nb-exp` images under a `labs` context, and `tan-nb-exp`/local render identically to today.
+- [x] M3: `nixos/hosts/nagare-01/registries.nix` reads its `registryHost` from a context-derived source (within the single-host boundary), defaulting to `us-west1-docker.pkg.dev` when absent so the flake still evaluates and reproduces today.
+- [x] M4 (verification): Under a `labs` context, the rendered output of M1+M2+M3 contains no `tan-nb-exp` and no `us-west1-docker.pkg.dev`; under a `tan-nb-exp` context (and in local mode) the rendered output is byte-identical to today.
 
 
 ## Surprises & Discoveries
@@ -132,6 +132,10 @@ implementation. Provide concise evidence.
   the M3 mechanism to be a *generated, git-ignored* nix file the flake imports with a
   default fallback (mirroring how `nagare.target.env` is git-ignored), rather than an
   environment read. See M3 and the Decision Log.
+- Discovery (implementation, 2026-07-01): `envsubst` was not present in the active shell, so the
+  implementation uses `cluster/bootstrap/render-context-template.sh`, a repo-local renderer that
+  performs exact `sed` substitutions for the four supported placeholders. This keeps the apply path
+  dependency-free and makes the render behavior testable on the existing toolchain.
 
 
 ## Decision Log
@@ -160,6 +164,15 @@ Record every decision made while working on the plan.
   fallback when `envsubst` is unavailable, since each literal occurs on a unique line.
   Both render byte-identically to today when the variables hold the `tan-nb-exp` defaults.
   Date: 2026-06-30
+
+- Decision: implement the documented `sed` fallback as the primary renderer because `envsubst` is not
+  available in the active development shell.
+  Rationale: the templates have a fixed, tiny placeholder set
+  (`CLOUDSDK_CORE_PROJECT`, `NAGARE_ACME_EMAIL`, `NAGARE_REGISTRY_PREFIX`, `NAGARE_AUTH_TAG`), so an
+  exact `sed` renderer is simpler than adding a new tool dependency and still avoids broad
+  substitutions. The renderer escapes replacement text for `sed` and preserves byte-identical default
+  output.
+  Date: 2026-07-01
 
 - Decision: the ACME contact `email:` in `letsencrypt-dns.yaml` (`nadeem@gmail.com`)
   **is** parameterized, via an optional `NAGARE_ACME_EMAIL` variable that defaults to
@@ -211,7 +224,29 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-91 is implemented. `just cluster-bootstrap` renders the DNS-01 issuer template from the active
+context, the auth-plane and `nagared` service manifests carry rendered image placeholders, the local
+auth installer renders the shared service bases before applying, and the single NixOS host imports a
+git-ignored `registry-host.nix` override when generated by `just nixos-registry-host`.
+
+Validation completed:
+
+- Default render identity: rendering `letsencrypt-dns.yaml.tmpl` and all four `service.yaml`
+  templates with no context overrides matched the pre-change files exactly.
+- Labs render: `CLOUDSDK_CORE_PROJECT=tan-labs` rendered issuer `project: tan-labs`, and
+  `NAGARE_REGISTRY_PREFIX=europe-west1-docker.pkg.dev/tan-labs/nagare` rendered all four images with
+  the labs project and no `tan-nb-exp` leak.
+- Local render: `NAGARE_MODE=local NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000
+  NAGARE_AUTH_TAG=dev` rendered `k3d-registry.localhost:5000/shomei:dev`, preserving the flat local
+  registry shape.
+- Nix override: `just nixos-registry-host` with `NAGARE_REGISTRY_HOST=europe-west1-docker.pkg.dev`
+  wrote the ignored override, and `nix eval --impure --expr '(import
+  ./nixos/hosts/nagare-01/registry-host.nix).registryHost'` returned
+  `"europe-west1-docker.pkg.dev"`. With the override absent, importing `registries.nix` still
+  evaluates.
+- Mechanical checks: `bash -n cluster/bootstrap/render-context-template.sh`,
+  `bash -n cluster/bootstrap/auth-install.sh`, `bash -n cluster/bootstrap/local-auth/install.sh`,
+  `just --list`, and `cabal test -v0` all passed; the Haskell suite reported 342 tests passed.
 
 
 ## Context and Orientation
@@ -636,10 +671,9 @@ silently shipping a wrong project, which is the safe failure direction.
 
 ## Interfaces and Dependencies
 
-**Tools.** `envsubst` (from gettext) is the templating tool; it substitutes only the variable names
-passed in its `SHELL-FORMAT` argument and leaves all other text untouched, which is why it is safe
-on YAML containing `$`-free comments and URLs. A `sed`-based fallback (documented in M1) covers
-environments without `envsubst`. `kubectl apply -f -` consumes the rendered manifest from stdin.
+**Tools.** `cluster/bootstrap/render-context-template.sh` is the templating tool. It uses exact
+`sed` substitutions for the supported placeholders and leaves all other text untouched, which is why
+it is safe on these YAML files. `kubectl apply -f -` consumes the rendered manifest from stdin.
 `nix eval` / `nixos-rebuild` consume the NixOS module. No new Haskell or library dependencies are
 introduced — this plan is shell/YAML/Nix only.
 
@@ -678,8 +712,9 @@ alone (using the inline-fallback prefix). This plan does **not** touch Pulumi st
 is the disjoint sibling `docs/plans/90-per-context-pulumi-state-and-config-projection.md`.
 
 **Artifacts that must exist at the end of each milestone.** After M1:
-`cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl` (renamed, two placeholders) and the
-updated `cluster-bootstrap` recipe in `justfile`. After M2: the four `service.yaml` with
+`cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl` (renamed, two placeholders),
+`cluster/bootstrap/render-context-template.sh`, and the updated `cluster-bootstrap` recipe in
+`justfile`. After M2: the four `service.yaml` with
 `${NAGARE_REGISTRY_PREFIX}/<svc>:${NAGARE_AUTH_TAG}` image lines, a cloud render path
 (`cluster/bootstrap/auth-install.sh` or equivalent rendered-apply documented in
 `docs/user/access.md`), and the local installer rendering rather than applying an unresolved

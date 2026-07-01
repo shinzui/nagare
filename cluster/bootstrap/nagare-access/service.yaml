@@ -14,7 +14,7 @@ spec:
         autoscaling.knative.dev/max-scale: "1"
     spec:
       containers:
-        - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/nagare-access:latest
+        - image: ${NAGARE_REGISTRY_PREFIX}/nagare-access:${NAGARE_AUTH_TAG}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

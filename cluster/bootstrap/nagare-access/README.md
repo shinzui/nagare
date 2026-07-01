@@ -66,7 +66,7 @@ cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-s
 # edit /tmp/nagare-access-secret.yaml: set cookie-key to a long random value
 kubectl apply -f /tmp/nagare-access-secret.yaml
 kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
-kubectl apply -f cluster/bootstrap/nagare-access/service.yaml
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/nagare-access/service.yaml | kubectl apply -f -
 ```
 
 The Knative Service is always-on (`min-scale=1`) because protected-site traffic

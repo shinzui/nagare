@@ -50,25 +50,20 @@ nagarectl db create postgres en-db --namespace nagare-system
 
 cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
 # edit /tmp/nagare-access-secret.yaml before applying it
-
-kubectl apply -f cluster/bootstrap/shomei/service.yaml
-kubectl apply -f cluster/bootstrap/en/migrations.yaml
-kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
-kubectl apply -f cluster/bootstrap/en/configmap.yaml
-kubectl apply -f cluster/bootstrap/en/service.yaml
 kubectl apply -f /tmp/nagare-access-secret.yaml
-kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
-kubectl apply -f cluster/bootstrap/nagare-access/service.yaml
+
+cluster/bootstrap/auth-install.sh
 ```
 
-Before applying for real, edit the Secret template and image references in those
-directories:
+Before applying for real, edit the Secret template:
 
 - `cluster/bootstrap/nagare-access/secret.example.yaml.tmpl` needs a long random
   `cookie-key`.
-- `cluster/bootstrap/nagare-access/service.yaml` needs the target
-  `NAGARE_ACCESS_COOKIE_DOMAIN`, for example `.apps.example.com`.
-- The `image:` values must point at images available to the target cluster.
+
+`cluster/bootstrap/auth-install.sh` renders the `image:` values from the active
+target context (`NAGARE_REGISTRY_PREFIX`, `NAGARE_AUTH_TAG`) before applying the
+manifests. The `nagare-access` cookie domain still defaults to `.apps.example.com`;
+patch it for a real domain if needed.
 
 The shomei and en manifests read `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` from Nagare's managed DB Secrets `nagare-db-shomei-db` and

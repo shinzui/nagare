@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: en
-          image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/en:latest
+          image: ${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}
           ports:
             - containerPort: 8080
           env:

@@ -83,7 +83,7 @@ kubectl apply -f cluster/bootstrap/en/migrations.yaml
 kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
 cluster/bootstrap/en/build-image.sh
 kubectl apply -f cluster/bootstrap/en/configmap.yaml
-kubectl apply -f cluster/bootstrap/en/service.yaml
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/en/service.yaml | kubectl apply -f -
 ```
 
 If the migration Job fails, inspect it before retrying:

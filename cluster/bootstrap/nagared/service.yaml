@@ -29,7 +29,7 @@ spec:
     spec:
       serviceAccountName: nagared
       containers:
-        - image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/nagared:latest
+        - image: ${NAGARE_REGISTRY_PREFIX}/nagared:${NAGARE_AUTH_TAG}
           ports:
             - containerPort: 8088
           args:

@@ -54,6 +54,11 @@ vm-start:
 host-image:
     scripts/upload-images.sh
 
+# Generate the NixOS registry host override from the active target context.
+[group('host')]
+nixos-registry-host:
+    printf '{ registryHost = "%s"; }\n' "${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}" > nixos/hosts/nagare-01/registry-host.nix
+
 # EP-3: apply day-2 host configuration changes to the running nagare-01
 # over Tailscale. The non-root deploy user needs --sudo.
 # Apply day-2 host config to running nagare-01.
@@ -94,7 +99,7 @@ cluster-bootstrap:
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook
-    kubectl apply -f cluster/bootstrap/cert-manager/letsencrypt-dns.yaml
+    cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl | kubectl apply -f -
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
@@ -152,7 +157,7 @@ local-down:
 # Serving + Kourier + net-certmanager, at the pins above) onto the local k3d
 # cluster, but HTTP-first for laptop use. This is `cluster-bootstrap` minus the
 # three cloud-coupled steps:
-#   - SKIP cluster/bootstrap/cert-manager/letsencrypt-dns.yaml (hard-codes a GCP
+#   - SKIP cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl (renders a GCP
 #     project + needs ambient GCE creds); local TLS issuer is EP-85's job (IP-5).
 #   - SKIP the config-certmanager patch (it points Knative at that letsencrypt-dns
 #     issuer); external-domain-tls stays OFF so apps serve over HTTP.
@@ -169,9 +174,9 @@ local-bootstrap:
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook
-    # NOTE: cluster/bootstrap/cert-manager/letsencrypt-dns.yaml is intentionally
-    # NOT applied — it hard-codes a GCP project and needs ambient GCE creds. Local
-    # TLS issuer is EP-85's job (MasterPlan 16 IP-5).
+    # NOTE: cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl is
+    # intentionally NOT applied — it renders a GCP project and needs ambient GCE
+    # creds. Local TLS issuer is EP-85's job (MasterPlan 16 IP-5).
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml

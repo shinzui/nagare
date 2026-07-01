@@ -48,7 +48,7 @@ template.
 kubectl apply -f cluster/bootstrap/nagared/rbac.yaml
 cp cluster/bootstrap/nagared/secret.example.yaml /tmp/nagared-secret.yaml   # edit, then:
 kubectl apply -f /tmp/nagared-secret.yaml
-kubectl apply -f cluster/bootstrap/nagared/service.yaml
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/nagared/service.yaml | kubectl apply -f -
 ```
 
 ### Runtime requirements (not turnkey)
