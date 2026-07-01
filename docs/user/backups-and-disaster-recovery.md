@@ -21,7 +21,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | --- | --- | --- |
 | NixOS host config | **Git** (this repo) | ✅ |
 | Pulumi infra program | **Git** (this repo) | ✅ |
-| Pulumi **state** | Per-context `file://` backend under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state` | ✅ (back up the active context state directory until remote state lands) |
+| Pulumi **state** | Per-context `file://` backend under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`, **or** an opt-in versioned GCS backend (`NAGARE_PULUMI_BACKEND=gcs`) | ✅ (back up the local state directory; a GCS backend is versioned server-side — see [Target contexts › Remote GCS Pulumi state](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only)) |
 | Kubernetes manifests | **Git** (`cluster/`) | ✅ |
 | Secrets | **sops-encrypted in Git** + host age key offline | 🟡 (see [Secrets](secrets.md)) |
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
@@ -89,8 +89,10 @@ app's database snapshot cleanly.
 
 > **The three things you must keep off-machine yourself:** the **host age private
 > key** (without it you cannot decrypt secrets to rebuild), a **copy of this Git
-> repo**, and a **copy of the active context's Pulumi state directory** until
-> remote Pulumi state lands. Everything else can be regenerated.
+> repo**, and a **copy of the active context's Pulumi state** — for a local
+> backend that means the `…/nagare/<context>/state` directory; for a context on
+> the opt-in GCS backend (`NAGARE_PULUMI_BACKEND=gcs`) the state already lives in a
+> versioned bucket off-machine. Everything else can be regenerated.
 
 ## The disaster-recovery runbook (target)
 
