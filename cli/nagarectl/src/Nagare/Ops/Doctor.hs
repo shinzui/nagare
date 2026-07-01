@@ -115,7 +115,8 @@ command tp name
       "kubectl get clusterissuer letsencrypt-dns -o yaml "
         <> "(note: TLS is HTTP-first/deferred while the base domain is the placeholder apps.example.com)"
   | name == "Kourier ingress" =
-      "curl -sS -o /dev/null -w '%{http_code}\\n' http://$(pulumi -C infra/pulumi stack output publicIp)/ ; "
+      "curl -sS -o /dev/null -w '%{http_code}\\n' http://$(pulumi -C infra/pulumi stack output publicIp)/ "
+        <> "(active context stack); "
         <> "also: kubectl get svc -n kourier-system kourier -o wide; kubectl get nodes -o wide"
   | name == "private image pull" =
       "apply the declarative private-image-pull config (config-deployment registriesSkippingTagResolving "
@@ -124,7 +125,7 @@ command tp name
       "set NAGARE_TARGET_PLATFORM (e.g. linux/amd64) in nagare.target.env to match the node architecture; "
         <> "see docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
   | name == "base domain" =
-      "re-render config-domain from: pulumi -C infra/pulumi stack output baseDomain "
+      "re-render config-domain from the active context stack: pulumi -C infra/pulumi stack output baseDomain "
         <> "(see cluster/bootstrap/knative-serving/README.md)"
   | name == "external-domain-tls" =
       "expected while the base domain is the placeholder apps.example.com; "

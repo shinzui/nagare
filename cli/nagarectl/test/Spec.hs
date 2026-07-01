@@ -216,8 +216,10 @@ import Nagare.Storage.Snapshot
   , snapshotsToPrune
   )
 import Nagare.Target
-  ( ContextName
+  ( ActiveTarget (..)
+  , ContextName
   , Mode (..)
+  , PulumiEnv (..)
   , TargetProfile (..)
   , clearCurrentContext
   , contextExists
@@ -229,10 +231,12 @@ import Nagare.Target
   , parseContextEnv
   , parseMode
   , profileFromContextMap
+  , pulumiEnvFor
   , readContextProfile
   , readCurrentContext
   , registryPrefix
   , resolveActiveContext
+  , resolveActiveTarget
   , resolveTargetProfile
   , setCurrentContext
   , storeBackendFor
@@ -371,9 +375,16 @@ initTests =
               , "nagare:artifactRegistryId"
               , "nagare:instanceName"
               ]
-    , testCase "pulumiConfigSetArgs targets the infra/pulumi stack" $
-        pulumiConfigSetArgs "gcp:project" "acme-prod"
-          @?= ["-C", "infra/pulumi", "config", "set", "gcp:project", "acme-prod"]
+    , testCase "pulumiConfigSetArgs targets the active context stack" $
+        pulumiConfigSetArgs "labs" "gcp:project" "acme-prod"
+          @?= ["-C", "infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
+    , testCase "pulumiEnvFor derives per-context backend, home, and stack" $
+        pulumiEnvFor "/tmp/nagare-state" "labs"
+          @?= PulumiEnv
+            { peHome = "/tmp/nagare-state/labs/home"
+            , peBackendUrl = "file:///tmp/nagare-state/labs/state"
+            , peStack = "labs"
+            }
     , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
         assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
     , testCase "nextStepsText names the ordered just targets" $ do
@@ -560,6 +571,9 @@ contextResolutionTests =
               tpProject tpLabs @?= "labs-proj"
               tpRegistryHost tpLabs @?= "europe-west1-docker.pkg.dev"
               tpImageBucket tpLabs @?= "labs-proj-nagare-images"
+              atLabs <- resolveActiveTarget Nothing
+              contextNameText (atContextName atLabs) @?= "labs"
+              tpProject (atProfile atLabs) @?= "labs-proj"
 
               tpProd <- resolveActiveContext (Just "prod")
               tpProject tpProd @?= "prod-proj"
@@ -582,6 +596,10 @@ contextResolutionTests =
                 tpDefault <- resolveActiveContext Nothing
                 tpProject tpDefault @?= "tan-nb-exp"
                 tpRegistryHost tpDefault @?= "us-west1-docker.pkg.dev"
+                setEnv "NAGARE_CONTEXT" "default"
+                atDefault <- resolveActiveTarget Nothing
+                contextNameText (atContextName atDefault) @?= "default"
+                tpProject (atProfile atDefault) @?= "tan-nb-exp"
 
               clearResolutionEnv
               writeContext "local" $

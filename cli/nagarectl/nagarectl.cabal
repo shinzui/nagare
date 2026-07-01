@@ -133,11 +133,13 @@ executable nagarectl
     bytestring,
     containers,
     directory,
+    filepath,
     generic-lens ^>=2.2,
     lens ^>=5.3,
     nagare-dsl,
     nagarectl,
     optparse-applicative,
+    process,
     text,
     time,
 

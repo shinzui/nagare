@@ -10,8 +10,9 @@
 # current-context pointer, the in-repo nagare.target.env/nagare.local.env
 # back-compat profile, then the historic tan-nb-exp defaults. It exports the
 # CLOUDSDK_* / NAGARE_* contract plus TARGET_PROJECT / TARGET_REGION /
-# TARGET_ZONE for scripts. `_require_target_project` refuses to proceed unless
-# gcloud's active project equals the active context's project in cloud mode.
+# TARGET_ZONE for scripts. It also derives the per-context Pulumi backend/home
+# and stack name. `_require_target_project` refuses to proceed unless gcloud's
+# active project equals the active context's project in cloud mode.
 
 # Resolve the repository root from THIS file's path, independent of the caller's
 # cwd. ${BASH_SOURCE[0]} is this file; its parent is scripts/lib, so ../.. is the
@@ -45,6 +46,16 @@ _nagare_context_name_valid() {
     .*|*/*) return 1 ;;
   esac
   [[ "${name}" =~ ^[A-Za-z0-9_-][A-Za-z0-9_.-]*$ ]]
+}
+
+_nagare_state_dir() {
+  if [ -n "${XDG_STATE_HOME:-}" ]; then
+    printf '%s\n' "${XDG_STATE_HOME}/nagare"
+  elif [ -n "${HOME:-}" ]; then
+    printf '%s\n' "${HOME}/.local/state/nagare"
+  else
+    printf '%s\n' ".local/state/nagare"
+  fi
 }
 
 _nagare_source_if_present() {
@@ -158,6 +169,30 @@ _nagare_resolve_context() {
 if ! _nagare_resolve_context; then
   return 1 2>/dev/null || exit 1
 fi
+
+_nagare_select_pulumi_stack() {
+  local pd="${NAGARE_REPO_ROOT}/infra/pulumi"
+  local stack="${NAGARE_PULUMI_STACK:-${NAGARE_CONTEXT:-default}}"
+  command -v pulumi >/dev/null 2>&1 || return 0
+  pulumi -C "${pd}" stack select "${stack}" >/dev/null 2>&1 \
+    || pulumi -C "${pd}" stack init "${stack}" >/dev/null 2>&1 \
+    || true
+}
+
+_nagare_export_pulumi_env() {
+  local ctx="${NAGARE_CONTEXT:-default}"
+  local root="$(_nagare_state_dir)/${ctx}"
+  mkdir -p "${root}/state" "${root}/home"
+  : > "${root}/home/passphrase"
+  export PULUMI_HOME="${root}/home"
+  export PULUMI_BACKEND_URL="file://${root}/state"
+  export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-}"
+  export PULUMI_CONFIG_PASSPHRASE_FILE="${root}/home/passphrase"
+  export NAGARE_PULUMI_STACK="${ctx}"
+  _nagare_select_pulumi_stack
+}
+
+_nagare_export_pulumi_env
 
 TARGET_PROJECT="${CLOUDSDK_CORE_PROJECT:-tan-nb-exp}"
 TARGET_REGION="${CLOUDSDK_COMPUTE_REGION:-us-west1}"
