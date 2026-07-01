@@ -64,6 +64,7 @@ import Nagare.Static.Webhook
   , WebhookOutcome (..)
   , decideWebhook
   )
+import Nagare.Target (TargetProfile, resolveTargetProfile)
 
 -- ---------------------------------------------------------------------------
 -- Options / environment
@@ -92,6 +93,7 @@ data Env = Env
   , envProductionBranch :: !Text
   , envBaseDomain :: !Text
   , envWorkspace :: !FilePath
+  , envTargetProfile :: !TargetProfile
   }
 
 -- ---------------------------------------------------------------------------
@@ -103,12 +105,14 @@ main = do
   o <- execParser parserInfo
   secret <- resolveSecret (optSecretFile o)
   provisionGhcEnv (optGhcEnv o)
+  targetProfile <- resolveTargetProfile
   let env =
         Env
           { envSecret = secret
           , envProductionBranch = optProductionBranch o
           , envBaseDomain = optBaseDomain o
           , envWorkspace = optWorkspace o
+          , envTargetProfile = targetProfile
           }
   putStrLn ("nagared listening on :" <> show (optPort o))
   run (optPort o) (app env)
@@ -190,6 +194,7 @@ runAction env _site act = do
                   , baseDomain = envBaseDomain env
                   , projectDir = dir
                   , skipBuild = False
+                  , targetProfile = envTargetProfile env
                   }
           outcome <- try (deployFor inputs act) :: IO (Either SomeException (Either Text Text))
           pure $ case outcome of
