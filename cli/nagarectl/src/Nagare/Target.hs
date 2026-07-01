@@ -12,22 +12,39 @@
 module Nagare.Target
   ( TargetProfile (..)
   , Mode (..)
+  , ContextName
+  , mkContextName
+  , contextNameText
+  , nagareConfigDir
+  , contextsDir
+  , contextFilePath
+  , currentContextPath
+  , contextStateDirName
   , parseMode
+  , parseContextEnv
+  , readContextMap
+  , readCurrentContext
+  , resolveActiveContext
   , resolveTargetProfile
   , registryPrefix
   , minioCredentialsSecret
   , storeBackendFor
   ) where
 
-import Data.Char (toLower)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Nagare.Cluster.GcsJob
   ( MinioRef (..)
   , StoreBackend (..)
   , parseLocalObjectStore
   )
+import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
+import System.FilePath ((<.>), (</>))
 
 -- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
 -- public type — EP-84 and EP-85 import it and must not re-derive the mode from the
@@ -47,6 +64,57 @@ parseMode :: Maybe String -> Mode
 parseMode m = case fmap (map toLower) m of
   Just "local" -> Local
   _ -> Cloud
+
+-- | The name of a stored context. It is used verbatim as a filename
+-- (@<name>.env@) and as the value of the @current-context@ pointer, so it is
+-- restricted to a single safe path segment: non-empty, and composed only of
+-- ASCII letters, digits, '-', '_', and '.', with no '/', no leading '.', and
+-- not "." or "..". 'mkContextName' is the only way to build one.
+newtype ContextName = ContextName Text
+  deriving stock (Eq, Ord, Show)
+
+contextNameText :: ContextName -> Text
+contextNameText (ContextName t) = t
+
+mkContextName :: Text -> Either Text ContextName
+mkContextName raw
+  | T.null raw = Left "context name must not be empty"
+  | T.any (== '/') raw = Left "context name must not contain '/'"
+  | raw == "." || raw == ".." = Left "context name must not be '.' or '..'"
+  | T.isPrefixOf "." raw = Left "context name must not start with '.'"
+  | T.all isSafe raw = Right (ContextName raw)
+  | otherwise = Left "context name may use only letters, digits, '-', '_', '.'"
+  where
+    isSafe c = isAsciiLower c || isAsciiUpper c || isDigit c || c `elem` ['-', '_', '.']
+
+-- | The nagare user-level config root: @${XDG_CONFIG_HOME:-$HOME/.config}/nagare@.
+-- An unset OR empty XDG_CONFIG_HOME falls back to @$HOME/.config@, matching shell
+-- @${VAR:-default}@. With HOME also unset, the root is relative @.config/nagare@;
+-- callers that touch the store should set HOME or XDG_CONFIG_HOME.
+nagareConfigDir :: IO FilePath
+nagareConfigDir = do
+  xdg <- lookupEnv "XDG_CONFIG_HOME"
+  home <- lookupEnv "HOME"
+  let base = case xdg of
+        Just p | not (null p) -> p
+        _ -> maybe ".config" (</> ".config") home
+  pure (base </> "nagare")
+
+contextsDir :: IO FilePath
+contextsDir = (</> "contexts") <$> nagareConfigDir
+
+contextFilePath :: ContextName -> IO FilePath
+contextFilePath name = do
+  dir <- contextsDir
+  pure (dir </> T.unpack (contextNameText name) <.> "env")
+
+currentContextPath :: IO FilePath
+currentContextPath = (</> "current-context") <$> nagareConfigDir
+
+-- | The per-context Pulumi-state directory name. EP-87 reserves this hook; EP-90
+-- owns the absolute backend path, stack naming, and config projection.
+contextStateDirName :: ContextName -> Text
+contextStateDirName = contextNameText
 
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
@@ -94,26 +162,137 @@ registryPrefix :: TargetProfile -> Text
 registryPrefix tp =
   tpRegistryHost tp <> "/" <> tpProject tp <> "/" <> tpArtifactRegistryId tp
 
--- | Resolve the profile from the process environment, applying the EP-60
--- precedence (environment > built-in default) and the EP-60 derivations for the
--- registry host and bucket names. An env var set to the empty string is treated
--- as unset (matching shell @${VAR:-default}@).
-resolveTargetProfile :: IO TargetProfile
-resolveTargetProfile = do
-  project <- envOr "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
-  region <- envOr "CLOUDSDK_COMPUTE_REGION" "us-west1"
-  zone <- envOr "CLOUDSDK_COMPUTE_ZONE" "us-west1-a"
-  registryHost <- envOr "NAGARE_REGISTRY_HOST" (region <> "-docker.pkg.dev")
-  registryId <- envOr "NAGARE_ARTIFACT_REGISTRY_ID" "nagare"
-  imageBucket <- envOr "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
-  backupBucket <- envOr "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
-  baseDomain <- envOr "NAGARE_BASE_DOMAIN" "apps.example.com"
-  instanceName <- envOr "NAGARE_INSTANCE_NAME" "nagare-01"
-  targetPlatform <- envOr "NAGARE_TARGET_PLATFORM" "linux/amd64"
-  -- 'parseMode' reads the raw 'Maybe String' from 'lookupEnv' (not 'envOr'): an
-  -- empty NAGARE_MODE="" is "not local", which 'parseMode' already yields as 'Cloud'.
-  mode <- parseMode <$> lookupEnv "NAGARE_MODE"
-  localObjectStore <- envOr "NAGARE_LOCAL_OBJECT_STORE" ""
+-- | Parse a flat @export VAR=value@ context file into a variable map. Blank
+-- lines and lines whose first non-space character is '#' are ignored. A leading
+-- @export @ is stripped; this is a pragmatic reader for machine-generated or
+-- example-derived files, not a complete shell parser.
+parseContextEnv :: Text -> Map String Text
+parseContextEnv = Map.fromList . concatMap lineKV . T.lines
+  where
+    lineKV raw =
+      let s = T.stripStart raw
+       in if T.null s || "#" `T.isPrefixOf` s
+            then []
+            else
+              let s' = maybe s id (T.stripPrefix "export " s)
+               in case T.breakOn "=" s' of
+                    (k, v)
+                      | T.null v -> []
+                      | otherwise -> [(T.unpack (T.strip k), unquote (T.drop 1 v))]
+    unquote v =
+      let t = T.strip v
+       in if T.length t >= 2 && (T.head t == '"' || T.head t == '\'') && T.last t == T.head t
+            then T.drop 1 (T.dropEnd 1 t)
+            else t
+
+-- | Read a context file into a variable map, or 'Nothing' if the path is absent.
+readContextMap :: FilePath -> IO (Maybe (Map String Text))
+readContextMap path = do
+  exists <- doesFileExist path
+  if exists
+    then Just . parseContextEnv <$> TIO.readFile path
+    else pure Nothing
+
+-- | Read the current-context pointer, validated through 'mkContextName'. A
+-- missing file, an empty file, or an invalid name means no default context.
+readCurrentContext :: IO (Maybe ContextName)
+readCurrentContext = do
+  path <- currentContextPath
+  exists <- doesFileExist path
+  if not exists
+    then pure Nothing
+    else do
+      t <- T.strip <$> TIO.readFile path
+      pure (either (const Nothing) Just (mkContextName t))
+
+-- | Resolve the explicitly-selected context name, if any. The caller's argument
+-- wins over NAGARE_CONTEXT. Both are validated before file lookup.
+selectContextName :: Maybe Text -> IO (Either Text (Maybe ContextName))
+selectContextName arg = do
+  envName <- lookupEnv "NAGARE_CONTEXT"
+  let raw = case arg of
+        Just a | not (T.null a) -> Just a
+        _ -> case envName of
+          Just e | not (null e) -> Just (T.pack e)
+          _ -> Nothing
+  pure $ case raw of
+    Nothing -> Right Nothing
+    Just r -> Just <$> mkContextName r
+
+-- | The active context's variable map. Precedence: explicit/NAGARE_CONTEXT named
+-- context > current-context pointer > in-repo profile > empty map. A named
+-- context whose file is missing is an error.
+loadActiveContextMap :: Maybe Text -> IO (Either Text (Map String Text))
+loadActiveContextMap arg = do
+  sel <- selectContextName arg
+  case sel of
+    Left err -> pure (Left ("invalid context name: " <> err))
+    Right (Just name) -> requireNamed name
+    Right Nothing -> do
+      ptr <- readCurrentContext
+      case ptr of
+        Just name -> requireNamed name
+        Nothing -> Right <$> inRepoMap
+  where
+    requireNamed name = do
+      path <- contextFilePath name
+      m <- readContextMap path
+      pure $ case m of
+        Just kv -> Right kv
+        Nothing ->
+          Left ("context \"" <> contextNameText name <> "\" not found (expected " <> T.pack path <> ")")
+
+-- | The in-repo profile as a context map for MasterPlan 12/16 back-compat. Reads
+-- ./nagare.target.env, then overlays ./nagare.local.env when local mode applies.
+inRepoMap :: IO (Map String Text)
+inRepoMap = do
+  base <- maybe Map.empty id <$> readContextMap "nagare.target.env"
+  local <- readContextMap "nagare.local.env"
+  envMode <- lookupEnv "NAGARE_MODE"
+  let localIsActive = case local of
+        Nothing -> False
+        Just kv ->
+          (fmap (map toLower) envMode == Just "local")
+            || (fmap T.toLower (Map.lookup "NAGARE_MODE" kv) == Just "local")
+  pure $ case (localIsActive, local) of
+    (True, Just kv) -> Map.union kv base
+    _ -> base
+
+-- | Resolve one field with precedence: process env > context map > default. An
+-- env var or context value set to empty is treated as unset.
+ctxOr :: Map String Text -> String -> Text -> IO Text
+ctxOr ctx name def = do
+  m <- lookupEnv name
+  pure $ case m of
+    Just v | not (null v) -> T.pack v
+    _ -> case Map.lookup name ctx of
+      Just v | not (T.null v) -> v
+      _ -> def
+
+-- | Raw field lookup with env > context precedence for parsers like 'parseMode'.
+ctxRaw :: Map String Text -> String -> IO (Maybe String)
+ctxRaw ctx name = do
+  m <- lookupEnv name
+  pure $ case m of
+    Just v | not (null v) -> Just v
+    _ -> case Map.lookup name ctx of
+      Just v | not (T.null v) -> Just (T.unpack v)
+      _ -> Nothing
+
+resolveProfileFrom :: Map String Text -> IO TargetProfile
+resolveProfileFrom ctx = do
+  project <- ctxOr ctx "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
+  region <- ctxOr ctx "CLOUDSDK_COMPUTE_REGION" "us-west1"
+  zone <- ctxOr ctx "CLOUDSDK_COMPUTE_ZONE" "us-west1-a"
+  registryHost <- ctxOr ctx "NAGARE_REGISTRY_HOST" (region <> "-docker.pkg.dev")
+  registryId <- ctxOr ctx "NAGARE_ARTIFACT_REGISTRY_ID" "nagare"
+  imageBucket <- ctxOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
+  backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
+  baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+  instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+  targetPlatform <- ctxOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
+  mode <- parseMode <$> ctxRaw ctx "NAGARE_MODE"
+  localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
   pure
     TargetProfile
       { tpProject = project
@@ -129,6 +308,21 @@ resolveTargetProfile = do
       , tpMode = mode
       , tpLocalObjectStore = localObjectStore
       }
+
+-- | Resolve the active context into a fully-derived 'TargetProfile'. The
+-- argument is an explicit context name (later fed by the --context flag);
+-- 'Nothing' means NAGARE_CONTEXT, then current-context, then in-repo profile,
+-- then defaults. Named-but-missing contexts throw to fail closed.
+resolveActiveContext :: Maybe Text -> IO TargetProfile
+resolveActiveContext arg = do
+  e <- loadActiveContextMap arg
+  case e of
+    Left err -> ioError (userError (T.unpack err))
+    Right ctx -> resolveProfileFrom ctx
+
+-- | Back-compat entry point: resolve with no explicit context selection.
+resolveTargetProfile :: IO TargetProfile
+resolveTargetProfile = resolveActiveContext Nothing
 
 -- | The Kubernetes Secret (in the data-movement Job's namespace) holding the
 -- local MinIO credentials (@AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@). EP-84
@@ -157,12 +351,3 @@ storeBackendFor tp bucket = case tpMode tp of
             <> "it is currently "
             <> (if T.null (tpLocalObjectStore tp) then "unset" else "malformed: " <> tpLocalObjectStore tp)
         )
-
--- | Read an env var, falling back to @def@ when it is unset OR set to the empty
--- string. Returns 'Text' for direct use in the record.
-envOr :: String -> Text -> IO Text
-envOr name def = do
-  m <- lookupEnv name
-  pure $ case m of
-    Just v | not (null v) -> T.pack v
-    _ -> def

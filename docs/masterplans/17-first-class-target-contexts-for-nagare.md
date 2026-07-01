@@ -144,7 +144,7 @@ normalized contexts**: rejected for v1 as over-engineering (see Scope); flat bun
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 87 | Target context model, store, and resolver for nagarectl | docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md | None | None | Not Started |
+| 87 | Target context model, store, and resolver for nagarectl | docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md | None | None | Complete |
 | 88 | nagarectl context command group and --context selection | docs/plans/88-nagarectl-context-command-group-and-context-selection.md | EP-87 | None | Not Started |
 | 89 | Shell and direnv context resolution and the context-aware guardrail | docs/plans/89-shell-and-direnv-context-resolution-and-the-context-aware-guardrail.md | EP-87 | None | Not Started |
 | 90 | Per-context Pulumi state and config projection | docs/plans/90-per-context-pulumi-state-and-config-projection.md | EP-87 | EP-88 | Not Started |
@@ -293,8 +293,8 @@ new applied hardcode, it is added here and to EP-91.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-87: Context model defined (`TargetProfile` + Pulumi-state location), the user-level store layout (`~/.config/nagare/contexts/<name>.env` + `current-context`), and the resolution precedence documented and unit-tested.
-- [ ] EP-87: `Nagare.Target` resolves the active context with `env > context > default` field precedence and `--context`/`NAGARE_CONTEXT` > pointer > in-repo profile > default selection; `mode` folded into the context; in-repo `nagare.target.env`/`nagare.local.env` still reproduce today's behavior.
+- [x] EP-87: Context model defined (`TargetProfile` + Pulumi-state location), the user-level store layout (`~/.config/nagare/contexts/<name>.env` + `current-context`), and the resolution precedence documented and unit-tested.
+- [x] EP-87: `Nagare.Target` resolves the active context with `env > context > default` field precedence and `--context`/`NAGARE_CONTEXT` > pointer > in-repo profile > default selection; `mode` folded into the context; in-repo `nagare.target.env`/`nagare.local.env` still reproduce today's behavior.
 - [ ] EP-88: `nagarectl context list|current|use|show|create|delete` implemented against the EP-87 store; global `--context` flag wired into every command's target resolution.
 - [ ] EP-88: `nagarectl init` writes a named context (not a bare `nagare.target.env`); `nagarectl --context <name> deploy` deploys to that target with no `cd` and no file edit.
 - [ ] EP-89: `scripts/lib/target.sh` and `.envrc` resolve the active context from the EP-87 store with the same precedence; `NAGARE_CONTEXT=<name> just <recipe>` targets that context; justfile/scripts unchanged in how they read the environment.
@@ -318,8 +318,9 @@ interactions between child plans. Provide concise evidence.
   EP-88).** MasterPlan 16 already added `tpMode`/`tpLocalObjectStore`, so "extend the record" is a no-op —
   *except* the existing `Nagare.Init.renderTargetEnv` does **not** emit `NAGARE_MODE`/
   `NAGARE_LOCAL_OBJECT_STORE` lines. EP-87's context-file renderer must emit them so a `mode=local` context
-  round-trips through the store; EP-88's `context create`/`init` reuse that extended renderer. Date:
-  2026-06-30.
+  round-trips through the store; EP-88's `context create`/`init` reuse that extended renderer. EP-87
+  implemented the renderer extension and added cloud/local assertions in `Nagare.Init` tests. Date:
+  2026-06-30; updated 2026-07-01.
 - **The store is user-level, so tests must isolate `XDG_CONFIG_HOME` (EP-87 → affects EP-89).** Because the
   context store lives under `~/.config/nagare/`, a real `current-context` on the dev machine could perturb
   the "defaults reproduce tan-nb-exp" assertion; EP-87's tests pin `XDG_CONFIG_HOME` to a temp dir and
@@ -350,6 +351,16 @@ interactions between child plans. Provide concise evidence.
   case (a different-context selection *plus* a manual per-field override in the same command drops the
   override) documented; EP-87's once-per-process Haskell resolver does not hit this, so the two resolvers
   agree everywhere else. Date: 2026-06-30.
+
+- **EP-87 exposed a test-harness global-state assumption that affects later context work.** The
+  `nagarectl-test` suite mutates process-global environment variables in multiple groups, and EP-87's
+  in-repo profile back-compat test also temporarily changes the process working directory. Tasty's
+  default parallelism made the first full run fail nondeterministically (`NAGARE_MODE` was cleared during
+  another test, and `AppDeploySpec` looked for fixtures from a temporary CWD). EP-87 therefore sets the
+  top-level test tree to `localOption (NumThreads 1)`. Future EP-88/EP-89 tests that mutate
+  `NAGARE_CONTEXT`, `XDG_CONFIG_HOME`, or CWD can rely on the same serial harness but must still
+  save/restore state within each case. Full validation after the renderer extension: `cabal test` passed
+  340 tests. Date: 2026-07-01.
 
 
 ## Decision Log

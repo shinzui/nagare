@@ -11,7 +11,7 @@ module Main (main) where
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
-import Control.Exception (finally)
+import Control.Exception (IOException, finally, try)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (eitherDecodeStrict, encode)
@@ -215,7 +215,16 @@ import Nagare.Storage.Snapshot
   , snapshotObjectPath
   , snapshotsToPrune
   )
-import Nagare.Target (Mode (..), TargetProfile (..), parseMode, registryPrefix, resolveTargetProfile)
+import Nagare.Target
+  ( Mode (..)
+  , TargetProfile (..)
+  , parseContextEnv
+  , parseMode
+  , registryPrefix
+  , resolveActiveContext
+  , resolveTargetProfile
+  , storeBackendFor
+  )
 import Nagare.Task.Discover
   ( AppScope (..)
   , TaskRow (..)
@@ -226,21 +235,23 @@ import Nagare.Task.Discover
 import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
 import Nagare.Task.Run (oneOffJobName, runArgs)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.FilePath ((</>))
+import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
+import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
 main = do
   taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
   defaultMain $
-    testGroup
-      "nagarectl"
-      [ testGroup "Nagare.Static.Image" dockerfileTests
+    localOption (NumThreads 1) $
+      testGroup
+        "nagarectl"
+        [ testGroup "Nagare.Static.Image" dockerfileTests
       , testGroup "Nagare.Static.Build" prepareTests
       , testGroup "Nagare.Static.Release" releaseTests
       , testGroup "Nagare.Static.Preview" previewTests
@@ -277,6 +288,7 @@ main = do
       , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
       , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
       , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
+      , contextResolutionTests
       , testGroup "EP-62 rendered Job project" backupProjectTests
       , testGroup "EP-62 qualifyImage" qualifyImageTests
       , modeResolutionTests
@@ -319,9 +331,23 @@ initTests =
         assertBool "derived image bucket" (T.isInfixOf "export NAGARE_IMAGE_BUCKET=acme-prod-nagare-images" out)
         assertBool "base domain" (T.isInfixOf "export NAGARE_BASE_DOMAIN=apps.acme.com" out)
         assertBool "target platform (default)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/amd64" out)
+        assertBool "mode (default cloud)" (T.isInfixOf "export NAGARE_MODE=cloud" out)
+        assertBool "local object store (empty for cloud)" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=" out)
     , testCase "renderTargetEnv emits an overridden target platform (EP-3)" $ do
         let out = renderTargetEnv initProfile {tpTargetPlatform = "linux/arm64"}
         assertBool "target platform (override)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/arm64" out)
+    , testCase "renderTargetEnv emits local context fields for round-trip" $ do
+        let out =
+              renderTargetEnv
+                initProfile
+                  { tpMode = Local
+                  , tpRegistryHost = "k3d-registry.localhost:5000"
+                  , tpBaseDomain = "127-0-0-1.sslip.io"
+                  , tpLocalObjectStore = "http://minio:9000/nagare-backups"
+                  }
+        assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
+        assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
+        assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
     , testCase "seedKeys covers the eight Pulumi keys incl. the required imageBucket" $
         map fst (seedKeys initProfile)
           @?= [ "gcp:project"
@@ -414,57 +440,186 @@ tnbProfile =
 targetProfileTests :: TestTree
 targetProfileTests =
   testCase "resolveTargetProfile honors env vars and falls back to defaults" $ do
-    saved <- traverse (\v -> (,) v <$> lookupEnv v) allTargetVars
+    saved <- traverse (\v -> (,) v <$> lookupEnv v) savedVars
     let restore =
           mapM_
             (\(v, m) -> maybe (unsetEnv v) (setEnv v) m)
             saved
-    flip finally restore $ do
+    withSystemTempDirectory "nagare-target-store" $ \xdg ->
+      flip finally restore $ do
+        let clearTargetEnv = do
+              mapM_ unsetEnv targetFieldVars
+              unsetEnv "NAGARE_MODE"
+              unsetEnv "NAGARE_CONTEXT"
+              setEnv "XDG_CONFIG_HOME" xdg
       -- (1) nothing set: defaults reproduce the tan-nb-exp worked example.
-      mapM_ unsetEnv allTargetVars
-      tp0 <- resolveTargetProfile
-      tpProject tp0 @?= "tan-nb-exp"
-      tpRegion tp0 @?= "us-west1"
-      tpZone tp0 @?= "us-west1-a"
-      tpRegistryHost tp0 @?= "us-west1-docker.pkg.dev"
-      tpImageBucket tp0 @?= "tan-nb-exp-nagare-images"
-      tpBackupBucket tp0 @?= "tan-nb-exp-nagare-backups"
-      registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
-      tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
-      tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
+        clearTargetEnv
+        tp0 <- resolveTargetProfile
+        tpProject tp0 @?= "tan-nb-exp"
+        tpRegion tp0 @?= "us-west1"
+        tpZone tp0 @?= "us-west1-a"
+        tpRegistryHost tp0 @?= "us-west1-docker.pkg.dev"
+        tpImageBucket tp0 @?= "tan-nb-exp-nagare-images"
+        tpBackupBucket tp0 @?= "tan-nb-exp-nagare-backups"
+        registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
+        tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
+        tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
       -- (2) project + region override; host derives from region, buckets from project.
-      mapM_ unsetEnv allTargetVars
-      setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
-      setEnv "CLOUDSDK_COMPUTE_REGION" "europe-west1"
-      tp1 <- resolveTargetProfile
-      tpProject tp1 @?= "acme-prod"
-      tpRegistryHost tp1 @?= "europe-west1-docker.pkg.dev"
-      tpBackupBucket tp1 @?= "acme-prod-nagare-backups"
-      registryPrefix tp1 @?= "europe-west1-docker.pkg.dev/acme-prod/nagare"
+        clearTargetEnv
+        setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
+        setEnv "CLOUDSDK_COMPUTE_REGION" "europe-west1"
+        tp1 <- resolveTargetProfile
+        tpProject tp1 @?= "acme-prod"
+        tpRegistryHost tp1 @?= "europe-west1-docker.pkg.dev"
+        tpBackupBucket tp1 @?= "acme-prod-nagare-backups"
+        registryPrefix tp1 @?= "europe-west1-docker.pkg.dev/acme-prod/nagare"
       -- (3) explicit derived vars win over the derivation.
-      mapM_ unsetEnv allTargetVars
-      setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
-      setEnv "NAGARE_REGISTRY_HOST" "custom.registry.example"
-      setEnv "NAGARE_BACKUP_BUCKET" "my-bucket"
-      tp2 <- resolveTargetProfile
-      tpRegistryHost tp2 @?= "custom.registry.example"
-      tpBackupBucket tp2 @?= "my-bucket"
+        clearTargetEnv
+        setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
+        setEnv "NAGARE_REGISTRY_HOST" "custom.registry.example"
+        setEnv "NAGARE_BACKUP_BUCKET" "my-bucket"
+        tp2 <- resolveTargetProfile
+        tpRegistryHost tp2 @?= "custom.registry.example"
+        tpBackupBucket tp2 @?= "my-bucket"
       -- (4) EP-3: NAGARE_TARGET_PLATFORM override wins (env > profile > default),
       -- and an empty value falls back to the default (envOr's empty-is-unset rule).
-      mapM_ unsetEnv allTargetVars
-      setEnv "NAGARE_TARGET_PLATFORM" "linux/arm64"
-      tp3 <- resolveTargetProfile
-      tpTargetPlatform tp3 @?= "linux/arm64"
-      setEnv "NAGARE_TARGET_PLATFORM" ""
-      tp4 <- resolveTargetProfile
-      tpTargetPlatform tp4 @?= "linux/amd64"
+        clearTargetEnv
+        setEnv "NAGARE_TARGET_PLATFORM" "linux/arm64"
+        tp3 <- resolveTargetProfile
+        tpTargetPlatform tp3 @?= "linux/arm64"
+        setEnv "NAGARE_TARGET_PLATFORM" ""
+        tp4 <- resolveTargetProfile
+        tpTargetPlatform tp4 @?= "linux/amd64"
       -- (5) EP-84: NAGARE_LOCAL_OBJECT_STORE resolves verbatim when set.
-      mapM_ unsetEnv allTargetVars
-      setEnv "NAGARE_LOCAL_OBJECT_STORE" "http://minio:9000/nagare-backups"
-      tp5 <- resolveTargetProfile
-      tpLocalObjectStore tp5 @?= "http://minio:9000/nagare-backups"
+        clearTargetEnv
+        setEnv "NAGARE_LOCAL_OBJECT_STORE" "http://minio:9000/nagare-backups"
+        tp5 <- resolveTargetProfile
+        tpLocalObjectStore tp5 @?= "http://minio:9000/nagare-backups"
   where
-    allTargetVars =
+    savedVars = targetFieldVars <> ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
+    targetFieldVars =
+      [ "CLOUDSDK_CORE_PROJECT"
+      , "CLOUDSDK_COMPUTE_REGION"
+      , "CLOUDSDK_COMPUTE_ZONE"
+      , "NAGARE_REGISTRY_HOST"
+      , "NAGARE_ARTIFACT_REGISTRY_ID"
+      , "NAGARE_IMAGE_BUCKET"
+      , "NAGARE_BACKUP_BUCKET"
+      , "NAGARE_BASE_DOMAIN"
+      , "NAGARE_INSTANCE_NAME"
+      , "NAGARE_TARGET_PLATFORM"
+      , "NAGARE_LOCAL_OBJECT_STORE"
+      ]
+
+contextResolutionTests :: TestTree
+contextResolutionTests =
+  testGroup
+    "Nagare.Target contexts (EP-87)"
+    [ testCase "resolveActiveContext honors store, pointer, env overrides, local mode, and back-compat" $ do
+        saved <- traverse (\v -> (,) v <$> lookupEnv v) savedVars
+        originalCwd <- getCurrentDirectory
+        let restore = do
+              setCurrentDirectory originalCwd
+              mapM_ (\(v, m) -> maybe (unsetEnv v) (setEnv v) m) saved
+        withSystemTempDirectory "nagare-context-store" $ \xdg ->
+          withSystemTempDirectory "nagare-context-cwd" $ \cwd ->
+            flip finally restore $ do
+              setCurrentDirectory cwd
+              setEnv "XDG_CONFIG_HOME" xdg
+              createDirectoryIfMissing True (xdg </> "nagare" </> "contexts")
+              let clearResolutionEnv = do
+                    mapM_ unsetEnv targetFieldVars
+                    unsetEnv "NAGARE_MODE"
+                    unsetEnv "NAGARE_CONTEXT"
+                    setEnv "XDG_CONFIG_HOME" xdg
+                  writeContext name body =
+                    writeFile (xdg </> "nagare" </> "contexts" </> name <.> "env") body
+
+              writeContext "labs" $
+                unlines
+                  [ "export CLOUDSDK_CORE_PROJECT=labs-proj"
+                  , "export CLOUDSDK_COMPUTE_REGION=europe-west1"
+                  ]
+              writeContext "prod" "export CLOUDSDK_CORE_PROJECT=prod-proj\n"
+
+              clearResolutionEnv
+              setEnv "NAGARE_CONTEXT" "labs"
+              tpLabs <- resolveActiveContext Nothing
+              tpProject tpLabs @?= "labs-proj"
+              tpRegistryHost tpLabs @?= "europe-west1-docker.pkg.dev"
+              tpImageBucket tpLabs @?= "labs-proj-nagare-images"
+
+              tpProd <- resolveActiveContext (Just "prod")
+              tpProject tpProd @?= "prod-proj"
+
+              clearResolutionEnv
+              writeFile (xdg </> "nagare" </> "current-context") "labs\n"
+              tpPointer <- resolveActiveContext Nothing
+              tpProject tpPointer @?= "labs-proj"
+
+              clearResolutionEnv
+              setEnv "NAGARE_CONTEXT" "labs"
+              setEnv "CLOUDSDK_CORE_PROJECT" "override-proj"
+              tpOverride <- resolveActiveContext Nothing
+              tpProject tpOverride @?= "override-proj"
+              tpRegion tpOverride @?= "europe-west1"
+
+              withSystemTempDirectory "nagare-empty-store" $ \emptyXdg -> do
+                clearResolutionEnv
+                setEnv "XDG_CONFIG_HOME" emptyXdg
+                tpDefault <- resolveActiveContext Nothing
+                tpProject tpDefault @?= "tan-nb-exp"
+                tpRegistryHost tpDefault @?= "us-west1-docker.pkg.dev"
+
+              clearResolutionEnv
+              writeContext "local" $
+                unlines
+                  [ "export NAGARE_MODE=local"
+                  , "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000"
+                  , "export NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io"
+                  , "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups"
+                  ]
+              setEnv "NAGARE_CONTEXT" "local"
+              tpLocal <- resolveActiveContext Nothing
+              tpMode tpLocal @?= Local
+              tpRegistryHost tpLocal @?= "k3d-registry.localhost:5000"
+              tpBaseDomain tpLocal @?= "127-0-0-1.sslip.io"
+              case storeBackendFor tpLocal (tpBackupBucket tpLocal) of
+                Right MinioBackend {} -> pure ()
+                other -> assertFailure ("expected MinioBackend, got " <> show other)
+
+              clearResolutionEnv
+              setEnv "NAGARE_CONTEXT" "ghost"
+              missing <- try (resolveActiveContext Nothing) :: IO (Either IOException TargetProfile)
+              case missing of
+                Left _ -> pure ()
+                Right tp -> assertFailure ("expected missing context to fail, got " <> show tp)
+
+              parseContextEnv "# comment\n\nexport A=1\nB=two\nC=\"three\"\nD=\n"
+                @?= Map.fromList [("A", "1"), ("B", "two"), ("C", "three"), ("D", "")]
+
+              withSystemTempDirectory "nagare-empty-context-value" $ \emptyValueXdg -> do
+                setEnv "XDG_CONFIG_HOME" emptyValueXdg
+                createDirectoryIfMissing True (emptyValueXdg </> "nagare" </> "contexts")
+                writeFile
+                  (emptyValueXdg </> "nagare" </> "contexts" </> "empty" <.> "env")
+                  "export CLOUDSDK_CORE_PROJECT=\n"
+                mapM_ unsetEnv targetFieldVars
+                unsetEnv "NAGARE_MODE"
+                setEnv "NAGARE_CONTEXT" "empty"
+                tpEmpty <- resolveActiveContext Nothing
+                tpProject tpEmpty @?= "tan-nb-exp"
+
+              withSystemTempDirectory "nagare-repo-profile" $ \repoXdg -> do
+                clearResolutionEnv
+                setEnv "XDG_CONFIG_HOME" repoXdg
+                writeFile "nagare.target.env" "export CLOUDSDK_CORE_PROJECT=repo-proj\n"
+                tpRepo <- resolveActiveContext Nothing
+                tpProject tpRepo @?= "repo-proj"
+    ]
+  where
+    savedVars = targetFieldVars <> ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
+    targetFieldVars =
       [ "CLOUDSDK_CORE_PROJECT"
       , "CLOUDSDK_COMPUTE_REGION"
       , "CLOUDSDK_COMPUTE_ZONE"
@@ -496,15 +651,21 @@ modeResolutionTests =
         parseMode (Just "prod") @?= Cloud
         parseMode Nothing @?= Cloud
     , testCase "resolveTargetProfile reads NAGARE_MODE" $ do
-        saved <- lookupEnv "NAGARE_MODE"
-        let restore = maybe (unsetEnv "NAGARE_MODE") (setEnv "NAGARE_MODE") saved
-        flip finally restore $ do
-          unsetEnv "NAGARE_MODE"
-          tpC <- resolveTargetProfile
-          tpMode tpC @?= Cloud
-          setEnv "NAGARE_MODE" "local"
-          tpL <- resolveTargetProfile
-          tpMode tpL @?= Local
+        saved <- traverse (\v -> (,) v <$> lookupEnv v) ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
+        let restore =
+              mapM_
+                (\(v, m) -> maybe (unsetEnv v) (setEnv v) m)
+                saved
+        withSystemTempDirectory "nagare-mode-store" $ \xdg ->
+          flip finally restore $ do
+            setEnv "XDG_CONFIG_HOME" xdg
+            unsetEnv "NAGARE_CONTEXT"
+            unsetEnv "NAGARE_MODE"
+            tpC <- resolveTargetProfile
+            tpMode tpC @?= Cloud
+            setEnv "NAGARE_MODE" "local"
+            tpL <- resolveTargetProfile
+            tpMode tpL @?= Local
     ]
 
 -- ---------------------------------------------------------------------------

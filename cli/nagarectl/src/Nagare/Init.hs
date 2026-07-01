@@ -40,7 +40,8 @@ import Cradle (addArgs, cmd, run)
 
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Target
-  ( TargetProfile (..)
+  ( Mode (..)
+  , TargetProfile (..)
   , resolveTargetProfile
   )
 
@@ -106,9 +107,8 @@ profileFromOpts project region zone baseDomain = do
     ]
   resolveTargetProfile
 
--- | Render the profile as the nine @export VAR=value@ lines of nagare.target.env,
--- matching EP-60's schema exactly so the file the rest of the system reads is
--- byte-compatible with the tracked example.
+-- | Render the profile as @export VAR=value@ lines, matching the target/context
+-- schema so a profile can round-trip through the context store.
 renderTargetEnv :: TargetProfile -> Text
 renderTargetEnv tp =
   T.unlines
@@ -124,7 +124,12 @@ renderTargetEnv tp =
     , "export NAGARE_BASE_DOMAIN=" <> tpBaseDomain tp
     , "export NAGARE_INSTANCE_NAME=" <> tpInstanceName tp
     , "export NAGARE_TARGET_PLATFORM=" <> tpTargetPlatform tp
+    , "export NAGARE_MODE=" <> modeToken (tpMode tp)
+    , "export NAGARE_LOCAL_OBJECT_STORE=" <> tpLocalObjectStore tp
     ]
+  where
+    modeToken Cloud = "cloud"
+    modeToken Local = "local"
 
 -- | The eight Pulumi config (key, value) pairs to seed from the profile. Order is
 -- stable for deterministic output. @nagare:imageBucket@ is REQUIRED by the program

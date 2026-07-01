@@ -64,25 +64,29 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] M1: Context model + store layout. Add `ContextName` (newtype + smart constructor
+- [x] M1: Context model + store layout. Add `ContextName` (newtype + smart constructor
   `mkContextName`/accessor `contextNameText`) and the XDG-aware store-path helpers
   (`nagareConfigDir`, `contextsDir`, `contextFilePath`, `currentContextPath`) to
   `cli/nagarectl/src/Nagare/Target.hs`. Document the `.env` schema (one `export VAR=value`
   line per field, matching `nagare.target.env.example`). Reserve the Pulumi-state
   location as a `ContextName`-derived helper (`contextStateDirName`), deferring its path
-  scheme to `docs/plans/90-per-context-pulumi-state-and-config-projection.md`.
-- [ ] M2: Context-aware resolver. Add the context file reader (`parseContextEnv`,
+  scheme to `docs/plans/90-per-context-pulumi-state-and-config-projection.md`. Completed
+  2026-07-01.
+- [x] M2: Context-aware resolver. Add the context file reader (`parseContextEnv`,
   `readContextMap`, `readCurrentContext`), the selection logic (`selectContextName`,
   `loadActiveContextMap`), the field resolver over a context map (`resolveProfileFrom`),
   and the public `resolveActiveContext :: Maybe Text -> IO TargetProfile`. Rework
   `resolveTargetProfile` to delegate (`resolveActiveContext Nothing`), preserving the
-  env-override-then-default semantics and the registry/bucket derivations.
-- [ ] M3: Unit tests in `cli/nagarectl/test/Spec.hs` — precedence ordering, env overrides
+  env-override-then-default semantics and the registry/bucket derivations. Completed
+  2026-07-01.
+- [x] M3: Unit tests in `cli/nagarectl/test/Spec.hs` — precedence ordering, env overrides
   context, in-repo-profile back-compat, defaults-reproduce-tan-nb-exp (extend the
   existing assertions with store isolation), mode folding (a `mode=local` context resolves
-  to `Local`), and `parseContextEnv` parsing.
-- [ ] `cd cli/nagarectl && cabal build -v0 exe:nagarectl` succeeds and `cabal test`
-  passes with the extended and new groups green.
+  to `Local`), `parseContextEnv` parsing, and `Nagare.Init.renderTargetEnv` emitting
+  `NAGARE_MODE`/`NAGARE_LOCAL_OBJECT_STORE` so local contexts round-trip through the flat
+  file schema. Completed 2026-07-01.
+- [x] `cd cli/nagarectl && cabal build -v0 exe:nagarectl` succeeds and `cabal test`
+  passes with the extended and new groups green. Completed 2026-07-01.
 
 
 ## Surprises & Discoveries
@@ -100,7 +104,17 @@ implementation. Provide concise evidence.
   *reader*, and the *selection precedence* layered into resolution. This is recorded so a
   future contributor does not waste effort re-deriving fields that already exist.
 
-(Otherwise none yet.)
+- The `nagarectl-test` suite already had multiple groups that mutate process-global
+  state (`System.Environment` and, for the new EP-87 coverage, the current working
+  directory). Tasty runs tests in parallel by default, so adding the context tests exposed
+  a pre-existing harness assumption: the full suite could race, making
+  `resolveTargetProfile reads NAGARE_MODE` observe `Cloud` while another test was clearing
+  the environment, and making `AppDeploySpec` look for fixtures from the temporary CWD.
+  The test tree now uses top-level `localOption (NumThreads 1)`, which matches the suite's
+  process-global style and makes the full run deterministic. Evidence: the first full
+  `cabal test` failed with those two symptoms; after serializing the tree, all 339 tests
+  passed; after the renderer round-trip assertion was added, all 340 tests passed. Date:
+  2026-07-01.
 
 
 ## Decision Log
@@ -170,13 +184,46 @@ Record every decision made while working on the plan.
   build on a stable hook without EP-87 over-reaching.
   Date: 2026-06-30
 
+- Decision: keep `nagarectl-test` single-threaded with `localOption (NumThreads 1)`.
+  Rationale: the existing suite already uses process-global environment variables in
+  target, mode, and command-helper tests, and EP-87 adds temporary CWD changes to prove
+  in-repo profile back-compat. Parallel execution makes those tests nondeterministic even
+  when each individual case restores state correctly. Serial execution is the narrowest
+  harness change that reflects how the tests are written; it does not change product
+  behavior.
+  Date: 2026-07-01
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-87 is complete. `cli/nagarectl/src/Nagare/Target.hs` now exports the context-name type,
+XDG store helpers, context `.env` parser/readers, `resolveActiveContext :: Maybe Text -> IO
+TargetProfile`, and a back-compatible `resolveTargetProfile` that delegates through the
+context-aware resolver. `cli/nagarectl/src/Nagare/Init.hs` now renders the full context
+schema, including `NAGARE_MODE` and `NAGARE_LOCAL_OBJECT_STORE`, so a local
+`TargetProfile` can round-trip through the same flat file format. The implementation
+preserves the historic default profile, per-field env overrides, derived registry/bucket
+defaults, and local-mode object-store behavior while adding fail-closed named-context
+selection.
+
+Validation evidence from 2026-07-01:
+
+```text
+cd cli/nagarectl && cabal build -v0 exe:nagarectl
+Result: exit 0; only pre-existing app/Main.hs name-shadowing warnings.
+
+cd cli/nagarectl && cabal test --test-options='--pattern "EP-87"'
+Result: 1 EP-87 test passed.
+
+cd cli/nagarectl && cabal test
+Result: all 340 tests passed.
+```
+
+No runtime store migration is included here; writing and managing context files remains
+owned by `docs/plans/88-nagarectl-context-command-group-and-context-selection.md`.
 
 
 ## Context and Orientation
@@ -882,3 +929,7 @@ MasterPlan: docs/masterplans/17-first-class-target-contexts-for-nagare.md
 ExecPlan: docs/plans/87-target-context-model-store-and-resolver-for-nagarectl.md
 Intention: intention_01kwdepj5gey18qqy0pjjx3mep
 ```
+
+Revision note, 2026-07-01: Implemented EP-87, checked off all progress items, added
+validation evidence, recorded the single-threaded test-runner decision, and summarized the
+outcome. The plan remains the source of truth for the completed resolver/store contract.
