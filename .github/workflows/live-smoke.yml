@@ -21,12 +21,25 @@ jobs:
             experimental-features = nix-command flakes
             sandbox = relaxed
 
+      - name: Configure private dependency access
+        env:
+          NAGARE_DEPENDENCY_TOKEN: ${{ secrets.NAGARE_DEPENDENCY_TOKEN }}
+        run: |
+          if [ -z "${NAGARE_DEPENDENCY_TOKEN}" ]; then
+            echo "::error title=Missing NAGARE_DEPENDENCY_TOKEN::Create a repository secret with read access to private source-repository-package dependencies such as shinzui/en."
+            exit 1
+          fi
+          sudo git config --system \
+            url."https://x-access-token:${NAGARE_DEPENDENCY_TOKEN}@github.com/shinzui/".insteadOf \
+            "https://github.com/shinzui/"
+
       - name: Authenticate to GCP
         # Configure credentials so gcloud/nagarectl can reach the target project
         # (e.g. a service-account key in repo secrets, or Workload Identity
         # Federation). The smoke script's _require_target_project guardrail still
         # refuses to act on any project but the configured target.
-        run: echo "TODO: configure GCP auth (service-account key or WIF) before invoking the smoke test"
+        run: |
+          echo "TODO: configure GCP auth (service-account key or WIF) before invoking the smoke test"
 
       - name: Run the live smoke test inside the dev shell
         # The dev shell ships nagarectl's toolchain, gcloud, kubectl, and just.

@@ -33,6 +33,18 @@ jobs:
             experimental-features = nix-command flakes
             sandbox = relaxed
 
+      - name: Configure private dependency access
+        env:
+          NAGARE_DEPENDENCY_TOKEN: ${{ secrets.NAGARE_DEPENDENCY_TOKEN }}
+        run: |
+          if [ -z "${NAGARE_DEPENDENCY_TOKEN}" ]; then
+            echo "::error title=Missing NAGARE_DEPENDENCY_TOKEN::Create a repository secret with read access to private source-repository-package dependencies such as shinzui/en."
+            exit 1
+          fi
+          sudo git config --system \
+            url."https://x-access-token:${NAGARE_DEPENDENCY_TOKEN}@github.com/shinzui/".insteadOf \
+            "https://github.com/shinzui/"
+
       - name: Run the flake checks (the source of truth)
         # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
         # compiling, either Haskell test suite fails, or a shell script has an
