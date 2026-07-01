@@ -21,7 +21,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | --- | --- | --- |
 | NixOS host config | **Git** (this repo) | ✅ |
 | Pulumi infra program | **Git** (this repo) | ✅ |
-| Pulumi **state** | In-repo `file://` backend under `infra/pulumi/.pulumi-state` | ✅ (commit/back up the repo) |
+| Pulumi **state** | Per-context `file://` backend under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state` | ✅ (back up the active context state directory until remote state lands) |
 | Kubernetes manifests | **Git** (`cluster/`) | ✅ |
 | Secrets | **sops-encrypted in Git** + host age key offline | 🟡 (see [Secrets](secrets.md)) |
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
@@ -87,9 +87,10 @@ the continuous Litestream pattern (`cluster/examples/sqlite-litestream/`) for
 databases written while serving. Uploaded files, generated assets, and a stopped
 app's database snapshot cleanly.
 
-> **The two things you must keep off-machine yourself:** the **host age private
-> key** (without it you cannot decrypt secrets to rebuild) and a **copy of this
-> Git repo** including Pulumi state. Everything else can be regenerated.
+> **The three things you must keep off-machine yourself:** the **host age private
+> key** (without it you cannot decrypt secrets to rebuild), a **copy of this Git
+> repo**, and a **copy of the active context's Pulumi state directory** until
+> remote Pulumi state lands. Everything else can be regenerated.
 
 ## The disaster-recovery runbook (target)
 

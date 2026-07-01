@@ -6,11 +6,12 @@
 
 ---
 
-## Default-example identifiers (derived from the target profile)
+## Default-example identifiers (derived from the active context)
 
 These are the values for the default-example target (`tan-nb-exp` / `us-west1`).
-For your own project they **derive from `nagare.target.env`**: registry host
-`<region>-docker.pkg.dev`, buckets `<project>-nagare-*`, SA `nagare-node@<project>…`.
+For your own project they **derive from the active target context**: registry
+host `<region>-docker.pkg.dev`, buckets `<project>-nagare-*`, SA
+`nagare-node@<project>…`.
 
 | Thing | Value (default example) |
 | --- | --- |
@@ -28,11 +29,26 @@ For your own project they **derive from `nagare.target.env`**: registry host
 | k3s kubeconfig (on host) | `/etc/rancher/k3s/k3s.yaml` (mode `0644`) |
 | NixOS `stateVersion` | `26.05` |
 
-## Target profile variables (`nagare.target.env`)
+## Context store
 
-The git-ignored `nagare.target.env` (schema in `nagare.target.env.example`) is the
-single source of truth for the GCP target; `nagarectl init` writes it. Precedence:
-**environment > profile > built-in default**.
+The context store is user-level, not per-checkout:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/nagare/
+  contexts/<name>.env
+  current-context
+```
+
+Selection precedence is `--context` / `NAGARE_CONTEXT` > `current-context` >
+in-repo profile > built-in default. Per-field values still follow environment >
+context/profile > default. See [Target contexts](contexts.md).
+
+## Cloud context variables (also `nagare.target.env`)
+
+Each context `.env` file uses the same flat schema as the git-ignored
+`nagare.target.env` back-compat profile (documented by
+`nagare.target.env.example`). `nagarectl init NAME` writes a named context;
+unnamed `nagarectl init` writes the old `nagare.target.env`.
 
 | Variable | Default | Derivation |
 | --- | --- | --- |
@@ -47,13 +63,13 @@ single source of truth for the GCP target; `nagarectl init` writes it. Precedenc
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
 
-See [Getting started](getting-started.md) and [`CLAUDE.md`](../../CLAUDE.md) for the
-configurable-isolation model.
+See [Getting started](getting-started.md), [Target contexts](contexts.md), and
+[`CLAUDE.md`](../../CLAUDE.md) for the configurable-isolation model.
 
-## Local profile variables (`nagare.local.env`)
+## Local context variables (also `nagare.local.env`)
 
-The git-ignored `nagare.local.env` (schema in `nagare.local.env.example`) selects
-the local k3d target when `NAGARE_MODE=local`.
+The git-ignored `nagare.local.env` (schema in `nagare.local.env.example`) is now
+the back-compatible form of a `mode=local` context.
 
 | Variable | Default example | Purpose |
 | --- | --- | --- |
@@ -62,6 +78,20 @@ the local k3d target when `NAGARE_MODE=local`.
 | `NAGARE_BASE_DOMAIN` | `127-0-0-1.sslip.io` | loopback wildcard app domain |
 | `NAGARE_TARGET_PLATFORM` | `linux/arm64` in the example | local image build platform |
 | `NAGARE_LOCAL_OBJECT_STORE` | `http://minio.nagare-system.svc.cluster.local:9000/nagare-backups` | MinIO endpoint + bucket for local backups |
+
+## `nagarectl context` commands
+
+| Command | Does |
+| --- | --- |
+| `nagarectl context list` | List stored contexts and mark the current one. |
+| `nagarectl context current` | Print the current context name. |
+| `nagarectl context use NAME` | Set the current context, select its Pulumi stack/backend, and regenerate its config projection. |
+| `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
+| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--force`, and `--use`. |
+| `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
+
+`nagarectl --context NAME ...` is the global per-command target selector.
+Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 
 ## `justfile` recipes
 
@@ -83,15 +113,18 @@ the local k3d target when `NAGARE_MODE=local`.
 | `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 
-## Pulumi config keys (`infra/pulumi/Pulumi.dev.yaml`)
+## Pulumi config keys (`infra/pulumi/Pulumi.<context>.yaml`)
 
-These keys are a **derived projection of the target profile** — `nagarectl init`
-writes them from `nagare.target.env` with `pulumi config set`; you normally don't
-hand-edit `Pulumi.dev.yaml` for a new project.
+These keys are a **derived projection of the active context**. `nagarectl init
+NAME`, `nagarectl context use NAME`, and `nagarectl context create NAME --use`
+write `infra/pulumi/Pulumi.<context>.yaml` with `pulumi config set --stack
+<context>`. The generated stack config files are git-ignored; you normally do
+not hand-edit them for a new project. Each context also has its own file backend
+and `PULUMI_HOME` under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/`.
 
 | Key | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `gcp:project` | yes | `tan-nb-exp` | Your target project (default example `tan-nb-exp`). Seeded from the profile by `nagarectl init`. |
+| `gcp:project` | yes | `tan-nb-exp` | Your target project (default example `tan-nb-exp`). Seeded from the context by `nagarectl init` / `context use`. |
 | `gcp:region` | yes | `us-west1` | |
 | `gcp:zone` | yes | `us-west1-a` | |
 | `nagare:imageBucket` | yes | `tan-nb-exp-nagare-images` | |
@@ -151,7 +184,7 @@ it. Only Traefik is disabled.
 
 | Script | Purpose |
 | --- | --- |
-| `lib/target.sh` | Sourced helper: loads `nagare.target.env`, sets `TARGET_PROJECT`/`REGION`/`ZONE`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
+| `lib/target.sh` | Sourced helper: resolves the active context, sets `TARGET_PROJECT`/`REGION`/`ZONE`, exports `NAGARE_REGISTRY_PREFIX`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
 | `upload-images.sh` | Build the NixOS image on the remote builder, upload to GCS, register as a GCE image, write `nagareImageSelfLink`. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
@@ -160,11 +193,13 @@ it. Only Traefik is disabled.
 
 ### `nagarectl init` (onboarding)
 
-`nagarectl init` is the guided onboarding command (the one command permitted to
-drive Pulumi/gcloud). Flags: `--project`, `--region`, `--zone`, `--base-domain`,
-`--force`, `--skip-preflight`, `--skip-enable`, `--skip-seed`, `--dry-run`. It
-preflights gcloud auth + the six operator IAM roles, writes `nagare.target.env`,
-runs `enable-apis.sh`, and seeds the eight Pulumi keys. See
+`nagarectl init [NAME]` is the guided onboarding command (the one command
+permitted to drive Pulumi/gcloud). Flags: `--project`, `--region`, `--zone`,
+`--base-domain`, `--force`, `--skip-preflight`, `--skip-enable`, `--skip-seed`,
+`--dry-run`. With `NAME`, it preflights gcloud auth + the six operator IAM roles,
+writes a named context, sets it current, runs `enable-apis.sh`, and seeds that
+context's Pulumi keys. Without `NAME`, it writes the legacy `nagare.target.env`.
+See
 [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md).
 
 ## IAM granted to `nagare-node`

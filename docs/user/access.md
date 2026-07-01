@@ -114,6 +114,10 @@ Grant a shomei user access to one protected host:
 nagarectl access grant --host protected-hello.apps.example.com --user alice
 ```
 
+The host suffix comes from the active context's `NAGARE_BASE_DOMAIN`. A `labs`
+context with `labs.topagentnetwork.net` uses
+`protected-hello.labs.topagentnetwork.net` in these commands.
+
 List users that expand to the host's `access` permission:
 
 ```bash

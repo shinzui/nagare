@@ -68,23 +68,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: New runbook `docs/user/contexts.md` written — what a context is, store layout +
+- [x] M1: New runbook `docs/user/contexts.md` written — what a context is, store layout +
   `current-context`, the `nagarectl context` command group, `--context`/`NAGARE_CONTEXT`,
   the precedence, a worked `labs`-vs-`local` multi-instance example, cloud-vs-local as
-  `mode`, per-context Pulumi state, and troubleshooting.
-- [ ] M2: Existing docs reconciled — `getting-started.md` ("Where to go next" +
+  `mode`, per-context Pulumi state, migration, and troubleshooting. Completed 2026-07-01.
+- [x] M2: Existing docs reconciled — `getting-started.md` ("Where to go next" +
   control-surface), `onboarding-bring-your-own-project.md` (init creates a context;
   multi-instance via contexts), `local-development.md` (local = a `mode=local` context),
   `reference.md` (add the `nagarectl context …` commands + recipes/keys), `README.md`
-  (capability table gets a "Target contexts" row + Read-in-this-order link), and
-  `access.md` (note the public host derives from the active context's base domain).
-- [ ] M3: Migration + back-compat — the ordered `nagare.target.env`/`nagare.local.env`
+  (capability table gets a "Target contexts" row + Read-in-this-order link),
+  `access.md` (note the public host derives from the active context's base domain), plus
+  related Pulumi/DR/build-flag references found during validation. Completed 2026-07-01.
+- [x] M3: Migration + back-compat — the ordered `nagare.target.env`/`nagare.local.env`
   → named-context migration documented; the "in-repo profile still works / nothing-set
   still reproduces `tan-nb-exp`" guarantee stated; `CLAUDE.md`'s isolation section
   re-expressed over the **active context** without weakening the fail-closed cloud
-  guarantee.
-- [ ] Validation: every new/edited internal link resolves; a reader can go fresh checkout
-  → two contexts → deploy using only the docs.
+  guarantee. Completed 2026-07-01.
+- [x] Validation: every new/edited internal link resolves; a reader can go fresh checkout
+  → two contexts → deploy using only the docs. Completed 2026-07-01.
 
 
 ## Surprises & Discoveries
@@ -101,6 +102,19 @@ implementation. Provide concise evidence.
   command-name or path drift before finalizing. Evidence: at drafting,
   `grep -nE "context (list|current|use|show|create|delete)" docs/plans/88-*.md` returns
   only the title line, confirming EP-88's body is not yet fleshed out.
+
+- During final reconciliation, the stale context-model prose extended beyond the original
+  M2 file list. `docs/user/provisioning-with-pulumi.md`,
+  `docs/user/backups-and-disaster-recovery.md`, `docs/runbooks/disaster-recovery.md`,
+  `docs/user/deploying-apps.md`, `docs/user/build-modes.md`,
+  `docs/user/config-reference.md`, `docs/user/workers.md`,
+  `docs/user/managed-databases.md`, `docs/user/cluster-bootstrap.md`, and
+  `docs/user/troubleshooting.md` also had user-facing references to `Pulumi.dev.yaml`,
+  in-repo Pulumi state, the old `--context` build-directory flag, or local-mode/profile
+  wording that would contradict EP-87…EP-91. Those were updated as part of M2 so the user
+  guide is internally consistent. Evidence: the final stale-reference check over
+  `docs/user`, `docs/runbooks`, and `CLAUDE.md` leaves only the intentional
+  "tracked `Pulumi.dev.yaml` has been removed" note in `docs/user/contexts.md`.
 
 
 ## Decision Log
@@ -159,7 +173,28 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-92 is complete. The operator guide now has a canonical
+[`docs/user/contexts.md`](../user/contexts.md) runbook covering the context store,
+selection precedence, `nagarectl context` commands, cloud-vs-local mode, a worked
+`labs` + `local` example, per-context Pulumi state, cluster/host rendering, migration
+from old profile files, and troubleshooting. The main operator pages now describe the
+active context as the primary target-selection mechanism while keeping the old
+`nagare.target.env`/`nagare.local.env` files as documented back-compatible fallbacks.
+`CLAUDE.md` now expresses isolation over the active context and keeps the cloud branch
+fail-closed.
+
+Validation completed 2026-07-01:
+
+```text
+Internal link check over all edited docs: link check done, no BROKEN lines.
+Required contexts.md keyword check: all ok (current-context, XDG_CONFIG_HOME,
+NAGARE_CONTEXT, --context, context use, context list, mode=local, labs, precedence,
+Migrating).
+README capability/index checks: ok.
+CLAUDE.md active-context/MP-17/fail-closed checks: ok.
+Stale-reference check: no old Pulumi path or old build-context flag hits; only the
+intentional contexts.md note that the tracked Pulumi.dev.yaml has been removed.
+```
 
 
 ## Context and Orientation

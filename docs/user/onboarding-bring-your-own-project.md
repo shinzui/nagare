@@ -8,7 +8,9 @@
 From an empty GCP project and a domain you own to a running nagare, using only this
 page and the pages it links. The default worked example targets project `tan-nb-exp`,
 region `us-west1`, zone `us-west1-a`, base domain `apps.example.com` — **every one of
-those is substitutable** for your own values via the target profile.
+those is substitutable** for your own values via the target context.
+For new setups, put those values in a named [target context](contexts.md), such
+as `prod` or `labs`.
 
 **Before you begin:**
 
@@ -39,11 +41,12 @@ ready to delegate. Don't repeat the detail here — follow the linked page.
 
 ## Step 2 — `nagarectl init`  ✅
 
-This is the centerpiece. It is the **one** command that writes the target profile and
-drives Pulumi config — you do not hand-edit either for onboarding.
+This is the centerpiece. It is the **one** command that writes a target context
+and drives that context's Pulumi config projection — you do not hand-edit either
+for onboarding.
 
 ```bash
-nagarectl init --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com
+nagarectl init prod --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com
 # On a TTY it prompts for project / region / zone / base domain with sensible defaults.
 ```
 
@@ -55,7 +58,7 @@ Flags (exactly as shipped):
 | `--region` | Compute region (default `us-west1`). |
 | `--zone` | Compute zone (default `us-west1-a`). |
 | `--base-domain` | Apps base domain (default `apps.example.com`). |
-| `--force` | Overwrite an existing `nagare.target.env`. |
+| `--force` | Overwrite an existing named context, or an existing `nagare.target.env` in legacy mode. |
 | `--skip-preflight` | Skip the gcloud-auth + operator-IAM checks. |
 | `--skip-enable` | Skip running `scripts/enable-apis.sh`. |
 | `--skip-seed` | Skip seeding the Pulumi stack config. |
@@ -65,12 +68,14 @@ There is **no** `--yes` / `--non-interactive` flag — supplying `--project` is 
 the run non-interactive.
 
 Ordered effect: resolve defaults → **preflight** (gcloud active account + the six operator
-IAM roles) → write `nagare.target.env` (nine `export` lines) → **enable** the six APIs →
-**seed** eight Pulumi stack-config keys (`gcp:project`, `gcp:region`, `gcp:zone`,
+IAM roles) → write the named context (the same `export` lines shown below) and make it
+current → **enable** the six APIs →
+**seed** eight Pulumi stack-config keys for that context (`gcp:project`, `gcp:region`, `gcp:zone`,
 `nagare:baseDomain`, `nagare:imageBucket`, `nagare:backupBucket`, `nagare:artifactRegistryId`,
 `nagare:instanceName`) → print next steps.
 
-The generated `nagare.target.env` is your single source of truth:
+The generated context is your single source of truth. `nagarectl context show prod`
+prints it in the same flat format:
 
 ```bash
 export CLOUDSDK_CORE_PROJECT=tan-nb-exp                 # YOUR project
@@ -83,6 +88,10 @@ export NAGARE_BACKUP_BUCKET=tan-nb-exp-nagare-backups     # derived as <project>
 export NAGARE_BASE_DOMAIN=apps.example.com
 export NAGARE_INSTANCE_NAME=nagare-01
 ```
+
+If you omit `NAME`, `nagarectl init` keeps the legacy behavior and writes
+`./nagare.target.env`. That path is still supported, but named contexts are the
+multi-target workflow.
 
 `init` does **not** do the next two manual steps (SSH key, age key, Tailscale key) or the
 Docker-auth step — its printed "Next steps" stop at the `just` recipes. Do them now, in
@@ -185,7 +194,7 @@ under your wildcard) depends on Step 6's DNS delegation having propagated.
 
 See [deploying apps](deploying-apps.md) and [config reference](config-reference.md). An
 app's `nagare/Config.hs` now supplies only the image **name** (e.g. `mkImageRef "notes"`);
-the registry prefix comes from your target profile at deploy time. A `/`-bearing ref (a
+the registry prefix comes from your active context at deploy time. A `/`-bearing ref (a
 public image) is used as-is.
 
 ## Step 12 — Backups and recovery  🟡  *(DB/volume backups built; full DR drill deferred)*
@@ -198,18 +207,31 @@ private key** and a copy of this repo (including Pulumi state under `infra/pulum
 
 ## Switching projects later
 
-To point the same checkout at a different GCP project, re-run:
+To point the same checkout at a different GCP project, create or initialize a
+second context:
 
 ```bash
-nagarectl init --force     # rewrites nagare.target.env and re-seeds Pulumi config
+nagarectl init labs --project LABS_PROJECT_ID --base-domain labs.example.com
+nagarectl context use labs
+nagarectl --context prod deploy -f nagare/Config.hs    # one-command override
 ```
 
-You do **not** run two targets at once — the guardrail enforces one active target per
-checkout (MasterPlan 12, "out of scope: simultaneous multi-project").
+`nagarectl context create labs ...` is the lighter-weight path when the GCP
+project already exists and you only need to record the target bundle. The legacy
+path still works too:
+
+```bash
+nagarectl init --force     # rewrites nagare.target.env and re-seeds the default projection
+```
+
+See [Target contexts](contexts.md) for `--context`, `NAGARE_CONTEXT`, migration
+from old profile files, and the selection precedence.
 
 ## See also
 
 - [`CLAUDE.md`](../../CLAUDE.md) — the configurable project-isolation policy.
-- [MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md) —
-  the architectural decision.
+- [Target contexts](contexts.md) — named cloud/local targets and migration from
+  `nagare.target.env` / `nagare.local.env`.
+- [MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md) —
+  the context-model decision.
 - [GCP prerequisites](gcp-prerequisites.md) — the GCP-account setup this runbook assumes.

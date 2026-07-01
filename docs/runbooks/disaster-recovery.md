@@ -5,8 +5,9 @@ bucket. The goal is **boring and reproducible**: every step is a command plus th
 observation that confirms it worked. Run everything from the repo root
 `/Users/shinzui/Keikaku/bokuno/nagare` inside the dev shell (`nix develop` or
 `direnv allow`), which provides `pulumi`, `kubectl`, `helm`, `gcloud`/`gsutil`,
-`sops`, `age`, `jq`, and `just`. All cloud work targets project **`tan-nb-exp`**,
-region **`us-west1`**, zone **`us-west1-a`**.
+`sops`, `age`, `jq`, and `just`. All cloud work targets the active context; the
+historic default context is project **`tan-nb-exp`**, region **`us-west1`**, zone
+**`us-west1-a`**.
 
 > For routine (non-rebuild) health checks and day-2 operations, use `nagarectl
 > server status` / `nagarectl doctor` — see
@@ -34,7 +35,7 @@ recovery cannot complete. Restore it first, before step 7.
 ```text
 NixOS config .............. Git (nixos/)                              -> git clone
 Pulumi infra (TypeScript) . Git (infra/pulumi/src/)                  -> git clone
-Pulumi state .............. infra/pulumi/.pulumi-state (in-repo)      -> restored with the repo
+Pulumi state .............. ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state -> restore active context state
 Kubernetes manifests ...... Git (cluster/)                           -> git clone
 Secrets ................... sops-encrypted in Git (.sops.yaml,
                             cluster/secrets/, nixos/secrets/)         -> sops -d | kubectl apply

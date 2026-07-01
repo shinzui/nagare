@@ -46,7 +46,7 @@ which (per the `justfile`) creates namespaces and applies, in order:
 
 ```bash
 cert-manager
-cluster/bootstrap/cert-manager/letsencrypt-dns.yaml
+rendered cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl
 Knative Serving CRDs and core
 Kourier
 cluster/bootstrap/knative-serving/config-network.yaml
@@ -66,8 +66,8 @@ just local-bootstrap
 
 `local-bootstrap` installs cert-manager, Knative, Kourier, and net-certmanager,
 but intentionally does not apply the GCP DNS-01 issuer or enable external-domain
-TLS. It reads `NAGARE_BASE_DOMAIN` from `nagare.local.env` and configures
-`registriesSkippingTagResolving` for `NAGARE_REGISTRY_HOST`.
+TLS. It reads `NAGARE_BASE_DOMAIN` and `NAGARE_REGISTRY_HOST` from the active
+local context.
 
 ## DNS and TLS model
 

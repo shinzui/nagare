@@ -285,8 +285,9 @@ drill and procedure.
 > on the running node and committed to NixOS — a `just host-switch` (or the next
 > image rebuild) persists it across reboots.
 >
-> **Local mode.** When `NAGARE_MODE=local`, the same backup/restore renderers use
-> the local MinIO backend from `NAGARE_LOCAL_OBJECT_STORE` and the
+> **Local mode.** When the active context has `mode=local`, the same
+> backup/restore renderers use the local MinIO backend from
+> `NAGARE_LOCAL_OBJECT_STORE` and the
 > `nagare-minio-credentials` Secret installed by `just local-minio`.
 
 
