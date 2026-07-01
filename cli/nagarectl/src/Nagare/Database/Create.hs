@@ -51,7 +51,7 @@ import Nagare.Dsl.Types
   , quantityText
   )
 import Nagare.Env.Store (extractSecretData)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile, storeBackendFor)
+import Nagare.Target (TargetProfile (..), storeBackendFor)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -65,6 +65,7 @@ data DbCreateParams = DbCreateParams
   , dcpMemory :: !(Maybe Text)
   , dcpConfig :: !(Maybe FilePath)
   , dcpDryRun :: !Bool
+  , dcpTargetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
@@ -133,8 +134,8 @@ runDbCreate eng nameT params = do
       -- EP-47: a managed database is backup-included by default — a daily,
       -- self-pruning CronJob — unless retention = Delete (treated as throwaway).
       backsUp = (db ^. #retention) /= Delete
-  tp <- resolveTargetProfile
-  let bucket = tpBackupBucket tp
+  let tp = dcpTargetProfile params
+      bucket = tpBackupBucket tp
   backend <- either dieT pure (storeBackendFor tp bucket)
   let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
   if dcpDryRun params

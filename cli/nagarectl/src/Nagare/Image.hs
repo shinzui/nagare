@@ -12,6 +12,7 @@ module Nagare.Image
   , nixpacksBuildArgs
   , buildNixpacks
   , configureDockerAuth
+  , configureDockerAuthFor
   , dockerAuthPlan
   , DockerAuth (..)
   , pushImage
@@ -118,12 +119,14 @@ dockerAuthPlan Cloud host =
 -- authenticates to Artifact Registry. In local mode (@NAGARE_MODE=local@, EP-82) it
 -- is a no-op: the local k3d registry needs no credential helper and no @gcloud@ is
 -- invoked. Resolves the profile internally so all call sites are unchanged.
-configureDockerAuth :: IO ()
-configureDockerAuth = do
-  tp <- resolveTargetProfile
+configureDockerAuthFor :: TargetProfile -> IO ()
+configureDockerAuthFor tp =
   case dockerAuthPlan (tpMode tp) (tpRegistryHost tp) of
     SkipDockerAuth -> pure ()
     GcloudConfigureDocker args -> run_ $ cmd "gcloud" & addArgs args
+
+configureDockerAuth :: IO ()
+configureDockerAuth = resolveTargetProfile >>= configureDockerAuthFor
 
 -- | Run @docker push \<image:tag\>@.
 pushImage :: Text -> IO ()

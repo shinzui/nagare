@@ -35,7 +35,7 @@ import Nagare.Dsl.Static.Render
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types (domainText, imageRefText, mkDomain, namespaceText)
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
-import Nagare.Image (buildImage, configureDockerAuth, pushImage, taggedImageRef)
+import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
 import Nagare.Static.Build (PreparedStaticOutput, prepareStaticOutput, renderStaticBuildError)
 import Nagare.Static.Image (withStaticImageContext)
 import Nagare.Static.Preview (previewDomain, previewServiceName)
@@ -45,6 +45,7 @@ import Nagare.Static.Release
   , readReleaseLog
   , writeReleaseLog
   )
+import Nagare.Target (TargetProfile)
 
 -- | The CLI-independent inputs to a static deploy.
 data DeployInputs = DeployInputs
@@ -53,6 +54,7 @@ data DeployInputs = DeployInputs
   , baseDomain :: !Text
   , projectDir :: !FilePath
   , skipBuild :: !Bool
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic)
 
@@ -113,7 +115,7 @@ deployStaticProduction inputs src = do
       ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
       ns = namespaceText (s ^. #namespace)
   withPreparedOutput inputs $ \out -> do
-    configureDockerAuth
+    configureDockerAuthFor (targetProfile inputs)
     withStaticImageContext s out (buildImage ref)
     pushImage ref
     applyManifests (service m : domainMappings m)
@@ -132,7 +134,7 @@ deployStaticPreview inputs raw =
           ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
           ns = namespaceText (s ^. #namespace)
       withPreparedOutput inputs $ \out -> do
-        configureDockerAuth
+        configureDockerAuthFor (targetProfile inputs)
         withStaticImageContext s out (buildImage ref)
         pushImage ref
         applyManifests (service m : domainMappings m)

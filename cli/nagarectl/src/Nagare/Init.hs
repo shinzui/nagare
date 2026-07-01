@@ -50,7 +50,8 @@ import Nagare.Target
 -- flags exist for testing/CI and for partial recovery (e.g. re-seed without
 -- re-enabling). @--force@ permits overwriting an existing profile.
 data InitOpts = InitOpts
-  { ioProject :: !(Maybe String)
+  { ioContextName :: !(Maybe String)
+  , ioProject :: !(Maybe String)
   , ioRegion :: !(Maybe String)
   , ioZone :: !(Maybe String)
   , ioBaseDomain :: !(Maybe String)

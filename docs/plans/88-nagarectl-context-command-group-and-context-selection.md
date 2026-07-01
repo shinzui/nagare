@@ -71,9 +71,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] M1 — `nagarectl context` command group (`list`/`current`/`use`/`show`/`create`/`delete`) implemented against EP-87's store; `context create` reuses the target-field derivations; behavioral tests for the round trip.
-- [ ] M2 — global `--context <name>` flag added to the top-level parser and threaded into every command's target resolution via EP-87's `resolveActiveContext`; the build-context-dir override renamed to `--build-context`; `NAGARE_CONTEXT` honored through the resolver.
-- [ ] M3 — `nagarectl init [NAME]` writes a named context into the store and marks it current when `NAME` is given; still writes `./nagare.target.env` when it is not; Pulumi seeding unchanged.
+- [x] M1 — `nagarectl context` command group (`list`/`current`/`use`/`show`/`create`/`delete`) implemented against EP-87's store; `context create` reuses the target-field derivations; behavioral tests for the round trip. Started and completed 2026-07-01.
+- [x] M2 — global `--context <name>` flag added to the top-level parser and threaded into every command's target resolution via EP-87's `resolveActiveContext`; the build-context-dir override renamed to `--build-context`; `NAGARE_CONTEXT` honored through the resolver. Completed 2026-07-01.
+- [x] M3 — `nagarectl init [NAME]` writes a named context into the store and marks it current when `NAME` is given; still writes `./nagare.target.env` when it is not; Pulumi seeding unchanged. Completed 2026-07-01.
 
 
 ## Surprises & Discoveries
@@ -81,7 +81,8 @@ here, even if it requires splitting a partially completed task into two ("done" 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- EP-87 landed the context type, store paths, parser, and resolver directly in `Nagare.Target`, not in a separate `Nagare.Target.Context` module. EP-88 therefore consumes and extends `Nagare.Target` with the small store mutation/list helpers it needs instead of introducing a second module.
+- `test/fixtures/app-with-task/nagare/Config.hs` no longer compiles against the current `Deployment` record because it predates later required fields (`brokers`, `access`). Manual dry-run selector validation used the maintained `test/fixtures/app/kizashi/Config.hs` app fixture plus `cdn disable --dry-run` for visible project output.
 
 
 ## Decision Log
@@ -140,7 +141,7 @@ Record every decision made while working on the plan.
   is frequent and side-effect-free.
   Date: 2026-06-30
 
-- Decision: reuse EP-87's store (`Nagare.Target.Context`) and EP-87's
+- Decision: reuse EP-87's store helpers in `Nagare.Target` and EP-87's
   `resolveActiveContext`/renderer rather than re-implement any store or resolution
   logic in the CLI.
   Rationale: EP-87 is the single source of truth for the context model, the store
@@ -150,13 +151,28 @@ Record every decision made while working on the plan.
   break the shared behavior EP-89 also depends on.
   Date: 2026-06-30
 
+- Decision: deleting the current context clears the `current-context` pointer instead
+  of leaving it dangling.
+  Rationale: EP-87 deliberately fails closed for a selected context whose file is
+  missing. A dangling pointer would make later commands fail until the operator
+  manually edits the store. Clearing the pointer after deleting the current context
+  preserves the fail-closed behavior for explicit missing selections while letting
+  ordinary resolution fall through to the in-repo profile or built-in default.
+  Date: 2026-07-01
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-88 is complete. `nagarectl context list|current|use|show|create|delete` manages the EP-87 store; `context create` derives omitted fields without reading ambient target environment variables; deleting the current context clears the pointer. `nagarectl --context NAME ...` is accepted as a global selector and is threaded into the CLI handlers and library entry points that resolve target-dependent behavior. The old build-context long option is now `--build-context` while retaining `-c`. `nagarectl init NAME` writes a named context and sets it current; unnamed `init` still writes `./nagare.target.env`.
+
+Validation completed 2026-07-01:
+
+- `cd cli/nagarectl && cabal build -v0 exe:nagarectl` passed.
+- `cd cli/nagarectl && cabal test -v0` passed: 341 tests.
+- Manual temporary-store transcript passed for `context create`, `context show`, `init NAME --skip-preflight --skip-enable --skip-seed`, `context list`, and `--context labs cdn disable ... --dry-run` printing `--project=tan-ng-labs`.
 
 
 ## Context and Orientation
@@ -226,11 +242,10 @@ default selection in a sibling file `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cu
 that names one context. `mode=local` in a context subsumes MasterPlan 16's
 `NAGARE_MODE=local` switch.
 
-Concretely, this plan assumes EP-87 surfaces a module — referenced here as
-**`Nagare.Target.Context`** (`cli/nagarectl/src/Nagare/Target/Context.hs`) — exposing
-at least the following (EP-87 owns the exact names; if any helper below is absent when
-EP-88 starts, EP-88 adds it as a thin wrapper *in that EP-87-owned module*, never by
-re-implementing store paths or precedence here):
+Concretely, EP-87 surfaces the context API from **`Nagare.Target`**
+(`cli/nagarectl/src/Nagare/Target.hs`). EP-88 consumes those helpers and adds any
+missing thin store/list/mutation helpers there, never by re-implementing store paths
+or precedence in `Main.hs`:
 
 ```haskell
 -- Filesystem layout (EP-87 owns these paths).
