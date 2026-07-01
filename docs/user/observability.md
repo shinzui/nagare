@@ -118,8 +118,9 @@ Prometheus-format HTTP metrics; the concrete mapping belongs in
 
 Reach Grafana over the **tailnet** (the host trusts `tailscale0`) or a
 short-lived [IAP/Tailscale port-forward](accessing-the-host.md) rather than
-exposing it publicly. Publishing Grafana on the wildcard domain with auth is a
-later option, not the default — it's listed as an open question in the spec.
+exposing it publicly. If you do want a public wildcard-domain URL, put Grafana
+behind the shared Shomei/en forward-auth enforcer; see
+[Protecting observability UIs](protecting-observability-uis.md).
 
 ## Verify
 

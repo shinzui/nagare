@@ -23,6 +23,10 @@ over plain HTTP until you install the [optional auth plane](#optional-the-auth-p
 that step enables Knative auto-TLS against a locally-trusted CA, after which the
 deploy URL becomes `https://…` (the secure context WebAuthn requires).
 
+For a hybrid workflow where one service runs on your workstation and calls
+dependencies deployed on Nagare, see
+[Using kubefwd for development](kubefwd-development.md).
+
 ## Prerequisites
 
 - The repo dev shell from [Getting started](getting-started.md).
