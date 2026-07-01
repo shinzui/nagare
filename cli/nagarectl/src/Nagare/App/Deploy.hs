@@ -85,8 +85,8 @@ import Nagare.Dsl.Worker (Worker)
 import Nagare.Dsl.Worker.Render (renderWorker)
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Image (configureDockerAuth, pushImage, qualifyImage, taggedImageRef)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Image (configureDockerAuthFor, pushImage, qualifyImage, taggedImageRef)
+import Nagare.Target (TargetProfile (..))
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (oneOffJobName, runArgs)
 import System.Exit (ExitCode (..), exitFailure)
@@ -104,6 +104,7 @@ data AppDeployParams = AppDeployParams
   , adpDryRun :: !Bool
   , adpJson :: !Bool
   , adpSource :: !(Maybe Text)
+  , adpTargetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
@@ -130,6 +131,7 @@ data RolloutEnv = RolloutEnv
   -- workload (a workload's own env wins on a key collision).
   , reNamespace :: !Text
   , reBaseDomain :: !Text
+  , reTargetProfile :: !TargetProfile
   }
   deriving stock (Generic)
 
@@ -366,7 +368,7 @@ toRenderedObject ph bs =
 runAppDeploy :: AppDeployParams -> IO ()
 runAppDeploy p = do
   eapp <- loadApplication (adpConfigPath p)
-  tp <- resolveTargetProfile
+  let tp = adpTargetProfile p
   app <- case eapp of
     Left err -> dieT (renderLoadError err)
     Right a -> pure a
@@ -387,6 +389,7 @@ runAppDeploy p = do
           , reAppEnv = mergeGenerated brokerEnv (app ^. #env)
           , reNamespace = namespaceText (app ^. #namespace)
           , reBaseDomain = maybe (tpBaseDomain tp) id (adpBaseDomain p)
+          , reTargetProfile = tp
           }
 
   if adpDryRun p
@@ -437,7 +440,7 @@ buildAndPushShared p tp env app =
           let ref = taggedImageRef (reQualImage env) (reEffTag env)
           (bargs, warns) <- gatherBuildArgs (reAppName env) (reNamespace env) (app ^. #env)
           printBuildArgWarnings warns
-          configureDockerAuth
+          configureDockerAuthFor tp
           performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: app declares a prebuilt image."
@@ -495,7 +498,7 @@ waitForJobComplete ns jobName = do
 -- params from its full spec. @runDbCreate@ applies the PVC/StatefulSet/Service
 -- and waits for the StatefulSet rollout.
 ensureDatabase :: RolloutEnv -> Database -> IO ()
-ensureDatabase _ db =
+ensureDatabase env db =
   runDbCreate
     (db ^. #engine)
     (databaseNameText (db ^. #dbName))
@@ -507,6 +510,7 @@ ensureDatabase _ db =
       , dcpMemory = fmap quantityText (db ^. #resources >>= (^. #memoryLimit))
       , dcpConfig = Nothing
       , dcpDryRun = False
+      , dcpTargetProfile = reTargetProfile env
       }
 
 -- | Apply the web Service (PVCs first, then the Service and DomainMappings) and

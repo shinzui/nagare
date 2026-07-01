@@ -216,13 +216,25 @@ import Nagare.Storage.Snapshot
   , snapshotsToPrune
   )
 import Nagare.Target
-  ( Mode (..)
+  ( ContextName
+  , Mode (..)
   , TargetProfile (..)
+  , clearCurrentContext
+  , contextExists
+  , contextFilePath
+  , contextNameText
+  , deleteContext
+  , listContexts
+  , mkContextName
   , parseContextEnv
   , parseMode
+  , profileFromContextMap
+  , readContextProfile
+  , readCurrentContext
   , registryPrefix
   , resolveActiveContext
   , resolveTargetProfile
+  , setCurrentContext
   , storeBackendFor
   )
 import Nagare.Task.Discover
@@ -616,6 +628,49 @@ contextResolutionTests =
                 writeFile "nagare.target.env" "export CLOUDSDK_CORE_PROJECT=repo-proj\n"
                 tpRepo <- resolveActiveContext Nothing
                 tpProject tpRepo @?= "repo-proj"
+    , testCase "store helpers list, read, set current, clear, and delete contexts" $ do
+        saved <- traverse (\v -> (,) v <$> lookupEnv v) savedVars
+        let restore = mapM_ (\(v, m) -> maybe (unsetEnv v) (setEnv v) m) saved
+        withSystemTempDirectory "nagare-context-store-helpers" $ \xdg ->
+          flip finally restore $ do
+            setEnv "XDG_CONFIG_HOME" xdg
+            mapM_ unsetEnv targetFieldVars
+            unsetEnv "NAGARE_MODE"
+            unsetEnv "NAGARE_CONTEXT"
+            let labs = contextName "labs"
+                prod = contextName "prod"
+            labsPath <- contextFilePath labs
+            prodPath <- contextFilePath prod
+            createDirectoryIfMissing True (xdg </> "nagare" </> "contexts")
+            writeFile labsPath "export CLOUDSDK_CORE_PROJECT=labs-proj\nexport NAGARE_BASE_DOMAIN=labs.example.test\n"
+            writeFile prodPath "export CLOUDSDK_CORE_PROJECT=prod-proj\n"
+            writeFile (xdg </> "nagare" </> "contexts" </> ".hidden.env") "export CLOUDSDK_CORE_PROJECT=bad\n"
+
+            names <- listContexts
+            map contextNameText names @?= ["labs", "prod"]
+            contextExists labs >>= (@?= True)
+            contextExists (contextName "ghost") >>= (@?= False)
+
+            eLabs <- readContextProfile labs
+            case eLabs of
+              Left err -> assertFailure (T.unpack err)
+              Right tp -> do
+                tpProject tp @?= "labs-proj"
+                tpBaseDomain tp @?= "labs.example.test"
+
+            setCurrentContext labs
+            readCurrentContext >>= (@?= Just labs)
+            deleteContext labs
+            contextExists labs >>= (@?= False)
+            readCurrentContext >>= (@?= Just labs)
+            clearCurrentContext
+            readCurrentContext >>= (@?= Nothing)
+
+            let derived =
+                  profileFromContextMap
+                    (Map.fromList [("CLOUDSDK_CORE_PROJECT", "derived-proj"), ("CLOUDSDK_COMPUTE_REGION", "asia-northeast1")])
+            tpRegistryHost derived @?= "asia-northeast1-docker.pkg.dev"
+            tpImageBucket derived @?= "derived-proj-nagare-images"
     ]
   where
     savedVars = targetFieldVars <> ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
@@ -632,6 +687,8 @@ contextResolutionTests =
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
       ]
+    contextName :: Text -> ContextName
+    contextName = unsafe . mkContextName
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Target mode (MasterPlan 16, EP-83): NAGARE_MODE resolves into a typed
@@ -2281,6 +2338,7 @@ databaseTests =
         , dcpMemory = Nothing
         , dcpConfig = Nothing
         , dcpDryRun = True
+        , dcpTargetProfile = tnbProfile
         }
     stsListJson =
       BC.pack

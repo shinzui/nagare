@@ -20,10 +20,17 @@ module Nagare.Target
   , contextFilePath
   , currentContextPath
   , contextStateDirName
+  , listContexts
+  , contextExists
+  , readContextProfile
+  , setCurrentContext
+  , clearCurrentContext
+  , deleteContext
   , parseMode
   , parseContextEnv
   , readContextMap
   , readCurrentContext
+  , profileFromContextMap
   , resolveActiveContext
   , resolveTargetProfile
   , registryPrefix
@@ -32,6 +39,7 @@ module Nagare.Target
   ) where
 
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
+import Data.List (sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -42,9 +50,9 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , parseLocalObjectStore
   )
-import System.Directory (doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile)
 import System.Environment (lookupEnv)
-import System.FilePath ((<.>), (</>))
+import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
 
 -- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
 -- public type — EP-84 and EP-85 import it and must not re-derive the mode from the
@@ -115,6 +123,55 @@ currentContextPath = (</> "current-context") <$> nagareConfigDir
 -- owns the absolute backend path, stack naming, and config projection.
 contextStateDirName :: ContextName -> Text
 contextStateDirName = contextNameText
+
+-- | List stored contexts by filename, sorted for stable CLI output. Invalid
+-- filenames are ignored so a stray file in the config directory cannot crash
+-- @nagarectl context list@.
+listContexts :: IO [ContextName]
+listContexts = do
+  dir <- contextsDir
+  exists <- doesDirectoryExist dir
+  if not exists
+    then pure []
+    else do
+      entries <- listDirectory dir
+      pure $
+        sort
+          [ name
+          | entry <- entries
+          , takeExtension entry == ".env"
+          , Right name <- [mkContextName (T.pack (dropExtension entry))]
+          ]
+
+contextExists :: ContextName -> IO Bool
+contextExists name = contextFilePath name >>= doesFileExist
+
+readContextProfile :: ContextName -> IO (Either Text TargetProfile)
+readContextProfile name = do
+  path <- contextFilePath name
+  m <- readContextMap path
+  pure $ case m of
+    Just ctx -> Right (profileFromContextMap ctx)
+    Nothing -> Left ("context \"" <> contextNameText name <> "\" not found (expected " <> T.pack path <> ")")
+
+setCurrentContext :: ContextName -> IO ()
+setCurrentContext name = do
+  dir <- nagareConfigDir
+  createDirectoryIfMissing True dir
+  path <- currentContextPath
+  TIO.writeFile path (contextNameText name <> "\n")
+
+clearCurrentContext :: IO ()
+clearCurrentContext = do
+  path <- currentContextPath
+  exists <- doesFileExist path
+  if exists then removeFile path else pure ()
+
+deleteContext :: ContextName -> IO ()
+deleteContext name = do
+  path <- contextFilePath name
+  exists <- doesFileExist path
+  if exists then removeFile path else pure ()
 
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
@@ -278,6 +335,49 @@ ctxRaw ctx name = do
     _ -> case Map.lookup name ctx of
       Just v | not (T.null v) -> Just (T.unpack v)
       _ -> Nothing
+
+mapOr :: Map String Text -> String -> Text -> Text
+mapOr ctx name def = case Map.lookup name ctx of
+  Just v | not (T.null v) -> v
+  _ -> def
+
+mapRaw :: Map String Text -> String -> Maybe String
+mapRaw ctx name = case Map.lookup name ctx of
+  Just v | not (T.null v) -> Just (T.unpack v)
+  _ -> Nothing
+
+-- | Build a fully-derived profile from a context file or @context create@ field
+-- map alone. Unlike 'resolveProfileFrom', this does not inspect process
+-- environment, so creating/showing a stored context is not polluted by ambient
+-- @CLOUDSDK_*@ or @NAGARE_*@ variables.
+profileFromContextMap :: Map String Text -> TargetProfile
+profileFromContextMap ctx =
+  let project = mapOr ctx "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"
+      region = mapOr ctx "CLOUDSDK_COMPUTE_REGION" "us-west1"
+      zone = mapOr ctx "CLOUDSDK_COMPUTE_ZONE" "us-west1-a"
+      registryHost = mapOr ctx "NAGARE_REGISTRY_HOST" (region <> "-docker.pkg.dev")
+      registryId = mapOr ctx "NAGARE_ARTIFACT_REGISTRY_ID" "nagare"
+      imageBucket = mapOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
+      backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
+      baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+      instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+      targetPlatform = mapOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
+      mode = parseMode (mapRaw ctx "NAGARE_MODE")
+      localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
+   in TargetProfile
+        { tpProject = project
+        , tpRegion = region
+        , tpZone = zone
+        , tpRegistryHost = registryHost
+        , tpArtifactRegistryId = registryId
+        , tpImageBucket = imageBucket
+        , tpBackupBucket = backupBucket
+        , tpBaseDomain = baseDomain
+        , tpInstanceName = instanceName
+        , tpTargetPlatform = targetPlatform
+        , tpMode = mode
+        , tpLocalObjectStore = localObjectStore
+        }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
 resolveProfileFrom ctx = do

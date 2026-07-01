@@ -30,10 +30,11 @@ import Nagare.Dsl.Server.Render
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (siteNameText)
 import Nagare.Dsl.Types (domainText, imageRefText, namespaceText)
-import Nagare.Image (buildImage, configureDockerAuth, pushImage, taggedImageRef)
+import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
 import Nagare.Server.Build (prepareServerOutput)
 import Nagare.Server.Image (withServerImageContext)
 import Nagare.Static.Release (recordReleaseFor)
+import Nagare.Target (TargetProfile)
 
 -- | The CLI-independent inputs to a server deploy.
 data ServerDeployInputs = ServerDeployInputs
@@ -42,6 +43,7 @@ data ServerDeployInputs = ServerDeployInputs
   , baseDomain :: !Text
   , projectDir :: !FilePath
   , skipBuild :: !Bool
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic)
 
@@ -83,7 +85,7 @@ deployServerProduction inputs src = do
   case prep of
     Left err -> pure (Left err)
     Right out -> do
-      configureDockerAuth
+      configureDockerAuthFor (targetProfile inputs)
       withServerImageContext s out (buildImage ref)
       pushImage ref
       applyManifests (m ^. #service : m ^. #domainMappings)

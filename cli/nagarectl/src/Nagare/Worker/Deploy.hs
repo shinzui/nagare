@@ -32,8 +32,8 @@ import Nagare.Dsl.Worker (Worker, replicasInt)
 import Nagare.Dsl.Worker.Render (renderWorker, workerDeploymentName)
 import Nagare.Env.BuildArgs (gatherBuildArgs, printBuildArgWarnings)
 import Nagare.Env.Generated (mergeGenerated)
-import Nagare.Image (computeTag, configureDockerAuth, pushImage, qualifyImage, taggedImageRef)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile)
+import Nagare.Image (computeTag, configureDockerAuthFor, pushImage, qualifyImage, taggedImageRef)
+import Nagare.Target (TargetProfile (..))
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -49,6 +49,7 @@ data WorkerDeployParams = WorkerDeployParams
   , wdpDockerfileOverride :: !(Maybe FilePath)
   , wdpDryRun :: !Bool
   -- ^ print the manifests and the build mode; apply nothing.
+  , wdpTargetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
@@ -56,7 +57,7 @@ data WorkerDeployParams = WorkerDeployParams
 runWorkerDeploy :: WorkerDeployParams -> IO ()
 runWorkerDeploy params = do
   eWorker <- loadWorker (wdpConfigPath params)
-  tp <- resolveTargetProfile
+  let tp = wdpTargetProfile params
   worker <- case eWorker of
     Left err -> dieT (renderLoadError err)
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
@@ -125,7 +126,7 @@ buildAndPush :: TargetProfile -> Worker -> Text -> Text -> BuildSpec -> Text -> 
 buildAndPush tp worker name ns spec ref = do
   (bargs, warns) <- gatherBuildArgs name ns (worker ^. #env)
   printBuildArgWarnings warns
-  configureDockerAuth
+  configureDockerAuthFor tp
   performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
   pushImage ref
 

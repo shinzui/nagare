@@ -122,7 +122,7 @@ import Nagare.Env.Store
 import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Image
   ( computeTag
-  , configureDockerAuth
+  , configureDockerAuthFor
   , imageRef
   , pushImage
   , qualifyImage
@@ -185,7 +185,24 @@ import Nagare.Storage.List (runStorageList)
 import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Cluster.GcsJob (StoreBackend)
-import Nagare.Target (TargetProfile (..), resolveTargetProfile, storeBackendFor)
+import Nagare.Target
+  ( ContextName
+  , TargetProfile (..)
+  , clearCurrentContext
+  , contextExists
+  , contextFilePath
+  , contextNameText
+  , contextsDir
+  , deleteContext
+  , listContexts
+  , mkContextName
+  , profileFromContextMap
+  , readContextProfile
+  , readCurrentContext
+  , resolveActiveContext
+  , setCurrentContext
+  , storeBackendFor
+  )
 import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
 import Nagare.Task.List (runTaskList)
@@ -194,7 +211,7 @@ import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
-import System.Directory (doesFileExist, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
@@ -390,10 +407,40 @@ data Command
   | Access AccessCommand
   | ServerStatus ServerStatusOpts
   | Doctor DoctorOpts
+  | ContextCmdGroup ContextCommand
   | Init InitOpts
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
+
+-- | The @context@ subcommands (EP-88). They manage the user-level target context
+-- store introduced by EP-87.
+data ContextCommand
+  = ContextList
+  | ContextCurrent
+  | ContextUse String
+  | ContextShow (Maybe String)
+  | ContextCreate String ContextCreateOpts
+  | ContextDelete String Bool
+  deriving stock (Generic, Show)
+
+data ContextCreateOpts = ContextCreateOpts
+  { ccoProject :: !(Maybe String)
+  , ccoRegion :: !(Maybe String)
+  , ccoZone :: !(Maybe String)
+  , ccoBaseDomain :: !(Maybe String)
+  , ccoRegistryHost :: !(Maybe String)
+  , ccoArtifactRegistryId :: !(Maybe String)
+  , ccoImageBucket :: !(Maybe String)
+  , ccoBackupBucket :: !(Maybe String)
+  , ccoInstanceName :: !(Maybe String)
+  , ccoTargetPlatform :: !(Maybe String)
+  , ccoMode :: !(Maybe String)
+  , ccoLocalObjectStore :: !(Maybe String)
+  , ccoForce :: !Bool
+  , ccoUse :: !Bool
+  }
+  deriving stock (Generic, Show)
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
 -- and resolve @(name, namespace)@, plus the positional @APP@ for readability. The
@@ -656,7 +703,8 @@ doctorOptsParser =
 initOptsParser :: Parser InitOpts
 initOptsParser =
   InitOpts
-    <$> optional (strOption (long "project" <> metavar "PROJECT_ID" <> help "GCP project id (prompted if absent on a TTY)"))
+    <$> optional (strArgument (metavar "NAME" <> help "Context name to create and make current (omit to write ./nagare.target.env)"))
+    <*> optional (strOption (long "project" <> metavar "PROJECT_ID" <> help "GCP project id (prompted if absent on a TTY)"))
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
@@ -665,6 +713,27 @@ initOptsParser =
     <*> switch (long "skip-enable" <> help "Skip running scripts/enable-apis.sh")
     <*> switch (long "skip-seed" <> help "Skip seeding the Pulumi stack config")
     <*> switch (long "dry-run" <> help "Show what would be written/enabled/seeded without doing it")
+
+contextNameArg :: Parser String
+contextNameArg = strArgument (metavar "NAME" <> help "Context name")
+
+contextCreateOptsParser :: Parser ContextCreateOpts
+contextCreateOptsParser =
+  ContextCreateOpts
+    <$> optional (strOption (long "project" <> metavar "PROJECT_ID" <> help "GCP project id"))
+    <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
+    <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
+    <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (strOption (long "registry-host" <> metavar "HOST" <> help "Artifact Registry host (default <region>-docker.pkg.dev)"))
+    <*> optional (strOption (long "artifact-registry-id" <> metavar "ID" <> help "Artifact Registry repo id (default nagare)"))
+    <*> optional (strOption (long "image-bucket" <> metavar "BUCKET" <> help "Image bucket (default <project>-nagare-images)"))
+    <*> optional (strOption (long "backup-bucket" <> metavar "BUCKET" <> help "Backup bucket (default <project>-nagare-backups)"))
+    <*> optional (strOption (long "instance-name" <> metavar "NAME" <> help "VM instance name (default nagare-01)"))
+    <*> optional (strOption (long "target-platform" <> metavar "PLATFORM" <> help "Docker build platform (default linux/amd64)"))
+    <*> optional (strOption (long "mode" <> metavar "MODE" <> help "cloud | local (default cloud)"))
+    <*> optional (strOption (long "local-object-store" <> metavar "URL" <> help "Local S3 endpoint/bucket (local mode only)"))
+    <*> switch (long "force" <> help "Overwrite an existing context of this name")
+    <*> switch (long "use" <> help "Also set this context as the current context")
 
 -- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
 -- group leaves room for future @domains add@/@remove@.
@@ -831,7 +900,7 @@ deployOptsParser defaultFile =
     <*> baseDomainOpt
     <*> optional
       ( strOption
-          ( long "context"
+          ( long "build-context"
               <> short 'c'
               <> metavar "DIR"
               <> help "Override the build context directory from the config (build modes only)"
@@ -862,7 +931,7 @@ appDeployOptsParser defaultFile =
     <*> baseDomainOpt
     <*> optional
       ( strOption
-          ( long "context"
+          ( long "build-context"
               <> short 'c'
               <> metavar "DIR"
               <> help "Override the build context directory from the config (build modes only)"
@@ -896,7 +965,7 @@ workerDeployOptsParser defaultFile =
     <*> tagOpt
     <*> optional
       ( strOption
-          ( long "context"
+          ( long "build-context"
               <> short 'c'
               <> metavar "DIR"
               <> help "Override the build context directory from the config (build modes only)"
@@ -1250,10 +1319,20 @@ reconcileModeFrom :: Bool -> ReconcileMode
 reconcileModeFrom True = ReconcileExact
 reconcileModeFrom False = Merge
 
-opts :: ParserInfo Command
+globalContextParser :: Parser (Maybe String)
+globalContextParser =
+  optional
+    ( strOption
+        ( long "context"
+            <> metavar "NAME"
+            <> help "Target context to use for this command (overrides NAGARE_CONTEXT and the current-context pointer)"
+        )
+    )
+
+opts :: ParserInfo (Maybe String, Command)
 opts =
   info
-    (commandParser <**> helper)
+    (((,) <$> globalContextParser <*> commandParser) <**> helper)
     ( fullDesc
         <> progDesc "nagarectl — deploy a typed Nagare app or static site to Knative"
     )
@@ -1274,6 +1353,7 @@ opts =
             <> command "access" accessCmd
             <> command "server" serverCmd
             <> command "doctor" doctorCmd
+            <> command "context" contextCmd
             <> command "init" initCmd
             <> command "domains" domainsCmd
             <> command "cdn" cdnCmd
@@ -1283,6 +1363,19 @@ opts =
       info
         (Doctor <$> doctorOptsParser <**> helper)
         (fullDesc <> progDesc "Health-check the platform and print remediation hints (exit 1 on any FAIL)")
+    contextCmd =
+      info
+        (ContextCmdGroup <$> contextSubparser <**> helper)
+        (fullDesc <> progDesc "Manage named target contexts")
+    contextSubparser =
+      subparser
+        ( command "list" (info (pure ContextList <**> helper) (progDesc "List all contexts; mark the current one"))
+            <> command "current" (info (pure ContextCurrent <**> helper) (progDesc "Print the current context name"))
+            <> command "use" (info (ContextUse <$> contextNameArg <**> helper) (progDesc "Set the current context"))
+            <> command "show" (info (ContextShow <$> optional contextNameArg <**> helper) (progDesc "Print a context bundle (default: active context)"))
+            <> command "create" (info (ContextCreate <$> contextNameArg <*> contextCreateOptsParser <**> helper) (progDesc "Write a new context into the store"))
+            <> command "delete" (info (ContextDelete <$> contextNameArg <*> switch (long "yes" <> help "Confirm deletion") <**> helper) (progDesc "Delete a context from the store"))
+        )
     initCmd =
       info
         (Init <$> initOptsParser <**> helper)
@@ -1824,14 +1917,14 @@ opts =
 
 main :: IO ()
 main =
-  execParser opts >>= \case
-    Deploy dopts -> runDeploy dopts
-    SiteDeploy sopts -> runSiteDeploy sopts
+  execParser opts >>= \(mctx, cmd0) -> case cmd0 of
+    Deploy dopts -> runDeploy mctx dopts
+    SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts
-    SiteRollback copts rid -> runSiteRollback copts (T.pack rid)
-    SitePreviewDeploy sopts pname -> runPreviewDeploy sopts (T.pack pname)
+    SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
+    SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
     SitePreviewList copts -> runPreviewList copts
-    SitePreviewDelete copts pname -> runPreviewDelete copts (T.pack pname)
+    SitePreviewDelete copts pname -> runPreviewDelete mctx copts (T.pack pname)
     Env ecmd -> runEnv ecmd
     Secret scmd -> runSecret scmd
     AppList o -> runAppList o
@@ -1842,20 +1935,22 @@ main =
     AppDelete o -> runAppDelete o
     AppDeploy o -> do
       provisionGhcEnv (o ^. #ghcEnv)
-      runAppDeploy (toAppDeployParams o)
+      tp <- activeProfile mctx
+      runAppDeploy (toAppDeployParams tp o)
     DeploymentsList o -> runDeploymentsList o
     DeploymentsLogs o -> runDeploymentsLogs o
-    Storage scmd -> runStorage scmd
+    Storage scmd -> runStorage mctx scmd
     Broker bcmd -> runBroker bcmd
-    Db dcmd -> runDb dcmd
+    Db dcmd -> runDb mctx dcmd
     Task tcmd -> runTask tcmd
-    Worker wcmd -> runWorker wcmd
+    Worker wcmd -> runWorker mctx wcmd
     Access acmd -> runAccess acmd
-    ServerStatus o -> runServerStatus o
-    Doctor o -> runDoctor o
-    Init o -> runInit o
-    Domains (DomainsList o) -> runDomainsList o
-    CdnCmd ccmd -> runCdn ccmd
+    ServerStatus o -> runServerStatus mctx o
+    Doctor o -> runDoctor mctx o
+    ContextCmdGroup ccmd -> runContext mctx ccmd
+    Init o -> runInit mctx o
+    Domains (DomainsList o) -> runDomainsList mctx o
+    CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup o
 
 -- | @server status@: gather the platform inventory and print the aligned
@@ -1863,9 +1958,12 @@ main =
 -- job, so a probe whose source is unreachable shows as @UNKNOWN@/@WARN@ rather
 -- than aborting the command (script-friendly exit codes belong to EP-39's
 -- @doctor@).
-runServerStatus :: ServerStatusOpts -> IO ()
-runServerStatus o = do
-  tp <- resolveTargetProfile
+activeProfile :: Maybe String -> IO TargetProfile
+activeProfile = resolveActiveContext . fmap T.pack
+
+runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
+runServerStatus mctx o = do
+  tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor tp) {ioSkipVm = ssSkipVm o}
   probes <- gatherInventory tp invOpts
   TIO.putStr (renderInventory probes)
@@ -1875,9 +1973,9 @@ runServerStatus o = do
 -- every remediation is printed text the operator runs themselves
 -- ('gatherInventory' degrades unreachable sources to @UNKNOWN@, so the report is
 -- always printed; only the exit code varies).
-runDoctor :: DoctorOpts -> IO ()
-runDoctor o = do
-  tp <- resolveTargetProfile
+runDoctor :: Maybe String -> DoctorOpts -> IO ()
+runDoctor mctx o = do
+  tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor tp) {ioSkipVm = dSkipVm o}
   probes <- gatherInventory tp invOpts
   let checks = gradeChecks tp probes
@@ -1889,11 +1987,11 @@ runDoctor o = do
 -- -> enable APIs -> seed Pulumi config -> print next steps. Each side-effecting
 -- stage is skippable. The ONLY command that drives Pulumi/gcloud (MasterPlan 12
 -- Decision Log).
-runInit :: InitOpts -> IO ()
-runInit o = do
+runInit :: Maybe String -> InitOpts -> IO ()
+runInit mctx o = do
   -- Defaults for prompts come from the current resolved profile, so re-running
   -- shows the operator their existing values.
-  defs <- resolveTargetProfile
+  defs <- activeProfile mctx
 
   -- Resolve the four core target values from flags or interactive prompts. Only
   -- the project is mandatory in non-interactive mode (there is no safe default for
@@ -1915,15 +2013,24 @@ runInit o = do
   -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver.
   tp <- profileFromOpts project region zone baseDomain
 
-  -- Write the profile idempotently.
-  wr <- writeTargetEnv (o ^. #ioForce) (o ^. #ioDryRun) tp
-  case wr of
-    Wrote -> putStrLn "Wrote nagare.target.env"
-    DryRunWouldWrite -> do
-      putStrLn "DRY RUN — would write nagare.target.env:"
-      TIO.putStr (renderTargetEnv tp)
-    RefusedExists ->
-      dieT "nagare.target.env already exists; re-run with --force to overwrite it."
+  case o ^. #ioContextName of
+    Just rawName -> do
+      name <- parseContextNameOrDie rawName
+      writeNamedContext (o ^. #ioForce) (o ^. #ioDryRun) name tp
+      unless (o ^. #ioDryRun) $ setCurrentContext name
+      if o ^. #ioDryRun
+        then TIO.putStrLn ("DRY RUN — would write context '" <> contextNameText name <> "' and set it current.")
+        else TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' and set it current.")
+    Nothing -> do
+      -- Write the profile idempotently.
+      wr <- writeTargetEnv (o ^. #ioForce) (o ^. #ioDryRun) tp
+      case wr of
+        Wrote -> putStrLn "Wrote nagare.target.env"
+        DryRunWouldWrite -> do
+          putStrLn "DRY RUN — would write nagare.target.env:"
+          TIO.putStr (renderTargetEnv tp)
+        RefusedExists ->
+          dieT "nagare.target.env already exists; re-run with --force to overwrite it."
 
   -- Enable the GCP APIs (unless skipped).
   unless (o ^. #ioSkipEnable) $ do
@@ -1962,13 +2069,120 @@ resolveField required label flag Nothing def = do
         then dieT (T.pack ("nagarectl init: --" <> flag <> " is required in non-interactive mode"))
         else pure def
 
+runContext :: Maybe String -> ContextCommand -> IO ()
+runContext mctx = \case
+  ContextList -> do
+    names <- listContexts
+    cur <- readCurrentContext
+    rows <- forM names $ \name -> do
+      e <- readContextProfile name
+      pure $ case e of
+        Right tp -> (name, tpProject tp, tpBaseDomain tp)
+        Left _ -> (name, "(unreadable)", "")
+    TIO.putStr (formatContextList cur rows)
+  ContextCurrent ->
+    readCurrentContext >>= maybe (dieT "no current context set") (TIO.putStrLn . contextNameText)
+  ContextUse rawName -> do
+    name <- parseContextNameOrDie rawName
+    ok <- contextExists name
+    if ok
+      then setCurrentContext name >> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
+      else dieT ("no such context: " <> contextNameText name)
+  ContextShow mname -> do
+    tp <- case mname of
+      Just rawName -> do
+        name <- parseContextNameOrDie rawName
+        either dieT pure =<< readContextProfile name
+      Nothing -> activeProfile mctx
+    TIO.putStr (renderTargetEnv tp)
+  ContextCreate rawName o -> do
+    name <- parseContextNameOrDie rawName
+    exists <- contextExists name
+    when (exists && not (ccoForce o)) $
+      dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite")
+    let tp = profileFromContextMap (Map.fromList (contextEnvPairs o))
+    writeContextProfile name tp
+    path <- contextFilePath name
+    TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
+    when (ccoUse o) $ do
+      setCurrentContext name
+      TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
+  ContextDelete rawName yes -> do
+    name <- parseContextNameOrDie rawName
+    ok <- contextExists name
+    if not ok
+      then dieT ("no such context: " <> contextNameText name)
+      else
+        if not yes
+          then dieT ("refusing to delete '" <> contextNameText name <> "' without --yes")
+          else do
+            deleteContext name
+            cur <- readCurrentContext
+            when (cur == Just name) clearCurrentContext
+            TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
+
+parseContextNameOrDie :: String -> IO ContextName
+parseContextNameOrDie raw =
+  either (dieT . ("invalid context name: " <>)) pure (mkContextName (T.pack raw))
+
+writeContextProfile :: ContextName -> TargetProfile -> IO ()
+writeContextProfile name tp = do
+  dir <- contextsDir
+  createDirectoryIfMissing True dir
+  path <- contextFilePath name
+  TIO.writeFile path (renderTargetEnv tp)
+
+writeNamedContext :: Bool -> Bool -> ContextName -> TargetProfile -> IO ()
+writeNamedContext force dryRun name tp = do
+  exists <- contextExists name
+  when (exists && not force) $
+    dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite it.")
+  if dryRun
+    then TIO.putStr (renderTargetEnv tp)
+    else writeContextProfile name tp
+
+contextEnvPairs :: ContextCreateOpts -> [(String, Text)]
+contextEnvPairs o =
+  catMaybes
+    [ pair "CLOUDSDK_CORE_PROJECT" (ccoProject o)
+    , pair "CLOUDSDK_COMPUTE_REGION" (ccoRegion o)
+    , pair "CLOUDSDK_COMPUTE_ZONE" (ccoZone o)
+    , pair "NAGARE_BASE_DOMAIN" (ccoBaseDomain o)
+    , pair "NAGARE_REGISTRY_HOST" (ccoRegistryHost o)
+    , pair "NAGARE_ARTIFACT_REGISTRY_ID" (ccoArtifactRegistryId o)
+    , pair "NAGARE_IMAGE_BUCKET" (ccoImageBucket o)
+    , pair "NAGARE_BACKUP_BUCKET" (ccoBackupBucket o)
+    , pair "NAGARE_INSTANCE_NAME" (ccoInstanceName o)
+    , pair "NAGARE_TARGET_PLATFORM" (ccoTargetPlatform o)
+    , pair "NAGARE_MODE" (ccoMode o)
+    , pair "NAGARE_LOCAL_OBJECT_STORE" (ccoLocalObjectStore o)
+    ]
+  where
+    pair k mv = fmap (\v -> (k, T.pack v)) mv
+
+formatContextList :: Maybe ContextName -> [(ContextName, Text, Text)] -> Text
+formatContextList cur rows =
+  T.unlines (hdr : map row rows)
+  where
+    hdr = T.concat [pad 9 "CURRENT", pad 18 "NAME", pad 24 "PROJECT", "BASE DOMAIN"]
+    row (name, project, baseDomain) =
+      T.concat
+        [ pad 9 (if cur == Just name then "*" else "")
+        , pad 18 (contextNameText name)
+        , pad 24 project
+        , baseDomain
+        ]
+    pad n t =
+      let t' = T.take n t
+       in t' <> T.replicate (max 1 (n - T.length t')) " "
+
 -- | @domains list@: print the base domain plus every per-app DomainMapping with
 -- its owning Service, computed DNS expectation, and certificate readiness.
 -- Read-only; degrades gracefully when Pulumi/kubectl are unreachable (base row
 -- still prints, per-app rows empty, cert column @disabled@).
-runDomainsList :: DomainsListOpts -> IO ()
-runDomainsList o = do
-  base <- resolveDomainsBase (dloBaseDomain o)
+runDomainsList :: Maybe String -> DomainsListOpts -> IO ()
+runDomainsList mctx o = do
+  base <- resolveDomainsBase mctx (dloBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   nss <-
     if dloAllNamespaces o
@@ -1981,29 +2195,29 @@ runDomainsList o = do
 -- | Resolve the platform base domain for @domains list@: the @--base-domain@
 -- override, else the authoritative Pulumi @baseDomain@ output, else the existing
 -- flag/env/literal fallback chain ('resolveBaseDomain').
-resolveDomainsBase :: Maybe String -> IO Text
-resolveDomainsBase (Just b) = pure (T.pack b)
-resolveDomainsBase Nothing = do
+resolveDomainsBase :: Maybe String -> Maybe String -> IO Text
+resolveDomainsBase _ (Just b) = pure (T.pack b)
+resolveDomainsBase mctx Nothing = do
   mp <- stackOutput "infra/pulumi" "baseDomain"
   case mp of
     Just d | not (T.null d) -> pure d
-    _ -> resolveBaseDomain Nothing
+    _ -> resolveBaseDomain mctx Nothing
 
 -- | MasterPlan 11 / EP-58: the @nagarectl cdn@ command group dispatcher.
-runCdn :: CdnCommand -> IO ()
-runCdn = \case
-  CdnList o -> runCdnList o
-  CdnStatus o -> runCdnStatus o
+runCdn :: Maybe String -> CdnCommand -> IO ()
+runCdn mctx = \case
+  CdnList o -> runCdnList mctx o
+  CdnStatus o -> runCdnStatus mctx o
   CdnPurge o -> runCdnPurge o
-  CdnDisable o -> runCdnDisable o
+  CdnDisable o -> runCdnDisable mctx o
 
 -- | @cdn list@: enumerate CDN-fronted hostnames and their provider/DNS/cache/
 -- readiness. Discovery degrades gracefully to the empty sentinel when the
 -- cluster / cloud tools are unavailable (VM off, no token) — see
 -- 'Nagare.Cdn.Status.queryCdnRows'.
-runCdnList :: CdnListOpts -> IO ()
-runCdnList o = do
-  base <- resolveDomainsBase (cloBaseDomain o)
+runCdnList :: Maybe String -> CdnListOpts -> IO ()
+runCdnList mctx o = do
+  base <- resolveDomainsBase mctx (cloBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   nss <-
     if cloAllNamespaces o
@@ -2014,9 +2228,9 @@ runCdnList o = do
 
 -- | @cdn status HOST@: show one hostname's CDN state, or an "unknown / not
 -- discovered" block when the live discovery cannot run yet.
-runCdnStatus :: CdnStatusOpts -> IO ()
-runCdnStatus o = do
-  base <- resolveDomainsBase (csoBaseDomain o)
+runCdnStatus :: Maybe String -> CdnStatusOpts -> IO ()
+runCdnStatus mctx o = do
+  base <- resolveDomainsBase mctx (csoBaseDomain o)
   ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
   let ns = appNamespace (csoNamespace o)
       host = T.pack (csoHost o)
@@ -2048,10 +2262,10 @@ runCdnPurge o = do
 -- provider this deletes the more-specific Cloud DNS A record so the
 -- @*.<baseDomain>@ wildcard (which points at the VM) wins again. @--dry-run@
 -- prints the planned revert without making it.
-runCdnDisable :: CdnDisableOpts -> IO ()
-runCdnDisable o = do
+runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
+runCdnDisable mctx o = do
   let host = T.pack (cdoHost o)
-  tp <- resolveTargetProfile
+  tp <- activeProfile mctx
   refs <- gatherGcpStackRefs tp
   let gArgs =
         [ "dns"
@@ -2087,13 +2301,13 @@ runCleanup o = do
   report <- executeCleanup o
   TIO.putStr (formatCleanupReport report)
 
-runDeploy :: DeployOpts -> IO ()
-runDeploy dopts = do
-  bd <- resolveBaseDomain (dopts ^. #baseDomain)
+runDeploy :: Maybe String -> DeployOpts -> IO ()
+runDeploy mctx dopts = do
+  bd <- resolveBaseDomain mctx (dopts ^. #baseDomain)
   provisionGhcEnv (dopts ^. #ghcEnv)
 
   edep <- Load.loadDeployment (dopts ^. #file)
-  tp <- resolveTargetProfile
+  tp <- activeProfile mctx
   dep <- case edep of
     Left err -> dieT (Load.renderLoadError err)
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
@@ -2175,7 +2389,7 @@ runDeploy dopts = do
         BC.putStr tb
       TIO.putStrLn ("Build mode: " <> describeBuild (tpTargetPlatform tp) spec)
       TIO.putStrLn ("URL: " <> url)
-      cdnDeployStep True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
+      cdnDeployStep mctx True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
     else do
       if requiresBuild spec
         then do
@@ -2184,7 +2398,7 @@ runDeploy dopts = do
           -- when actually building (Build-scoped env never reaches the runtime container).
           (bargs, warns) <- gatherBuildArgs name ns (dep ^. #env)
           printBuildArgWarnings warns
-          configureDockerAuth
+          configureDockerAuthFor tp
           performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
@@ -2208,7 +2422,7 @@ runDeploy dopts = do
         Left warn -> TIO.hPutStrLn stderr ("nagarectl: " <> warn)
         Right () -> pure ()
       TIO.putStrLn ("Deployed: " <> url)
-      cdnDeployStep False (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
+      cdnDeployStep mctx False (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
 
 -- | After a live deploy, print one informational line per declared volume
 -- reporting its PVC's bound phase (EP-35). A no-op when the app has no volumes,
@@ -2228,11 +2442,11 @@ reportPVCs ns dep = do
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share
 -- the same CLI options and record a release on success.
-runSiteDeploy :: SiteDeployOpts -> IO ()
-runSiteDeploy sopts = do
-  bd <- resolveBaseDomain (sopts ^. #baseDomain)
+runSiteDeploy :: Maybe String -> SiteDeployOpts -> IO ()
+runSiteDeploy mctx sopts = do
+  bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
   provisionGhcEnv (sopts ^. #ghcEnv)
-  tp <- resolveTargetProfile
+  tp <- activeProfile mctx
   esite <- Load.loadSite (sopts ^. #file)
   -- EP-62 M3: qualify a name-only image with the resolved registry prefix; a
   -- fully-qualified ref is left untouched. Inlined per kind because the static
@@ -2241,20 +2455,20 @@ runSiteDeploy sopts = do
     Left err -> dieT (Load.renderLoadError err)
     Right (Load.SiteStatic s) -> case qualifyImage tp (s ^. #image) of
       Left e -> dieT ("nagarectl deploy: " <> e)
-      Right qimg -> deployStatic sopts (s & #image %~ const qimg) bd
+      Right qimg -> deployStatic mctx tp sopts (s & #image %~ const qimg) bd
     Right (Load.SiteServer s) -> case qualifyImage tp (s ^. #image) of
       Left e -> dieT ("nagarectl deploy: " <> e)
-      Right qimg -> deployServer sopts (s & #image %~ const qimg) bd
+      Right qimg -> deployServer mctx tp sopts (s & #image %~ const qimg) bd
 
 -- | The static (Nginx) deploy path.
 --
 -- NOTE (EP-26): static sites have no env field and serve files via Nginx, so the
 -- generated NAGARE_* runtime variables do not apply here and are intentionally not
 -- injected. See docs/plans/26-generated-and-predefined-environment-variables.md.
-deployStatic :: SiteDeployOpts -> StaticSite -> Text -> IO ()
-deployStatic sopts site bd = do
+deployStatic :: Maybe String -> TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> IO ()
+deployStatic mctx tp sopts site bd = do
   imageTag <- resolveTag (sopts ^. #tag)
-  let inputs = siteDeployInputs sopts site imageTag bd
+  let inputs = siteDeployInputs tp sopts site imageTag bd
       m = productionManifests inputs
       cdnHosts = siteHostnames (site ^. #domains)
       cdnNs = namespaceText (site ^. #namespace)
@@ -2263,18 +2477,18 @@ deployStatic sopts site bd = do
     then do
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       TIO.putStrLn ("Release: " <> imageTag)
-      cdnDeployStep True (site ^. #cdn) cdnHosts cdnNs cdnSvc
+      cdnDeployStep mctx True (site ^. #cdn) cdnHosts cdnNs cdnSvc
     else do
       result <- deployStaticProduction inputs (T.pack <$> sopts ^. #source)
       case result of
         Left err -> dieT err
         Right u -> do
           TIO.putStrLn ("Deployed static site: " <> u)
-          cdnDeployStep False (site ^. #cdn) cdnHosts cdnNs cdnSvc
+          cdnDeployStep mctx False (site ^. #cdn) cdnHosts cdnNs cdnSvc
 
 -- | The server (Node) deploy path.
-deployServer :: SiteDeployOpts -> ServerSite -> Text -> IO ()
-deployServer sopts site0 bd = do
+deployServer :: Maybe String -> TargetProfile -> SiteDeployOpts -> ServerSite -> Text -> IO ()
+deployServer mctx tp sopts site0 bd = do
   imageTag <- resolveTag (sopts ^. #tag)
   -- EP-26: inject the generated NAGARE_* identity variables into the ServerSite's
   -- env before rendering. The server path carries --source, so NAGARE_SOURCE is
@@ -2296,6 +2510,7 @@ deployServer sopts site0 bd = do
           , baseDomain = bd
           , projectDir = sopts ^. #projectDir
           , skipBuild = sopts ^. #skipBuild
+          , targetProfile = tp
           }
       m = serverManifests inputs
   if sopts ^. #dryRun
@@ -2309,14 +2524,14 @@ deployServer sopts site0 bd = do
         BC.putStr dm
       TIO.putStrLn ("URL: " <> (m ^. #url))
       TIO.putStrLn ("Release: " <> imageTag)
-      cdnDeployStep True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
+      cdnDeployStep mctx True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
     else do
       result <- deployServerProduction inputs (T.pack <$> sopts ^. #source)
       case result of
         Left err -> dieT err
         Right u -> do
           TIO.putStrLn ("Deployed server site: " <> u)
-          cdnDeployStep False (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
+          cdnDeployStep mctx False (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
 
 -- | MasterPlan 11 / EP-58: the CDN provisioning step, run as the last step of a
 -- deploy (after the origin is Ready) or printed under @--dry-run@. A 'Nothing'
@@ -2325,11 +2540,11 @@ deployServer sopts site0 bd = do
 -- already-successful origin deploy. The reusable @deploy*Production@ effects and
 -- the @nagared@ webhook stay free of CDN/Pulumi coupling — orchestration lives
 -- here in the CLI handler, where @--dry-run@ already lives.
-cdnDeployStep :: Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
-cdnDeployStep _ Nothing _ _ _ = pure ()
-cdnDeployStep dry (Just c) hostnames ns service = do
+cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
+cdnDeployStep _ _ Nothing _ _ _ = pure ()
+cdnDeployStep mctx dry (Just c) hostnames ns service = do
   originIp <- fromMaybe "<publicIp>" <$> stackOutput "infra/pulumi" "publicIp"
-  tp <- resolveTargetProfile
+  tp <- activeProfile mctx
   refs <- gatherGcpStackRefs tp
   let target = CdnTarget {cdnHostnames = hostnames, cdnOriginIp = originIp, cdnNamespace = ns, cdnService = service}
   if dry
@@ -2372,9 +2587,10 @@ runSiteReleases copts = do
 -- release's image tag and mark it current. The image already exists in the
 -- registry, so this re-applies the rendered Service (no rebuild). Kind-agnostic:
 -- it renders the static or server Service to match the project.
-runSiteRollback :: SiteCommonOpts -> Text -> IO ()
-runSiteRollback copts rid = do
-  bd <- resolveBaseDomain (copts ^. #baseDomain)
+runSiteRollback :: Maybe String -> SiteCommonOpts -> Text -> IO ()
+runSiteRollback mctx copts rid = do
+  bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
+  tp <- activeProfile mctx
   provisionGhcEnv (copts ^. #ghcEnv)
   esite <- Load.loadSite (copts ^. #file)
   case esite of
@@ -2388,7 +2604,7 @@ runSiteRollback copts rid = do
       case findRelease rid logv of
         Nothing -> dieT ("no such release: " <> rid)
         Just rel -> do
-          let (svc, dms) = rollbackManifests sc bd (rel ^. #imageTag)
+          let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
           applyManifests (svc : dms)
           waitForReady name ns
           writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
@@ -2411,24 +2627,25 @@ siteIdentityOrDie file = do
 
 -- | Render the production Service + DomainMappings for a rollback to @tag@,
 -- dispatching on kind.
-rollbackManifests :: Load.SiteConfig -> Text -> Text -> (ByteString, [ByteString])
-rollbackManifests (Load.SiteStatic s) bd tag =
-  let m = productionManifests (DeployInputs s tag bd "." True)
+rollbackManifests :: TargetProfile -> Load.SiteConfig -> Text -> Text -> (ByteString, [ByteString])
+rollbackManifests tp (Load.SiteStatic s) bd tag =
+  let m = productionManifests (DeployInputs s tag bd "." True tp)
    in (m ^. #service, m ^. #domainMappings)
-rollbackManifests (Load.SiteServer s) bd tag =
-  let m = serverManifests (ServerDeployInputs s tag bd "." True)
+rollbackManifests tp (Load.SiteServer s) bd tag =
+  let m = serverManifests (ServerDeployInputs s tag bd "." True tp)
    in (m ^. #service, m ^. #domainMappings)
 
 -- | @site preview deploy --name NAME@: deploy the current build as an isolated
 -- preview Service under a derived name and domain. Previews are not recorded in
 -- the production release history.
-runPreviewDeploy :: SiteDeployOpts -> Text -> IO ()
-runPreviewDeploy sopts pname = do
-  bd <- resolveBaseDomain (sopts ^. #baseDomain)
+runPreviewDeploy :: Maybe String -> SiteDeployOpts -> Text -> IO ()
+runPreviewDeploy mctx sopts pname = do
+  bd <- resolveBaseDomain mctx (sopts ^. #baseDomain)
+  tp <- activeProfile mctx
   provisionGhcEnv (sopts ^. #ghcEnv)
   site <- loadSiteOrDie (sopts ^. #file)
   imageTag <- resolveTag (sopts ^. #tag)
-  let inputs = siteDeployInputs sopts site imageTag bd
+  let inputs = siteDeployInputs tp sopts site imageTag bd
   m <- orDie (previewManifests inputs pname)
 
   if sopts ^. #dryRun
@@ -2454,9 +2671,9 @@ runPreviewList copts = do
     else mapM_ TIO.putStrLn pnames
 
 -- | @site preview delete NAME@: remove a preview's Service and DomainMapping.
-runPreviewDelete :: SiteCommonOpts -> Text -> IO ()
-runPreviewDelete copts pname = do
-  bd <- resolveBaseDomain (copts ^. #baseDomain)
+runPreviewDelete :: Maybe String -> SiteCommonOpts -> Text -> IO ()
+runPreviewDelete mctx copts pname = do
+  bd <- resolveBaseDomain mctx (copts ^. #baseDomain)
   provisionGhcEnv (copts ^. #ghcEnv)
   site <- loadSiteOrDie (copts ^. #file)
   let prodName = siteNameText (site ^. #name)
@@ -2477,8 +2694,8 @@ appNamespace = maybe "personal" T.pack
 -- @--all@). An empty managed list prints a hint to try @--all@.
 -- | Convert the executable's option record into the library deploy params
 -- (MasterPlan 14, EP-2), so the library never depends on the option type.
-toAppDeployParams :: AppDeployOpts -> AppDeployParams
-toAppDeployParams o =
+toAppDeployParams :: TargetProfile -> AppDeployOpts -> AppDeployParams
+toAppDeployParams tp o =
   AppDeployParams
     { adpConfigPath = o ^. #file
     , adpTag = T.pack <$> o ^. #tag
@@ -2488,6 +2705,7 @@ toAppDeployParams o =
     , adpDryRun = o ^. #dryRun
     , adpJson = o ^. #json
     , adpSource = T.pack <$> o ^. #source
+    , adpTargetProfile = tp
     }
 
 runAppList :: AppListOpts -> IO ()
@@ -2731,19 +2949,19 @@ resolveStorageDep copts = do
         )
     else pure dep
 
-runStorage :: StorageCommand -> IO ()
-runStorage = \case
+runStorage :: Maybe String -> StorageCommand -> IO ()
+runStorage mctx = \case
   StorageList copts -> resolveStorageDep copts >>= runStorageList
   StorageInspect copts vol -> do
     dep <- resolveStorageDep copts
     runStorageInspect dep (T.pack vol)
   StorageSnapshot copts vol bucket keep -> do
     dep <- resolveStorageDep copts
-    backend <- resolveStoreBackend bucket
+    backend <- resolveStoreBackend mctx bucket
     runSnapshot dep (T.pack vol) backend keep
   StorageRestore copts vol backupId bucket live dryRun -> do
     dep <- resolveStorageDep copts
-    backend <- resolveStoreBackend bucket
+    backend <- resolveStoreBackend mctx bucket
     runStorageRestore dep (T.pack vol) (T.pack backupId) live backend dryRun
 
 -- | Dispatch the @broker@ subcommands (MasterPlan 15, EP-78). The namespace
@@ -2785,11 +3003,12 @@ runBroker = \case
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
-runDb :: DbCommand -> IO ()
-runDb = \case
+runDb :: Maybe String -> DbCommand -> IO ()
+runDb mctx = \case
   DbList o -> runDbList (nsOf (dbloNamespace o))
   DbCreate eng name o -> do
     when (isJust (dbcConfig o)) (provisionGhcEnv Nothing)
+    tp <- activeProfile mctx
     runDbCreate
       eng
       (T.pack name)
@@ -2801,6 +3020,7 @@ runDb = \case
         , dcpMemory = T.pack <$> dbcMemory o
         , dcpConfig = dbcConfig o
         , dcpDryRun = dbcDryRun o
+        , dcpTargetProfile = tp
         }
   DbGet o -> runDbGet (nsOf (dbnNamespace o)) (T.pack (dbnName o))
   DbShell o -> runDbShell (nsOf (dbnNamespace o)) (T.pack (dbnName o))
@@ -2814,10 +3034,10 @@ runDb = \case
         , ddpDryRun = dbdDryRun o
         }
   DbBackup o -> do
-    backend <- resolveStoreBackend (dbbBucket o)
+    backend <- resolveStoreBackend mctx (dbbBucket o)
     runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) backend (dbbKeep o) (dbbDryRun o)
   DbRestore o -> do
-    backend <- resolveStoreBackend (dbrBucket o)
+    backend <- resolveStoreBackend mctx (dbrBucket o)
     runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) backend (dbrDryRun o)
   where
     nsOf = maybe "personal" T.pack
@@ -2825,10 +3045,11 @@ runDb = \case
 -- | Dispatch the @worker@ command group (EP-71). Provisions the GHC environment
 -- before loading the worker's @Config.hs@ (mirroring @db create --config@), then
 -- runs the deploy. Cluster I/O and rendering live in 'Nagare.Worker.Deploy'.
-runWorker :: WorkerCommand -> IO ()
-runWorker = \case
+runWorker :: Maybe String -> WorkerCommand -> IO ()
+runWorker mctx = \case
   WorkerDeploy o -> do
     provisionGhcEnv (o ^. #ghcEnv)
+    tp <- activeProfile mctx
     runWorkerDeploy
       WorkerDeployParams
         { wdpConfigPath = o ^. #file
@@ -2836,6 +3057,7 @@ runWorker = \case
         , wdpContextOverride = o ^. #contextOverride
         , wdpDockerfileOverride = o ^. #dockerfileOverride
         , wdpDryRun = o ^. #dryRun
+        , wdpTargetProfile = tp
         }
 
 runAccess :: AccessCommand -> IO ()
@@ -2907,19 +3129,19 @@ runTask = \case
 -- | Resolve the GCS backup bucket: an explicit @--bucket@ flag wins; otherwise
 -- the resolved target profile's backup bucket (EP-62; honors
 -- @NAGARE_BACKUP_BUCKET@ and the @\<project>-nagare-backups@ derivation).
-resolveBackupBucket :: Maybe String -> IO Text
-resolveBackupBucket (Just b) = pure (T.pack b)
-resolveBackupBucket Nothing = tpBackupBucket <$> resolveTargetProfile
+resolveBackupBucket :: Maybe String -> Maybe String -> IO Text
+resolveBackupBucket _ (Just b) = pure (T.pack b)
+resolveBackupBucket mctx Nothing = tpBackupBucket <$> activeProfile mctx
 
 -- | Resolve the object-store backend for the four data-movement verbs (EP-84):
 -- the cloud GCS backend (project + 'resolveBackupBucket') in cloud mode, the
 -- in-cluster MinIO backend (from @NAGARE_LOCAL_OBJECT_STORE@) in local mode. The
 -- backend is constructed __once__ here from 'tpMode' ('storeBackendFor') and
 -- threaded into 'runDbBackup'/'runDbRestore'/'runSnapshot'/'runStorageRestore'.
-resolveStoreBackend :: Maybe String -> IO StoreBackend
-resolveStoreBackend bucketArg = do
-  tp <- resolveTargetProfile
-  bucket <- resolveBackupBucket bucketArg
+resolveStoreBackend :: Maybe String -> Maybe String -> IO StoreBackend
+resolveStoreBackend mctx bucketArg = do
+  tp <- activeProfile mctx
+  bucket <- resolveBackupBucket mctx bucketArg
   either dieT pure (storeBackendFor tp bucket)
 
 runEnv :: EnvCommand -> IO ()
@@ -3040,14 +3262,15 @@ tShow = T.pack . show
 -- Shared helpers
 
 -- | Assemble the runtime-agnostic 'DeployInputs' from the @site deploy@ options.
-siteDeployInputs :: SiteDeployOpts -> StaticSite -> Text -> Text -> DeployInputs
-siteDeployInputs sopts site imageTag bd =
+siteDeployInputs :: TargetProfile -> SiteDeployOpts -> StaticSite -> Text -> Text -> DeployInputs
+siteDeployInputs tp sopts site imageTag bd =
   DeployInputs
     { site = site
     , imageTag = imageTag
     , baseDomain = bd
     , projectDir = sopts ^. #projectDir
     , skipBuild = sopts ^. #skipBuild
+    , targetProfile = tp
     }
 
 printStaticArtifacts :: ByteString -> ByteString -> [ByteString] -> Text -> IO ()
@@ -3081,9 +3304,9 @@ dieT msg = do
 -- | Resolve the apps base domain: an explicit @--base-domain@ flag wins;
 -- otherwise the resolved target profile's base domain (EP-62; honors
 -- @NAGARE_BASE_DOMAIN@, default @"apps.example.com"@).
-resolveBaseDomain :: Maybe String -> IO Text
-resolveBaseDomain (Just bd) = pure (T.pack bd)
-resolveBaseDomain Nothing = tpBaseDomain <$> resolveTargetProfile
+resolveBaseDomain :: Maybe String -> Maybe String -> IO Text
+resolveBaseDomain _ (Just bd) = pure (T.pack bd)
+resolveBaseDomain mctx Nothing = tpBaseDomain <$> activeProfile mctx
 
 -- | Ensure the loader's child @runghc@ can resolve the @nagare-dsl@ package by
 -- exporting a GHC package-environment file as @GHC_ENVIRONMENT@. Precedence

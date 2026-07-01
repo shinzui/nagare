@@ -18,6 +18,7 @@ import Data.Text qualified as T
 import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Types (mkImageRef)
+import Nagare.Target (Mode (..), TargetProfile (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -46,6 +47,24 @@ testEnv =
     , reAppEnv = Map.empty
     , reNamespace = "personal"
     , reBaseDomain = "apps.example.com"
+    , reTargetProfile = testProfile
+    }
+
+testProfile :: TargetProfile
+testProfile =
+  TargetProfile
+    { tpProject = "tan-nb-exp"
+    , tpRegion = "us-west1"
+    , tpZone = "us-west1-a"
+    , tpRegistryHost = "us-west1-docker.pkg.dev"
+    , tpArtifactRegistryId = "nagare"
+    , tpImageBucket = "tan-nb-exp-nagare-images"
+    , tpBackupBucket = "tan-nb-exp-nagare-backups"
+    , tpBaseDomain = "apps.example.com"
+    , tpInstanceName = "nagare-01"
+    , tpTargetPlatform = "linux/amd64"
+    , tpMode = Cloud
+    , tpLocalObjectStore = ""
     }
 
 renderTests :: [TestTree]
