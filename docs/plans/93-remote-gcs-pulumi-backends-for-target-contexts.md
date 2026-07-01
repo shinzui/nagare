@@ -86,10 +86,16 @@ be recorded here with the date and enough evidence for the next contributor to r
   state-dir `mkdir` behind `PulumiBackendLocal` (fixing a latent `file://`-strip bug on
   `gs://` URLs), and all four call sites pass the profile. Remaining under M3: live
   two-context verification against a real GCS bucket (deferred to manual validation).
-- [ ] M4: Add a documented migration path from an EP-90 local per-context backend to GCS.
-  The implementation exports state from the local backend with `pulumi stack export
-  --show-secrets --file`, imports it into the GCS backend with `pulumi stack import
-  --file`, verifies stack outputs, and leaves the local export as a rollback artifact.
+- [x] M4 (2026-07-01): Added `scripts/migrate-pulumi-backend.sh` (a repository script, per
+  the plan's "or a repository script" option). Forward: verify mode=cloud + guardrail,
+  export the local stack with `pulumi stack export --show-secrets --file` to a timestamped
+  `${state}/nagare/<ctx>/pulumi-migrations/pre-gcs-<stamp>.json`, bootstrap the bucket,
+  `stack init`+`stack import --file` into GCS, verify `baseDomain`/`backupBucket` outputs
+  match, and flip the context file to `NAGARE_PULUMI_BACKEND=gcs` only on success.
+  `--rollback` re-imports the latest artifact into the local backend and flips back, never
+  deleting the GCS bucket/objects. Idempotent (already-gcs is a no-op; local backend kept).
+  Evidence: `bash -n` clean; `--help` works; local-mode context is refused. Forward/rollback
+  require live pulumi+gcloud+GCP (manual validation).
 - [ ] M5: Update operator documentation and MasterPlan 17 notes. Document when to use
   GCS, the bootstrap bucket naming scheme, required IAM, migration and rollback, and the
   fact that GCS state is a follow-up to EP-90 rather than a replacement for local file
@@ -209,6 +215,16 @@ Record every decision made while working on the plan.
   defeating offline use and adding latency; Pulumi's local workspace/creds cache belongs in
   a local `PULUMI_HOME` regardless of backend.
   Date: 2026-07-01
+
+- Decision: implement the M4 migration as the repository script
+  `scripts/migrate-pulumi-backend.sh`, not a `nagarectl context` subcommand.
+  Rationale: the migration is procedural orchestration of `pulumi stack export/import` and
+  `gcloud storage` with no pure/unit-testable core, and it must run with explicit,
+  hand-controlled backend-env overrides mid-flight (export from `file://`, import to
+  `gs://`). A script keeps that sequencing legible and reviewable, matches the existing
+  `scripts/*.sh` style (it sources `scripts/lib/target.sh` and reuses `_require_target_project`),
+  and avoids threading a large imperative flow through optparse. The plan's M4 explicitly
+  allowed "a `nagarectl context` subcommand or a repository script." Date: 2026-07-01
 
 - Decision: this plan is a follow-up whose deps are already satisfied — EP-90 (hard) and
   EP-88/EP-89/EP-92 (soft) are all Complete, and MasterPlan 17's EP-93 wiring (registry row,
