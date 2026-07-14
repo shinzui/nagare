@@ -12,6 +12,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import LoadSpec (loadTests)
+import JobSpec (jobTests)
 import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render
@@ -60,6 +61,7 @@ main =
       , testGroup "Nagare.Dsl.Broker (EP-76)" brokerTests
       , testGroup "Nagare.Dsl.Database (EP-44)" databaseTests
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
+      , jobTests
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
       , testGroup "Nagare.Dsl.Image (EP-62)" imageDerivationTests
       , loadTests

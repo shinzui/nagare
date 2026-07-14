@@ -18,6 +18,8 @@ module Nagare.Dsl.Config
   , encodeServerSite
   , emitTask
   , encodeTask
+  , emitJob
+  , encodeJob
   , emitWorker
   , encodeWorker
   , emitApplication
@@ -38,6 +40,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Dsl.Job
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -199,6 +202,40 @@ taskJSON t =
           , "secretName" .= secretNameText sn
           , "scopes" .= scopeTokensJSON sev
           ]
+
+-- | Serialize a bounded one-shot 'Job' to JSON and write it to stdout.
+emitJob :: Job -> IO ()
+emitJob job = LBS.putStr (encodeJob job)
+
+-- | The exact JSON bytes 'emitJob' writes.
+encodeJob :: Job -> LBS.ByteString
+encodeJob = encode . jobJSON
+
+-- | The JSON contract consumed by 'Nagare.Dsl.Load.decodeJob'. Constrained
+-- values are emitted as text and reconstructed through their smart constructors
+-- when loaded.
+jobJSON :: Job -> Value
+jobJSON job =
+  object
+    [ "kind" .= ("Job" :: Text)
+    , "name" .= serviceNameText (jobName job)
+    , "namespace" .= namespaceText (jobNamespace job)
+    , "image" .= imageRefText (jobImage job)
+    , "build" .= buildSpecJSON (jobBuild job)
+    , "command" .= fmap commandArgvList (jobCommand job)
+    , "env" .= map scopedEnvJSON (Map.toAscList (jobEnv job))
+    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+    , "backoffLimit" .= jobBackoffLimit job
+    , "activeDeadlineSeconds" .= jobActiveDeadlineSeconds job
+    , "ttlSecondsAfterFinished" .= jobTtlSecondsAfterFinished job
+    , "scratchSize" .= quantityText (jobScratchSize job)
+    , "nixConfigMap" .= fmap configMapNameText (jobNixConfigMap job)
+    ]
+  where
+    res = jobResources job
 
 -- | The JSON shape of one 'Volume', shared by 'Deployment' and 'ServerSite'
 -- emission. The loader reads it back in 'Nagare.Dsl.Load.toVolume'; @accessMode@

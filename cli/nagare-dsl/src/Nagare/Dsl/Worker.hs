@@ -47,6 +47,7 @@ import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
+import Nagare.Dsl.Command (Command (..), commandArgvList, mkCommand)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( DatabaseName
@@ -85,29 +86,6 @@ defaultReplicas = Replicas 1
 
 replicasInt :: Replicas -> Int
 replicasInt (Replicas n) = n
-
--- | An optional entrypoint override for the worker's container, e.g.
--- @["python", "-m", "worker"]@. @argv[0]@ is the executable. When a 'Worker'
--- carries no 'Command' the image's own entrypoint runs. The record constructor
--- is public but the only field is smart-constructed via 'mkCommand', which
--- enforces the non-empty, NUL-free invariant.
-data Command = Command
-  { commandArgv :: ![Text]
-  -- ^ non-empty; @argv[0]@ is the executable.
-  }
-  deriving stock (Generic, Eq, Show)
-
--- | Validate and construct a 'Command': the argv list must be non-empty and no
--- element may contain a NUL character.
-mkCommand :: [Text] -> Either Text Command
-mkCommand [] = Left "command must not be empty (argv[0] is the executable)"
-mkCommand argv
-  | any (Text.isInfixOf "\NUL") argv =
-      Left "command arguments must not contain NUL characters"
-  | otherwise = Right (Command {commandArgv = argv})
-
-commandArgvList :: Command -> [Text]
-commandArgvList = commandArgv
 
 -- ---------------------------------------------------------------------------
 -- Liveness probe (EP-74)
