@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nagare-job-agent-run
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/job: agent-run
+automountServiceAccountToken: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-job-agent-run
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/job: agent-run
+spec:
+  podSelector:
+    matchLabels:
+      nagare.dev/job: agent-run
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress: []
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nagare-job-agent-run
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/job: agent-run
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/job: agent-run
+    spec:
+      restartPolicy: Never
+      serviceAccountName: nagare-job-agent-run
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: 1800
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: agent-run
+        image: us-west1-docker.pkg.dev/tan-nb-exp/nagare/agent-run:latest
+        command:
+        - /app/agent-run
+        env:
+        - name: NAGARE_RUN_ID
+          value: 01k3qz212e989078m6ssetr2b
+        - name: REPO_REF
+          value: repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0
+        envFrom:
+        - configMapRef:
+            name: nagare-env-agent-run-runtime
+            optional: true
+        - secretRef:
+            name: nagare-secret-agent-run-runtime
+            optional: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: '1'
+            memory: 1Gi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+          readOnly: false
+      volumes:
+      - name: scratch
+        emptyDir:
+          sizeLimit: 2Gi

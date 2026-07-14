@@ -26,20 +26,18 @@ import Data.Generics.Labels ()
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
-import Data.Map qualified as Map
-import Data.Set qualified as Set
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Batch.Render
+  ( argvPairs
+  , batchConfig
+  , managedEnvFromPairs
+  , resourcesPairs
+  , runtimeEnvPairs
+  )
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
-  ( EnvScope (Runtime)
-  , EnvVar (EnvLiteral, EnvSecretRef)
-  , Resources
-  , ScopedEnvVar
-  , envNameText
-  , imageRefText
+  ( imageRefText
   , namespaceText
-  , quantityText
-  , secretNameText
   , serviceNameText
   )
 
@@ -144,9 +142,7 @@ imagePairs t = case taskImage t of
   Nothing -> []
 
 commandPairs :: Task -> [Pair]
-commandPairs t
-  | null (taskCommand t) = []
-  | otherwise = ["command" .= toJSON (taskCommand t)]
+commandPairs = argvPairs . taskCommand
 
 argsPairs :: Task -> [Pair]
 argsPairs t
@@ -161,60 +157,14 @@ argsPairs t
 envFromPairs :: Task -> [Pair]
 envFromPairs t = case taskApp t of
   Nothing -> []
-  Just app ->
-    let a = serviceNameText app
-     in [ "envFrom"
-            .= toJSON
-              [ object
-                  [ "configMapRef"
-                      .= object ["name" .= ("nagare-env-" <> a <> "-runtime"), "optional" .= True]
-                  ]
-              , object
-                  [ "secretRef"
-                      .= object ["name" .= ("nagare-secret-" <> a <> "-runtime"), "optional" .= True]
-                  ]
-              ]
-        ]
+  Just app -> managedEnvFromPairs (serviceNameText app)
 
 -- | The inline container @env@: only 'Runtime'-scoped entries render (matching
 -- how the app renderer drops build-only vars). Sorted by name via
 -- 'Map.toAscList' for determinism. Omitted entirely when no Runtime entries
 -- remain.
 envPairs :: Task -> [Pair]
-envPairs t
-  | null entries = []
-  | otherwise = ["env" .= toJSON entries]
-  where
-    entries =
-      [ envEntry (envNameText n) sev
-      | (n, sev) <- Map.toAscList (taskEnv t)
-      , Set.member Runtime (sev ^. #scopes)
-      ]
-
-envEntry :: Text -> ScopedEnvVar -> Value
-envEntry n sev = case sev ^. #value of
-  EnvLiteral lit -> object ["name" .= n, "value" .= lit]
-  EnvSecretRef sn ->
-    object
-      [ "name" .= n
-      , "valueFrom" .= object ["secretKeyRef" .= object ["name" .= secretNameText sn, "key" .= n]]
-      ]
-
--- | The @resources@ block (same requests/limits shape the DB renderer uses):
--- each sub-block omitted when empty; the whole block omitted when absent.
-resourcesPairs :: Maybe Resources -> [Pair]
-resourcesPairs Nothing = []
-resourcesPairs (Just res)
-  | null reqs && null lims = []
-  | otherwise = ["resources" .= object (reqBlock <> limBlock)]
-  where
-    reqs = quantities (res ^. #cpu) (res ^. #memory)
-    lims = quantities (res ^. #cpuLimit) (res ^. #memoryLimit)
-    reqBlock = if null reqs then [] else ["requests" .= object reqs]
-    limBlock = if null lims then [] else ["limits" .= object lims]
-    quantities mc mm =
-      maybe [] (\q -> ["cpu" .= quantityText q]) mc
-        <> maybe [] (\q -> ["memory" .= quantityText q]) mm
+envPairs = runtimeEnvPairs . taskEnv
 
 -- ---------------------------------------------------------------------------
 -- Labels (IP3) and metadata.
@@ -244,61 +194,56 @@ metadataValue n t =
 -- YAML key ordering (mirrors Nagare.Dsl.Database.Render.dbConfig).
 
 taskConfig :: YP.Config
-taskConfig = YP.setConfCompare keyCompare YP.defConfig
+taskConfig = batchConfig taskKeyRanks
 
-keyCompare :: Text -> Text -> Ordering
-keyCompare a b = compare (rank a, a) (rank b, b)
-  where
-    rank :: Text -> Int
-    rank k = maybe maxBound id (lookup k ranks)
-    ranks :: [(Text, Int)]
-    ranks =
-      [ -- top-level document keys
-        ("apiVersion", 0)
-      , ("kind", 1)
-      , ("metadata", 2)
-      , ("spec", 3)
-      , -- metadata
-        ("name", 0)
-      , ("namespace", 1)
-      , ("labels", 2)
-      , -- labels (non-alphabetical contract order)
-        ("nagare.dev/managed-by", 0)
-      , ("nagare.dev/task", 1)
-      , ("nagare.dev/app", 2)
-      , -- CronJob spec
-        ("schedule", 0)
-      , ("concurrencyPolicy", 1)
-      , ("successfulJobsHistoryLimit", 2)
-      , ("failedJobsHistoryLimit", 3)
-      , ("startingDeadlineSeconds", 4)
-      , ("jobTemplate", 5)
-      , -- Job spec
-        ("backoffLimit", 0)
-      , ("activeDeadlineSeconds", 1)
-      , ("template", 2)
-      , -- pod spec
-        ("restartPolicy", 0)
-      , ("containers", 1)
-      , -- container
-        ("image", 1)
-      , ("command", 2)
-      , ("args", 3)
-      , ("envFrom", 4)
-      , ("env", 5)
-      , ("resources", 6)
-      , -- envFrom entry
-        ("configMapRef", 0)
-      , ("secretRef", 1)
-      , ("optional", 1)
-      , -- env entry
-        ("value", 1)
-      , ("valueFrom", 2)
-      , ("secretKeyRef", 0)
-      , ("key", 1)
-      , -- resources
-        ("requests", 0)
-      , ("limits", 1)
-      , ("cpu", 0)
-      , ("memory", 1)
-      ]
+taskKeyRanks :: [(Text, Int)]
+taskKeyRanks =
+  [ -- top-level document keys
+    ("apiVersion", 0)
+  , ("kind", 1)
+  , ("metadata", 2)
+  , ("spec", 3)
+  , -- metadata
+    ("name", 0)
+  , ("namespace", 1)
+  , ("labels", 2)
+  , -- labels (non-alphabetical contract order)
+    ("nagare.dev/managed-by", 0)
+  , ("nagare.dev/task", 1)
+  , ("nagare.dev/app", 2)
+  , -- CronJob spec
+    ("schedule", 0)
+  , ("concurrencyPolicy", 1)
+  , ("successfulJobsHistoryLimit", 2)
+  , ("failedJobsHistoryLimit", 3)
+  , ("startingDeadlineSeconds", 4)
+  , ("jobTemplate", 5)
+  , -- Job spec
+    ("backoffLimit", 0)
+  , ("activeDeadlineSeconds", 1)
+  , ("template", 2)
+  , -- pod spec
+    ("restartPolicy", 0)
+  , ("containers", 1)
+  , -- container
+    ("image", 1)
+  , ("command", 2)
+  , ("args", 3)
+  , ("envFrom", 4)
+  , ("env", 5)
+  , ("resources", 6)
+  , -- envFrom entry
+    ("configMapRef", 0)
+  , ("secretRef", 1)
+  , ("optional", 1)
+  , -- env entry
+    ("value", 1)
+  , ("valueFrom", 2)
+  , ("secretKeyRef", 0)
+  , ("key", 1)
+  , -- resources
+    ("requests", 0)
+  , ("limits", 1)
+  , ("cpu", 0)
+  , ("memory", 1)
+  ]

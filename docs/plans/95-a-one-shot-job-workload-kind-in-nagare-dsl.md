@@ -37,11 +37,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [x] (2026-07-14 14:19 PDT) Added the public `Job` model, shared command type,
+- [x] (2026-07-14 13:05 PDT) Added the public `Job` model, shared command type,
   smart validation, preset, and deterministic naming while preserving Worker re-exports.
-- [x] (2026-07-14 14:19 PDT) Added Job JSON emission/loading, a Config.hs fixture,
+- [x] (2026-07-14 13:05 PDT) Added Job JSON emission/loading, a Config.hs fixture,
   and round-trip/kind-discrimination validation; the full DSL suite passed 372 tests.
-- [ ] Add deterministic ServiceAccount, NetworkPolicy, and hardened Job renderers with goldens.
+- [x] (2026-07-14 13:15 PDT) Added deterministic ServiceAccount, default-deny
+  NetworkPolicy, and hardened Job renderers with four goldens; 381 tests passed
+  on two consecutive runs and all pre-existing Task/Worker goldens remained unchanged.
 - [ ] Add the terminating-Pod ResourceQuota bootstrap component and operator documentation.
 - [ ] Pass local tests and live hardening, isolation, quota, completion, and cleanup acceptance.
 
@@ -51,7 +53,28 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Discovery: The Kikan conformance file still does not exist, and its embedded draft
+  predates three fields required by this ExecPlan: `parallelism: 1`, `completions: 1`,
+  and the Pod-template `activeDeadlineSeconds` used by the Terminating quota.
+  Evidence: `test -f .../nagare-prereqs/agent-run.job.yaml` exited 1; the embedded
+  specimen contains only the Job-level deadline and omits parallelism/completions.
+
+- Discovery: Moving Task's environment/resource rendering and key comparison into
+  `Nagare.Dsl.Batch.Render` did not perturb its golden bytes.
+  Evidence: both existing Task golden tests and all Worker golden tests passed as part
+  of two consecutive 381-test runs after the extraction.
+
+- Discovery: The plan's `nix fmt` command is unavailable on this aarch64-darwin
+  checkout because the flake exports no formatter for that system.
+  Evidence: `nix fmt` exited 1 with `does not provide attribute
+  'formatter.aarch64-darwin'`; `flake.nix` also documents why the pinned Fourmolu is
+  intentionally not used as a whole-tree formatting check.
+
+- Discovery: Even `kubectl apply --dry-run=client` attempted to download the active
+  GKE context's OpenAPI schema and could not refresh its non-interactive gcloud token.
+  Evidence: validation failed while fetching `/openapi/v2` from `35.247.110.193` with
+  `Reauthentication failed`; server-side and live acceptance therefore require renewed
+  credentials or a usable local context.
 
 
 ## Decision Log
@@ -64,6 +87,24 @@ Record every decision made while working on the plan.
   Rationale: The user explicitly selected this Intention ID for the implementation
   session, and the ExecPlan workflow requires the active intention to be reflected in
   frontmatter and commit trailers.
+  Date: 2026-07-14
+
+- Decision: Treat `cli/nagare-dsl/test/golden/job-agent-run.job.yaml` as the
+  provider-side conformance source until Kikan creates its standalone fixture, and
+  include every explicit field required by this ExecPlan even where the older embedded
+  Kikan draft relied on Kubernetes defaults.
+  Rationale: The current plan explicitly requires one completion, one-way parallelism,
+  and matching Job/Pod deadlines; omitting them would weaken determinism and make the
+  ResourceQuota fail to select the Pod. The Context section already designates the
+  Nagare golden as authoritative while Kikan's fixture is absent.
+  Date: 2026-07-14
+
+- Decision: Share a context-parameterized deterministic key comparator rather than one
+  global rank table between Task and Job renderers.
+  Rationale: YAML key names such as `env`, `envFrom`, and `securityContext` need different
+  relative positions in the established Task contract and the hardened Job contract.
+  Sharing the comparison algorithm and batch value helpers preserves existing Task bytes
+  while keeping both renderers deterministic.
   Date: 2026-07-14
 
 - Decision: Add a first-class `Job`; do not extend `Task` with a missing schedule or use
