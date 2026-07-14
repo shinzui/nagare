@@ -34,10 +34,12 @@ library
     Nagare.Dsl.Broker.Types
     Nagare.Dsl.Build
     Nagare.Dsl.Cdn.Types
+    Nagare.Dsl.Command
     Nagare.Dsl.Config
     Nagare.Dsl.Database
     Nagare.Dsl.Database.Render
     Nagare.Dsl.Image
+    Nagare.Dsl.Job
     Nagare.Dsl.Load
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude
@@ -84,6 +86,7 @@ test-suite nagare-dsl-test
   other-modules:
     ApplicationSpec
     CdnSpec
+    JobSpec
     LoadSpec
     ServerSpec
     StaticSpec

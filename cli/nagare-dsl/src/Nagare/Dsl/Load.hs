@@ -20,6 +20,8 @@ module Nagare.Dsl.Load
   , decodeServerSite
   , loadTask
   , decodeTask
+  , loadJob
+  , decodeJob
   , loadWorker
   , decodeWorker
   , loadApplication
@@ -44,6 +46,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Dsl.Job
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -892,6 +895,113 @@ decodeTask bs =
 -- different shape is reported as 'UnexpectedKind'. Used by EP-51's @task@ CLI.
 loadTask :: FilePath -> IO (Either LoadError Task)
 loadTask path = fmap (>>= decodeTask) (runConfig path)
+
+-- ---------------------------------------------------------------------------
+-- JSON intermediate for one-shot Jobs (mirrors Nagare.Dsl.Config.jobJSON)
+
+data JsonJob = JsonJob
+  { jjName :: !Text
+  , jjNamespace :: !Text
+  , jjImage :: !Text
+  , jjBuild :: !(Maybe JsonBuildSpec)
+  , jjCommand :: !(Maybe [Text])
+  , jjEnv :: ![JsonEnvEntry]
+  , jjCpuRequest :: !(Maybe Text)
+  , jjMemoryRequest :: !(Maybe Text)
+  , jjCpuLimit :: !(Maybe Text)
+  , jjMemoryLimit :: !(Maybe Text)
+  , jjBackoffLimit :: !Int
+  , jjActiveDeadlineSeconds :: !(Maybe Int)
+  , jjTtlSecondsAfterFinished :: !(Maybe Int)
+  , jjScratchSize :: !Text
+  , jjNixConfigMap :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonJob where
+  parseJSON = withObject "Job" $ \o ->
+    JsonJob
+      <$> o .: "name"
+      <*> o .: "namespace"
+      <*> o .: "image"
+      <*> o .:? "build"
+      <*> o .:? "command"
+      <*> o .:? "env" .!= []
+      <*> o .:? "cpuRequest"
+      <*> o .:? "memoryRequest"
+      <*> o .:? "cpuLimit"
+      <*> o .:? "memoryLimit"
+      <*> o .:? "backoffLimit" .!= 0
+      <*> o .:? "activeDeadlineSeconds"
+      <*> o .:? "ttlSecondsAfterFinished"
+      <*> o .: "scratchSize"
+      <*> o .:? "nixConfigMap"
+
+toJob :: JsonJob -> Either LoadError Job
+toJob j = do
+  name' <- first (MarshalError "name") $ mkServiceName (jjName j)
+  namespace' <- first (MarshalError "namespace") $ mkNamespace (jjNamespace j)
+  image' <- first (MarshalError "image") $ mkImageRef (jjImage j)
+  build' <- case jjBuild j of
+    Nothing -> first (MarshalError "build") defaultBuild
+    Just build -> toBuildSpec build
+  command' <- traverse (first (MarshalError "command") . mkCommand) (jjCommand j)
+  env' <- mapM toEnvEntry (jjEnv j)
+  resources' <- toJobResources j
+  scratch' <- first (MarshalError "scratchSize") $ mkQuantity (jjScratchSize j)
+  nixConfigMap' <- traverse (first (MarshalError "nixConfigMap") . mkConfigMapName) (jjNixConfigMap j)
+  first (MarshalError "job") $
+    mkJob
+      Job
+        { jobName = name'
+        , jobNamespace = namespace'
+        , jobImage = image'
+        , jobBuild = build'
+        , jobCommand = command'
+        , jobEnv = Map.fromList env'
+        , jobResources = resources'
+        , jobBackoffLimit = jjBackoffLimit j
+        , jobActiveDeadlineSeconds = jjActiveDeadlineSeconds j
+        , jobTtlSecondsAfterFinished = jjTtlSecondsAfterFinished j
+        , jobScratchSize = scratch'
+        , jobNixConfigMap = nixConfigMap'
+        }
+
+toJobResources :: JsonJob -> Either LoadError (Maybe Resources)
+toJobResources j =
+  case (jjCpuRequest j, jjMemoryRequest j, jjCpuLimit j, jjMemoryLimit j) of
+    (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
+    (cpuRequest, memoryRequest, cpuLimit', memoryLimit') -> do
+      cpuRequest' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) cpuRequest
+      memoryRequest' <- traverse (first (MarshalError "memoryRequest") . mkQuantity) memoryRequest
+      cpuLimit'' <- traverse (first (MarshalError "cpuLimit") . mkQuantity) cpuLimit'
+      memoryLimit'' <- traverse (first (MarshalError "memoryLimit") . mkQuantity) memoryLimit'
+      Right
+        ( Just
+            Resources
+              { cpu = cpuRequest'
+              , memory = memoryRequest'
+              , cpuLimit = cpuLimit''
+              , memoryLimit = memoryLimit''
+              }
+        )
+
+-- | Decode and revalidate the JSON emitted by 'Nagare.Dsl.Config.emitJob'.
+decodeJob :: ByteString -> Either LoadError Job
+decodeJob bs =
+  case eitherDecodeStrict bs of
+    Left perr ->
+      Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
+    Right envelope -> case jkeKind envelope of
+      Just "Job" -> case eitherDecodeStrict bs of
+        Left perr -> Left (MarshalError "json" ("could not decode job: " <> Text.pack perr))
+        Right job -> toJob job
+      Just other -> Left (UnexpectedKind "Job" other)
+      Nothing -> Left (UnexpectedKind "Job" "<none>")
+
+-- | Load a Job from a Haskell config-as-program that calls @emitJob@.
+loadJob :: FilePath -> IO (Either LoadError Job)
+loadJob path = fmap (>>= decodeJob) (runConfig path)
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for workers (mirrors Nagare.Dsl.Config's emitted shape)
