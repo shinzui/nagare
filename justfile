@@ -114,6 +114,29 @@ cluster-bootstrap:
       kubectl -n knative-serving patch configmap config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
 
+# EP-95: install the two-slot ResourceQuota for deadline-bounded one-shot Jobs.
+# Create/update the personal namespace and bounded Job-run quota.
+[group('cluster')]
+job-runs-bootstrap:
+    kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f cluster/bootstrap/job-runs/resourcequota.yaml
+
+# EP-95: show current quota usage and the admission events used as backpressure.
+# Inspect the bounded Job-run quota, admitted Pods, and recent Job events.
+[group('cluster')]
+job-runs-status:
+    kubectl -n personal describe resourcequota nagare-terminating-jobs
+    kubectl -n personal get pods -o custom-columns='NAME:.metadata.name,DEADLINE:.spec.activeDeadlineSeconds,PHASE:.status.phase'
+    kubectl -n personal get events --field-selector=reason=FailedCreate --sort-by=.lastTimestamp
+
+# Show the selected kubectl context and API server without contacting the cluster.
+[group('cluster')]
+context-show:
+    @printf 'context: '
+    @kubectl config current-context
+    @printf 'server:  '
+    @kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
+
 # EP-4 (deferred): enable automatic per-namespace wildcard HTTPS. Only run this
 # AFTER a real baseDomain is set in Pulumi config and delegated to the Cloud DNS
 # zone's nameservers (see cluster/bootstrap/cert-manager/README.md).
