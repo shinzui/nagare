@@ -218,3 +218,10 @@ The milestone also leaves two coordination risks visible rather than silently pa
 them downstream: Kikan must create and reconcile its conformance fixture, and production
 untrusted workloads require startup-fail-closed network isolation beyond the current
 asynchronous kube-router behavior.
+
+
+## Revision Notes
+
+2026-07-14: Audited the MasterPlan and all three child ExecPlans against the shared
+formatting specification. The MasterPlan contains no command or code excerpts requiring
+fences; every such excerpt in the children now uses a language-tagged fenced block.
