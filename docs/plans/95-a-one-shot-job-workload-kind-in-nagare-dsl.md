@@ -281,20 +281,22 @@ add the new module to `nagare-dsl.cabal`.
 
 Add `cli/nagare-dsl/src/Nagare/Dsl/Job.hs` with these public fields:
 
-    data Job = Job
-      { jobName :: ServiceName
-      , jobNamespace :: Namespace
-      , jobImage :: ImageRef
-      , jobBuild :: BuildSpec
-      , jobCommand :: Maybe Command
-      , jobEnv :: Map EnvName ScopedEnvVar
-      , jobResources :: Maybe Resources
-      , jobBackoffLimit :: Int
-      , jobActiveDeadlineSeconds :: Maybe Int
-      , jobTtlSecondsAfterFinished :: Maybe Int
-      , jobScratchSize :: Quantity
-      , jobNixConfigMap :: Maybe ConfigMapName
-      }
+```haskell
+data Job = Job
+  { jobName :: ServiceName
+  , jobNamespace :: Namespace
+  , jobImage :: ImageRef
+  , jobBuild :: BuildSpec
+  , jobCommand :: Maybe Command
+  , jobEnv :: Map EnvName ScopedEnvVar
+  , jobResources :: Maybe Resources
+  , jobBackoffLimit :: Int
+  , jobActiveDeadlineSeconds :: Maybe Int
+  , jobTtlSecondsAfterFinished :: Maybe Int
+  , jobScratchSize :: Quantity
+  , jobNixConfigMap :: Maybe ConfigMapName
+  }
+```
 
 Define `ConfigMapName` as a hidden-constructor DNS-subdomain-safe newtype with
 `mkConfigMapName` and `configMapNameText`. A DNS label implementation that delegates to
@@ -414,22 +416,28 @@ recorded without weakening the host or applying a blanket egress allow.
 
 Run development commands from `/Users/shinzui/Keikaku/bokuno/nagare`:
 
-    nix develop
-    cabal test nagare-dsl --test-show-details=direct
+```bash
+nix develop
+cabal test nagare-dsl --test-show-details=direct
+```
 
 The test output should include groups for Job constructor validation, JSON round-trip,
 config-as-program loading, and four renderer goldens, followed by `All tests passed`.
 Run the broad compatibility checks:
 
-    nix fmt
-    nix flake check
-    git diff --check
+```bash
+nix fmt
+nix flake check
+git diff --check
+```
 
 Render the fixture twice through the test harness and verify that the checked-in golden
 does not change. If the Kikan conformance fixture now exists, locate Kikan with
 `mori registry show shinzui/kikan --full` and run:
 
-    cmp cli/nagare-dsl/test/golden/job-agent-run.job.yaml /Users/shinzui/Keikaku/bokuno/kikan/docs/architecture/evolution/conformance/nagare-prereqs/agent-run.job.yaml
+```bash
+cmp cli/nagare-dsl/test/golden/job-agent-run.job.yaml /Users/shinzui/Keikaku/bokuno/kikan/docs/architecture/evolution/conformance/nagare-prereqs/agent-run.job.yaml
+```
 
 Expected output is empty with exit status zero. A missing Kikan file is not a reason to
 invent it in this repository; record the outstanding provider/consumer sync in the
@@ -437,17 +445,21 @@ parent MasterPlan.
 
 Before a live write, inspect the active context:
 
-    just context-show
-    kubectl config current-context
-    just job-runs-bootstrap
-    kubectl -n personal describe resourcequota nagare-terminating-jobs
+```bash
+just context-show
+kubectl config current-context
+just job-runs-bootstrap
+kubectl -n personal describe resourcequota nagare-terminating-jobs
+```
 
 Apply the bundle golden or fixture-generated bundle, then inspect security and completion:
 
-    kubectl -n personal apply -f cli/nagare-dsl/test/golden/job-agent-run.bundle.yaml
-    kubectl -n personal get job,pod -l nagare.dev/job=agent-run
-    kubectl -n personal logs job/nagare-job-agent-run
-    kubectl -n personal get job nagare-job-agent-run -o jsonpath='{.status.succeeded}'
+```bash
+kubectl -n personal apply -f cli/nagare-dsl/test/golden/job-agent-run.bundle.yaml
+kubectl -n personal get job,pod -l nagare.dev/job=agent-run
+kubectl -n personal logs job/nagare-job-agent-run
+kubectl -n personal get job nagare-job-agent-run -o jsonpath='{.status.succeeded}'
+```
 
 Expected final status is `1`, and the probe log contains explicit success for writable
 scratch and absence of a service-account token. It must treat a successful write under
@@ -456,8 +468,10 @@ scratch and absence of a service-account token. It must treat a successful write
 For quota behavior, apply three copies with distinct Job and label names and commands
 that sleep long enough to overlap. Inspect:
 
-    kubectl -n personal get pods --field-selector=status.phase=Running
-    kubectl -n personal describe job nagare-job-quota-probe-3
+```bash
+kubectl -n personal get pods --field-selector=status.phase=Running
+kubectl -n personal describe job nagare-job-quota-probe-3
+```
 
 Exactly two probe Pods are admitted. The third Job shows a `FailedCreate` event containing
 `exceeded quota: nagare-terminating-jobs`; it does not have a third Pending Pod. Delete
@@ -528,23 +542,25 @@ empty egress plus explicit `policyTypes` isolates matching Pods.
 
 The public Haskell interface at completion is:
 
-    module Nagare.Dsl.Command
-      ( Command, mkCommand, commandArgvList )
+```haskell
+module Nagare.Dsl.Command
+  ( Command, mkCommand, commandArgvList )
 
-    module Nagare.Dsl.Job
-      ( ConfigMapName, mkConfigMapName, configMapNameText
-      , Job(..), mkJob, oneShotJob, jobResourceName
-      )
+module Nagare.Dsl.Job
+  ( ConfigMapName, mkConfigMapName, configMapNameText
+  , Job(..), mkJob, oneShotJob, jobResourceName
+  )
 
-    emitJob :: Job -> IO ()
-    encodeJob :: Job -> LBS.ByteString
-    loadJob :: FilePath -> IO (Either LoadError Job)
-    decodeJob :: ByteString -> Either LoadError Job
+emitJob :: Job -> IO ()
+encodeJob :: Job -> LBS.ByteString
+loadJob :: FilePath -> IO (Either LoadError Job)
+decodeJob :: ByteString -> Either LoadError Job
 
-    renderJob :: Job -> Text -> [ByteString]
-    renderJobServiceAccount :: Job -> ByteString
-    renderJobNetworkPolicy :: Job -> ByteString
-    renderJobManifest :: Job -> Text -> ByteString
+renderJob :: Job -> Text -> [ByteString]
+renderJobServiceAccount :: Job -> ByteString
+renderJobNetworkPolicy :: Job -> ByteString
+renderJobManifest :: Job -> Text -> ByteString
+```
 
 The `Text` argument is the deploy-time image tag, matching `renderWorker`; `BuildSpec`
 decides whether it or a prebuilt tag is used. `renderJob` returns ServiceAccount,
@@ -552,3 +568,10 @@ NetworkPolicy, then Job in apply order. EP-3's only shared interface is a Config
 `nagare-nix-cache-client` with a `nix.conf` key and the opt-in Pod label
 `nagare.dev/nix-cache-client: "true"`. Kikan consumes the Job YAML contract but is not a
 Nagare build dependency.
+
+
+## Revision Notes
+
+2026-07-14: Replaced every indented command and Haskell interface excerpt with an
+explicitly language-tagged fenced code block, as required by the ExecPlan formatting
+specification. No workload design or acceptance behavior changed.
