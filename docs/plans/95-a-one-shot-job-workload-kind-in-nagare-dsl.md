@@ -44,8 +44,13 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-07-14 13:15 PDT) Added deterministic ServiceAccount, default-deny
   NetworkPolicy, and hardened Job renderers with four goldens; 381 tests passed
   on two consecutive runs and all pre-existing Task/Worker goldens remained unchanged.
-- [ ] Add the terminating-Pod ResourceQuota bootstrap component and operator documentation.
-- [ ] Pass local tests and live hardening, isolation, quota, completion, and cleanup acceptance.
+- [x] (2026-07-14 13:43 PDT) Added the terminating-Pod ResourceQuota,
+  idempotent bootstrap/status recipes, and a compiled agent-run example with
+  quota, immutable-input, network, scratch, and cleanup guidance.
+- [x] (2026-07-14 14:05 PDT) Passed all 381 DSL tests, the focused Nix DSL/example/shell
+  checks, server-side dry-run, and live hardening, TTL cleanup, steady-state deny/narrow
+  allow, and three-Job quota acceptance on local k3s. The aggregate flake check remains
+  blocked by the unrelated credentialed `nagare-access` dependency described below.
 
 
 ## Surprises & Discoveries
@@ -75,6 +80,25 @@ implementation. Provide concise evidence.
   Evidence: validation failed while fetching `/openapi/v2` from `35.247.110.193` with
   `Reauthentication failed`; server-side and live acceptance therefore require renewed
   credentials or a usable local context.
+
+- Discovery: The existing `k3d-nagare-local` context supplied a healthy k3s
+  `v1.34.6+k3s1` acceptance target after starting its stopped Colima runtime. The
+  checked-in Job golden passed server-side dry-run there without writing to the unrelated
+  active GKE cluster. The original `sennari` context and stopped Colima state were restored
+  after cleanup.
+
+- Discovery: k3s's embedded kube-router controller enforces the default-deny policy after
+  reconciliation, but it is not a fail-closed startup barrier for a newly allocated Pod IP.
+  Evidence: an immediate BusyBox TCP probe reached `1.1.1.1:80` even though its policy had
+  existed for minutes; iptables contained the policy chain but no rule for that short-lived
+  Pod IP. Repeating the probe after a 15-second in-Pod delay produced `egress=blocked`.
+  A separate additive policy restricted to `1.1.1.1/32` TCP/80 then produced
+  `egress=target-allowed` and `egress=non-target-blocked` for `1.0.0.1:80`.
+
+- Discovery: The aggregate `nix flake check` is blocked by an unrelated credentialed
+  dependency in the `nagare-access` check. Its sandboxed Cabal build exited 128 while
+  cloning from GitHub with `could not read Username`; Nix cancelled the other checks.
+  The Job-relevant DSL, example, and shell checks were therefore also run individually.
 
 
 ## Decision Log
@@ -148,6 +172,15 @@ Record every decision made while working on the plan.
   controller. Installing another controller would add conflict without adding isolation.
   Date: 2026-07-14
 
+- Decision: Document the kube-router convergence window as a production isolation gap
+  instead of describing the base NetworkPolicy as fail-closed from process start.
+  Rationale: The delayed deny and narrow allow probes prove steady-state rule enforcement,
+  while the immediate successful connection proves that this manifest/controller pair
+  cannot safely launch untrusted code that sends traffic before the Pod-specific rule is
+  programmed. Hiding the distinction would overstate the delivered security property;
+  the target CNI or a separate admission-time mechanism must close it before production.
+  Date: 2026-07-14
+
 - Decision: Make the Attic client ConfigMap an optional, typed Job input.
   Rationale: EP-3 of the parent MasterPlan owns `nagare-nix-cache-client`; mounting it at
   `/etc/nix/nix.conf` lets Nix-capable Jobs substitute without coupling every Job to the
@@ -160,7 +193,37 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+The repository now has a first-class, validated one-shot `Job` model with config-as-program
+round-tripping and deterministic rendering of a tokenless ServiceAccount, default-deny
+NetworkPolicy, and hardened `batch/v1` Job. The renderer fixes parallelism/completions at
+one, emits explicit resources and sized scratch, duplicates the validated deadline at Job
+and Pod level, and supports an opt-in Nix client ConfigMap without granting network access.
+All 381 DSL tests passed, including the four new goldens and every pre-existing Task and
+Worker golden. The focused Nix DSL, example-compilation, and shell checks also passed.
+
+The cluster milestone installed an idempotent two-slot `Terminating` ResourceQuota and
+proved its exact backpressure contract: two default Pods consumed the full pool, the third
+Job had repeated `FailedCreate/exceeded quota` events and no Pod, and deleting one admitted
+Job caused the third Pod to be created. A separate hardened probe logged `uid=65532`,
+`root=readonly`, `scratch=writable`, and `api-token=absent`, completed successfully, and was
+deleted by its TTL; its separately applied ServiceAccount and NetworkPolicy were then
+removed explicitly. The checked-in Job bundle also passed Kubernetes server-side dry-run.
+
+Steady-state network enforcement was demonstrated with a denied outbound probe and an
+additive `/32` TCP/80 policy that allowed its target while continuing to deny another IP.
+The immediate-start probe exposed a residual security boundary: this kube-router dataplane
+programs new Pod-IP rules asynchronously, so the base manifest is not a fail-closed startup
+barrier. The example documentation now says so plainly. Production use with untrusted agent
+code still needs a target CNI or admission-time isolation mechanism that proves enforcement
+before the workload process starts.
+
+Two integrations remain outside this child's completion boundary. Kikan has not created
+the standalone conformance fixture, so its consumer copy still needs the corrected Pod
+deadline plus explicit parallelism/completions before byte comparison. EP-3 has not yet
+provided `nagare-nix-cache-client`, so the live cache substitution check remains the parent
+MasterPlan's soft integration acceptance. The aggregate `nix flake check` is also not green
+because the unrelated `nagare-access` derivation cannot clone a credentialed GitHub
+dependency in its sandbox; all checks Nix cancelled as a result were rerun individually.
 
 
 ## Context and Orientation

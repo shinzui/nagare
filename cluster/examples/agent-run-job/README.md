@@ -47,10 +47,11 @@ create the waiting Pod. Callers must observe Job events/status and retry instead
 of waiting for a nonexistent third Pending Pod.
 
 Every Job bundle contains a NetworkPolicy with empty ingress and egress rules.
-The example therefore receives no network by default, including DNS. Forge,
-cache, and result-sink connectivity must be granted through separate additive
-policies selecting the specific opted-in Pod labels and destinations. Never add
-a blanket egress rule to the base Job policy.
+Once the policy controller has reconciled, the example therefore receives no
+network by default, including DNS. Forge, cache, and result-sink connectivity
+must be granted through separate additive policies selecting the specific
+opted-in Pod labels and destinations. Never add a blanket egress rule to the
+base Job policy.
 
 NetworkPolicy controllers reconcile asynchronously. On the local k3s
 kube-router dataplane, a process that connected immediately at container start
