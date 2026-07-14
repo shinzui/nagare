@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: nagare-terminating-jobs
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+spec:
+  scopes:
+    - Terminating
+  hard:
+    pods: "2"
+    requests.cpu: 500m
+    requests.memory: 1Gi
+    limits.cpu: "2"
+    limits.memory: 2Gi
