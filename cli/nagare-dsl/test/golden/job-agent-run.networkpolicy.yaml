@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-job-agent-run
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/job: agent-run
+spec:
+  podSelector:
+    matchLabels:
+      nagare.dev/job: agent-run
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress: []

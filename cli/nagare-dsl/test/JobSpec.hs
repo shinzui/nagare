@@ -1,6 +1,8 @@
 module JobSpec (jobTests) where
 
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy (fromStrict)
 import Data.ByteString.Lazy (toStrict)
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -8,10 +10,12 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Command
 import Nagare.Dsl.Config (encodeJob, encodeWorker)
 import Nagare.Dsl.Job
+import Nagare.Dsl.Job.Render
 import Nagare.Dsl.Load (LoadError (..), decodeJob, loadJob)
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (webWorker)
 import Test.Tasty
+import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 
 jobTests :: TestTree
@@ -21,6 +25,7 @@ jobTests =
     [ testGroup "constructors and preset" constructorTests
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
     , testGroup "loadJob (config-as-program)" loadTests
+    , testGroup "renderer goldens and hardening" renderTests
     ]
 
 constructorTests :: [TestTree]
@@ -91,7 +96,60 @@ loadTests =
       result <- loadJob "test/fixtures/job/nagare/Config.hs"
       case result of
         Left err -> assertFailure ("loadJob returned Left: " <> show err)
-        Right job -> job @?= fixtureJobWithCommand
+        Right job -> job @?= representativeJob
+  ]
+
+renderTests :: [TestTree]
+renderTests =
+  [ goldenVsString
+      "renderJobServiceAccount"
+      "test/golden/job-agent-run.serviceaccount.yaml"
+      (pure (fromStrict (renderJobServiceAccount representativeJob)))
+  , goldenVsString
+      "renderJobNetworkPolicy"
+      "test/golden/job-agent-run.networkpolicy.yaml"
+      (pure (fromStrict (renderJobNetworkPolicy representativeJob)))
+  , goldenVsString
+      "renderJobManifest"
+      "test/golden/job-agent-run.job.yaml"
+      (pure (fromStrict (renderJobManifest representativeJob "ignored-deploy-tag")))
+  , goldenVsString
+      "loaded Config.hs renders the Job golden"
+      "test/golden/job-agent-run.job.yaml"
+      ( do
+          result <- loadJob "test/fixtures/job/nagare/Config.hs"
+          case result of
+            Left err -> fail ("loadJob returned Left: " <> show err)
+            Right job -> pure (fromStrict (renderJobManifest job "ignored-deploy-tag"))
+      )
+  , goldenVsString
+      "renderJob bundle in apply order"
+      "test/golden/job-agent-run.bundle.yaml"
+      ( pure
+          ( fromStrict
+              (BS.intercalate "---\n" (renderJob representativeJob "ignored-deploy-tag"))
+          )
+      )
+  , testCase "Job and Pod carry matching active deadlines" $ do
+      let yaml = renderJobManifest representativeJob "ignored"
+      countOccurrences "activeDeadlineSeconds: 1800" yaml @?= 2
+  , testCase "renderer supplies explicit default requests and limits" $ do
+      let yaml = renderJobManifest representativeJob "ignored"
+      assertContains "cpu: 250m" yaml
+      assertContains "memory: 512Mi" yaml
+      assertContains "cpu: '1'" yaml
+      assertContains "memory: 1Gi" yaml
+  , testCase "Nix ConfigMap opt-in adds only its label, mount, and volume" $ do
+      let yaml = renderJobManifest nixJob "ignored"
+      assertContains "nagare.dev/nix-cache-client: 'true'" yaml
+      assertContains "mountPath: /etc/nix/nix.conf" yaml
+      assertContains "name: nagare-nix-cache-client" yaml
+      assertContains "key: nix.conf" yaml
+  , testCase "ordinary Job has no Nix cache label, mount, or volume" $ do
+      let yaml = renderJobManifest representativeJob "ignored"
+      assertNotContains "nagare.dev/nix-cache-client" yaml
+      assertNotContains "/etc/nix/nix.conf" yaml
+      assertNotContains "nix-config" yaml
   ]
 
 fixtureJob :: Job
@@ -100,16 +158,34 @@ fixtureJob =
     Left err -> error ("test fixture invalid: " <> err)
     Right job -> job
 
-fixtureJobWithCommand :: Job
-fixtureJobWithCommand =
-  fixtureJob
-    { jobCommand = Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
+representativeJob :: Job
+representativeJob =
+  case oneShotJob "agent-run" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/agent-run" of
+    Left err -> error ("test fixture invalid: " <> err)
+    Right job ->
+      job
+        { jobCommand = Just (unsafe (mkCommand ["/app/agent-run"]))
+        , jobEnv =
+            Map.fromList
+              [ (unsafe (mkEnvName "NAGARE_RUN_ID"), runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
+              , ( unsafe (mkEnvName "REPO_REF")
+                , runtimeScoped
+                    (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
+                )
+              ]
+        }
+
+nixJob :: Job
+nixJob =
+  representativeJob
+    { jobNixConfigMap = Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
     }
 
 richJob :: Job
 richJob =
-  fixtureJobWithCommand
-    { jobEnv =
+  fixtureJob
+    { jobCommand = Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
+    , jobEnv =
         Map.fromList
           [ (unsafe (mkEnvName "REPO_REF"), runtimeScoped (EnvLiteral "repo_example@0123456789012345678901234567890123456789"))
           , (unsafe (mkEnvName "FORGE_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "forge-token"))))
@@ -146,3 +222,20 @@ assertLeft (Right value) = assertFailure ("expected Left, got Right: " <> show v
 assertRight :: (Show a) => Either a b -> Assertion
 assertRight (Right _) = pure ()
 assertRight (Left err) = assertFailure ("expected Right, got Left: " <> show err)
+
+assertContains :: ByteString -> ByteString -> Assertion
+assertContains needle haystack =
+  assertBool ("expected rendered YAML to contain: " <> show needle) (BS.isInfixOf needle haystack)
+
+assertNotContains :: ByteString -> ByteString -> Assertion
+assertNotContains needle haystack =
+  assertBool ("expected rendered YAML not to contain: " <> show needle) (not (BS.isInfixOf needle haystack))
+
+countOccurrences :: ByteString -> ByteString -> Int
+countOccurrences needle = go 0
+  where
+    go count remaining =
+      let (_, suffix) = BS.breakSubstring needle remaining
+       in if BS.null suffix
+            then count
+            else go (count + 1) (BS.drop (BS.length needle) suffix)

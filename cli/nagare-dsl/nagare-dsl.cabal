@@ -26,6 +26,8 @@ common common
 library
   import:          common
   hs-source-dirs:  src
+  other-modules:
+    Nagare.Dsl.Batch.Render
   exposed-modules:
     Nagare.Dsl.Access
     Nagare.Dsl.Application
@@ -40,6 +42,7 @@ library
     Nagare.Dsl.Database.Render
     Nagare.Dsl.Image
     Nagare.Dsl.Job
+    Nagare.Dsl.Job.Render
     Nagare.Dsl.Load
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude
