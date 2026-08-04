@@ -74,5 +74,13 @@ in  Schema.Project::{
         , okfVersion = "0.2"
         , description = Some "Nagare-owned improvement requests"
         }
+      , Schema.OkfBundle::{
+        , name = "use-cases"
+        , path = "docs/use-cases"
+        , profile = Some "docs/use-cases/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "JTBD use cases Nagare owns, with the features their delivery depends on"
+        }
       ]
     }
