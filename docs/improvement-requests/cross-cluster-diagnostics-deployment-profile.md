@@ -3,6 +3,9 @@ type: Improvement Request
 title: Add hardened cross-cluster diagnostics deployment profiles to Nagare
 description: Package broker and production-probe profiles with identity, RBAC, network policy, and upgrade checks.
 timestamp: "2026-07-30T00:30:00Z"
+generated:
+  by: process:kikan
+  at: "2026-07-30T00:30:00Z"
 requestId: IR-1
 status: proposed
 origin: mori://shinzui/kikan
