@@ -4,6 +4,7 @@ slug: protect-stateful-infrastructure-and-make-secrets-and-state-recoverable
 title: "Protect stateful infrastructure and make secrets and state recoverable"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 ---
 
@@ -57,34 +58,56 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
+**Status summary (2026-08-05): all of this plan's *code* is written, committed, and
+typechecks. Every step that requires a live GCP session is blocked on operator
+action — this workstation has no cloud target context and its gcloud credentials
+need an interactive re-login. See "The live-environment blocker" in Surprises &
+Discoveries for the evidence and the exact unblock procedure.**
+
+- [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
   lifecycle + `publicAccessPrevention: "enforced"` on both buckets, and the daily
-  snapshot ResourcePolicy + attachment. `pulumi preview --diff` shows update/create
-  only — no replaces.
-- [ ] M1b: Replace project-wide `roles/dns.admin` with a zone-scoped
-  `gcp.dns.ManagedZoneIamMember` plus project-level `roles/dns.reader`; verify the
-  cert-manager DNS-01 solver still issues certificates.
-- [ ] M1c: Drop the `enable-oslogin` metadata entry (fix the comment to describe the
+  snapshot ResourcePolicy + attachment. (2026-08-05, commit `cfc2ce5`; `tsc --noEmit`
+  clean)
+- [x] M1b: Replace project-wide `roles/dns.admin` with a zone-scoped
+  DNS-zone IAM member plus project-level `roles/dns.reader`. (2026-08-05 — note the
+  class is `gcp.dns.DnsManagedZoneIamMember`, not the `gcp.dns.ManagedZoneIamMember`
+  this plan named; see Surprises & Discoveries)
+- [x] M1c: Drop the `enable-oslogin` metadata entry (fix the comment to describe the
   real auth model), and thread boot-disk size and type through config
-  (`bootDiskSizeGb`, `bootDiskType` default `pd-balanced`), pinning the live stack to
-  its current type if a VM replacement is not being performed now.
-- [ ] M1: Apply via `just infra-up` after a clean `pulumi preview --diff`; run the
-  post-apply `gcloud` describe checks; commit.
-- [ ] M2a: Generate the offline recovery age key, store the private half in the vault,
-  and add its public key (plus the workstation project key for host secrets) to every
-  creation rule in both `.sops.yaml` files; delete the dead `nixos/secrets/` rule.
-- [ ] M2b: Re-key every encrypted file (`sops updatekeys` for `cluster/secrets/`,
-  decrypt-over-SSH + re-encrypt for the host file), and verify decryption with each
-  key that should work.
-- [ ] M2c: Rewrite the age-key section of `docs/runbooks/disaster-recovery.md` to name
-  all three keys (name, path, purpose); commit.
-- [ ] M3: Migrate the active cloud context's Pulumi state to the GCS backend with
-  `scripts/migrate-pulumi-backend.sh`, verify with `pulumi whoami -v` / stack outputs /
-  a clean preview, and update the user docs to recommend GCS for cloud contexts;
-  record the backend decision in the Decision Log; commit.
+  (`bootDiskSizeGb`, `bootDiskType` default `pd-balanced`). (2026-08-05)
+- [ ] M1 (BLOCKED — needs a live GCP session): run `pulumi preview --diff`, confirm the
+  acceptance gate (update/create only, plus the single expected delete of
+  `nagare-iam-dns`), pin `bootDiskType` to the live boot disk's actual type if it is
+  not already `pd-balanced`, then `just infra-up` and run the post-apply `gcloud`
+  describe checks and the `kubectl get clusterissuer letsencrypt-dns` verification.
+  **Do not apply without the preview.**
+- [x] M2a (partial — the half that needs no key material): delete the dead
+  `nixos/secrets/` creation rule and correct the root `.sops.yaml` header comment,
+  which wrongly claimed one private key lives in both key locations. (2026-08-05,
+  commit `4148e68`; verified by a `sops -e`/`sops -d` round-trip of a scratch file
+  under `cluster/secrets/`)
+- [ ] M2a (BLOCKED — needs operator key handling): generate the offline recovery age
+  key, store the private half in the password manager, and add its public half — plus
+  the workstation key on the host rule — to the creation rules in both `.sops.yaml`
+  files. Deliberately not started: adding a recipient whose private half is not yet
+  safely stored would create a recipient nobody can use, and the private half must
+  never live on a machine or in this repo.
+- [ ] M2b (BLOCKED — needs the recovery key and the running VM): re-key both encrypted
+  files. `cluster/secrets/notes-db-url.yaml` can be done on the workstation once the
+  recovery recipient exists (the workstation key is already a recipient and does
+  decrypt — verified). `nixos/hosts/nagare-01/secrets/nagare-01.yaml` needs the
+  decrypt-over-IAP-SSH flow, because the host key is its only recipient and lives only
+  on the VM.
+- [ ] M2c (BLOCKED — depends on M2a/M2b): rewrite the age-key section of
+  `docs/runbooks/disaster-recovery.md` to name all three keys. Not written yet because
+  it would document a three-key model that does not exist until the re-key lands.
+- [ ] M3 (BLOCKED — no cloud context exists on this machine): migrate the active cloud
+  context's Pulumi state to GCS. There is nothing to migrate here: the only context is
+  the in-repo local-mode profile, and its `default` stack holds **0 resources**.
 - [ ] Final: update MasterPlan 19's registry/progress for EP-99 and write the Outcomes
-  & Retrospective entry here.
+  & Retrospective entry here. (MasterPlan registry updated 2026-08-05 to In Progress;
+  the retrospective waits for the blocked steps.)
 
 
 ## Surprises & Discoveries
@@ -108,7 +131,92 @@ implementation. Provide concise evidence.
   not grant `dns.managedZones.list` at project level; project-level `roles/dns.reader`
   is required alongside it (see M1b).
 
-(Add implementation discoveries here as they occur.)
+**The live-environment blocker (2026-08-05).** Three independent facts stop every
+live step of this plan on this workstation. All are operator-fixable; none is a
+problem with the code.
+
+1. *gcloud credentials are expired and need an interactive login.* Any project-touching
+   call fails:
+
+   ```text
+   ERROR: (gcloud.compute.instances.describe) There was a problem refreshing your
+   current auth tokens: Reauthentication failed. cannot prompt during non-interactive
+   execution.
+   ```
+
+   Fix: run `gcloud auth login` (and `gcloud auth application-default login` for the
+   Pulumi GCP provider) in an interactive shell.
+
+2. *There is no cloud target context here.* `~/.config/nagare/contexts` does not exist
+   and there is no in-repo `nagare.target.env`; the only profile is
+   `nagare.local.env` (`NAGARE_MODE=local`). So the active context resolves to
+   `default` in **local mode**, which is why `scripts/migrate-pulumi-backend.sh` would
+   refuse it outright ("only cloud contexts use a GCS Pulumi backend").
+
+3. *The local Pulumi stack is empty.* The `default` stack in
+   `file:///Users/shinzui/.local/state/nagare/default/state` reports
+   `RESOURCE COUNT 0`, its checkpoint contains zero resources, and
+   `infra/pulumi/Pulumi.default.yaml` carries only an encryption salt — no
+   `gcp:project`, no `imageBucket`. `pulumi preview` therefore cannot even run
+   (`gcpCfg.require("project")` fails), and if it did, every resource would be a
+   *create*, so this plan's acceptance gate — "update-in-place only, no replaces" —
+   has nothing to assert against. The real `tan-nb-exp` state is not on this machine.
+
+   ```text
+   $ pulumi stack ls
+   NAME     LAST UPDATE  RESOURCE COUNT
+   default  1 month ago  0
+   $ pulumi whoami -v
+   Backend URL: file:///Users/shinzui/.local/state/nagare/default/state
+   ```
+
+   Unblocking M1/M3 means selecting the cloud context that owns the live stack (create
+   it under `~/.config/nagare/contexts/<name>.env` with `NAGARE_MODE=cloud` and
+   `CLOUDSDK_CORE_PROJECT=tan-nb-exp`, or restore the machine's original context), then
+   re-running the preview gate.
+
+**`gcp.dns.ManagedZoneIamMember` does not exist (2026-08-05).** The plan's snippet
+names a class the provider does not export. In `@pulumi/gcp` v8 the class is
+`DnsManagedZoneIamMember`:
+
+```text
+NagarePerimeter.ts: Property 'ManagedZoneIamMember' does not exist on type
+'typeof import("@pulumi/gcp/dns/index")'. Did you mean 'DnsManagedZoneIamMember'?
+```
+
+Its argument shape (`project`, `managedZone`, `role`, `member`) is exactly as the plan
+described. With the rename, `npm run build` (`tsc --noEmit`) is clean.
+
+**This sops build does not search `~/.config/sops/age/keys.txt` (2026-08-05).** Every
+`sops -d` / `sops updatekeys` command in this plan fails as written, even though the
+workstation key *is* a valid recipient:
+
+```text
+age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf: FAILED
+  - | age: no identity matched any of the recipients. Did not find keys in
+    | locations 'SOPS_AGE_SSH_PRIVATE_KEY_FILE', 'SOPS_AGE_SSH_PRIVATE_KEY_CMD',
+    | 'SOPS_AGE_KEY', 'SOPS_AGE_KEY_FILE', and 'SOPS_AGE_KEY_CMD'.
+```
+
+Naming the file explicitly works, and confirms the key is correct:
+
+```text
+$ SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops -d cluster/secrets/notes-db-url.yaml
+cluster-ok
+$ age-keygen -y ~/.config/sops/age/keys.txt
+age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
+```
+
+Prefix `SOPS_AGE_KEY_FILE=…` to every sops command in M2. This is now recorded in the
+root `.sops.yaml` header so the next person does not lose time to it.
+
+**The host secret is confirmed workstation-undecryptable**, exactly as the plan
+predicted: `sops -d nixos/hosts/nagare-01/secrets/nagare-01.yaml` fails with the
+workstation key even when it is named explicitly, because `age1rc26869…` is its only
+recipient. That is the recovery gap this plan exists to close, and closing it requires
+the VM.
+
+(Add further implementation discoveries here as they occur.)
 
 
 ## Decision Log
@@ -175,6 +283,30 @@ Record every decision made while working on the plan.
   locally. Reusing the workstation key alone as "the recovery key" would leave both
   halves of the trust on machines that can be lost together.
   Date: 2026-07-15
+
+- Decision: land M1's code without applying it, and split M2 so that only the two
+  provably-safe, key-material-free corrections (delete the dead `nixos/secrets/` rule,
+  fix the wrong root `.sops.yaml` comment) are done now.
+  Rationale: the code is complete and typechecks, and holding it back would leave the
+  work invisible and unreviewable; but this plan's own acceptance gate is "preview
+  shows update-in-place only", and no preview is possible here (see the
+  live-environment blocker in Surprises & Discoveries), so applying would be
+  unverifiable. On the sops side, adding a recovery recipient whose private half is not
+  yet in the operator's vault would produce a recipient nobody can use, and generating
+  that key here would put its private half on a machine — the exact failure mode M2
+  exists to prevent. Every commit therefore leaves the repository self-consistent.
+  Date: 2026-08-05
+- Decision: M1's code landed as one commit rather than the three the plan suggested.
+  Rationale: the protection, bucket-hardening, snapshot, IAM-scoping and instance
+  changes interleave within the same regions of the same three files; splitting them
+  would have meant partial staging of adjacent hunks for no reviewability gain. The
+  commit body enumerates each concern separately.
+  Date: 2026-08-05
+- Decision: use `gcp.dns.DnsManagedZoneIamMember` (the class the provider actually
+  exports) in place of the plan's `gcp.dns.ManagedZoneIamMember`.
+  Rationale: the latter does not exist in `@pulumi/gcp` v8; the former has the
+  identical argument shape, so nothing else in the plan changes.
+  Date: 2026-08-05
 
 (Record further decisions as work proceeds.)
 

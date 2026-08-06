@@ -81,7 +81,7 @@ ownership rules in Integration Points.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
-| 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Not Started |
+| 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | In Progress |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Not Started |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | Not Started |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Not Started |
@@ -178,8 +178,8 @@ complete; the child plans hold the granular checklists.
 - [x] EP-2 M1: nagared — fork-PR gating and a runghc timeout (2026-08-05)
 - [x] EP-2 M2: nagare-access — cookie MAC, return destination, Host header (2026-08-05)
 - [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
-- [ ] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes
-- [ ] EP-3 M2: sops — an offline recovery recipient for every secret
+- [~] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (2026-08-05 — code complete and typechecking; the preview gate and apply are blocked on a live GCP session)
+- [~] EP-3 M2: sops — an offline recovery recipient for every secret (2026-08-05 — dead rule removed and the key-model comment corrected; the recovery key itself needs operator vault handling and the running VM)
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
 - [ ] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane
 - [ ] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores
