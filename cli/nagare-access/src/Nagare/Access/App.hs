@@ -146,9 +146,13 @@ refreshOrChallenge services req challenge =
         LoginFailed _ ->
           pure (Left (clearAuthCookies services (challengeResponse challenge)))
 
+-- | The @Host@ header as text, or 'Nothing' when it is absent *or* not valid
+-- UTF-8. A hostile client can send arbitrary bytes here; the strict
+-- 'TE.decodeUtf8' throws an imprecise exception when the resulting 'Text' is
+-- forced, which crashes the handler with a 500 instead of answering.
 lookupHost :: Request -> Maybe Text
 lookupHost req =
-  TE.decodeUtf8 <$> lookup hHost (requestHeaders req)
+  lookup hHost (requestHeaders req) >>= decodeUtf8Maybe
 
 defaultAccessServices :: AccessServices
 defaultAccessServices =

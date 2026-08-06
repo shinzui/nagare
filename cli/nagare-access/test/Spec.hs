@@ -165,6 +165,19 @@ challengeTests =
         safeReturnDestination "https://evil.example" @?= Nothing
     , testCase "safe return destination rejects protocol-relative redirects" $
         safeReturnDestination "//evil.example" @?= Nothing
+    , -- Browsers normalize a backslash to a slash when resolving Location, so
+      -- "/\evil.com" is followed as "//evil.com" — off-site.
+      testCase "safe return destination rejects a leading backslash" $
+        safeReturnDestination "/\\evil.com" @?= Nothing
+    , testCase "safe return destination rejects an embedded backslash" $
+        safeReturnDestination "/a\\b" @?= Nothing
+    , -- The value is written into a response header; CR/LF would split it.
+      testCase "safe return destination rejects control characters" $
+        safeReturnDestination "/a\r\nSet-Cookie: x=1" @?= Nothing
+    , testCase "safe return destination rejects DEL" $
+        safeReturnDestination "/a\DELb" @?= Nothing
+    , testCase "safe return destination still accepts ordinary query strings" $
+        safeReturnDestination "/tools?tab=1" @?= Just "/tools?tab=1"
     , testCase "login path encodes the return destination" $
         loginPathFor "/foo bar" @?= "/_nagare/login?rd=%2Ffoo%20bar"
     , testCase "HTML navigation gets a redirect challenge" $
@@ -231,6 +244,25 @@ cookieTests =
         hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
         value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
         decodeRefreshCookieValue "cookie-secret" (TE.decodeUtf8 (value <> "x")) @?= Nothing
+    , -- The old implementation round-tripped the MAC through
+      -- digestFromByteString, which rejected a wrong-length MAC before any
+      -- comparison. BA.constEq subsumes that: it returns False on a length
+      -- mismatch, without an early exit.
+      testCase "refresh cookie rejects a MAC of the wrong length" $ do
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
+        let text = TE.decodeUtf8 value
+        case Text.splitOn "." text of
+          [version, tokenPart, macPart] ->
+            decodeRefreshCookieValue
+              "cookie-secret"
+              (Text.intercalate "." [version, tokenPart, Text.take 8 macPart])
+              @?= Nothing
+          other -> assertFailure ("unexpected refresh cookie shape: " <> show other)
+    , testCase "refresh cookie rejects the right-length MAC of a different key" $ do
+        hdr <- assertRight (refreshCookieHeader (signedCookieSettings ".apps.example.com" "cookie-secret") "refresh.token" 2592000)
+        value <- maybe (assertFailure "missing refresh cookie value") pure (cookieValueFromSetCookie "nagare_refresh" hdr)
+        decodeRefreshCookieValue "other-secret" (TE.decodeUtf8 value) @?= Nothing
     ]
 
 credentialTests :: TestTree
@@ -553,6 +585,26 @@ appTests =
             (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
         simpleStatus res @?= status200
         assertBool "expected root rd" (bodyContains "name=\"rd\" value=\"/\"" res)
+    , -- %2F%5C is "/\" — a backslash redirect the browser would normalize to
+      -- "//evil.com". The form must fall back to root, so no post-login
+      -- Location can point off-site.
+      testCase "login form rejects a backslash return destination by falling back to root" $ do
+        res <-
+          runSession
+            (request (setPath defaultRequest "/_nagare/login?rd=%2F%5Cevil.com"))
+            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+        simpleStatus res @?= status200
+        assertBool "expected root rd" (bodyContains "name=\"rd\" value=\"/\"" res)
+        assertBool "must not echo the backslash destination" (not (bodyContains "evil.com" res))
+    , -- A hostile client can put arbitrary bytes in Host. Strict decoding threw
+      -- an imprecise exception when the Text was forced, crashing the handler;
+      -- the lenient decode makes it an ordinary unmapped host.
+      testCase "an invalid-UTF-8 Host header gets a clean 4xx, not a crash" $ do
+        res <-
+          runSession
+            (request (withHeader "Host" (BS.pack [0x2f, 0xc3, 0x28]) (setPath defaultRequest "/")))
+            (appWithRuntime emptyBackendMap testServices)
+        simpleStatus res @?= status404
     , testCase "login submit with valid csrf sets the shared session cookie and redirects" $ do
         seen <- newIORef []
         let services =
