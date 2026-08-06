@@ -7,6 +7,13 @@
 -- out the repository and invokes the shared deploy path
 -- ('Nagare.Static.Deploy'). An unsigned or mis-signed request never reaches the
 -- deploy path.
+--
+-- Pull requests from *forks* are ignored by design. GitHub delivers a fork's
+-- @pull_request@ event to the base repository's webhook signed with the base
+-- repository's secret, so the HMAC check passes; but the checkout would come
+-- from the fork, and deploying it executes the fork's @nagare\/Config.hs@ as
+-- code. 'routeEvent' therefore compares the head repository against the base
+-- repository and refuses any pull request where they differ.
 module Nagare.Static.Webhook
   ( -- * Signature verification
     verifySignature
@@ -25,9 +32,8 @@ module Nagare.Static.Webhook
     -- * Top-level decision
   , WebhookOutcome (..)
   , decideWebhook
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -39,6 +45,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude
 
 -- ---------------------------------------------------------------------------
 -- Signature verification
@@ -69,7 +76,15 @@ data CheckoutSpec = CheckoutSpec
 -- | The GitHub events @nagared@ cares about. Anything else is 'OtherEvent'.
 data GitHubEvent
   = PushEvent {branch :: !Text, checkout :: !CheckoutSpec}
-  | PullRequestEvent {action :: !Text, prNumber :: !Int, headRef :: !Text, checkout :: !CheckoutSpec}
+  | PullRequestEvent
+      { action :: !Text
+      , prNumber :: !Int
+      , headRef :: !Text
+      , baseRepoFullName :: !Text
+      -- ^ @base.repo.full_name@ — the repository the PR targets. Compared
+      -- against the head repo in 'routeEvent' to reject fork pull requests.
+      , checkout :: !CheckoutSpec
+      }
   | PingEvent
   | OtherEvent !Text
   deriving stock (Generic, Eq, Show)
@@ -108,25 +123,30 @@ parsePullRequest = withObject "pull_request" $ \o -> do
   act <- o .: "action"
   num <- o .: "number"
   pr <- o .: "pull_request"
-  (hRef, hSha, hClone, full) <- withObject "pull_request.body" prFields pr
+  (hRef, hSha, hClone, hFull, bFull) <- withObject "pull_request.body" prFields pr
   pure
     PullRequestEvent
       { action = act
       , prNumber = num
       , headRef = hRef
+      , baseRepoFullName = bFull
       , checkout =
-          CheckoutSpec {cloneUrl = hClone, gitRef = "refs/heads/" <> hRef, sha = hSha, repoFullName = full}
+          CheckoutSpec {cloneUrl = hClone, gitRef = "refs/heads/" <> hRef, sha = hSha, repoFullName = hFull}
       }
   where
     prFields o = do
       headObj <- o .: "head"
-      withObject "pull_request.head" headFields headObj
+      baseObj <- o .: "base"
+      (hRef, hSha, hClone, hFull) <- withObject "pull_request.head" headFields headObj
+      (_bClone, bFull) <- withObject "pull_request.base" baseRepo baseObj
+      pure (hRef, hSha, hClone, hFull, bFull)
     headFields h = do
       hRef <- h .: "ref"
       hSha <- h .: "sha"
       repo <- h .: "repo"
       (clone, full) <- repoFields repo
       pure (hRef, hSha, clone, full)
+    baseRepo b = b .: "repo" >>= repoFields
 
 repoFields :: Value -> Parser (Text, Text)
 repoFields = withObject "repository" $ \o -> do
@@ -153,19 +173,33 @@ data DeployAction
   | DeployPreview !Text !CheckoutSpec
   deriving stock (Generic, Eq, Show)
 
--- | Route a parsed event to a deploy action, or 'Nothing' when the event is not
--- a deploy trigger (a push to a non-production branch, or a PR action other than
--- opened/synchronize/reopened).
-routeEvent :: WebhookConfig -> GitHubEvent -> Maybe DeployAction
+-- | Route a parsed event to a deploy action, or 'Left' with the reason the event
+-- is not a deploy trigger. The reasons are user-visible: 'decideWebhook' returns
+-- them verbatim as the 'Ignored' body, and @nagared@ logs them.
+--
+-- Three things are not triggers: a push to a non-production branch, a PR action
+-- other than opened\/synchronize\/reopened, and — the security gate — a pull
+-- request whose head repository differs from its base repository. That last one
+-- is a fork PR: deploying it would check out and execute a stranger's
+-- @nagare\/Config.hs@ on this host, so it is refused before any IO happens.
+routeEvent :: WebhookConfig -> GitHubEvent -> Either Text DeployAction
 routeEvent cfg = \case
   PushEvent {branch, checkout}
-    | branch == productionBranch cfg -> Just (DeployProduction checkout)
-    | otherwise -> Nothing
-  PullRequestEvent {action, prNumber, checkout}
+    | branch == productionBranch cfg -> Right (DeployProduction checkout)
+    | otherwise -> Left ("push to non-production branch '" <> branch <> "'")
+  PullRequestEvent {action, prNumber, baseRepoFullName, checkout}
+    | repoFullName checkout /= baseRepoFullName ->
+        Left
+          ( "ignoring fork pull request: head repo '"
+              <> repoFullName checkout
+              <> "' is not base repo '"
+              <> baseRepoFullName
+              <> "'"
+          )
     | action `elem` ["opened", "synchronize", "reopened"] ->
-        Just (DeployPreview (previewNameForPr prNumber) checkout)
-    | otherwise -> Nothing
-  _ -> Nothing
+        Right (DeployPreview (previewNameForPr prNumber) checkout)
+    | otherwise -> Left ("pull request action '" <> action <> "' is not a deploy trigger")
+  _ -> Left "event is not a deploy trigger"
 
 -- | The deterministic preview name for a pull request: @"pr-<number>"@.
 previewNameForPr :: Int -> Text
@@ -178,7 +212,8 @@ previewNameForPr n = "pr-" <> T.pack (show n)
 data WebhookOutcome
   = -- | reject with this HTTP status and reason (bad signature, bad body)
     Rejected !Int !Text
-  | -- | accepted but a no-op (ping, non-production branch, non-deploy PR action)
+  | -- | accepted but a no-op (ping, non-production branch, fork pull request,
+    -- non-deploy PR action); the text is 'routeEvent''s reason
     Ignored !Text
   | -- | a deploy should run
     Triggered !DeployAction
@@ -201,6 +236,4 @@ decideWebhook cfg mEvent mSignature body =
       | otherwise -> case parseGitHubEvent (fromMaybe "" mEvent) body of
           Left err -> Rejected 400 ("could not parse event: " <> err)
           Right PingEvent -> Ignored "pong"
-          Right ev -> case routeEvent cfg ev of
-            Just action -> Triggered action
-            Nothing -> Ignored "event is not a deploy trigger"
+          Right ev -> either Ignored Triggered (routeEvent cfg ev)

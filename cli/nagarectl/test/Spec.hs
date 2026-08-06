@@ -175,13 +175,6 @@ import Nagare.Ops.Domains
   , extractDomainMappings
   , formatDomainList
   )
-import Nagare.Ops.PulumiBackend
-  ( bootstrapCommands
-  , bucketCreateArgs
-  , bucketUpdateArgs
-  , gcsBucketOfUrl
-  , pulumiStateBucket
-  )
 import Nagare.Ops.Probe
   ( KourierEvidence (..)
   , Probe (..)
@@ -200,6 +193,13 @@ import Nagare.Ops.Probe
   , parseSkipTagResolvingHosts
   , renderInventory
   , statusLabel
+  )
+import Nagare.Ops.PulumiBackend
+  ( bootstrapCommands
+  , bucketCreateArgs
+  , bucketUpdateArgs
+  , gcsBucketOfUrl
+  , pulumiStateBucket
   )
 import Nagare.Server.Build
 import Nagare.Static.Build
@@ -279,53 +279,53 @@ main = do
       testGroup
         "nagarectl"
         [ testGroup "Nagare.Static.Image" dockerfileTests
-      , testGroup "Nagare.Static.Build" prepareTests
-      , testGroup "Nagare.Static.Release" releaseTests
-      , testGroup "Nagare.Static.Preview" previewTests
-      , testGroup "Nagare.Static.Webhook" webhookTests
-      , testGroup "Nagare.Server.Build" serverBuildTests
-      , testGroup "Nagare.Build" buildModeTests
-      , testGroup "Nagare.Env.Store" envStoreTests
-      , testGroup "Nagare.Env.Dotenv" dotenvTests
-      , testGroup "Nagare.Env reconcile mode" reconcileModeTests
-      , testGroup "Nagare.Env.Generated" generatedEnvTests
-      , testGroup "EP-26 render demonstration" renderDemonstrationTests
-      , testGroup "Nagare.Env.BuildArgs" buildArgsTests
-      , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
-      , testGroup "Nagare.Ops" opsTests
-      , testGroup "Nagare.Ops.Doctor" doctorTests
-      , testGroup "Nagare.Ops.Domains" domainsTests
-      , testGroup "Nagare.Ops.Cleanup" cleanupTests
-      , testGroup "Nagare.App" appTests
-      , testGroup "Nagare.App.Deployments" deploymentsTests
-      , testGroup "Nagare.Storage.Discover" storageDiscoverTests
-      , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
-      , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
-      , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
-      , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
-      , testGroup "Nagare.Database (EP-45)" databaseTests
-      , testGroup "Nagare.Broker (EP-78)" brokerTests
-      , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
-      , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
-      , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
-      , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
-      , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
-      , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
-      , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
-      , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
-      , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
-      , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
-      , contextResolutionTests
-      , testGroup "EP-62 rendered Job project" backupProjectTests
-      , testGroup "EP-62 qualifyImage" qualifyImageTests
-      , modeResolutionTests
-      , dockerAuthPlanTests
-      , initTests
-      , pulumiBackendBootstrapTests
-      , accessGrantsTests
-      , accessResolveTests
-      , appDeployTests
-      ]
+        , testGroup "Nagare.Static.Build" prepareTests
+        , testGroup "Nagare.Static.Release" releaseTests
+        , testGroup "Nagare.Static.Preview" previewTests
+        , testGroup "Nagare.Static.Webhook" webhookTests
+        , testGroup "Nagare.Server.Build" serverBuildTests
+        , testGroup "Nagare.Build" buildModeTests
+        , testGroup "Nagare.Env.Store" envStoreTests
+        , testGroup "Nagare.Env.Dotenv" dotenvTests
+        , testGroup "Nagare.Env reconcile mode" reconcileModeTests
+        , testGroup "Nagare.Env.Generated" generatedEnvTests
+        , testGroup "EP-26 render demonstration" renderDemonstrationTests
+        , testGroup "Nagare.Env.BuildArgs" buildArgsTests
+        , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
+        , testGroup "Nagare.Ops" opsTests
+        , testGroup "Nagare.Ops.Doctor" doctorTests
+        , testGroup "Nagare.Ops.Domains" domainsTests
+        , testGroup "Nagare.Ops.Cleanup" cleanupTests
+        , testGroup "Nagare.App" appTests
+        , testGroup "Nagare.App.Deployments" deploymentsTests
+        , testGroup "Nagare.Storage.Discover" storageDiscoverTests
+        , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
+        , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
+        , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
+        , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
+        , testGroup "Nagare.Database (EP-45)" databaseTests
+        , testGroup "Nagare.Broker (EP-78)" brokerTests
+        , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
+        , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
+        , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
+        , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
+        , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
+        , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
+        , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
+        , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
+        , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
+        , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
+        , contextResolutionTests
+        , testGroup "EP-62 rendered Job project" backupProjectTests
+        , testGroup "EP-62 qualifyImage" qualifyImageTests
+        , modeResolutionTests
+        , dockerAuthPlanTests
+        , initTests
+        , pulumiBackendBootstrapTests
+        , accessGrantsTests
+        , accessResolveTests
+        , appDeployTests
+        ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Init (MasterPlan 12, EP-63): the pure pieces of `nagarectl init` — the
@@ -589,7 +589,7 @@ targetProfileTests =
               unsetEnv "NAGARE_MODE"
               unsetEnv "NAGARE_CONTEXT"
               setEnv "XDG_CONFIG_HOME" xdg
-      -- (1) nothing set: defaults reproduce the tan-nb-exp worked example.
+        -- (1) nothing set: defaults reproduce the tan-nb-exp worked example.
         clearTargetEnv
         tp0 <- resolveTargetProfile
         tpProject tp0 @?= "tan-nb-exp"
@@ -601,7 +601,7 @@ targetProfileTests =
         registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
         tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
         tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
-      -- (2) project + region override; host derives from region, buckets from project.
+        -- (2) project + region override; host derives from region, buckets from project.
         clearTargetEnv
         setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
         setEnv "CLOUDSDK_COMPUTE_REGION" "europe-west1"
@@ -610,7 +610,7 @@ targetProfileTests =
         tpRegistryHost tp1 @?= "europe-west1-docker.pkg.dev"
         tpBackupBucket tp1 @?= "acme-prod-nagare-backups"
         registryPrefix tp1 @?= "europe-west1-docker.pkg.dev/acme-prod/nagare"
-      -- (3) explicit derived vars win over the derivation.
+        -- (3) explicit derived vars win over the derivation.
         clearTargetEnv
         setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
         setEnv "NAGARE_REGISTRY_HOST" "custom.registry.example"
@@ -618,8 +618,8 @@ targetProfileTests =
         tp2 <- resolveTargetProfile
         tpRegistryHost tp2 @?= "custom.registry.example"
         tpBackupBucket tp2 @?= "my-bucket"
-      -- (4) EP-3: NAGARE_TARGET_PLATFORM override wins (env > profile > default),
-      -- and an empty value falls back to the default (envOr's empty-is-unset rule).
+        -- (4) EP-3: NAGARE_TARGET_PLATFORM override wins (env > profile > default),
+        -- and an empty value falls back to the default (envOr's empty-is-unset rule).
         clearTargetEnv
         setEnv "NAGARE_TARGET_PLATFORM" "linux/arm64"
         tp3 <- resolveTargetProfile
@@ -627,7 +627,7 @@ targetProfileTests =
         setEnv "NAGARE_TARGET_PLATFORM" ""
         tp4 <- resolveTargetProfile
         tpTargetPlatform tp4 @?= "linux/amd64"
-      -- (5) EP-84: NAGARE_LOCAL_OBJECT_STORE resolves verbatim when set.
+        -- (5) EP-84: NAGARE_LOCAL_OBJECT_STORE resolves verbatim when set.
         clearTargetEnv
         setEnv "NAGARE_LOCAL_OBJECT_STORE" "http://minio:9000/nagare-backups"
         tp5 <- resolveTargetProfile
@@ -2235,6 +2235,44 @@ webhookTests =
       parseGitHubEvent "issues" "{}" @?= Right (OtherEvent "issues")
   , testCase "previewNameForPr is pr-<n>" $
       previewNameForPr 42 @?= "pr-42"
+  , -- The fork gate. GitHub delivers a fork's pull_request event to the base
+    -- repository's webhook signed with the BASE repository's secret, so the
+    -- HMAC check passes and cannot help here. Everything below pins the
+    -- decision that stops it.
+    testCase "decideWebhook ignores a correctly signed fork pull request" $
+      case decideWebhook cfg (Just "pull_request") (Just (sign "topsecret" prForkOpened)) prForkOpened of
+        Ignored reason -> do
+          assertBool ("reason mentions fork: " <> show reason) ("fork" `T.isInfixOf` reason)
+          assertBool ("reason names the head repo: " <> show reason) ("attacker/x" `T.isInfixOf` reason)
+        other -> assertFailure ("expected Ignored (fork), got: " <> show other)
+  , testCase "routeEvent on a fork pull request is Left" $
+      case parseGitHubEvent "pull_request" prForkOpened of
+        Right ev -> case routeEvent cfg ev of
+          Left _ -> pure ()
+          Right action -> assertFailure ("expected Left for a fork PR, got: " <> show action)
+        other -> assertFailure ("expected a parsed event, got: " <> show other)
+  , testCase "routeEvent on a same-repo pull request is Right DeployPreview" $
+      case parseGitHubEvent "pull_request" prOpened of
+        Right ev -> case routeEvent cfg ev of
+          Right (DeployPreview name _) -> name @?= "pr-7"
+          other -> assertFailure ("expected Right DeployPreview, got: " <> show other)
+        other -> assertFailure ("expected a parsed event, got: " <> show other)
+  , testCase "parseGitHubEvent extracts baseRepoFullName" $
+      case parseGitHubEvent "pull_request" prForkOpened of
+        Right PullRequestEvent {baseRepoFullName, checkout} -> do
+          baseRepoFullName @?= "o/x"
+          repoFullName checkout @?= "attacker/x"
+        other -> assertFailure ("expected PullRequestEvent, got: " <> show other)
+  , testCase "a PR payload without a base object is rejected 400" $
+      case decideWebhook cfg (Just "pull_request") (Just (sign "topsecret" prNoBase)) prNoBase of
+        Rejected 400 _ -> pure ()
+        other -> assertFailure ("expected Rejected 400, got: " <> show other)
+  , testCase "routeEvent names the branch when ignoring a non-production push" $
+      case parseGitHubEvent "push" pushDev of
+        Right ev -> case routeEvent cfg ev of
+          Left reason -> assertBool ("reason names the branch: " <> show reason) ("dev" `T.isInfixOf` reason)
+          Right action -> assertFailure ("expected Left, got: " <> show action)
+        other -> assertFailure ("expected a parsed event, got: " <> show other)
   ]
   where
     cfg = WebhookConfig {secret = "topsecret", productionBranch = "main"}
@@ -2254,13 +2292,28 @@ pushDev :: ByteString
 pushDev =
   "{\"ref\":\"refs/heads/dev\",\"after\":\"abc\",\"repository\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}"
 
+-- | A same-repo PR: head repo and base repo are both @o/x@, so it is a genuine
+-- branch of the watched repository and previews are allowed.
 prOpened :: ByteString
 prOpened =
-  "{\"action\":\"opened\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
+  "{\"action\":\"opened\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}},\"base\":{\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
 
 prClosed :: ByteString
 prClosed =
-  "{\"action\":\"closed\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
+  "{\"action\":\"closed\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}},\"base\":{\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
+
+-- | A FORK PR: GitHub signs this with the base repository's secret exactly like
+-- the same-repo one above, but the head repo (and clone URL) belong to a
+-- stranger. Deploying it would execute the fork's nagare/Config.hs on this host.
+prForkOpened :: ByteString
+prForkOpened =
+  "{\"action\":\"opened\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/attacker-x.git\",\"full_name\":\"attacker/x\"}},\"base\":{\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
+
+-- | A PR payload with no @base@ object at all — the parser must reject it
+-- rather than defaulting the base repo to anything permissive.
+prNoBase :: ByteString
+prNoBase =
+  "{\"action\":\"opened\",\"number\":7,\"pull_request\":{\"head\":{\"ref\":\"feature\",\"sha\":\"cafe\",\"repo\":{\"clone_url\":\"https://e/x.git\",\"full_name\":\"o/x\"}}}}"
 
 -- ---------------------------------------------------------------------------
 -- Build modes (EP-20)

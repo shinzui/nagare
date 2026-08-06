@@ -83,6 +83,21 @@ loadTests =
             | ".scopes" `Text.isInfixOf` field ->
                 assertContains "unknown env scope" msg
           other -> assertFailure ("expected MarshalError ...scopes, got: " <> show other)
+    , -- A config-as-program is ordinary Haskell, so it can block forever. With
+      -- no bound it wedges whichever thread loaded it — for nagared, a webhook
+      -- handler. The budget is 1 second here so the test costs one runghc
+      -- compile plus a second, not the 120s production default.
+      testCase "a config that never terminates returns LoadTimedOut" $ do
+        result <- withConfigFixture sleepingConfig (runConfigWith (ConfigTimeout 1))
+        case result of
+          Left (LoadTimedOut _ 1) -> pure ()
+          other -> assertFailure ("expected LoadTimedOut _ 1, got: " <> show other)
+    , testCase "renderLoadError LoadTimedOut names the path and the budget" $ do
+        let err = LoadTimedOut "/app/Config.hs" 1
+        assertContains "/app/Config.hs" (renderLoadError err)
+        assertContains "timed out after 1s" (renderLoadError err)
+    , testCase "defaultConfigTimeout is 120 seconds" $
+        configTimeoutSeconds defaultConfigTimeout @?= 120
     ]
 
 -- | A minimal valid Deployment JSON with a single Literal env entry whose
@@ -137,6 +152,17 @@ noEmitConfig =
     [ "module Main (main) where"
     , "main :: IO ()"
     , "main = pure ()"
+    ]
+
+-- | A config that compiles and then blocks forever — the shape a runaway or
+-- deliberately hostile @Config.hs@ takes.
+sleepingConfig :: String
+sleepingConfig =
+  unlines
+    [ "module Main (main) where"
+    , "import Control.Concurrent (threadDelay)"
+    , "main :: IO ()"
+    , "main = threadDelay maxBound"
     ]
 
 assertContains :: Text -> Text -> Assertion

@@ -8,6 +8,9 @@
 module Nagare.Dsl.Load
   ( LoadError (..)
   , renderLoadError
+  , ConfigTimeout (..)
+  , defaultConfigTimeout
+  , runConfigWith
   , loadDeployment
   , decodeDeployment
   , loadBroker
@@ -15,6 +18,7 @@ module Nagare.Dsl.Load
   , loadDatabase
   , decodeDatabase
   , loadStaticSite
+  , loadStaticSiteWith
   , decodeStaticSite
   , loadServerSite
   , decodeServerSite
@@ -67,6 +71,10 @@ import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.Process (readProcessWithExitCode)
+-- Qualified: 'timeout' is also a record field of both 'ProbeTiming'
+-- (Nagare.Dsl.Worker) and 'HealthCheck' (Nagare.Dsl.Types), which are imported
+-- unqualified here.
+import System.Timeout qualified as Timeout
 import "generic-lens" Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
@@ -90,6 +98,11 @@ data LoadError
     -- @nagarectl site deploy@, or a @ServerSite@ where a @StaticSite@ was
     -- expected (expected kind, actual kind)
     UnexpectedKind !Text !Text
+  | -- | the config was still running when its time budget expired and was
+    -- killed (source path, budget in seconds). A config-as-program is ordinary
+    -- Haskell, so it can loop or block forever; without a bound that wedges
+    -- whichever thread loaded it — for @nagared@, a webhook handler.
+    LoadTimedOut !FilePath !Int
   deriving stock (Generic, Eq, Show)
 
 -- | Render a 'LoadError' as a single line (or short block) for the terminal.
@@ -109,6 +122,25 @@ renderLoadError = \case
       <> "' but '"
       <> expected
       <> "' was expected (did it call the wrong emit* function?)"
+  LoadTimedOut path seconds ->
+    "nagare: config "
+      <> Text.pack path
+      <> " timed out after "
+      <> Text.pack (show seconds)
+      <> "s (does it loop or block?)"
+
+-- ---------------------------------------------------------------------------
+-- Execution budget
+
+-- | How long a config-as-program may run before it is killed, in whole seconds.
+newtype ConfigTimeout = ConfigTimeout {configTimeoutSeconds :: Int}
+  deriving stock (Generic, Eq, Show)
+
+-- | The budget every loader uses unless a caller says otherwise: two minutes,
+-- comfortably more than a cold @runghc@ compile of a realistic config and far
+-- less than "forever".
+defaultConfigTimeout :: ConfigTimeout
+defaultConfigTimeout = ConfigTimeout 120
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate (mirrors Nagare.Dsl.Config's emitted shape)
@@ -1523,23 +1555,39 @@ decodeStaticSite bs =
 -- helpers; empty output means it never called one ('MissingBinding'). The
 -- decoder that reads the captured bytes is chosen by the caller
 -- ('decodeDeployment' or 'decodeStaticSite').
+--
+-- The run is bounded by 'defaultConfigTimeout'; use 'runConfigWith' to choose a
+-- different budget.
 runConfig :: FilePath -> IO (Either LoadError ByteString)
-runConfig path = do
+runConfig = runConfigWith defaultConfigTimeout
+
+-- | 'runConfig' with an explicit time budget. A config that has not finished
+-- when the budget expires is killed and reported as 'LoadTimedOut' rather than
+-- blocking the caller forever.
+--
+-- 'readProcessWithExitCode' is built on @withCreateProcess@, whose cleanup
+-- terminates the child when the waiting thread is interrupted — which is exactly
+-- what 'System.Timeout.timeout' does — so the @runghc@ process dies with the
+-- budget rather than being orphaned.
+runConfigWith :: ConfigTimeout -> FilePath -> IO (Either LoadError ByteString)
+runConfigWith budget path = do
   exists <- doesFileExist path
   if not exists
     then pure (Left (FileNotFound path))
     else do
       let configDir = takeDirectory path
+          seconds = configTimeoutSeconds budget
       result <-
-        try @IOException $
+        Timeout.timeout (seconds * 1_000_000) . try @IOException $
           readProcessWithExitCode
             "runghc"
             ["--ghc-arg=-XGHC2024", "--ghc-arg=-package", "--ghc-arg=nagare-dsl", "-i" <> configDir, path]
             ""
       pure $ case result of
-        Left ioErr -> Left (CompileError path (Text.pack (show ioErr)))
-        Right (ExitFailure _, _out, err) -> Left (CompileError path (Text.pack err))
-        Right (ExitSuccess, out, _err)
+        Nothing -> Left (LoadTimedOut path seconds)
+        Just (Left ioErr) -> Left (CompileError path (Text.pack (show ioErr)))
+        Just (Right (ExitFailure _, _out, err)) -> Left (CompileError path (Text.pack err))
+        Just (Right (ExitSuccess, out, _err))
           | null out -> Left (MissingBinding path)
           | otherwise -> Right (BC.pack out)
 
@@ -1568,7 +1616,12 @@ loadDatabase path = fmap (>>= decodeDatabase) (runConfig path)
 -- instead emits a 'Deployment' (or a future @ServerSite@) is reported as
 -- 'UnexpectedKind', not silently misread.
 loadStaticSite :: FilePath -> IO (Either LoadError StaticSite)
-loadStaticSite path = fmap (>>= decodeStaticSite) (runConfig path)
+loadStaticSite = loadStaticSiteWith defaultConfigTimeout
+
+-- | 'loadStaticSite' with an explicit time budget. @nagared@ uses this so a
+-- pushed config that loops cannot wedge a webhook handler thread forever.
+loadStaticSiteWith :: ConfigTimeout -> FilePath -> IO (Either LoadError StaticSite)
+loadStaticSiteWith budget path = fmap (>>= decodeStaticSite) (runConfigWith budget path)
 
 -- | Load a 'ServerSite' from a Haskell config-as-program source file (EP-18). The
 -- config must print its JSON via 'Nagare.Dsl.Config.emitServerSite'. A config

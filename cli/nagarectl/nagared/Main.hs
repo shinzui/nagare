@@ -24,6 +24,27 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Load
+  ( ConfigTimeout (..)
+  , defaultConfigTimeout
+  , loadStaticSiteWith
+  , renderLoadError
+  )
+import Nagare.GhcEnv (resolveProjectGhcEnv)
+import Nagare.Static.Checkout (checkoutRepo)
+import Nagare.Static.Deploy
+  ( DeployInputs (..)
+  , deployStaticPreview
+  , deployStaticProduction
+  )
+import Nagare.Static.Webhook
+  ( CheckoutSpec (..)
+  , DeployAction (..)
+  , WebhookConfig (..)
+  , WebhookOutcome (..)
+  , decideWebhook
+  )
+import Nagare.Target (TargetProfile, resolveTargetProfile)
 import Network.HTTP.Types
   ( Status
   , status200
@@ -49,23 +70,6 @@ import System.Environment (lookupEnv, setEnv)
 import System.FilePath ((</>))
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
-import Nagare.Dsl.Load (loadStaticSite, renderLoadError)
-import Nagare.GhcEnv (resolveProjectGhcEnv)
-import Nagare.Static.Checkout (checkoutRepo)
-import Nagare.Static.Deploy
-  ( DeployInputs (..)
-  , deployStaticPreview
-  , deployStaticProduction
-  )
-import Nagare.Static.Webhook
-  ( CheckoutSpec (..)
-  , DeployAction (..)
-  , WebhookConfig (..)
-  , WebhookOutcome (..)
-  , decideWebhook
-  )
-import Nagare.Target (TargetProfile, resolveTargetProfile)
-
 -- ---------------------------------------------------------------------------
 -- Options / environment
 
@@ -76,6 +80,7 @@ data Options = Options
   , optBaseDomain :: !Text
   , optWorkspace :: !FilePath
   , optGhcEnv :: !(Maybe FilePath)
+  , optConfigTimeout :: !Int
   }
 
 optionsParser :: Parser Options
@@ -87,6 +92,24 @@ optionsParser =
     <*> strOption (long "base-domain" <> metavar "DOMAIN" <> value "apps.example.com" <> showDefault <> help "Apps base domain")
     <*> strOption (long "workspace" <> metavar "DIR" <> value "/var/lib/nagare/webhook-workspaces" <> showDefault <> help "Repository checkout workspace root")
     <*> optional (strOption (long "ghc-env" <> metavar "FILE" <> help "GHC package-environment file for the config loader's runghc"))
+    <*> option
+      positiveInt
+      ( long "config-timeout"
+          <> metavar "SECONDS"
+          <> value (configTimeoutSeconds defaultConfigTimeout)
+          <> showDefault
+          <> help "Kill a pushed nagare/Config.hs that has not finished within this many seconds"
+      )
+
+-- | An @optparse-applicative@ reader for a strictly positive whole number. A
+-- zero or negative config timeout would make every load fail instantly, so it
+-- is rejected at parse time with a usage error rather than accepted.
+positiveInt :: ReadM Int
+positiveInt = do
+  n <- auto
+  if n > 0
+    then pure n
+    else readerError "must be a positive number of seconds"
 
 data Env = Env
   { envSecret :: !ByteString
@@ -94,6 +117,7 @@ data Env = Env
   , envBaseDomain :: !Text
   , envWorkspace :: !FilePath
   , envTargetProfile :: !TargetProfile
+  , envConfigTimeout :: !ConfigTimeout
   }
 
 -- ---------------------------------------------------------------------------
@@ -113,6 +137,7 @@ main = do
           , envBaseDomain = optBaseDomain o
           , envWorkspace = optWorkspace o
           , envTargetProfile = targetProfile
+          , envConfigTimeout = ConfigTimeout (optConfigTimeout o)
           }
   putStrLn ("nagared listening on :" <> show (optPort o))
   run (optPort o) (app env)
@@ -171,10 +196,25 @@ handleWebhook env site req = do
           { secret = envSecret env
           , productionBranch = envProductionBranch env
           }
+  -- Log every outcome: the operator's journal is the only place the reason a
+  -- delivery did or did not deploy is visible (a fork PR, for instance, is a
+  -- silent 200 to GitHub).
   case decideWebhook cfg (hdr "X-GitHub-Event") (hdr "X-Hub-Signature-256") body of
-    Rejected code reason -> pure (textResponse (statusFor code) reason)
-    Ignored reason -> pure (textResponse status200 reason)
-    Triggered act -> runAction env site act
+    Rejected code reason -> do
+      putStrLn (T.unpack ("webhook " <> site <> ": rejected " <> T.pack (show code) <> ": " <> reason))
+      pure (textResponse (statusFor code) reason)
+    Ignored reason -> do
+      putStrLn (T.unpack ("webhook " <> site <> ": ignored: " <> reason))
+      pure (textResponse status200 reason)
+    Triggered act -> do
+      putStrLn (T.unpack ("webhook " <> site <> ": triggered " <> describeAction act))
+      runAction env site act
+
+-- | A one-line description of an accepted action, for the log.
+describeAction :: DeployAction -> Text
+describeAction = \case
+  DeployProduction spec -> "production deploy of " <> repoFullName spec <> "@" <> T.take 12 (sha spec)
+  DeployPreview name spec -> "preview '" <> name <> "' of " <> repoFullName spec <> "@" <> T.take 12 (sha spec)
 
 runAction :: Env -> Text -> DeployAction -> IO Response
 runAction env _site act = do
@@ -183,7 +223,7 @@ runAction env _site act = do
   case checkout of
     Left e -> pure (textResponse status500 ("checkout failed: " <> e))
     Right dir -> do
-      esite <- loadStaticSite (dir </> "nagare" </> "Config.hs")
+      esite <- loadStaticSiteWith (envConfigTimeout env) (dir </> "nagare" </> "Config.hs")
       case esite of
         Left le -> pure (textResponse status500 (renderLoadError le))
         Right s -> do
