@@ -28,13 +28,24 @@ data RequestShape = RequestShape
 
 -- | Accept only same-host absolute paths. This prevents the login form's @rd@
 -- field from becoming an open redirect.
+--
+-- Backslashes are rejected as well as slashes: browsers normalize @\\@ to @/@
+-- when resolving a @Location@, so @\/\\evil.com@ would be followed as
+-- @\/\/evil.com@ — a protocol-relative URL pointing off-site. Characters below
+-- space (and DEL) are rejected because this value is written into a response
+-- header, where a CR or LF would split it.
 safeReturnDestination :: Text -> Maybe Text
 safeReturnDestination rd
   | Text.isPrefixOf "/" rd
   , not (Text.isPrefixOf "//" rd)
-  , not ("://" `Text.isInfixOf` rd) =
+  , not ("://" `Text.isInfixOf` rd)
+  , not (Text.any forbiddenReturnChar rd) =
       Just rd
   | otherwise = Nothing
+
+-- | Characters that may never appear in a return destination.
+forbiddenReturnChar :: Char -> Bool
+forbiddenReturnChar c = c == '\\' || c < ' ' || c == '\DEL'
 
 loginPathFor :: Text -> Text
 loginPathFor rd =

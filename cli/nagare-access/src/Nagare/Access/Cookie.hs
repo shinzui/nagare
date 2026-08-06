@@ -12,9 +12,10 @@ module Nagare.Access.Cookie
   )
 where
 
-import Crypto.Hash (Digest, SHA256, digestFromByteString)
-import Crypto.MAC.HMAC (HMAC (..), hmac)
+import Crypto.Hash (SHA256)
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.ByteArray (convert)
+import Data.ByteArray qualified as BA
 import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertFromBase, convertToBase)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
@@ -157,8 +158,15 @@ decodeRefreshCookieValue key value = do
       signedPart = "v1." <> tokenPart
   tokenBytes <- either (const Nothing) Just (convertFromBase Base64URLUnpadded tokenPart :: Either String BS.ByteString)
   providedMacBytes <- either (const Nothing) Just (convertFromBase Base64URLUnpadded macPart :: Either String BS.ByteString)
-  providedDigest <- digestFromByteString providedMacBytes :: Maybe (Digest SHA256)
-  if (HMAC providedDigest :: HMAC SHA256) == hmac keyBytes signedPart
+  -- Compare the raw MAC bytes with an explicitly constant-time primitive, the
+  -- same way 'Nagare.Static.Webhook.verifySignature' does. Comparing HMAC
+  -- values with (==) happens to be constant-time in crypton today, but that is
+  -- a property of an instance chosen by resolution rather than something a
+  -- reader of this function can see. 'BA.constEq' also returns False on a
+  -- length mismatch without an early exit, which subsumes the length check the
+  -- old digestFromByteString round-trip performed.
+  let expectedMacBytes = macBytes keyBytes signedPart
+  if BA.constEq providedMacBytes expectedMacBytes
     then either (const Nothing) Just (TE.decodeUtf8' tokenBytes)
     else Nothing
 

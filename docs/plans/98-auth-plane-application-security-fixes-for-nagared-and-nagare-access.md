@@ -76,15 +76,17 @@ plain `cabal test` in each package directory.
 - [x] M1: `cabal test` green in `cli/nagare-dsl` and `cli/nagarectl`;
       `cabal build exe:nagared` green; fourmolu run on touched files; commit.
       (2026-08-05 — 384 and 361 tests pass respectively)
-- [ ] M2: replace the MAC comparison in
+- [x] M2: replace the MAC comparison in
       `cli/nagare-access/src/Nagare/Access/Cookie.hs` with explicit
-      `Data.ByteArray.constEq` on raw digest bytes.
-- [ ] M2: reject backslash and control characters in `safeReturnDestination`
-      (`cli/nagare-access/src/Nagare/Access/Challenge.hs`).
-- [ ] M2: switch `lookupHost` in `cli/nagare-access/src/Nagare/Access/App.hs`
-      to the lenient `decodeUtf8Maybe` pattern.
-- [ ] M2: unit tests for all three in `cli/nagare-access/test/Spec.hs`;
-      `cabal test` green in `cli/nagare-access`; fourmolu; commit.
+      `Data.ByteArray.constEq` on raw digest bytes. (2026-08-05)
+- [x] M2: reject backslash and control characters in `safeReturnDestination`
+      (`cli/nagare-access/src/Nagare/Access/Challenge.hs`). (2026-08-05)
+- [x] M2: switch `lookupHost` in `cli/nagare-access/src/Nagare/Access/App.hs`
+      to the lenient `decodeUtf8Maybe` pattern. (2026-08-05)
+- [x] M2: unit tests for all three in `cli/nagare-access/test/Spec.hs`;
+      `cabal test` green in `cli/nagare-access`; fourmolu; commit. (2026-08-05
+      — 94 tests pass; the Host test was verified to FAIL against the old
+      `lookupHost`, see Surprises & Discoveries)
 - [ ] M3: introduce `AuthorizationResult` in
       `cli/nagare-access/src/Nagare/Access/DecisionCache.hs`, change
       `authorizeUser` and `Nagare.Access.En` to return it, and make
@@ -168,6 +170,20 @@ Found during implementation (2026-08-05):
   tools" without naming a mechanism; implemented as a `positiveInt :: ReadM Int`
   reader built from `auto` plus `readerError`, so `--config-timeout 0` is a
   usage error rather than a daemon whose every config load times out instantly.
+
+- **The invalid-UTF-8 `Host` finding is real, and the test proves it.** Written
+  before the fix as the plan instructed, then run against the old strict
+  `lookupHost`:
+
+  ```text
+  an invalid-UTF-8 Host header gets a clean 4xx, not a crash: FAIL
+    Exception: Cannot decode byte '\xc3': Data.Text.Encoding: Invalid UTF-8 stream
+  1 out of 1 tests failed (0.01s)
+  ```
+
+  With `decodeUtf8Maybe` the same request is an ordinary unmapped host and
+  answers 404. (Verified by temporarily reverting the one-line change, running
+  the single test, and restoring it.)
 
 
 ## Decision Log
