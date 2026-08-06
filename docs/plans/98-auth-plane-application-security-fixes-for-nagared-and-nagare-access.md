@@ -4,6 +4,7 @@ slug: auth-plane-application-security-fixes-for-nagared-and-nagare-access
 title: "Auth-plane application security fixes for nagared and nagare-access"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 ---
 
@@ -51,24 +52,30 @@ plain `cabal test` in each package directory.
 
 ## Progress
 
-- [ ] M1: parse base-repo identity into `PullRequestEvent` in
+- [x] M1: parse base-repo identity into `PullRequestEvent` in
       `cli/nagarectl/src/Nagare/Static/Webhook.hs` and change `routeEvent` to
-      return `Either Text DeployAction` (Left = ignore reason).
-- [ ] M1: gate previews to same-repo PRs (head repo full name must equal base
+      return `Either Text DeployAction` (Left = ignore reason). (2026-08-05)
+- [x] M1: gate previews to same-repo PRs (head repo full name must equal base
       repo full name); update `decideWebhook` to surface the reason; log the
-      outcome in `cli/nagarectl/nagared/Main.hs`.
-- [ ] M1: update existing webhook fixtures in `cli/nagarectl/test/Spec.hs`
-      (they need a `base` object now) and add fork-PR gating tests.
-- [ ] M1: add `ConfigTimeout` and `runConfigWith`/`loadStaticSiteWith` to
+      outcome in `cli/nagarectl/nagared/Main.hs`. (2026-08-05)
+- [x] M1: update existing webhook fixtures in `cli/nagarectl/test/Spec.hs`
+      (they need a `base` object now) and add fork-PR gating tests. (2026-08-05
+      — 6 new cases; `prForkOpened` and `prNoBase` fixtures added)
+- [x] M1: add `ConfigTimeout` and `runConfigWith`/`loadStaticSiteWith` to
       `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`, wrap `readProcessWithExitCode`
       in `System.Timeout.timeout`, add `LoadTimedOut` to `LoadError` and
-      `renderLoadError`.
-- [ ] M1: add a `--config-timeout` option to `nagared` and use
-      `loadStaticSiteWith` in `runAction`.
-- [ ] M1: add a timeout test with a sleeping fixture to
+      `renderLoadError`. (2026-08-05 — import had to be qualified, see
+      Surprises & Discoveries)
+- [x] M1: add a `--config-timeout` option to `nagared` and use
+      `loadStaticSiteWith` in `runAction`. (2026-08-05 — with a `positiveInt`
+      reader so a non-positive budget is a usage error)
+- [x] M1: add a timeout test with a sleeping fixture to
       `cli/nagare-dsl/test/LoadSpec.hs`; verify no lingering `runghc`.
-- [ ] M1: `cabal test` green in `cli/nagare-dsl` and `cli/nagarectl`;
+      (2026-08-05 — test completes in 1.04s with a 1s budget; `pgrep -fl
+      runghc` finds nothing afterward)
+- [x] M1: `cabal test` green in `cli/nagare-dsl` and `cli/nagarectl`;
       `cabal build exe:nagared` green; fourmolu run on touched files; commit.
+      (2026-08-05 — 384 and 361 tests pass respectively)
 - [ ] M2: replace the MAC comparison in
       `cli/nagare-access/src/Nagare/Access/Cookie.hs` with explicit
       `Data.ByteArray.constEq` on raw digest bytes.
@@ -122,6 +129,45 @@ Seeded during plan research (2026-07-15); extend during implementation.
   (`prOpened`, `prClosed`) have no `base` object. Once the parser requires
   `pull_request.base.repo.full_name`, those fixtures must be extended or every
   PR test fails with a 400 parse rejection.
+
+Found during implementation (2026-08-05):
+
+- **`import System.Timeout (timeout)` does not compile in `Load.hs`.** The name
+  collides with two record fields already in scope there — `timeout` on
+  `ProbeTiming` (from `Nagare.Dsl.Worker`) and on `HealthCheck` (from
+  `Nagare.Dsl.Types`), both imported unqualified:
+
+  ```text
+  src/Nagare/Dsl/Load.hs:1578:9: error: [GHC-87543]
+      Ambiguous occurrence ‘timeout’.
+      It could refer to
+         either the field ‘timeout’ of record ‘ProbeTiming’, …
+             or the field ‘timeout’ of record ‘HealthCheck’, …
+             or ‘System.Timeout.timeout’, …
+  ```
+
+  Fixed with `import System.Timeout qualified as Timeout` and a
+  `Timeout.timeout` call site. The plan's snippet would not have built as
+  written.
+
+- **The child `runghc` really is reaped, as the plan predicted.** The timeout
+  test finishes in 1.04 s against a 1-second budget — i.e. the bound fires
+  rather than the config completing — and no process survives it:
+
+  ```text
+  a config that never terminates returns LoadTimedOut: OK (1.04s)
+  All 1 tests passed (1.04s)
+  === orphan check ===
+  no lingering runghc
+  ```
+
+  So no explicit `withCreateProcess`/`terminateProcess` rewrite was needed.
+
+- **`--config-timeout` rejects non-positive values at parse time.** The plan
+  said to "reject non-positive values with optparse-applicative's standard
+  tools" without naming a mechanism; implemented as a `positiveInt :: ReadM Int`
+  reader built from `auto` plus `readerError`, so `--config-timeout 0` is a
+  usage error rather than a daemon whose every config load times out instantly.
 
 
 ## Decision Log
