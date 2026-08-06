@@ -32,6 +32,26 @@ const imageSelfLink = cfg.get("nagareImageSelfLink");
 // unchanged and the billable load balancer is never created implicitly.
 const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
 
+// EP-99: GCP-level deletion protection for the VM. Default true — the API then
+// refuses to delete the instance at all. The platform's *intended* rebuild path
+// (docs/runbooks/disaster-recovery.md, "Replace the VM onto the fixed image")
+// changes `nagareImageSelfLink`, which forces a Pulumi replacement, so the
+// deliberate procedure is:
+//   pulumi -C infra/pulumi config set vmDeletionProtection false && just infra-up
+//   <perform the rebuild>
+//   pulumi -C infra/pulumi config set vmDeletionProtection true  && just infra-up
+// Two commands, not a code edit, and the default stays fail-closed.
+const vmDeletionProtectionCfg = cfg.getBoolean("vmDeletionProtection") ?? true;
+
+// EP-99: boot-disk geometry, previously hardcoded in NagareInstance.
+// pd-balanced is the sensible default for a fresh stack. CAUTION: GCE cannot
+// convert a boot disk's type in place, so changing `bootDiskType` against a
+// live VM forces an INSTANCE REPLACEMENT. A stack whose VM is already running
+// on another type should pin it (`pulumi config set bootDiskType pd-standard`)
+// until a deliberate rebuild is being performed.
+const bootDiskSizeGbCfg = cfg.getNumber("bootDiskSizeGb") ?? 100;
+const bootDiskTypeCfg = cfg.get("bootDiskType") ?? "pd-balanced";
+
 // EP-63: codify the GCP service APIs the topology needs. On a brand-new project
 // these may be off; declaring them here makes `pulumi up` self-enable them, and
 // the `dependsOn` below sequences enablement before any resource that uses them.
@@ -73,6 +93,9 @@ const perimeter = new NagarePerimeter(
         imageBucketName: imageBucketNameCfg,
         imageSelfLink,
         enableCdn: enableCdnCfg,
+        vmDeletionProtection: vmDeletionProtectionCfg,
+        bootDiskSizeGb: bootDiskSizeGbCfg,
+        bootDiskType: bootDiskTypeCfg,
     },
     { dependsOn: apiServices },
 );

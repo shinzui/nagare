@@ -21,6 +21,13 @@ export interface NagarePerimeterArgs {
     /** MasterPlan 11 / EP-56: opt-in for the standing Google Cloud CDN load
      *  balancer (default false; billable, so never created implicitly). */
     enableCdn: boolean;
+    /** EP-99: GCP-level deletion protection on the VM (default true). */
+    vmDeletionProtection: boolean;
+    /** EP-99: boot disk size in GB (default 100). */
+    bootDiskSizeGb: number;
+    /** EP-99: boot disk type (default pd-balanced). Changing this against a
+     *  live VM forces an instance replacement. */
+    bootDiskType: string;
 }
 
 export class NagarePerimeter extends pulumi.ComponentResource {
@@ -53,10 +60,36 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // Persistent data disk (IP-3). pd-balanced is the cost/perf
         // sweet spot; 100 GB default. EP-3 attaches and mounts it at
         // /var/lib/nagare.
+        // EP-99 `protect: true`: every byte of app data lives on this disk, so
+        // any plan that would delete it fails with "resource ... is protected".
+        // This is a Pulumi *state* option — no cloud API call, no diff — and it
+        // is deliberately reversible: `pulumi state unprotect '<urn>'` (find the
+        // URN with `pulumi stack --show-urns`), then apply. The next `pulumi up`
+        // re-asserts protection, because it is declared here.
         const dataDisk = new gcp.compute.Disk(`${name}-data`, {
             zone: args.zone,
             type: "pd-balanced",
             size: args.dataDiskSizeGb,
+        }, { parent: this, protect: true });
+
+        // Daily whole-disk snapshot of the data disk (keep 7). This is the
+        // coarse, beneath-the-apps restore point; app-level backups (EP-7 /
+        // managed DBs) remain the primary mechanism. KEEP_AUTO_SNAPSHOTS means
+        // snapshots outlive the disk — which is exactly the disaster this
+        // guards against. Incremental snapshots of a ~100 GB pd-balanced disk
+        // cost on the order of $1-3/month. startTime is UTC and must be on the
+        // hour; 08:00 UTC is around midnight Pacific, off-peak.
+        const dataSnapshots = new gcp.compute.ResourcePolicy(`${name}-data-snapshots`, {
+            region: args.region,
+            snapshotSchedulePolicy: {
+                schedule: { dailySchedule: { daysInCycle: 1, startTime: "08:00" } },
+                retentionPolicy: { maxRetentionDays: 7, onSourceDiskDelete: "KEEP_AUTO_SNAPSHOTS" },
+            },
+        }, { parent: this });
+        new gcp.compute.DiskResourcePolicyAttachment(`${name}-data-snapshot-attach`, {
+            name: dataSnapshots.name,
+            disk: dataDisk.name,
+            zone: args.zone,
         }, { parent: this });
 
         // Dedicated service account (IP-2). Lowercase `serviceaccount`
@@ -68,16 +101,10 @@ export class NagarePerimeter extends pulumi.ComponentResource {
 
         // Non-authoritative IAM members (spec correction: never use the
         // authoritative *IAMBinding/*IAMPolicy variants on the shared
-        // project). roles/dns.admin lets cert-manager (EP-4) solve the
-        // Let's Encrypt DNS-01 challenge against the Cloud DNS zone using
-        // the VM's ambient credentials. roles/artifactregistry.writer lets
-        // nagarectl (EP-6) push images.
+        // project). roles/artifactregistry.writer lets nagarectl (EP-6) push
+        // images. The DNS rights the cert-manager DNS-01 solver needs are
+        // granted below, next to the zone they are scoped to.
         const saMember = pulumi.interpolate`serviceAccount:${sa.email}`;
-        new gcp.projects.IAMMember(`${name}-iam-dns`, {
-            project: args.gcpProject,
-            role: "roles/dns.admin",
-            member: saMember,
-        }, { parent: this });
         new gcp.projects.IAMMember(`${name}-iam-ar`, {
             project: args.gcpProject,
             role: "roles/artifactregistry.writer",
@@ -86,12 +113,29 @@ export class NagarePerimeter extends pulumi.ComponentResource {
 
         // GCS bucket for backups (IP for EP-7). Uniform bucket-level
         // access means IAM alone controls access (no per-object ACLs).
+        //
+        // EP-99 hardening. The node service account keeps objectAdmin here
+        // (the backup jobs need it), which means a compromised node could
+        // delete its own backups. Versioning turns every delete or overwrite
+        // into a *noncurrent version* that can be restored, and the lifecycle
+        // rule expires those after 30 days — long enough to notice a malicious
+        // or accidental wipe, short enough that cost stays under a dollar a
+        // month at this platform's scale (roughly one extra generation of the
+        // backup set). `protect: true` additionally stops Pulumi itself from
+        // ever deleting the bucket; unprotect deliberately with
+        // `pulumi state unprotect '<urn>'` if it must go.
         const backupBucket = new gcp.storage.Bucket(`${name}-backups`, {
             name: args.backupBucketName,
             location: args.region.toUpperCase(), // GCS uses upper-case region names
             uniformBucketLevelAccess: true,
             forceDestroy: false,
-        }, { parent: this });
+            versioning: { enabled: true },
+            lifecycleRules: [{
+                action: { type: "Delete" },
+                condition: { daysSinceNoncurrentTime: 30 },
+            }],
+            publicAccessPrevention: "enforced",
+        }, { parent: this, protect: true });
 
         // Grant the service account object-admin on the backup bucket only
         // (scoped, non-authoritative). EP-7's backup jobs write here.
@@ -109,6 +153,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             location: args.region.toUpperCase(),
             uniformBucketLevelAccess: true,
             forceDestroy: false,
+            // EP-99: nothing here should ever be world-readable. Not protected —
+            // image staging is reproducible from `just host-image`.
+            publicAccessPrevention: "enforced",
         }, { parent: this });
 
         // Cloud DNS managed zone for the apps domain (IP-4). dnsName must
@@ -117,6 +164,31 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         const dnsZone = new gcp.dns.ManagedZone(`${name}-zone`, {
             dnsName,
             description: "Nagare apps wildcard zone",
+        }, { parent: this });
+
+        // EP-99: DNS rights for the cert-manager (EP-4) Let's Encrypt DNS-01
+        // solver, scoped as tightly as the solver actually allows. This
+        // replaces a project-wide roles/dns.admin grant, which let a
+        // compromised node rewrite every zone in the project.
+        //
+        // Two grants are needed, not one. The ClusterIssuer template
+        // cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl sets no
+        // `hostedZoneName`, so the solver first LISTS the project's managed
+        // zones (dns.managedZones.list — a project-level permission) to find
+        // the zone matching the domain, then writes the _acme-challenge TXT
+        // record in it (covered by the zone-scoped admin). roles/dns.reader is
+        // read-only. Tightening further by setting `hostedZoneName` in the
+        // template and dropping dns.reader is an optional follow-up.
+        new gcp.dns.DnsManagedZoneIamMember(`${name}-iam-dns-zone`, {
+            project: args.gcpProject,
+            managedZone: dnsZone.name,
+            role: "roles/dns.admin",
+            member: saMember,
+        }, { parent: this });
+        new gcp.projects.IAMMember(`${name}-iam-dns-read`, {
+            project: args.gcpProject,
+            role: "roles/dns.reader",
+            member: saMember,
         }, { parent: this });
 
         // Wildcard A record: *.apps.example.com -> publicIp. ttl in
@@ -148,6 +220,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
                 publicIp: address.address,
                 dataDiskId: dataDisk.id,
                 serviceAccountEmail: sa.email,
+                deletionProtection: args.vmDeletionProtection,
+                bootDiskSizeGb: args.bootDiskSizeGb,
+                bootDiskType: args.bootDiskType,
             }, { parent: this });
         }
 
