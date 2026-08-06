@@ -4,6 +4,7 @@ slug: fail-closed-target-guardrail-and-shell-tooling-hardening
 title: "Fail-closed target guardrail and shell tooling hardening"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 ---
 
@@ -49,14 +50,15 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
 
 ## Progress
 
-- [ ] M1: capture the context-declared project (`_NAGARE_CTX_PROJECT`) in `_nagare_resolve_context` before the env snapshot is re-applied.
-- [ ] M1: rewrite the cloud branch of `_require_target_project` so it is no longer a tautology (declared-project assertion + gcloud cross-check fallback).
-- [ ] M1: replace the local-mode base-domain blacklist with a loopback whitelist (127.* encoded sslip.io/nip.io, localhost, *.localhost).
-- [ ] M1: replace the local-mode registry-host blacklist with a loopback whitelist (localhost[:port], *.localhost[:port], 127.*[:port]).
-- [ ] M1: make an invalid (non-empty, malformed) current-context pointer fail closed like the not-found branch.
-- [ ] M1: stop truncating the Pulumi passphrase file on every `target.sh` source (guard with `[ -f ]`).
-- [ ] M1: run the M1 negative/positive guardrail probes and record transcripts.
-- [ ] M1: commit M1 with Conventional Commit message + MasterPlan/ExecPlan trailers.
+- [x] M1: capture the context-declared project (`_NAGARE_CTX_PROJECT`) in `_nagare_resolve_context` before the env snapshot is re-applied. (2026-08-05)
+- [x] M1: rewrite the cloud branch of `_require_target_project` so it is no longer a tautology (declared-project assertion + gcloud cross-check fallback). (2026-08-05)
+- [x] M1: replace the local-mode base-domain blacklist with a loopback whitelist (127.* encoded sslip.io/nip.io, localhost, *.localhost). (2026-08-05)
+- [x] M1: replace the local-mode registry-host blacklist with a loopback whitelist (localhost[:port], *.localhost[:port], 127.*[:port]). (2026-08-05)
+- [x] M1: make an invalid (non-empty, malformed) current-context pointer fail closed like the not-found branch. (2026-08-05)
+- [x] M1: stop truncating the Pulumi passphrase file on every `target.sh` source (guard with `[ -f ]`). (2026-08-05)
+- [x] M1: run the M1 negative/positive guardrail probes and record transcripts. (2026-08-05 — all of M1-a…M1-e behaved as documented; transcripts in Surprises & Discoveries)
+- [x] M1: commit M1 with Conventional Commit message + MasterPlan/ExecPlan trailers. (2026-08-05)
+- [x] M1 (added): update the file header comment in `scripts/lib/target.sh` so its description of `_require_target_project` matches the new two-branch behavior. (2026-08-05)
 - [ ] M2: create `scripts/vm-power.sh` (guardrail-routed VM start/stop) and make it executable.
 - [ ] M2: point `justfile` `vm-stop` / `vm-start` at `scripts/vm-power.sh`.
 - [ ] M2: hard-fail `justfile` `cluster-bootstrap` when `pulumi stack output baseDomain` is empty.
@@ -78,7 +80,96 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+**`shellcheck` is not in the dev shell.** The plan's lint commands assume
+`shellcheck` is on `PATH` inside `nix develop`. It is not — `flake.nix` only
+pulls `pkgs.shellcheck` into the hermetic `shellcheck-scripts` check derivation
+(lines 117–123). Run it ad hoc instead:
+
+```bash
+nix shell nixpkgs#shellcheck --command shellcheck --severity=error scripts/lib/target.sh
+```
+
+This is what every lint step in this plan was actually executed with.
+
+**The guardrail's reach depends on whether the resolved context *changed*.** The
+pre-existing unset loop in `_nagare_resolve_context` (the
+`NAGARE_RESOLVED_CONTEXT != selkey` branch) clears every context variable before
+the ambient snapshot is taken. So a stale `CLOUDSDK_CORE_PROJECT` is discarded
+outright when the operator switches contexts inside one shell, and is caught by
+the new assertion when the context is unchanged. Both paths are safe — either
+the context's project wins or the run is refused — but only the second produces
+the refusal message. Evidence:
+
+```text
+=== stale override, resolved context CHANGES (:inrepo: -> ctx:probe) ===
+target=probe-project declared=probe-project
+exit=0
+=== stale override, resolved context UNCHANGED (ctx:probe) ===
+target=wrong-project declared=probe-project
+refusing to run: effective project 'wrong-project' does not match the active context's declared project 'probe-project' (context: probe).
+exit=1
+```
+
+**M1 probe transcripts.** The tautology is demonstrably dead (M1-a), agreement
+still passes offline with no gcloud on `PATH` (M1-b):
+
+```text
+--- M1-a: stale ambient project (expect exit=1) ---
+refusing to run: effective project 'wrong-project' does not match the active context's declared project 'probe-project' (context: probe).
+fix: unset the ambient CLOUDSDK_CORE_PROJECT override, or select the context that declares 'wrong-project' (NAGARE_CONTEXT=<name> or 'nagarectl context use <name>').
+exit=1
+--- M1-b: no override (expect exit=0) ---
+exit=0
+--- M1-b: agreeing override (expect exit=0) ---
+exit=0
+--- M1-b: no gcloud on PATH (expect exit=0) ---
+exit=0
+```
+
+The loopback whitelist (M1-c) rejects every public-IP encoding and accepts every
+loopback form, including the one this repository actually ships:
+
+```text
+  34-120-1-1.sslip.io           -> exit=1
+  127-0-0-1-34-120-1-1.sslip.io -> exit=1
+  1-1-1-127.nip.io              -> exit=1
+  evil.example.com              -> exit=1
+  127-0-0-1.sslip.io            -> exit=0
+  127.0.0.1.nip.io              -> exit=0
+  apps.localhost                -> exit=0
+  localhost                     -> exit=0
+  evil-127-0-0-1.sslip.io       -> exit=0
+  us-west1-docker.pkg.dev       -> exit=1   (registry)
+  registry.evil.example:5000    -> exit=1   (registry)
+  k3d-registry.localhost:5000   -> exit=0   (registry)
+  localhost:5000                -> exit=0   (registry)
+  127.0.0.1:5000                -> exit=0   (registry)
+```
+
+The pointer (M1-d) and passphrase (M1-e) fixes behave as specified:
+
+```text
+=== M1-d: malformed pointer ===
+nagare: current-context pointer 'bad/name' is not a valid context name (from .../cfg/nagare/current-context)
+exit=1
+=== M1-d: valid-but-missing pointer ===
+nagare: current-context 'nosuch' not found (expected .../cfg/nagare/contexts/nosuch.env)
+exit=1
+=== M1-d: empty pointer ===
+exit=0
+=== M1-e: passphrase survives ===
+passphrase content: real-secret
+```
+
+**This operator's live environment is a local-mode in-repo profile, and it
+passes the tightened whitelist unchanged.** Sourcing `target.sh` with the real
+config resolves `ctx=default mode=local` from `nagare.local.env`
+(`NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io`,
+`NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000`) and
+`_require_target_project` returns 0 — so `just local-smoke` is unaffected by the
+whitelist, as the plan predicted. Note the cloud-branch assertion is therefore
+never exercised by this machine's default shell; the sandbox probes are the only
+coverage.
 
 
 ## Decision Log

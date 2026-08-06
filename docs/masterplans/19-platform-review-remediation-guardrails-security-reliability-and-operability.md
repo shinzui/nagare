@@ -4,6 +4,7 @@ slug: platform-review-remediation-guardrails-security-reliability-and-operabilit
 title: "Platform review remediation: guardrails, security, reliability, and operability"
 kind: master-plan
 created_at: 2026-07-16T04:24:57Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -78,7 +79,7 @@ ownership rules in Integration Points.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Not Started |
+| 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | In Progress |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Not Started |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Not Started |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Not Started |
@@ -171,7 +172,7 @@ different layers (manifest tags vs pull credentials) and interact only in docs.
 Milestone-level view across all child plans. Check items as child-plan milestones
 complete; the child plans hold the granular checklists.
 
-- [ ] EP-1 M1: A guardrail that can actually fail (scripts/lib/target.sh) — fail-closed project assertion, loopback whitelist, fail-closed context pointer, passphrase-file guard
+- [x] EP-1 M1: A guardrail that can actually fail (scripts/lib/target.sh) — fail-closed project assertion, loopback whitelist, fail-closed context pointer, passphrase-file guard (2026-08-05)
 - [ ] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion
 - [ ] EP-1 M3: Trap safety and hygiene, then the lint gate
 - [ ] EP-2 M1: nagared — fork-PR gating and a runghc timeout
