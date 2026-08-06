@@ -49,6 +49,7 @@ nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
 SNAPSHOT_URL=""
 PF_PID=""
+HARNESS_READY=0
 
 # Best-effort removal of the local MinIO snapshot object (there is no `nagarectl
 # storage delete`; everything is wiped by `just local-down` anyway). Runs a
@@ -67,13 +68,20 @@ minio_rm() {
 
 cleanup() {
   echo "== teardown =="
-  # `app delete NAME -n NS` deletes the Knative Service + DomainMappings + history
-  # (no --yes flag, no prompt); it resolves domains from the cluster when the
-  # config file is absent, so it is safe to run from the repo root.
-  nagarectl app delete "${SMOKE_APP}" -n "${SMOKE_NS}" >/dev/null 2>&1 || true
-  # Best-effort: drop the local MinIO snapshot object + any restore-scratch PVC.
-  [ -n "${SNAPSHOT_URL}" ] && minio_rm "${SNAPSHOT_URL}"
-  kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
+  # Cluster-facing cleanup ONLY once the k3d kubeconfig was written and
+  # verified — otherwise these commands would fire against whatever ambient
+  # kubectl context the shell holds (for this operator, a real GKE cluster).
+  if [ "${HARNESS_READY}" = "1" ]; then
+    # `app delete NAME -n NS` deletes the Knative Service + DomainMappings +
+    # history (no --yes flag, no prompt); it resolves domains from the cluster
+    # when the config file is absent, so it is safe to run from the repo root.
+    nagarectl app delete "${SMOKE_APP}" -n "${SMOKE_NS}" >/dev/null 2>&1 || true
+    # Best-effort: drop the local MinIO snapshot object + any restore-scratch PVC.
+    [ -n "${SNAPSHOT_URL}" ] && minio_rm "${SNAPSHOT_URL}"
+    kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
+  else
+    echo "== teardown: harness never became ready; skipping cluster cleanup =="
+  fi
   [ -n "${PF_PID}" ] && kill "${PF_PID}" 2>/dev/null || true
   echo "== teardown done =="
 }
@@ -86,8 +94,12 @@ if ! k3d cluster list nagare-local >/dev/null 2>&1; then
 fi
 # Talk to the local cluster regardless of any ambient KUBECONFIG (no IAP tunnel,
 # no scripts/live-test.sh): use the kubeconfig k3d writes for this cluster.
-export KUBECONFIG="$(k3d kubeconfig write nagare-local)"
+KUBECONFIG="$(k3d kubeconfig write nagare-local)"
+export KUBECONFIG
 kubectl get nodes >/dev/null
+# The k3d kubeconfig is written and answering: the EXIT trap may now touch the
+# cluster.
+HARNESS_READY=1
 # MinIO may be absent if the cluster was brought up by a bare `just local-up`.
 if ! kubectl -n nagare-system get deploy/minio >/dev/null 2>&1; then
   ( cd "${NAGARE_REPO_ROOT}" && just local-minio )

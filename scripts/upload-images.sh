@@ -26,6 +26,10 @@ ATTR="packages.x86_64-linux.${OUTPUT}"
 
 log() { printf '[upload-images] %s\n' "$*" >&2; }
 
+# Private scratch file for nix build's stderr. A fixed /tmp path is
+# world-predictable and shared between concurrent runs and users.
+NIX_BUILD_ERR="$(mktemp -t nagare-nix-build.XXXXXX)"
+
 BUCKET="$(pulumi --cwd "${PULUMI_DIR}" config get imageBucket)"
 if [ -z "${BUCKET}" ]; then
   echo "imageBucket not set in Pulumi config. Run: pulumi --cwd infra/pulumi config set imageBucket <name>" >&2
@@ -43,17 +47,17 @@ fi
 # and checking it exists on the builder.
 build_image() {
   local out_path
-  if out_path=$( (cd "${NIXOS_DIR}" && nix build --print-out-paths --no-link ".#${ATTR}") 2>/tmp/nagare-nix-build.err ); then
+  if out_path=$( (cd "${NIXOS_DIR}" && nix build --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
     echo "${out_path}"; return 0
   fi
   out_path=$(cd "${NIXOS_DIR}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
-    log "nix build failed and nix eval could not resolve the output path:"; cat /tmp/nagare-nix-build.err >&2; return 1; }
+    log "nix build failed and nix eval could not resolve the output path:"; cat "${NIX_BUILD_ERR}" >&2; return 1; }
   local q; q="$(printf '%q' "${out_path}")"
   if [ -n "${BUILDER_INSTANCE}" ] && "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "test -d ${q}" 2>/dev/null; then
     log "Local copy-back failed but build is on builder at ${out_path} — using builder upload"
     echo "${out_path}"; return 0
   fi
-  log "Build failed and is not on the builder; surfacing the nix error:"; cat /tmp/nagare-nix-build.err >&2; return 1
+  log "Build failed and is not on the builder; surfacing the nix error:"; cat "${NIX_BUILD_ERR}" >&2; return 1
 }
 
 image_hash() { local b; b="$(basename "$1")"; b="${b%%-*}"; echo "${b:0:12}"; }

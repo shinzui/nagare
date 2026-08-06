@@ -40,18 +40,27 @@ nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
 TUN_PIDS=""
 SNAPSHOT_URL=""
+HARNESS_READY=0
 
 cleanup() {
   echo "== teardown =="
-  nagarectl app delete "${SMOKE_APP}" --yes >/dev/null 2>&1 || true
-  # Best-effort: remove the smoke snapshot object and any restore-scratch PVC.
-  [ -n "${SNAPSHOT_URL}" ] && gsutil rm "${SNAPSHOT_URL}" >/dev/null 2>&1 || true
-  if [ -n "${KUBECONFIG:-}" ]; then
+  # Cluster-facing cleanup ONLY once our own harness (tunnel + kubeconfig) was
+  # verified — otherwise these commands would fire against whatever ambient
+  # kubectl context / gcloud project the operator's shell happened to hold.
+  if [ "${HARNESS_READY}" = "1" ]; then
+    nagarectl app delete "${SMOKE_APP}" --yes >/dev/null 2>&1 || true
+    # Best-effort: remove the smoke snapshot object and any restore-scratch PVC.
+    [ -n "${SNAPSHOT_URL}" ] && gsutil rm "${SNAPSHOT_URL}" >/dev/null 2>&1 || true
     kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
+  else
+    echo "== teardown: harness never became ready; skipping cluster cleanup =="
   fi
+  # Our own child tunnels are reaped unconditionally: identified by PID, and by
+  # the INSTANCE name in the start-iap-tunnel argv (NOT the app name — tunnels
+  # are opened as 'start-iap-tunnel nagare-01 22 …').
   # shellcheck disable=SC2086
   [ -n "${TUN_PIDS}" ] && kill ${TUN_PIDS} 2>/dev/null || true
-  pkill -f 'start-iap-tunnel '"${SMOKE_APP:-nagare-01}" 2>/dev/null || true
+  pkill -f "start-iap-tunnel ${NAGARE_INSTANCE_NAME:-nagare-01} " 2>/dev/null || true
   echo "== teardown done =="
 }
 trap cleanup EXIT
@@ -74,6 +83,8 @@ TUN_PIDS="$(echo "${LT_OUT}" | grep '^# when done: kill' | sed 's/^# when done: 
 if [ -z "${KCFG}" ]; then echo "  live-test failed to produce a KUBECONFIG" >&2; exit 1; fi
 export KUBECONFIG="${KCFG}"
 kubectl get nodes >/dev/null
+# Our own tunnel + kubeconfig are proven: the EXIT trap may now touch the cluster.
+HARNESS_READY=1
 PUBLIC_IP="$(cd "${NAGARE_REPO_ROOT}/infra/pulumi" && pulumi stack output publicIp 2>/dev/null)"
 echo "  KUBECONFIG=${KCFG} ; publicIp=${PUBLIC_IP}"
 
