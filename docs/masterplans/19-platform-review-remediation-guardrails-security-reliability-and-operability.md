@@ -79,7 +79,7 @@ ownership rules in Integration Points.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | In Progress |
+| 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Not Started |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Not Started |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Not Started |
@@ -173,8 +173,8 @@ Milestone-level view across all child plans. Check items as child-plan milestone
 complete; the child plans hold the granular checklists.
 
 - [x] EP-1 M1: A guardrail that can actually fail (scripts/lib/target.sh) — fail-closed project assertion, loopback whitelist, fail-closed context pointer, passphrase-file guard (2026-08-05)
-- [ ] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion
-- [ ] EP-1 M3: Trap safety and hygiene, then the lint gate
+- [x] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion (2026-08-05)
+- [x] EP-1 M3: Trap safety and hygiene, then the lint gate (2026-08-05 — `shellcheck --severity=error` clean and the hermetic `shellcheck-scripts` check passes; full `nix flake check` blocked on an unrelated `nagare-access-build-test` sandbox clone failure)
 - [ ] EP-2 M1: nagared — fork-PR gating and a runghc timeout
 - [ ] EP-2 M2: nagare-access — cookie MAC, return destination, Host header
 - [ ] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction
@@ -219,6 +219,41 @@ implementation):
   listing because the ClusterIssuer sets no `hostedZoneName`; EP-3's zone-scoped
   `dns.admin` grant is paired with that reader role rather than being fully
   project-free.
+
+Discoveries from implementation:
+
+- **`shellcheck` is not in the dev shell** (EP-1, 2026-08-05). Every plan in this
+  MasterPlan that lints shell should note this: `flake.nix` pulls
+  `pkgs.shellcheck` only into the hermetic `shellcheck-scripts` check
+  derivation, so `nix develop` does not provide the binary. Run it ad hoc with
+  `nix shell nixpkgs#shellcheck --command shellcheck …`, and verify the gate with
+  `nix build .#checks.aarch64-darwin.shellcheck-scripts`.
+- **`nix flake check` is currently red for a reason unrelated to any plan here**
+  (EP-1, 2026-08-05). `nagare-access-build-test` fails cloning a cabal
+  `source-repository-package` from GitHub inside the Nix sandbox
+  (`fatal: could not read Username for 'https://github.com'`), and that cancels
+  the remaining checks. Plans that name `nix flake check` as an acceptance gate —
+  notably EP-2 and EP-6, which change Haskell under `cli/` — should expect this
+  and validate with targeted per-check builds until the sandbox has credentials.
+- **The guardrail's new refusal is reachable only when the resolved context does
+  not change** (EP-1, 2026-08-05). `_nagare_resolve_context` already cleared
+  every context variable when the resolved context *changed* within one shell, so
+  a stale `CLOUDSDK_CORE_PROJECT` is discarded on a context switch and caught by
+  the new assertion otherwise. Both outcomes are safe; sibling plans should not
+  read a passing guardrail on a context switch as evidence the assertion is
+  inert.
+- **`_NAGARE_CTX_PROJECT` is a new non-exported global in `scripts/lib/target.sh`**
+  (EP-1, 2026-08-05). It holds the project the active context/profile declares
+  (empty when none does) and is recomputed on every source. EP-3 may change which
+  Pulumi backend cloud contexts default to, but must not touch this capture, the
+  loopback whitelist, or `_require_target_project` — the ownership boundary
+  recorded in Integration Points still holds.
+- **This machine's default shell resolves to a local-mode in-repo profile**
+  (EP-1, 2026-08-05): `nagare.local.env` with `NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io`
+  and `NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000`, and no
+  `~/.config/nagare/contexts` at all. Any plan whose validation assumes a cloud
+  context must select one explicitly; the cloud branch of the guardrail is never
+  exercised by an ordinary shell here.
 
 
 ## Decision Log
