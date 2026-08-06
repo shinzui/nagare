@@ -33,7 +33,7 @@ infra-preview:
 # Stop the VM (reversible; restart with `just vm-start`).
 [group('infra')]
 vm-stop:
-    gcloud compute instances stop "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
+    scripts/vm-power.sh stop
 
 # Caveat: a plain start boots the EXISTING boot disk (the current system
 # generation), NOT the latest registered image, and some runtime-only fixes do
@@ -42,7 +42,7 @@ vm-stop:
 # Start the VM again after `just vm-stop`.
 [group('infra')]
 vm-start:
-    gcloud compute instances start "${NAGARE_INSTANCE_NAME:-nagare-01}" --zone="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
+    scripts/vm-power.sh start
 
 # EP-3 (docs/plans/3-nixos-host-nagare-01-with-k3s.md): build the NixOS
 # GCE image on the remote x86_64-linux Nix builder, upload the tarball to
@@ -105,6 +105,7 @@ cluster-bootstrap:
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
     BASE_DOMAIN="$(pulumi -C infra/pulumi stack output baseDomain)"; \
+      : "${BASE_DOMAIN:?empty baseDomain — run 'pulumi -C infra/pulumi up' (or 'pulumi config set baseDomain …') before cluster-bootstrap}"; \
       kubectl -n knative-serving patch configmap config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml

@@ -59,14 +59,15 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
 - [x] M1: run the M1 negative/positive guardrail probes and record transcripts. (2026-08-05 — all of M1-a…M1-e behaved as documented; transcripts in Surprises & Discoveries)
 - [x] M1: commit M1 with Conventional Commit message + MasterPlan/ExecPlan trailers. (2026-08-05)
 - [x] M1 (added): update the file header comment in `scripts/lib/target.sh` so its description of `_require_target_project` matches the new two-branch behavior. (2026-08-05)
-- [ ] M2: create `scripts/vm-power.sh` (guardrail-routed VM start/stop) and make it executable.
-- [ ] M2: point `justfile` `vm-stop` / `vm-start` at `scripts/vm-power.sh`.
-- [ ] M2: hard-fail `justfile` `cluster-bootstrap` when `pulumi stack output baseDomain` is empty.
-- [ ] M2: assert GCS bucket ownership (project number) in `scripts/migrate-pulumi-backend.sh` before any update/IAM/import.
-- [ ] M2: replace the unescaped `sed` interpolation in `set_context_var` with a `grep -v` + `printf` rewrite.
-- [ ] M2: guard the rollback-path passphrase truncation in `scripts/migrate-pulumi-backend.sh` (same bug class as target.sh).
-- [ ] M2: run M2 validation and record transcripts.
-- [ ] M2: commit M2 with Conventional Commit message + trailers.
+- [x] M2: create `scripts/vm-power.sh` (guardrail-routed VM start/stop) and make it executable. (2026-08-05)
+- [x] M2: point `justfile` `vm-stop` / `vm-start` at `scripts/vm-power.sh`. (2026-08-05)
+- [x] M2: hard-fail `justfile` `cluster-bootstrap` when `pulumi stack output baseDomain` is empty. (2026-08-05)
+- [x] M2: assert GCS bucket ownership (project number) in `scripts/migrate-pulumi-backend.sh` before any update/IAM/import. (2026-08-05)
+- [x] M2: replace the unescaped `sed` interpolation in `set_context_var` with a `grep -v` + `printf` rewrite. (2026-08-05)
+- [x] M2: guard the rollback-path passphrase truncation in `scripts/migrate-pulumi-backend.sh` (same bug class as target.sh). (2026-08-05)
+- [x] M2: run M2 validation and record transcripts. (2026-08-05 — M2-a/b/c pass; M2-d verified statically, the live foreign-bucket check remains credential-gated)
+- [x] M2: commit M2 with Conventional Commit message + trailers. (2026-08-05)
+- [ ] M2 (deferred, credential-gated): run the live M2-d probe — `scripts/migrate-pulumi-backend.sh --url gs://<existing-foreign-bucket>/nagare/x` must print the `refusing: gs://… is owned by project number …` message and run no `buckets update`. Requires credentials for the real target project and a known foreign bucket name; not runnable in this session.
 - [ ] M3: guard `scripts/live-smoke.sh` cleanup on a harness-ready flag and fix the `pkill` pattern to use the instance name.
 - [ ] M3: guard `scripts/local-smoke.sh` cleanup on a harness-ready flag and split the SC2155 `export KUBECONFIG` line.
 - [ ] M3: quote the remote path in `scripts/iap-ssh.sh` `recv-file` with `printf '%q'`.
@@ -159,6 +160,59 @@ exit=1
 exit=0
 === M1-e: passphrase survives ===
 passphrase content: real-secret
+```
+
+**M2-b aborts with status 127, not 1.** A failed `${VAR:?message}` expansion in a
+non-interactive shell exits with 127 (bash's "expansion error" status), not 1.
+The plan's acceptance — "no `would patch:` line, non-zero exit" — holds:
+
+```text
+sh: line 1: BASE_DOMAIN: empty baseDomain — run pulumi up first
+exit=127
+```
+
+**M2-a transcript (the recipe path is genuinely guarded).** Both the script and
+the `just` recipe refuse before any gcloud API call:
+
+```text
+=== through 'just vm-stop' ===
+scripts/vm-power.sh stop
+refusing to run: effective project 'wrong-project' does not match the active context's declared project 'probe-project' (context: probe).
+fix: unset the ambient CLOUDSDK_CORE_PROJECT override, or select the context that declares 'wrong-project' (NAGARE_CONTEXT=<name> or 'nagarectl context use <name>').
+error: recipe `vm-stop` failed on line 36 with exit code 1
+exit=1
+```
+
+**M2-c transcript (byte-exact rewrite).** `&`, `|` and `\` all survive verbatim
+and every unrelated line is preserved exactly once:
+
+```text
+export CLOUDSDK_CORE_PROJECT=probe-project
+export NAGARE_MODE=cloud
+export NAGARE_INSTANCE_NAME=nagare-01
+export NAGARE_PULUMI_BACKEND_URL=gs://bucket/a&b|c\d
+REWRITE OK
+backend-url lines: 1 | project lines: 1 | instance lines: 1
+```
+
+**The bucket-ownership assertion sits after `buckets create`, and that residual
+window is still fail-closed.** `ensure_bucket` creates the bucket when its
+existence probe fails, and only then asserts ownership. If a foreign bucket
+exists but is *undescribable* to us, the existence probe fails, the `create`
+runs and GCS rejects it (the name is globally taken), and `set -e` aborts the
+script — a gcloud-worded failure rather than our message, but no mutation of the
+foreign bucket. Every describable case reaches the assertion with its intended
+message. Static ordering evidence:
+
+```text
+108:    gcloud storage buckets create …
+119:  bucket_pn="$(gcloud storage buckets describe … projectNumber …)"
+122:    echo "refusing: gs://${bucket} is owned by project number …"
+127:  gcloud storage buckets update …
+130:    gcloud storage buckets add-iam-policy-binding …
+161:  ensure_bucket "${url}"
+166:    pulumi … stack init …
+169:    pulumi … stack import …
 ```
 
 **This operator's live environment is a local-mode in-repo profile, and it
