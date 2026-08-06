@@ -80,7 +80,7 @@ ownership rules in Integration Points.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
-| 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | In Progress |
+| 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Not Started |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Not Started |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | Not Started |
@@ -175,9 +175,9 @@ complete; the child plans hold the granular checklists.
 - [x] EP-1 M1: A guardrail that can actually fail (scripts/lib/target.sh) — fail-closed project assertion, loopback whitelist, fail-closed context pointer, passphrase-file guard (2026-08-05)
 - [x] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion (2026-08-05)
 - [x] EP-1 M3: Trap safety and hygiene, then the lint gate (2026-08-05 — `shellcheck --severity=error` clean and the hermetic `shellcheck-scripts` check passes; full `nix flake check` blocked on an unrelated `nagare-access-build-test` sandbox clone failure)
-- [ ] EP-2 M1: nagared — fork-PR gating and a runghc timeout
-- [ ] EP-2 M2: nagare-access — cookie MAC, return destination, Host header
-- [ ] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction
+- [x] EP-2 M1: nagared — fork-PR gating and a runghc timeout (2026-08-05)
+- [x] EP-2 M2: nagare-access — cookie MAC, return destination, Host header (2026-08-05)
+- [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
 - [ ] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes
 - [ ] EP-3 M2: sops — an offline recovery recipient for every secret
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
@@ -248,6 +248,20 @@ Discoveries from implementation:
   Pulumi backend cloud contexts default to, but must not touch this capture, the
   loopback whitelist, or `_require_target_project` — the ownership boundary
   recorded in Integration Points still holds.
+- **`AccessServices.authorizeUser` changed shape** (EP-2, 2026-08-05). It is now
+  `AuthenticatedUser -> Text -> IO AuthorizationResult`, where
+  `AuthorizationResult` (new, in `Nagare.Access.DecisionCache`) is either
+  `AuthorizationDecision AccessDecision` or `AuthorizationUnavailable Text`.
+  `cacheLookupOrLoad` operates on the same type and caches only real decisions.
+  Any later plan constructing an `AccessServices` — including test stubs — must
+  wrap decisions in `AuthorizationDecision`.
+- **`Nagare.Dsl.Load` gained a bounded-execution surface** (EP-2, 2026-08-05):
+  `ConfigTimeout`, `defaultConfigTimeout` (120 s), `runConfigWith`,
+  `loadStaticSiteWith`, and a `LoadTimedOut` constructor on `LoadError`. Every
+  existing `load*` function is unchanged in signature but now bounded by the
+  default. EP-6 (`docs/plans/102-nagarectl-correctness-and-robustness-fixes.md`)
+  touches `Nagare.Deploy` and `Nagare.Database.*`, which consume `LoadError` —
+  any exhaustive match on it there needs the new constructor.
 - **This machine's default shell resolves to a local-mode in-repo profile**
   (EP-1, 2026-08-05): `nagare.local.env` with `NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io`
   and `NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000`, and no

@@ -16,7 +16,7 @@ import Data.Text (Text)
 import Nagare.Access.BackendMap (BackendTarget)
 import Nagare.Access.Cookie (CookieSettings)
 import Nagare.Access.Credential (Credential)
-import Nagare.Access.DecisionCache (AccessDecision, DecisionCache)
+import Nagare.Access.DecisionCache (AuthorizationResult, DecisionCache)
 import Network.Wai (Request, Response)
 
 newtype AuthenticatedUser = AuthenticatedUser
@@ -64,7 +64,9 @@ data LoginOutcome
 
 data AccessServices = AccessServices
   { verifyCredential :: !(Credential -> IO (Either AuthFailure AuthenticatedUser))
-  , authorizeUser :: !(AuthenticatedUser -> Text -> IO AccessDecision)
+  , authorizeUser :: !(AuthenticatedUser -> Text -> IO AuthorizationResult)
+  -- ^ Ask the authorizer about this user and host. The result distinguishes
+  -- "the authorizer said no" from "the authorizer could not be reached".
   , forwardAuthorized :: !(AuthenticatedUser -> Text -> BackendTarget -> Request -> IO Response)
   , loginUser :: !(LoginCredentials -> IO LoginOutcome)
   , completeMfa :: !(MfaCompletion -> IO LoginOutcome)

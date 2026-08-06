@@ -4,6 +4,7 @@
 module Nagare.Access.En
   ( authorizeWithEn
   , authorizeWithEnClient
+  , authorizationFromClientResult
   , buildCheckRequest
   , checkResponseToDecision
   , enClientEnvFromAuthPlane
@@ -27,27 +28,37 @@ import En.Client
   )
 import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
-import Nagare.Access.DecisionCache (AccessDecision (..))
+import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..))
 import Network.HTTP.Client qualified as HC
 import Servant.Client
   ( BaseUrl
   , ClientEnv
+  , ClientError
   , InvalidBaseUrlException
   , mkClientEnv
   , parseBaseUrl
   , runClientM
   )
 
-authorizeWithEn :: ClientEnv -> AuthenticatedUser -> Text -> IO AccessDecision
+authorizeWithEn :: ClientEnv -> AuthenticatedUser -> Text -> IO AuthorizationResult
 authorizeWithEn =
   authorizeWithEnClient enClient
 
-authorizeWithEnClient :: EnClient -> ClientEnv -> AuthenticatedUser -> Text -> IO AccessDecision
-authorizeWithEnClient client env user host = do
-  checked <- runClientM (client.check (buildCheckRequest user host)) env
-  pure $ case checked of
-    Left _ -> AccessDenied
-    Right response -> checkResponseToDecision response
+authorizeWithEnClient :: EnClient -> ClientEnv -> AuthenticatedUser -> Text -> IO AuthorizationResult
+authorizeWithEnClient client env user host =
+  authorizationFromClientResult <$> runClientM (client.check (buildCheckRequest user host)) env
+
+-- | Classify a servant client result. Every 'Left' here is transport-level —
+-- connection refused, timeout, DNS failure, a non-2xx status, an undecodable
+-- body — because en expresses a genuine refusal as
+-- @Right (CheckResponseWire DeniedWire)@. So mapping all 'Left's to
+-- 'AuthorizationUnavailable' is exact, not lenient: it never turns a real
+-- denial into an outage.
+authorizationFromClientResult :: Either ClientError CheckResponseWire -> AuthorizationResult
+authorizationFromClientResult =
+  either
+    (AuthorizationUnavailable . Text.pack . show)
+    (AuthorizationDecision . checkResponseToDecision)
 
 buildCheckRequest :: AuthenticatedUser -> Text -> CheckRequestWire
 buildCheckRequest user host =

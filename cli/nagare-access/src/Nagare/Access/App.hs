@@ -44,6 +44,7 @@ import Network.HTTP.Types
   , status403
   , status404
   , status500
+  , status503
   )
 import Network.Wai
   ( Application
@@ -97,18 +98,22 @@ handleProtected services host req target = do
     Left response ->
       pure response
     Right (user, responseHeaders) -> do
-      decision <-
+      outcome <-
         cacheLookupOrLoad
           (decisionCache services)
           DecisionKey {subject = userSubject user, host = host}
           (authorizeUser services user host)
-      case decision of
-        AccessAllowed ->
+      case outcome of
+        AuthorizationDecision AccessAllowed ->
           addResponseHeaders responseHeaders <$> forwardAuthorized services user host target req
-        AccessDenied ->
+        -- AccessDenied and AccessConditional are both a refusal: 403.
+        AuthorizationDecision _ ->
           pure (addResponseHeaders responseHeaders (forbiddenResponse requestShape))
-        AccessConditional ->
-          pure (addResponseHeaders responseHeaders (forbiddenResponse requestShape))
+        -- The authorizer is down. This is not a denial and must not be
+        -- presented as one: 503 tells the caller (and any retry logic) that
+        -- the answer is unknown, and nothing was written to the cache.
+        AuthorizationUnavailable _ ->
+          pure (addResponseHeaders responseHeaders (textResponse status503 "authorization service unavailable"))
   where
     requestShape = requestShapeFromWai req
     challenge = classifyChallenge requestShape
@@ -158,7 +163,7 @@ defaultAccessServices :: AccessServices
 defaultAccessServices =
   AccessServices
     { verifyCredential = \_ -> pure (Left InvalidCredential)
-    , authorizeUser = \_ _ -> pure AccessDenied
+    , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status404 "not found")
     , loginUser = \_ -> pure (LoginFailed "login is not configured")
     , completeMfa = \_ -> pure (LoginFailed "mfa is not configured")

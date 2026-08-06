@@ -87,18 +87,19 @@ plain `cabal test` in each package directory.
       `cabal test` green in `cli/nagare-access`; fourmolu; commit. (2026-08-05
       — 94 tests pass; the Host test was verified to FAIL against the old
       `lookupHost`, see Surprises & Discoveries)
-- [ ] M3: introduce `AuthorizationResult` in
+- [x] M3: introduce `AuthorizationResult` in
       `cli/nagare-access/src/Nagare/Access/DecisionCache.hs`, change
       `authorizeUser` and `Nagare.Access.En` to return it, and make
       `handleProtected` answer 503 for `AuthorizationUnavailable` without
-      caching it.
-- [ ] M3: evict expired entries in `writeCache` and export `cacheSize` for
-      tests.
-- [ ] M3: tests — unavailable is 503 and not cached, denials still cached,
+      caching it. (2026-08-05 — `app/Main.hs` typechecked unchanged, as the
+      plan predicted)
+- [x] M3: evict expired entries in `writeCache` and export `cacheSize` for
+      tests. (2026-08-05)
+- [x] M3: tests — unavailable is 503 and not cached, denials still cached,
       eviction shrinks the map; `cabal test` green in `cli/nagare-access`;
-      fourmolu; commit.
-- [ ] Final: update Progress/Surprises/Decision Log/Outcomes in this file and
-      commit the plan update.
+      fourmolu; commit. (2026-08-05 — 100 tests pass, up from 94 after M2)
+- [x] Final: update Progress/Surprises/Decision Log/Outcomes in this file and
+      commit the plan update. (2026-08-05)
 
 
 ## Surprises & Discoveries
@@ -185,6 +186,19 @@ Found during implementation (2026-08-05):
   answers 404. (Verified by temporarily reverting the one-line change, running
   the single test, and restoring it.)
 
+- **The plan's `ClientError` construction needed two things it did not
+  mention.** `ConnectionError` takes a `SomeException`, so the test constructs
+  `ConnectionError (SomeException (userError "connection refused"))`, and
+  `cli/nagare-access/test/Spec.hs` had no `Servant.Client` import at all (the
+  package was already in the suite's `build-depends`, so only the import line
+  was needed). The closed-port variant of the same check is implemented with a
+  `closedPort` helper that binds a loopback socket, reads its assigned port,
+  and closes it — `network` was already a test dependency.
+
+- **`cli/nagare-access/app/Main.hs` needed no change**, as the plan predicted:
+  `authorizeUser = authorizeWithEn enEnv` typechecks unchanged once `En.hs`
+  returns `AuthorizationResult`.
+
 
 ## Decision Log
 
@@ -255,7 +269,53 @@ Found during implementation (2026-08-05):
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All three milestones landed on 2026-08-05 as three commits on `master`
+(`e2f3849`, `b229ba3`, and the M3 commit), each with the `MasterPlan:`,
+`ExecPlan:`, and `Intention:` trailers.
+
+**What is closed.** The fork-PR remote code execution is gone: `routeEvent`
+parses `pull_request.base.repo.full_name` and refuses any pull request whose
+head repository differs from its base, so `checkoutRepo` and `runghc` are
+unreachable for a fork no matter how correctly the delivery is signed. Its
+result type changed from `Maybe` to `Either Text`, which means every ignore now
+carries a reason that `decideWebhook` returns as the HTTP body and `nagared`
+logs — a fork PR is no longer a silent 200. Config execution is bounded: a
+`ConfigTimeout` (default 120 s, `--config-timeout` on `nagared`) kills a
+`Config.hs` that loops or blocks and reports `LoadTimedOut`, with the child
+`runghc` reaped rather than orphaned.
+
+In `nagare-access`: the refresh-cookie MAC is compared with `BA.constEq` on raw
+bytes, so the constant-time property is visible in the function rather than
+inherited from an `Eq` instance; `safeReturnDestination` rejects backslashes
+(which browsers normalize into a protocol-relative off-site redirect) and
+control characters (which would split a response header); an invalid-UTF-8
+`Host` header is an ordinary unmapped host answering 404 instead of an
+exception that crashed the handler; an unreachable `en` produces HTTP 503 and
+is never cached, while genuine denials are still cached exactly as before; and
+the decision cache prunes expired entries on every write, so it cannot grow
+without bound in a weeks-long process.
+
+Test counts: `nagare-dsl` 384, `nagarectl` 361, `nagare-access` 100 (from 94).
+
+**Nothing is deferred.** Every item in Progress is checked; there is no
+credential-gated or environment-blocked step in this plan — all three suites
+run in-process with no cluster, no GCP, and no external services.
+
+**Lessons.** Two of the plan's code snippets did not survive contact. The
+`System.Timeout (timeout)` import collided with two record fields already in
+scope in `Load.hs` and had to be qualified — a reminder that a plan naming an
+import should check the target module's existing scope, not just the function
+signature. And the plan's suggestion to construct "any `ClientError`, e.g.
+`ConnectionError`" needed a `SomeException` wrapper and a `Servant.Client`
+import in the test file that the plan did not mention.
+
+The thing that worked best was the plan's instruction to write the Host-header
+test *before* the fix and watch it fail. It failed with exactly the predicted
+exception, which turned a plausible-sounding finding into a demonstrated one;
+the same discipline applied to the smoke-test traps in the sibling plan EP-1
+caught a probe that proved nothing. Where a fix is defensive, asserting on the
+absence of the dangerous behavior — no cluster call in a trap, no cached
+denial after an outage — is worth more than asserting on a status code.
 
 
 ## Context and Orientation
