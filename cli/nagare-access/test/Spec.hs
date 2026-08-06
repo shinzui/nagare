@@ -3,14 +3,14 @@
 
 module Main (main) where
 
-import Control.Exception (bracket)
+import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (ToJSON, Value, decode, eitherDecode, encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as LBS
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
@@ -59,13 +59,14 @@ import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, Status, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502)
+import Network.HTTP.Types (HeaderName, Status, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
+import Servant.Client (ClientError (..))
 import Shomei.Client qualified as ShomeiClient
 import Shomei.Config (ShomeiConfig (..), defaultShomeiConfig)
 import Shomei.Domain.Claims (Audience (..), Issuer (..))
@@ -429,9 +430,31 @@ enTests =
           clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show port)})
 
           authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
-            >>= (@?= AccessAllowed)
+            >>= (@?= AuthorizationDecision AccessAllowed)
           authorizeWithEn clientEnv AuthenticatedUser {userSubject = "bob"} "tools.example.com"
-            >>= (@?= AccessDenied)
+            >>= (@?= AuthorizationDecision AccessDenied)
+    , -- en expresses a genuine refusal as Right DeniedWire. A Left is always
+      -- transport-level, so it must never be read as a decision.
+      testCase "a wire response is a decision, a client error is unavailability" $ do
+        authorizationFromClientResult (Right (CheckResponseWire DeniedWire))
+          @?= AuthorizationDecision AccessDenied
+        authorizationFromClientResult (Right (CheckResponseWire AllowedWire))
+          @?= AuthorizationDecision AccessAllowed
+        case authorizationFromClientResult (Left (ConnectionError (SomeException (userError "connection refused")))) of
+          AuthorizationUnavailable _ -> pure ()
+          other -> assertFailure ("expected AuthorizationUnavailable, got: " <> show other)
+    , -- The end-to-end version of the same thing: point the client at a port
+      -- nothing is listening on and confirm the result is unavailability, not
+      -- a denial that would then be cached.
+      testCase "an unreachable en yields unavailability, not a denial" $ do
+        manager <- HC.newManager HC.defaultManagerSettings
+        cfg <- completeAuthConfig
+        port <- closedPort
+        clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show port)})
+        result <- authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+        case result of
+          AuthorizationUnavailable _ -> pure ()
+          other -> assertFailure ("expected AuthorizationUnavailable, got: " <> show other)
     ]
 
 decisionCacheTests :: TestTree
@@ -443,38 +466,72 @@ decisionCacheTests =
         loads <- newIORef (0 :: Int)
         cache <- newDecisionCache 30 (readIORef clock)
         let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure AccessAllowed
+            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
         first <- cacheLookupOrLoad cache key load
         second <- cacheLookupOrLoad cache key load
-        first @?= AccessAllowed
-        second @?= AccessAllowed
+        first @?= AuthorizationDecision AccessAllowed
+        second @?= AuthorizationDecision AccessAllowed
         readIORef loads >>= (@?= 1)
     , testCase "expired entry reloads" $ do
         clock <- newIORef 100
         loads <- newIORef (0 :: Int)
         cache <- newDecisionCache 30 (readIORef clock)
         let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure AccessDenied
-        cacheLookupOrLoad cache key load >>= (@?= AccessDenied)
+            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessDenied)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
         modifyIORef' clock (+ 30)
-        cacheLookupOrLoad cache key load >>= (@?= AccessDenied)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
         readIORef loads >>= (@?= 2)
     , testCase "zero ttl disables caching" $ do
         loads <- newIORef (0 :: Int)
         cache <- newDecisionCache 0 (pure 100)
         let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure AccessConditional
-        cacheLookupOrLoad cache key load >>= (@?= AccessConditional)
-        cacheLookupOrLoad cache key load >>= (@?= AccessConditional)
+            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessConditional)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessConditional)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessConditional)
         readIORef loads >>= (@?= 2)
     , testCase "subject and host both participate in the cache key" $ do
         loads <- newIORef (0 :: Int)
         cache <- newDecisionCache 30 (pure 100)
-        let load = modifyIORef' loads (+ 1) >> pure AccessAllowed
-        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "tools.example.com"} load >>= (@?= AccessAllowed)
-        cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "tools.example.com"} load >>= (@?= AccessAllowed)
-        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "admin.example.com"} load >>= (@?= AccessAllowed)
+        let load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
+        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "tools.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
+        cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "tools.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
+        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "admin.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
         readIORef loads >>= (@?= 3)
+    , -- The core of the outage fix: an unreachable authorizer is returned to
+      -- the caller but never written, so the next request retries instead of
+      -- inheriting the outage for the rest of the TTL.
+      testCase "an unavailable authorizer is not cached and is retried" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (pure 100)
+        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
+            load = modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down")
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationUnavailable "en is down")
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationUnavailable "en is down")
+        readIORef loads >>= (@?= 2)
+        cacheSize cache >>= (@?= 0)
+    , -- The other half: a genuine denial IS still cached. Without this the
+      -- previous test could pass by never caching anything.
+      testCase "a genuine denial is still cached" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (pure 100)
+        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
+            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessDenied)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
+        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
+        readIORef loads >>= (@?= 1)
+        cacheSize cache >>= (@?= 1)
+    , -- Eviction: writing key B after key A has expired drops A, so the map
+      -- does not accumulate dead keys over a long-running process.
+      testCase "writing evicts entries that expired in the meantime" $ do
+        clock <- newIORef 100
+        cache <- newDecisionCache 30 (readIORef clock)
+        let load d = pure (AuthorizationDecision d)
+        _ <- cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "a.example.com"} (load AccessAllowed)
+        cacheSize cache >>= (@?= 1)
+        writeIORef clock 200
+        _ <- cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "b.example.com"} (load AccessAllowed)
+        cacheSize cache >>= (@?= 1)
     ]
 
 proxyTests :: TestTree
@@ -797,7 +854,7 @@ appTests =
         res <-
           runSession
             (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
-            (appWithRuntime backends (testServices {authorizeUser = \_ _ -> pure AccessDenied}))
+            (appWithRuntime backends (testServices {authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)}))
         simpleStatus res @?= status403
         simpleBody res @?= "Forbidden"
     , testCase "allowed protected request is forwarded" $ do
@@ -815,18 +872,38 @@ appTests =
         let services =
               testServices
                 { decisionCache = cache
-                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure AccessAllowed
+                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
                 }
             req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
         readIORef loads >>= (@?= 1)
+    , -- An en outage must look like an outage. Before this, every transport
+      -- failure became AccessDenied and was cached for the full TTL, so one
+      -- blip locked users out and looked like a real policy decision.
+      testCase "an unavailable authorizer returns 503 and is never cached" $ do
+        loads <- newIORef (0 :: Int)
+        cache <- newDecisionCache 30 (pure 100)
+        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+        let services =
+              testServices
+                { decisionCache = cache
+                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down")
+                }
+            req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
+        runSession req (appWithRuntime backends services) >>= \res -> do
+          simpleStatus res @?= status503
+          simpleBody res @?= "authorization service unavailable\n"
+        runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status503
+        -- Both requests consulted the authorizer: nothing was cached.
+        readIORef loads >>= (@?= 2)
+        cacheSize cache >>= (@?= 0)
     , testCase "authorization receives the canonical host without the request port" $ do
         seen <- newIORef ([] :: [Text])
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { authorizeUser = \_ host -> modifyIORef' seen (<> [host]) >> pure AccessAllowed
+                { authorizeUser = \_ host -> modifyIORef' seen (<> [host]) >> pure (AuthorizationDecision AccessAllowed)
                 }
         res <-
           runSession
@@ -992,6 +1069,22 @@ authConfigFromEnv env = do
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
   req {requestHeaders = (name, value) : requestHeaders req}
+
+-- | A TCP port on loopback that nothing is listening on: bind one, learn its
+-- number, then close it. Connecting there fails at the transport level, which
+-- is exactly the "en is unreachable" condition under test.
+closedPort :: IO Int
+closedPort =
+  bracket
+    (Socket.socket Socket.AF_INET Socket.Stream Socket.defaultProtocol)
+    Socket.close
+    ( \sock -> do
+        Socket.bind sock (Socket.SockAddrInet 0 (Socket.tupleToHostAddress (127, 0, 0, 1)))
+        addr <- Socket.getSocketName sock
+        case addr of
+          Socket.SockAddrInet port _ -> pure (fromIntegral port)
+          other -> fail ("unexpected socket address: " <> show other)
+    )
 
 shomeiAdapterStubApp :: Wai.Application
 shomeiAdapterStubApp req respond =
@@ -1206,7 +1299,7 @@ testServices :: AccessServices
 testServices =
   AccessServices
     { verifyCredential = \_ -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
-    , authorizeUser = \_ _ -> pure AccessAllowed
+    , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessAllowed)
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , loginUser = \_ -> pure (LoginFailed "invalid login")
     , completeMfa = \_ -> pure (LoginFailed "mfa failed")
