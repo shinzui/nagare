@@ -11,8 +11,10 @@
 # back-compat profile, then the historic tan-nb-exp defaults. It exports the
 # CLOUDSDK_* / NAGARE_* contract plus TARGET_PROJECT / TARGET_REGION /
 # TARGET_ZONE for scripts. It also derives the per-context Pulumi backend/home
-# and stack name. `_require_target_project` refuses to proceed unless gcloud's
-# active project equals the active context's project in cloud mode.
+# and stack name. In cloud mode `_require_target_project` (EP-97) refuses to
+# proceed unless the effective project equals the project the active context
+# DECLARES — or, when no context declares one, unless gcloud's configured
+# project agrees. In local mode it asserts the target is provably loopback.
 
 # Resolve the repository root from THIS file's path, independent of the caller's
 # cwd. ${BASH_SOURCE[0]} is this file; its parent is scripts/lib, so ../.. is the
@@ -94,7 +96,14 @@ _nagare_resolve_context() {
 
   if [ -z "${selkey}" ] && [ -f "${ptrfile}" ]; then
     ptr="$(tr -d '[:space:]' < "${ptrfile}")"
-    if [ -n "${ptr}" ] && _nagare_context_name_valid "${ptr}"; then
+    # An EMPTY pointer file means "no context selected" and falls through to the
+    # in-repo profile / defaults. A NON-EMPTY but malformed name means the
+    # operator's selection would be silently ignored — fail closed instead.
+    if [ -n "${ptr}" ]; then
+      if ! _nagare_context_name_valid "${ptr}"; then
+        echo "nagare: current-context pointer '${ptr}' is not a valid context name (from ${ptrfile})" >&2
+        return 1
+      fi
       if [ ! -f "${ctxdir}/${ptr}.env" ]; then
         echo "nagare: current-context '${ptr}' not found (expected ${ctxdir}/${ptr}.env)" >&2
         return 1
@@ -133,8 +142,23 @@ _nagare_resolve_context() {
     [ -n "${!v+x}" ] && _snap+=("${v}=${!v}")
   done
 
+  # Clear the slate so that after sourcing, a set variable can ONLY have come
+  # from the context/profile files. The snapshot restore below reinstates every
+  # ambient value, so the final per-field precedence (env > context > default)
+  # is unchanged.
+  for v in "${_NAGARE_CONTEXT_VARS[@]}"; do
+    unset "${v}"
+  done
+
   _nagare_source_if_present "${file}"
   _nagare_source_if_present "${overlay}"
+
+  # The project the active context/profile DECLARES (empty when no file declares
+  # one). Captured before the env snapshot is re-applied, so an ambient
+  # CLOUDSDK_CORE_PROJECT cannot masquerade as the context's project.
+  # _require_target_project asserts against this. Not exported: it is
+  # recomputed on every source of this file, and consumers always source it.
+  _NAGARE_CTX_PROJECT="${CLOUDSDK_CORE_PROJECT:-}"
 
   local kv
   for kv in "${_snap[@]+"${_snap[@]}"}"; do
@@ -200,7 +224,10 @@ _nagare_export_pulumi_env() {
   # and credentials cache there even for a remote backend); only the backend URL
   # differs between local and gcs.
   mkdir -p "${root}/home"
-  : > "${root}/home/passphrase"
+  # Create the passphrase file only when absent: this function runs on EVERY
+  # source of target.sh, and an unconditional truncation would destroy a real
+  # passphrase an operator had written here (losing access to stack secrets).
+  [ -f "${root}/home/passphrase" ] || : > "${root}/home/passphrase"
   export PULUMI_HOME="${root}/home"
   export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-}"
   export PULUMI_CONFIG_PASSPHRASE_FILE="${root}/home/passphrase"
@@ -237,28 +264,54 @@ _require_target_project() {
   # Local context: there is no GCP project to protect, but assert the target is
   # genuinely loopback so a bad local context cannot point at cloud resources.
   if [ "${NAGARE_MODE:-}" = "local" ]; then
-    case "${NAGARE_BASE_DOMAIN:-}" in
-      *sslip.io|*nip.io|*127.0.0.1*|*127-0-0-1*) : ;;
-      *)
-        echo "refusing local run: active context is mode=local but NAGARE_BASE_DOMAIN='${NAGARE_BASE_DOMAIN:-<unset>}' is not a loopback wildcard." >&2
-        return 1 ;;
-    esac
-    case "${NAGARE_REGISTRY_HOST:-}" in
-      *.pkg.dev|*.pkg.dev:*)
-        echo "refusing local run: active context is mode=local but NAGARE_REGISTRY_HOST='${NAGARE_REGISTRY_HOST}' is an Artifact Registry host." >&2
-        return 1 ;;
-    esac
+    # Whitelist, not blacklist. sslip.io / nip.io resolve the LAST IP encoded in
+    # their labels (dashed or dotted), so 34-120-1-1.sslip.io is a PUBLIC
+    # address; accept those providers only when the encoded address starts with
+    # 127. Also accept localhost and *.localhost (loopback per RFC 6761).
+    local _d="${NAGARE_BASE_DOMAIN:-}"
+    if ! { [ "${_d}" = "localhost" ] \
+        || [[ "${_d}" =~ \.localhost$ ]] \
+        || [[ "${_d}" =~ (^|[.-])127([.-][0-9]{1,3}){3}\.(sslip|nip)\.io$ ]]; }; then
+      echo "refusing local run: active context is mode=local but NAGARE_BASE_DOMAIN='${_d:-<unset>}' is not provably loopback (allowed: localhost, *.localhost, 127.x.x.x-encoded sslip.io/nip.io)." >&2
+      return 1
+    fi
+    local _r="${NAGARE_REGISTRY_HOST:-}"
+    if ! { [[ "${_r}" =~ ^localhost(:[0-9]+)?$ ]] \
+        || [[ "${_r}" =~ \.localhost(:[0-9]+)?$ ]] \
+        || [[ "${_r}" =~ ^127(\.[0-9]{1,3}){3}(:[0-9]+)?$ ]]; }; then
+      echo "refusing local run: active context is mode=local but NAGARE_REGISTRY_HOST='${_r:-<unset>}' is not a loopback registry (allowed: localhost[:port], *.localhost[:port], 127.x.x.x[:port])." >&2
+      return 1
+    fi
     return 0
   fi
 
-  # Cloud context: abort unless gcloud's effective project equals the active
-  # context's project.
-  local active
-  active="${CLOUDSDK_CORE_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}"
-  if [ "${active}" != "${TARGET_PROJECT}" ]; then
-    echo "refusing to run: gcloud active project is '${active:-<unset>}', expected '${TARGET_PROJECT}' (active context: ${NAGARE_CONTEXT:-default})." >&2
-    echo "fix: select the right context (NAGARE_CONTEXT=<name> or 'nagarectl context use <name>')," >&2
-    echo "     run 'direnv allow' in the repo root, or 'export CLOUDSDK_CORE_PROJECT=${TARGET_PROJECT}'." >&2
-    return 1
+  # Cloud context: fail closed on ANY disagreement about the target project.
+  #
+  # TARGET_PROJECT is derived from the FINAL CLOUDSDK_CORE_PROJECT, where an
+  # ambient environment value wins over the context file (per-field precedence).
+  # For the project field that precedence must never silently retarget a guarded
+  # script, so:
+  #   - when the active context/profile declares a project (_NAGARE_CTX_PROJECT
+  #     is non-empty), the effective project must equal it;
+  #   - when nothing declares one, the effective project came from ambient env
+  #     or the built-in default, so cross-check gcloud's CONFIGURED project,
+  #     read with CLOUDSDK_CORE_PROJECT stripped from the environment (gcloud
+  #     lets that env var shadow its configuration, which would re-create the
+  #     tautology this replaces).
+  if [ -n "${_NAGARE_CTX_PROJECT:-}" ]; then
+    if [ "${TARGET_PROJECT}" != "${_NAGARE_CTX_PROJECT}" ]; then
+      echo "refusing to run: effective project '${TARGET_PROJECT}' does not match the active context's declared project '${_NAGARE_CTX_PROJECT}' (context: ${NAGARE_CONTEXT:-default})." >&2
+      echo "fix: unset the ambient CLOUDSDK_CORE_PROJECT override, or select the context that declares '${TARGET_PROJECT}' (NAGARE_CONTEXT=<name> or 'nagarectl context use <name>')." >&2
+      return 1
+    fi
+  else
+    local configured
+    configured="$(env -u CLOUDSDK_CORE_PROJECT gcloud config get-value project 2>/dev/null || true)"
+    if [ -z "${configured}" ] || [ "${configured}" != "${TARGET_PROJECT}" ]; then
+      echo "refusing to run: gcloud's configured project is '${configured:-<unset>}', expected '${TARGET_PROJECT}' (active context: ${NAGARE_CONTEXT:-default})." >&2
+      echo "fix: select a context that declares the project ('nagarectl context use <name>')," >&2
+      echo "     or run 'gcloud config set project ${TARGET_PROJECT}'." >&2
+      return 1
+    fi
   fi
 }
