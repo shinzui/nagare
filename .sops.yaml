@@ -1,20 +1,33 @@
 # .sops.yaml — sops policy for the Nagare repository (EP-7).
+#
 # creation_rules are matched top-to-bottom; the first whose path_regex matches a
-# file decides how `sops -e` encrypts it. The age recipient below is the PUBLIC
-# half of the project key; the PRIVATE identity lives at
-# ~/.config/sops/age/keys.txt (and on the host at /var/lib/sops-nix/age-key.txt)
-# and is NEVER committed. Losing the private key means nothing here decrypts —
-# back it up offline (see docs/runbooks/disaster-recovery.md).
+# file decides how `sops -e` encrypts it. sops searches upward from the file
+# being encrypted and uses the NEAREST .sops.yaml, so this file governs only
+# `cluster/secrets/`; host secrets under `nixos/hosts/<host>/secrets/` are
+# governed by `nixos/.sops.yaml`.
+#
+# The age value below is the PUBLIC half of the workstation ("project") key. The
+# repository uses more than one key, and they are NOT the same key:
+#
+#   workstation/project  age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
+#                        private half at ~/.config/sops/age/keys.txt
+#                        used for day-to-day `sops` editing of cluster secrets
+#   host (nagare-01)     age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99
+#                        private half ONLY on the VM at /var/lib/sops-nix/age-key.txt,
+#                        read by sops-nix during NixOS activation; see nixos/.sops.yaml
+#
+# No private key is ever committed. Note the current recovery gap: the host key
+# exists in exactly one place, so losing the VM before that key is backed up
+# makes `nixos/hosts/nagare-01/secrets/nagare-01.yaml` permanently
+# undecryptable. See docs/runbooks/disaster-recovery.md.
+#
+# Decrypting may need the identity file named explicitly — this sops build does
+# not search ~/.config/sops/age/keys.txt on its own:
+#   SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops -d cluster/secrets/<f>.yaml
 creation_rules:
   # Kubernetes Secret manifests committed to Git. Encrypt ONLY the data/stringData
   # values so keys and metadata stay readable in diffs.
   - path_regex: cluster/secrets/.*\.ya?ml$
     encrypted_regex: "^(data|stringData)$"
-    age: >-
-      age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
-
-  # Host secrets consumed by sops-nix at NixOS activation (e.g. the Tailscale
-  # auth key, a backup token). Whole-file encryption is fine here.
-  - path_regex: nixos/secrets/.*\.ya?ml$
     age: >-
       age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf
