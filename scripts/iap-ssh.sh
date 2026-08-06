@@ -307,6 +307,9 @@ _do_recv_file_inner() (
   set -e
   local instance="$1" remote_path="$2" out_path="$3"
   local info port pid logfile
+  # %q shell-escapes the path so spaces or metacharacters in a remote filename
+  # can neither break the remote command nor smuggle extra words into sudo.
+  local q_remote; q_remote="$(printf '%q' "${remote_path}")"
   info="$(start_tunnel "${instance}" 22)"
   port="$(echo "${info}" | awk '{print $1}')"
   pid="$(echo "${info}" | awk '{print $2}')"
@@ -316,7 +319,7 @@ _do_recv_file_inner() (
   # shellcheck disable=SC2046
   ssh $(ssh_common_args) \
     -o ProxyCommand="$(ssh_proxy_cmd "${instance}" "${port}")" \
-    "${SSH_USER}@localhost" "sudo cat ${remote_path}" > "${out_path}"
+    "${SSH_USER}@localhost" "sudo cat ${q_remote}" > "${out_path}"
 )
 
 cmd_recv_file() {

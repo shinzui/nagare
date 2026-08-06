@@ -68,12 +68,15 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
 - [x] M2: run M2 validation and record transcripts. (2026-08-05 — M2-a/b/c pass; M2-d verified statically, the live foreign-bucket check remains credential-gated)
 - [x] M2: commit M2 with Conventional Commit message + trailers. (2026-08-05)
 - [ ] M2 (deferred, credential-gated): run the live M2-d probe — `scripts/migrate-pulumi-backend.sh --url gs://<existing-foreign-bucket>/nagare/x` must print the `refusing: gs://… is owned by project number …` message and run no `buckets update`. Requires credentials for the real target project and a known foreign bucket name; not runnable in this session.
-- [ ] M3: guard `scripts/live-smoke.sh` cleanup on a harness-ready flag and fix the `pkill` pattern to use the instance name.
-- [ ] M3: guard `scripts/local-smoke.sh` cleanup on a harness-ready flag and split the SC2155 `export KUBECONFIG` line.
-- [ ] M3: quote the remote path in `scripts/iap-ssh.sh` `recv-file` with `printf '%q'`.
-- [ ] M3: replace the fixed `/tmp/nagare-nix-build.err` in `scripts/upload-images.sh` with `mktemp`.
-- [ ] M3: run shellcheck (error severity over all scripts; default severity over touched scripts) and `nix flake check`.
-- [ ] M3: commit M3 with Conventional Commit message + trailers; fill in Outcomes & Retrospective.
+- [x] M3: guard `scripts/live-smoke.sh` cleanup on a harness-ready flag and fix the `pkill` pattern to use the instance name. (2026-08-05)
+- [x] M3: guard `scripts/local-smoke.sh` cleanup on a harness-ready flag and split the SC2155 `export KUBECONFIG` line. (2026-08-05)
+- [x] M3: quote the remote path in `scripts/iap-ssh.sh` `recv-file` with `printf '%q'`. (2026-08-05)
+- [x] M3: replace the fixed `/tmp/nagare-nix-build.err` in `scripts/upload-images.sh` with `mktemp`. (2026-08-05)
+- [x] M3: run shellcheck (error severity over all scripts; default severity over touched scripts). (2026-08-05 — error severity clean; `SC2155` count in local-smoke is 0)
+- [x] M3 (split from the shellcheck item): run the hermetic `shellcheck-scripts` flake check. (2026-08-05 — `nix build .#checks.aarch64-darwin.shellcheck-scripts` PASSES)
+- [ ] M3 (split, blocked, NOT this plan's fault): a full `nix flake check` cannot complete in this environment — `nagare-access-build-test` fails cloning a cabal `source-repository-package` from GitHub inside the Nix sandbox (`fatal: could not read Username for 'https://github.com'`), which cancels the remaining checks. No file under `cli/` was touched by this plan. Re-run once the sandbox has GitHub credentials.
+- [x] M3: commit M3 with Conventional Commit message + trailers; fill in Outcomes & Retrospective. (2026-08-05)
+- [ ] M3 (deferred, operator-run): the positive `just local-smoke` end-to-end run printing `local smoke: OK`. Docker is up on this machine but no `nagare-local` k3d cluster exists, so the run would stand up a fresh cluster; the specific risk this plan introduces to local mode (the tightened loopback whitelist) was instead proven directly — see Surprises & Discoveries.
 
 
 ## Surprises & Discoveries
@@ -215,6 +218,64 @@ message. Static ordering evidence:
 169:    pulumi … stack import …
 ```
 
+**The M3-a probe as written never reaches the trap.** The plan's probe
+(`PATH="/usr/bin:/bin" bash scripts/live-smoke.sh`) makes the script die at the
+`cabal build` line — which runs *before* `trap cleanup EXIT` is installed — so
+nothing is proven: the run prints `cabal: command not found` and no teardown at
+all. A faithful probe needs the script to die *after* the trap is installed but
+*before* `HARNESS_READY=1`. Both smoke tests were re-probed with a stub `PATH`
+(a `cabal` that succeeds, plus stub `gcloud`/`k3d`/`kubectl`/`nagarectl`/`gsutil`
+that announce themselves on stderr) so the failure lands in step 1:
+
+```text
+=== live-smoke: dies starting the VM ===
+== step 1: ensure nagare-01 is RUNNING ==
+  VM is UNKNOWN; starting it…
+STUB gcloud CALLED: --project=tan-nb-exp compute instances start nagare-01 --zone=us-west1-a
+== teardown ==
+== teardown: harness never became ready; skipping cluster cleanup ==
+== teardown done ==
+
+=== local-smoke: dies writing the k3d kubeconfig ===
+== step 1: ensure the local k3d cluster + registry + MinIO are up ==
+STUB k3d kubeconfig write FAILED
+== teardown ==
+== teardown: harness never became ready; skipping cluster cleanup ==
+== teardown done ==
+```
+
+The proof is the *absence* of `STUB nagarectl CALLED`, `STUB kubectl CALLED`, and
+`STUB gsutil CALLED` lines after `== teardown ==`. Before this milestone,
+`nagarectl app delete` ran unconditionally there against the ambient context.
+
+**The SC2155 split is load-bearing, not cosmetic.** In `local-smoke.sh` the old
+`export KUBECONFIG="$(k3d kubeconfig write …)"` masked the substitution's exit
+status, so under `set -e` a failed kubeconfig write did not abort the script — it
+continued to `kubectl get nodes` against the *ambient* context. The split form
+aborts. That is also why the local-smoke probe above dies where it does:
+
+```text
+sh -c 'set -e; export X="$(false)"; echo "OLD FORM continued, X=[$X]"'
+OLD FORM continued, X=[]
+old exit=0
+sh -c 'set -e; X="$(false)"; export X; echo "NEW FORM continued"'
+new exit=1
+```
+
+**`nix flake check` cannot complete in this environment, for reasons unrelated
+to this plan.** The `nagare-access-build-test` derivation fails cloning a cabal
+`source-repository-package` inside the Nix sandbox
+(`fatal: could not read Username for 'https://github.com': Device not
+configured`), which cancels `shellcheck-scripts` and the other checks. This plan
+touched no file under `cli/`. The lint gate was therefore verified two ways —
+directly, and by building the hermetic check on its own:
+
+```text
+shellcheck --severity=error scripts/*.sh scripts/lib/*.sh   -> exit 0, no output
+shellcheck scripts/local-smoke.sh | grep -c SC2155          -> 0
+nix build .#checks.aarch64-darwin.shellcheck-scripts        -> shellcheck-scripts: PASS
+```
+
 **This operator's live environment is a local-mode in-repo profile, and it
 passes the tightened whitelist unchanged.** Sourcing `target.sh` with the real
 config resolves `ctx=default mode=local` from `nagare.local.env`
@@ -277,11 +338,97 @@ coverage.
   `target.sh:203` instance. Rationale: identical bug class (unconditional `: >`
   clobbering a possibly-real passphrase); leaving one copy defeats the fix.
   Date: 2026-07-16
+- Decision: The M3-a validation probe is replaced with a stub-`PATH` version that
+  makes each smoke test die *inside step 1* (after `trap cleanup EXIT` is
+  installed), and its acceptance is the *absence* of stub `nagarectl`/`kubectl`/
+  `gsutil` invocations after `== teardown ==`. Rationale: as written, the probe's
+  stripped `PATH` killed the script at the `cabal build` line, which precedes the
+  trap installation — the probe could not distinguish a working guard from a
+  script that never reached the trap. Recorded in Surprises & Discoveries with
+  transcripts.
+  Date: 2026-08-05
+- Decision: `nix flake check` is not treated as a blocking gate for this plan;
+  the hermetic `shellcheck-scripts` check is built on its own instead
+  (`nix build .#checks.aarch64-darwin.shellcheck-scripts`). Rationale: the full
+  check fails in `nagare-access-build-test`, which clones a cabal
+  `source-repository-package` from GitHub inside the Nix sandbox and has no
+  credentials there; that failure cancels the remaining checks and is unrelated
+  to this plan, which touched no file under `cli/`. The plan's own Idempotence
+  and Recovery section prescribes exactly this isolation step.
+  Date: 2026-08-05
+- Decision: The positive `just local-smoke` acceptance run is deferred to the
+  operator rather than run here. Rationale: no `nagare-local` k3d cluster exists
+  on this machine, so the run would stand up fresh local infrastructure (cluster,
+  registry, MinIO) that was not asked for; and the only way this plan can affect
+  local mode is the tightened loopback whitelist, which was proven directly by
+  showing that the shipped `nagare.local.env` profile
+  (`127-0-0-1.sslip.io` + `k3d-registry.localhost:5000`) still passes
+  `_require_target_project` with exit 0. Left unchecked in Progress so the gap is
+  visible.
+  Date: 2026-08-05
 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All three milestones landed on 2026-08-05 as three commits on `master`
+(`d9cf31b`, `4093ad9`, and the M3 commit), each carrying Conventional Commit
+subjects and the `MasterPlan:` / `ExecPlan:` / `Intention:` trailers.
+
+**What exists now that did not before.** The project-isolation guardrail can
+actually fail: `scripts/lib/target.sh` captures the project the active
+context/profile *declares* (`_NAGARE_CTX_PROJECT`) before the ambient-environment
+snapshot is re-applied, and `_require_target_project` refuses to proceed when the
+effective project disagrees with it — the old `x != x` comparison is gone. When
+no context declares a project, the check falls back to gcloud's *configured*
+project read with `CLOUDSDK_CORE_PROJECT` stripped, restoring the original
+independent second source. Local mode is now a loopback *whitelist*, so an
+sslip.io/nip.io label encoding a public address (`34-120-1-1.sslip.io`) is
+rejected where it used to disarm the guardrail. A malformed current-context
+pointer errors instead of silently falling back to defaults, and sourcing
+`target.sh` no longer truncates the Pulumi passphrase file.
+
+Nothing that touches a GCP project now bypasses that guardrail:
+`just vm-stop` / `just vm-start` go through the new `scripts/vm-power.sh`, which
+runs the preflight and pins `--project`/`--zone`; `just cluster-bootstrap` aborts
+on an empty Pulumi `baseDomain` instead of patching `{"":""}` into Knative's
+`config-domain`; and `scripts/migrate-pulumi-backend.sh` asserts a state bucket's
+owning project number before any `update`, IAM binding, or stack import (GCS
+bucket names are global), rewrites context files byte-exactly without a `sed`
+program, and no longer clobbers an existing passphrase.
+
+Both smoke tests' EXIT traps skip every cluster-facing operation until their own
+kubeconfig is verified, so an early death performs no `nagarectl`/`kubectl`/
+`gsutil` calls against whatever cluster the operator's shell happened to point
+at; the stray-tunnel `pkill` matches the instance name actually present in the
+`start-iap-tunnel` argv; `iap-ssh.sh recv-file` `%q`-quotes the remote path; and
+`upload-images.sh` uses a private `mktemp` scratch file.
+
+**What remains.** Three items, all recorded as unchecked Progress entries and
+none of them code changes: the live foreign-bucket probe for `ensure_bucket`
+(needs credentials for the real target project plus a known foreign bucket
+name); a full `nix flake check` (blocked on an unrelated
+`nagare-access-build-test` GitHub-clone failure inside the Nix sandbox — the
+hermetic `shellcheck-scripts` check was built on its own and passes); and the
+positive end-to-end `just local-smoke` run (would stand up a fresh `nagare-local`
+k3d cluster; the specific local-mode risk this plan introduces was instead
+proven directly, by showing the shipped local profile passes the tightened
+whitelist).
+
+**Lessons.** Two of the plan's own validation probes were wrong in instructive
+ways, and both errors were of the same kind — assuming a failure would land where
+the plan wanted it. The M3-a probe stripped `PATH` to force an early death, but
+the script died *before* the trap it was meant to exercise was even installed, so
+the probe passed vacuously; only stubbing the tools so the failure landed inside
+step 1 actually proved anything. The M2-b probe predicted a non-zero exit and got
+127 rather than 1. A validation step that cannot distinguish "the fix works" from
+"the code never ran" is not a validation step — when writing probes for
+defensive code, assert on the *absence of the dangerous call*, not just on a
+non-zero exit.
+
+The second lesson is about lint infrastructure: `shellcheck` is referenced
+throughout this plan as if it were in the dev shell, and it is not — it exists
+only inside the `shellcheck-scripts` flake check. Any future plan that leans on a
+tool should confirm the tool is reachable the way the plan says it is.
 
 
 ## Context and Orientation
