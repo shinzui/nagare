@@ -5,6 +5,19 @@ description: "Nagare as a place agents run: the storage, identity, and data prim
 generated:
   by: claude-code/2.1.221
   at: "2026-08-04T14:22:54Z"
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-23T21:33:27Z"
+    document_timestamp: "2026-08-04T14:22:54Z"
+    scope: catalog-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the theme's catalog metadata against okf-profiles v0.12.0;
+      its profile shape and repository-local relationship remain consistent.
 ---
 
 # Theme: agent platform
