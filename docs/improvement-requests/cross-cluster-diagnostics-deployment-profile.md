@@ -9,6 +9,20 @@ generated:
 requestId: IR-1
 status: proposed
 origin: mori://shinzui/kikan
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-23T21:30:18Z"
+    document_timestamp: "2026-07-30T00:30:00Z"
+    scope: catalog-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the request's catalog metadata against okf-profiles v0.12.0;
+      both concrete cross-repository Mori references resolved. Implementation
+      claims were outside this profile-migration review.
 ---
 
 # Improvement Request: add hardened cross-cluster diagnostics deployment profiles to Nagare
