@@ -89,6 +89,22 @@ in  Schema.Project::{
         , description = Some "Nagare implementation ExecPlans."
         , location = Schema.DocLocation.LocalDir "docs/plans"
         }
+      , Schema.DocRef::{
+        , key = "user-manual"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Nagare operator manual, command reference, and feature documentation."
+        , location = Schema.DocLocation.LocalDir "docs/user"
+        }
+      , Schema.DocRef::{
+        , key = "guides"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Goal-oriented walkthroughs that combine Nagare features into complete operating patterns."
+        , location = Schema.DocLocation.LocalDir "docs/guides"
+        }
       ]
     , okfBundles =
       [ Schema.OkfBundle::{

@@ -225,7 +225,11 @@ nagarectl init --force     # rewrites nagare.target.env and re-seeds the default
 ```
 
 See [Target contexts](contexts.md) for `--context`, `NAGARE_CONTEXT`, migration
-from old profile files, and the selection precedence.
+from old profile files, and the selection precedence. Before onboarding a
+second cloud target, read
+[Running multiple Nagare clusters](../guides/running-multiple-clusters.md) for
+the supported one-project-per-cluster topology and the separate kubeconfig
+requirement.
 
 ## See also
 
