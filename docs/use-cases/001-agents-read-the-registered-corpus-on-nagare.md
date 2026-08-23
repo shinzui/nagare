@@ -73,6 +73,20 @@ features:
     acceptance: Concurrent agent pods run registry queries against the cluster database with no shared filesystem involved.
     jobs:
       - read-across-projects
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-23T21:33:27Z"
+    document_timestamp: "2026-08-04T14:22:54Z"
+    scope: catalog-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the use case's catalog metadata against okf-profiles v0.12.0;
+      all concrete cross-repository Mori URIs resolved. Historical measurements
+      and implementation claims were outside this profile-migration review.
 ---
 
 # Use Case 001: agents running on Nagare read the whole registered corpus
