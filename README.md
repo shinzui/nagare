@@ -185,6 +185,10 @@ nagare/
 
 ## Current capabilities
 
+The evidence-backed catalog at [`docs/capabilities/`](docs/capabilities/index.md) records the
+shipped surface with stable `CAP-N` handles, compatibility promises, interfaces, and verifiable
+source, test, example, and guide evidence. The summary below is the short orientation.
+
 - Bring your own GCP project with `nagarectl init`, then provision the cloud
   perimeter with Pulumi.
 - Boot or update the NixOS/k3s host, bootstrap Knative/Kourier/cert-manager, and
