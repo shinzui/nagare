@@ -66,6 +66,30 @@ in  Schema.Project::{
             "Shared forward-auth enforcer for protected Nagare sites. It will verify shomei sessions, check en authorization, and proxy authorized requests to cluster-local backends."
         }
       ]
+    , docs =
+      [ Schema.DocRef::{
+        , key = "plan-registry"
+        , kind = Schema.DocKind.Reference
+        , audience = Schema.DocAudience.Internal
+        , description = Some
+            "Curated index for standalone ExecPlans, retired-plan successors, and cross-project plan lineage."
+        , location = Schema.DocLocation.LocalFile "docs/plan-registry.md"
+        }
+      , Schema.DocRef::{
+        , key = "masterplans"
+        , kind = Schema.DocKind.Spec
+        , audience = Schema.DocAudience.Internal
+        , description = Some "Nagare MasterPlans and their authoritative child-plan registries."
+        , location = Schema.DocLocation.LocalDir "docs/masterplans"
+        }
+      , Schema.DocRef::{
+        , key = "execplans"
+        , kind = Schema.DocKind.Spec
+        , audience = Schema.DocAudience.Internal
+        , description = Some "Nagare implementation ExecPlans."
+        , location = Schema.DocLocation.LocalDir "docs/plans"
+        }
+      ]
     , okfBundles =
       [ Schema.OkfBundle::{
         , name = "improvement-requests"

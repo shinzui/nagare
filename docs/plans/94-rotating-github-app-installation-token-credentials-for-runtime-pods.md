@@ -114,8 +114,8 @@ returned by GitHub's installation-access-token endpoint. The former is durable a
 encrypted at rest; the latter is ephemeral and exists only in a root-only runtime file
 and a Kubernetes Secret.
 
-The source requirement is Kikan's `shinzui/kikan` plan
-`docs/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md`,
+The source requirement is
+`mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`,
 under the shared Intention in this file's frontmatter. Kikan's architectural posture is
 role binding: Mori or a mirror requests a read or write role; it must not embed a PAT
 or choose a provider-specific Secret name. The Kikan C16 contract is still unimplemented
@@ -358,3 +358,7 @@ Nagare's existing `EnvSecretRef`; they never consume the sops paths.
 2026-07-14: Replaced every indented command, configuration, and interface excerpt with
 an explicitly language-tagged fenced code block, as required by the ExecPlan formatting
 specification. No implementation scope or acceptance behavior changed.
+
+2026-08-23: Replaced the informal cross-repository Kikan source-plan reference with its
+canonical `mori://` URI as part of the Nagare plan-registry update. Scope and status are
+unchanged.

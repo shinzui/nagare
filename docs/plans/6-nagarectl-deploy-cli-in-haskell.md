@@ -13,6 +13,13 @@ master_plan: "docs/masterplans/1-bootstrap-nagare-personal-paas.md"
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+**Retirement status (2026-08-23): Cancelled — superseded by
+[MP-2](../masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md) and
+[EP-12](12-nagarectl-integration-and-full-yaml-cutover.md).** The original YAML-specific
+milestones below are retained as historical design context and must not be implemented. The
+typed `nagare/Config.hs` deployment path delivered the intended user-visible capability without
+creating the `Nagare.Config` or `Nagare.Render` modules specified here.
+
 
 ## Purpose / Big Picture
 
@@ -59,22 +66,15 @@ from it, because EP-4 ships a sample app whose `nagare.yaml` must parse with thi
 
 ## Progress
 
-This checklist is the single source of truth for the current state of the work. Every stop
-point must update it. Tasks are grouped by milestone (M1, M2, M3 — see "Plan of Work").
+This plan is closed as **Cancelled**, not Complete. The original M1–M3 checklist was abandoned
+when MP-2/EP-12 made the typed deployment contract authoritative.
 
-- [ ] M1.1 Create the Cabal project skeleton: `cli/nagarectl/nagarectl.cabal`, `cli/nagarectl/app/Main.hs`, empty `src/Nagare/*.hs` module stubs.
-- [ ] M1.2 `cabal build` succeeds inside `nix develop`; `cabal run nagarectl -- --help` prints usage with a `deploy` subcommand.
-- [ ] M1.3 Implement `src/Nagare/Config.hs`: the `NagareConfig` record and a FromJSON/YAML parser for `nagare.yaml`, with defaults (namespace `personal`, port `8080`) and validation.
-- [ ] M1.4 Implement `src/Nagare/Render.hs`: `renderService` and `renderDomainMapping` producing Knative YAML text from a `NagareConfig`.
-- [ ] M1.5 Add a golden test under `cli/nagarectl/test/`: parse the hello example's `nagare.yaml`, render, compare byte-for-byte against `test/golden/hello.service.yaml`. `cabal test` passes.
-- [ ] M2.1 Implement `src/Nagare/Image.hs`: `buildImage` (docker build), `configureDockerAuth` (gcloud), `pushImage` (docker push), and tag computation.
-- [ ] M2.2 Implement `src/Nagare/Deploy.hs`: `applyManifests` (kubectl apply), `waitForReady` (kubectl wait), and `serviceUrl` (compute the IP-4 URL).
-- [ ] M2.3 Wire the `deploy` subcommand in `app/Main.hs` to call Config → Image → Render → Deploy end to end.
-- [ ] M2.4 Run a real `nagarectl deploy` against the cluster; capture the transcript; `curl` the printed URL and confirm HTTP 200.
-- [ ] M3.1 Confirm `secretRef` env wiring renders `valueFrom.secretKeyRef` and works against a pre-created Kubernetes Secret.
-- [ ] M3.2 Confirm a custom `domain` renders and applies a `DomainMapping` and the custom URL serves over HTTPS.
-- [ ] M3.3 Polish error messages (missing `nagare.yaml`, docker/gcloud/kubectl not found, build/push/apply failures) and document idempotent re-deploy.
-- [ ] Final: update Surprises, Decision Log, Outcomes; mark MasterPlan EP-6 progress line done.
+- [x] 2026-08-23: verified that the YAML parser/renderer and `nagare.yaml` contract were never
+  implemented and remain absent.
+- [x] 2026-08-23: verified that EP-12 delivered `nagarectl deploy` through
+  `Nagare.Dsl.Load.loadDeployment` and the typed renderer, including image and deploy stages.
+- [x] 2026-08-23: changed the MP-1 registry state to Cancelled, removed EP-6 as an active
+  dependency, and recorded the successor lineage.
 
 
 ## Surprises & Discoveries
@@ -82,12 +82,22 @@ point must update it. Tasks are grouped by milestone (M1, M2, M3 — see "Plan o
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence (command output, error text).
 
-(None yet.)
+- The successor did more than substitute a parser: commit `1e4459e` cut `nagarectl` over to the
+  typed `nagare-dsl` package, and current `cli/nagarectl/app/Main.hs` defaults to
+  `nagare/Config.hs`. The obsolete `Nagare.Config`/`Nagare.Render` modules and every repository
+  `nagare.yaml` were deliberately absent after the cutover. (2026-08-23)
 
 
 ## Decision Log
 
 Record every decision made while working on the plan, with rationale and date.
+
+- Decision: cancel EP-6 rather than mark it Complete or implement its remaining checklist.
+  Rationale: Complete would falsely claim that the YAML parser, YAML renderer, and associated
+  golden test were delivered. Implementing them now would restore a contract deliberately
+  removed by MP-2/EP-12. The typed successor already provides the intended one-command deploy
+  outcome and is the only supported deployment path.
+  Date: 2026-08-23
 
 - Decision: For v1, talk to Kubernetes by shelling out to the `kubectl` binary (via the
   `cradle` process library) rather than using the `codedownio/kubernetes-api` Haskell client.
@@ -156,15 +166,23 @@ Record every decision made while working on the plan, with rationale and date.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion. Compare
-the result against the original purpose (one command in, one working HTTPS URL out).
+EP-6 was not implemented as written and is now Cancelled. Its configuration mechanism
+(`nagare.yaml` plus `Nagare.Config`/`Nagare.Render`) was superseded before implementation by the
+typed Haskell configuration initiative in MP-2. EP-12 delivered the intended product outcome:
+`nagarectl deploy` loads an app's `nagare/Config.hs`, obtains a validated
+`Nagare.Dsl.Types.Deployment`, builds or resolves the image, renders Knative resources, applies
+them, waits for readiness, and reports the service URL.
 
-(To be filled during and after implementation.)
+No runtime feature is lost by retiring this document. The historical YAML milestones, types,
+commands, and acceptance criteria below remain useful for explaining the supersession, but they
+are not an implementation backlog. Environment-gated wildcard TLS validation remains an EP-4
+operational deferral; it is not unfinished EP-6 work.
 
 
 ## Context and Orientation
 
-This section assumes you know nothing about this repository. Read it fully before editing.
+This section is a historical snapshot of the abandoned YAML design. Do not use it as current
+implementation guidance; use MP-2, EP-12, and the `nagare-dsl` source instead.
 
 **Where this fits.** Nagare is built by seven coordinated ExecPlans tracked by the MasterPlan
 at `docs/masterplans/1-bootstrap-nagare-personal-paas.md`. This is EP-6. It **hard-depends on
@@ -329,6 +347,9 @@ binaries on `PATH` and a reachable cluster (`KUBECONFIG` exported per IP-7).
 
 
 ## Plan of Work
+
+The work below is retired and must not be executed. It is preserved so the replacement can be
+audited against the original intended behavior.
 
 The work is three milestones, each independently verifiable. The order is deliberate: M1
 produces a tool that builds, parses, and renders correct YAML (provable with a fast offline
@@ -775,6 +796,9 @@ kubectl -n personal exec deploy/<revision> -- printenv DATABASE_URL
 
 ## Validation and Acceptance
 
+These were the abandoned YAML plan's acceptance gates. They are not current release gates; the
+successor's validation and evidence live in EP-12 and later `nagarectl` plans.
+
 Acceptance is behavioral, not "code exists". The three observable gates:
 
 1. **M1 (offline correctness).** From `/Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl`:
@@ -829,6 +853,11 @@ in Artifact Registry).
 
 
 ## Interfaces and Dependencies
+
+The interfaces in this section are historical and non-authoritative. Current code uses
+`Nagare.Dsl.Types.Deployment`, `Nagare.Dsl.Load.loadDeployment`, and the renderers in
+`Nagare.Dsl.Render`; it does not depend on the `yaml` parser or the proposed `Nagare.Config` and
+`Nagare.Render` modules.
 
 **Libraries (exact package names and why).** From the local `mori` corpus, confirmed by reading
 the sources:
@@ -892,3 +921,12 @@ in `nagare-dsl-test` (EP-9). The example app's `nagare.yaml` was replaced by a t
 `nagare/Config.hs`. All other EP-6 milestones (M2 live deploy, M3 secrets/custom-domain) are unchanged
 in intent — only the config-loading path differs: `nagarectl` compiles-and-runs the app's
 `nagare/Config.hs` to obtain a validated `Deployment` instead of parsing YAML.
+
+## Revision note (retirement, 2026-08-23)
+
+EP-6 is now formally **Cancelled — superseded by MP-2/EP-12**. The Progress checklist was
+replaced with retirement evidence so corpus scans no longer report the abandoned YAML work as
+unimplemented. Purpose, Outcomes, Context, Plan of Work, Validation, and Interfaces now distinguish
+historical material from the supported typed path. MP-1's registry, dependency graph, progress,
+decision log, and retrospective were updated in the same change. No ADR was added because this
+records plan lineage for the already-decided typed cutover; it introduces no new architecture.
