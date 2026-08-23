@@ -13,8 +13,9 @@ servers, while staying simple enough to rebuild the entire system from scratch.
 > **Status:** Active personal-PaaS implementation. The cloud path provisions a
 > single GCP/NixOS/k3s host; local mode can now run the app platform on k3d with a
 > local registry and MinIO backup backend. Current operator docs start at
-> [`docs/user/README.md`](docs/user/README.md), and the full design rationale is
-> in [`docs/initial-spec.md`](docs/initial-spec.md).
+> [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs start
+> at [`docs/guides/README.md`](docs/guides/README.md), and the full design
+> rationale is in [`docs/initial-spec.md`](docs/initial-spec.md).
 
 ---
 
@@ -219,7 +220,9 @@ those.)
 
 ---
 
-Start with [`docs/user/README.md`](docs/user/README.md) for operator docs, or
-[`docs/user/local-development.md`](docs/user/local-development.md) to run Nagare
-locally. Planning status, standalone plans, retired successors, and cross-project
-lineage are indexed in [`docs/plan-registry.md`](docs/plan-registry.md).
+Start with [`docs/user/README.md`](docs/user/README.md) for the operator manual,
+[`docs/guides/README.md`](docs/guides/README.md) for end-to-end operating
+patterns, or [`docs/user/local-development.md`](docs/user/local-development.md)
+to run Nagare locally. Planning status, standalone plans, retired successors,
+and cross-project lineage are indexed in
+[`docs/plan-registry.md`](docs/plan-registry.md).

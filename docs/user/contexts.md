@@ -274,4 +274,6 @@ The policy details live in [`CLAUDE.md`](../../CLAUDE.md). The implementation
 coordination lives in
 [MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md);
 the command catalogue is in [Reference](reference.md), and workstation setup is
-in [Getting started](getting-started.md).
+in [Getting started](getting-started.md). For the end-to-end topology and
+operator workflow, see
+[Running multiple Nagare clusters](../guides/running-multiple-clusters.md).

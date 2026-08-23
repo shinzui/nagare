@@ -76,6 +76,10 @@ you can observe.
 
 **Before you begin (bring your own GCP project):**
 
+- [Nagare guides](../guides/README.md) — goal-oriented walkthroughs that combine
+  the manual's individual features into complete operating patterns.
+  [Running multiple clusters](../guides/running-multiple-clusters.md) covers
+  `prod`, `labs`, and `local` isolation. ✅
 - [GCP prerequisites](gcp-prerequisites.md) — gcloud auth + ADC, operator IAM
   roles, project + billing, service-API enablement, DNS delegation. ✅
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
