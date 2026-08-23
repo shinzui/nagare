@@ -32,7 +32,8 @@ kept enabled (only Traefik is disabled).
   `Ready`, and a working [kubeconfig](accessing-the-host.md#getting-a-working-kubectl).
 - The Pulumi perimeter applied, providing the **DNS zone**
   (`pulumi stack output dnsZoneName`) and the service account with
-  `roles/dns.admin`.
+  `roles/dns.admin` on that zone plus project-level `roles/dns.reader` for zone
+  discovery.
 - Your `baseDomain` zone **delegated** from your registrar to the Cloud DNS
   nameservers (so Let's Encrypt and real traffic resolve).
 
@@ -84,8 +85,8 @@ The wildcard `*.<baseDomain>` `A` record (created by Pulumi) points at the
 static IP. For **wildcard TLS**, Nagare uses cert-manager with a Let's Encrypt
 **DNS-01** challenge — HTTP-01 cannot issue wildcard certs. The DNS-01 solver
 uses a **Google Cloud DNS** solver authorized by the VM's `roles/dns.admin`
-service account, and the wildcard is wired into Knative via `net-certmanager`
-with `external-domain-tls: Enabled`.
+zone grant and project-level `roles/dns.reader`, and the wildcard is wired into
+Knative via `net-certmanager` with `external-domain-tls: Enabled`.
 
 > This is a deliberate override of the spec's "start with host-level Caddy"
 > suggestion: Nagare chose the Kubernetes-native cert-manager + Kourier path.

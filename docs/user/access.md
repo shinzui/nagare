@@ -4,7 +4,9 @@
 >
 > The DSL field, `nagarectl` deploy-time resolver, grant/revoke/list commands,
 > enforcer service, bootstrap manifests, protected example, and shared-host
-> routing model exist and have tests. The auth plane also runs in **local mode**
+> routing model exist and have tests. Cookie integrity, login return paths,
+> hostile Host headers, en-outage handling, and cache eviction have also been
+> hardened. The auth plane runs in **local mode**
 > (MasterPlan 16 EP-85): the three images build into the local registry, shomei/en
 > run on local managed Postgres, and a locally-trusted `nagare-local-ca` issuer
 > provides the HTTPS WebAuthn needs — see
@@ -145,6 +147,9 @@ For a protected host:
   `/_nagare/login?rd=<original-path>`;
 - an unauthenticated JSON/API request returns `401` JSON instead of HTML;
 - an authenticated but ungranted user receives `403`;
+- an authenticated request receives `503` when en cannot answer, rather than a
+  misleading denial; transport failures are not cached, so the next request
+  retries en;
 - a granted user is proxied to the app, with `X-Forwarded-User` set to the
   shomei user id;
 - the session cookie is scoped to the parent domain, so one login can work
@@ -152,6 +157,8 @@ For a protected host:
 
 The enforcer caches en decisions briefly, defaulting to 30 seconds. A grant or
 revoke may therefore take up to that TTL to affect an already active session.
+Expired decisions are evicted as new decisions are written, so old subject/host
+pairs do not accumulate indefinitely.
 
 ## Example verification
 
@@ -177,7 +184,16 @@ the same authenticated user should receive `200` and the hello page body.
 `nagare-access` owns the browser-facing session cookies. The access token cookie
 is `HttpOnly`, `Secure`, `SameSite=Lax`, and scoped to the configured parent
 domain. Refresh tokens are wrapped in a signed cookie using
-`NAGARE_ACCESS_COOKIE_KEY`.
+`NAGARE_ACCESS_COOKIE_KEY`; the signature covers the exact token bytes and is
+verified with a constant-time comparison, so a modified cookie is rejected.
+Generate the key with `openssl rand -base64 48`, keep it in the
+`nagare-access` Secret, and rotate it as a session-invalidating credential.
+
+Login return destinations are restricted to same-host absolute paths.
+Protocol-relative URLs, absolute URLs, backslashes, and control characters fall
+back to `/`, preventing an `rd` parameter from becoming an open redirect or
+response-header injection. Invalid UTF-8 in a hostile `Host` header is treated
+as an unknown host instead of crashing the request handler.
 
 Apps do not implement authentication themselves. They receive requests only
 after the enforcer has verified the shomei JWT and en has allowed

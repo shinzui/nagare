@@ -5,7 +5,9 @@
 > The Pulumi program and its components exist and preview/apply the cloud
 > perimeter. The VM resource is **gated** on the host image existing (see
 > below), so a first `pulumi up` provisions everything *except* the VM until
-> [the image is built](host-image-and-boot.md).
+> [the image is built](host-image-and-boot.md). EP-99's disk, bucket, IAM, and
+> VM protection changes are implemented in the program but still await preview,
+> apply, and verification against the operator-controlled cloud context.
 
 Pulumi owns every cloud resource: the network and firewall, the static IP, the
 data disk, the service account and its IAM, the DNS zone and wildcard record,
@@ -30,13 +32,13 @@ One Pulumi component, `NagarePerimeter`, declares the whole perimeter:
 | **VPC + subnet** | Custom-mode VPC, single `/24` subnet (`10.10.0.0/24`) in `us-west1`. |
 | **Firewall** | `80`/`443` from anywhere (Kourier ingress); `22` from the IAP range `35.235.240.0/20` only; `udp/41641` for Tailscale. |
 | **Static external IP** | Regional, reserved — the VM keeps it across rebuilds so wildcard DNS stays valid. |
-| **Data disk** | `pd-balanced`, 100 GB by default, attached with device name `nagare-data`, mounted at `/var/lib/nagare` by the host. |
-| **Service account** | `nagare-node`, with `roles/dns.admin` (cert-manager DNS-01) and `roles/artifactregistry.writer` (image pushes) on the project, plus `roles/storage.objectAdmin` on the backup bucket only. |
+| **Data disk** | `pd-balanced`, 100 GB by default, attached as `nagare-data` and mounted at `/var/lib/nagare`. Pulumi protects it from deletion and attaches a daily 08:00 UTC snapshot schedule with seven-day retention; automatic snapshots survive source-disk deletion. |
+| **Service account** | `nagare-node`, with `roles/dns.admin` on Nagare's managed zone, project-level `roles/dns.reader` for zone discovery, project-level `roles/artifactregistry.writer`, and `roles/storage.objectAdmin` on the backup bucket only. |
 | **Cloud DNS zone** | Managed zone for `<baseDomain>` with a wildcard `A` record `*.<baseDomain>` → static IP (TTL 300). |
 | **Artifact Registry** | Docker repo `nagare` in `us-west1` → `us-west1-docker.pkg.dev/tan-nb-exp/nagare`. |
-| **Backup bucket** | `tan-nb-exp-nagare-backups`, uniform bucket-level access, `forceDestroy: false`. |
-| **Image-staging bucket** | `tan-nb-exp-nagare-images`, where the NixOS `*.raw.tar.gz` is uploaded before image registration. |
-| **VM** (`nagare-01`) | `e2-standard-2`, boots the registered NixOS image, attaches the static IP and data disk, runs as the service account. **Only declared once `nagareImageSelfLink` config is set.** |
+| **Backup bucket** | `tan-nb-exp-nagare-backups`, protected in Pulumi, uniform-access, non-public, `forceDestroy: false`, with object versioning and 30-day cleanup of noncurrent versions. |
+| **Image-staging bucket** | `tan-nb-exp-nagare-images`, non-public and `forceDestroy: false`; the NixOS `*.raw.tar.gz` is staged here before image registration. |
+| **VM** (`nagare-01`) | `e2-standard-2`, 100 GB `pd-balanced` boot disk, GCE deletion protection on by default, static IP and data disk attached, running as the node service account. **Only declared once `nagareImageSelfLink` is set.** |
 
 The resource **names derive from your project/region**: the registry host is
 `<region>-docker.pkg.dev`, the buckets are `<project>-nagare-images` /
@@ -66,8 +68,12 @@ profile files.
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | `e2-standard-4` for more headroom. |
 | `nagare:dataDiskSizeGb` | no | `100` | |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size. Increasing is supported; shrinking is not. |
+| `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's type forces instance replacement; pin its existing type until a deliberate rebuild. |
+| `nagare:vmDeletionProtection` | no | `true` | GCE blocks deletion and replacement while true. Temporarily disable only during an intentional VM rebuild. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
+| `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN resources. |
 
 Set a value with, e.g.:
 
@@ -115,6 +121,39 @@ because `nagareImageSelfLink` isn't set yet. That's expected and correct — the
 network, IP, disk, DNS, registry, buckets, and IAM are exactly what the host
 image build and the cluster need to exist first. You'll run `pulumi up` again
 after [building the image](host-image-and-boot.md) to bring up the VM.
+
+### Review replacements and protected resources
+
+Always read `just infra-preview` before applying. The program deliberately
+fails closed around stateful resources:
+
+- the data disk and backup bucket have Pulumi `protect: true`, so a deletion or
+  replacement fails until you explicitly run `pulumi state unprotect <URN>`;
+- the VM has GCE deletion protection by default, so image or boot-disk-type
+  changes that require replacement fail until you set
+  `nagare:vmDeletionProtection false` and apply; and
+- a later apply reasserts the declared protections. `unprotect` is a temporary
+  state operation, not a permanent code change.
+
+For a deliberate VM rebuild, leave the data disk and backup bucket protected.
+Disable only VM deletion protection and apply that change **before** changing
+the image self-link or boot-disk type; then apply the replacement and re-enable
+protection:
+
+```bash
+pulumi -C infra/pulumi config set nagare:vmDeletionProtection false
+just infra-up                  # protection-only update on the existing VM
+
+# now run just host-image, or change the replacement-causing boot-disk setting
+just infra-preview             # replacement must preserve nagare-data
+just infra-up                  # deliberate VM replacement
+
+pulumi -C infra/pulumi config set nagare:vmDeletionProtection true
+just infra-up
+```
+
+Do not use this sequence to force through an unexpected data-disk or
+backup-bucket replacement. Stop and reconcile the preview first.
 
 ## Stack outputs (the integration contract)
 

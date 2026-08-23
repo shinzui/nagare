@@ -1,10 +1,9 @@
 # Config reference
 
-> **Status:** ✅ **Built and tested** (the `nagare-dsl` library; 63 tests
-> including negative type tests and QuickCheck properties). This is the field
-> and constructor catalogue for the typed deployment config you write in
-> `nagare/Config.hs`. For the deploy *workflow* and `nagarectl` commands, see
-> [Deploying apps](deploying-apps.md).
+> **Status:** ✅ **Built and tested** by the `nagare-dsl` unit, golden,
+> negative-type, and QuickCheck suites. This is the field and constructor
+> catalogue for typed configs you write in `nagare/Config.hs`. For the deploy
+> *workflow* and `nagarectl` commands, see [Deploying apps](deploying-apps.md).
 
 A Nagare deployment is a single Haskell value of type `Deployment`, assembled
 through **smart constructors** that make illegal configurations unrepresentable.
@@ -436,6 +435,58 @@ connection env — host/port/user/db as literals and the composed `*_URL`/passwo
 as Secret references; the exact variables are in
 [Managed databases](managed-databases.md#connecting-an-app-to-a-database).
 
+## One-shot jobs
+
+A `Job` is a separate typed workload for one bounded execution. It is not part
+of `Deployment` or `Application`, and it is not a scheduled `Task`. A config
+emits it with `emitJob`; an integration loads it with `loadJob` and renders its
+ServiceAccount, NetworkPolicy, and Kubernetes Job with `renderJob`. There is no
+`nagarectl job` command yet. See [Bounded one-shot jobs](one-shot-jobs.md) for
+the operating model and current integration boundary.
+
+```haskell
+data Job = Job
+  { jobName                    :: ServiceName
+  , jobNamespace               :: Namespace
+  , jobImage                   :: ImageRef
+  , jobBuild                   :: BuildSpec
+  , jobCommand                 :: Maybe Command
+  , jobEnv                     :: Map EnvName ScopedEnvVar
+  , jobResources               :: Maybe Resources
+  , jobBackoffLimit            :: Int
+  , jobActiveDeadlineSeconds   :: Maybe Int
+  , jobTtlSecondsAfterFinished :: Maybe Int
+  , jobScratchSize             :: Quantity
+  , jobNixConfigMap            :: Maybe ConfigMapName
+  }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `jobName` | Logical DNS-label name. Kubernetes resources use `nagare-job-<name>`; choose a unique name for every run because Job Pod templates are immutable. |
+| `jobNamespace` | Namespace for all three resources; `oneShotJob` uses `personal`. |
+| `jobImage` / `jobBuild` | Image repository and tag/build specification. The Job library does not qualify, build, or push the image; the caller must make it pullable. |
+| `jobCommand` | Optional argv built with `mkCommand :: [Text] -> Either Text Command`; no shell splitting is performed. |
+| `jobEnv` | Scoped environment map. Runtime-scoped values are rendered into the Job container. |
+| `jobResources` | All four request/limit quantities must be present when set. `Nothing` selects the hardened 250m/512Mi requests and 1 CPU/1Gi limits. |
+| `jobBackoffLimit` | Retry count; must be `>= 0`. |
+| `jobActiveDeadlineSeconds` | Optional positive wall-clock deadline, copied to the Job and Pod. Required for admission to Nagare's bounded-run quota. |
+| `jobTtlSecondsAfterFinished` | Optional positive cleanup delay for the completed Job and Pods. |
+| `jobScratchSize` | Size limit for the writable `/scratch` `emptyDir`. |
+| `jobNixConfigMap` | Optional ConfigMap containing a `nix.conf` key, mounted read-only at `/etc/nix/nix.conf`; also adds the `nagare.dev/nix-cache-client=true` label. |
+
+The preset validates the name and image and then applies safe defaults:
+
+```haskell
+oneShotJob :: Text -> Text -> Either String Job
+mkJob     :: Job -> Either Text Job
+```
+
+Call `mkJob` after record updates that change numeric or resource fields. The
+renderer always disables the API token, runs as non-root UID 65532, makes the
+root filesystem read-only, drops all capabilities, supplies size-limited
+scratch space, and emits a default-deny ingress/egress policy.
+
 ## Reusable presets
 
 `Nagare.Dsl.Presets` lets two apps share one definition. The pattern: start from
@@ -514,6 +565,8 @@ When `nagarectl` loads a config, each failure becomes a precise `LoadError`
 - [Running workers](workers.md) — the `Worker` config (a headless `apps/v1`
   Deployment), its fields, and its optional exec/TCP/HTTP `liveness` probe.
 - [Scheduled tasks](scheduled-tasks.md) — the `Task` config (a Kubernetes CronJob).
+- [Bounded one-shot jobs](one-shot-jobs.md) — the finite `Job` config, hardened
+  renderer, and deadline-based concurrency quota.
 - [App lifecycle](app-lifecycle.md) — day-2 `app`/`deployments` commands using the
   health-check, limits, and multiple-domain fields above.
 - [Build modes](build-modes.md) — prebuilt, Dockerfile, and Nixpacks builds.

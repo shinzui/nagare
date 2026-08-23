@@ -41,7 +41,8 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/nagare/
 
 Selection precedence is `--context` / `NAGARE_CONTEXT` > `current-context` >
 in-repo profile > built-in default. Per-field values still follow environment >
-context/profile > default. See [Target contexts](contexts.md).
+context/profile > default, except guarded cloud scripts reject a project
+override that disagrees with the selected context. See [Target contexts](contexts.md).
 
 ## Cloud context variables (also `nagare.target.env`)
 
@@ -102,10 +103,15 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just` / `just default` | List all recipes | — |
 | `just infra-preview` | `pulumi preview` the cloud perimeter | EP-2 |
 | `just infra-up` | `pulumi up` the cloud perimeter | EP-2 |
+| `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
 | `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
+| `just nixos-registry-host` | Regenerate the NixOS registry-host projection from the active context | MP-17 EP-91 |
 | `just host-switch` | `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo` | EP-3 |
 | `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ |
 | `just cluster-enable-tls` | Enable Knative external-domain TLS after DNS delegation | EP-4 |
+| `just job-runs-bootstrap` | Apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ |
+| `just job-runs-status` | Show bounded-run quota use, admitted Pods, and `FailedCreate` backpressure events | MP-18 EP-95 ✅ |
+| `just context-show` | Print the selected kubectl context and API server without contacting the cluster | MP-8 |
 | `just local-up` | Create local k3d cluster + local registry | MP-16 EP-82 |
 | `just local-bootstrap` | Install Knative/Kourier locally, HTTP-first | MP-16 EP-82 |
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
@@ -114,6 +120,8 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just observability` | Install the Victoria stack + Grafana via Helm | EP-5 ✅ |
 | `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
+| `just live-test` | Open an IAP/SSH-forwarded kube connection and print the `KUBECONFIG` to use | MP-8 EP-70 |
+| `just smoke` | Run the cloud deploy, GCS volume round-trip, HTTP check, and teardown smoke test | EP-69 |
 
 ## Pulumi config keys (`infra/pulumi/Pulumi.<context>.yaml`)
 
@@ -142,8 +150,12 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | |
 | `nagare:dataDiskSizeGb` | no | `100` | |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size. Increasing is supported; shrinking is not. |
+| `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's disk type forces instance replacement; pin the current type until a deliberate rebuild. |
+| `nagare:vmDeletionProtection` | no | `true` | GCE refuses instance deletion/replacement while true. Disable only for the deliberate rebuild window, then re-enable. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
+| `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN load balancer. |
 
 ## Pulumi stack outputs (the integration contract — names are stable)
 
@@ -199,6 +211,11 @@ it. Only Traefik is disabled.
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
 | `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe). |
+| `live-test.sh` | Open the IAP + SSH kube-apiserver forward, fetch/rewrite kubeconfig, and print the environment to use. |
+| `vm-power.sh` | Context-guarded VM `start`/`stop` implementation used by the `just` recipes. |
+| `migrate-pulumi-backend.sh` | Export/import one context's state between its local file backend and opt-in GCS backend. |
+| `live-smoke.sh` | Cloud deploy + GCS-backed volume snapshot/restore + HTTP + teardown acceptance path. |
+| `local-smoke.sh` | Zero-cloud k3d/MinIO equivalent of the live smoke path. |
 
 ### `nagarectl init` (onboarding)
 
@@ -216,12 +233,63 @@ See
 
 | Role | Scope | Why |
 | --- | --- | --- |
-| `roles/dns.admin` | project | cert-manager Let's Encrypt DNS-01 solver |
+| `roles/dns.admin` | Nagare managed zone only | cert-manager writes Let's Encrypt DNS-01 challenge records |
+| `roles/dns.reader` | project | cert-manager discovers the configured managed zone before writing its challenge |
 | `roles/artifactregistry.writer` | project | `nagarectl` pushes images |
 | `roles/storage.objectAdmin` | backup bucket only | EP-7 backup jobs write to GCS |
 
 All via **non-authoritative** `*IAMMember` resources (never clobber the shared
 project's existing bindings).
+
+## Global `nagarectl` target selection
+
+The global parser accepts `nagarectl --context NAME ...`. Commands that resolve
+a Nagare target profile use it instead of `NAGARE_CONTEXT` or the
+current-context pointer. Kubernetes-only lifecycle commands still use the
+current `kubectl` context, so verify that it names the same target before a live
+operation.
+
+## `nagarectl deploy`, `app`, and `deployments`
+
+| Command | Does |
+| --- | --- |
+| `nagarectl deploy [-f FILE] [--dry-run]` | Build/push as required, render one typed `Deployment`, apply its PVCs/Service/domains/tasks, and wait for readiness. |
+| `nagarectl app deploy [-f FILE] [--dry-run] [--json]` | Roll out one typed multi-workload `Application`: pre-deploy hooks, databases, Service, then Workers. |
+| `nagarectl app list [-n NS] [--all]` | List Nagare-managed Knative apps; `--all` includes unmanaged Services. |
+| `nagarectl app get NAME [-n NS]` | Show image, revision, URL, readiness, and config-enriched limits/domains when available. |
+| `nagarectl app logs NAME [--follow] [--tail N]` | Show or stream current app logs. |
+| `nagarectl app restart NAME` | Create a fresh revision and bring a stopped app back online. |
+| `nagarectl app stop NAME` | Recoverably take an app offline. |
+| `nagarectl app delete NAME` | Delete the Service, DomainMappings, and deployment-history ConfigMap. Retained PVCs are not app-lifecycle resources. |
+| `nagarectl deployments list NAME` | List recorded deployment ids newest first. |
+| `nagarectl deployments logs NAME [DEPLOYMENT_ID]` | Show logs for the live revision or one recorded deployment. |
+
+See [Deploying apps](deploying-apps.md) and [App lifecycle](app-lifecycle.md).
+
+## `nagarectl task` and `worker`
+
+| Command | Does |
+| --- | --- |
+| `nagarectl task list [APP] [-n NS]` | List managed CronJobs, optionally for one app; use `-` for app-less tasks. |
+| `nagarectl task run APP TASK [--dry-run]` | Create a one-off Job from the deployed CronJob and wait for completion. |
+| `nagarectl task logs APP TASK [--follow] [--tail N]` | Show the latest task-run Pod logs. |
+| `nagarectl task delete APP TASK --yes [--dry-run]` | Delete the task CronJob and its run-history ConfigMap. |
+| `nagarectl worker deploy [-f FILE] [--dry-run]` | Build/push as required and apply one continuous `apps/v1` Worker Deployment. |
+
+These are separate from the finite `Nagare.Dsl.Job` library contract, which has
+no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),
+[Running workers](workers.md), and [Bounded one-shot jobs](one-shot-jobs.md).
+
+## `nagarectl access`
+
+| Command | Does |
+| --- | --- |
+| `nagarectl access grant --host HOST --user USER` | Grant one shomei user `access` on a protected host through en. |
+| `nagarectl access revoke --host HOST --user USER` | Revoke that host grant. |
+| `nagarectl access list --host HOST` | List users whose relationships expand to the host's `access` permission. |
+
+All three accept `--en-url URL`; otherwise they use `NAGARE_EN_URL` or the
+in-cluster default. See [Identity-aware access](access.md).
 
 ## `nagarectl site` commands (static & full-stack hosting)
 
@@ -321,6 +389,52 @@ env at deploy time. Backups land at
 `gs://<backup-bucket>/databases/<name>/<timestamp>.<ext>` in cloud mode or
 `s3://nagare-backups/databases/<name>/<timestamp>.<ext>` in local mode. See the
 [Managed databases](managed-databases.md) guide.
+
+## `nagarectl cdn` commands
+
+| Command | Does |
+| --- | --- |
+| `nagarectl cdn list [-n NS] [--all-namespaces]` | List CDN-fronted hostnames, providers, and edge state. |
+| `nagarectl cdn status HOST` | Show provider, DNS target, cache config, and readiness for one hostname. |
+| `nagarectl cdn purge HOST [--path PATH ...] [--dry-run]` | Purge everything or selected paths from the edge cache. |
+| `nagarectl cdn disable HOST [--dry-run]` | Revert the hostname's DNS to the VM/origin and remove its active edge mapping. |
+
+See [CDN (edge caching)](cdn.md).
+
+## Platform inspection and cleanup commands
+
+| Command | Does |
+| --- | --- |
+| `nagarectl server status [--skip-vm]` | Print one-screen VM, disk, Kubernetes, ingress, observability, app, database, and backup inventory. `--skip-vm` avoids the IAP/SSH disk probe. |
+| `nagarectl doctor [--skip-vm]` | Run platform health checks with remediation hints; exits 1 if any check is `FAIL`. |
+| `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN]` | Compare the base domain and app DomainMappings with DNS and certificate state. |
+| `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`. |
+
+> **Known status-probe gap:** the current `server status`/`doctor` backup rows
+> still probe the legacy `postgres/`, `litestream/`, and `volumes/` prefixes.
+> Managed-database objects now live under `databases/<name>/`, so a database
+> freshness row can be `UNKNOWN` even when backups exist. Verify with
+> `gsutil ls gs://<backup-bucket>/databases/<name>/` until EP-101 updates the
+> inventory probe.
+
+`cleanup` selectors are `--images`, `--previews`, and `--releases`; with none,
+all three are included. Retention flags are `--preview-ttl-days N` (default 7)
+and `--keep-releases N` (default 10), with optional `-n/--namespace` for preview
+and release history.
+
+## Bounded Job-run operations
+
+The typed one-shot workload is currently operated at the cluster layer rather
+than through `nagarectl`:
+
+| Command | Does |
+| --- | --- |
+| `just job-runs-bootstrap` | Create/update `personal` and its `nagare-terminating-jobs` ResourceQuota. |
+| `just job-runs-status` | Describe quota use, list deadline-bounded Pods, and show quota `FailedCreate` events. |
+| `kubectl -n personal logs job/nagare-job-NAME` | Read a run's logs while the Job/Pod still exists. |
+| `kubectl -n personal delete serviceaccount,networkpolicy nagare-job-NAME` | Remove the two resources that Job TTL cleanup cannot own. |
+
+See [Bounded one-shot jobs](one-shot-jobs.md).
 
 ## Domain model
 
