@@ -20,8 +20,8 @@ short-lived, role-named GitHub credentials without embedding a personal access t
 Nagare users can describe and render a hardened, bounded, one-shot Kubernetes Job as a
 first-class `nagare-dsl` workload; and both laptops and cluster workloads can exchange
 Nix build products through a Nagare-operated Attic cache backed by durable cloud
-storage. These are the three platform prerequisites requested by Kikan's
-`shinzui/kikan` plan `docs/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md`.
+storage. These are the three platform prerequisites requested by
+`mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`.
 
 The scope includes the Nagare host configuration and secret-refresh mechanism, the
 public Haskell Job API and its deterministic Kubernetes renderer, the quota and network
@@ -225,3 +225,8 @@ asynchronous kube-router behavior.
 2026-07-14: Audited the MasterPlan and all three child ExecPlans against the shared
 formatting specification. The MasterPlan contains no command or code excerpts requiring
 fences; every such excerpt in the children now uses a language-tagged fenced block.
+
+2026-08-23: Registered this initiative's cross-project lineage in `docs/plan-registry.md`
+and replaced the repository-relative Kikan origin with its canonical `mori://` plan URI.
+The current Mori release does not yet resolve that artifact-level URI; the intended URI
+remains authoritative while registry coverage catches up.

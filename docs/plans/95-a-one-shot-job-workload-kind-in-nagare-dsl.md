@@ -260,8 +260,8 @@ Kubernetes ResourceQuota scope name: it means a Pod whose own
 `spec.activeDeadlineSeconds` is present, not a Pod already shutting down and not merely a
 Pod owned by a Job whose top-level deadline is present.
 
-The originating requirement is Kikan's `shinzui/kikan` plan
-`docs/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md`.
+The originating requirement is
+`mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`.
 It embeds the representative `agent-run.job.yaml` bytes, but the intended standalone
 Kikan conformance file does not yet exist as of 2026-07-14. The Nagare golden created
 here is therefore the provider-side source until Kikan copies it; once the Kikan fixture
@@ -432,11 +432,14 @@ git diff --check
 ```
 
 Render the fixture twice through the test harness and verify that the checked-in golden
-does not change. If the Kikan conformance fixture now exists, locate Kikan with
-`mori registry show shinzui/kikan --full` and run:
+does not change. If the Kikan conformance fixture now exists, resolve the project from
+`mori://shinzui/kikan`, then compare the repository-local paths in the two projects.
+For the currently registered checkout, run:
 
 ```bash
-cmp cli/nagare-dsl/test/golden/job-agent-run.job.yaml /Users/shinzui/Keikaku/bokuno/kikan/docs/architecture/evolution/conformance/nagare-prereqs/agent-run.job.yaml
+kikan_root="$(mori path mori://shinzui/kikan)"
+cmp cli/nagare-dsl/test/golden/job-agent-run.job.yaml \
+  "$kikan_root/docs/architecture/evolution/conformance/nagare-prereqs/agent-run.job.yaml"
 ```
 
 Expected output is empty with exit status zero. A missing Kikan file is not a reason to
@@ -575,3 +578,7 @@ Nagare build dependency.
 2026-07-14: Replaced every indented command and Haskell interface excerpt with an
 explicitly language-tagged fenced code block, as required by the ExecPlan formatting
 specification. No workload design or acceptance behavior changed.
+
+2026-08-23: Replaced the informal cross-repository Kikan plan reference and fixed checkout
+path with canonical `mori://` resolution as part of the Nagare plan-registry update. Scope,
+completion state, and acceptance evidence are unchanged.

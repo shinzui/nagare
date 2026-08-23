@@ -153,8 +153,8 @@ authorizes chunk storage. `ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64` signs Attic l
 tokens. The `nagare-cache` NAR private key signs artifacts and lives in the backed-up
 Attic database; its public half is distributed in `nix.conf`.
 
-The source requirement is Kikan's `shinzui/kikan` plan
-`docs/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md`.
+The source requirement is
+`mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`.
 Its intended `docs/architecture/evolution/conformance/nagare-prereqs/pod-nix.conf`
 fixture is absent as of 2026-07-14. The ConfigMap data authored here is the provider-side
 source until Kikan copies it, after which the two must remain byte-identical except that
@@ -526,3 +526,7 @@ capacity-alert evaluation path.
 and cluster-contract excerpt with an explicitly language-tagged fenced code block, as
 required by the ExecPlan formatting specification. No cache design or acceptance behavior
 changed.
+
+2026-08-23: Replaced the informal cross-repository Kikan source-plan reference with its
+canonical `mori://` URI as part of the Nagare plan-registry update. Scope and status are
+unchanged.

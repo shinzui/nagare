@@ -221,4 +221,5 @@ those.)
 
 Start with [`docs/user/README.md`](docs/user/README.md) for operator docs, or
 [`docs/user/local-development.md`](docs/user/local-development.md) to run Nagare
-locally.
+locally. Planning status, standalone plans, retired successors, and cross-project
+lineage are indexed in [`docs/plan-registry.md`](docs/plan-registry.md).

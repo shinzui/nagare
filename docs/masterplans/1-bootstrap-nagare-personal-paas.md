@@ -56,8 +56,9 @@ obtains TLS certificates from Let's Encrypt). They install the observability sta
 VictoriaMetrics (metrics), VictoriaLogs (logs), VictoriaTraces (traces), an OpenTelemetry Collector
 (which receives trace data from apps), and Grafana (the dashboard UI). Finally they build the
 `nagarectl` command-line tool (written in Haskell) and use it to deploy an example app described by a
-small `nagare.yaml` file: the tool builds and pushes the image, renders and applies a Knative Service,
-wires up secrets and a custom domain, waits for readiness, and prints the URL.
+typed `nagare/Config.hs` program: the tool builds and pushes the image, renders and applies a Knative
+Service, wires up secrets and a custom domain, waits for readiness, and prints the URL. MP-2/EP-12
+delivered this typed contract after replacing the original `nagare.yaml` proposal.
 
 In scope: everything in the "MVP Definition" of `docs/initial-spec.md` — provisioning, host, cluster
 platform, TLS, the three-pillar observability stack, the deploy CLI, and backups with a documented
@@ -80,9 +81,10 @@ experience. This boundary maps almost one-to-one onto the five packages declared
 `mori` identity (`infra-pulumi`, `nixos-hosts`, `cluster-bootstrap`, `cluster-observability`,
 `nagarectl`), plus a foundational scaffolding stream and a cross-cutting backups/recovery stream.
 
-Seven child plans result. That is at the upper bound of the recommended two-to-seven range, so they
-are grouped into four implementation waves (phases) below. The boundaries were chosen to maximize
-independent verifiability: each plan ends in a behavior a human can observe (a `pulumi preview` that
+Seven original child-plan records resulted. Six were completed in this initiative; EP-6 was later
+cancelled after MP-2/EP-12 delivered its intended deploy capability through the typed DSL. The
+records are grouped into four implementation waves (phases) below. The boundaries were chosen to
+maximize independent verifiability: each plan ends in a behavior a human can observe (a `pulumi preview` that
 plans the right resources; `kubectl get nodes` returning Ready; a sample Knative service answering
 over HTTPS; logs searchable in Grafana; `nagarectl deploy` printing a live URL; a restore that brings
 data back). Cross-plan coupling is concentrated into a small number of explicit Integration Points
@@ -110,8 +112,8 @@ cluster-side TLS wiring lives with the Knative bootstrap.
 | 3 | NixOS host nagare-01 with k3s | docs/plans/3-nixos-host-nagare-01-with-k3s.md | None | EP-1, EP-2 | Complete |
 | 4 | Knative Serving, Kourier ingress, and cert-manager TLS | docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md | EP-3 | EP-2 | Complete (TLS deferred) |
 | 5 | Victoria observability stack and Grafana | docs/plans/5-victoria-observability-stack-and-grafana.md | EP-3 | EP-4 | Complete |
-| 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | EP-4 | EP-1 | Not Started |
-| 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4, EP-6 | Complete (Postgres live-test + full DR drill deferred) |
+| 6 | nagarectl deploy CLI in Haskell | docs/plans/6-nagarectl-deploy-cli-in-haskell.md | None | None | Cancelled (superseded by MP-2 EP-12) |
+| 7 | Backups, secrets, and disaster recovery | docs/plans/7-backups-secrets-and-disaster-recovery.md | None | EP-2, EP-3, EP-4 | Complete (Postgres live-test + full DR drill deferred) |
 
 Status values: Not Started, In Progress, Complete, Cancelled. Hard Deps and Soft Deps reference other
 rows by their `EP-<#>` prefix.
@@ -125,7 +127,8 @@ Implementation waves (phases):
 - **Wave 3 — Cluster Platform:** EP-4 then EP-5. Both hard-depend on EP-3 (a running cluster). EP-5
   soft-depends on EP-4 because Knative service metrics and Grafana exposure are nicer once ingress
   exists, but observability can install on a bare k3s.
-- **Wave 4 — Developer Experience & Durability:** EP-6 (after EP-4) and EP-7 (after the rest).
+- **Wave 4 — Developer Experience & Durability:** EP-7 completed after the platform work. EP-6's
+  original YAML implementation was cancelled after MP-2 EP-12 delivered the typed successor.
 
 
 ## Dependency Graph
@@ -155,14 +158,15 @@ persistent storage. It soft-depends on EP-4 so that Grafana can be reached throu
 Knative request metrics exist to visualize; without EP-4 it still installs and shows node and cluster
 metrics.
 
-EP-6 (nagarectl) **hard-depends on EP-4**: the CLI's whole purpose is to deploy a Knative Service and
-print its URL, which is only meaningful once Knative, ingress, and TLS exist. It soft-depends on EP-1
-for the Haskell toolchain in the dev shell.
+EP-6 (the original YAML-based `nagarectl` plan) is **Cancelled**. Its historical dependency on EP-4
+was satisfied before MP-2 EP-12 delivered `nagarectl` through the typed `nagare/Config.hs` contract.
+It has no active downstream dependency and must not be implemented as written.
 
 EP-7 (backups/recovery) has no hard dependency but soft-depends on EP-2 (the GCS bucket and service
-account), EP-3 (sops-nix host secrets and the data disk), EP-4 (the secrets pattern apps use), and
-EP-6 (apps deployed by `nagarectl` are what we back up). It is last because a disaster-recovery
-runbook can only be written and tested once there is a system to restore.
+account), EP-3 (sops-nix host secrets and the data disk), and EP-4 (the secrets pattern apps use).
+The delivered typed `nagarectl` successor supplies the deployed apps exercised by later recovery
+work; cancelled EP-6 is not an active dependency. EP-7 was last because a disaster-recovery runbook
+can only be written and tested once there is a system to restore.
 
 Parallelism: within Wave 2, EP-2 and EP-3 authoring proceed in parallel. Within Wave 3, after EP-3 is
 Complete, EP-4 and EP-5 can both proceed; a single implementer should finish EP-4 first to satisfy EP-5's
@@ -171,7 +175,8 @@ soft dependency cleanly. EP-7 documentation can begin early and be finalized las
 
 ## Integration Points
 
-**1. Pulumi stack outputs (defined by EP-2; consumed by EP-3, EP-4, EP-6, EP-7).** EP-2 is the single
+**1. Pulumi stack outputs (defined by EP-2; consumed by EP-3, EP-4, EP-7, and the delivered typed
+deploy CLI).** EP-2 is the single
 source of truth for cloud identifiers. All resources live in GCP project `tan-nb-exp`, region
 `us-west1`, zone `us-west1-a`. EP-2 must export exactly these stack output names so later plans can
 read them with `pulumi stack output <name>`: `publicIp` (the static external IP), `sshCommand` (a
@@ -185,11 +190,13 @@ booted from a registered NixOS GCE image whose self-link EP-3 writes into Pulumi
 instance component reads. Later plans must reference outputs by these names, never by hard-coded
 values. If EP-2 needs to rename an output, it updates this section and notifies the consuming plans.
 
-**2. GCP service account and IAM roles (defined by EP-2; consumed by EP-4, EP-6, EP-7).** EP-2 creates
+**2. GCP service account and IAM roles (defined by EP-2; consumed by EP-4, EP-7, and the delivered
+typed deploy CLI).** EP-2 creates
 one service account (exported as `serviceAccountEmail`) attached to the VM, and grants it the roles
 later plans rely on: `roles/dns.admin` (so cert-manager in EP-4 can solve the Let's Encrypt DNS-01
 challenge against the Cloud DNS zone using the VM's ambient credentials), `roles/artifactregistry.writer`
-(so `nagarectl` in EP-6 can push images), and `roles/storage.objectAdmin` scoped to the backup bucket
+(so the delivered `nagarectl` can push images), and `roles/storage.objectAdmin` scoped to the backup
+bucket
 (so EP-7's backup jobs can write). EP-4 must use the VM's attached service account via Application
 Default Credentials rather than GKE Workload Identity, which does not exist on self-managed k3s.
 
@@ -203,18 +210,21 @@ local-path-provisioner to use `/var/lib/nagare/local-path` via the durable k3s s
 on restart). EP-5 requests storage through PersistentVolumeClaims that bind to that provisioner. EP-7
 backs up from the relevant subdirectories.
 
-**4. Wildcard DNS and the apps base domain (zone + record created by EP-2; consumed by EP-4 and EP-6).**
+**4. Wildcard DNS and the apps base domain (zone + record created by EP-2; consumed by EP-4 and the
+delivered typed deploy CLI).**
 EP-2 creates the Cloud DNS managed zone and a wildcard A record `*.apps.example.com` pointing at
 `publicIp`. The canonical base domain placeholder used across all plans is `apps.example.com`; the
 real domain is supplied through Pulumi configuration and surfaced as the `baseDomain` output. EP-4
 sets Knative's `config-domain` ConfigMap to `baseDomain` so a service named `notes` in namespace
-`personal` is served at `notes.personal.apps.example.com`. EP-6 computes the same URL shape when it
+`personal` is served at `notes.personal.apps.example.com`. The delivered typed CLI computes the same
+URL shape when it
 prints a deployed app's address, and uses Knative DomainMapping for nicer public names like
 `notes.example.com`.
 
-**5. Kubernetes namespaces (established by EP-4 and EP-5; used by EP-6).** The fixed namespaces are:
+**5. Kubernetes namespaces (established by EP-4 and EP-5; used by the deploy CLI).** The fixed
+namespaces are:
 `knative-serving` and `kourier-system` (EP-4), `cert-manager` (EP-4), `monitoring`, `logging`, and
-`tracing` (EP-5), and the default application namespace `personal` for deployed apps (EP-6, also used
+`tracing` (EP-5), and the default application namespace `personal` for deployed apps (also used
 by EP-4's sample service). Plans must use these exact names so service URLs and ConfigMap references
 line up.
 
@@ -233,7 +243,8 @@ created and are explicitly retired) and replaced the example app's `nagare.yaml`
 `nagare/Config.hs`. No `nagare.yaml` file exists anywhere in the repository after that cutover; the
 example app under `cluster/examples/hello-knative-service/` now carries the typed config.
 
-**7. Cluster access / kubeconfig (produced by EP-3; consumed by EP-4, EP-5, EP-6).** EP-3 configures
+**7. Cluster access / kubeconfig (produced by EP-3; consumed by EP-4, EP-5, and the deploy CLI).**
+EP-3 configures
 k3s to write its kubeconfig at `/etc/rancher/k3s/k3s.yaml` with mode `0644`, and the operator reaches
 the cluster over Tailscale or SSH. Plans that run `kubectl`/`helm`/`nagarectl` against the cluster must
 document copying that kubeconfig locally (rewriting its `server:` field to the Tailscale name or
@@ -241,7 +252,8 @@ document copying that kubeconfig locally (rewriting its `server:` field to the T
 
 **8. Developer shell toolchain (provided by EP-1; consumed by all).** EP-1's `nix develop` shell must
 provide at least: `pulumi` and Node.js (for EP-2), `kubectl` and `helm` (EP-4, EP-5), the GHC Haskell
-compiler and `cabal` (EP-6), `sops` and `age` (EP-3, EP-7), the Google Cloud SDK `gcloud`/`gsutil`
+compiler and `cabal` (the deploy CLI), `sops` and `age` (EP-3, EP-7), the Google Cloud SDK
+`gcloud`/`gsutil`
 (EP-2, EP-3, EP-4, EP-7), `tailscale` client tooling, `socat` (the SSH `ProxyCommand` for IAP tunnels,
 working around the macOS OpenSSH 10.x ↔ gcloud bug documented in the reference repo), `jq`, and `just`
 (the command runner for the `justfile`). Pulumi is pinned to a current upstream release via a
@@ -281,20 +293,22 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
 
 - [x] EP-1: Flake, dev shell, repository skeleton, and `justfile` exist; `nix develop` provides the toolchain. (2026-06-02)
 - [x] EP-2: Pulumi project creates the IP, DNS, disk, SA+IAM, Artifact Registry, and both buckets; all nine stack outputs exported; VM `nagare-01` created and RUNNING from the registered NixOS image (M1+M2+M3 done). (2026-06-02)
-- [x] EP-3: NixOS image built & registered, `nagare-01` deployed booting the baked image; data disk formatted & mounted with all seven subdirs; the sshd "connection closed at userauth" blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers; post-mount subdir oneshot). Verified live: `kubectl get nodes` = Ready (k3s v1.35.4, NixOS 26.11); coredns/local-path-provisioner/metrics-server Running; a test PVC Bound under `/var/lib/nagare/local-path`. Residual operator follow-ups (non-blocking for EP-4/5/6): join Tailscale with a real auth key, and exercise the day-2 `nixos-rebuild --target-host`. (2026-06-02)
+- [x] EP-3: NixOS image built & registered, `nagare-01` deployed booting the baked image; data disk formatted & mounted with all seven subdirs; the sshd "connection closed at userauth" blocker was resolved (disable PerSourcePenalties + OS Login; public DNS resolvers; post-mount subdir oneshot). Verified live: `kubectl get nodes` = Ready (k3s v1.35.4, NixOS 26.11); coredns/local-path-provisioner/metrics-server Running; a test PVC Bound under `/var/lib/nagare/local-path`. Residual operator follow-ups (non-blocking for EP-4/5 and the typed deploy CLI): join Tailscale with a real auth key, and exercise the day-2 `nixos-rebuild --target-host`. (2026-06-02)
 - [x] EP-4: cert-manager + `letsencrypt-dns` issuer (Ready), Knative Serving + Kourier, and
   net-certmanager all installed and wired; the hello sample service answers over **HTTP**
   (`Hello Nagare!`, 200) and a custom-domain DomainMapping routes. **Marked Complete (operator
   decision 2026-06-02)** with Let's Encrypt wildcard **TLS/HTTPS deferred** as a domain-gated
   follow-up — enabling it is one config flip (`just cluster-enable-tls`) once a real apps domain is
   set in Pulumi `baseDomain`, `pulumi up`-applied, and delegated to the zone's nameservers. This
-  unblocks EP-6's hard dependency. (2026-06-02)
+  supplied the cluster substrate later exercised by the typed deploy CLI. (2026-06-02)
 - [x] EP-5: VictoriaMetrics/Logs/Traces + OTel Collector + Grafana installed and verified live —
   `up`/node metrics return data; container logs searchable via `{kubernetes.pod_namespace="..."}`; a
   test trace (`nagare-test`) is queryable through VictoriaTraces' Jaeger API; retention 30d/7d/3d; all
   PVCs Bound to `local-path`; reproducible via `just observability`. Required enlarging the boot disk
   to 100 GB (VM rebuild) and a live DNS workaround (EP-3 image follow-up). (2026-06-03)
-- [ ] EP-6: `nagarectl deploy` reads `nagare.yaml`, builds/pushes, renders/applies the Knative Service, and prints a live URL.
+- [x] EP-6: **Cancelled — superseded by MP-2 EP-12.** The original `nagare.yaml` parser and
+  renderer were intentionally never implemented; EP-12 delivered `nagarectl deploy` against the
+  typed `nagare/Config.hs` contract. Registry and dependency cleanup completed 2026-08-23.
 - [x] EP-7: sops+age secrets (encrypted Secret round-trips to the cluster and into a pod via
   `secretRef`, verified live); Litestream SQLite backups replicating to
   `gcs://tan-nb-exp-nagare-backups/litestream/` via keyless ADC (verified live, after the metadata
@@ -490,11 +504,26 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   box. The baked image gives a clean first boot and reproducible rebuilds (Integration Point 10).
   Date: 2026-06-02
 
+- Decision: retire EP-6 as Cancelled and remove it from active dependency edges.
+  Rationale: MP-2 EP-12 delivered the plan's user-visible one-command deploy capability through the
+  typed `nagare/Config.hs` contract while deliberately never creating EP-6's YAML parser and
+  renderer. Marking EP-6 Complete would misstate history; implementing it would reintroduce an
+  intentionally removed contract. EP-7 and later recovery work depend on the delivered CLI
+  capability, not on this cancelled document.
+  Date: 2026-08-23
+
 
 ## Outcomes & Retrospective
 
-**Status (2026-06-03): six of seven child plans Complete (EP-1–EP-5, EP-7); EP-6 (`nagarectl`) is
-Not Started.** The platform substrate exists end to end: Pulumi provisions the GCP perimeter (IP,
+**Current resolution (2026-08-23): all seven original child-plan records are closed — six Complete
+and EP-6 Cancelled as superseded.** MP-2 EP-12 delivered the typed `nagarectl deploy` experience
+that replaced EP-6's abandoned YAML design. MP-1 therefore has no remaining implementation plan;
+the environment-gated wildcard TLS and clean-room recovery exercises remain recorded validation
+debt rather than active child implementation.
+
+**Historical status snapshot (2026-06-03): six of seven child plans Complete (EP-1–EP-5, EP-7);
+EP-6 (`nagarectl`) was Not Started.** The platform substrate exists end to end: Pulumi provisions
+the GCP perimeter (IP,
 DNS, disk, SA+IAM, Artifact Registry, buckets); a reproducible NixOS GCE image boots `nagare-01` with
 k3s; Knative + Kourier + cert-manager serve a scale-to-zero web app over HTTP with a custom
 DomainMapping; the VictoriaMetrics/Logs/Traces + Grafana observability stack is installed and verified
@@ -531,7 +560,8 @@ Biggest lessons (all reproducibility-related, all now fixed in source + the rebu
 - **A flake only bakes git-tracked files** — image rebuilds must follow source commits, or the image
   silently lags the repo (which is exactly how the DNS fix went missing).
 
-Recommended next steps: (a) replace the VM onto the latest `nagareImageSelfLink` to confirm a fully
+Historical next steps recorded on 2026-06-03: (a) replace the VM onto the latest
+`nagareImageSelfLink` to confirm a fully
 clean boot (working DNS + metadata) and then drop the runtime workarounds; (b) implement/verify EP-6
 `nagarectl` to realize the one-command-deploy MVP; (c) supply a real domain and run
 `just cluster-enable-tls` for HTTPS; (d) deploy Postgres and run the EP-7 Postgres backup/restore.
@@ -554,3 +584,11 @@ affected. EP-6's registry row and Progress checkbox are left unchanged as histor
 the package that EP-12 modified, and EP-12 performed the cutover (building `cli/nagarectl/` against
 `nagare-dsl` and never creating EP-6's `Nagare.Config`/`Nagare.Render` modules). The example app at
 `cluster/examples/hello-knative-service/` now carries `nagare/Config.hs` instead of `nagare.yaml`.
+
+## Revision note (EP-6 retirement, 2026-08-23)
+
+The 2026-06-03 note intentionally deferred registry cleanup while the cutover was fresh. That
+cleanup is now complete: EP-6 is Cancelled, its Progress item is resolved, EP-7 no longer names it
+as an active soft dependency, and the dependency graph and integration points identify the
+delivered typed CLI rather than the abandoned YAML plan. Vision, Decision Log, and Outcomes now
+make the MP-2/EP-12 successor lineage explicit. No child implementation remains in MP-1.
