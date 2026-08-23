@@ -78,7 +78,9 @@ Selection precedence, highest first:
 3. In-repo `nagare.target.env` / `nagare.local.env` for back compatibility.
 4. The built-in `tan-nb-exp` worked-example defaults.
 
-Per-field environment variables still override the selected bundle. For example,
+Per-field environment variables still override the selected bundle, except that
+the cloud-project guard rejects an effective `CLOUDSDK_CORE_PROJECT` that
+differs from the project declared by the context. For example,
 `NAGARE_BASE_DOMAIN=preview.example.com nagarectl --context labs domains list`
 uses the `labs` bundle, then overrides only the base domain.
 
@@ -88,8 +90,9 @@ to `tan-nb-exp`.
 ## Cloud and local modes
 
 A cloud context is a normal target with `NAGARE_MODE=cloud` or no mode line. The
-project guardrail in `scripts/lib/target.sh` fail-closes: cloud scripts refuse to
-run unless gcloud is pointed at the active context's project.
+project guardrail in `scripts/lib/target.sh` fail-closes: an ambient effective
+project must match the project declared by the context. If no context/profile
+declares one, the effective target must match gcloud's stored configuration.
 
 A local context is the same file format with `NAGARE_MODE=local`. It points at
 k3d, the local registry, loopback domains, and MinIO. In that mode the guardrail

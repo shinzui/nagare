@@ -86,21 +86,27 @@ export CLOUDSDK_COMPUTE_ZONE="${CLOUDSDK_COMPUTE_ZONE:-us-west1-a}"
 
 Selection precedence: **`--context` / `NAGARE_CONTEXT` > current context >
 in-repo profile > built-in default**. Per-field values still follow
-**environment > context/profile > default**. So any bare `gcloud …` you type
+**environment > context/profile > default**, but a cloud-project override that
+disagrees with the selected context is rejected by guarded scripts. So any bare `gcloud …` you type
 inside the repo defaults to the active project, region, and zone — and an
 operator who does nothing keeps the original `tan-nb-exp` behavior. This is
 **defense in depth, not a license to omit flags**:
 
 - The guardrail lives in one place, `scripts/lib/target.sh`. Scripts source it and
-  call `_require_target_project`, which aborts unless gcloud's active project equals
-  the active cloud context's `$TARGET_PROJECT`. It is still **fail-closed** — only
-  the compared value is now context-driven.
+  call `_require_target_project`. When a context/profile declares a project, the
+  final effective project must equal that declaration; an ambient
+  `CLOUDSDK_CORE_PROJECT` cannot silently retarget the script. Without a declared
+  project, the effective/default project must match gcloud's configured project,
+  read with the environment override removed. The check is **fail-closed** and
+  avoids comparing two values derived from the same environment variable.
 - Scripts also pass `--project="$TARGET_PROJECT"` explicitly on every call.
 
-If you ever see a script refuse to run with *"refusing to run: gcloud active
-project is '…', expected '\<your target>'."*, you're outside the dev shell or your
-`gcloud` config overrides the env var. Re-enter the shell (`direnv allow` /
-`nix develop`) and retry.
+If a script reports that the effective project differs from the context's
+declared project, unset the ambient `CLOUDSDK_CORE_PROJECT` override or select
+the intended context. If it reports that gcloud's configured project differs,
+run `gcloud config set project <expected>` or create/select a context that
+declares the target. Re-enter the shell (`direnv allow` / `nix develop`) after
+changing context files.
 
 For local mode, use a `mode=local` context. In that mode the guardrail steps
 aside intentionally after loopback checks, `nagarectl` uses the local registry

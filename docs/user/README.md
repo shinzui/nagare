@@ -29,6 +29,7 @@ follow the steps.
 | Badge | Meaning |
 | --- | --- |
 | ✅ **Working** | Implemented and exercised on `nagare-01`. The commands run today. |
+| 🟢 **Complete** | Implemented and verified on its supported target; no planned implementation work remains. |
 | 🟡 **In progress** | Partially implemented; some steps work, some are unfinished or unverified. Caveats are called out inline. |
 | 🔭 **Planned** | Designed in the spec but **not built yet**. The page is a *target* runbook describing the intended behavior. Files, recipes, and manifests it references may not exist on disk. |
 
@@ -53,6 +54,8 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
 | Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `just local-smoke` |
 | Target contexts | MP-17 (EP-87–92) | ✅ Working — named cloud/local contexts, `--context`, `NAGARE_CONTEXT`, per-context Pulumi state, and context-rendered bootstrap paths |
+| Bounded one-shot Jobs | MP-18 EP-95 | 🟢 Complete — typed model, hardened renderer, two-slot quota, example, and local acceptance; no `nagarectl job` command yet |
+| Platform security and reliability hardening | MP-19 (EP-97–103) | 🟡 Guardrail and auth fixes shipped; infrastructure protection is implemented but awaits live apply; resource, alerting, CLI, and host follow-ups remain |
 | Backups, secrets, disaster recovery | EP-7, MP-16 EP-84 | 🟡 DB/volume backup tooling works; full DR drill and some app-specific backups deferred |
 
 The deploy CLI was superseded by a second initiative — the typed Haskell
@@ -78,7 +81,7 @@ you can observe.
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) — the
   single ordered zero-to-running runbook centered on `nagarectl init`. ✅
 - [Local development](local-development.md) — run Nagare on your laptop with k3d,
-  a local registry, HTTP loopback domains, and MinIO backups. 🟡
+  a local registry, HTTP loopback domains, and MinIO backups. 🟢
 
 1. [Getting started](getting-started.md) — prerequisites, the Nix dev shell,
    `direnv`, active target contexts, and the fail-closed guardrail. ✅
@@ -144,13 +147,18 @@ you can observe.
      consumer, a stream processor) with a typed `Worker` and `nagarectl worker
      deploy`: it renders an `apps/v1` Deployment with a fixed replica count, never
      scales to zero, needs no HTTP port, and is operated with stock `kubectl`. 🟡
+   - [Bounded one-shot jobs](one-shot-jobs.md) — describe one finite execution
+     with a typed `Job`, hardened Pod defaults, temporary scratch space, and a
+     deadline-based two-slot namespace quota. The DSL and cluster contract are
+     complete; a scheduler or platform integration currently owns rendering and
+     applying it because `nagarectl job` does not exist yet. 🟢
    - [Messaging brokers](messaging-brokers.md) — provision a Redpanda-backed
      Kafka-compatible broker, create topics, bind workers/apps to topics, inspect
      broker health, and understand the future Tansu provider contract. 🟡
 10. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
 11. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
-    back up, and the "rebuild from zero" runbook. ✅
+    back up, and the "rebuild from zero" runbook. 🟡
 
 Plus two references you'll return to:
 
@@ -170,8 +178,9 @@ project is configurable, not hard-coded. The target is the active
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/`, selected by
 `nagarectl --context NAME`, `NAGARE_CONTEXT=NAME`, or
 `nagarectl context use NAME`. The guardrail still **fail-closes** — cloud
-scripts refuse to run unless gcloud's active project equals the active context's
-project.
+scripts refuse an ambient project override that disagrees with the context's
+declared project; without a declared project, they cross-check gcloud's stored
+configuration with the effective target.
 
 The old git-ignored target profile, `nagare.target.env`, still works as a
 back-compatible fallback when no context is selected. With no context and no

@@ -91,6 +91,13 @@ the age key is generated, where it's stored, and how to add/rotate secrets.
 
 ## Build and register the image
 
+If this is a deliberate rebuild of an existing VM, first set
+`nagare:vmDeletionProtection` to `false` and apply that protection-only change
+as described in
+[Provisioning with Pulumi → Review replacements and protected resources](provisioning-with-pulumi.md#review-replacements-and-protected-resources).
+Do this before `host-image` writes a replacement-causing image self-link. First
+creation needs no such step.
+
 One recipe does the whole pipeline:
 
 ```bash
@@ -102,7 +109,8 @@ just host-image      # runs scripts/upload-images.sh
 1. Ensures an x86_64-linux Nix builder is available
    (`scripts/setup-nix-builder.sh` provisions an on-demand one if needed).
 2. Builds `.#packages.x86_64-linux.nagare-image` on it.
-3. Uploads the resulting `*.raw.tar.gz` to `tan-nb-exp-nagare-images`.
+3. Uploads the resulting `*.raw.tar.gz` to the active context's
+   `$NAGARE_IMAGE_BUCKET` (`<project>-nagare-images` by default).
 4. Registers it as a GCE image (`gcloud compute images create --source-uri …`).
 5. Writes the image self-link into Pulumi config key `nagareImageSelfLink`.
 
@@ -120,6 +128,12 @@ just infra-up        # pulumi up — now includes the nagare-01 instance
 
 Pulumi creates `nagare-01` from the image, attaches the static IP and the
 `nagare-data` disk, and runs it under the `nagare-node` service account.
+
+That command is enough for first creation. For an existing VM, confirm the
+preview replaces only the boot instance while preserving `nagare-data`, apply,
+then immediately set `nagare:vmDeletionProtection` back to `true` and apply
+again. Never unprotect the persistent data disk merely to replace the boot
+image.
 
 ## Verify first boot
 

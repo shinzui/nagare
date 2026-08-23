@@ -6,6 +6,8 @@
 > [Local development](local-development.md#run-the-local-smoke-test)). Full host
 > disaster-recovery drills and some app-specific backup patterns, such as
 > continuous Litestream restore drills and dashboard export, are still deferred.
+> Pulumi now declares daily data-disk snapshots plus protected, versioned backup
+> storage, but those EP-99 changes still await live preview/apply/verification.
 
 The guiding principle: **the machine is disposable.** Recovery is `pulumi up`,
 `nixos-rebuild switch`, bootstrap the cluster, restore data, deploy apps. Nagare
@@ -26,17 +28,25 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Secrets | **sops-encrypted in Git** + host age key offline | 🟡 (see [Secrets](secrets.md)) |
 | SQLite app data | PVC snapshot, or Litestream pattern for hot SQLite | 🟡 |
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
+| Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ |
 | Managed databases | `nagarectl db backup` / daily CronJob → GCS or MinIO (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 
-In cloud mode, the backup bucket is `tan-nb-exp-nagare-backups` by default
-(uniform bucket-level access, `forceDestroy: false` so it can't be wiped by a
-careless `pulumi destroy`). The node service account has object-admin on it, so
-backup jobs running on the VM can write with ambient credentials. In local mode,
-the same commands target MinIO at
+In cloud mode, the backup bucket is `<project>-nagare-backups`. It has uniform
+bucket-level access, public access prevention, `forceDestroy: false`, object
+versioning, and Pulumi protection. Deletes and overwrites become noncurrent
+versions; a lifecycle rule removes those versions after 30 days. The node
+service account has object-admin on this bucket only, so backup jobs running on
+the VM can write with ambient credentials. In local mode, the same commands
+target MinIO at
 `http://minio.nagare-system.svc.cluster.local:9000/nagare-backups`.
+
+The node credential can still delete current backup objects. Versioning gives
+an operator a 30-day recovery window from accidental or malicious deletion; it
+is not an immutable/off-account backup. For higher assurance, replicate the
+bucket into a separately administered project or account.
 
 ### App volumes: backup-included by default, opt out explicitly
 
@@ -102,7 +112,8 @@ Rebuilding `nagare-01` from nothing:
 1. pulumi up
       → VPC, firewall, static IP, data disk, service account + IAM,
         DNS zone + wildcard record, Artifact Registry, GCS buckets.
-        (The static IP is reserved, so the wildcard DNS record is still valid.)
+        (The static IP is reserved, so the wildcard DNS record is still valid.
+        The data disk and backup bucket are Pulumi-protected.)
 
 2. Build + register the NixOS image, set nagareImageSelfLink, pulumi up again
       → nagare-01 boots NixOS + k3s from the baked image; the data disk
@@ -124,6 +135,12 @@ Rebuilding `nagare-01` from nothing:
       → nagarectl deploy for each app (or kubectl apply the manifests in Git).
 ```
 
+The from-zero path has no existing VM to protect. For an intentional replacement
+of a live VM, disable and apply `nagare:vmDeletionProtection` **before** changing
+the image self-link, preserve the protected data disk through the replacement,
+then re-enable VM protection. See
+[Provisioning with Pulumi](provisioning-with-pulumi.md#review-replacements-and-protected-resources).
+
 Step-by-step, each maps to a page in this guide:
 
 1. [Provisioning with Pulumi](provisioning-with-pulumi.md)
@@ -136,13 +153,14 @@ Step-by-step, each maps to a page in this guide:
 ## Two failure modes worth distinguishing
 
 - **VM lost, data disk survives.** Re-run steps 1–4. The `nagare-data` disk is a
-  separate Pulumi resource from the VM and is **not** destroyed with the
-  instance, so `/var/lib/nagare` (SQLite, Postgres, Victoria data) comes back
-  attached and intact. The host's first-boot format step is idempotent and skips
-  a disk that already has a filesystem — your data is not touched.
+  protected Pulumi resource separate from the VM, so destroying the instance
+  does not destroy it. `/var/lib/nagare` (SQLite, Postgres, Victoria data) comes
+  back attached and intact. The host's first-boot format step is idempotent and
+  skips a disk that already has a filesystem — your data is not touched.
 - **Everything lost (disk too).** Same steps, but the new blank disk
   auto-formats and step 5's restore-from-GCS is mandatory. This is the case the
-  database and volume backups protect against.
+  database and volume backups protect against. Before declaring the disk lost,
+  inspect the retained daily GCE snapshots and restore the newest usable one.
 
 ## Drill it
 

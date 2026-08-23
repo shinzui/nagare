@@ -316,12 +316,18 @@ applies, waits, records a release, and prints `Deployed server site: <url>`.
 `nagared` is a small webhook service that deploys automatically from GitHub:
 
 - a push to the configured **production branch** → production deploy + release;
-- a pull request `opened`/`synchronize`/`reopened` → preview deploy named `pr-<number>`.
+- a same-repository pull request `opened`/`synchronize`/`reopened` → preview
+  deploy named `pr-<number>`;
+- a pull request from a fork → accepted as a webhook delivery but ignored,
+  because its untrusted `nagare/Config.hs` must not execute on the deploy host.
 
 It verifies the GitHub `X-Hub-Signature-256` HMAC-SHA256 signature (an unsigned or
 mis-signed request is rejected with 401 before anything runs), checks out the
 named commit, and drives the **same** deploy path as the CLI — there is no second
-deploy engine. Configure the GitHub webhook with:
+deploy engine. The typed config has a 120-second execution budget by default;
+`nagared --config-timeout SECONDS` can set another positive bound. A config that
+loops or blocks is killed and the deploy fails instead of wedging the webhook
+worker. Configure the GitHub webhook with:
 
 - **Payload URL**: `https://hooks.<base-domain>/webhooks/github/static/<site>`
 - **Content type**: `application/json`
@@ -332,6 +338,10 @@ deploy engine. Configure the GitHub webhook with:
 typed config with `runghc`, so its image must provide those; on a single-node box
 it is often simplest to run it on the host. The manifests in
 `cluster/bootstrap/nagared/` are the starting point.
+
+> HMAC verification proves that GitHub delivered the event; it does not make a
+> fork's code trusted. Fork rejection happens before checkout or config
+> execution and should not be disabled to make external previews convenient.
 
 ---
 

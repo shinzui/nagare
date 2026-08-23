@@ -119,17 +119,21 @@ fails during the kex handshake.
 
 ---
 
-## A script refuses to run: "wrong gcloud active project"
+## A script refuses to run: project mismatch
 
-**Symptom.** A script aborts with *"refusing to run: gcloud active project is
-'…', expected 'tan-nb-exp'."*
+**Symptom.** A script says either *"effective project '…' does not match the
+active context's declared project '…'"* or *"gcloud's configured project is
+'…', expected '…'."*
 
-**Cause.** You're outside the dev shell, or your `gcloud` config overrides
-`CLOUDSDK_CORE_PROJECT`. This is the intended project-isolation guard, not a bug.
+**Cause.** An ambient `CLOUDSDK_CORE_PROJECT` is trying to override a selected
+context, or no context declares a project and gcloud's stored configuration
+does not match the effective/default target. This is the intended
+project-isolation guard, not a bug.
 
-**Fix.** Re-enter the dev shell so `.envrc` exports the project vars
-(`direnv allow` or `nix develop`), and confirm `gcloud config get-value
-project` (or the env var) is `tan-nb-exp`. See
+**Fix.** For a selected context, unset the ambient override or select the
+context that declares the intended project. Without a declared context/profile,
+run `gcloud config set project <expected>` or create one. Re-enter the dev shell
+after changing selections (`direnv allow` or `nix develop`). See
 [Getting started](getting-started.md#project-isolation-read-this-once-internalize-it).
 
 ---
