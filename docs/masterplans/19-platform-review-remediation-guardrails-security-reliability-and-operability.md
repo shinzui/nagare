@@ -178,8 +178,8 @@ complete; the child plans hold the granular checklists.
 - [x] EP-2 M1: nagared — fork-PR gating and a runghc timeout (2026-08-05)
 - [x] EP-2 M2: nagare-access — cookie MAC, return destination, Host header (2026-08-05)
 - [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
-- [~] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (2026-08-05 — code complete and typechecking; the preview gate and apply are blocked on a live GCP session)
-- [~] EP-3 M2: sops — an offline recovery recipient for every secret (2026-08-05 — dead rule removed and the key-model comment corrected; the recovery key itself needs operator vault handling and the running VM)
+- [~] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (re-verified 2026-08-24 — code complete and typechecking; the preview gate and apply remain blocked on interactive gcloud reauthentication and a restored cloud context)
+- [~] EP-3 M2: sops — an offline recovery recipient for every secret (re-verified 2026-08-24 — dead rule removed and the key-model comment corrected; the recovery key itself still needs operator vault handling and the running VM)
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
 - [ ] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane
 - [ ] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores
@@ -268,6 +268,11 @@ Discoveries from implementation:
   `~/.config/nagare/contexts` at all. Any plan whose validation assumes a cloud
   context must select one explicitly; the cloud branch of the guardrail is never
   exercised by an ordinary shell here.
+- **EP-3's live blocker persisted on 2026-08-24.** There is still no user-level
+  Nagare context directory, and explicit read-only GCP resource queries for
+  `tan-nb-exp` fail because gcloud requires interactive reauthentication. EP-3 remains
+  In Progress; because this MasterPlan has no hard dependencies, EP-4 can proceed
+  without weakening or concealing EP-3's operator-only acceptance gates.
 
 
 ## Decision Log
@@ -307,6 +312,15 @@ Discoveries from implementation:
   plan-93 status) that belongs with the implementer; the MasterPlan only fixes the
   scope.
   Date: 2026-07-16
+
+- Decision: Leave EP-3 In Progress after its 2026-08-24 blocker re-audit and proceed
+  to EP-4 instead of attempting an unverified cloud apply, creating recovery-key
+  material outside the operator's vault, or stalling the independent work streams.
+  Rationale: EP-3's remaining acceptance gates require interactive gcloud
+  reauthentication, restoration of the live cloud context/state, and operator-owned
+  password-manager handling. The registry intentionally declares no hard dependencies,
+  so EP-4 can be implemented safely while those gates remain explicit and unchecked.
+  Date: 2026-08-24
 
 
 ## Outcomes & Retrospective
