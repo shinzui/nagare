@@ -30,6 +30,18 @@ spec:
       serviceAccountName: nagared
       containers:
         - image: ${NAGARE_REGISTRY_PREFIX}/nagared:${NAGARE_AUTH_TAG}
+          # Largest bounds in the auth plane: a deploy runs git checkout +
+          # runghc (GHC interpreting the app's Config.hs against nagare-dsl —
+          # the dominant in-pod memory cost) + kubectl. The docker build itself
+          # runs in the Docker daemon over the mounted socket, OUTSIDE this
+          # cgroup. The 1Gi limit means a runaway config evaluation OOM-kills
+          # this pod (min-scale 1 restarts it) instead of the node.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
           ports:
             - containerPort: 8088
           args:

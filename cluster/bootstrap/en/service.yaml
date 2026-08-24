@@ -25,8 +25,36 @@ spec:
       containers:
         - name: en
           image: ${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # CPU request is a floor, not a cap (no CPU limit, so en can burst);
+          # the memory limit guards the 8 GB node. 384Mi (not 256Mi) because en
+          # holds two 10,000-entry in-memory caches (EN_DECISION_CACHE_* and
+          # EN_TUPLE_READ_CACHE_* below) on top of its RTS baseline.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
           ports:
             - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
           env:
             - name: PGHOST
               value: en-db.nagare-system.svc.cluster.local
