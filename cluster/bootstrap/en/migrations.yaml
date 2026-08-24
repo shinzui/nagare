@@ -92,6 +92,23 @@ spec:
         - name: migrate
           image: postgres:18
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # psql streams two small SQL files; tiny fixed bounds.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
           command:
             - /bin/sh
             - -ceu

@@ -82,7 +82,7 @@ ownership rules in Integration Points.
 | 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | In Progress |
-| 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | Not Started |
+| 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | Not Started |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Not Started |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Not Started |
@@ -181,7 +181,7 @@ complete; the child plans hold the granular checklists.
 - [~] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (re-verified 2026-08-24 — code complete and typechecking; the preview gate and apply remain blocked on interactive gcloud reauthentication and a restored cloud context)
 - [~] EP-3 M2: sops — an offline recovery recipient for every secret (re-verified 2026-08-24 — dead rule removed and the key-model comment corrected; the recovery key itself still needs operator vault handling and the running VM)
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
-- [ ] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane
+- [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [ ] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores
 - [ ] EP-4 M3: Idempotent migrations, immutable-by-default image tags, pinned MinIO
 - [ ] EP-5 M1: vmalert + Alertmanager with a Pushover channel

@@ -4,6 +4,7 @@ slug: bound-and-harden-cluster-workloads
 title: "Bound and harden cluster workloads"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 ---
 
@@ -42,13 +43,17 @@ opt-in.
 
 ## Progress
 
-- [ ] M1: add resources, probes, and securityContext to `cluster/bootstrap/en/service.yaml`
-- [ ] M1: add resources and securityContext to `cluster/bootstrap/shomei/service.yaml`
-- [ ] M1: add resources to `cluster/bootstrap/nagare-access/service.yaml`
-- [ ] M1: add resources to `cluster/bootstrap/nagared/service.yaml`
-- [ ] M1: add resources and securityContext to the Job in `cluster/bootstrap/en/migrations.yaml`
-- [ ] M1: dry-run render + apply all five manifests; run `just local-smoke` (or local-auth install) to see pods Running with limits
-- [ ] M1: commit M1
+- [x] M1: add resources, probes, and securityContext to `cluster/bootstrap/en/service.yaml`. (2026-08-24)
+- [x] M1: add resources and securityContext to `cluster/bootstrap/shomei/service.yaml`. (2026-08-24)
+- [x] M1: add resources to `cluster/bootstrap/nagare-access/service.yaml`. (2026-08-24)
+- [x] M1: add resources to `cluster/bootstrap/nagared/service.yaml`. (2026-08-24)
+- [x] M1: add resources and securityContext to the Job in `cluster/bootstrap/en/migrations.yaml`. (2026-08-24)
+- [x] M1: render all five manifests and assert their resource, probe, and security
+  fields with `yq`; all assertions passed. (2026-08-24)
+- [ ] M1 live validation: apply the manifests and run `just local-smoke` or the
+  local-auth install to observe pods Running with the declared limits. The configured
+  kube API requires expired gcloud credentials, and no local cluster exists yet.
+- [x] M1: commit the bounded auth-plane manifests and plan state. (2026-08-24)
 - [ ] M2: create sops-encrypted `cluster/secrets/grafana-admin.yaml`
 - [ ] M2: switch `grafana.adminPassword` to `grafana.admin.existingSecret` and pin the plugin version in `cluster/observability/victoria-metrics/values.yaml`
 - [ ] M2: remove `grafana.additionalDataSources`; apply `cluster/observability/grafana/datasources/*.yaml` as labelled ConfigMaps from `cluster/observability/install.sh`; update the datasource file comments
@@ -113,6 +118,12 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   `minio/mc:RELEASE.2025-08-13T08-35-41Z`. Current version of the Grafana
   VictoriaLogs datasource plugin from the grafana.com plugin API: 0.29.0.
   Re-check both at implementation time (commands are in Concrete Steps).
+
+- Implementation (2026-08-24): `kubectl apply --dry-run=client` is not actually
+  offline with this kubeconfig; it attempts OpenAPI discovery and current-object
+  lookup through the GKE credential plugin, which fails while gcloud needs
+  interactive reauthentication. The rendered YAML was instead parsed and its exact
+  M1 fields asserted with `yq`. Live apply remains an explicit unchecked item.
 
 
 ## Decision Log

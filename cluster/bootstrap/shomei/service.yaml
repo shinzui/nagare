@@ -25,6 +25,24 @@ spec:
       containers:
         - name: shomei
           image: ${NAGARE_REGISTRY_PREFIX}/shomei:${NAGARE_AUTH_TAG}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # Floor + memory cap (no CPU limit). Shomei signs WebAuthn/JWT
+          # assertions and keeps no large in-memory state.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
           ports:
             - containerPort: 8080
           env:

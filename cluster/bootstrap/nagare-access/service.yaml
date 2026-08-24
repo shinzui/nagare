@@ -25,6 +25,14 @@ spec:
             runAsGroup: 10001
             seccompProfile:
               type: RuntimeDefault
+          # Floor + memory cap (no CPU limit). Stateless proxy; its only cache
+          # is the 30s decision TTL below.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           ports:
             - containerPort: 8080
           env:
