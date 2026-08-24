@@ -54,11 +54,20 @@ opt-in.
   local-auth install to observe pods Running with the declared limits. The configured
   kube API requires expired gcloud credentials, and no local cluster exists yet.
 - [x] M1: commit the bounded auth-plane manifests and plan state. (2026-08-24)
-- [ ] M2: create sops-encrypted `cluster/secrets/grafana-admin.yaml`
-- [ ] M2: switch `grafana.adminPassword` to `grafana.admin.existingSecret` and pin the plugin version in `cluster/observability/victoria-metrics/values.yaml`
-- [ ] M2: remove `grafana.additionalDataSources`; apply `cluster/observability/grafana/datasources/*.yaml` as labelled ConfigMaps from `cluster/observability/install.sh`; update the datasource file comments
-- [ ] M2: add `retentionDiskSpaceUsage` and resources to `cluster/observability/victoria-logs/values.yaml` and `victoria-traces/values.yaml`; add resources to `victoria-logs/collector-values.yaml`
-- [ ] M2: verify with `helm template` greps; commit M2
+- [x] M2: create sops-encrypted `cluster/secrets/grafana-admin.yaml` without
+  exposing the generated password in tool output or plaintext Git state. (2026-08-24)
+- [x] M2: switch `grafana.adminPassword` to `grafana.admin.existingSecret` and
+  pin the plugin to the current verified release, 0.31.0, in
+  `cluster/observability/victoria-metrics/values.yaml`. (2026-08-24)
+- [x] M2: remove `grafana.additionalDataSources`; apply
+  `cluster/observability/grafana/datasources/*.yaml` as labelled ConfigMaps from
+  `cluster/observability/install.sh`; update the datasource file comments. (2026-08-24)
+- [x] M2: add `retentionDiskSpaceUsage` and resources to
+  `cluster/observability/victoria-logs/values.yaml` and
+  `victoria-traces/values.yaml`; add resources to
+  `victoria-logs/collector-values.yaml`. (2026-08-24)
+- [x] M2: verify the exact pinned charts with `helm template`, assert the Secret and
+  datasource ConfigMap shapes, and shellcheck the installer; commit M2. (2026-08-24)
 - [ ] M3: make each migration file idempotent and remove the all-or-nothing guard in `cluster/bootstrap/en/migrations.yaml`
 - [ ] M3: delete-then-apply the Job in `cluster/bootstrap/auth-install.sh` and `cluster/bootstrap/local-auth/install.sh`
 - [ ] M3: default `NAGARE_AUTH_TAG` to the git SHA in `auth-install.sh` and `render-context-template.sh`
@@ -124,6 +133,14 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   lookup through the GKE credential plugin, which fails while gcloud needs
   interactive reauthentication. The rendered YAML was instead parsed and its exact
   M1 fields asserted with `yq`. Live apply remains an explicit unchecked item.
+
+- Implementation (2026-08-24): the Grafana plugin release recorded during planning
+  was stale. Grafana's authoritative plugin catalog now reports
+  `victoriametrics-logs-datasource` 0.31.0 (released 2026-08-06), so M2 pins 0.31.0.
+  The pinned k8s-stack chart 0.81.0 embeds Grafana chart 12.3.x and renders that pin
+  through `GF_PLUGINS_PREINSTALL_SYNC`, not the older `GF_INSTALL_PLUGINS` variable
+  named by the plan. The rendered ConfigMap value is exactly
+  `victoriametrics-logs-datasource 0.31.0`.
 
 
 ## Decision Log
@@ -220,6 +237,13 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   make. The comment prevents anyone from mistaking local "backups" for real
   ones.
   Date: 2026-07-15.
+- Decision: pin the VictoriaLogs Grafana datasource plugin at 0.31.0 rather than
+  the 0.29.0 version found during plan authoring.
+  Rationale: the authoritative Grafana plugin catalog lists 0.31.0 as the current
+  signed release and declares compatibility with Grafana >=10.4. The repository's
+  pinned k8s-stack 0.81.0 embeds Grafana chart 12.3.x, and `helm template` proves
+  that the versioned value reaches the generated Grafana ConfigMap.
+  Date: 2026-08-24.
 - Decision: shared-file ownership with sibling plans (integration points from
   MasterPlan 19): `cluster/observability/victoria-metrics/values.yaml` is also
   edited by `docs/plans/101-alerting-and-backup-freshness-monitoring.md`, which

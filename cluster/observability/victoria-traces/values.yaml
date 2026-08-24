@@ -7,6 +7,16 @@
 # EP-5 Milestone M3.
 server:
   retentionPeriod: 3d           # traces grow fastest; start at the low end (Decision Log)
+  # Hard disk cap below the advisory 10Gi PVC request, so trace bursts cannot
+  # fill the shared local-path data disk.
+  retentionDiskSpaceUsage: 8GiB
+  # CPU request floor (no CPU limit) plus a memory cap for the 8 GB node.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
   persistentVolume:
     enabled: true
     size: 10Gi                  # storageClassName unset -> default local-path (data disk)

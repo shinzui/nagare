@@ -1,6 +1,6 @@
-# Grafana datasource provisioning file. The Jaeger type points at VictoriaTraces'
-# Jaeger-compatible query API. Kept in Git for reproducibility; mirrored inline in
-# the metrics chart values (grafana.additionalDataSources). Keep the two in sync.
+# Grafana datasource provisioning file. This is the single source of truth, applied
+# by install.sh as a ConfigMap labelled grafana_datasource=1 for Grafana's datasource
+# sidecar. The Jaeger type points at VictoriaTraces' Jaeger-compatible query API.
 apiVersion: 1
 datasources:
   - name: VictoriaTraces

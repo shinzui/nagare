@@ -1,9 +1,23 @@
 # Helm values for vm/victoria-logs-single (chart 0.13.5), installed in the
 # `logging` namespace as release `victoria-logs`. VictoriaLogs is the log store;
 # it listens on HTTP 9428 for ingest, query (LogsQL), and its UI.
-# EP-5 Milestone M2.
+# EP-5 Milestone M2; bounds and disk cap from EP-100.
 server:
   retentionPeriod: 7d           # keep logs 7 days (Decision Log)
+  # Hard disk cap BELOW the 20Gi PVC request: the local-path provisioner treats
+  # PVC sizes as advisory (nothing enforces them), so time-based retention alone
+  # can fill the shared data disk. Renders as
+  # --retention.maxDiskSpaceUsageBytes=15GiB; VictoriaLogs drops the oldest data
+  # once usage reaches the cap. Default unit is GiB.
+  retentionDiskSpaceUsage: 15GiB
+  # Same pattern as vmsingle/vmagent/otel: CPU request floor (no CPU limit, so
+  # ingest spikes can burst) + memory limit to guard the 8 GB node.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
   persistentVolume:
     enabled: true
     size: 20Gi                  # storageClassName unset -> default local-path (data disk)

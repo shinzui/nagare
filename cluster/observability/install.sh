@@ -6,7 +6,7 @@
 #   - KUBECONFIG points at nagare-01 (see docs/plans/5-...md "Context and Orientation";
 #     until Tailscale is joined, open an SSH local-forward to 127.0.0.1:6443 over the
 #     port-22 IAP tunnel and use the unmodified kubeconfig).
-#   - helm and kubectl on PATH (provided by `nix develop`).
+#   - helm, kubectl, and sops on PATH (provided by `nix develop`).
 #
 # Chart versions are pinned. They move; refresh with `helm search repo vm/ --versions`
 # and `helm search repo open-telemetry/ --versions`.
@@ -25,6 +25,9 @@ helm repo update
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- M1: metrics + Grafana ---
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+sops -d "$ROOT/../secrets/grafana-admin.yaml" | kubectl apply -f -
+
 helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version "$VMKS_VERSION" \
   --namespace monitoring --create-namespace \
   -f "$ROOT/victoria-metrics/values.yaml" --wait --timeout 10m
@@ -35,6 +38,14 @@ kubectl -n monitoring create configmap grafana-dashboard-nagare-brokers \
   --dry-run=client -o yaml | \
   kubectl label --local -f - grafana_dashboard=1 -o yaml | \
   kubectl apply -f -
+
+for ds in victoria-logs victoria-traces; do
+  kubectl -n monitoring create configmap "grafana-datasource-${ds}" \
+    --from-file="${ds}.yaml=$ROOT/grafana/datasources/${ds}.yaml" \
+    --dry-run=client -o yaml | \
+    kubectl label --local -f - grafana_datasource=1 -o yaml | \
+    kubectl apply -f -
+done
 
 # --- M2: logs ---
 helm upgrade --install victoria-logs vm/victoria-logs-single --version "$VLOGS_VERSION" \

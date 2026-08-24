@@ -8,3 +8,12 @@
 # is release-derived (release `victoria-logs`); verified with `helm template`.
 remoteWrite:
   - url: http://victoria-logs-victoria-logs-single-server.logging.svc:9428
+
+# Vector DaemonSet bounds (one pod per node = exactly one pod here). Same
+# pattern as the rest of the stack: CPU floor, memory cap, no CPU limit.
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
