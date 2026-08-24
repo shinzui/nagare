@@ -58,11 +58,11 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-**Status summary (2026-08-05): all of this plan's *code* is written, committed, and
-typechecks. Every step that requires a live GCP session is blocked on operator
-action — this workstation has no cloud target context and its gcloud credentials
-need an interactive re-login. See "The live-environment blocker" in Surprises &
-Discoveries for the evidence and the exact unblock procedure.**
+**Status summary (re-verified 2026-08-24): all of this plan's *code* is written,
+committed, and typechecks. Every step that requires a live GCP session is blocked on
+operator action — this workstation has no cloud target context and its gcloud
+credentials need an interactive re-login. See "The live-environment blocker" in
+Surprises & Discoveries for the evidence and the exact unblock procedure.**
 
 - [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
@@ -105,6 +105,10 @@ Discoveries for the evidence and the exact unblock procedure.**
 - [ ] M3 (BLOCKED — no cloud context exists on this machine): migrate the active cloud
   context's Pulumi state to GCS. There is nothing to migrate here: the only context is
   the in-repo local-mode profile, and its `default` stack holds **0 resources**.
+- [x] Re-audit the live-environment blocker before yielding EP-3: the Nagare context
+  directory is still absent, the active gcloud configuration still names
+  `tan-nb-exp`/`us-west1-a`, and explicit read-only instance, disk, and bucket queries
+  still fail because gcloud requires interactive reauthentication. (2026-08-24)
 - [ ] Final: update MasterPlan 19's registry/progress for EP-99 and write the Outcomes
   & Retrospective entry here. (MasterPlan registry updated 2026-08-05 to In Progress;
   the retrospective waits for the blocked steps.)
@@ -215,6 +219,15 @@ predicted: `sops -d nixos/hosts/nagare-01/secrets/nagare-01.yaml` fails with the
 workstation key even when it is named explicitly, because `age1rc26869…` is its only
 recipient. That is the recovery gap this plan exists to close, and closing it requires
 the VM.
+
+**The live-environment blocker persisted on 2026-08-24.** The workstation still has
+no `~/.config/nagare/contexts` directory. Although gcloud's active configuration names
+project `tan-nb-exp`, zone `us-west1-a`, and region `us-west1`, explicit read-only
+`instances describe`, `disks describe`, and `storage buckets list` commands all fail
+with the same `Reauthentication failed. cannot prompt during non-interactive
+execution` error recorded on 2026-08-05. No live apply, state migration, or host-secret
+re-key was attempted. Because the MasterPlan has no hard dependencies, implementation
+can proceed with EP-4 while these operator-only steps remain visible here.
 
 (Add further implementation discoveries here as they occur.)
 
