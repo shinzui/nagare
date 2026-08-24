@@ -1,7 +1,6 @@
 # Grafana datasource provisioning file (Grafana "provisioning/datasources" format).
-# Kept in Git for reproducibility; the live datasource is also declared inline in the
-# metrics chart values (cluster/observability/victoria-metrics/values.yaml ->
-# grafana.additionalDataSources) so Grafana loads it at boot. Keep the two in sync.
+# This is the single source of truth, applied by install.sh as a ConfigMap labelled
+# grafana_datasource=1 for Grafana's datasource sidecar.
 apiVersion: 1
 datasources:
   - name: VictoriaLogs

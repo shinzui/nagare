@@ -182,7 +182,7 @@ complete; the child plans hold the granular checklists.
 - [~] EP-3 M2: sops — an offline recovery recipient for every secret (re-verified 2026-08-24 — dead rule removed and the key-model comment corrected; the recovery key itself still needs operator vault handling and the running VM)
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
-- [ ] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores
+- [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
 - [ ] EP-4 M3: Idempotent migrations, immutable-by-default image tags, pinned MinIO
 - [ ] EP-5 M1: vmalert + Alertmanager with a Pushover channel
 - [ ] EP-5 M2: Five real alert rules, and a truthful freshness probe
