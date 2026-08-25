@@ -14,8 +14,10 @@ import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Time (UTCTime (..), fromGregorian)
 import Effectful (IOE, runEff)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
+import En.Budget (defaultEvaluationBudget)
 import En.Check qualified as EnCheck
 import En.Client
   ( CaveatContextWire (..)
@@ -23,6 +25,7 @@ import En.Client
   , CheckRequestWire (..)
   , CheckResponseWire (..)
   , ConsistencyWire (..)
+  , EnResult (..)
   , ObjectRefWire (..)
   , SubjectWire (..)
   )
@@ -31,12 +34,14 @@ import En.Effect.ConsistencyStore (ConsistencyStore)
 import En.Effect.TupleStore (TupleStore)
 import En.Error (EnError)
 import En.Lookup qualified as EnLookup
+import En.LookupSubjects qualified as EnLookupSubjects
 import En.Reachability (ReachabilityGraph, compileSchema)
 import En.Schema qualified as EnRaw
 import En.Schema.Builder qualified as EnBuilder
 import En.Servant.API qualified as EnApi
-import En.Servant.Seam (Env (..))
+import En.Servant.Seam (ActiveSchema (..), Env (..))
 import En.Tuple qualified as EnTuple
+import En.Watch (watchUnsupported)
 import GHC.Stack (HasCallStack)
 import Hasql.Pool qualified as HasqlPool
 import Nagare.Access.App (app, appWithBackends, appWithRuntime, textResponse)
@@ -67,17 +72,24 @@ import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp (testWithApplication)
 import Network.Wai.Test (SRequest (..), SResponse (..), defaultRequest, request, runSession, setPath, srequest)
 import Servant.Client (ClientError (..))
+import Servant.Health (ProbeVerdict (Healthy))
+import Shomei.Account.Dto qualified as ShomeiAccountDTO
+import Shomei.Account.Password.Hash.Postgres (Argon2Params (..), newHashingLimiter)
+import Shomei.Account.User.Dto qualified as ShomeiUserDTO
+import Shomei.Authorization.Claims.Domain (Audience (..), Issuer (..))
 import Shomei.Client qualified as ShomeiClient
 import Shomei.Config (ShomeiConfig (..), defaultShomeiConfig)
-import Shomei.Domain.Claims (Audience (..), Issuer (..))
-import Shomei.Domain.SigningKey (SigningAlgorithm (ES256))
 import Shomei.Error (TokenError (..))
+import Shomei.Mfa.Dto qualified as ShomeiMfaDTO
+import Shomei.Mfa.Totp.Postgres (TotpEncryptionKey, totpEncryptionKeyFromBytes)
 import Shomei.Migrations.TestSupport (withShomeiMigratedDatabase)
-import Shomei.Postgres.Pool (acquirePool)
-import Shomei.Servant.DTO qualified as ShomeiDTO
+import Shomei.Persistence.Pool.Postgres (acquirePool)
 import Shomei.Server.App qualified as ShomeiServer
 import Shomei.Server.Boot qualified as ShomeiBoot
 import Shomei.Server.Keys (bootstrapKeys)
+import Shomei.Session.Dto qualified as ShomeiSessionDTO
+import Shomei.SigningKey.Domain (SigningAlgorithm (ES256))
+import Shomei.SigningKey.Protection.Jwt (KeyEncryptionKey, keyEncryptionKeyFromBase64)
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -413,9 +425,9 @@ enTests =
         req.permission @?= "access"
         req.object @?= ObjectRefWire {objectType = "app", objectId = "tools.example.com"}
     , testCase "maps en decisions into access decisions" $ do
-        checkResponseToDecision (CheckResponseWire AllowedWire) @?= AccessAllowed
-        checkResponseToDecision (CheckResponseWire DeniedWire) @?= AccessDenied
-        checkResponseToDecision (CheckResponseWire (ConditionalWire [])) @?= AccessConditional
+        checkResponseToDecision (CheckResponseWire AllowedWire "checked-at") @?= AccessAllowed
+        checkResponseToDecision (CheckResponseWire DeniedWire "checked-at") @?= AccessDenied
+        checkResponseToDecision (CheckResponseWire (ConditionalWire []) "checked-at") @?= AccessConditional
     , testCase "rejects malformed en base URLs when constructing the client env" $ do
         manager <- HC.newManager HC.defaultManagerSettings
         cfg <- completeAuthConfig
@@ -433,12 +445,12 @@ enTests =
             >>= (@?= AuthorizationDecision AccessAllowed)
           authorizeWithEn clientEnv AuthenticatedUser {userSubject = "bob"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessDenied)
-    , -- en expresses a genuine refusal as Right DeniedWire. A Left is always
-      -- transport-level, so it must never be read as a decision.
+    , -- en expresses a genuine refusal as EnOk DeniedWire. Every envelope and
+      -- transport error is unavailability, never a decision.
       testCase "a wire response is a decision, a client error is unavailability" $ do
-        authorizationFromClientResult (Right (CheckResponseWire DeniedWire))
+        authorizationFromClientResult (Right (EnOk (CheckResponseWire DeniedWire "checked-at")))
           @?= AuthorizationDecision AccessDenied
-        authorizationFromClientResult (Right (CheckResponseWire AllowedWire))
+        authorizationFromClientResult (Right (EnOk (CheckResponseWire AllowedWire "checked-at")))
           @?= AuthorizationDecision AccessAllowed
         case authorizationFromClientResult (Left (ConnectionError (SomeException (userError "connection refused")))) of
           AuthorizationUnavailable _ -> pure ()
@@ -944,16 +956,19 @@ appTests =
           let shomeiBaseUrl = "http://127.0.0.1:" <> show shomeiPort
               password = "A-long-random-password-42"
           shomeiClientEnv <- ShomeiClient.shomeiClientEnv shomeiBaseUrl
-          signup <-
+          signupResult <-
             ShomeiClient.signup
               shomeiClientEnv
-              ShomeiDTO.SignupRequest
-                { ShomeiDTO.loginId = Just "alice"
-                , ShomeiDTO.email = Just "alice@example.com"
-                , ShomeiDTO.password = password
-                , ShomeiDTO.displayName = "Alice"
+              ShomeiAccountDTO.SignupRequest
+                { ShomeiAccountDTO.loginId = "alice"
+                , ShomeiAccountDTO.email = Just "alice@example.com"
+                , ShomeiAccountDTO.password = password
+                , ShomeiAccountDTO.displayName = "Alice"
                 }
               >>= either (assertFailure . ("signup failed: " <>) . show) pure
+          signup <- case signupResult of
+            ShomeiClient.ApplicationSuccess response -> pure (ShomeiClient.cookieBody response)
+            _ -> assertFailure "signup returned an application error"
           let subject = signup.user.userId
           testWithApplication (pure (enAccessApp [grantAppAccessTuple "tools.example.com" subject])) $ \enPort ->
             testWithApplication (pure identityUpstreamApp) $ \upstreamPort -> do
@@ -1089,27 +1104,27 @@ closedPort =
 shomeiAdapterStubApp :: Wai.Application
 shomeiAdapterStubApp req respond =
   case (requestMethod req, Wai.pathInfo req) of
-    ("POST", ["auth", "login"]) -> do
+    ("POST", ["v1", "auth", "login"]) -> do
       body <- Wai.strictRequestBody req
       case decode body of
-        Just (ShomeiDTO.LoginRequest (Just "alice") _ "secret") ->
-          respondJson status200 (ShomeiDTO.LoginCompleteResponse shomeiUser (ShomeiDTO.TokenPairResponse "access.from-login" "refresh.from-login" 900))
-        Just (ShomeiDTO.LoginRequest (Just "mfa") _ "secret") ->
-          respondJson status200 (ShomeiDTO.LoginMfaRequiredResponse "ceremony-1" (object ["challenge" .= ("abc" :: Text)]))
+        Just (ShomeiSessionDTO.LoginRequest "alice" "secret") ->
+          respondJson status200 (ShomeiSessionDTO.LoginCompleteResponse shomeiUser (ShomeiSessionDTO.TokenPairResponse (Just "access.from-login") (Just "refresh.from-login") 900))
+        Just (ShomeiSessionDTO.LoginRequest "mfa" "secret") ->
+          respondJson status200 (ShomeiSessionDTO.LoginMfaRequiredResponse "ceremony-1" (object ["challenge" .= ("abc" :: Text)]) ["passkey"])
         _ ->
           respondJson status401 (object ["error" .= ("invalid_login" :: Text)])
-    ("POST", ["auth", "refresh"]) -> do
+    ("POST", ["v1", "auth", "refresh"]) -> do
       body <- Wai.strictRequestBody req
       case decode body of
-        Just (ShomeiDTO.RefreshRequest "refresh.old") ->
-          respondJson status200 (ShomeiDTO.TokenPairResponse "access.from-refresh" "refresh.from-refresh" 901)
+        Just (ShomeiSessionDTO.RefreshRequest (Just "refresh.old")) ->
+          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-refresh") (Just "refresh.from-refresh") 901)
         _ ->
           respondJson status401 (object ["error" .= ("invalid_refresh" :: Text)])
-    ("POST", ["auth", "mfa", "complete"]) -> do
+    ("POST", ["v1", "auth", "mfa", "complete"]) -> do
       body <- Wai.strictRequestBody req
       case decode body of
-        Just (ShomeiDTO.MfaCompleteRequest "ceremony-1" _) ->
-          respondJson status200 (ShomeiDTO.TokenPairResponse "access.from-mfa" "refresh.from-mfa" 902)
+        Just (ShomeiMfaDTO.MfaCompleteRequest "ceremony-1" (ShomeiMfaDTO.PasskeyProof _)) ->
+          respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-mfa") (Just "refresh.from-mfa") 902)
         _ ->
           respondJson status401 (object ["error" .= ("invalid_mfa" :: Text)])
     _ ->
@@ -1119,14 +1134,14 @@ shomeiAdapterStubApp req respond =
     respondJson status value =
       respond (Wai.responseLBS status [("Content-Type", "application/json")] (encode value))
 
-shomeiUser :: ShomeiDTO.UserResponse
+shomeiUser :: ShomeiUserDTO.UserResponse
 shomeiUser =
-  ShomeiDTO.UserResponse
-    { ShomeiDTO.userId = "user-1"
-    , ShomeiDTO.loginId = "alice"
-    , ShomeiDTO.email = Just "alice@example.com"
-    , ShomeiDTO.displayName = "Alice"
-    , ShomeiDTO.status = "active"
+  ShomeiUserDTO.UserResponse
+    { ShomeiUserDTO.userId = "user-1"
+    , ShomeiUserDTO.loginId = "alice"
+    , ShomeiUserDTO.email = Just "alice@example.com"
+    , ShomeiUserDTO.displayName = "Alice"
+    , ShomeiUserDTO.status = "active"
     }
 
 type EnAccessEffects = '[ConsistencyStore, TupleStore, Error EnError, IOE]
@@ -1139,15 +1154,31 @@ enAccessApp tuples =
     env =
       Env
         { runPorts =
-            runEff
+            \_active ->
+              runEff
               . runErrorNoCallStack
               . Kikan.runTupleStoreInMemory tuples
               . Kikan.runConsistencyStoreInMemory
-        , graph = nagareAccessGraph
+        , readActiveSchema = pure nagareAccessActiveSchema
         , checkOperation = EnCheck.check
         , lookupWithDeadlineOperation = EnLookup.lookupWithDeadline
+        , lookupSubjectsWithDeadlineOperation = EnLookupSubjects.lookupSubjectsWithDeadline
+        , watchOperation = watchUnsupported
+        , budget = defaultEvaluationBudget
         , maxBatchSize = 20
+        , deadlineDefaultMillis = 3000
+        , deadlineMaxMillis = 30000
+        , mint = Nothing
         }
+
+nagareAccessActiveSchema :: ActiveSchema
+nagareAccessActiveSchema =
+  ActiveSchema
+    { graph = nagareAccessGraph
+    , source = "-- compiled in; see nagareAccessSchema"
+    , origin = "nagare-access-test"
+    , loadedAt = UTCTime (fromGregorian 2026 8 25) 0
+    }
 
 nagareAccessGraph :: ReachabilityGraph
 nagareAccessGraph =
@@ -1185,19 +1216,32 @@ userRef user =
 withRealShomeiServer :: (Int -> IO a) -> IO a
 withRealShomeiServer action =
   withShomeiMigratedDatabase $ \connStr ->
-    bracket (acquirePool 4 connStr) HasqlPool.release $ \pool -> do
-      (key, jwks) <- bootstrapKeys ES256 pool
+    bracket (acquirePool 4 10 connStr) HasqlPool.release $ \pool -> do
+      keys <- newIORef =<< bootstrapKeys testKek ES256 pool
       manager <- HC.newManager HC.defaultManagerSettings
+      limiter <- newHashingLimiter 2
       let shomeiCfg = defaultShomeiConfig (Issuer "shomei") (Audience "shomei-clients")
           env =
             ShomeiServer.Env
               { ShomeiServer.envPool = pool
               , ShomeiServer.envConfig = shomeiCfg
-              , ShomeiServer.envKey = key
-              , ShomeiServer.envJwks = jwks
+              , ShomeiServer.envKeys = keys
+              , ShomeiServer.envKek = testKek
+              , ShomeiServer.envTotpKey = testTotpKey
               , ShomeiServer.envHttpManager = manager
+              , ShomeiServer.envArgon2Params = testArgon2Params
+              , ShomeiServer.envHashingLimiter = limiter
               }
-      testWithApplication (pure (ShomeiBoot.application env)) action
+      testWithApplication (pure (ShomeiBoot.application env (pure Healthy) (pure Healthy))) action
+
+testKek :: KeyEncryptionKey
+testKek = either (error . show) id (keyEncryptionKeyFromBase64 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
+testTotpKey :: TotpEncryptionKey
+testTotpKey = either (error . show) id (totpEncryptionKeyFromBytes (BS.replicate 32 0))
+
+testArgon2Params :: Argon2Params
+testArgon2Params = Argon2Params {memoryKiB = 8192, iterations = 1, parallelism = 1}
 
 streamingUpstreamApp :: Wai.Application
 streamingUpstreamApp _req respond =
