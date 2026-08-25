@@ -1,7 +1,7 @@
 module AccessGrantsSpec (accessGrantsTests) where
 
-import Data.Aeson (Value, encode, (.=))
-import Data.Aeson qualified as Aeson
+import Data.Aeson (eitherDecode, encode)
+import Data.ByteString.Lazy (ByteString)
 import Nagare.Access.Grants
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -18,12 +18,12 @@ accessGrantsTests =
             , subject = SubjectIdWire (ObjectRefWire "user" "alice")
             , caveat = Nothing
             }
-    , testCase "SubjectIdWire uses en-servant's generic JSON shape" $
-        jsonValue (SubjectIdWire (ObjectRefWire "user" "alice"))
-          @?= Aeson.object
-            [ "tag" .= ("SubjectIdWire" :: String)
-            , "contents" .= Aeson.object ["objectType" .= ("user" :: String), "objectId" .= ("alice" :: String)]
-            ]
+    , testCase "access tuple JSON matches en-servant byte for byte" $
+        encode (accessTuple "Tools.Example.com." "alice")
+          @?= "{\"object\":{\"objectType\":\"app\",\"objectId\":\"tools.example.com\"},\"relation\":\"viewer\",\"subject\":{\"kind\":\"id\",\"objectType\":\"user\",\"objectId\":\"alice\"},\"caveat\":null}"
+    , testCase "expand request JSON matches en-servant byte for byte" $
+        encode (expandRequest "Tools.Example.com.")
+          @?= "{\"consistency\":{\"mode\":\"minimizeLatency\"},\"object\":{\"objectType\":\"app\",\"objectId\":\"tools.example.com\"},\"permission\":\"access\",\"context\":{\"values\":{}},\"limit\":1000,\"cursor\":null}"
     , testCase "collectExpandedSubjects extracts direct users from nested expand output" $ do
         let tree =
               ExpandTreeWire
@@ -39,10 +39,24 @@ accessGrantsTests =
                     , ExpandCaveatedWire "during-hours" [ExpandSubjectWire (SubjectWildcardWire "user")]
                     ]
                 , state = ExpandExhaustedWire
+                , checkedAt = "checked-at"
                 }
         collectExpandedSubjects tree @?= ["alice", "bob", "user:*"]
+    , testCase "expand decoder walks unions and intersections but excludes subtracted subjects" $ do
+        tree <-
+          case eitherDecode compositeExpandTreeJson of
+            Left err -> assertFailure ("failed to decode expand tree: " <> err)
+            Right value -> pure value
+        collectExpandedSubjects tree @?= ["alice", "bob", "carol"]
     ]
 
-jsonValue :: (Aeson.ToJSON a) => a -> Value
-jsonValue =
-  either (error . ("invalid encoded JSON: " <>)) id . Aeson.eitherDecode . encode
+compositeExpandTreeJson :: ByteString
+compositeExpandTreeJson =
+  "{\"root\":{\"objectType\":\"app\",\"objectId\":\"tools.example.com\"},"
+    <> "\"permission\":\"access\",\"children\":["
+    <> "{\"kind\":\"union\",\"children\":["
+    <> "{\"kind\":\"subject\",\"subject\":{\"kind\":\"id\",\"objectType\":\"user\",\"objectId\":\"alice\"}},"
+    <> "{\"kind\":\"exclusion\",\"granted\":[{\"kind\":\"subject\",\"subject\":{\"kind\":\"id\",\"objectType\":\"user\",\"objectId\":\"bob\"}}],"
+    <> "\"subtracted\":[{\"kind\":\"subject\",\"subject\":{\"kind\":\"id\",\"objectType\":\"user\",\"objectId\":\"mallory\"}}]}]},"
+    <> "{\"kind\":\"intersection\",\"children\":[{\"kind\":\"subject\",\"subject\":{\"kind\":\"id\",\"objectType\":\"user\",\"objectId\":\"carol\"}}]}],"
+    <> "\"state\":{\"status\":\"exhausted\"},\"checkedAt\":\"checked-at\"}"

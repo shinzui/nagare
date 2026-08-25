@@ -289,6 +289,7 @@ data AccessCommand
 
 data AccessGrantOpts = AccessGrantOpts
   { enUrl :: !(Maybe String)
+  , enApiKey :: !(Maybe String)
   , host :: !String
   , user :: !String
   }
@@ -296,6 +297,7 @@ data AccessGrantOpts = AccessGrantOpts
 
 data AccessListOpts = AccessListOpts
   { enUrl :: !(Maybe String)
+  , enApiKey :: !(Maybe String)
   , host :: !String
   }
   deriving stock (Generic, Show)
@@ -1004,6 +1006,7 @@ accessGrantOptsParser :: Parser AccessGrantOpts
 accessGrantOptsParser =
   AccessGrantOpts
     <$> enUrlOpt
+    <*> enApiKeyOpt
     <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
     <*> strOption (long "user" <> metavar "USER" <> help "Shomei user id to grant or revoke")
 
@@ -1011,6 +1014,7 @@ accessListOptsParser :: Parser AccessListOpts
 accessListOptsParser =
   AccessListOpts
     <$> enUrlOpt
+    <*> enApiKeyOpt
     <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
 
 enUrlOpt :: Parser (Maybe String)
@@ -1020,6 +1024,16 @@ enUrlOpt =
         ( long "en-url"
             <> metavar "URL"
             <> help "en-server URL (default: NAGARE_EN_URL)"
+        )
+    )
+
+enApiKeyOpt :: Parser (Maybe String)
+enApiKeyOpt =
+  optional
+    ( strOption
+        ( long "en-api-key"
+            <> metavar "KEY"
+            <> help "en-server bearer API key (default: NAGARE_EN_API_KEY)"
         )
     )
 
@@ -3176,6 +3190,7 @@ runAccess = \case
     runAccessGrant
       AccessGrantParams
         { agpEnUrl = T.pack <$> o ^. #enUrl
+        , agpEnApiKey = T.pack <$> o ^. #enApiKey
         , agpHost = T.pack (o ^. #host)
         , agpUser = T.pack (o ^. #user)
         }
@@ -3183,6 +3198,7 @@ runAccess = \case
     runAccessRevoke
       AccessGrantParams
         { agpEnUrl = T.pack <$> o ^. #enUrl
+        , agpEnApiKey = T.pack <$> o ^. #enApiKey
         , agpHost = T.pack (o ^. #host)
         , agpUser = T.pack (o ^. #user)
         }
@@ -3191,6 +3207,7 @@ runAccess = \case
       runAccessList
         AccessListParams
           { alpEnUrl = T.pack <$> o ^. #enUrl
+          , alpEnApiKey = T.pack <$> o ^. #enApiKey
           , alpHost = T.pack (o ^. #host)
           }
 
