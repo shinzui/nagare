@@ -83,7 +83,7 @@ ownership rules in Integration Points.
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | In Progress |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
-| 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | Not Started |
+| 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Not Started |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Not Started |
 
@@ -188,7 +188,10 @@ complete; the child plans hold the granular checklists.
   against disposable PostgreSQL, rendered manifests and registry tags verified;
   live installer rerun remains)
 - [ ] EP-5 M1: vmalert + Alertmanager with a Pushover channel
-- [ ] EP-5 M2: Five real alert rules, and a truthful freshness probe
+- [~] EP-5 M2: Six rules covering five failure modes, and a truthful freshness
+  probe (2026-08-24 — exact chart render, scrape selector, PromQL validation,
+  Haskell implementation, and all 363 tests pass; live series/rule/status proof
+  remains behind cloud reauthentication)
 - [ ] EP-5 M3: Prove backups restore, on a schedule
 - [ ] EP-6 M1: URL-safe database credentials and total secret decoding
 - [ ] EP-6 M2: Clean phase failures and verified label stamping
@@ -287,6 +290,14 @@ Discoveries from implementation:
   is in `mori://shinzui/en` at project-relative path
   `docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md`; an
   artifact-level Mori URI is pending registry coverage.
+- **EP-5's pinned interfaces differed from its authored assumptions**
+  (2026-08-24). The cert-manager v1.20.2 Service port is
+  `tcp-prometheus-servicemonitor`, chart 0.81.0 prefers
+  `defaultRules.enabled`, and the chart requires vmalert to have a notifier.
+  Also, kube-state-metrics can retain a failed-attempt count on an eventually
+  successful Job. EP-5 uses the exact port/current value key, explicit blackhole
+  mode until Pushover is configured, and excludes successful Jobs from the
+  backup-failure alert.
 
 
 ## Decision Log
@@ -346,6 +357,15 @@ Discoveries from implementation:
   and upstream tag `v1.1.0.0` on 2026-08-24.
   Date: 2026-08-24
 
+- Decision: Proceed with EP-5 M2/M3 repository work while M1 remains open on
+  operator-owned Pushover credentials and phone-delivery proof; run vmalert with
+  an explicit blackhole notifier in the interim.
+  Rationale: scrape/rule validation, backup-prefix correctness, and restore smoke
+  coverage do not require fabricating an external account secret. The temporary
+  notifier state is explicit and chart-valid, and EP-5 records that M1 must remove
+  it when enabling Alertmanager.
+  Date: 2026-08-24
+
 
 ## Outcomes & Retrospective
 
@@ -358,3 +378,7 @@ dependency-owned migrations, and local MinIO pinning are complete and pass their
 offline/rendered checks. Live local/cloud rollout remains open because this machine
 has neither a running Docker/k3d cluster nor an authenticated cloud context; those
 acceptance gates remain visible in EP-4 rather than being inferred from rendering.
+EP-5 M2's repository implementation is also complete offline: the exact chart
+renders, all six alert expressions validate, the pinned cert-manager selector is
+correct, and all 363 nagarectl tests pass. Live metric/rule evaluation and Pushover
+delivery remain open rather than being simulated.

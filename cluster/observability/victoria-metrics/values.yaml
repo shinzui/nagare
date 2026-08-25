@@ -63,10 +63,32 @@ vmagent:
       limits:
         memory: 256Mi
 
-# No alerting in v1.
+# EP-101 M1's Pushover delivery channel remains operator-gated, so
+# Alertmanager stays disabled until its sops-managed credential Secret exists.
 alertmanager:
   enabled: false
+
+# Evaluate Nagare's curated VMRule even before a delivery channel is configured.
+# When EP-101 M1 enables Alertmanager, this VMAlert automatically discovers it.
 vmalert:
+  enabled: true
+  spec:
+    selectAllByDefault: true
+    evaluationInterval: 30s
+    # Required by chart 0.81.0 while Alertmanager remains operator-gated. EP-101
+    # M1 removes this once the real notifier is enabled.
+    extraArgs:
+      notifier.blackhole: "true"
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+# The bundled rules assume a full multi-node Kubernetes control plane and are
+# noisy on k3s. Nagare owns the focused set under observability/vmrules/.
+defaultRules:
   enabled: false
 
 # Host-level metrics (CPU, memory, disk, network) for nagare-01.

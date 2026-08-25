@@ -1,0 +1,23 @@
+# Scrape cert-manager controller metrics for the certificate-expiry alert.
+# The selector and port name are verified against the exact v1.20.2 upstream
+# release manifest installed by Nagare; VMAgent discovers this object through
+# selectAllByDefault.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: cert-manager
+  namespace: monitoring
+  labels:
+    nagare.dev/component: alerting
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: tcp-prometheus-servicemonitor
+      path: /metrics
+      interval: 60s

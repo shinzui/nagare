@@ -41,8 +41,6 @@ Secrets ................... sops-encrypted in Git (.sops.yaml,
                             cluster/secrets/, nixos/secrets/)         -> sops -d | kubectl apply
 SQLite app data ........... Litestream replica in
                             gcs://<backupBucket>/litestream/          -> litestream restore (scratch)
-Postgres data ............. pg_dump in
-                            gcs://<backupBucket>/postgres/            -> nagarectl db restore <name> <id> (scratch)
 App volume data ........... tar.gz snapshots in
                             gcs://<backupBucket>/volumes/<app>/<volume>/ -> nagarectl storage restore <app> <volume> <id> (scratch)
 Managed database data ..... pg_dump/.rdb/.native logical dumps in
