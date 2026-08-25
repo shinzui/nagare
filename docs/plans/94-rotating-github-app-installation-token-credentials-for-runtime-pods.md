@@ -18,15 +18,21 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 
 Nagare will publish two stable, role-named Kubernetes Secrets in the `personal`
 namespace: `nagare-forge-read` and `nagare-forge-write`. Their values will be
-short-lived GitHub App installation tokens minted on the `nagare-01` host and replaced
-every thirty minutes. A runtime workload selects a role name and receives
-`GITHUB_TOKEN`; it does not know an App ID, installation ID, private key, or a user's
-personal access token.
+short-lived installation tokens for two GitHub Apps. In this plan, a GitHub App is a
+GitHub-managed machine identity, similar to a service account: it has its own name,
+private key, permission ceiling, and repository access, but it is not an application
+binary, Pod, GitHub Action, OAuth login, or webhook service. The tokens are minted on the
+`nagare-01` host and replaced every thirty minutes. A runtime workload selects a role name
+and receives `GITHUB_TOKEN`; it does not know an App ID, installation ID, private key, or
+a user's personal access token.
 
 An operator can see the feature working by checking the timer state, observing that a
 Secret's value changes after a forced refresh, using the read token to fetch an allowed
 repository, and observing that the same token cannot write. A reboot and NixOS rebuild
 must restore the refreshers without re-entering a live token.
+
+This plan creates two new GitHub App registrations. It does not assume that suitable
+Apps already exist, and it does not reuse an unrelated existing App.
 
 
 ## Progress
@@ -35,7 +41,8 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Create two least-privilege GitHub Apps and record their installation boundaries.
+- [ ] Register and install two least-privilege GitHub Apps through the owning account's
+  GitHub settings, then record their non-secret settings and installation boundaries.
 - [ ] Declare the App bootstrap material with sops-nix and add the host refresh module.
 - [ ] Atomically publish the role-named Kubernetes Secrets from independent systemd timers.
 - [ ] Document workload consumption, rotation, failure behavior, and App-key recovery.
@@ -47,7 +54,19 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Discovery: The locked Nixpkgs package set contains
+  `haskellPackages.github-app-token` 0.0.3.0, but it is a Haskell library rather than an
+  executable. Its public exception values retain failed HTTP response bodies, and its
+  invalid-key exception retains the supplied private key, so an unhandled exception can
+  violate this plan's requirement that journals never contain response or key material.
+  The latest upstream tag is also 0.0.3.0, dated 2024-09-26. It is therefore not a
+  drop-in host utility.
+
+- Discovery: GitHub's maintained `@octokit/auth-app` package can generate installation
+  tokens and currently handles JWT clock skew, but using it here would still require a
+  Nagare-owned Node wrapper, a locked npm dependency graph, and a Node runtime. There is
+  no existing Nagare package or Nixpkgs command-line executable that removes the need for
+  a local wrapper.
 
 
 ## Decision Log
@@ -87,6 +106,35 @@ Record every decision made while working on the plan.
   publishing, and recovery workloads; it is not owned by one application.
   Date: 2026-07-14
 
+- Decision: Register both Apps once through the owning account's GitHub settings rather
+  than provisioning them through Pulumi or implementing GitHub's App Manifest flow.
+  Rationale: Registration chooses an owner and requires an authorized GitHub user to
+  review the requested permissions. The manifest flow would add a temporary redirect
+  service and a one-hour code exchange solely to automate two one-time registrations;
+  GitHub exposes no ordinary create-App REST resource for Pulumi to own. The repository
+  will document the exact settings and treat the resulting App registrations and
+  installations as operator-managed external state.
+  Date: 2026-08-25
+
+- Decision: Mint tokens with a `pkgs.writeShellApplication` helper whose runtime inputs
+  are the locked Nixpkgs `openssl`, `curl`, `jq`, and `coreutils` packages, rather than
+  adding `haskellPackages.github-app-token` or `@octokit/auth-app`.
+  Rationale: Both specialized candidates are libraries that still need a wrapper. The
+  Haskell library's default exceptions can retain private key or HTTP response material,
+  while Octokit adds a Node package/runtime closure. The direct GitHub flow is small—sign
+  one RS256 JWT, make one versioned HTTP request, and validate two response fields—and a
+  shell helper can keep all credentials in root-only files and emit only sanitized
+  errors. Pinning comes from the existing Nix flake rather than a second package lock.
+  Date: 2026-08-25
+
+- Decision: Model exactly one GitHub installation per role in this plan.
+  Rationale: A GitHub App installation belongs to one user or organization account, and
+  the current bootstrap schema has one `installation-id` per role. Every repository in a
+  role's documented boundary must therefore have the same owner account. Supporting
+  repositories owned by multiple accounts requires an explicit schema and service fanout
+  revision rather than silently choosing one installation.
+  Date: 2026-08-25
+
 
 ## Outcomes & Retrospective
 
@@ -114,6 +162,21 @@ returned by GitHub's installation-access-token endpoint. The former is durable a
 encrypted at rest; the latter is ephemeral and exists only in a root-only runtime file
 and a Kubernetes Secret.
 
+A GitHub App is an authorization identity stored by GitHub. Its registration establishes
+the identity and the maximum permissions it may ever receive. Its private key lets
+Nagare prove that it controls that identity. The App contains no Nagare code and receives
+no webhooks in this design; its only job is to let Nagare request short-lived credentials
+that GitHub attributes to the App rather than to a human user.
+
+“Registration” is the one-time creation of that identity under a user or organization
+account. “Installation” is the separate grant that attaches the identity to selected
+repositories owned by one account. An “installation token” is the temporary credential
+created from the registration's private key for one installation; its effective access
+is the intersection of the App's permission ceiling and the repositories selected by the
+installation. This plan has two registrations and two installations: one
+registration/installation pair for the read role and one for the write role. The App
+registrations are operator-managed GitHub state, not NixOS or Pulumi resources.
+
 The source requirement is
 `mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`,
 under the shared Intention in this file's frontmatter. Kikan's architectural posture is
@@ -121,19 +184,51 @@ role binding: Mori or a mirror requests a read or write role; it must not embed 
 or choose a provider-specific Secret name. The Kikan C16 contract is still unimplemented
 as of 2026-07-14, so do not add repository-coordinate logic here.
 
+The local ADR filename-and-heading scan found no record governing GitHub App ownership,
+forge credentials, or external credential helper selection. The closest host-management
+records concern NixOS input ownership and versioned platform state, not account-level
+GitHub registrations, so no local ADR constrains this plan revision.
+
 
 ## Plan of Work
 
 ### Milestone 1: establish the forge identities and encrypted inputs
 
-Create two GitHub Apps outside this repository and write their non-secret installation
-boundaries into `docs/user/forge-credentials.md`. The read App has repository Contents
-read permission and is installed on every repository the content plane may mirror. The
-write App has only the minimum Contents and pull-request permissions required by the
-publishing workflow and is installed on a deliberately narrow repository set. Do not
-grant organization administration, Actions administration, Members, Secrets, or Webhook
-permissions. Record owners for App-key and installation changes, but never record IDs or
-keys in plaintext documentation.
+This milestone creates two new GitHub App registrations rather than discovering or
+reusing existing registrations. An owner of the GitHub user or organization account that
+owns the target repositories must register the two private Apps through GitHub's Settings,
+Developer settings, GitHub Apps, New GitHub App page. Use globally unique names derived
+from `nagare-forge-read` and `nagare-forge-write`; the suffix needed for global uniqueness
+is not part of the stable Kubernetes Secret name. For both Apps, set the Nagare repository
+URL as the homepage,
+select the option that restricts installation to the owning account, disable webhooks,
+subscribe to no events, request no user authorization, and leave callback and setup URLs
+unset.
+
+For the read App, set repository Contents permission to read-only. For the write App,
+set repository Contents and Pull requests permissions to read-and-write so the publishing
+workflow can push a branch and open or update a pull request. GitHub grants Metadata read
+permission automatically. Leave every other repository, organization, account, and
+enterprise permission at `No access`; in particular do not grant Administration,
+Actions, Workflows, Members, Secrets, or any webhook permission.
+
+After registering each App, generate exactly one private key and install the App on the
+same owning account with `Only select repositories`. Install the read App on every
+repository the content plane may mirror. Install the write App only on the disposable
+publishing target and the narrow production targets it is explicitly allowed to mutate.
+All repositories selected for one role must belong to that one installation owner. If
+the required repositories span multiple user or organization accounts, stop and revise
+the one-installation-per-role bootstrap interface before creating additional
+installations.
+
+Write the App owner, actual App slug, installation owner, webhook-disabled state,
+permission matrix, and exact selected-repository list into
+`docs/user/forge-credentials.md`. Record owners for private-key and installation changes,
+but never record App IDs, installation IDs, or keys in plaintext documentation. Copy the
+App ID from the App settings page and the installation ID from the installed App's
+settings URL directly into the encrypted input described below. After confirming that
+sops contains the PEM, remove the browser-downloaded plaintext PEM; sops becomes the
+recovery copy.
 
 Edit the encrypted `nixos/hosts/nagare-01/secrets/nagare-01.yaml` with `sops`, adding:
 
@@ -161,14 +256,21 @@ boundary.
 
 ### Milestone 2: mint and publish independently rotating role Secrets
 
-Implement `nixos/hosts/nagare-01/forge-credentials.nix` with a small local helper that
-builds one service/timer pair per role. The refresh program must:
+Implement `nixos/hosts/nagare-01/forge-credentials.nix` with
+`pkgs.writeShellApplication`. Give the generated refresh program `runtimeInputs` containing
+`pkgs.openssl`, `pkgs.curl`, `pkgs.jq`, `pkgs.coreutils`, and
+`config.services.k3s.package`; do not add a Haskell, Node, Python, or dynamically downloaded
+GitHub helper. A small Nix helper builds one service/timer pair per role. The refresh
+program must:
 
 1. read the role's App ID, installation ID, and PEM from sops-provided paths;
 2. create an RS256 GitHub App JWT with `iat` slightly in the past and `exp` no more than
    ten minutes in the future, using `openssl` and base64url encoding;
-3. POST to `/app/installations/{installation_id}/access_tokens` with `curl`, fail on
-   non-2xx responses, and validate `.token` and `.expires_at` with `jq`;
+3. POST to `/app/installations/{installation_id}/access_tokens` with `curl`, using
+   `Accept: application/vnd.github+json`, `Authorization: Bearer <JWT>`, and
+   `X-GitHub-Api-Version: 2026-03-10`; keep the authorization header in a root-only curl
+   config file rather than a process argument, fail on non-2xx responses, and validate
+   `.token` and `.expires_at` with `jq`;
 4. write the token and expiry to a service `RuntimeDirectory` with umask `077`;
 5. use `kubectl create secret generic --from-file ... --dry-run=client -o yaml |
    kubectl apply -f -` to atomically publish `token`, `GITHUB_TOKEN`, and `expires_at`
@@ -185,8 +287,8 @@ Create `nagare-forge-read-refresh.service` and
 `After=` and `Wants=` `network-online.target` and `k3s.service`, but it is not a
 requirement or ordering prerequisite of k3s. Create matching timers with an initial
 short delay, `OnUnitActiveSec=30min`, `RandomizedDelaySec=2min`, and `Persistent=true`.
-Use `curl`, `jq`, `openssl`, `coreutils`, and the k3s-provided `kubectl` explicitly from
-Nix packages; do not depend on an interactive PATH.
+The `writeShellApplication` derivation must pass its ShellCheck phase. The implementation
+uses the existing locked Nixpkgs packages only and must not depend on an interactive PATH.
 
 Milestone 2 is complete when starting either unit creates only its own Secret, a failed
 mint does not change the Secret's resource version or token hash, and the timer retries
@@ -217,7 +319,11 @@ test artifacts.
 
 Run repository commands from `/Users/shinzui/Keikaku/bokuno/nagare`.
 
-First edit the encrypted input and evaluate the machine configuration:
+First complete the two GitHub UI registrations and installations described in Milestone
+1. Before handling a PEM, turn shell tracing off and create no plaintext notes. Confirm
+on each installed App's settings page that the account owner, selected repositories, and
+permissions exactly match `docs/user/forge-credentials.md`. Then edit the encrypted input
+and evaluate the machine configuration:
 
 ```bash
 sops nixos/hosts/nagare-01/secrets/nagare-01.yaml
@@ -281,6 +387,11 @@ Acceptance requires all of the following behaviors:
 
 * `nix flake check` and the `nagare-01` toplevel build succeed from a clean checkout that
   has access to the host age key only at activation time.
+* GitHub shows two private, webhook-disabled App registrations. The read registration has
+  only Metadata read and Contents read permissions; the write registration has only
+  Metadata read plus Contents and Pull requests read-and-write permissions. Each has one
+  installation on the documented owner account with exactly the documented selected
+  repositories.
 * Each timer creates its named Secret independently. Each Secret contains exactly the
   required `token`, `GITHUB_TOKEN`, and `expires_at` data keys, and the two token keys
   decode to identical bytes.
@@ -322,10 +433,20 @@ reverse that order when restoring it.
 
 ## Interfaces and Dependencies
 
-The implementation uses GitHub's App JWT and installation-token HTTP APIs, sops-nix for
-durable bootstrap material, systemd for scheduling, and k3s's `kubectl` for publication.
-No new long-running service, operator, Haskell dependency, or external secret manager is
-introduced.
+The two GitHub App registrations and their selected-repository installations are created
+once in GitHub's settings UI and remain operator-managed external state. No package,
+Pulumi resource, or NixOS module creates them. The repository records their non-secret
+configuration in `docs/user/forge-credentials.md` and stores their bootstrap credentials
+only through sops-nix.
+
+The runtime implementation uses GitHub's App JWT and installation-token HTTP APIs,
+sops-nix for durable bootstrap material, systemd for scheduling, and k3s's `kubectl` for
+publication. `pkgs.writeShellApplication` packages the local refresh helper with the
+locked Nixpkgs `openssl`, `curl`, `jq`, `coreutils`, and k3s packages as runtime inputs.
+No new long-running service, operator, Haskell/Node/Python dependency, external secret
+manager, or runtime package download is introduced. The researched
+`haskellPackages.github-app-token` and `@octokit/auth-app` libraries are deliberately not
+part of the implementation.
 
 At completion, `nixos/hosts/nagare-01/forge-credentials.nix` must expose these systemd
 units:
@@ -362,3 +483,21 @@ specification. No implementation scope or acceptance behavior changed.
 2026-08-23: Replaced the informal cross-repository Kikan source-plan reference with its
 canonical `mori://` URI as part of the Nagare plan-registry update. Scope and status are
 unchanged.
+
+2026-08-25: Defined the complete GitHub UI registration and selected-repository
+installation procedure, made the one-installation-per-role constraint explicit, and
+resolved the dependency question. The refresher now explicitly uses a
+`pkgs.writeShellApplication` built from existing locked Nixpkgs command packages; the
+available Haskell `github-app-token` and JavaScript `@octokit/auth-app` libraries were
+researched and rejected because neither is a ready-to-run host command and each would
+require an additional wrapper/runtime. This revision removes the earlier ambiguity about
+which state is operator-managed and which code is implemented in Nagare.
+
+2026-08-25: Clarified that “GitHub App” means a GitHub-managed machine identity rather
+than a deployed application, GitHub Action, OAuth login, or webhook service. Also defined
+how registration, installation, private-key proof, and installation-token scope relate;
+the architecture and implementation scope are unchanged.
+
+2026-08-25: Made explicit that Milestone 1 creates two new GitHub App registrations and
+does not assume or reuse existing Apps. Creation remains a one-time operator action in
+GitHub's UI; Nagare code begins with storing the resulting bootstrap credentials.
