@@ -15,6 +15,7 @@ import Control.Exception (try)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 import En.Client
   ( CaveatContextWire (..)
   , CheckDecisionWire (..)
@@ -32,11 +33,13 @@ import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..))
 import Network.HTTP.Client qualified as HC
+import Network.HTTP.Types (hAuthorization)
 import Servant.Client
   ( BaseUrl
-  , ClientEnv
+  , ClientEnv (..)
   , ClientError
   , InvalidBaseUrlException
+  , defaultMakeClientRequest
   , mkClientEnv
   , parseBaseUrl
   , runClientM
@@ -89,4 +92,18 @@ enClientEnvFromAuthPlane manager cfg = do
     Left (err :: InvalidBaseUrlException) ->
       Left ("could not parse en URL: " <> Text.pack (show err))
     Right baseUrl ->
-      Right (mkClientEnv manager baseUrl)
+      Right (addEnAuthorization (enApiKey cfg) (mkClientEnv manager baseUrl))
+
+addEnAuthorization :: Maybe Text -> ClientEnv -> ClientEnv
+addEnAuthorization Nothing env = env
+addEnAuthorization (Just apiKey) env =
+  env
+    { makeClientRequest = \baseUrl request -> do
+        clientRequest <- defaultMakeClientRequest baseUrl request
+        pure
+          clientRequest
+            { HC.requestHeaders =
+                (hAuthorization, "Bearer " <> TE.encodeUtf8 apiKey)
+                  : filter ((/= hAuthorization) . fst) (HC.requestHeaders clientRequest)
+            }
+    }

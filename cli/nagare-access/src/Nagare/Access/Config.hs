@@ -25,6 +25,7 @@ data AuthPlaneConfig = AuthPlaneConfig
   , shomeiIssuer :: !Text
   , shomeiAudience :: !Text
   , enUrl :: !Text
+  , enApiKey :: !(Maybe Text)
   , cookieDomain :: !Text
   , cookieKey :: !(Maybe Text)
   }
@@ -109,7 +110,7 @@ parseDecisionTtl raw
 
 parseAuthPlane :: [(String, String)] -> Either Text (Maybe AuthPlaneConfig)
 parseAuthPlane env =
-  if null present && cookieKeyRaw == Nothing
+  if null present && enApiKeyRaw == Nothing && cookieKeyRaw == Nothing
     then Right Nothing
     else Just <$> parseCompleteAuthPlane
   where
@@ -122,6 +123,7 @@ parseAuthPlane env =
       , "NAGARE_ACCESS_COOKIE_DOMAIN"
       ]
     present = [name | name <- requiredNames, raw name /= Nothing]
+    enApiKeyRaw = raw "NAGARE_ACCESS_EN_API_KEY"
     cookieKeyRaw = raw "NAGARE_ACCESS_COOKIE_KEY"
     parseCompleteAuthPlane =
       AuthPlaneConfig
@@ -129,6 +131,7 @@ parseAuthPlane env =
         <*> requireAuthEnv "NAGARE_ACCESS_SHOMEI_ISSUER"
         <*> requireAuthEnv "NAGARE_ACCESS_SHOMEI_AUDIENCE"
         <*> (requireAuthEnv "NAGARE_ACCESS_EN_URL" >>= parseHttpUrl "NAGARE_ACCESS_EN_URL")
+        <*> pure enApiKeyRaw
         <*> (requireAuthEnv "NAGARE_ACCESS_COOKIE_DOMAIN" >>= parseCookiePart "NAGARE_ACCESS_COOKIE_DOMAIN")
         <*> traverse (parseCookiePart "NAGARE_ACCESS_COOKIE_KEY") cookieKeyRaw
     requireAuthEnv name =

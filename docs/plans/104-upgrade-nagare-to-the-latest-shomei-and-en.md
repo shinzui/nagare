@@ -74,8 +74,11 @@ This section must always reflect the actual current state of the work.
       real En authorization path. The flake-isolated repetition reached dependency cloning
       but cannot clone the private `mori://shinzui/en` repository without credentials; this
       pre-existing infrastructure limitation is recorded under Surprises & Discoveries.
-- [ ] M3: teach `nagare-access` to send en's mandatory API key, with a new
-      `NAGARE_ACCESS_EN_API_KEY` configuration variable.
+- [x] M3: teach `nagare-access` to send en's mandatory API key, with a new
+      `NAGARE_ACCESS_EN_API_KEY` configuration variable. Completed
+      2026-08-25T13:30:55Z: the configured bearer value and intentionally absent-header
+      paths are covered by live HTTP tests; all 103 tests and `cabal build
+      exe:nagare-access` pass.
 - [ ] M4: fix `nagarectl`'s hand-written en client (`cli/nagarectl/src/Nagare/Access/Grants.hs`)
       — new `/v1` paths, the bearer API key, and en's hand-written wire JSON.
 - [ ] M5: update the cluster manifests and the image build script — en API-key Secret and

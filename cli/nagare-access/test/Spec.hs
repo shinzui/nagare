@@ -64,7 +64,7 @@ import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, Status, hAccept, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502, status503)
+import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
@@ -151,6 +151,7 @@ configTests =
               , shomeiIssuer = "https://auth.apps.example.com"
               , shomeiAudience = "nagare-access"
               , enUrl = "http://en.nagare-system.svc.cluster.local"
+              , enApiKey = Just "en-read-only-key"
               , cookieDomain = ".apps.example.com"
               , cookieKey = Just "cookie-secret"
               }
@@ -162,6 +163,9 @@ configTests =
         assertBool
           "expected Left"
           (isLeft (parseRuntimeConfig (replaceEnv "NAGARE_ACCESS_SHOMEI_URL" "shomei" completeAuthEnv)))
+    , testCase "runtime config permits an unauthenticated en with no API key" $ do
+        cfg <- assertRight (parseRuntimeConfig (removeEnv "NAGARE_ACCESS_EN_API_KEY" completeAuthEnv))
+        (enApiKey =<< authPlaneConfig cfg) @?= Nothing
     , testCase "runtime config rejects negative decision ttl" $
         assertBool
           "expected Left"
@@ -445,6 +449,20 @@ enTests =
             >>= (@?= AuthorizationDecision AccessAllowed)
           authorizeWithEn clientEnv AuthenticatedUser {userSubject = "bob"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessDenied)
+    , testCase "en client sends the configured bearer API key" $
+        testWithApplication (pure (enAuthorizationStubApp (Just "Bearer en-read-only-key"))) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          cfg <- completeAuthConfig
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = localUrl port})
+          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+            >>= (@?= AuthorizationDecision AccessAllowed)
+    , testCase "en client omits Authorization when no API key is configured" $
+        testWithApplication (pure (enAuthorizationStubApp Nothing)) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          cfg <- completeAuthConfig
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = localUrl port, enApiKey = Nothing})
+          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+            >>= (@?= AuthorizationDecision AccessAllowed)
     , -- en expresses a genuine refusal as EnOk DeniedWire. Every envelope and
       -- transport error is unavailability, never a decision.
       testCase "a wire response is a decision, a client error is unavailability" $ do
@@ -979,6 +997,7 @@ appTests =
                       , shomeiIssuer = "shomei"
                       , shomeiAudience = "shomei-clients"
                       , enUrl = Text.pack ("http://127.0.0.1:" <> show enPort)
+                      , enApiKey = Nothing
                       , cookieDomain = ".apps.example.com"
                       , cookieKey = Just "cookie-secret"
                       }
@@ -1064,6 +1083,7 @@ completeAuthEnv =
   , ("NAGARE_ACCESS_SHOMEI_ISSUER", "https://auth.apps.example.com")
   , ("NAGARE_ACCESS_SHOMEI_AUDIENCE", "nagare-access")
   , ("NAGARE_ACCESS_EN_URL", "http://en.nagare-system.svc.cluster.local")
+  , ("NAGARE_ACCESS_EN_API_KEY", "en-read-only-key")
   , ("NAGARE_ACCESS_COOKIE_DOMAIN", ".apps.example.com")
   , ("NAGARE_ACCESS_COOKIE_KEY", "cookie-secret")
   ]
@@ -1071,6 +1091,9 @@ completeAuthEnv =
 replaceEnv :: String -> String -> [(String, String)] -> [(String, String)]
 replaceEnv name value =
   map (\entry@(k, _) -> if k == name then (name, value) else entry)
+
+removeEnv :: String -> [(String, String)] -> [(String, String)]
+removeEnv name = filter ((/= name) . fst)
 
 completeAuthConfig :: IO AuthPlaneConfig
 completeAuthConfig =
@@ -1143,6 +1166,19 @@ shomeiUser =
     , ShomeiUserDTO.displayName = "Alice"
     , ShomeiUserDTO.status = "active"
     }
+
+localUrl :: Int -> Text
+localUrl port = Text.pack ("http://127.0.0.1:" <> show port)
+
+enAuthorizationStubApp :: Maybe ByteString -> Wai.Application
+enAuthorizationStubApp expectedAuthorization req respond = do
+  lookup hAuthorization (requestHeaders req) @?= expectedAuthorization
+  respond
+    ( Wai.responseLBS
+        status200
+        [("Content-Type", "application/json")]
+        (encode (CheckResponseWire AllowedWire "checked-at"))
+    )
 
 type EnAccessEffects = '[ConsistencyStore, TupleStore, Error EnError, IOE]
 
