@@ -27,8 +27,8 @@ historic default context is project **`tan-nb-exp`**, region **`us-west1`**, zon
 The **age private key** (`~/.config/sops/age/keys.txt`; on the host
 `/var/lib/sops-nix/age-key.txt`). It is the root of trust for every encrypted
 secret. Store a copy offline (password manager / hardware token). **Without it,
-nothing under `cluster/secrets/` or `nixos/secrets/` can be decrypted** and the
-recovery cannot complete. Restore it first, before step 7.
+nothing under `cluster/secrets/` or `nixos/hosts/nagare-01/secrets/` can be
+decrypted** and the recovery cannot complete. Restore it first, before step 7.
 
 ## Backup inventory — what is backed up, where, and how it is restored
 
@@ -38,7 +38,8 @@ Pulumi infra (TypeScript) . Git (infra/pulumi/src/)                  -> git clon
 Pulumi state .............. ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state -> restore active context state
 Kubernetes manifests ...... Git (cluster/)                           -> git clone
 Secrets ................... sops-encrypted in Git (.sops.yaml,
-                            cluster/secrets/, nixos/secrets/)         -> sops -d | kubectl apply
+                            cluster/secrets/,
+                            nixos/hosts/nagare-01/secrets/)           -> sops -d | kubectl apply
 SQLite app data ........... Litestream replica in
                             gcs://<backupBucket>/litestream/          -> litestream restore (scratch)
 App volume data ........... tar.gz snapshots in
@@ -52,18 +53,23 @@ Victoria metrics/logs/traces  NOT backed up (non-critical;
 age PRIVATE key ........... NOT in Git, NOT in the bucket; offline    -> restore from your vault
 ```
 
-`nagarectl server status` reports the **freshness** (newest-object age) of each
-`gs://tan-nb-exp-nagare-backups/` prefix (`postgres`, `litestream`, `volumes`),
-so you can confirm backups are current without a manual `gsutil ls -l`.
+Resolve the active context's backup bucket with:
+
+```bash
+pulumi -C infra/pulumi stack output backupBucket
+```
+
+`nagarectl server status` reports the **freshness** (newest-object age) of its
+`databases/<name>`, `litestream`, and `volumes` prefixes in that bucket, so you
+can confirm backups are current without a manual `gsutil ls -l`.
 
 ## Rebuild sequence
 
 ### 1. Provision cloud resources (EP-2)
 
 ```bash
-cd infra/pulumi && pulumi up
-pulumi stack output backupBucket    # e.g. tan-nb-exp-nagare-backups
-cd -
+pulumi -C infra/pulumi up
+pulumi -C infra/pulumi stack output backupBucket # e.g. <project>-nagare-backups
 ```
 
 Observe: `Resources: + N created`; `backupBucket`, `publicIp`, `dnsZoneName`,
@@ -76,7 +82,7 @@ Registry, and both buckets exist.
 just host-image                     # build on the x86_64-linux remote builder,
                                     # upload, register a GCE image, write
                                     # nagareImageSelfLink into Pulumi config
-cd infra/pulumi && pulumi up && cd -   # instance boots from the registered image
+pulumi -C infra/pulumi up          # instance boots from the registered image
 ```
 
 Observe: `host-image` prints the registered image self-link; `pulumi up` shows
@@ -102,15 +108,13 @@ Until Tailscale is joined, the kube-apiserver (6443) is reachable only over an
 SSH local-forward through the port-22 IAP tunnel:
 
 ```bash
-export ZONE=us-west1-a
 TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)        # localhost:2222 -> VM:22
 ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null -p 2222 \
     -L 6443:127.0.0.1:6443 -N -f deploy@127.0.0.1            # forward 6443
 ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -p 2222 deploy@127.0.0.1 \
-    'cat /etc/rancher/k3s/k3s.yaml' > /tmp/nagare-kubeconfig.yaml
-sed 's#https://127.0.0.1:6443#https://127.0.0.1:6443#' /tmp/nagare-kubeconfig.yaml > /tmp/kc.yaml
-export KUBECONFIG=/tmp/kc.yaml
+    'sudo cat /etc/rancher/k3s/k3s.yaml' > /tmp/nagare-kubeconfig.yaml
+export KUBECONFIG=/tmp/nagare-kubeconfig.yaml
 kubectl get nodes
 ```
 
@@ -124,7 +128,7 @@ with `pkill -f 'ssh.*-L 6443'; kill $TUNPID` when done.
 just cluster-bootstrap
 just deploy-hello
 kubectl -n personal wait --for=condition=Ready ksvc/hello --timeout=300s
-curl -i --resolve hello.personal.apps.example.com:80:$(cd infra/pulumi && pulumi stack output publicIp) \
+curl -i --resolve hello.personal.apps.example.com:80:$(pulumi -C infra/pulumi stack output publicIp) \
   http://hello.personal.apps.example.com
 ```
 
@@ -177,20 +181,17 @@ Observe: each prints `secret/<name> created`; the Secrets are listed.
 ### 7. Restore data (EP-7 M2)
 
 ```bash
-export BACKUP_BUCKET=$(cd infra/pulumi && pulumi stack output backupBucket)
+export BACKUP_BUCKET=$(pulumi -C infra/pulumi stack output backupBucket)
 # SQLite (Litestream) into a scratch file, then promote into the app volume/disk.
 # (The old restore-sqlite helper script is removed — restore with litestream
 # directly, pointing at the replica prefix in the backup bucket.)
 litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-db>
 sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
-# Postgres (managed database, EP-47) into a SCRATCH target, compare, then promote
-# manually. (The host-side restore-postgres / backup-postgres helper scripts are
-# removed; managed-DB backup/restore is the supported path.)
+# Managed database (EP-47) into a SCRATCH target, compare, then promote manually.
+# The removed host-side Postgres helpers are no longer a supported restore path.
 nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
 # App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
 nagarectl storage restore <app> <volume> <latest-id> --config <path-to-Config.hs>
-# Managed database (EP-47) into a SCRATCH target, compare, then promote manually:
-nagarectl db restore <name> "$(gsutil ls gs://$BACKUP_BUCKET/databases/<name>/ | tail -1)"
 ```
 
 Observe: the scratch row counts (or, for an app volume, the restored file tree
@@ -267,37 +268,53 @@ Nagare is designed to be disposable, so there are three "off" levels:
 **Stop the VM (cheapest reversible — halts compute only).**
 
 ```bash
-gcloud compute instances stop  nagare-01 --project=tan-nb-exp --zone=us-west1-a
-gcloud compute instances start nagare-01 --project=tan-nb-exp --zone=us-west1-a
+just vm-stop
+just vm-start
+
+# Spelled-out equivalents; the active context supplies these values.
+gcloud compute instances stop "$NAGARE_INSTANCE_NAME" \
+  --project="$CLOUDSDK_CORE_PROJECT" --zone="$CLOUDSDK_COMPUTE_ZONE"
+gcloud compute instances start "$NAGARE_INSTANCE_NAME" \
+  --project="$CLOUDSDK_CORE_PROJECT" --zone="$CLOUDSDK_COMPUTE_ZONE"
 ```
 
 Stopping halts compute charges; the boot + data disks and the reserved static IP
-still incur small storage/reservation costs. **Restart caveat:** `start` boots the
-*existing* boot disk (the current system generation), NOT the latest registered
-image. Two runtime workarounds applied during 2026-06-03 bring-up do **not** all
-survive a reboot:
-- `/etc/resolv.conf` is `chattr +i` immutable, so the `8.8.8.8` content **persists**
-  across reboot (DNS keeps working).
-- The pod→metadata route and MASQUERADE, and the coredns upstream, are runtime-only
-  and are **lost** on reboot — so after a `start`, re-apply them (or replace the VM,
-  below) before expecting keyless in-cluster ADC (Litestream/cert-manager) to work:
-  ```bash
-  GW=$(... default gw); ip route replace 169.254.169.254/32 via "$GW" dev eth0
-  iptables -t nat -A POSTROUTING -d 169.254.169.254/32 -j MASQUERADE
-  kubectl -n kube-system rollout restart deploy/coredns
-  ```
-  After a plain `start`, `nagarectl doctor` will flag the resulting downstream
-  failures (cert-manager / control-plane not ready, `Artifact Registry`
-  unreachable, stale backups) — re-apply the three commands above, then re-run
-  `nagarectl doctor` until every line is `OK`. The end-to-end walkthrough is the
-  day-2 recovery scenario in
-  [`server-operations.md`](server-operations.md#day-2-recovery-scenario-terminated--green).
+still incur small storage/reservation costs. `start` boots the *existing* boot
+disk and current NixOS generation, not the latest registered image. Generations
+that include `nixos/hosts/nagare-01/networking.nix` already declare the public
+resolvers, metadata `/32` route, and pod MASQUERADE, so no runtime re-application
+is needed. Verify after startup:
 
-**Replace the VM onto the fixed image (clean boot, recommended).** A `pulumi up`
-that recreates the instance boots from `nagareImageSelfLink`
-(`nagare-image-gnq7zw6pwd1a`, which has the DNS + metadata fixes), giving a fully
-clean boot with no workarounds — then re-bootstrap per steps 4–8 above. Do this
-once to retire the runtime workarounds.
+```bash
+scripts/iap-ssh.sh ssh nagare-01 -- \
+  'ip route get 169.254.169.254; cat /etc/resolv.conf'
+nagarectl doctor
+```
+
+The route must use `dev eth0`, the resolver list must include `8.8.8.8`, and
+`nagarectl doctor` should return the platform to green.
+
+If you intentionally boot a pre-fix generation, use these temporary recovery
+commands only long enough to rebuild or switch to the declarative generation:
+
+```bash
+GW=$(ip route show default | awk 'NR == 1 { print $3 }')
+sudo ip route replace 169.254.169.254/32 via "$GW" dev eth0
+sudo iptables -t nat -C POSTROUTING -d 169.254.169.254/32 -j MASQUERADE || \
+  sudo iptables -t nat -A POSTROUTING -d 169.254.169.254/32 -j MASQUERADE
+kubectl -n kube-system rollout restart deploy/coredns
+```
+
+**Replace the VM onto the fixed image (clean boot, recommended).** The image is
+the one recorded in the active context's Pulumi config key
+`nagareImageSelfLink`:
+
+```bash
+pulumi -C infra/pulumi config get nagareImageSelfLink
+```
+
+A `pulumi up` that recreates the instance boots that image, then the platform is
+re-bootstrapped with steps 4–8 above.
 
 **Full teardown (stop all charges).**
 

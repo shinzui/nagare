@@ -1,9 +1,9 @@
 # Secrets
 
-> **Status:** 🟡 In progress. Host secrets via sops-nix work today. Runtime app
-> secrets are managed with `nagarectl secret` (see
-> [Environment and secrets](env-and-secrets.md)). Git-encrypted cluster bootstrap
-> secrets via sops+age are still planned.
+> **Status:** ✅ Supported. Host secrets use sops-nix, runtime app secrets use
+> `nagarectl secret` (see [Environment and secrets](env-and-secrets.md)), and
+> Git-encrypted cluster bootstrap Secrets use the `sops -d | kubectl apply`
+> loop below. Backing up the private recovery keys remains an operator duty.
 
 Nagare keeps secrets simple and rebuildable: **encrypted in Git**, decrypted on
 the host at activation. There's no external secret manager — sops + age is
@@ -13,7 +13,7 @@ disposable single-node platform.
 ```text
 Host secrets:     sops-nix  (decrypt at NixOS activation)
 App runtime:      nagarectl secret (Kubernetes Secret per app/scope)
-Cluster bootstrap secrets: sops + age (planned decrypt into Kubernetes Secrets)
+Cluster bootstrap secrets: sops + age (`sops -d | kubectl apply`)
 Encrypted files:  committed to Git
 ```
 
@@ -87,13 +87,24 @@ are read from stdin, written to Kubernetes `Secret` objects, and consumed by the
 rendered Service through optional `envFrom` blocks. See
 [Environment and secrets](env-and-secrets.md) for the full command reference.
 
-## Cluster bootstrap secrets — 🔭 Planned
+## Cluster bootstrap secrets — ✅
 
-Platform-level Kubernetes secrets that should be reproducible from Git, such as
-bootstrap credentials for optional cluster services, will be managed with
-sops+age encrypted files and rendered into Kubernetes `Secret` objects. The exact
-wiring is still planned. Until then, use explicit templates or `kubectl create
-secret` for those platform bootstrap cases.
+Commit each platform bootstrap credential as a normal Kubernetes `Secret`
+manifest under `cluster/secrets/`, then encrypt it in place with `sops -e -i`.
+The repository's `.sops.yaml` encrypts only `data` and `stringData`, leaving the
+kind, name, namespace, and keys readable in review. The existing
+`cluster/secrets/notes-db-url.yaml` is the worked example.
+
+Apply every encrypted manifest idempotently:
+
+```bash
+for f in cluster/secrets/*.yaml; do
+  sops -d "$f" | kubectl apply -f -
+done
+```
+
+The plaintext flows only through the pipe; it is never written back to the
+working tree.
 
 ## Rotation
 
@@ -101,8 +112,8 @@ secret` for those platform bootstrap cases.
 - **Host age key:** regenerate, re-encrypt all secrets to the new public key,
   update `.sops.yaml`, re-place the private key on the host, rebuild.
 - **App runtime secrets:** use `nagarectl secret set/delete`.
-- **Cluster bootstrap secrets:** until the sops renderer exists, update the
-  explicit template or recreate the Kubernetes Secret.
+- **Cluster bootstrap secrets:** edit with
+  `sops cluster/secrets/<file>.yaml`, then re-apply the loop above.
 
 ## What's committed vs. what isn't
 

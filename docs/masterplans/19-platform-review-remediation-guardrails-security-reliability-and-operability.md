@@ -210,7 +210,11 @@ complete; the child plans hold the granular checklists.
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-08-24 — restart timer removed and pull-Secret timer evaluates exactly;
   live activation and the expiry-window pull proof await authenticated access)
-- [ ] EP-7 M3: Upgrade story and documentation reality sync
+- [x] EP-7 M3: Upgrade story and documentation reality sync (2026-08-24 —
+  verified net-certmanager release assets and retained the live GCS pin; added
+  the upgrade guide and IAP fallback; synchronized DR, secrets, kubeconfig, and
+  active-context docs; parse, evaluation, stale-string, and path checks pass;
+  optional k3d rehearsal skipped because Docker is unavailable)
 
 
 ## Surprises & Discoveries

@@ -73,11 +73,11 @@ Environment knobs the wrapper honors:
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `ZONE` | gcloud's active zone (`us-west1-a`) | The instance's zone. |
-| `SSH_USER` | OS-Login name derived from your gcloud identity | Linux user to log in as. For the declarative user, set `SSH_USER=deploy`. |
+| `SSH_USER` | `NAGARE_SSH_USER`, then `deploy` | Linux user to log in as. |
 | `SSH_KEY` | first readable of `~/.ssh/id_ed25519`, `~/.ssh/id_rsa` | Private key. |
 
 The wrapper enforces the same project isolation as everything else: the active
-gcloud project must be `tan-nb-exp`.
+gcloud project must match the selected target context.
 
 > **Note on OS Login vs. the `deploy` user.** The host config *disables* Google
 > OS Login (`security.nix`) and authenticates the `deploy` user via its
@@ -87,8 +87,9 @@ gcloud project must be `tan-nb-exp`.
 
 ## Getting a working `kubectl`
 
-k3s writes its kubeconfig on the host at `/etc/rancher/k3s/k3s.yaml` (mode
-`0644` per the k3s flags). To drive the cluster from your workstation:
+k3s writes its root-owned kubeconfig on the host at
+`/etc/rancher/k3s/k3s.yaml` (mode `0640`, group `wheel`). To drive the cluster
+from your workstation:
 
 1. Copy the kubeconfig down (it may be root-owned — use `recv-file`):
 

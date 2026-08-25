@@ -2,11 +2,13 @@
 # contents of each step are owned by the child plans referenced below,
 # under docs/plans/. Run `just --list` to see all recipes.
 #
-# All cloud commands target the GCP project configured in the target profile
-# `nagare.target.env` (copy nagare.target.env.example to create one); with no
-# profile they default to tan-nb-exp / us-west1 / us-west1-a. See .envrc and
-# CLAUDE.md. Enter the dev shell first with `nix develop`, or let direnv load
-# it automatically after `direnv allow`.
+# Cloud commands target the active target context: a named env file under
+# ${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/<name>.env, selected with
+# `nagarectl context use NAME`, `NAGARE_CONTEXT`, or `--context`. The in-repo
+# `nagare.target.env` and `nagare.local.env` remain lower-precedence compatibility
+# fallbacks; with nothing configured, defaults reproduce tan-nb-exp / us-west1 /
+# us-west1-a. See .envrc, CLAUDE.md, and docs/user/contexts.md. Enter the dev
+# shell with `nix develop`, or let direnv load it after `direnv allow`.
 
 # Show all recipes.
 default:
@@ -68,7 +70,8 @@ host-switch:
 
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
 # each cluster/bootstrap/*/README.md for the version-discovery procedure.
-# net-certmanager froze at v1.14.0 (its line diverged from Knative's).
+# Knative Serving v1.22.0 has no net-certmanager release asset; the independent
+# GCS artifact remains pinned at the verified v1.14.0 URL (checked 2026-08-24).
 knative_version := "knative-v1.22.0"
 certmanager_version := "v1.20.2"
 netcertmanager_version := "v1.14.0"
