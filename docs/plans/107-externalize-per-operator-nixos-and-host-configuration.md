@@ -35,7 +35,7 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T18:24:27Z) M1: Define reusable NixOS module options and export the module and host-construction helper from the Nagare flake.
-- [ ] M2: Add safe `nagarectl host init|show|path` generation for a context-owned host flake and operator config.
+- [x] (2026-08-25T18:33:05Z) M2: Add safe `nagarectl host init|show|path` generation for a context-owned host flake and operator config.
 - [ ] M3: Move host image, registry, sops, and day-2 commands from checkout files to the generated host flake.
 - [ ] M4: Validate two isolated contexts, migration compatibility, secret hygiene, and documentation.
 
@@ -56,6 +56,11 @@ implementation. Provide concise evidence.
   from the same `nixosSystem`, while a generated flake contributes only its operator module. Evidence:
   `nix eval ./nixos#packages.x86_64-linux.nagare-image.drvPath` produced a derivation and
   `nix flake check ./nixos --no-build` accepted `nixosModules.nagare-host`. Date: 2026-08-25.
+- A generated flake must omit semicolons between Nix list elements; the first end-to-end generator
+  evaluation caught the invalid rendered `authorizedKeys` list before the staging directory could
+  replace the destination. After correcting the renderer, an isolated `prod` host installed,
+  repeated as `Unchanged`, and evaluated hostname, registry, and image derivation successfully.
+  Date: 2026-08-25.
 
 
 ## Decision Log
@@ -80,6 +85,12 @@ Record every decision made while working on the plan.
   a generated host flake.
   Rationale: preserving the old Nix output makes source evaluation and migration tests stable, but
   retaining a maintainer key anywhere in distributable source would violate the security boundary.
+  Date: 2026-08-25.
+- Decision: require `--sops-file` only for the first real `host init`; a dry run needs no secret file,
+  and later idempotent or `--force` regeneration preserves the context's existing `secrets.yaml` when
+  the flag is omitted.
+  Rationale: this keeps initial secret ownership explicit while allowing safe scaffolding upgrades
+  without rewriting operator-encrypted material.
   Date: 2026-08-25.
 
 

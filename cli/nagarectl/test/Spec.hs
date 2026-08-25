@@ -11,6 +11,7 @@ module Main (main) where
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
+import HostSpec (hostTests)
 import Control.Exception (IOException, finally, try)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -284,6 +285,7 @@ main = do
       testGroup
         "nagarectl"
         [ testGroup "Nagare.Static.Image" dockerfileTests
+        , hostTests
         , platformTests
         , testGroup "Nagare.Static.Build" prepareTests
         , testGroup "Nagare.Static.Release" releaseTests

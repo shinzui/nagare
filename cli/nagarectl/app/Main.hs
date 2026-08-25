@@ -28,7 +28,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -123,6 +123,16 @@ import Nagare.Env.Store
   , writeSecretStore
   )
 import Nagare.GhcEnv (resolveProjectGhcEnv)
+import Nagare.Host.Config
+  ( HostConfig (..)
+  , HostInstallResult (..)
+  , hostConfigDir
+  , installHostFlake
+  , readAuthorizedKeys
+  , renderHostFlake
+  , renderHostModule
+  , renderHostSummary
+  )
 import Nagare.Image
   ( computeTag
   , configureDockerAuthFor
@@ -233,7 +243,7 @@ import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Version (currentBuildVersion, renderBuildVersionJson, renderBuildVersionText)
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath ((</>))
@@ -409,6 +419,7 @@ data DepLogsOpts = DepLogsOpts
 data Command
   = Version VersionOpts
   | PlatformRoot Bool
+  | Host HostCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
@@ -443,6 +454,26 @@ data Command
 
 newtype VersionOpts = VersionOpts
   { json :: Bool
+  }
+  deriving stock (Generic, Show)
+
+data HostCommand
+  = HostInit HostInitOpts
+  | HostShow (Maybe String)
+  | HostPath (Maybe String)
+  deriving stock (Generic, Show)
+
+data HostInitOpts = HostInitOpts
+  { hioContext :: !(Maybe String)
+  , hioSshPublicKeyFiles :: ![FilePath]
+  , hioSopsFile :: !(Maybe FilePath)
+  , hioAgeKeyFile :: !FilePath
+  , hioHostName :: !(Maybe String)
+  , hioInstanceName :: !(Maybe String)
+  , hioRegistryHost :: !(Maybe String)
+  , hioDeployUser :: !String
+  , hioForce :: !Bool
+  , hioDryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1395,6 +1426,7 @@ opts =
       subparser
         ( command "version" versionCmd
             <> command "platform" platformCmd
+            <> command "host" hostCmd
             <> command "deploy" deployCmd
             <> command "site" siteCmd
             <> command "env" envCmd
@@ -1432,6 +1464,29 @@ opts =
             <**> helper
         )
         (fullDesc <> progDesc "Inspect packaged platform resources")
+    hostCmd =
+      info
+        (Host <$> hostSubparser <**> helper)
+        (fullDesc <> progDesc "Manage context-owned NixOS host configuration")
+    hostSubparser =
+      subparser
+        ( command "init" (info (HostInit <$> hostInitOptsParser <**> helper) (progDesc "Generate and validate a context-owned host flake"))
+            <> command "show" (info (HostShow <$> optional hostContextOption <**> helper) (progDesc "Print the generated operator module"))
+            <> command "path" (info (HostPath <$> optional hostContextOption <**> helper) (progDesc "Print the generated host-flake path"))
+        )
+    hostContextOption = strOption (long "context" <> metavar "NAME" <> help "Host context (defaults to the global or active context)")
+    hostInitOptsParser =
+      HostInitOpts
+        <$> optional hostContextOption
+        <*> many (strOption (long "ssh-public-key-file" <> metavar "PATH" <> help "Operator SSH public-key file; repeat for multiple keys"))
+        <*> optional (strOption (long "sops-file" <> metavar "PATH" <> help "Existing sops-encrypted host secrets YAML; required for a new host"))
+        <*> strOption (long "age-key-file" <> metavar "HOST_PATH" <> value "/var/lib/sops-nix/age-key.txt" <> showDefault <> help "Private age-key path on the host (the key is never read or copied)")
+        <*> optional (strOption (long "host-name" <> metavar "NAME" <> help "NixOS hostname (defaults to the context instance name)"))
+        <*> optional (strOption (long "instance-name" <> metavar "NAME" <> help "Cloud instance identity (defaults to the context instance name)"))
+        <*> optional (strOption (long "registry-host" <> metavar "HOST" <> help "Artifact Registry host (defaults to the context registry)"))
+        <*> strOption (long "deploy-user" <> metavar "USER" <> value "deploy" <> showDefault <> help "Operator account created on the host")
+        <*> switch (long "force" <> help "Atomically replace changed generated scaffolding")
+        <*> switch (long "dry-run" <> help "Validate inputs and print generated configuration without writing")
     doctorCmd =
       info
         (Doctor <$> doctorOptsParser <**> helper)
@@ -1996,6 +2051,7 @@ main =
         then BC.putStrLn (renderBuildVersionJson currentBuildVersion)
         else TIO.putStrLn (renderBuildVersionText currentBuildVersion)
     PlatformRoot asJson -> runPlatformRoot mctx asJson
+    Host hcmd -> runHost mctx hcmd
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts
@@ -2071,6 +2127,57 @@ runPlatformRoot mctx asJson = do
       TIO.putStrLn ("source: " <> platformRootSourceToken (ppRootSource paths))
       putStrLn ("payload root: " <> ppRoot paths)
       putStrLn ("workspace root: " <> pwRoot workspace)
+
+runHost :: Maybe String -> HostCommand -> IO ()
+runHost globalContext = \case
+  HostPath commandContext -> do
+    active <- activeTarget (commandContext <|> globalContext)
+    root <- hostConfigDir (atContextName active)
+    exists <- doesDirectoryExist root
+    unless exists $ dieT ("host configuration does not exist for context '" <> contextNameText (atContextName active) <> "'; run nagarectl host init first")
+    putStrLn root
+  HostShow commandContext -> do
+    active <- activeTarget (commandContext <|> globalContext)
+    root <- hostConfigDir (atContextName active)
+    let modulePath = root </> "host.nix"
+    exists <- doesFileExist modulePath
+    unless exists $ dieT ("host configuration does not exist for context '" <> contextNameText (atContextName active) <> "'; run nagarectl host init first")
+    TIO.readFile modulePath >>= TIO.putStr
+  HostInit options -> do
+    active <- activeTarget (hioContext options <|> globalContext)
+    keys <- readAuthorizedKeys (hioSshPublicKeyFiles options) >>= either dieT pure
+    pathsResult <- resolvePlatformPaths Nothing
+    paths <- either (dieT . renderPlatformPathError) pure pathsResult
+    nixosSource <- makeAbsolute (ppNixosDir paths)
+    let profile = atProfile active
+        defaultInstance = tpInstanceName profile
+        config =
+          HostConfig
+            { hostContext = atContextName active
+            , hostName = T.pack (fromMaybe (T.unpack defaultInstance) (hioHostName options))
+            , instanceName = T.pack (fromMaybe (T.unpack defaultInstance) (hioInstanceName options))
+            , registryHost = T.pack (fromMaybe (T.unpack (tpRegistryHost profile)) (hioRegistryHost options))
+            , deployUser = T.pack (hioDeployUser options)
+            , authorizedKeys = keys
+            , ageKeyFile = hioAgeKeyFile options
+            , nagareNixosSource = nixosSource
+            }
+    root <- hostConfigDir (atContextName active)
+    if hioDryRun options
+      then do
+        TIO.putStrLn "DRY RUN — generated host configuration:"
+        TIO.putStr (renderHostSummary root config)
+        TIO.putStrLn "--- flake.nix ---"
+        TIO.putStr (renderHostFlake config currentBuildVersion)
+        TIO.putStrLn "--- host.nix ---"
+        TIO.putStr (renderHostModule config)
+      else do
+        result <- installHostFlake (hioForce options) config currentBuildVersion (hioSopsFile options) >>= either dieT pure
+        let verb = case result of
+              HostInstalled -> "Installed"
+              HostReplaced -> "Replaced"
+              HostUnchanged -> "Unchanged"
+        TIO.putStrLn (verb <> " host configuration for context '" <> contextNameText (atContextName active) <> "' at " <> T.pack root)
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext name tp = do

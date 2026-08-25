@@ -73,6 +73,7 @@ library
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
     Nagare.GhcEnv
+    Nagare.Host.Config
     Nagare.Image
     Nagare.Init
     Nagare.Ops.Cleanup
@@ -178,6 +179,7 @@ test-suite nagarectl-test
     AccessGrantsSpec
     AccessResolveSpec
     AppDeploySpec
+    HostSpec
     PlatformSpec
   build-depends:
     aeson,
