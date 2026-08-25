@@ -5,6 +5,7 @@ title: "nagarectl correctness and robustness fixes"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+intention: "intention_01kzakvy1qeasagg3rpbn44749"
 ---
 
 # nagarectl correctness and robustness fixes
@@ -69,16 +70,16 @@ that `b64decode` on non-UTF-8 bytes returns `Left` instead of throwing.
 
 ## Progress
 
-- [ ] M1: switch `generatePassword` to `openssl rand -hex 24` in
+- [x] M1: switch `generatePassword` to `openssl rand -hex 24` in
       `cli/nagarectl/src/Nagare/Database/Create.hs`.
-- [ ] M1: add `percentEncode` to `cli/nagarectl/src/Nagare/Database/Secret.hs` and
+- [x] M1: add `percentEncode` to `cli/nagarectl/src/Nagare/Database/Secret.hs` and
       apply it to the user and password in `composeConnectionUrl`.
-- [ ] M1: switch `b64decode` in `cli/nagarectl/src/Nagare/Database/Secret.hs` and
+- [x] M1: switch `b64decode` in `cli/nagarectl/src/Nagare/Database/Secret.hs` and
       `cli/nagarectl/src/Nagare/Env/Store.hs` to `TE.decodeUtf8'`.
-- [ ] M1: unit tests — hostile-password URL composition per engine, `percentEncode`
+- [x] M1: unit tests — hostile-password URL composition per engine, `percentEncode`
       character coverage, `b64decode` on invalid UTF-8; update the three existing
       `composeConnectionUrl` expectations if needed (plain passwords are unchanged).
-- [ ] M1: run `cabal build all` and `cabal test nagarectl-test` in `cli/nagarectl`;
+- [x] M1: run `cabal build all` and `cabal test nagarectl-test` in `cli/nagarectl`;
       format with fourmolu; commit.
 - [ ] M2: change `waitForReady` / `waitForRollout` / `waitForWorkerRollout` in
       `cli/nagarectl/src/Nagare/Deploy.hs` to return `IO ExitCode` and add the
@@ -126,6 +127,9 @@ entries as they occur):
   `cli/nagarectl/src/Nagare/Static/Checkout.hs:52`
   (`code <- run (cmd "git" & addArgs args) :: IO ExitCode`) — so making the waits
   non-throwing does not hide `kubectl`'s live progress output.
+- Mori has no registered local corpus project for `http-types`, so the exact
+  `urlEncode` behavior was re-verified against the current authoritative Hackage
+  documentation and in the repository's resolved build environment before M1.
 
 (Append implementation-time discoveries here.)
 
@@ -218,9 +222,14 @@ entries as they occur):
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Compare the result against the
-Purpose: URL-safe credentials end to end, clean phase failures on readiness
-timeouts, loud label stamping, total UTF-8 decoding, and the style sweep.)
+- M1 completed on 2026-08-24. New passwords are 48 lowercase hex characters;
+  connection URL usernames and passwords are percent-encoded while the engine's
+  raw Secret password key remains unchanged. Both base64 decoders now return
+  `Left` for invalid UTF-8. `cabal build all` passed, and the post-format
+  `nagarectl-test` run passed all 368 tests (five more than the EP-5 baseline).
+
+(Complete this section after M2 and M3 with the readiness, stamping, and style
+outcomes.)
 
 
 ## Context and Orientation

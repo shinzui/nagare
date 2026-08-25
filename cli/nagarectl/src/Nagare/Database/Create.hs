@@ -14,14 +14,12 @@ module Nagare.Database.Create
   , runDbCreate
   , buildDatabase
   , passwordKey
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -41,6 +39,7 @@ import Nagare.Dsl.Database
   )
 import Nagare.Dsl.Database.Render (renderDatabase, statefulSetName)
 import Nagare.Dsl.Load (loadDatabase, renderLoadError)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( Resources (..)
   , RetentionPolicy (..)
@@ -152,7 +151,7 @@ runDbCreate eng nameT params = do
         TIO.putStr (TE.decodeUtf8 cronJob)
         TIO.putStrLn ""
       TIO.putStrLn
-        ( "Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host )
+        ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
     else do
       pw <- readOrGeneratePassword ns name engine'
       let kvs = secretKeysFor engine' (mkParts pw)
@@ -163,7 +162,7 @@ runDbCreate eng nameT params = do
       when backsUp (applyManifests [cronJob])
       waitForRollout ns (statefulSetName name)
       TIO.putStrLn
-        ( "Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host )
+        ("Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
 
 -- | Read the existing password from the managed Secret (idempotent re-create) or
 -- generate a fresh one when the Secret is absent.
@@ -180,11 +179,11 @@ readOrGeneratePassword ns name eng = do
       Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> pure pw
       _ -> generatePassword
 
--- | Generate a strong password via @openssl rand -base64 24@ (~192 bits).
+-- | Generate a strong URL-safe password via @openssl rand -hex 24@ (192 bits).
 generatePassword :: IO Text
 generatePassword = do
   (code, StdoutRaw out) <-
-    run $ cmd "openssl" & addArgs (["rand", "-base64", "24"] :: [String]) & silenceStderr
+    run $ cmd "openssl" & addArgs (["rand", "-hex", "24"] :: [String]) & silenceStderr
   case code of
     ExitSuccess -> pure (T.strip (TE.decodeUtf8 out))
     ExitFailure _ -> dieT "could not generate a password: 'openssl rand' failed"

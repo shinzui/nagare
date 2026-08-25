@@ -84,7 +84,7 @@ ownership rules in Integration Points.
 | 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | In Progress |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
-| 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Not Started |
+| 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | In Progress |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -195,7 +195,9 @@ complete; the child plans hold the granular checklists.
 - [~] EP-5 M3: Prove backups restore, on a schedule (2026-08-24 — restore
   round-trip and monthly explicit-failure workflow implemented; shell/YAML gates
   pass; live local smoke remains blocked by the absent Docker daemon)
-- [ ] EP-6 M1: URL-safe database credentials and total secret decoding
+- [x] EP-6 M1: URL-safe database credentials and total secret decoding
+  (2026-08-24 — hex generation, percent-encoded URL userinfo, total UTF-8
+  decoding, and all 368 tests pass)
 - [ ] EP-6 M2: Clean phase failures and verified label stamping
 - [ ] EP-6 M3: House-style sweep and final validation
 - [ ] EP-7 M1: Host tuning and k3s hardening flags

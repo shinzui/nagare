@@ -26,9 +26,8 @@ module Nagare.Env.Store
   , readSecretStore
   , writeEnvStore
   , writeSecretStore
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Cradle
 import Data.Aeson
@@ -48,6 +47,7 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Deploy (applyManifests)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName) -- EP-23 IP2
 import Nagare.Dsl.Types (EnvScope (..)) -- EP-23 IP2
 import System.Exit (ExitCode (..))
@@ -149,7 +149,10 @@ b64decode :: Text -> Either Text Text
 b64decode t =
   case convertFromBase Base64 (TE.encodeUtf8 t) :: Either String ByteString of
     Left e -> Left ("could not base64-decode secret value: " <> T.pack e)
-    Right bs -> Right (TE.decodeUtf8 bs)
+    Right bs ->
+      case TE.decodeUtf8' bs of
+        Left _ -> Left "secret value is not valid UTF-8 after base64 decoding"
+        Right value -> Right value
 
 -- ---------------------------------------------------------------------------
 -- kubectl IO (thin shell; mirrors Nagare.Static.Release.read/writeReleaseLog)
@@ -166,12 +169,12 @@ readSecretStore :: Text -> Text -> EnvScope -> IO (Either Text (Map Text Text))
 readSecretStore app ns scope =
   readStore "secret" (managedSecretName app scope) ns extractSecretData
 
-readStore
-  :: String
-  -> Text
-  -> Text
-  -> (ByteString -> Either Text (Map Text Text))
-  -> IO (Either Text (Map Text Text))
+readStore ::
+  String ->
+  Text ->
+  Text ->
+  (ByteString -> Either Text (Map Text Text)) ->
+  IO (Either Text (Map Text Text))
 readStore kind name ns extract = do
   (exitCode, StdoutRaw out) <-
     run $
