@@ -103,7 +103,7 @@ until the Nix-first path proves that the program is actually checkout-independen
 |---|-------|------|-----------|-----------|--------|
 | 105 | Package nagarectl and its typed config runtime with Nix | docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md | None | None | Complete |
 | 106 | Make Nagare platform assets resolvable outside a source checkout | docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md | EP-105 | None | Complete |
-| 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | In Progress |
+| 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | Complete |
 | 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | Not Started |
 | 109 | Publish versioned releases and clone-free onboarding | docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md | EP-107, EP-108 | None | Not Started |
 
@@ -201,8 +201,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-08-25T16:32:07Z) EP-105: `nix run .#nagarectl` loads and dry-runs an external typed config with no Nagare checkout or Cabal package environment.
 - [x] EP-106: A `nagare-platform` payload and single path resolver replace repository-relative CLI resource paths while preserving source development.
 - [x] EP-106: A fresh temporary directory can run checkout-independent init/status dry runs against an isolated context workspace.
-- [ ] EP-107: Nagare exports a reusable NixOS host module and generates one context-owned host flake without a personal key in tracked source.
-- [ ] EP-107: Host image and day-2 build paths consume the generated host flake and preserve separate configuration for two contexts.
+- [x] (2026-08-25T18:45:12Z) EP-107: Nagare exports a reusable NixOS host module and generates one context-owned host flake without a personal key in tracked source.
+- [x] (2026-08-25T18:45:12Z) EP-107: Host image and day-2 build paths consume the generated host flake and preserve separate configuration for two contexts.
 - [ ] EP-108: CLI, payload, context, generated host flake, and cluster expose one tested platform-version compatibility contract.
 - [ ] EP-108: `nagarectl platform upgrade` stages, previews, applies, records, and safely retries a per-context version transition.
 - [ ] EP-109: A tag-driven workflow validates release consistency and publishes release metadata, checksums, and notes for supported Nix systems.
@@ -235,6 +235,10 @@ interactions between child plans. Provide concise evidence.
 - The unrelated `nagare-access` check still has private network-resolved Cabal dependencies. EP-105
   moved it to a dedicated `hydraJobs`/CI compatibility path so the default flake check is hermetic;
   packaging that service remains separate from the developer CLI distribution. Date: 2026-08-25.
+- EP-107 proved that pure Nix evaluation and long-lived operator state fit together when the operator
+  directory is itself a generated flake importing Nagare's immutable NixOS flake. Two context flakes
+  evaluated concurrently with separate host identities, registries, keys, secrets, and locks, while
+  image and rebuild scripts selected them through `nagarectl host path`. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -291,3 +295,11 @@ context's XDG state. Empty-directory checks cover init, status, and operator-rec
 source-checkout operation remains supported. The boundary is captured in
 `docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md`; EP-107 and EP-108 are
 now unblocked.
+
+Wave 3 has completed EP-107. Nagare's NixOS tree now exports a configurable host module and shared
+system constructor; each context owns an atomically generated flake containing public host intent and
+sops-encrypted secrets. Host-image and day-2 commands resolve that flake without modifying source, and
+two-context isolation is tested and Nix-evaluated. The durable boundary is captured in
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. EP-108 remains the next
+implementable plan and can now update only the generated flake's pinned Nagare input while preserving
+`host.nix` and `secrets.yaml`.

@@ -21,7 +21,9 @@ cd nixos
 nix flake update
 cd ..
 git diff -- nixos/flake.lock
-nix eval ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel.drvPath
+nagarectl host init --force --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub"
+host_flake="$(nagarectl host path)"
+nix eval "path:$host_flake#packages.x86_64-linux.nagare-image.drvPath"
 ```
 
 Read the nixpkgs and NixOS release notes covered by the diff. In particular,

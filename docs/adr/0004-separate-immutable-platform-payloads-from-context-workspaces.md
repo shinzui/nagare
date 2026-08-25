@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
+  - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
 ---
 
 # ADR 4 — Separate immutable platform payloads from context workspaces
@@ -55,5 +56,6 @@ trees, and an earlier payload workspace remains available for later rollback pol
 
 The workspace duplicates platform assets per context and payload digest. Automatic
 pruning is deliberately deferred because release rollback and retention semantics are
-owned by later distribution work. Host-specific NixOS inputs remain subject to the
-separate safe-distribution boundary established by the following ExecPlan.
+owned by later distribution work. Host-specific NixOS inputs use the separate
+context-owned flake boundary recorded in
+[ADR 5](0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md).

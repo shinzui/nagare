@@ -5,8 +5,9 @@
 > `nixos-rebuild switch --target-host` works against `nagare-01` over Tailscale.
 > The `--sudo` flag is required because you deploy as the non-root `deploy` user.
 
-Once `nagare-01` is booted, you do **not** rebuild the image and recreate the VM
-for ordinary config changes. You edit the NixOS config in this repo and push it
+Once a host is booted, you do **not** rebuild the image and recreate the VM
+for ordinary config changes. Operator inputs live in the context-owned generated flake; reusable
+platform behavior remains in Nagare's packaged NixOS modules. Push the selected configuration
 to the running host with `nixos-rebuild switch`. The image build pipeline is
 only for the *initial* boot (or a deliberate from-scratch rebuild).
 
@@ -14,19 +15,19 @@ only for the *initial* boot (or a deliberate from-scratch rebuild).
 
 ## Apply a change
 
-Edit the relevant file under `nixos/`, then:
+Regenerate operator inputs with `nagarectl host init --force`, or edit the relevant reusable module
+under `nixos/` when contributing platform behavior, then:
 
 ```bash
 just host-switch
-# = nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo
+scripts/host-switch.sh --dry-run  # inspect the exact flake, host, and command
 ```
 
 What each flag does:
 
-- `--flake ./nixos#nagare-01` — build the
-  `nixosConfigurations.nagare-01` defined in `nixos/flake.nix`.
-- `--target-host nagare-01` — activate it on the remote host (resolved via
-  Tailscale; you must be able to `ssh deploy@nagare-01`).
+- `--flake <context-host-flake>#<host-name>` — build the selected generated flake's configuration.
+- `--target-host deploy@<instance-name>` — activate it on the context's remote host, normally over
+  Tailscale.
 - `--sudo` — the `deploy` user isn't root, so activation runs under `sudo`.
   Passwordless sudo for `wheel` (set in `security.nix`) makes this unattended.
 
@@ -50,7 +51,8 @@ trap 'kill "$TUNPID" 2>/dev/null || true' EXIT
 export NIX_SSHOPTS="-p 2222 -i ${SSH_KEY:-$HOME/.ssh/id_ed25519} \
   -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null"
-nixos-rebuild switch --flake ./nixos#nagare-01 \
+host_flake="$(nagarectl host path)"
+nixos-rebuild switch --flake "$host_flake#${NAGARE_INSTANCE_NAME:-nagare-01}" \
   --build-host deploy@127.0.0.1 --target-host deploy@127.0.0.1 --sudo
 
 unset NIX_SSHOPTS
@@ -58,15 +60,21 @@ kill "$TUNPID"
 trap - EXIT
 ```
 
-The active target context supplies the project and zone used by the IAP
-wrapper. Run the command from the repository root so the relative flake path
-resolves correctly.
+The active target context supplies the project, zone, host identity, and absolute generated-flake
+path used by the IAP wrapper.
 
 ## How the host config is organized
 
 ```text
-nixos/
-  flake.nix                     # outputs: nagare-image + nixosConfigurations.nagare-01
+${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/<context>/
+  flake.nix                     # imports the pinned Nagare NixOS flake
+  flake.lock                    # exact Nagare/nixpkgs/sops-nix inputs
+  host.nix                      # public operator inputs: identity, registry, SSH keys, paths
+  secrets.yaml                  # sops-encrypted host secrets
+
+Nagare payload:
+  nixos/flake.nix               # exports nixosModules.nagare-host + lib.mkNagareSystem
+  modules/nagare-host.nix       # nagare.host option contract + module composition
   configuration-base.nix        # shared base: GCP module, flakes, timezone, stateVersion
   modules/gcp.nix               # services.gcp: guest agent, hardened sshd, sysctls, journald caps
   .sops.yaml                    # which age keys encrypt which secret files
@@ -74,28 +82,27 @@ nixos/
     configuration.nix           # imports the host modules + wires sops secrets
     networking.nix              # hostname, DNS resolvers, firewall
     storage.nix                 # data-disk format + mount + subdir layout
-    users.nix                   # the deploy user + operator SSH key
+    users.nix                   # consumes the configured deploy user + SSH keys
     security.nix                # sshd hardening, sudo, OS Login off
     k3s.nix                     # k3s server flags + ordering
     tailscale.nix               # tailnet join via sops auth key
-    secrets/nagare-01.yaml      # sops-encrypted host secrets
 ```
 
-`configuration.nix` imports the host modules and declares the sops defaults
-(`defaultSopsFile`, `age.keyFile = /var/lib/sops-nix/age-key.txt`).
+The generated `host.nix` supplies `nagare.host.*`; the reusable module declares the sops defaults.
 
 ## Common day-2 tasks
 
 ### Add or change an operator SSH key
 
-Edit `users.users.deploy.openssh.authorizedKeys.keys` in
-`nixos/hosts/nagare-01/users.nix`, then `just host-switch`. `mutableUsers =
+Re-run `nagarectl host init --force` with the complete set of repeated
+`--ssh-public-key-file` flags, then `just host-switch`. `mutableUsers =
 false`, so the declarative key list is authoritative — keys not listed there are
 removed on activation.
 
 ### Add a host secret
 
-Add it to the sops file and reference it. See [Secrets](secrets.md). A new
+Add it to the generated flake's `secrets.yaml` and reference it from the reusable module. See
+[Secrets](secrets.md). A new
 secret that a service consumes (like the Tailscale key) needs both the sops
 entry and the consuming module, then a `host-switch`.
 

@@ -209,9 +209,9 @@ The active context also feeds bootstrap rendering:
   the active context.
 - `cluster/bootstrap/auth-install.sh` renders shomei, en, nagare-access, and
   nagared images from `NAGARE_REGISTRY_PREFIX`.
-- `just nixos-registry-host` writes the git-ignored
-  `nixos/hosts/nagare-01/registry-host.nix` for the active context's registry
-  host before host rebuilds that need it.
+- `nagarectl host init` writes the registry and host identity into a context-owned flake under the
+  XDG configuration root. `just host-image` and `just host-switch` resolve that flake without
+  writing into Nagare's source or another context.
 
 ## Migrating from profile files
 

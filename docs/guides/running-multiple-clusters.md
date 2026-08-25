@@ -160,8 +160,11 @@ pulumi -C infra/pulumi stack
 just infra-preview
 just infra-up
 
-# Complete DNS delegation and host-secret prerequisites first.
-just nixos-registry-host
+# Complete DNS delegation and host-secret prerequisites first, then generate
+# prod's host flake with its own public key and encrypted sops file.
+nagarectl host init --context prod \
+  --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
+  --sops-file /secure/path/prod-host-secrets.yaml
 just host-image
 just infra-preview
 just infra-up

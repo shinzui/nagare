@@ -27,22 +27,23 @@ The encrypted secrets file is **committed to Git**; the **private age key lives
 only on the host**, never in Git. At activation, sops-nix decrypts the file
 using that key and writes each secret to a runtime path.
 
-Configuration (`nixos/hosts/nagare-01/configuration.nix`):
+The generated context `host.nix` supplies the encrypted file and on-host age-key path through the
+reusable `nagare.host` module:
 
 ```nix
-sops.defaultSopsFile = ./secrets/nagare-01.yaml;
-sops.age.keyFile = "/var/lib/sops-nix/age-key.txt";
-
-sops.secrets."tailscale/authkey" = { mode = "0400"; };
+nagare.host.sopsDefaultFile = ./secrets.yaml;
+nagare.host.ageKeyFile = "/var/lib/sops-nix/age-key.txt";
 ```
 
-`nixos/.sops.yaml` records which age key encrypts which files:
+Your sops configuration records which age key encrypts the context file. It may live beside your
+operator configuration or in your own configuration repository; it is not part of the Nagare
+release. A rule has the same shape as:
 
 ```yaml
 keys:
   - &host_nagare01 age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99
 creation_rules:
-  - path_regex: hosts/nagare-01/secrets/.*\.yaml$
+  - path_regex: secrets\.yaml$
     key_groups:
       - age:
           - *host_nagare01
@@ -66,13 +67,14 @@ activation; without it the host can't bring up anything that depends on a secret
 
 ## Add or edit a host secret — ✅
 
-1. Edit the encrypted file (sops opens it decrypted, re-encrypts on save):
+1. Edit the context's encrypted file (sops opens it decrypted, re-encrypts on save):
 
    ```bash
-   sops nixos/hosts/nagare-01/secrets/nagare-01.yaml
+   host_root="$(nagarectl host path --context prod)"
+   sops "$host_root/secrets.yaml"
    ```
 
-2. Declare it in `configuration.nix` (mode/owner as needed) and consume it in
+2. Declare it in the reusable Nagare host module (mode/owner as needed) and consume it in
    the module that needs it, by its decrypted path
    (`config.sops.secrets."<name>".path`). The Tailscale key is the worked
    example: `tailscale.nix` reads
