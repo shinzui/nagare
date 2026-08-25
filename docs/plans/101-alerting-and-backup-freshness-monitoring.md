@@ -87,11 +87,15 @@ After this plan is implemented:
       only the managed `databases/<name>/` layout. (2026-08-24)
 - [ ] M2: `nagarectl server status` against the live cluster shows
       `backup databases/<name>` lines with fresh ages.
-- [ ] M3: Append the managed-DB backup→restore round-trip (new step 5) to
-      `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap.
-- [ ] M3: `just local-smoke` passes end-to-end including the new step.
-- [ ] M3: Add a monthly `schedule:` cron to `.github/workflows/live-smoke.yml`
-      alongside `workflow_dispatch`, and update its header comment.
+- [x] M3: Append the managed-DB backup→restore round-trip (new step 5) to
+      `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap;
+      use the managed password without printing it and pin the cleanup client.
+      (2026-08-24)
+- [ ] M3: `just local-smoke` passes end-to-end including the new step. Shell
+      syntax and error-level shellcheck pass, but no Docker daemon is available.
+- [x] M3: Add a monthly `schedule:` cron to `.github/workflows/live-smoke.yml`
+      alongside `workflow_dispatch`, update its header comment, and make the
+      unwired authentication step fail explicitly. (2026-08-24)
 
 
 ## Surprises & Discoveries
@@ -115,6 +119,9 @@ After this plan is implemented:
   succeeded. The backup-failure rule therefore subtracts successful Jobs. The
   stale rule also covers CronJobs older than 48 hours that have never succeeded,
   for which no last-success series exists. (2026-08-24)
+- The local Docker endpoint is absent (`~/.colima/docker.sock` does not exist),
+  so the M3 shell/YAML can be validated offline but the k3d restore round-trip
+  cannot honestly be marked complete on this machine. (2026-08-24)
 
 
 ## Decision Log
@@ -209,6 +216,10 @@ rules pass `promtool`, and all 363 nagarectl tests pass. Live series discovery,
 rule evaluation, and the status transcript remain open because the cloud context
 requires interactive gcloud reauthentication. M1 remains operator-gated on real
 Pushover credentials and phone delivery.
+M3's restore round-trip and monthly workflow are implemented and pass shell/YAML
+checks. The real local create→backup→restore assertion remains open until a
+Docker daemon is available; the scheduled cloud workflow intentionally stops at
+its explicit authentication TODO rather than proceeding unauthenticated.
 
 
 ## Context and Orientation
@@ -849,12 +860,16 @@ final `echo "local smoke: OK"`:
 echo "== step 5: managed-DB create -> backup -> restore -> assert row count =="
 nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}"   # waits for Ready
 
-# Credentials/identity from the managed Secret (nagare-db-<name>). psql runs
-# INSIDE the pod over the unix socket (the official postgres image trusts
-# local socket connections), so no password plumbing is needed.
+# Credentials/identity from the managed Secret (nagare-db-<name>). The password
+# is passed only as the psql process environment inside the pod and is never
+# printed or written to disk.
 PGUSER="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)"
+PGPASSWORD="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
 PGDB="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_DB}' | base64 -d)"
-psql_in_pod() { kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- psql -U "${PGUSER}" -d "$1" -tAc "$2"; }
+psql_in_pod() {
+  kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
+    env PGPASSWORD="${PGPASSWORD}" psql -U "${PGUSER}" -d "$1" -tAc "$2"
+}
 
 echo "== step 5a: write a sentinel row =="
 psql_in_pod "${PGDB}" "CREATE TABLE IF NOT EXISTS smoke_sentinel(v text); TRUNCATE smoke_sentinel; INSERT INTO smoke_sentinel VALUES ('smoke $$');"
@@ -1232,3 +1247,8 @@ Pushover gate; corrected the cert-manager v1.20.2 port, current chart key and
 notifier requirement, backup retry false-positive, and never-succeeded CronJob
 case. Reason: exact pinned dependency verification exposed material drift from
 the authored assumptions.
+
+Revision note (2026-08-24): implemented M3's managed-database restore smoke step
+and monthly workflow, using the real managed password contract and an explicit
+CI authentication failure. Reason: repository work could proceed while Docker
+and cloud credentials remained unavailable.

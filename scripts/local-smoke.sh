@@ -48,6 +48,8 @@ NAGARECTL_BIN="$(ls "${NAGARE_REPO_ROOT}"/cli/nagarectl/dist-newstyle/build/*/gh
 nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
 SNAPSHOT_URL=""
+SMOKE_DB="smokedb"
+DB_BACKUP_URL=""
 PF_PID=""
 HARNESS_READY=0
 
@@ -60,7 +62,7 @@ minio_rm() {
   key="${url#s3://}"                                 # nagare-backups/volumes/...
   [ "${key}" = "${url}" ] && return 0                # not an s3:// url; skip
   kubectl -n nagare-system run "minio-rm-$$" --rm -i --restart=Never \
-    --image=minio/mc:latest --quiet \
+    --image=minio/mc:RELEASE.2025-08-13T08-35-41Z --quiet \
     --env=AK=minioadmin --env=SK=minioadmin --command -- /bin/sh -c \
     "mc alias set s http://minio.nagare-system.svc.cluster.local:9000 \"\$AK\" \"\$SK\" >/dev/null 2>&1 && mc rm \"s/${key}\"" \
     >/dev/null 2>&1 || true
@@ -76,6 +78,10 @@ cleanup() {
     # history (no --yes flag, no prompt); it resolves domains from the cluster
     # when the config file is absent, so it is safe to run from the repo root.
     nagarectl app delete "${SMOKE_APP}" -n "${SMOKE_NS}" >/dev/null 2>&1 || true
+    # EP-101: managed-database round-trip teardown (all best-effort).
+    nagarectl db delete "${SMOKE_DB}" -n "${SMOKE_NS}" --yes >/dev/null 2>&1 || true
+    kubectl -n "${SMOKE_NS}" delete pvc "nagare-db-${SMOKE_DB}-data" >/dev/null 2>&1 || true
+    [ -n "${DB_BACKUP_URL}" ] && minio_rm "${DB_BACKUP_URL}"
     # Best-effort: drop the local MinIO snapshot object + any restore-scratch PVC.
     [ -n "${SNAPSHOT_URL}" ] && minio_rm "${SNAPSHOT_URL}"
     kubectl -n "${SMOKE_NS}" delete pvc -l nagare.dev/restore-scratch=true >/dev/null 2>&1 || true
@@ -170,5 +176,44 @@ else
   exit 1
 fi
 
-# --- Step 5: teardown runs via the trap ---
+# --- Step 5 (EP-101): managed-DB backup -> restore round-trip via MinIO ---
+echo "== step 5: managed-DB create -> backup -> restore -> assert row count =="
+nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}"
+
+# Read the managed identity once. The password is passed only as the psql
+# process environment inside the pod; it is never printed or written to disk.
+PGUSER="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)"
+PGPASSWORD="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
+PGDB="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_DB}' | base64 -d)"
+psql_in_pod() {
+  kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
+    env PGPASSWORD="${PGPASSWORD}" psql -U "${PGUSER}" -d "$1" -tAc "$2"
+}
+
+echo "== step 5a: write a sentinel row =="
+psql_in_pod "${PGDB}" "CREATE TABLE IF NOT EXISTS smoke_sentinel(v text); TRUNCATE smoke_sentinel; INSERT INTO smoke_sentinel VALUES ('smoke $$');"
+
+echo "== step 5b: back up to MinIO =="
+db_backup_out="$(nagarectl db backup "${SMOKE_DB}" -n "${SMOKE_NS}")"
+echo "${db_backup_out}"
+DB_BACKUP_URL="$(printf '%s\n' "${db_backup_out}" | sed -n 's/^Backup written: //p' | head -1)"
+case "${DB_BACKUP_URL}" in
+  s3://*) echo "  backup: ${DB_BACKUP_URL}" ;;
+  *) echo "  expected an s3:// (MinIO) backup URL, got '${DB_BACKUP_URL}'" >&2; exit 1 ;;
+esac
+
+echo "== step 5c: clobber the live table, restore into the scratch target =="
+psql_in_pod "${PGDB}" "TRUNCATE smoke_sentinel;"
+nagarectl db restore "${SMOKE_DB}" "${DB_BACKUP_URL}" -n "${SMOKE_NS}"
+
+echo "== step 5d: assert the sentinel row survived the round-trip =="
+db_count="$(psql_in_pod "${PGDB}_restore_scratch" "SELECT count(*) FROM smoke_sentinel;" | tr -d '[:space:]')"
+if [ "${db_count}" = "1" ]; then
+  echo "  DB RESTORE OK: smoke_sentinel has ${db_count} row in ${PGDB}_restore_scratch"
+else
+  echo "  DB RESTORE FAILED: expected 1 row in ${PGDB}_restore_scratch, got '${db_count}'" >&2
+  exit 1
+fi
+
+# --- Step 6: teardown runs via the trap ---
 echo "local smoke: OK"

@@ -192,7 +192,9 @@ complete; the child plans hold the granular checklists.
   probe (2026-08-24 — exact chart render, scrape selector, PromQL validation,
   Haskell implementation, and all 363 tests pass; live series/rule/status proof
   remains behind cloud reauthentication)
-- [ ] EP-5 M3: Prove backups restore, on a schedule
+- [~] EP-5 M3: Prove backups restore, on a schedule (2026-08-24 — restore
+  round-trip and monthly explicit-failure workflow implemented; shell/YAML gates
+  pass; live local smoke remains blocked by the absent Docker daemon)
 - [ ] EP-6 M1: URL-safe database credentials and total secret decoding
 - [ ] EP-6 M2: Clean phase failures and verified label stamping
 - [ ] EP-6 M3: House-style sweep and final validation
@@ -382,3 +384,5 @@ EP-5 M2's repository implementation is also complete offline: the exact chart
 renders, all six alert expressions validate, the pinned cert-manager selector is
 correct, and all 363 nagarectl tests pass. Live metric/rule evaluation and Pushover
 delivery remain open rather than being simulated.
+EP-5 M3 now carries the managed-database restore assertion and monthly schedule;
+its k3d execution remains an explicit live gate because Docker is unavailable.

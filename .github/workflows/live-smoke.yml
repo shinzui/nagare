@@ -1,10 +1,14 @@
 name: Live Smoke
 
-# EP-5 (docs/plans/69, MasterPlan 13). MANUAL trigger ONLY — this deploys to the
-# real cluster and requires the running VM + GCP credentials, so it must never run
-# on push/PR. Trigger it from the GitHub UI via "Run workflow".
+# EP-5 (docs/plans/69, MasterPlan 13) + EP-101: manual trigger plus a monthly
+# scheduled drill so the live backup/restore path cannot silently rot. This
+# deploys to the real cluster and requires the running VM + GCP credentials.
+# Until the auth step below is wired, scheduled runs fail fast there as a
+# deliberate reminder. Never runs on push/PR.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "23 6 1 * *" # 06:23 UTC on the first day of each month
 
 jobs:
   live-smoke:
@@ -39,7 +43,8 @@ jobs:
         # Federation). The smoke script's _require_target_project guardrail still
         # refuses to act on any project but the configured target.
         run: |
-          echo "TODO: configure GCP auth (service-account key or WIF) before invoking the smoke test"
+          echo "::error title=GCP authentication not configured::Configure a service-account key or Workload Identity Federation before invoking the live smoke test."
+          exit 1
 
       - name: Run the live smoke test inside the dev shell
         # The dev shell ships nagarectl's toolchain, gcloud, kubectl, and just.
