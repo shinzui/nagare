@@ -59,8 +59,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M0: resolve the exact shomei and en commits to pin (must exist on `origin`), record
+- [x] M0: resolve the exact shomei and en commits to pin (must exist on `origin`), record
       them in the Decision Log, and capture the current build failure as a baseline.
+      Completed 2026-08-25T04:34:44Z. The baseline was a successful old-pin build rather
+      than a failure; that result and the remote-pin evidence are recorded below.
 - [ ] M1: repin `cli/nagare-access/cabal.project` and make the `nagare-access` **library**
       compile against current shomei and en.
 - [ ] M2: make the `nagare-access` **test suite** compile and pass.
@@ -82,7 +84,11 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: the old-pin baseline still builds cleanly; incompatibility begins when the
+  dependency pins move, not because the existing checkout has already stopped compiling.
+  Evidence: `cabal build lib:nagare-access` from `cli/nagare-access` exited 0 on
+  2026-08-25 after resolving shomei `af09ace`, en `d27bb44`, codd `c32d365`, and the old
+  Git-pinned `ephemeral-pg`. This is the before-state against which M1 is compared.
 
 
 ## Decision Log
@@ -127,6 +133,16 @@ Record every decision made while working on the plan.
   Rationale: the request is an upgrade, not a feature adoption. Those surfaces are additive
   and cost nothing to leave unused. Adopting them would multiply the validation surface of an
   already large compatibility change. They remain available to a later plan.
+  Date: 2026-08-25
+
+- Decision: Pin shomei at `26361f21325f4c0d2d1751365542d6c0adc83839` and en at
+  `c213e2bc4a544075e6d1133b20b8f5de00e3a9e0`.
+  Rationale: `git ls-remote --heads --tags` showed those exact commits at each repository's
+  remote `master` ref on 2026-08-25. The shomei checkout is at that commit. The en checkout
+  is two commits ahead at `f3bf488`, but the additional commits publish capability and
+  dependency metadata only and are not reachable from GitHub, so a Cabal Git pin cannot use
+  them. Pinning the remote tip preserves all runtime/API work in scope while keeping builds
+  reproducible from a fresh checkout.
   Date: 2026-08-25
 
 
