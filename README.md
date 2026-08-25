@@ -105,15 +105,16 @@ nagarectl owns the developer experience.
 
 Raw Kubernetes is intentionally *not* the deployment interface.
 
-## Install `nagarectl`
+## Install a pinned release
 
 Nix builds `nagarectl` together with the GHC runtime required to load an app's
-typed `nagare/Config.hs`; no Cabal package environment is needed. From a Nagare
-checkout, run it directly or install it into your Nix profile:
+typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
+needed. Select a reviewed release explicitly:
 
 ```bash
-nix run .#nagarectl -- version
-nix profile install .#nagarectl
+export NAGARE_VERSION=0.1.0
+nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
+nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
 
 The installed command can validate and dry-run a config from any app directory:
@@ -122,9 +123,18 @@ The installed command can validate and dry-run a config from any app directory:
 nagarectl deploy --dry-run --file nagare/Config.hs
 ```
 
-At this stage, commands that consume platform-owned Pulumi, NixOS, manifest, or
-script assets still require a Nagare checkout. Those assets become independently
-resolvable in the next distribution milestone.
+Platform operators install the full `nagare` package instead. Its `nagare`
+launcher runs Pulumi, NixOS, bootstrap, and other recipes from the matching
+immutable payload while keeping contexts and generated host configuration under
+the user's XDG directories:
+
+```bash
+nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
+nagare --list
+```
+
+See [Installing Nagare](docs/user/installation.md) for temporary, persistent,
+operator, and contributor workflows.
 
 ## Recommended GCP instance
 
@@ -214,8 +224,8 @@ source, test, example, and guide evidence. The summary below is the short orient
   perimeter with Pulumi.
 - Boot or update the NixOS/k3s host, bootstrap Knative/Kourier/cert-manager, and
   install the Victoria observability stack.
-- Run the platform locally with `just local-up`, `just local-bootstrap`, and
-  `just local-minio`.
+- Run the platform locally with `nagare local-up`, `nagare local-bootstrap`, and
+  `nagare local-minio`.
 - Deploy Knative apps from typed `nagare/Config.hs` configs using prebuilt,
   Dockerfile, or Nixpacks build modes.
 - Operate app env/secrets, app lifecycle, static/full-stack sites, CDN plans,

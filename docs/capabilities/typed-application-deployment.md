@@ -4,12 +4,28 @@ type: Capability
 description: "Describe an application as checked Haskell data, build or select its image, render Knative resources, apply them, and wait for a reachable revision with one command."
 generated:
   by: codex/gpt-5
-  at: "2026-08-23T21:36:15Z"
+  at: "2026-08-25T20:51:44Z"
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-25T20:51:44Z"
+    document_timestamp: "2026-08-25T20:51:44Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: codex/gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the capability, compatibility promise, and repository evidence for inclusion in
+      the version 0.1.0 Nix release.
+verified:
+  by: process:openai-codex
+  at: "2026-08-25T20:51:44Z"
 capabilityId: CAP-6
 provider: mori://shinzui/nagare
 status: shipped
 stability: experimental
-since: unreleased
+since: 0.1.0
 packages:
   - nagare-dsl
   - nagarectl

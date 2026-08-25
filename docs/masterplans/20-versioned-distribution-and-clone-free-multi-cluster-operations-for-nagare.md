@@ -206,7 +206,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-08-25T20:14:24Z) EP-108: CLI, payload, context, generated host flake, and cluster expose one tested platform-version compatibility contract.
 - [x] (2026-08-25T20:14:24Z) EP-108: `nagarectl platform upgrade` stages, previews, applies, records, and safely retries a per-context version transition.
 - [x] (2026-08-25T20:46:56Z) EP-109: A tag-driven workflow validates release consistency and publishes release metadata, checksums, and notes for supported Nix systems.
-- [ ] EP-109: README, onboarding, upgrades, multi-cluster guidance, and capability evidence demonstrate installation and operation without cloning.
+- [x] (2026-08-25T20:51:44Z) EP-109: README, onboarding, upgrades, multi-cluster guidance, and capability evidence demonstrate installation and operation without cloning.
 
 
 ## Surprises & Discoveries

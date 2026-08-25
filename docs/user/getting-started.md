@@ -2,8 +2,8 @@
 
 > **Status:** ✅ Working
 
-This page gets your workstation ready to operate Nagare: the toolchain, the
-project-pinned dev shell, `direnv`, target contexts, and the GCP
+This page gets your workstation ready to operate a pinned Nagare release: the
+operator tools, release package, target contexts, and the GCP
 project-isolation guardrails.
 Everything else in this guide assumes you have done this once.
 
@@ -14,23 +14,22 @@ Everything else in this guide assumes you have done this once.
 In cloud mode, Nagare is a single GCP Compute Engine VM (`nagare-01`) running
 NixOS, k3s, Knative, and the Victoria observability stack. In local mode, the
 same app platform runs on k3d with a local registry and MinIO object store. You
-operate both targets entirely from this repository: Pulumi owns the cloud, a Nix
-flake owns the host image, and a `justfile` wraps the common steps.
+operate both targets from an immutable release payload: Pulumi owns the cloud, a Nix
+flake owns the host image, and the `nagare` launcher runs the common recipes.
 
 ## Prerequisites
 
 You need, on your workstation:
 
-- **Nix** with flakes enabled. The dev shell (below) provides *everything else*
-  — `pulumi`, `node`/`tsc`, `gcloud`, `kubectl`, `helm`, `ghc`/`cabal`, `sops`,
-  `age`, etc. — so you should **not** install those globally.
-- **`direnv`** (recommended) to auto-load the dev shell on `cd`.
+- **Nix** with flakes enabled. It installs the pinned CLI and platform payload.
+- Operator clients used by the selected recipes: `pulumi`, `node`, `gcloud`, `kubectl`, `helm`,
+  `sops`, `age`, and `tailscale`. Install them through Nix or your platform package manager.
 - A **Google Cloud identity** with access to *your* GCP project (the default
   example is `tan-nb-exp`); see [GCP prerequisites](gcp-prerequisites.md) for the
   auth, IAM roles, project, and API setup, and
   [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) for the
   from-zero runbook. This is required for cloud mode, not for local mode.
-- **Docker** if you want local mode (`just local-up` uses k3d).
+- **Docker** and `k3d` if you want local mode (`nagare local-up` uses them).
 - An **SSH key** (`~/.ssh/id_ed25519`). Supply its public `.pub` file when generating the selected
   context's host flake; Nagare contains no default operator identity. See
   [Host image and first boot](host-image-and-boot.md).
@@ -40,21 +39,21 @@ You need, on your workstation:
 > on-demand Linux builder in GCP. You don't need a Linux machine; see
 > [Host image and first boot](host-image-and-boot.md).
 
-## Enter the dev shell
+## Install the operator release
 
-The repo pins its entire toolchain in `flake.nix`. Load it with either:
+Choose a reviewed version from the [release page](https://github.com/shinzui/nagare/releases), then
+install its full operator output. No checkout or `direnv` session is required:
 
 ```bash
-# One-off:
-nix develop
-
-# Or, persistently, via direnv (run once per fresh checkout):
-direnv allow
+export NAGARE_VERSION=0.1.0
+nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
+nagarectl version --json
+nagare --list
 ```
 
-`direnv allow` runs `.envrc`, which does two things: exports the project
-isolation variables (below) and runs `use flake` so the pinned tools land on
-your `PATH`. After this, simply `cd`-ing into the repo gives you a ready shell.
+For one-off use, run
+`nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- …`. See
+[Installing Nagare](installation.md) for app-developer and contributor workflows.
 
 Verify:
 
@@ -62,7 +61,7 @@ Verify:
 pulumi version
 gcloud --version
 kubectl version --client
-just --list      # the available operator recipes
+nagare --list    # the release's available operator recipes
 ```
 
 ## Project isolation (read this once, internalize it)
@@ -70,11 +69,10 @@ just --list      # the available operator recipes
 Nagare acts on **one** cloud project per command, but **which** project is
 *configurable*. The target is the active [context](contexts.md): a named bundle
 selected by `nagarectl --context NAME`, `NAGARE_CONTEXT=NAME`, or
-`nagarectl context use NAME`. `.envrc` resolves that context, then exports the
-Cloud SDK variables and Nagare contract variables for the shell.
+`nagarectl context use NAME`. Named contexts live below the user's XDG configuration root.
 
-The old git-ignored target profile still works as a fallback. With no selected
-context, `.envrc` checks `nagare.target.env` and then exports the
+The old checkout-local target profile still works as a contributor fallback. With no selected
+context, the legacy source environment checks `nagare.target.env` and exports the
 `tan-nb-exp` / `us-west1` / `us-west1-a` values as **fallback defaults**:
 
 ```bash
@@ -105,17 +103,16 @@ If a script reports that the effective project differs from the context's
 declared project, unset the ambient `CLOUDSDK_CORE_PROJECT` override or select
 the intended context. If it reports that gcloud's configured project differs,
 run `gcloud config set project <expected>` or create/select a context that
-declares the target. Re-enter the shell (`direnv allow` / `nix develop`) after
-changing context files.
+declares the target. Start a fresh shell after changing exported overrides.
 
 For local mode, use a `mode=local` context. In that mode the guardrail steps
 aside intentionally after loopback checks, `nagarectl` uses the local registry
 and loopback base domain, and backup Jobs use local MinIO instead of GCS. See
 [Local development](local-development.md).
 
-To point the same checkout at another target, switch contexts with
+To point the same installed release at another target, switch contexts with
 `nagarectl context use NAME` or select one command with `--context NAME`; no
-second checkout is needed. The full configurable-isolation policy is in
+checkout is needed. The full configurable-isolation policy is in
 [`CLAUDE.md`](../../CLAUDE.md); the architectural decision is
 [MasterPlan 17](../masterplans/17-first-class-target-contexts-for-nagare.md).
 
@@ -137,27 +134,27 @@ GCS state backend instead (`NAGARE_PULUMI_BACKEND=gcs`), in which case
 [Target contexts](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only). See
 [Provisioning with Pulumi](provisioning-with-pulumi.md).
 
-## The `justfile` is your control surface
+## The `nagare` launcher is your control surface
 
-Most operations are one `just` recipe. They are deliberately **thin wrappers** —
-the real logic lives in scripts and the plans they reference.
+Most operations are one release-owned recipe. The launcher resolves the immutable payload to a
+writable per-context workspace before invoking its `justfile`.
 
 ```bash
-just                 # list all recipes (same as just --list)
-just infra-preview   # preview cloud changes
-just infra-up        # apply cloud changes
-just host-image      # build + register the NixOS GCE image
-just host-switch     # apply day-2 host config over Tailscale
-just local-up        # create local k3d cluster + registry
-just local-bootstrap # install Knative/Kourier locally
-just local-minio     # install local MinIO backup store
-just status          # kubectl: pods + Knative services across namespaces
+nagare --list          # list release-owned recipes
+nagare infra-preview   # preview cloud changes
+nagare infra-up        # apply cloud changes
+nagare host-image      # build + register the NixOS GCE image
+nagare host-switch     # apply day-2 host config over Tailscale
+nagare local-up        # create local k3d cluster + registry
+nagare local-bootstrap # install Knative/Kourier locally
+nagare local-minio     # install local MinIO backup store
+nagare status          # kubectl: pods + Knative services across namespaces
 ```
 
 Recipes honor the active context. For a one-off target selection:
 
 ```bash
-NAGARE_CONTEXT=labs just smoke
+NAGARE_CONTEXT=labs nagare smoke
 ```
 
 The full recipe list with what each does is in the [Reference](reference.md).
@@ -176,6 +173,12 @@ Don't want a GCP account yet? **Local mode** runs the whole platform on a k3d
 cluster on your laptop — same `nagarectl` commands, a local registry, a loopback
 apps domain, and MinIO instead of GCS — so you can test the real use cases
 (deploy, managed databases, snapshot/restore, require-login) with no cloud bill.
-Start the local cluster with `just local-up && just local-bootstrap`, then follow
-**[Local development →](local-development.md)**. A single `just local-smoke`
+Start the local cluster with `nagare local-up && nagare local-bootstrap`, then follow
+**[Local development →](local-development.md)**. A single `nagare local-smoke`
 exercises deploy → snapshot/restore → HTTP 200 → teardown end to end, zero-cloud.
+
+## Contributor checkout
+
+Only contributors enter the repository dev shell. Clone the source, run `nix develop`, and use
+`just` or `nix run .#nagare` against the working tree. Those commands are development inputs and
+must not replace version tags in operator automation.

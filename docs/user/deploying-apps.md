@@ -212,9 +212,10 @@ your config by running it with `runghc`. That child process must be able to
 resolve the `nagare-dsl` package. The Nix application packages both together:
 
 ```bash
-# Run from a Nagare checkout, or install once into your Nix profile.
-nix run .#nagarectl -- version
-nix profile install .#nagarectl
+# Run a reviewed release from any app directory, or install it once.
+export NAGARE_VERSION=0.1.0
+nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
+nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 
 # Then use the installed command from any app repository.
 nagarectl deploy --dry-run --file nagare/Config.hs
@@ -408,7 +409,7 @@ nagarectl app deploy --dry-run --json -f nagare/Config.hs | jq '[.objects[].kind
 ## Verify (against a running cluster)
 
 ```bash
-just status                                  # ksvc Ready with a URL
+nagare status                                # ksvc Ready with a URL
 curl https://notes.personal.<baseDomain>     # the app answers over HTTPS
 ```
 

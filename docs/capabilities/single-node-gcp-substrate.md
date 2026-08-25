@@ -4,7 +4,7 @@ type: Capability
 description: "Provision a rebuildable personal PaaS perimeter on GCP and configure each NixOS k3s host from context-owned operator inputs."
 generated:
   by: codex/gpt-5
-  at: "2026-08-25T18:36:00Z"
+  at: "2026-08-25T20:51:44Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -19,19 +19,32 @@ reviews:
       Reviewed the updated capability claim against the reusable NixOS module,
       host renderer tests, two-context generated-flake evaluations, root Nix
       checks, and the revised operator guides.
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-25T20:51:44Z"
+    document_timestamp: "2026-08-25T20:51:44Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: codex/gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the version 0.1.0 compatibility claim and the pinned-release operator interfaces
+      against the Nix distribution gate, host tests, and operator guides.
+verified:
+  by: process:openai-codex
+  at: "2026-08-25T20:51:44Z"
 capabilityId: CAP-2
 provider: mori://shinzui/nagare
 status: shipped
 stability: experimental
-since: unreleased
+since: 0.1.0
 packages:
   - infra-pulumi
   - nixos-hosts
 interface:
-  - "just infra-preview"
-  - "just infra-up"
-  - "just host-image"
-  - "just host-switch"
+  - "nagare infra-preview|infra-up"
+  - "nagare host-image|host-switch"
   - "nagarectl host init|show|path"
 evidence:
   - kind: module
@@ -67,4 +80,4 @@ separate for every context.
 - Infrastructure protection and least-privilege changes exist on the default branch, but the latest
   revisions still await a live apply; the evidence is source and operator documentation rather than
   a hermetic infrastructure test.
-- The repository has no release tags, so consumers must pin a commit.
+- Compatibility remains experimental in 0.1.0; operators must pin the exact semantic release tag.

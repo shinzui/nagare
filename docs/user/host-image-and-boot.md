@@ -104,7 +104,7 @@ Confirm the selected host before building, then run the pipeline:
 ```bash
 nagarectl host path
 scripts/upload-images.sh --dry-run
-just host-image      # runs scripts/upload-images.sh
+nagare host-image      # runs scripts/upload-images.sh
 ```
 
 `scripts/upload-images.sh` (the details are owned by the script):
@@ -127,7 +127,7 @@ lifecycle; tear it down when you're done iterating on the image.
 With `nagareImageSelfLink` now set, declare and create the VM:
 
 ```bash
-just infra-up        # pulumi up — now includes the nagare-01 instance
+nagare infra-up        # pulumi up — now includes the nagare-01 instance
 ```
 
 Pulumi creates `nagare-01` from the image, attaches the static IP and the

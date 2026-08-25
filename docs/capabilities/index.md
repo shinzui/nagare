@@ -8,9 +8,11 @@ This bundle catalogs what Nagare provides today to someone standing up or using 
 Every record names a mechanism a consumer can adopt and verify independently, carries a stable
 `CAP-N` handle, and points to evidence in this repository.
 
-Nagare has no release tags. Every capability is therefore `unreleased`, and every compatibility
-promise is `experimental`. `shipped` means the implementation exists on the default branch; it does
-not erase the live-verification limits recorded on individual pages.
+The version 0.1.0 release manifest includes every capability below. Compatibility remains
+`experimental`: a later release may change an interface without a major-version bump. `shipped`
+means the implementation is packaged; it does not erase the live-verification limits recorded on
+individual pages. Confirm that a tag is published on the
+[release page](https://github.com/shinzui/nagare/releases) before selecting it.
 
 ## What is deliberately excluded
 
@@ -45,6 +47,7 @@ not erase the live-verification limits recorded on individual pages.
 | [CAP-16](bounded-one-shot-jobs.md) | Bounded one-shot Jobs | `nagare-dsl`, `cluster-bootstrap` |
 | [CAP-17](edge-cdn-management.md) | Edge CDN management | `nagare-dsl`, `nagarectl`, `infra-pulumi` |
 | [CAP-18](forward-auth-route-enforcement.md) | Forward-auth route enforcement | `nagare-access`, `nagarectl` |
+| [CAP-19](versioned-nix-distribution.md) | Versioned Nix distribution and clone-free operation | `nagarectl`, `nagare-platform` |
 
 ## Validation
 

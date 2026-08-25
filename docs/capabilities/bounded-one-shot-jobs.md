@@ -4,19 +4,35 @@ type: Capability
 description: "Render finite Kubernetes Jobs with deadlines, hardened pod defaults, scratch space, network policy, and namespace-level admission backpressure."
 generated:
   by: codex/gpt-5
-  at: "2026-08-23T21:36:15Z"
+  at: "2026-08-25T20:51:44Z"
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-25T20:51:44Z"
+    document_timestamp: "2026-08-25T20:51:44Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: codex/gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the capability, compatibility promise, and repository evidence for inclusion in
+      the version 0.1.0 Nix release.
+verified:
+  by: process:openai-codex
+  at: "2026-08-25T20:51:44Z"
 capabilityId: CAP-16
 provider: mori://shinzui/nagare
 status: shipped
 stability: experimental
-since: unreleased
+since: 0.1.0
 packages:
   - nagare-dsl
   - cluster-bootstrap
 interface:
   - "Nagare.Dsl.Job"
-  - "just job-runs-bootstrap"
-  - "just job-runs-status"
+  - "nagare job-runs-bootstrap"
+  - "nagare job-runs-status"
 evidence:
   - kind: test
     resource: cli/nagare-dsl/test/JobSpec.hs
