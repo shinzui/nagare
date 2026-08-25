@@ -69,7 +69,11 @@ This section must always reflect the actual current state of the work.
 - [x] M1 (dependency validation): pin the newly corrected en dependency commit once it is reachable on
       GitHub, remove the temporary downstream OpenAPI compatibility patch, and make
       `cabal build lib:nagare-access` pass. Completed 2026-08-25T13:17:54Z.
-- [ ] M2: make the `nagare-access` **test suite** compile and pass.
+- [x] M2: make the `nagare-access` **test suite** compile and pass. Completed
+      2026-08-25T13:27:32Z: all 100 focused tests pass, including the real Shomei JWT plus
+      real En authorization path. The flake-isolated repetition reached dependency cloning
+      but cannot clone the private `mori://shinzui/en` repository without credentials; this
+      pre-existing infrastructure limitation is recorded under Surprises & Discoveries.
 - [ ] M3: teach `nagare-access` to send en's mandatory API key, with a new
       `NAGARE_ACCESS_EN_API_KEY` configuration variable.
 - [ ] M4: fix `nagarectl`'s hand-written en client (`cli/nagarectl/src/Nagare/Access/Grants.hs`)
@@ -109,6 +113,26 @@ implementation. Provide concise evidence.
   `8c0b3c5a13ce4a310737c0336f2ae167a1597588`. Both pins became remote-reachable on
   2026-08-25, and `cabal build lib:nagare-access` then exited 0 using Hackage
   `openapi-hs-5.0.0` and `servant-openapi-hs-5.1.0` without a downstream patch.
+
+- Observation: current Shomei and En changed substantially more of the test-facing API than
+  the original plan anticipated. Shomei's signup/login/session/MFA DTOs moved into
+  concept-specific modules; signup now returns an `ApplicationResult (CookieResponse ...)`;
+  token fields in response bodies are optional; the server fixture needs loaded signing keys,
+  a key-encryption key, a TOTP key, Argon2 parameters, a hashing limiter, and separate liveness
+  and readiness probes. En's `CheckResponseWire` includes `checkedAt`, and an embedded
+  `En.Servant.Seam.Env` now reads an `ActiveSchema` snapshot and supplies lookup-subjects,
+  watch, deadline, budget, and minting policy hooks. Evidence: after adapting those surfaces,
+  `cabal test nagare-access-test --test-show-details=streaming` passed all 100 tests on
+  2026-08-25, including both real HTTP integration cases.
+
+- Observation: the flake's isolated `nagare-access-build-test` cannot clone En because
+  `mori://shinzui/en` is private and the Nix builder has no GitHub credential helper. This is
+  not caused by the new pin: the standalone Cabal plan has always fetched En from that private
+  repository, and an anonymous `git ls-remote` fails while the same probe succeeds for the
+  public Biscuit fork. Evidence: `nix build
+  .#checks.aarch64-darwin.nagare-access-build-test` reached the Git clone phase on
+  2026-08-25 and exited 128 with `could not read Username for 'https://github.com'`; the
+  focused suite passes from the authenticated/warm developer checkout.
 
 
 ## Decision Log
