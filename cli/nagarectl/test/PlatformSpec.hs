@@ -2,7 +2,7 @@
 
 module PlatformSpec (platformTests) where
 
-import Control.Exception (finally)
+import Control.Exception (bracket, finally)
 import Data.ByteString qualified as BS
 import Data.Foldable (traverse_)
 import Data.Text qualified as T
@@ -16,6 +16,7 @@ import System.Directory
   , setCurrentDirectory
   )
 import System.FilePath (takeDirectory, (</>))
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
@@ -44,7 +45,7 @@ platformTests =
           let nested = root </> "tmp" </> "deep"
           createDirectoryIfMissing True nested
           original <- getCurrentDirectory
-          result <- (setCurrentDirectory nested >> resolvePlatformPaths Nothing) `finally` setCurrentDirectory original
+          result <- withClearedEnv "NAGARE_PLATFORM_ROOT" ((setCurrentDirectory nested >> resolvePlatformPaths Nothing) `finally` setCurrentDirectory original)
           paths <- either (assertFailure . show) pure result
           ppRootSource paths @?= SourceRoot
           ppRoot paths @?= root
@@ -91,3 +92,9 @@ writeAsset :: FilePath -> FilePath -> IO ()
 writeAsset root relative = do
   createDirectoryIfMissing True (takeDirectory (root </> relative))
   BS.writeFile (root </> relative) (BS.pack [10])
+
+withClearedEnv :: String -> IO a -> IO a
+withClearedEnv name = bracket (lookupEnv name <* unsetEnv name) restore . const
+  where
+    restore Nothing = unsetEnv name
+    restore (Just value) = setEnv name value

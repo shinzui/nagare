@@ -266,7 +266,16 @@ import Nagare.Task.Discover
 import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
 import Nagare.Task.Run (oneOffJobName, runArgs)
-import Nagare.Version (BuildVersion (..), renderBuildVersionJson, renderBuildVersionText)
+import Nagare.Version
+  ( BuildVersion (..)
+  , Compatibility (..)
+  , PlatformVersion (..)
+  , comparePlatformVersions
+  , parsePlatformVersion
+  , renderBuildVersionJson
+  , renderBuildVersionText
+  , renderPlatformVersion
+  )
 import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
@@ -342,7 +351,22 @@ versionTests =
       renderBuildVersionText (BuildVersion "1.2.3" Nothing) @?= "nagarectl 1.2.3"
   , testCase "JSON rendering preserves optional revision metadata" $
       (eitherDecodeStrict (renderBuildVersionJson (BuildVersion "1.2.3" (Just "abc123"))) :: Either String Aeson.Value)
-        @?= Right (Aeson.object ["version" Aeson..= ("1.2.3" :: Text), "revision" Aeson..= ("abc123" :: Text)])
+        @?= Right (Aeson.object ["version" Aeson..= ("1.2.3" :: Text), "platformVersion" Aeson..= ("1.2.3" :: Text), "revision" Aeson..= ("abc123" :: Text)])
+  , testCase "platform versions round-trip releases and prereleases" $ do
+      let release = PlatformVersion 2 4 7 Nothing
+          candidate = PlatformVersion 2 4 7 (Just "rc.1")
+      parsePlatformVersion "2.4.7" @?= Right release
+      parsePlatformVersion "2.4.7-rc.1" @?= Right candidate
+      renderPlatformVersion candidate @?= "2.4.7-rc.1"
+      assertBool "leading zeros are invalid" (isLeft (parsePlatformVersion "02.4.7"))
+      assertBool "missing patch is invalid" (isLeft (parsePlatformVersion "2.4"))
+  , testCase "compatibility distinguishes exact, patch, minor, major, and legacy" $ do
+      let running = PlatformVersion 1 3 2 Nothing
+      comparePlatformVersions running (Just running) @?= Exact
+      comparePlatformVersions running (Just (PlatformVersion 1 3 1 Nothing)) @?= PatchSkew
+      comparePlatformVersions running (Just (PlatformVersion 1 2 9 Nothing)) @?= MinorUpgradeRequired
+      comparePlatformVersions running (Just (PlatformVersion 2 0 0 Nothing)) @?= MajorIncompatible
+      comparePlatformVersions running Nothing @?= LegacyUnknown
   ]
 
 -- ---------------------------------------------------------------------------
@@ -367,6 +391,7 @@ initProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpPlatformVersion = Just "0.1.0"
     }
 
 initTests :: TestTree
@@ -381,6 +406,7 @@ initTests =
         assertBool "target platform (default)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/amd64" out)
         assertBool "mode (default cloud)" (T.isInfixOf "export NAGARE_MODE=cloud" out)
         assertBool "local object store (empty for cloud)" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=" out)
+        assertBool "platform version" (T.isInfixOf "export NAGARE_PLATFORM_VERSION=0.1.0" out)
     , testCase "renderTargetEnv emits an overridden target platform (EP-3)" $ do
         let out = renderTargetEnv initProfile {tpTargetPlatform = "linux/arm64"}
         assertBool "target platform (override)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/arm64" out)
@@ -590,6 +616,7 @@ tnbProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpPlatformVersion = Nothing
     }
 
 targetProfileTests :: TestTree

@@ -57,6 +57,8 @@ instance Aeson.FromJSON PayloadManifest where
 data PlatformWorkspace = PlatformWorkspace
   { pwRoot :: !FilePath
   , pwPayloadId :: !Text
+  , pwPlatformVersion :: !Text
+  , pwSourceRevision :: !(Maybe Text)
   , pwDigest :: !Text
   , pwPulumiDir :: !FilePath
   , pwScriptsDir :: !FilePath
@@ -168,6 +170,8 @@ workspaceAt root manifest digest =
   PlatformWorkspace
     { pwRoot = root
     , pwPayloadId = pmPayloadId manifest
+    , pwPlatformVersion = pmPlatformVersion manifest
+    , pwSourceRevision = pmSourceRevision manifest
     , pwDigest = digest
     , pwPulumiDir = root </> "infra" </> "pulumi"
     , pwScriptsDir = root </> "scripts"

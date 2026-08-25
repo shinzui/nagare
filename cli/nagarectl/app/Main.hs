@@ -2121,6 +2121,8 @@ runPlatformRoot mctx asJson = do
             , "payloadRoot" Aeson..= ppRoot paths
             , "workspaceRoot" Aeson..= pwRoot workspace
             , "payloadId" Aeson..= pwPayloadId workspace
+            , "platformVersion" Aeson..= pwPlatformVersion workspace
+            , "revision" Aeson..= pwSourceRevision workspace
             , "digest" Aeson..= pwDigest workspace
             ]
     else do
@@ -2295,7 +2297,7 @@ runInit mctx o = do
   -- then apply the EP-93 Pulumi backend choice (default local; gcs is cloud-only and
   -- downgraded in local mode by effectivePulumiBackend).
   tpBase <- profileFromOpts project region zone baseDomain
-  let tp =
+  let baseProfile =
         tpBase
           { tpPulumiBackend = parsePulumiBackendKind (o ^. #ioPulumiBackend)
           , tpPulumiBackendUrl = maybe "" T.pack (o ^. #ioPulumiBackendUrl)
@@ -2304,6 +2306,9 @@ runInit mctx o = do
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"
   (_, workspace) <- resolvePlatformWorkspace contextName
+  let tp = case o ^. #ioContextName of
+        Just _ -> baseProfile {tpPlatformVersion = Just (pwPlatformVersion workspace)}
+        Nothing -> baseProfile
 
   case o ^. #ioContextName of
     Just _ -> do
@@ -2400,7 +2405,9 @@ runContext mctx = \case
     exists <- contextExists name
     when (exists && not (ccoForce o)) $
       dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite")
-    let tp = profileFromContextMap (Map.fromList (contextEnvPairs o))
+    (_, workspace) <- resolvePlatformWorkspace name
+    let contextMap = Map.insert "NAGARE_PLATFORM_VERSION" (pwPlatformVersion workspace) (Map.fromList (contextEnvPairs o))
+        tp = profileFromContextMap contextMap
     writeContextProfile name tp
     path <- contextFilePath name
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
