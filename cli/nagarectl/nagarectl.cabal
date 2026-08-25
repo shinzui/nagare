@@ -85,6 +85,7 @@ library
     Nagare.Ops.Status
     Nagare.Platform.Paths
     Nagare.Platform.Status
+    Nagare.Platform.Upgrade
     Nagare.Platform.Workspace
     Nagare.Server.Build
     Nagare.Server.Deploy

@@ -20,14 +20,16 @@
 -- artifacts and URL without side effects.
 module Main (main) where
 
-import Control.Exception (IOException, bracket_, catch)
+import Control.Exception (IOException, bracket, bracket_, catch)
 import Control.Monad (forM, forM_, unless, void)
+import Data.Char (isAlphaNum)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.List (sort)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -130,10 +132,12 @@ import Nagare.Host.Config
   , HostInstallResult (..)
   , hostConfigDir
   , installHostFlake
+  , commitStagedHostFlake
   , readAuthorizedKeys
   , renderHostFlake
   , renderHostModule
   , renderHostSummary
+  , stageHostFlake
   )
 import Nagare.Image
   ( computeTag
@@ -175,12 +179,15 @@ import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
 import Nagare.Platform.Paths
   ( PlatformPaths (..)
+  , PlatformRootSource (..)
   , platformRootSourceToken
   , renderPlatformPathError
   , resolvePlatformPaths
+  , validatePlatformRoot
   )
 import Nagare.Platform.Workspace
-  ( PlatformWorkspace (..)
+  ( PayloadManifest (..)
+  , PlatformWorkspace (..)
   , readPayloadManifest
   , preparePlatformWorkspace
   , renderWorkspaceError
@@ -199,6 +206,18 @@ import Nagare.Platform.Status
   , platformProbe
   , platformStatusValue
   , renderPlatformStatus
+  )
+import Nagare.Platform.Upgrade
+  ( TransactionState (..)
+  , UpgradeOps (..)
+  , UpgradePhase (..)
+  , UpgradeTransaction (..)
+  , applyUpgrade
+  , newUpgradeTransaction
+  , planUpgrade
+  , readUpgradeTransaction
+  , renderUpgradeTransaction
+  , writeUpgradeTransaction
   )
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
@@ -230,6 +249,7 @@ import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Target
   ( ActiveTarget (..)
   , ContextName
+  , Mode (..)
   , PulumiBackendKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
@@ -251,6 +271,7 @@ import Nagare.Target
   , resolveActiveTarget
   , setCurrentContext
   , storeBackendFor
+  , writeContextPlatformVersion
   )
 import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
 import Nagare.Task.Discover (AppScope (..))
@@ -258,13 +279,22 @@ import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
-import Nagare.Version (BuildVersion (..), compatibilityToken, currentBuildVersion, renderBuildVersionJson, renderBuildVersionText)
+import Nagare.Version
+  ( BuildVersion (..)
+  , compatibilityToken
+  , currentBuildVersion
+  , parsePlatformVersion
+  , renderBuildVersionJson
+  , renderBuildVersionText
+  , renderPlatformVersion
+  , versionErrorText
+  )
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute)
-import System.Environment (lookupEnv, setEnv)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, makeAbsolute)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
-import System.FilePath ((</>))
+import System.FilePath (dropExtension, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
 import System.Process (readProcessWithExitCode)
 import "generic-lens" Data.Generics.Labels ()
@@ -440,6 +470,9 @@ data Command
   | PlatformStatusCmd Bool
   | PlatformGuard
   | PlatformStamp
+  | PlatformUpgrade UpgradeOpts
+  | PlatformUpgradeStatus (Maybe String) Bool
+  | PlatformUpgradeRollback String Bool Bool
   | Host HostCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
@@ -482,6 +515,17 @@ data HostCommand
   = HostInit HostInitOpts
   | HostShow (Maybe String)
   | HostPath (Maybe String)
+  deriving stock (Generic, Show)
+
+data UpgradeOpts = UpgradeOpts
+  { uoTo :: !(Maybe String)
+  , uoPayloadRoot :: !(Maybe FilePath)
+  , uoApply :: !Bool
+  , uoResume :: !(Maybe String)
+  , uoDryRun :: !Bool
+  , uoYes :: !Bool
+  , uoJson :: !Bool
+  }
   deriving stock (Generic, Show)
 
 data HostInitOpts = HostInitOpts
@@ -1493,10 +1537,38 @@ opts =
                 <> command
                   "stamp"
                   (info (pure PlatformStamp <**> helper) (progDesc "Record the active payload identity after successful cluster bootstrap"))
+                <> command
+                  "upgrade"
+                  (info (upgradeCommandParser <**> helper) (progDesc "Plan, apply, resume, or inspect a per-context platform upgrade"))
             )
             <**> helper
         )
         (fullDesc <> progDesc "Inspect packaged platform resources")
+    upgradeCommandParser =
+      subparser
+        ( command
+            "status"
+            ( info
+                (PlatformUpgradeStatus <$> optional (strArgument (metavar "TRANSACTION_ID")) <*> switch (long "json" <> help "Print transaction JSON") <**> helper)
+                (progDesc "Show the selected or latest upgrade transaction")
+            )
+            <> command
+              "rollback"
+              ( info
+                  (PlatformUpgradeRollback <$> strArgument (metavar "TRANSACTION_ID") <*> switch (long "yes" <> help "Confirm the supported release rollback") <*> switch (long "json" <> help "Print transaction JSON") <**> helper)
+                  (progDesc "Create and apply a reverse transaction when release metadata explicitly permits it")
+              )
+        )
+        <|> (PlatformUpgrade <$> upgradeOptsParser)
+    upgradeOptsParser =
+      UpgradeOpts
+        <$> optional (strOption (long "to" <> metavar "VERSION" <> help "Target semantic platform version"))
+        <*> optional (strOption (long "payload-root" <> metavar "PATH" <> help "Use this already-resolved payload (tests/offline recovery)"))
+        <*> switch (long "apply" <> help "Apply a previously successful plan; requires --resume and --yes")
+        <*> optional (strOption (long "resume" <> metavar "TRANSACTION_ID" <> help "Resume this persisted transaction"))
+        <*> switch (long "dry-run" <> help "Plan only (the default; accepted for explicit automation)")
+        <*> switch (long "yes" <> help "Confirm application of the planned infrastructure and cluster changes")
+        <*> switch (long "json" <> help "Print the transaction as JSON")
     hostCmd =
       info
         (Host <$> hostSubparser <**> helper)
@@ -2087,6 +2159,9 @@ main =
     PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
     PlatformGuard -> runPlatformGuard mctx
     PlatformStamp -> runPlatformStamp mctx
+    PlatformUpgrade options -> runPlatformUpgrade mctx options
+    PlatformUpgradeStatus txId asJson -> runPlatformUpgradeStatus mctx txId asJson
+    PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
     Host hcmd -> runHost mctx hcmd
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
@@ -2207,12 +2282,290 @@ runPlatformStamp mctx = do
   active <- activeTarget mctx
   (paths, _) <- resolvePlatformWorkspace (atContextName active)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-  installedAt <- T.pack . iso8601Show <$> getCurrentTime
+  applyClusterMarker manifest >>= either dieT TIO.putStrLn
+
+upgradeTransactionsDir :: ContextName -> IO FilePath
+upgradeTransactionsDir context = do
+  stateRoot <- nagareStateDir
+  pure (stateRoot </> T.unpack (contextNameText context) </> "upgrades")
+
+upgradeTransactionPath :: ContextName -> Text -> IO FilePath
+upgradeTransactionPath context txId = (</> T.unpack txId <> ".json") <$> upgradeTransactionsDir context
+
+latestUpgradeTransactionId :: ContextName -> IO (Maybe Text)
+latestUpgradeTransactionId context = do
+  directory <- upgradeTransactionsDir context
+  exists <- doesDirectoryExist directory
+  if not exists
+    then pure Nothing
+    else do
+      entries <- listDirectory directory
+      let ids = sort [T.pack (dropExtension entry) | entry <- entries, takeExtension entry == ".json"]
+      pure (case reverse ids of [] -> Nothing; latest : _ -> Just latest)
+
+loadUpgradeTransaction :: ContextName -> Maybe String -> IO (FilePath, UpgradeTransaction)
+loadUpgradeTransaction context requested = do
+  txId <- case requested of
+    Just requestedId -> pure (T.pack requestedId)
+    Nothing -> latestUpgradeTransactionId context >>= maybe (dieT "no upgrade transaction exists for this context") pure
+  path <- upgradeTransactionPath context txId
+  tx <- readUpgradeTransaction path >>= either dieT pure
+  when (transactionContext tx /= contextNameText context) $
+    dieT ("upgrade transaction belongs to context '" <> transactionContext tx <> "', not '" <> contextNameText context <> "'")
+  pure (path, tx)
+
+runPlatformUpgradeStatus :: Maybe String -> Maybe String -> Bool -> IO ()
+runPlatformUpgradeStatus mctx requested asJson = do
+  active <- activeTarget mctx
+  (_, tx) <- loadUpgradeTransaction (atContextName active) requested
+  printUpgradeTransaction asJson tx
+
+runPlatformUpgradeRollback :: Maybe String -> String -> Bool -> Bool -> IO ()
+runPlatformUpgradeRollback mctx requested yes asJson = do
+  active <- activeTarget mctx
+  (_, original) <- loadUpgradeTransaction (atContextName active) (Just requested)
+  unless yes (dieT "refusing to roll back a release selection without --yes")
+  unless (transactionState original == Completed) (dieT "only a completed upgrade transaction can be rolled back")
+  unless (rollbackSupported original) $
+    dieT "release metadata does not declare this rollback direction supported; Nagare will not claim to reverse data or Pulumi schema migrations automatically"
+  oldVersion <- maybe (dieT "the completed transaction began from a legacy context and has no previous release to select") pure (previousVersion original)
+  oldWorkspace <- findRetainedWorkspace (atContextName active) oldVersion
+  runPlatformUpgrade
+    mctx
+    UpgradeOpts
+      { uoTo = Just (T.unpack oldVersion)
+      , uoPayloadRoot = Just oldWorkspace
+      , uoApply = False
+      , uoResume = Nothing
+      , uoDryRun = True
+      , uoYes = False
+      , uoJson = asJson
+      }
+  newId <- latestUpgradeTransactionId (atContextName active) >>= maybe (dieT "rollback plan did not create a transaction") pure
+  runPlatformUpgrade
+    mctx
+    UpgradeOpts
+      { uoTo = Nothing
+      , uoPayloadRoot = Nothing
+      , uoApply = True
+      , uoResume = Just (T.unpack newId)
+      , uoDryRun = False
+      , uoYes = True
+      , uoJson = asJson
+      }
+
+findRetainedWorkspace :: ContextName -> Text -> IO FilePath
+findRetainedWorkspace context wantedVersion = do
+  stateRoot <- nagareStateDir
+  let directory = stateRoot </> T.unpack (contextNameText context) </> "platform"
+  exists <- doesDirectoryExist directory
+  unless exists (dieT ("no retained platform workspaces exist for context '" <> contextNameText context <> "'"))
+  names <- sort <$> listDirectory directory
+  matches <- fmap catMaybes . forM names $ \name -> do
+    let root = directory </> name
+    candidate <- validatePlatformRoot ExplicitRoot root
+    case candidate of
+      Left _ -> pure Nothing
+      Right paths -> do
+        manifest <- readPayloadManifest paths
+        pure $ case manifest of
+          Right candidateManifest | pmPlatformVersion candidateManifest == wantedVersion -> Just root
+          _ -> Nothing
+  case reverse matches of
+    root : _ -> pure root
+    [] -> dieT ("the retained workspace for platform " <> wantedVersion <> " is unavailable; automatic rollback cannot proceed")
+
+printUpgradeTransaction :: Bool -> UpgradeTransaction -> IO ()
+printUpgradeTransaction asJson tx =
+  if asJson then LBC.putStrLn (Aeson.encode tx) else TIO.putStr (renderUpgradeTransaction tx)
+
+runPlatformUpgrade :: Maybe String -> UpgradeOpts -> IO ()
+runPlatformUpgrade mctx options = do
+  active <- activeTarget mctx
+  if uoApply options
+    then do
+      unless (uoYes options) (dieT "refusing to apply an upgrade without --yes")
+      resumeId <- maybe (dieT "--apply requires --resume TRANSACTION_ID") pure (uoResume options)
+      (path, tx) <- loadUpgradeTransaction (atContextName active) (Just resumeId)
+      paths <- validatePlatformRoot ExplicitRoot (workspaceRoot tx) >>= either (dieT . renderPlatformPathError) pure
+      manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+      let workspace = workspaceFromTransaction tx
+      hostRoot <- hostConfigDir (atContextName active)
+      ensurePulumiInWorkspace (atContextName active) (atProfile active) workspace
+      ops <- upgradeOps active workspace manifest (stagedHostRoot tx) hostRoot path
+      result <- applyUpgrade True ops tx
+      case result of
+        Left err -> do
+          readUpgradeTransaction path >>= either (const (pure ())) (printUpgradeTransaction (uoJson options))
+          dieT err
+        Right completed -> printUpgradeTransaction (uoJson options) completed
+    else do
+      when (uoResume options /= Nothing) (dieT "--resume is only valid with --apply")
+      target <- maybe (dieT "a new upgrade plan requires --to VERSION") (either (dieT . ("invalid --to version: " <>) . versionErrorText) (pure . renderPlatformVersion) . parsePlatformVersion . T.pack) (uoTo options)
+      targetPaths <- resolveUpgradePayload target (uoPayloadRoot options)
+      manifest <- readPayloadManifest targetPaths >>= either (dieT . renderWorkspaceError) pure
+      when (pmPlatformVersion manifest /= target) $
+        dieT ("target payload reports version " <> pmPlatformVersion manifest <> ", expected " <> target)
+      stateRoot <- nagareStateDir
+      workspace <- preparePlatformWorkspace stateRoot (atContextName active) targetPaths >>= either (dieT . renderWorkspaceError) pure
+      now <- currentTimestamp
+      let compactTime = T.take 20 (T.filter isAlphaNum now)
+          txId = compactTime <> "-" <> target <> "-" <> T.take 8 (pwDigest workspace)
+      txPath <- upgradeTransactionPath (atContextName active) txId
+      txDirectory <- upgradeTransactionsDir (atContextName active)
+      let staged = txDirectory </> T.unpack txId </> "host-flake"
+      hostRoot <- hostConfigDir (atContextName active)
+      hostExists <- doesDirectoryExist hostRoot
+      unless hostExists (dieT "platform upgrade requires a generated host flake; run `nagarectl host init` first")
+      _ <- stageHostFlake hostRoot staged (ppNixosDir targetPaths) (BuildVersion target (pmSourceRevision manifest)) >>= either dieT pure
+      let tx =
+            newUpgradeTransaction
+              txId
+              (contextNameText (atContextName active))
+              (tpPlatformVersion (atProfile active))
+              target
+              (pmPayloadId manifest)
+              (pwDigest workspace)
+              (pwRoot workspace)
+              staged
+              (maybe False (`elem` pmRollbackSupportedFrom manifest) (tpPlatformVersion (atProfile active)))
+              now
+      writeUpgradeTransaction txPath tx
+      ensurePulumiInWorkspace (atContextName active) (atProfile active) workspace
+      ops <- upgradeOps active workspace manifest staged hostRoot txPath
+      result <- planUpgrade ops tx
+      case result of
+        Left err -> do
+          readUpgradeTransaction txPath >>= either (const (pure ())) (printUpgradeTransaction (uoJson options))
+          dieT err
+        Right planned -> printUpgradeTransaction (uoJson options) planned
+  where
+    -- The transaction stores all paths needed to resume without re-resolving a tag.
+    workspaceFromTransaction tx =
+      PlatformWorkspace
+        { pwRoot = workspaceRoot tx
+        , pwPayloadId = payloadId tx
+        , pwPlatformVersion = targetVersion tx
+        , pwSourceRevision = Nothing
+        , pwDigest = payloadDigest tx
+        , pwPulumiDir = workspaceRoot tx </> "infra" </> "pulumi"
+        , pwScriptsDir = workspaceRoot tx </> "scripts"
+        , pwClusterDir = workspaceRoot tx </> "cluster"
+        , pwNixosDir = workspaceRoot tx </> "nixos"
+        , pwJustfile = workspaceRoot tx </> "justfile"
+        , pwDocsDir = workspaceRoot tx </> "docs" </> "user"
+        }
+
+resolveUpgradePayload :: Text -> Maybe FilePath -> IO PlatformPaths
+resolveUpgradePayload target override = case override of
+  Just root -> validatePlatformRoot ExplicitRoot root >>= either (dieT . renderPlatformPathError) pure
+  Nothing -> do
+    current <- resolvePlatformPaths Nothing >>= either (dieT . renderPlatformPathError) pure
+    currentManifest <- readPayloadManifest current >>= either (dieT . renderWorkspaceError) pure
+    if pmPlatformVersion currentManifest == target
+      then pure current
+      else do
+        (code, out, err) <-
+          readProcessWithExitCode
+            "nix"
+            [ "build"
+            , "github:shinzui/nagare/v" <> T.unpack target <> "#nagare-platform"
+            , "--no-link"
+            , "--print-out-paths"
+            ]
+            ""
+        case (code, reverse (filter (not . null) (lines out))) of
+          (ExitSuccess, packageRoot : _) ->
+            validatePlatformRoot ExplicitRoot (packageRoot </> "share" </> "nagare") >>= either (dieT . renderPlatformPathError) pure
+          _ -> dieT ("could not resolve Nagare release v" <> target <> " through Nix: " <> T.pack (err <> out))
+
+upgradeOps :: ActiveTarget -> PlatformWorkspace -> PayloadManifest -> FilePath -> FilePath -> FilePath -> IO UpgradeOps
+upgradeOps active workspace manifest staged hostRoot txPath = do
+  pure
+    UpgradeOps
+      { runUpgradePhase = runPhase
+      , upgradePhaseSatisfied = phaseSatisfied
+      , saveUpgradeTransaction = writeUpgradeTransaction txPath
+      , upgradeNow = currentTimestamp
+      }
+  where
+    context = atContextName active
+    profile = atProfile active
+    markerInput = do
+      installedAt <- currentTimestamp
+      pure (LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt)))
+    runPhase NixEvaluate =
+      runExternal [ExitSuccess] "nix" ["eval", "path:" <> staged <> "#packages.x86_64-linux.nagare-image.drvPath"] ""
+    runPhase PulumiPreview =
+      runExternal [ExitSuccess] "pulumi" ["-C", pwPulumiDir workspace, "preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+    runPhase KubernetesDiff = do
+      marker <- markerInput
+      runExternal [ExitSuccess, ExitFailure 1] "kubectl" ["diff", "-f", "-", "--request-timeout=5s"] marker
+    runPhase PulumiApply =
+      runExternal [ExitSuccess] "pulumi" ["-C", pwPulumiDir workspace, "up", "--yes", "--skip-preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+    runPhase HostApply = do
+      switched <- withEnvironment "NAGARE_HOST_FLAKE" staged $ runExternal [ExitSuccess] "bash" [pwScriptsDir workspace </> "host-switch.sh"] ""
+      case switched of
+        Left err -> pure (Left err)
+        Right evidence -> do
+          committed <- commitStagedHostFlake staged hostRoot
+          pure (evidence <$ committed)
+    runPhase KubernetesApply =
+      withEnvironment "NAGARE_UPGRADE_APPLY" "1" $
+        runExternal
+          [ExitSuccess]
+          "just"
+          ["--justfile", pwJustfile workspace, "--working-directory", pwRoot workspace, bootstrapRecipe]
+          ""
+    runPhase ClusterStamp = applyClusterMarker manifest
+    runPhase ContextCommit = writeContextPlatformVersion context (pmPlatformVersion manifest) >>=
+      pure . fmap (const ("context pin advanced to " <> pmPlatformVersion manifest))
+    bootstrapRecipe = case tpMode profile of
+      Local -> "local-bootstrap"
+      Cloud -> "cluster-bootstrap"
+    phaseSatisfied NixEvaluate = doesFileExist (staged </> "flake.nix")
+    phaseSatisfied PulumiPreview = pure False
+    phaseSatisfied KubernetesDiff = pure False
+    phaseSatisfied PulumiApply = pure False
+    phaseSatisfied HostApply = do
+      exists <- doesFileExist (hostRoot </> "flake.nix")
+      if exists
+        then (== Just (pmPlatformVersion manifest)) . identityVersion . parseHostIdentity <$> TIO.readFile (hostRoot </> "flake.nix")
+        else pure False
+    phaseSatisfied KubernetesApply = pure False
+    phaseSatisfied ClusterStamp = do
+      observed <- captureTool "kubectl" ["get", "configmap", "nagare-platform-version", "-n", "nagare-system", "-o", "json", "--request-timeout=5s"]
+      pure $ case observed >>= parseClusterIdentity of
+        Just identity -> identityVersion identity == Just (pmPlatformVersion manifest)
+        Nothing -> False
+    phaseSatisfied ContextCommit = do
+      current <- readContextProfile context
+      pure (either (const False) ((== Just (pmPlatformVersion manifest)) . tpPlatformVersion) current)
+
+applyClusterMarker :: PayloadManifest -> IO (Either Text Text)
+applyClusterMarker manifest = do
+  installedAt <- currentTimestamp
   let marker = LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt))
-  (code, out, err) <- readProcessWithExitCode "kubectl" ["apply", "-f", "-"] marker
-  case code of
-    ExitSuccess -> putStr out
-    ExitFailure _ -> dieT ("could not stamp cluster platform version: " <> T.pack (err <> out))
+  runExternal [ExitSuccess] "kubectl" ["apply", "-f", "-"] marker
+
+runExternal :: [ExitCode] -> FilePath -> [String] -> String -> IO (Either Text Text)
+runExternal accepted executable arguments input = do
+  result <- catch (Right <$> readProcessWithExitCode executable arguments input) (pure . Left)
+  pure $ case result of
+    Left (err :: IOException) -> Left ("could not run " <> T.pack executable <> ": " <> T.pack (show err))
+    Right (code, out, err)
+      | code `elem` accepted -> Right (T.strip (T.pack (out <> err)))
+      | otherwise -> Left (T.pack executable <> " exited " <> T.pack (show code) <> ": " <> T.strip (T.pack (err <> out)))
+
+currentTimestamp :: IO Text
+currentTimestamp = T.pack . iso8601Show <$> getCurrentTime
+
+withEnvironment :: String -> String -> IO a -> IO a
+withEnvironment name envValue ioAction =
+  bracket
+    (lookupEnv name <* setEnv name envValue)
+    (\saved -> maybe (unsetEnv name) (setEnv name) saved)
+    (const ioAction)
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case

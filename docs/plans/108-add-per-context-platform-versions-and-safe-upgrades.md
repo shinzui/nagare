@@ -38,7 +38,7 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T19:03:00Z) M1: Define semantic platform versions, release metadata, context persistence, and compatibility rules.
 - [x] (2026-08-25T19:50:27Z) M2: Stamp and inspect cluster and host release identities and integrate version checks into doctor/status.
-- [ ] M3: Implement staged upgrade planning, apply, history, retry, and supported rollback behavior.
+- [x] (2026-08-25T20:02:13Z) M3: Implement staged upgrade planning, apply, history, retry, and supported rollback behavior.
 - [ ] M4: Validate legacy migration, multi-context skew, failure recovery, and operator upgrade documentation.
 
 
@@ -57,6 +57,12 @@ implementation. Provide concise evidence.
   exercise source-root discovery. The source-fallback test now clears and restores that variable,
   while installed-root precedence remains covered separately. Evidence: all 386 `nagarectl-test`
   cases pass under the packaged development environment. Date: 2026-08-25.
+- The root `justfile` is the existing executable aggregation of the cloud and local Kubernetes
+  bootstrap; there is no separate complete rendered manifest set to apply during an upgrade. The
+  transaction therefore previews the version-marker diff, replays the idempotent bootstrap recipe
+  under an internal upgrade marker, and stamps the release separately as the penultimate phase.
+  This keeps the pre-existing bootstrap behavior visible and prevents its ordinary guard/final stamp
+  from committing early. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -91,6 +97,18 @@ Record every decision made while working on the plan.
   Rationale: every operational asset comes from that immutable payload, so comparing all other
   identities against it detects the release actually attempting the operation. One grader prevents
   diagnostics and guards from disagreeing about safety.
+  Date: 2026-08-25.
+- Decision: persist a schema-versioned transaction after every preview/apply phase and make context
+  version persistence the final phase.
+  Rationale: phase evidence makes interruption diagnosable, retained payload/host staging makes retry
+  idempotent, and the old context pin remains a truthful recovery anchor until Pulumi, host,
+  Kubernetes, and cluster stamping all succeed.
+  Date: 2026-08-25.
+- Decision: permit automated release rollback only when the completed transaction records that the
+  target release explicitly allowed its previous version.
+  Rationale: reselecting a retained payload and host input can be automated, but application data and
+  Pulumi schema migrations cannot be inferred reversible. An absent allowlist produces a refusal and
+  manual recovery guidance rather than a false rollback claim.
   Date: 2026-08-25.
 
 
