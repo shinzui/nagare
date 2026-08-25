@@ -20,6 +20,7 @@ default:
 # Create/update GCP infrastructure (pulumi up).
 [group('infra')]
 infra-up:
+    nagarectl platform guard
     cd infra/pulumi && pulumi up
 
 # EP-2: preview the Pulumi changes without applying them.
@@ -54,6 +55,7 @@ vm-start:
 # Build + upload + register the NixOS GCE image.
 [group('host')]
 host-image:
+    nagarectl platform guard
     scripts/upload-images.sh
 
 # Show the registry host now carried by the generated context host flake.
@@ -67,6 +69,7 @@ nixos-registry-host:
 # Apply day-2 host config to running nagare-01.
 [group('host')]
 host-switch:
+    nagarectl platform guard
     scripts/host-switch.sh
 
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
@@ -98,7 +101,8 @@ k3s_image := "rancher/k3s:v1.34.6-k3s1"
 # Install cert-manager, Knative Serving, Kourier + wire ConfigMaps (HTTP-first).
 [group('cluster')]
 cluster-bootstrap:
-    for ns in cert-manager knative-serving kourier-system personal; do \
+    nagarectl platform guard
+    for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
@@ -118,6 +122,7 @@ cluster-bootstrap:
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
       kubectl -n knative-serving patch configmap config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
+    nagarectl platform stamp
 
 # EP-95: install the two-slot ResourceQuota for deadline-bounded one-shot Jobs.
 # Create/update the personal namespace and bounded Job-run quota.
@@ -197,6 +202,7 @@ local-down:
 # Install Knative + Kourier + cert-manager on the local cluster (HTTP-first).
 [group('local')]
 local-bootstrap:
+    nagarectl platform guard
     for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
@@ -220,6 +226,7 @@ local-bootstrap:
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-k3d-registry.localhost:5000}"; \
       kubectl -n knative-serving patch configmap config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
+    nagarectl platform stamp
 
 # EP-84 (docs/plans/84-local-data-services-and-gcs-free-backups-and-snapshots-for-nagare.md):
 # install the local MinIO object store — the S3-compatible stand-in for GCS that

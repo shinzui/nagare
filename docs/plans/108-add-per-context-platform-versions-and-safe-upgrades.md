@@ -37,7 +37,7 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T19:03:00Z) M1: Define semantic platform versions, release metadata, context persistence, and compatibility rules.
-- [ ] M2: Stamp and inspect cluster and host release identities and integrate version checks into doctor/status.
+- [x] (2026-08-25T19:50:27Z) M2: Stamp and inspect cluster and host release identities and integrate version checks into doctor/status.
 - [ ] M3: Implement staged upgrade planning, apply, history, retry, and supported rollback behavior.
 - [ ] M4: Validate legacy migration, multi-context skew, failure recovery, and operator upgrade documentation.
 
@@ -86,6 +86,12 @@ Record every decision made while working on the plan.
   Rationale: the required release grammar and compatibility matrix are small, strict, and now table
   tested; avoiding another library keeps EP-105's hermetic package closure unchanged.
   Date: 2026-08-25.
+- Decision: use the resolved payload as the comparison anchor and one shared grader for status,
+  doctor, and mutation guards.
+  Rationale: every operational asset comes from that immutable payload, so comparing all other
+  identities against it detects the release actually attempting the operation. One grader prevents
+  diagnostics and guards from disagreeing about safety.
+  Date: 2026-08-25.
 
 
 ## Outcomes & Retrospective
@@ -124,8 +130,11 @@ non-production environment and preserving rollback paths. This plan builds on th
 than replacing it with an opaque all-or-nothing command. Pulumi previews, Nix evaluation, Kubernetes
 server-side dry runs/diffs, data backup checks, and explicit approval remain visible phases.
 
-No relevant ADR exists. The compatibility matrix, version locations, and commit point are durable
-architecture and must be recorded in `docs/adr/` if implementation confirms them.
+The immutable payload/workspace and context-owned host boundaries are recorded in
+`docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md` and
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. This plan's implemented
+compatibility matrix, five identity locations, and final context commit point are recorded in
+`docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md`.
 
 
 ## Plan of Work

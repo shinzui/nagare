@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-platform-version
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/managed-by: nagarectl
+data:
+  version: "${NAGARE_PLATFORM_VERSION}"
+  revision: "${NAGARE_PLATFORM_REVISION}"
+  payloadSchema: "${NAGARE_PAYLOAD_SCHEMA}"
+  installedAt: "${NAGARE_PLATFORM_INSTALLED_AT}"

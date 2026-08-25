@@ -32,6 +32,8 @@ import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Data.Time (getCurrentTime)
+import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
 import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.App
@@ -179,8 +181,24 @@ import Nagare.Platform.Paths
   )
 import Nagare.Platform.Workspace
   ( PlatformWorkspace (..)
+  , readPayloadManifest
   , preparePlatformWorkspace
   , renderWorkspaceError
+  )
+import Nagare.Platform.Status
+  ( PlatformStatus (..)
+  , ReleaseIdentity (..)
+  , assessPlatformStatus
+  , clusterMarkerValue
+  , guardPlatformMutation
+  , identityFromBuild
+  , identityFromContext
+  , identityFromPayload
+  , parseClusterIdentity
+  , parseHostIdentity
+  , platformProbe
+  , platformStatusValue
+  , renderPlatformStatus
   )
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
@@ -240,7 +258,7 @@ import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
-import Nagare.Version (currentBuildVersion, renderBuildVersionJson, renderBuildVersionText)
+import Nagare.Version (BuildVersion (..), compatibilityToken, currentBuildVersion, renderBuildVersionJson, renderBuildVersionText)
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute)
@@ -419,6 +437,9 @@ data DepLogsOpts = DepLogsOpts
 data Command
   = Version VersionOpts
   | PlatformRoot Bool
+  | PlatformStatusCmd Bool
+  | PlatformGuard
+  | PlatformStamp
   | Host HostCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
@@ -1460,6 +1481,18 @@ opts =
                     (PlatformRoot <$> switch (long "json" <> help "Print machine-readable platform path metadata") <**> helper)
                     (progDesc "Resolve, validate, and materialize the active platform payload")
                 )
+                <> command
+                  "status"
+                  ( info
+                      (PlatformStatusCmd <$> switch (long "json" <> help "Print machine-readable release identities") <**> helper)
+                      (progDesc "Compare CLI, payload, context, host, and cluster release identities")
+                  )
+                <> command
+                  "guard"
+                  (info (pure PlatformGuard <**> helper) (progDesc "Refuse unsafe platform mutation when release versions are incompatible"))
+                <> command
+                  "stamp"
+                  (info (pure PlatformStamp <**> helper) (progDesc "Record the active payload identity after successful cluster bootstrap"))
             )
             <**> helper
         )
@@ -2051,6 +2084,9 @@ main =
         then BC.putStrLn (renderBuildVersionJson currentBuildVersion)
         else TIO.putStrLn (renderBuildVersionText currentBuildVersion)
     PlatformRoot asJson -> runPlatformRoot mctx asJson
+    PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
+    PlatformGuard -> runPlatformGuard mctx
+    PlatformStamp -> runPlatformStamp mctx
     Host hcmd -> runHost mctx hcmd
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
@@ -2130,6 +2166,54 @@ runPlatformRoot mctx asJson = do
       putStrLn ("payload root: " <> ppRoot paths)
       putStrLn ("workspace root: " <> pwRoot workspace)
 
+gatherPlatformStatus :: Maybe String -> IO (ActiveTarget, PlatformStatus)
+gatherPlatformStatus mctx = do
+  active <- activeTarget mctx
+  (paths, _) <- resolvePlatformWorkspace (atContextName active)
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  hostRoot <- hostConfigDir (atContextName active)
+  let hostFlake = hostRoot </> "flake.nix"
+  hostExists <- doesFileExist hostFlake
+  hostIdentity <- if hostExists then parseHostIdentity <$> TIO.readFile hostFlake else pure unknownIdentity
+  clusterBytes <- captureTool "kubectl" ["get", "configmap", "nagare-platform-version", "-n", "nagare-system", "-o", "json", "--request-timeout=5s"]
+  let clusterIdentity = fromMaybe unknownIdentity (clusterBytes >>= parseClusterIdentity)
+      status =
+        assessPlatformStatus
+          (identityFromBuild currentBuildVersion)
+          (identityFromPayload manifest)
+          (identityFromContext (atProfile active))
+          hostIdentity
+          clusterIdentity
+  pure (active, status)
+  where
+    unknownIdentity = ReleaseIdentity Nothing Nothing Nothing
+
+runPlatformStatus :: Maybe String -> Bool -> IO ()
+runPlatformStatus mctx asJson = do
+  (active, status) <- gatherPlatformStatus mctx
+  if asJson
+    then LBC.putStrLn (Aeson.encode (platformStatusValue status))
+    else TIO.putStr (renderPlatformStatus (contextNameText (atContextName active)) status)
+
+runPlatformGuard :: Maybe String -> IO ()
+runPlatformGuard mctx = do
+  (_, status) <- gatherPlatformStatus mctx
+  case guardPlatformMutation status of
+    Left err -> dieT err
+    Right () -> TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (statusCompatibility status) <> ")")
+
+runPlatformStamp :: Maybe String -> IO ()
+runPlatformStamp mctx = do
+  active <- activeTarget mctx
+  (paths, _) <- resolvePlatformWorkspace (atContextName active)
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  installedAt <- T.pack . iso8601Show <$> getCurrentTime
+  let marker = LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt))
+  (code, out, err) <- readProcessWithExitCode "kubectl" ["apply", "-f", "-"] marker
+  case code of
+    ExitSuccess -> putStr out
+    ExitFailure _ -> dieT ("could not stamp cluster platform version: " <> T.pack (err <> out))
+
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
   HostPath commandContext -> do
@@ -2148,9 +2232,9 @@ runHost globalContext = \case
   HostInit options -> do
     active <- activeTarget (hioContext options <|> globalContext)
     keys <- readAuthorizedKeys (hioSshPublicKeyFiles options) >>= either dieT pure
-    pathsResult <- resolvePlatformPaths Nothing
-    paths <- either (dieT . renderPlatformPathError) pure pathsResult
+    (paths, workspace) <- resolvePlatformWorkspace (atContextName active)
     nixosSource <- makeAbsolute (ppNixosDir paths)
+    let payloadBuild = BuildVersion (pwPlatformVersion workspace) (pwSourceRevision workspace)
     let profile = atProfile active
         defaultInstance = tpInstanceName profile
         config =
@@ -2170,11 +2254,11 @@ runHost globalContext = \case
         TIO.putStrLn "DRY RUN — generated host configuration:"
         TIO.putStr (renderHostSummary root config)
         TIO.putStrLn "--- flake.nix ---"
-        TIO.putStr (renderHostFlake config currentBuildVersion)
+        TIO.putStr (renderHostFlake config payloadBuild)
         TIO.putStrLn "--- host.nix ---"
         TIO.putStr (renderHostModule config)
       else do
-        result <- installHostFlake (hioForce options) config currentBuildVersion (hioSopsFile options) >>= either dieT pure
+        result <- installHostFlake (hioForce options) config payloadBuild (hioSopsFile options) >>= either dieT pure
         let verb = case result of
               HostInstalled -> "Installed"
               HostReplaced -> "Replaced"
@@ -2248,7 +2332,8 @@ runServerStatus mctx o = do
   tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp) {ioSkipVm = ssSkipVm o}
   probes <- gatherInventory tp invOpts
-  TIO.putStr (renderInventory probes)
+  (_, versionStatus) <- gatherPlatformStatus mctx
+  TIO.putStr (renderInventory (probes <> [platformProbe versionStatus]))
 
 -- | @doctor@: gather EP-38's probes, re-grade them into a remediation checklist,
 -- print it, and exit non-zero iff any check FAILs. Read-only and advisory —
@@ -2261,7 +2346,8 @@ runDoctor mctx o = do
   tp <- activeProfile mctx
   let invOpts = (inventoryOptsFor (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp) {ioSkipVm = dSkipVm o}
   probes <- gatherInventory tp invOpts
-  let checks = gradeChecksAt (pwRoot workspace) (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp probes
+  (_, versionStatus) <- gatherPlatformStatus mctx
+  let checks = gradeChecksAt (pwRoot workspace) (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp (probes <> [platformProbe versionStatus])
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
