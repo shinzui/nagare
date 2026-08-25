@@ -23,9 +23,10 @@ cluster/bootstrap/en/build-image.sh
 ```
 
 The script delegates to `cluster/bootstrap/auth-images/build-local-image.sh`,
-which assembles a temporary Docker context from the local Nagare, shomei, en,
-codd checkout, plus pinned public git dependencies for jose, servant-openapi,
-openapi-hs, and the Shomei WebAuthn fork. It builds for `linux/amd64`, tags the
+which assembles a temporary Docker context from the local En checkout. Its generated
+Cabal project includes `en-biscuit`, pins the reviewed
+`mori://shinzui/biscuit-haskell` fork, and resolves the remaining dependency closure
+from Hackage with the crypton 1.1 floor. It builds for `linux/amd64` by default, tags the
 image as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/en:<git-sha>`,
 pushes it by default, and prints the image reference. Set `NAGARE_AUTH_PUSH=0`
@@ -52,8 +53,8 @@ printed image in `service.yaml`; `dev.local` is already skipped by Knative's
 controller-side tag resolver, and the non-`latest` tag lets kubelet use the
 locally imported image.
 
-Override `EN_SRC` or `CODD_SRC` if the local checkouts live somewhere other than
-the helper's default paths.
+Override `EN_SRC` if the local checkout lives somewhere other than the helper's
+default path.
 
 The service and migration Job both read `POSTGRES_USER`, `POSTGRES_PASSWORD`,
 and `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-en-db`. The
@@ -71,6 +72,11 @@ checksums in pg-migrate's database ledger (`mori://shinzui/pg-migrate`). Both au
 installers delete the completed Kubernetes Job before applying it because Job pod
 templates are immutable and completed Jobs do not rerun. Recreating the Job is
 safe: pg-migrate takes an advisory lock and applies only pending migrations.
+
+En requires bearer authentication. Both installers create and preserve the
+`nagare-en-api-keys` Secret: En receives named read-write and read-only entries,
+`nagarectl` uses the raw read-write key, and nagare-access receives only the raw
+read-only key.
 
 ```bash
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -

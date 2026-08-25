@@ -46,9 +46,10 @@ local-mode differences as imperative overrides:
 | `NAGARE_ACCESS_COOKIE_DOMAIN` | `.$NAGARE_BASE_DOMAIN` | one sign-in covers every local app |
 | `SHOMEI_WEBAUTHN_RP_ID` / `SHOMEI_WEBAUTHN_ORIGINS` | `$NAGARE_BASE_DOMAIN` / `https://protected-hello.$NAGARE_BASE_DOMAIN` | the passkey ceremony validates against the loopback HTTPS origin (the protected-hello example derives its public host from the base domain) |
 
-It also generates a real `nagare-access` cookie-key Secret (once), applies the
-`en-schema` + `nagare-access-backends` ConfigMaps, and runs the `en-migrate` Job
-(en does **not** self-migrate) before starting `en`.
+It also generates the `nagare-access` cookie key, En read-write/read-only API keys,
+and Shomei key-encryption key once, preserving each Secret on reruns. It applies the
+`en-schema` and `nagare-access-backends` ConfigMaps, then runs both services' explicit
+`shomei-migrate` and `en-migrate` Jobs before starting their servers.
 
 ### Why a script and not a kustomize overlay
 

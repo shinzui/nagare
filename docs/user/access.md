@@ -1,12 +1,14 @@
 # Identity-aware access
 
-> **Status:** 🟡 **Built, with live routing fixes in place.**
+> **Status:** 🟢 **Built and locally validated.**
 >
 > The DSL field, `nagarectl` deploy-time resolver, grant/revoke/list commands,
 > enforcer service, bootstrap manifests, protected example, and shared-host
 > routing model exist and have tests. Cookie integrity, login return paths,
 > hostile Host headers, en-outage handling, and cache eviction have also been
-> hardened. The auth plane runs in **local mode**
+> hardened. The current Shomei and En dependency pins, authenticated En calls,
+> service-owned migrations, and the full 302 → 403 → 200 → 403 grant lifecycle
+> have been validated in **local mode**
 > (MasterPlan 16 EP-85): the three images build into the local registry, shomei/en
 > run on local managed Postgres, and a locally-trusted `nagare-local-ca` issuer
 > provides the HTTPS WebAuthn needs — see
@@ -36,9 +38,9 @@ deployment = do
 
 > **Local mode:** the steps below are the cloud install. To run the auth plane on
 > a local k3d cluster, use the scripted local installer
-> `cluster/bootstrap/local-auth/install.sh`, which builds the three images into the
-> local registry, creates the `shomei-db`/`en-db` managed Postgres, applies the
-> manifests, and stands up the `nagare-local-ca` issuer with Knative auto-TLS. See
+> `cluster/bootstrap/local-auth/install.sh`. Build and push the three images, create
+> `shomei-db` and `en-db`, and install local TLS first; the installer applies the
+> auth manifests, generates the required Secrets, and runs both migration Jobs. See
 > [Local development → optional auth plane](local-development.md#optional-the-auth-plane).
 
 The auth plane is not part of `just cluster-bootstrap`. Install it only on
@@ -49,6 +51,10 @@ kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply 
 
 nagarectl db create postgres shomei-db --namespace nagare-system
 nagarectl db create postgres en-db --namespace nagare-system
+
+for service in shomei en nagare-access; do
+  cluster/bootstrap/auth-images/build-local-image.sh "$service"
+done
 
 cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
 # edit /tmp/nagare-access-secret.yaml before applying it
@@ -61,6 +67,9 @@ Before applying for real, edit the Secret template:
 
 - `cluster/bootstrap/nagare-access/secret.example.yaml.tmpl` needs a long random
   `cookie-key`.
+
+The installer generates and preserves En's read-write/read-only API keys and Shomei's
+mandatory key-encryption key. It never prints or commits those generated values.
 
 `cluster/bootstrap/auth-install.sh` renders the `image:` values from the active
 target context (`NAGARE_REGISTRY_PREFIX`, `NAGARE_AUTH_TAG`) before applying the
@@ -75,16 +84,11 @@ passwords may contain URL metacharacters. The database names include `-db` so
 their Kubernetes Services do not collide with the auth services named `shomei`
 and `en`.
 
-Build and push the enforcer image with:
-
-```bash
-cluster/bootstrap/nagare-access/build-image.sh
-```
-
-shomei runs its migrations during startup. en currently expects its PostgreSQL
-migrations to have been run before `en-server` starts; the bootstrap wrapper is
-`cluster/bootstrap/en/migrations.yaml`, which uses `psql` from the `postgres:18`
-image and skips when the en tables already exist.
+Each service owns its PostgreSQL schema as an embedded pg-migrate plan. The installer
+runs `shomei-migrate up` and `en-migrate up` as explicit Kubernetes Jobs from the same
+image tags as their servers, waits for both Jobs to complete, and only then rolls out
+the workloads. The ledger makes reruns idempotent; Nagare does not carry a duplicate
+copy of either service's SQL.
 
 ## Deploy a protected site
 
@@ -132,11 +136,15 @@ Revoke the grant:
 nagarectl access revoke --host protected-hello.apps.example.com --user alice
 ```
 
-The commands talk to en. Pass `--en-url URL` or set `NAGARE_EN_URL`, for
-example:
+The commands talk to En and must use its read-write bearer key. Pass `--en-url URL`
+and `--en-api-key KEY`, or set `NAGARE_EN_URL` and `NAGARE_EN_API_KEY`. From a
+workstation, a local port-forward keeps the service private while making the CLI usable:
 
 ```bash
-export NAGARE_EN_URL=http://en.nagare-system.svc.cluster.local
+kubectl -n nagare-system port-forward svc/en 18082:80 &
+export NAGARE_EN_URL=http://127.0.0.1:18082
+export NAGARE_EN_API_KEY="$(kubectl -n nagare-system get secret nagare-en-api-keys \
+  -o jsonpath='{.data.read-write}' | base64 -d)"
 ```
 
 ## Request behavior
@@ -155,8 +163,10 @@ For a protected host:
 - the session cookie is scoped to the parent domain, so one login can work
   across protected subdomains under the same base domain.
 
-The enforcer caches en decisions briefly, defaulting to 30 seconds. A grant or
-revoke may therefore take up to that TTL to affect an already active session.
+En publishes an optimized revision on a short interval, so list results can lag a
+successful mutation by several seconds. The enforcer also caches En decisions briefly,
+defaulting to 30 seconds. A grant or revoke may therefore take up to that TTL to affect
+an already active session.
 Expired decisions are evicted as new decisions are written, so old subject/host
 pairs do not accumulate indefinitely.
 
