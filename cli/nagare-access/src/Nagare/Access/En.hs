@@ -22,10 +22,12 @@ import En.Client
   , CheckResponseWire (..)
   , ConsistencyWire (..)
   , EnClient (..)
+  , EnResult (..)
   , ObjectRefWire (..)
   , SubjectWire (..)
   , enClient
   )
+import En.Servant.Seam (ErrorEnvelopeWire (..))
 import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..))
@@ -48,17 +50,20 @@ authorizeWithEnClient :: EnClient -> ClientEnv -> AuthenticatedUser -> Text -> I
 authorizeWithEnClient client env user host =
   authorizationFromClientResult <$> runClientM (client.check (buildCheckRequest user host)) env
 
--- | Classify a servant client result. Every 'Left' here is transport-level —
--- connection refused, timeout, DNS failure, a non-2xx status, an undecodable
--- body — because en expresses a genuine refusal as
--- @Right (CheckResponseWire DeniedWire)@. So mapping all 'Left's to
--- 'AuthorizationUnavailable' is exact, not lenient: it never turns a real
--- denial into an outage.
-authorizationFromClientResult :: Either ClientError CheckResponseWire -> AuthorizationResult
-authorizationFromClientResult =
-  either
-    (AuthorizationUnavailable . Text.pack . show)
-    (AuthorizationDecision . checkResponseToDecision)
+-- | Classify a servant client result without weakening fail-closed authorization.
+-- A real refusal is an 'EnOk' carrying 'DeniedWire'. Transport failures and every
+-- error envelope mean en did not answer, so they become a 503-producing outage.
+authorizationFromClientResult :: Either ClientError (EnResult CheckResponseWire) -> AuthorizationResult
+authorizationFromClientResult = \case
+  Left transportError -> AuthorizationUnavailable (Text.pack (show transportError))
+  Right (EnOk response) -> AuthorizationDecision (checkResponseToDecision response)
+  Right (EnClientError envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
+  Right (EnPreconditionFailed envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
+  Right (EnUnprocessable envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
+  Right (EnUnavailable envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
+
+envelopeMessage :: ErrorEnvelopeWire -> Text
+envelopeMessage envelope = envelope.code <> ": " <> envelope.message
 
 buildCheckRequest :: AuthenticatedUser -> Text -> CheckRequestWire
 buildCheckRequest user host =

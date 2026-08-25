@@ -13,11 +13,11 @@ import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.Credential (Credential, credentialToken)
 import Nagare.Access.Jwks (JwksCache, getCachedJwks)
 import Shomei.Config (ShomeiConfig, defaultShomeiConfig)
-import Shomei.Domain.Claims (Audience (..), Issuer (..))
-import Shomei.Domain.Claims qualified as Claims
+import Shomei.Authorization.Claims.Domain (Audience (..), Issuer (..))
+import Shomei.Authorization.Claims.Domain qualified as Claims
 import Shomei.Error (TokenError (..))
 import Shomei.Id qualified as ShomeiId
-import Shomei.Jwt.Verify (verifyToken)
+import Shomei.SigningKey.Verify.Jwt (verifyToken)
 
 verifyShomeiCredential :: JWKSet -> AuthPlaneConfig -> Credential -> IO (Either AuthFailure AuthenticatedUser)
 verifyShomeiCredential jwks cfg credential = do
