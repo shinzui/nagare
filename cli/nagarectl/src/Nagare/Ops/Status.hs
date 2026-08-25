@@ -33,12 +33,13 @@ import Nagare.Target (TargetProfile (..), registryPrefix)
 -- | The inventory knobs derived from a resolved 'TargetProfile' (EP-62): the zone
 -- and instance come from the profile; the Pulumi project dir is fixed and the
 -- disk probe is enabled.
-inventoryOptsFor :: TargetProfile -> InventoryOpts
-inventoryOptsFor tp =
+inventoryOptsFor :: FilePath -> FilePath -> TargetProfile -> InventoryOpts
+inventoryOptsFor pulumiDir iapSsh tp =
   InventoryOpts
     { ioZone = tpZone tp
     , ioInstance = tpInstanceName tp
-    , ioPulumiDir = "infra/pulumi"
+    , ioPulumiDir = pulumiDir
+    , ioIapSsh = iapSsh
     , ioSkipVm = False
     }
 
@@ -254,7 +255,7 @@ probeDisk o
   | otherwise = do
       m <-
         captureTool
-          "scripts/iap-ssh.sh"
+          (ioIapSsh o)
           ["ssh", T.unpack (ioInstance o), "--", "df -h /var/lib/nagare /"]
       pure $ case fmap decodeUtf8 m of
         Nothing -> [Probe "disk" StatusUnknown "iap-ssh unavailable (VM off? key not set?)"]

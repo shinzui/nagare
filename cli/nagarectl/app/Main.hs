@@ -22,8 +22,10 @@ module Main (main) where
 
 import Control.Exception (IOException, bracket_, catch)
 import Control.Monad (forM, forM_, unless, void)
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
@@ -146,7 +148,7 @@ import Nagare.Ops.Cleanup
   , executeCleanup
   , formatCleanupReport
   )
-import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecks)
+import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecksAt)
 import Nagare.Ops.Domains
   ( CertState (..)
   , DnsExpectation (..)
@@ -159,6 +161,17 @@ import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
+import Nagare.Platform.Paths
+  ( PlatformPaths (..)
+  , platformRootSourceToken
+  , renderPlatformPathError
+  , resolvePlatformPaths
+  )
+import Nagare.Platform.Workspace
+  ( PlatformWorkspace (..)
+  , preparePlatformWorkspace
+  , renderWorkspaceError
+  )
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
@@ -395,6 +408,7 @@ data DepLogsOpts = DepLogsOpts
 -- | Everything @nagarectl@ can be asked to do.
 data Command
   = Version VersionOpts
+  | PlatformRoot Bool
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
@@ -1380,6 +1394,7 @@ opts =
     commandParser =
       subparser
         ( command "version" versionCmd
+            <> command "platform" platformCmd
             <> command "deploy" deployCmd
             <> command "site" siteCmd
             <> command "env" envCmd
@@ -1404,6 +1419,19 @@ opts =
       info
         (Version . VersionOpts <$> switch (long "json" <> help "Print machine-readable version metadata") <**> helper)
         (progDesc "Print the nagarectl version")
+    platformCmd =
+      info
+        ( subparser
+            ( command
+                "root"
+                ( info
+                    (PlatformRoot <$> switch (long "json" <> help "Print machine-readable platform path metadata") <**> helper)
+                    (progDesc "Resolve, validate, and materialize the active platform payload")
+                )
+            )
+            <**> helper
+        )
+        (fullDesc <> progDesc "Inspect packaged platform resources")
     doctorCmd =
       info
         (Doctor <$> doctorOptsParser <**> helper)
@@ -1967,6 +1995,7 @@ main =
       if versionJson
         then BC.putStrLn (renderBuildVersionJson currentBuildVersion)
         else TIO.putStrLn (renderBuildVersionText currentBuildVersion)
+    PlatformRoot asJson -> runPlatformRoot mctx asJson
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts
@@ -2000,7 +2029,7 @@ main =
     Init o -> runInit mctx o
     Domains (DomainsList o) -> runDomainsList mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
-    Cleanup o -> runCleanup o
+    Cleanup o -> runCleanup mctx o
 
 -- | @server status@: gather the platform inventory and print the aligned
 -- report. Read-only and always exits 0 — graceful degradation is the probes'
@@ -2013,11 +2042,48 @@ activeProfile = resolveActiveContext . fmap T.pack
 activeTarget :: Maybe String -> IO ActiveTarget
 activeTarget = resolveActiveTarget . fmap T.pack
 
-ensurePulumiForContext :: ContextName -> TargetProfile -> IO ()
+resolvePlatformWorkspace :: ContextName -> IO (PlatformPaths, PlatformWorkspace)
+resolvePlatformWorkspace contextName = do
+  pathsResult <- resolvePlatformPaths Nothing
+  paths <- either (dieT . renderPlatformPathError) pure pathsResult
+  stateRoot <- nagareStateDir
+  workspaceResult <- preparePlatformWorkspace stateRoot contextName paths
+  workspace <- either (dieT . renderWorkspaceError) pure workspaceResult
+  setEnv "NAGARE_WORKSPACE_ROOT" (pwRoot workspace)
+  pure (paths, workspace)
+
+runPlatformRoot :: Maybe String -> Bool -> IO ()
+runPlatformRoot mctx asJson = do
+  active <- activeTarget mctx
+  (paths, workspace) <- resolvePlatformWorkspace (atContextName active)
+  if asJson
+    then
+      LBC.putStrLn $
+        Aeson.encode $
+          Aeson.object
+            [ "source" Aeson..= platformRootSourceToken (ppRootSource paths)
+            , "payloadRoot" Aeson..= ppRoot paths
+            , "workspaceRoot" Aeson..= pwRoot workspace
+            , "payloadId" Aeson..= pwPayloadId workspace
+            , "digest" Aeson..= pwDigest workspace
+            ]
+    else do
+      TIO.putStrLn ("source: " <> platformRootSourceToken (ppRootSource paths))
+      putStrLn ("payload root: " <> ppRoot paths)
+      putStrLn ("workspace root: " <> pwRoot workspace)
+
+ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext name tp = do
+  (_, workspace) <- resolvePlatformWorkspace name
+  ensurePulumiInWorkspace name tp workspace
+  pure workspace
+
+ensurePulumiInWorkspace :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
+ensurePulumiInWorkspace name tp workspace = do
   stateRoot <- nagareStateDir
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = peStack penv
+      pulumiDir = pwPulumiDir workspace
   createDirectoryIfMissing True (peHome penv)
   -- Only a local (@file://@) backend has a state directory to create; a GCS
   -- backend URL is @gs://…@ and must never be treated as a local path.
@@ -2031,12 +2097,12 @@ ensurePulumiForContext name tp = do
   setEnv "PULUMI_CONFIG_PASSPHRASE" ""
   setEnv "PULUMI_CONFIG_PASSPHRASE_FILE" (peHome penv </> "passphrase")
   setEnv "NAGARE_PULUMI_STACK" (T.unpack stack)
-  selected <- pulumiQuiet ["-C", "infra/pulumi", "stack", "select", T.unpack stack]
+  selected <- pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack]
   case selected of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      _ <- pulumiQuiet ["-C", "infra/pulumi", "stack", "init", T.unpack stack]
-      void (pulumiQuiet ["-C", "infra/pulumi", "stack", "select", T.unpack stack])
+      _ <- pulumiQuiet ["-C", pulumiDir, "stack", "init", T.unpack stack]
+      void (pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack])
 
 -- | Bootstrap the GCS Pulumi state bucket for a context that opts into it. A
 -- local/local-mode context is a no-op. A bootstrap failure (e.g. missing gcloud
@@ -2061,17 +2127,17 @@ pulumiQuiet args =
     handleMissing :: IOException -> IO ExitCode
     handleMissing _ = pure (ExitFailure 127)
 
-ensurePulumiForActiveContext :: Maybe String -> IO ContextName
+ensurePulumiForActiveContext :: Maybe String -> IO (ContextName, PlatformWorkspace)
 ensurePulumiForActiveContext mctx = do
   active <- activeTarget mctx
-  ensurePulumiForContext (atContextName active) (atProfile active)
-  pure (atContextName active)
+  workspace <- ensurePulumiForContext (atContextName active) (atProfile active)
+  pure (atContextName active, workspace)
 
 runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
 runServerStatus mctx o = do
-  void (ensurePulumiForActiveContext mctx)
+  (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  let invOpts = (inventoryOptsFor tp) {ioSkipVm = ssSkipVm o}
+  let invOpts = (inventoryOptsFor (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp) {ioSkipVm = ssSkipVm o}
   probes <- gatherInventory tp invOpts
   TIO.putStr (renderInventory probes)
 
@@ -2082,11 +2148,11 @@ runServerStatus mctx o = do
 -- always printed; only the exit code varies).
 runDoctor :: Maybe String -> DoctorOpts -> IO ()
 runDoctor mctx o = do
-  void (ensurePulumiForActiveContext mctx)
+  (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  let invOpts = (inventoryOptsFor tp) {ioSkipVm = dSkipVm o}
+  let invOpts = (inventoryOptsFor (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp) {ioSkipVm = dSkipVm o}
   probes <- gatherInventory tp invOpts
-  let checks = gradeChecks tp probes
+  let checks = gradeChecksAt (pwRoot workspace) (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp probes
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
@@ -2130,6 +2196,7 @@ runInit mctx o = do
   contextName <- case o ^. #ioContextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"
+  (_, workspace) <- resolvePlatformWorkspace contextName
 
   case o ^. #ioContextName of
     Just _ -> do
@@ -2152,7 +2219,7 @@ runInit mctx o = do
   -- Enable the GCP APIs (unless skipped).
   unless (o ^. #ioSkipEnable) $ do
     putStrLn "Enabling GCP service APIs..."
-    code <- enableApis (o ^. #ioDryRun)
+    code <- enableApis (pwScriptsDir workspace </> "enable-apis.sh") (o ^. #ioDryRun)
     case code of
       ExitSuccess -> pure ()
       ExitFailure _ -> dieT "enable-apis failed; see the gcloud output above. Re-run `nagarectl init --skip-preflight` after fixing it."
@@ -2161,8 +2228,8 @@ runInit mctx o = do
   unless (o ^. #ioSkipSeed) $ do
     putStrLn "Seeding Pulumi stack config from the profile..."
     bootstrapGcsIfNeeded (o ^. #ioDryRun) (contextNameText contextName) tp (T.pack <$> o ^. #ioPulumiBackendMember)
-    unless (o ^. #ioDryRun) (ensurePulumiForContext contextName tp)
-    s <- seedPulumiConfig (o ^. #ioDryRun) (contextNameText contextName) tp
+    unless (o ^. #ioDryRun) (ensurePulumiInWorkspace contextName tp workspace)
+    s <- seedPulumiConfig (pwPulumiDir workspace) (o ^. #ioDryRun) (contextNameText contextName) tp
     case s of
       Right () -> pure ()
       Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl init --skip-preflight --skip-enable`.")
@@ -2208,8 +2275,8 @@ runContext mctx = \case
       then do
         setCurrentContext name
         tp <- either dieT pure =<< readContextProfile name
-        ensurePulumiForContext name tp
-        s <- seedPulumiConfig False (contextNameText name) tp
+        workspace <- ensurePulumiForContext name tp
+        s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
         case s of
           Right () -> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
           Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
@@ -2233,8 +2300,8 @@ runContext mctx = \case
     when (ccoUse o) $ do
       setCurrentContext name
       bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> ccoPulumiBackendMember o)
-      ensurePulumiForContext name tp
-      s <- seedPulumiConfig False (contextNameText name) tp
+      workspace <- ensurePulumiForContext name tp
+      s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
       case s of
         Right () -> pure ()
         Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
@@ -2316,9 +2383,9 @@ formatContextList cur rows =
 -- still prints, per-app rows empty, cert column @disabled@).
 runDomainsList :: Maybe String -> DomainsListOpts -> IO ()
 runDomainsList mctx o = do
-  void (ensurePulumiForActiveContext mctx)
-  base <- resolveDomainsBase mctx (dloBaseDomain o)
-  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  (_, workspace) <- ensurePulumiForActiveContext mctx
+  base <- resolveDomainsBaseAt mctx workspace (dloBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput (pwPulumiDir workspace) "publicIp"
   nss <-
     if dloAllNamespaces o
       then listNamespaces
@@ -2327,14 +2394,10 @@ runDomainsList mctx o = do
   let baseRow = DomainRow base Nothing Nothing (UnderWildcard ip) CertDisabled
   TIO.putStr (formatDomainList (baseRow : rows))
 
--- | Resolve the platform base domain for @domains list@: the @--base-domain@
--- override, else the authoritative Pulumi @baseDomain@ output, else the existing
--- flag/env/literal fallback chain ('resolveBaseDomain').
-resolveDomainsBase :: Maybe String -> Maybe String -> IO Text
-resolveDomainsBase _ (Just b) = pure (T.pack b)
-resolveDomainsBase mctx Nothing = do
-  void (ensurePulumiForActiveContext mctx)
-  mp <- stackOutput "infra/pulumi" "baseDomain"
+resolveDomainsBaseAt :: Maybe String -> PlatformWorkspace -> Maybe String -> IO Text
+resolveDomainsBaseAt _ _ (Just b) = pure (T.pack b)
+resolveDomainsBaseAt mctx workspace Nothing = do
+  mp <- stackOutput (pwPulumiDir workspace) "baseDomain"
   case mp of
     Just d | not (T.null d) -> pure d
     _ -> resolveBaseDomain mctx Nothing
@@ -2353,9 +2416,9 @@ runCdn mctx = \case
 -- 'Nagare.Cdn.Status.queryCdnRows'.
 runCdnList :: Maybe String -> CdnListOpts -> IO ()
 runCdnList mctx o = do
-  void (ensurePulumiForActiveContext mctx)
-  base <- resolveDomainsBase mctx (cloBaseDomain o)
-  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  (_, workspace) <- ensurePulumiForActiveContext mctx
+  base <- resolveDomainsBaseAt mctx workspace (cloBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput (pwPulumiDir workspace) "publicIp"
   nss <-
     if cloAllNamespaces o
       then listNamespaces
@@ -2367,9 +2430,9 @@ runCdnList mctx o = do
 -- discovered" block when the live discovery cannot run yet.
 runCdnStatus :: Maybe String -> CdnStatusOpts -> IO ()
 runCdnStatus mctx o = do
-  void (ensurePulumiForActiveContext mctx)
-  base <- resolveDomainsBase mctx (csoBaseDomain o)
-  ip <- fromMaybe "(unknown)" <$> stackOutput "infra/pulumi" "publicIp"
+  (_, workspace) <- ensurePulumiForActiveContext mctx
+  base <- resolveDomainsBaseAt mctx workspace (csoBaseDomain o)
+  ip <- fromMaybe "(unknown)" <$> stackOutput (pwPulumiDir workspace) "publicIp"
   let ns = appNamespace (csoNamespace o)
       host = T.pack (csoHost o)
   rows <- queryCdnRows base ip ns
@@ -2403,9 +2466,9 @@ runCdnPurge o = do
 runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
 runCdnDisable mctx o = do
   let host = T.pack (cdoHost o)
-  void (ensurePulumiForActiveContext mctx)
+  (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  refs <- gatherGcpStackRefs tp
+  refs <- gatherGcpStackRefs (pwPulumiDir workspace) tp
   let gArgs =
         [ "dns"
         , "record-sets"
@@ -2435,9 +2498,11 @@ runCdnDisable mctx o = do
 
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
 -- images/previews/releases, then print the report. Dry-run by default.
-runCleanup :: CleanupOpts -> IO ()
-runCleanup o = do
-  report <- executeCleanup o
+runCleanup :: Maybe String -> CleanupOpts -> IO ()
+runCleanup mctx o = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (atContextName active)
+  report <- executeCleanup (pwScriptsDir workspace </> "iap-ssh.sh") (tpInstanceName (atProfile active)) o
   TIO.putStr (formatCleanupReport report)
 
 runDeploy :: Maybe String -> DeployOpts -> IO ()
@@ -2682,10 +2747,10 @@ deployServer mctx tp sopts site0 bd = do
 cdnDeployStep :: Maybe String -> Bool -> Maybe Cdn -> [Text] -> Text -> Text -> IO ()
 cdnDeployStep _ _ Nothing _ _ _ = pure ()
 cdnDeployStep mctx dry (Just c) hostnames ns service = do
-  void (ensurePulumiForActiveContext mctx)
-  originIp <- fromMaybe "<publicIp>" <$> stackOutput "infra/pulumi" "publicIp"
+  (_, workspace) <- ensurePulumiForActiveContext mctx
+  originIp <- fromMaybe "<publicIp>" <$> stackOutput (pwPulumiDir workspace) "publicIp"
   tp <- activeProfile mctx
-  refs <- gatherGcpStackRefs tp
+  refs <- gatherGcpStackRefs (pwPulumiDir workspace) tp
   let target = CdnTarget {cdnHostnames = hostnames, cdnOriginIp = originIp, cdnNamespace = ns, cdnService = service}
   if dry
     then TIO.putStr (renderCdnPlan (planCdn c target refs))
@@ -2697,9 +2762,9 @@ cdnDeployStep mctx dry (Just c) hostnames ns service = do
 
 -- | Read the four EP-56 Google stack outputs, with a clear placeholder when an
 -- output is absent (the CDN load balancer is disabled, or Pulumi is unavailable).
-gatherGcpStackRefs :: TargetProfile -> IO GcpStackRefs
-gatherGcpStackRefs tp = do
-  let so name = fromMaybe ("<" <> name <> ">") <$> stackOutput "infra/pulumi" name
+gatherGcpStackRefs :: FilePath -> TargetProfile -> IO GcpStackRefs
+gatherGcpStackRefs pulumiDir tp = do
+  let so name = fromMaybe ("<" <> name <> ">") <$> stackOutput pulumiDir name
   GcpStackRefs
     <$> so "cdnGlobalIp"
     <*> so "cdnBackendService"

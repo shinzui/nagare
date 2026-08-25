@@ -82,6 +82,8 @@ library
     Nagare.Ops.Pulumi
     Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
+    Nagare.Platform.Paths
+    Nagare.Platform.Workspace
     Nagare.Server.Build
     Nagare.Server.Deploy
     Nagare.Server.Image
@@ -135,6 +137,7 @@ executable nagarectl
   main-is: Main.hs
   hs-source-dirs: app
   build-depends:
+    aeson,
     base,
     bytestring,
     containers,
@@ -175,6 +178,7 @@ test-suite nagarectl-test
     AccessGrantsSpec
     AccessResolveSpec
     AppDeploySpec
+    PlatformSpec
   build-depends:
     aeson,
     base,

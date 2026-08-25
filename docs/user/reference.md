@@ -44,6 +44,24 @@ in-repo profile > built-in default. Per-field values still follow environment >
 context/profile > default, except guarded cloud scripts reject a project
 override that disagrees with the selected context. See [Target contexts](contexts.md).
 
+## Platform payload and workspace
+
+Packaged operation separates release-owned assets from mutable context state.
+`nagare-platform` installs the Pulumi program, cluster manifests, scripts, NixOS
+source, documentation, and `justfile` as an immutable payload. Commands that may
+generate files use a content-addressed copy below:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/platform/<payload-id>-<digest>/
+```
+
+Run `nagarectl platform root` (or `--json`) to inspect the resolved payload and
+workspace. Resolution is the packaged `NAGARE_PLATFORM_ROOT`, then a validated
+source-checkout ancestor for contributor workflows; an explicitly configured
+but incomplete payload fails without falling back. The packaged `nagare`
+launcher runs operator recipes from the active workspace, so its current
+directory does not need to be a Nagare checkout.
+
 ## Cloud context variables (also `nagare.target.env`)
 
 Each context `.env` file uses the same flat schema as the git-ignored
@@ -127,9 +145,10 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 
 These keys are a **derived projection of the active context**. `nagarectl init
 NAME`, `nagarectl context use NAME`, and `nagarectl context create NAME --use`
-write `infra/pulumi/Pulumi.<context>.yaml` with `pulumi config set --stack
-<context>`. The generated stack config files are git-ignored; you normally do
-not hand-edit them for a new project. Each context also has its own file backend
+write `infra/pulumi/Pulumi.<context>.yaml` in the resolved platform workspace
+with `pulumi config set --stack <context>`. The generated stack config files are
+context-local; you normally do not hand-edit them for a new project. Each
+context also has its own file backend
 and `PULUMI_HOME` under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/`.
 
 A cloud context can instead store **state** in GCS by setting
