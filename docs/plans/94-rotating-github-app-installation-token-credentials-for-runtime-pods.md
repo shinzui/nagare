@@ -52,7 +52,11 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-25T23:26:00Z) Document workload consumption, inspection, rotation, failure
   behavior, least-privilege probes, and App-key recovery in
   `docs/user/forge-credentials.md` and link it from the operator guide.
-- [ ] Pass Nix evaluation plus live read, denial, rotation, and reboot acceptance tests.
+- [x] (2026-08-25T23:52:00Z) Pass focused ShellCheck, NixOS option evaluation,
+  `git diff --check`, and the complete compatible-system `nix flake check` (all ten
+  aarch64-darwin checks passed).
+- [ ] Build the x86_64-linux NixOS toplevel when `nix-gcp-builder` is reachable, then pass
+  live registration, read, denial, rotation, failure-preservation, journal, and reboot tests.
 
 
 ## Surprises & Discoveries
@@ -91,6 +95,17 @@ implementation. Provide concise evidence.
   is not exported. The operator example therefore validates `nagare-forge-read` with
   `mkSecretName` before constructing `EnvSecretRef`, rather than using the plan's earlier
   constructor shorthand.
+
+- Discovery: The workstation has only a legacy local Nagare target; `nagarectl context list`
+  reports no named `prod` context, `nagarectl --context prod host path` reports that
+  `prod.env` is absent, and `nagare-01` does not resolve over SSH. The current kubectl context
+  is `k3d-nagare-local`. Consequently there is no operator-owned production host flake into
+  which this session can encrypt bootstrap material and no live host on which it can switch or
+  reboot the timers.
+
+- Discovery: The signed-in GitHub session reaches the App-registration route but GitHub sudo
+  mode requires the operator to reauthenticate before the form is available. No App or
+  installation state was created in this session.
 
 
 ## Decision Log
@@ -180,7 +195,17 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+The repository-owned milestone is complete. Commit `a7470db` adds the reusable NixOS module,
+source-visible and ShellChecked refresh helper, two role-isolated service/timer pairs, six
+root-only sops declarations, focused success and failure-preservation tests, and the operator
+runbook. The full compatible-system `nix flake check` passes. The durable architecture is
+recorded in `docs/adr/0008-mint-role-scoped-github-app-tokens-on-the-host.md`.
+
+The plan is not complete. GitHub registration is waiting for operator sudo-mode
+reauthentication and an explicit selected-repository boundary. Live deployment is waiting for
+a production context-owned host flake, a reachable `nagare-01`, and the configured Linux remote
+builder. Those prerequisites also block the authorization matrix, rotation/failure evidence,
+journal audit, and reboot test; none is represented as passed.
 
 
 ## Context and Orientation
@@ -226,10 +251,12 @@ role binding: Mori or a mirror requests a read or write role; it must not embed 
 or choose a provider-specific Secret name. The Kikan C16 contract is still unimplemented
 as of 2026-07-14, so do not add repository-coordinate logic here.
 
-The local ADR filename-and-heading scan found no record governing GitHub App ownership,
-forge credentials, or external credential helper selection. The closest host-management
-records concern NixOS input ownership and versioned platform state, not account-level
-GitHub registrations, so no local ADR constrains this plan revision.
+The implementation is governed by
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`, which places live
+sops material in the active context, and
+`docs/adr/0008-mint-role-scoped-github-app-tokens-on-the-host.md`, which records the two-role
+GitHub App boundary, host-side minting, stable Secret interface, independent failure domains,
+and one-installation-per-role constraint.
 
 
 ## Plan of Work
@@ -552,3 +579,8 @@ behavior is imported by `nixos/modules/nagare-host.nix`, validation uses the nes
 `nixos` flake, and the public DSL example uses `mkSecretName`. Recorded the completed
 module, focused failure-preservation tests, operator documentation, offline remote-builder
 constraint, and remaining GitHub/live acceptance work.
+
+2026-08-25: Recorded the passing aggregate flake check, added ADR 8, and split hermetic
+completion from the blocked external acceptance work. The plan now states the observed absence
+of a production context/reachable host and GitHub's sudo-mode reauthentication requirement; it
+does not claim registration or live validation.
