@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -44,6 +45,11 @@ appForRuntime runtime backends =
 
 buildAccessServices :: RuntimeConfig -> AuthPlaneConfig -> IO AccessServices
 buildAccessServices runtime cfg = do
+  -- An omitted key is allowed for an intentionally unauthenticated En, but the
+  -- safe default remains fail-closed: an authenticated En rejects the call and
+  -- nagare-access turns that failure into 503 rather than granting access.
+  when (enApiKey cfg == Nothing) $
+    putStrLn "warning: NAGARE_ACCESS_EN_API_KEY is not set; authenticated En requests will fail closed with 503"
   manager <- newProxyManager
   jwksCache <-
     newJwksCache
