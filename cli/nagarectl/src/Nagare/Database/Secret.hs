@@ -13,6 +13,7 @@
 module Nagare.Database.Secret
   ( ConnectionParts (..)
   , composeConnectionUrl
+  , percentEncode
   , secretKeysFor
   , DbSecretInputs (..)
   , renderDbSecret
@@ -21,9 +22,8 @@ module Nagare.Database.Secret
   , dbHost
   , defaultDbUser
   , sanitizeDbName
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Data.Aeson (encode, object, (.=))
 import Data.Aeson.Key qualified as Key
@@ -34,6 +34,8 @@ import Data.List (sortOn)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineToken)
+import Nagare.Dsl.Prelude hiding ((.=))
+import Network.HTTP.Types.URI (urlEncode)
 
 -- | The pieces of a connection string. @cpHost@ is the in-cluster DNS name; the
 -- port is fixed per engine in 'composeConnectionUrl'.
@@ -61,16 +63,35 @@ dbHost name ns = name <> "." <> ns <> ".svc.cluster.local"
 sanitizeDbName :: Text -> Text
 sanitizeDbName = T.map (\c -> if c == '-' then '_' else c)
 
--- | The per-engine connection URL (MasterPlan IP3). The password is embedded, so
--- this value is only ever stored in the managed Secret, never in a ConfigMap or
--- inline env literal.
+-- | Percent-encode a connection-URL userinfo component, preserving only the RFC
+-- 3986 unreserved characters.
+percentEncode :: Text -> Text
+percentEncode = TE.decodeUtf8 . urlEncode True . TE.encodeUtf8
+
+-- | The per-engine connection URL (MasterPlan IP3). Usernames and passwords are
+-- percent-encoded because they occupy the URL's userinfo component. The password
+-- is embedded, so this value is only ever stored in the managed Secret, never in
+-- a ConfigMap or inline env literal.
 composeConnectionUrl :: Engine -> ConnectionParts -> Text
 composeConnectionUrl Postgres p =
-  "postgresql://" <> cpUser p <> ":" <> cpPassword p <> "@" <> cpHost p <> ":5432/" <> cpDb p
+  "postgresql://"
+    <> percentEncode (cpUser p)
+    <> ":"
+    <> percentEncode (cpPassword p)
+    <> "@"
+    <> cpHost p
+    <> ":5432/"
+    <> cpDb p
 composeConnectionUrl Redis p =
-  "redis://:" <> cpPassword p <> "@" <> cpHost p <> ":6379"
+  "redis://:" <> percentEncode (cpPassword p) <> "@" <> cpHost p <> ":6379"
 composeConnectionUrl ClickHouse p =
-  "clickhouse://" <> cpUser p <> ":" <> cpPassword p <> "@" <> cpHost p <> ":9000"
+  "clickhouse://"
+    <> percentEncode (cpUser p)
+    <> ":"
+    <> percentEncode (cpPassword p)
+    <> "@"
+    <> cpHost p
+    <> ":9000"
 
 -- | The engine-specific Secret key/value pairs (MasterPlan IP3), including the
 -- composed connection URL. The key set matches
@@ -138,4 +159,7 @@ b64decode :: Text -> Either Text Text
 b64decode t =
   case convertFromBase Base64 (TE.encodeUtf8 t) :: Either String ByteString of
     Left e -> Left ("could not base64-decode secret value: " <> T.pack e)
-    Right bs -> Right (TE.decodeUtf8 bs)
+    Right bs ->
+      case TE.decodeUtf8' bs of
+        Left _ -> Left "secret value is not valid UTF-8 after base64 decoding"
+        Right value -> Right value

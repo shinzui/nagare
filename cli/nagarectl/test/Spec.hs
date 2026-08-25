@@ -78,7 +78,9 @@ import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, for
 import Nagare.Database.Restore (RestoreJobInputs (..), isObjectUrl, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
   ( ConnectionParts (..)
+  , b64decode
   , composeConnectionUrl
+  , percentEncode
   , secretKeysFor
   )
 import Nagare.Dsl.Broker
@@ -2470,6 +2472,25 @@ databaseTests =
       , testCase "composeConnectionUrl clickhouse" $
           composeConnectionUrl ClickHouse parts
             @?= "clickhouse://nagare:pw@pg-main.personal.svc.cluster.local:9000"
+      , testCase "percentEncode escapes reserved userinfo characters" $
+          percentEncode "a+b/c=:@ ~" @?= "a%2Bb%2Fc%3D%3A%40%20~"
+      , testCase "composeConnectionUrl percent-encodes hostile credentials" $ do
+          let hostile = parts {cpUser = "user:name@host", cpPassword = "a+b/c="}
+          composeConnectionUrl Postgres hostile
+            @?= "postgresql://user%3Aname%40host:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:5432/pg_main"
+          composeConnectionUrl Redis hostile
+            @?= "redis://:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:6379"
+          composeConnectionUrl ClickHouse hostile
+            @?= "clickhouse://user%3Aname%40host:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:9000"
+      , testCase "secretKeysFor keeps the raw password alongside the encoded URL" $ do
+          let hostile = parts {cpPassword = "a+b/c="}
+          lookup "POSTGRES_PASSWORD" (secretKeysFor Postgres hostile) @?= Just "a+b/c="
+          lookup "DATABASE_URL" (secretKeysFor Postgres hostile)
+            @?= Just "postgresql://nagare:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:5432/pg_main"
+      , testCase "b64decode rejects invalid UTF-8 without throwing" $
+          assertLeftText (b64decode "/w==")
+      , testCase "secret store rejects invalid UTF-8 without throwing" $
+          assertLeftText (extractSecretData "{\"data\":{\"BAD\":\"/w==\"}}")
       , testCase "secretKeysFor postgres has the four keys" $
           map fst (secretKeysFor Postgres parts)
             @?= ["POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB", "DATABASE_URL"]
