@@ -14,6 +14,7 @@ module Nagare.Platform.Status
   , renderPlatformStatus
   , platformProbe
   , guardPlatformMutation
+  , validatePlatformAdoption
   , clusterMarkerValue
   )
 where
@@ -161,6 +162,30 @@ guardPlatformMutation status = case statusCompatibility status of
   MajorIncompatible -> Left "major platform-version mismatch; inspect `nagarectl platform status` and run an explicit upgrade"
   MinorUpgradeRequired -> Left "minor platform-version skew requires `nagarectl platform upgrade` before platform mutation"
   _ -> Right ()
+
+-- | Validate the observations shown before a legacy context is assigned its
+-- first explicit release. Unknown host or cluster identities are permitted:
+-- adoption stamps the cluster marker, while a legacy host may not carry
+-- generated release comments yet. Any identity that is present must agree
+-- exactly so adoption cannot disguise real release skew as missing metadata.
+validatePlatformAdoption :: Text -> PlatformStatus -> Either Text ()
+validatePlatformAdoption target status
+  | identityVersion (statusContext status) /= Nothing =
+      Left "the selected context already has a platform version; use `nagarectl platform upgrade`"
+  | identityVersion (statusPayload status) /= Just target =
+      Left ("the active payload reports " <> observed (statusPayload status) <> ", not requested version " <> target)
+  | otherwise = mapM_ requireMatch observations
+  where
+    observations =
+      [ ("CLI", statusCli status)
+      , ("host", statusHost status)
+      , ("cluster", statusCluster status)
+      ]
+    requireMatch (_, ReleaseIdentity Nothing _ _) = Right ()
+    requireMatch (label, identity)
+      | identityVersion identity == Just target = Right ()
+      | otherwise = Left ("observed " <> label <> " version " <> observed identity <> " does not match requested adoption " <> target)
+    observed identity = maybe "legacy / unknown" id (identityVersion identity)
 
 clusterMarkerValue :: ReleaseIdentity -> Text -> Aeson.Value
 clusterMarkerValue identity installedAt =

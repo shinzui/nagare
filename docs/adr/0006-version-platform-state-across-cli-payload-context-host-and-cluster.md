@@ -43,6 +43,13 @@ platform mutation. A missing, malformed, or unreachable identity is legacy/unkno
 warn, read-only commands continue, and mutation remains available for the explicit adoption and
 initial-bootstrap paths.
 
+Legacy adoption is an explicit observed-state commit, not an inferred upgrade. The command first
+reports all five identities and requires operator confirmation. It accepts only an unversioned
+context whose active payload matches the requested version, rejects every known CLI, host, or
+cluster mismatch, stamps an absent cluster marker, and writes the context pin last. Unknown host or
+cluster observations are tolerated because old installations may not contain either marker; an
+unreachable cluster still prevents adoption when the stamp cannot be applied.
+
 Platform-changing recipes call the shared guard before mutation. Cloud and local bootstrap stamp the
 cluster only after all earlier bootstrap commands succeed, so the ConfigMap is an observed completion
 marker rather than an optimistic desired version.

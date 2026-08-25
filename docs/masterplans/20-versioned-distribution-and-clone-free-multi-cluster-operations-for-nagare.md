@@ -104,7 +104,7 @@ until the Nix-first path proves that the program is actually checkout-independen
 | 105 | Package nagarectl and its typed config runtime with Nix | docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md | None | None | Complete |
 | 106 | Make Nagare platform assets resolvable outside a source checkout | docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md | EP-105 | None | Complete |
 | 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | Complete |
-| 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | In Progress |
+| 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | Complete |
 | 109 | Publish versioned releases and clone-free onboarding | docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md | EP-107, EP-108 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -203,8 +203,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-106: A fresh temporary directory can run checkout-independent init/status dry runs against an isolated context workspace.
 - [x] (2026-08-25T18:45:12Z) EP-107: Nagare exports a reusable NixOS host module and generates one context-owned host flake without a personal key in tracked source.
 - [x] (2026-08-25T18:45:12Z) EP-107: Host image and day-2 build paths consume the generated host flake and preserve separate configuration for two contexts.
-- [ ] EP-108: CLI, payload, context, generated host flake, and cluster expose one tested platform-version compatibility contract.
-- [ ] EP-108: `nagarectl platform upgrade` stages, previews, applies, records, and safely retries a per-context version transition.
+- [x] (2026-08-25T20:14:24Z) EP-108: CLI, payload, context, generated host flake, and cluster expose one tested platform-version compatibility contract.
+- [x] (2026-08-25T20:14:24Z) EP-108: `nagarectl platform upgrade` stages, previews, applies, records, and safely retries a per-context version transition.
 - [ ] EP-109: A tag-driven workflow validates release consistency and publishes release metadata, checksums, and notes for supported Nix systems.
 - [ ] EP-109: README, onboarding, upgrades, multi-cluster guidance, and capability evidence demonstrate installation and operation without cloning.
 
@@ -239,6 +239,11 @@ interactions between child plans. Provide concise evidence.
   directory is itself a generated flake importing Nagare's immutable NixOS flake. Two context flakes
   evaluated concurrently with separate host identities, registries, keys, secrets, and locks, while
   image and rebuild scripts selected them through `nagarectl host path`. Date: 2026-08-25.
+- EP-108 found that the cloud and local bootstrap recipes are the executable source of truth for
+  cluster reconciliation; there is no separate complete rendered manifest bundle. Upgrade
+  transactions therefore replay the selected payload's idempotent recipe, suppress its ordinary
+  early guard/stamp under an internal apply marker, and persist cluster stamping as a distinct
+  penultimate phase. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -300,6 +305,16 @@ Wave 3 has completed EP-107. Nagare's NixOS tree now exports a configurable host
 system constructor; each context owns an atomically generated flake containing public host intent and
 sops-encrypted secrets. Host-image and day-2 commands resolve that flake without modifying source, and
 two-context isolation is tested and Nix-evaluated. The durable boundary is captured in
-`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. EP-108 remains the next
-implementable plan and can now update only the generated flake's pinned Nagare input while preserving
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. At that milestone EP-108 became
+implementable and could update only the generated flake's pinned Nagare input while preserving
 `host.nix` and `secrets.yaml`.
+
+Wave 3 is complete with EP-108. The CLI, payload, context, generated host flake, and cluster now share
+a semantic version contract with read-only status/doctor diagnostics and fail-closed mutation guards.
+Legacy contexts have an explicit observed adoption command. Per-context upgrade transactions stage
+and preview immutable releases, persist each apply phase, preserve host keys and secrets, stamp the
+cluster, and advance context intent last; injected failure at every apply phase resumes successfully.
+The contract is captured in
+`docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md`. EP-109 is the
+remaining implementable plan and owns tags, publication, release consistency, and final clone-free
+onboarding commands.

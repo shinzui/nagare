@@ -127,6 +127,14 @@
                 grep -q 'cd infra/pulumi && pulumi preview' recipe-dry-run.out
                 grep -q -- '-C.*nagare/local/platform/' "$NAGARE_FAKE_TOOL_LOG"
 
+                # A legacy context must be adopted explicitly. The command
+                # reports observations, stamps the absent cluster marker, and
+                # commits only this context's release pin.
+                sed -i '/NAGARE_PLATFORM_VERSION=/d' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+                nagarectl platform adopt --version 0.1.0 --yes --json > adopt.json
+                jq -e '.adopted == true and .platformVersion == "0.1.0" and .observations.context == null' adopt.json >/dev/null
+                grep -q 'NAGARE_PLATFORM_VERSION=0.1.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+
                 # EP-108: planning from a different context pin stages the host
                 # release, records all previews, and leaves the context unchanged.
                 sed -i 's/NAGARE_PLATFORM_VERSION=0.1.0/NAGARE_PLATFORM_VERSION=0.0.0/' "$XDG_CONFIG_HOME/nagare/contexts/local.env"

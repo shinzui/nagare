@@ -100,8 +100,8 @@ you can observe.
    `scripts/iap-ssh.sh`, and getting a working `kubectl`. 🟡
 6. [Day-2 host changes](day-2-host-changes.md) — `nixos-rebuild switch` over
    Tailscale and how the host config is laid out. 🟡
-   - [Upgrades](upgrades.md) — update NixOS, cluster-controller pins, and
-     observability charts one layer at a time, with rehearsal and rollback. ✅
+   - [Upgrades](upgrades.md) — inspect release identity, adopt legacy contexts,
+     and plan, apply, resume, or explicitly roll back per-context releases. ✅
    - [Resizing the VM](resizing-the-vm.md) — vertical scale to a bigger machine
      type: bump `machineType`, `pulumi up`, ~1–3 min stop/start. Disks and IP
      persist. 🟡

@@ -62,6 +62,18 @@ but incomplete payload fails without falling back. The packaged `nagare`
 launcher runs operator recipes from the active workspace, so its current
 directory does not need to be a Nagare checkout.
 
+| Platform command | Does |
+| --- | --- |
+| `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |
+| `nagarectl platform adopt --version VERSION --yes` | Confirm observations and assign the first explicit release to a legacy context. |
+| `nagarectl platform upgrade --to VERSION --dry-run [--json]` | Persist Nix, Pulumi, and Kubernetes preflight results without mutating the target. |
+| `nagarectl platform upgrade --apply --resume ID --yes` | Apply or resume a reviewed transaction; advance the context pin last. |
+| `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
+| `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
+
+See [Upgrades](upgrades.md) for compatibility states, recovery, and rollback
+boundaries.
+
 ## Cloud context variables (also `nagare.target.env`)
 
 Each context `.env` file uses the same flat schema as the git-ignored
@@ -83,6 +95,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
 | `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
 | `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
+| `NAGARE_PLATFORM_VERSION` | current payload for new contexts | explicit per-context release intent; absent means legacy/unadopted. |
 
 See [Getting started](getting-started.md), [Target contexts](contexts.md), and
 [`CLAUDE.md`](../../CLAUDE.md) for the configurable-isolation model.
