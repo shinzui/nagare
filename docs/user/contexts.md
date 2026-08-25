@@ -67,7 +67,7 @@ Use the selector that fits the operation:
 
 ```bash
 nagarectl --context labs deploy -f nagare/Config.hs
-NAGARE_CONTEXT=labs just smoke
+NAGARE_CONTEXT=labs nagare smoke
 nagarectl context use labs
 ```
 
@@ -120,7 +120,7 @@ nagarectl context list
 #          local  tan-nb-exp          127-0-0-1.sslip.io
 
 nagarectl --context labs deploy -f nagare/Config.hs
-NAGARE_CONTEXT=local just local-smoke
+NAGARE_CONTEXT=local nagare local-smoke
 ```
 
 For a brand-new cloud project, prefer `nagarectl init labs --project
@@ -205,12 +205,12 @@ remove it only after a successful `pulumi preview` on GCS.
 
 The active context also feeds bootstrap rendering:
 
-- `just cluster-bootstrap` renders the cert-manager DNS-01 issuer project from
+- `nagare cluster-bootstrap` renders the cert-manager DNS-01 issuer project from
   the active context.
 - `cluster/bootstrap/auth-install.sh` renders shomei, en, nagare-access, and
   nagared images from `NAGARE_REGISTRY_PREFIX`.
 - `nagarectl host init` writes the registry and host identity into a context-owned flake under the
-  XDG configuration root. `just host-image` and `just host-switch` resolve that flake without
+  XDG configuration root. `nagare host-image` and `nagare host-switch` resolve that flake without
   writing into Nagare's source or another context.
 
 ## Migrating from profile files

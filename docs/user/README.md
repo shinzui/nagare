@@ -52,7 +52,7 @@ The mapping to the implementation plans (`docs/plans/`) and their current state:
 | Managed databases (Postgres/Redis/ClickHouse) | MP-9 (EP-43–48), MP-16 EP-84 | 🟡 Built; cloud GCS and local MinIO backup paths implemented |
 | Scheduled tasks (`nagarectl task`) | MP-10 (EP-49–53) | 🟡 Built; live run pending |
 | Multi-workload apps (`nagarectl app deploy`) + worker liveness | MP-14 (EP-72–74), MP-16 EP-83 | 🟡 Built; target-aware image builds |
-| Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `just local-smoke` |
+| Local development and testing | MP-16 (EP-82–86) | 🟢 Complete and live-verified — local cluster, deploy path, data services, MinIO backups, auth plane + local TLS, and `nagare local-smoke` |
 | Target contexts | MP-17 (EP-87–92) | ✅ Working — named cloud/local contexts, `--context`, `NAGARE_CONTEXT`, per-context Pulumi state, and context-rendered bootstrap paths |
 | Bounded one-shot Jobs | MP-18 EP-95 | 🟢 Complete — typed model, hardened renderer, two-slot quota, example, and local acceptance; no `nagarectl job` command yet |
 | Platform security and reliability hardening | MP-19 (EP-97–103) | 🟡 Guardrail and auth fixes shipped; infrastructure protection is implemented but awaits live apply; resource, alerting, CLI, and host follow-ups remain |
@@ -76,6 +76,8 @@ you can observe.
 
 **Before you begin (bring your own GCP project):**
 
+- [Installing Nagare](installation.md) — choose the pinned app-developer or full
+  operator package without cloning the repository. ✅
 - [Nagare guides](../guides/README.md) — goal-oriented walkthroughs that combine
   the manual's individual features into complete operating patterns.
   [Running multiple clusters](../guides/running-multiple-clusters.md) covers
@@ -87,8 +89,8 @@ you can observe.
 - [Local development](local-development.md) — run Nagare on your laptop with k3d,
   a local registry, HTTP loopback domains, and MinIO backups. 🟢
 
-1. [Getting started](getting-started.md) — prerequisites, the Nix dev shell,
-   `direnv`, active target contexts, and the fail-closed guardrail. ✅
+1. [Getting started](getting-started.md) — prerequisites, a pinned Nix release,
+   active target contexts, and the fail-closed guardrail. ✅
 2. [Target contexts](contexts.md) — define `prod`, `labs`, or `local` targets,
    switch with `nagarectl context use`, and select one command with
    `--context` / `NAGARE_CONTEXT`. ✅

@@ -4,8 +4,8 @@
 > per cloud cluster, and a distinct base domain for every cluster. Local k3d is
 > a separate `mode=local` context.
 
-Nagare can operate several independent single-node clusters from the same
-repository. A typical setup has a durable production cluster, a disposable
+Nagare can operate several independent single-node clusters from one installed
+release. A typical setup has a durable production cluster, a disposable
 cloud lab for infrastructure and integration testing, and a local cluster for
 fast development:
 
@@ -158,17 +158,17 @@ direnv reload
 
 nagarectl context show
 pulumi -C infra/pulumi stack
-just infra-preview
-just infra-up
+nagare infra-preview
+nagare infra-up
 
 # Complete DNS delegation and host-secret prerequisites first, then generate
 # prod's host flake with its own public key and encrypted sops file.
 nagarectl host init --context prod \
   --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
   --sops-file /secure/path/prod-host-secrets.yaml
-just host-image
-just infra-preview
-just infra-up
+nagare host-image
+nagare infra-preview
+nagare infra-up
 ```
 
 Then repeat with `labs`:
@@ -179,16 +179,16 @@ direnv reload
 
 nagarectl context show
 pulumi -C infra/pulumi stack
-just infra-preview
+nagare infra-preview
 ```
 
 Stop if the preview mentions resources from the other project or base domain.
 The host image self-link is project-specific and must be built and registered
 for each cloud context; never copy `nagare:nagareImageSelfLink` between stacks.
 
-Context-driven rendering also writes checkout-local generated files, including
-the NixOS registry host override. Do not build two cloud host images
-concurrently from one checkout.
+Context-driven rendering writes each generated host flake below that context's XDG configuration
+root. Separate workspaces and locks allow independent host evaluation; still avoid concurrent writes
+to the same context.
 
 ## Pair context selection with Kubernetes selection
 
@@ -221,7 +221,7 @@ export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/prod.yam
 direnv reload
 
 nagarectl context show
-just context-show
+nagare context-show
 kubectl get nodes
 ```
 
@@ -232,7 +232,7 @@ export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/labs.yam
 direnv reload
 
 nagarectl context show
-just context-show
+nagare context-show
 kubectl get nodes
 ```
 
@@ -240,15 +240,14 @@ The user-level `current-context` pointer is shared by all shells. For parallel
 operator sessions, prefer a shell-local `NAGARE_CONTEXT` as above instead of
 changing that pointer with `nagarectl context use`.
 
-The default `just live-test` helper also uses shared local ports and
-`.live-test/kubeconfig.yaml`. Run only one default live-test tunnel at a time.
-For simultaneous cloud-cluster access, use separate worktrees with distinct
-`LIVE_TEST_PORT` and `LIVE_TEST_SSH_PORT` values, or prepare stable per-cluster
-kubeconfigs using the access procedure in the user manual.
+The default `nagare live-test` helper also uses shared local ports. Run only one default live-test
+tunnel at a time, or use distinct `LIVE_TEST_PORT` and `LIVE_TEST_SSH_PORT` values. Stable
+per-cluster kubeconfigs remain the preferred parallel operating path; no worktree is required.
 
 ## Run different platform releases safely
 
-Contexts may intentionally remain on different Nagare platform releases. The
+Contexts may intentionally remain on different Nagare platform releases. Use the target release's
+tagged CLI when planning its upgrade. The
 payload workspace, generated host flake, Pulumi projection, and transaction
 history are stored below that context's XDG state/config roots; upgrading
 `labs` does not advance `prod`.
@@ -272,10 +271,14 @@ rejects cross-context transaction histories.
 ```bash
 export NAGARE_CONTEXT=labs
 export KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml"
-nagarectl platform upgrade --to 0.2.0 --dry-run --json > labs-upgrade.json
+export LABS_NAGARE_VERSION=0.2.0
+export LABS_NAGARE="github:shinzui/nagare/v${LABS_NAGARE_VERSION}"
+nix run "${LABS_NAGARE}#nagarectl" -- \
+  platform upgrade --to "$LABS_NAGARE_VERSION" --dry-run --json > labs-upgrade.json
 labs_transaction="$(jq -r '.transactionId' labs-upgrade.json)"
-nagarectl platform upgrade --apply --resume "$labs_transaction" --yes
-nagarectl platform status
+nix run "${LABS_NAGARE}#nagarectl" -- \
+  platform upgrade --apply --resume "$labs_transaction" --yes
+nix run "${LABS_NAGARE}#nagarectl" -- platform status
 ```
 
 Leave `prod` selected at its old release until the labs verification is
@@ -314,8 +317,8 @@ Before every mutating session:
 
 1. Set `NAGARE_CONTEXT` and `KUBECONFIG` together.
 2. Reload the dev shell after changing the Nagare context.
-3. Run `nagarectl context show` and `just context-show`.
-4. For infrastructure changes, run `just infra-preview` and confirm the GCP
+3. Run `nagarectl context show` and `nagare context-show`.
+4. For infrastructure changes, run `nagare infra-preview` and confirm the GCP
    project, stack, base domain, and replacement plan.
 5. For Kubernetes changes, confirm the intended cluster is reachable before
    invoking `nagarectl`, `kubectl`, or a `just` bootstrap recipe.

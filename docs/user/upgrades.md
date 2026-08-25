@@ -59,13 +59,18 @@ write fails, the context remains legacy and the command can safely be retried.
 
 ## Plan and apply a release upgrade
 
-Planning is the default and does not change the context, host, infrastructure,
-or cluster:
+Read the target release notes and invoke the **target release's** CLI. Its packaged payload becomes
+the upgrade candidate; the currently installed CLI cannot invent or fetch a payload from a bare
+version number. Planning is the default and does not change the context, host, infrastructure, or
+cluster:
 
 ```bash
-nagarectl platform upgrade --to 0.2.0 --dry-run --json > upgrade-plan.json
+export TARGET_NAGARE_VERSION=0.2.0
+export TARGET_NAGARE="github:shinzui/nagare/v${TARGET_NAGARE_VERSION}"
+nix run "${TARGET_NAGARE}#nagarectl" -- \
+  platform upgrade --to "$TARGET_NAGARE_VERSION" --dry-run --json > upgrade-plan.json
 transaction_id="$(jq -r '.transactionId' upgrade-plan.json)"
-nagarectl platform upgrade status "$transaction_id"
+nix run "${TARGET_NAGARE}#nagarectl" -- platform upgrade status "$transaction_id"
 ```
 
 Review the immutable workspace and staged host-flake paths, Nix evaluation,
@@ -74,8 +79,9 @@ stateful workloads when the release notes call for a migration. Apply only the
 reviewed transaction:
 
 ```bash
-nagarectl platform upgrade --apply --resume "$transaction_id" --yes
-nagarectl platform status
+nix run "${TARGET_NAGARE}#nagarectl" -- \
+  platform upgrade --apply --resume "$transaction_id" --yes
+nix run "${TARGET_NAGARE}#nagarectl" -- platform status
 ```
 
 Apply runs Pulumi, switches and commits the staged host flake, reconciles the
@@ -84,8 +90,9 @@ last. A failure preserves the transaction and the old context pin. Inspect and
 resume the same identifier after correcting the cause:
 
 ```bash
-nagarectl platform upgrade status "$transaction_id" --json
-nagarectl platform upgrade --apply --resume "$transaction_id" --yes
+nix run "${TARGET_NAGARE}#nagarectl" -- platform upgrade status "$transaction_id" --json
+nix run "${TARGET_NAGARE}#nagarectl" -- \
+  platform upgrade --apply --resume "$transaction_id" --yes
 ```
 
 Resume rechecks successful phases and reruns convergent operations whose
@@ -99,7 +106,8 @@ Rollback is available only when the target release metadata explicitly allows
 the previous version and the retained old payload is still present:
 
 ```bash
-nagarectl platform upgrade rollback "$transaction_id" --yes
+nix run "${TARGET_NAGARE}#nagarectl" -- \
+  platform upgrade rollback "$transaction_id" --yes
 ```
 
 This creates and applies a reverse release-selection transaction. It does not
@@ -107,7 +115,8 @@ claim to delete infrastructure, reverse Pulumi schema migrations, restore
 databases, or restore persistent volumes. Use the backup and recovery
 procedures before attempting a release rollback involving stateful changes.
 
-The sections below describe how release maintainers update the individual pins
+The sections below are for contributors and release maintainers working in a source checkout. They
+describe how release maintainers update the individual pins
 that are assembled into a Nagare platform payload. Operators should normally
 use the transaction workflow above rather than changing those pins in place.
 

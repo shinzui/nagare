@@ -37,7 +37,7 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T20:40:11Z) M1: Define and test the release consistency gate and machine-readable release artifact set.
 - [x] (2026-08-25T20:46:56Z) M2: Add tag-driven CI that builds supported Nix outputs and publishes checksums, metadata, and release notes.
-- [ ] M3: Rewrite install, onboarding, multi-cluster, upgrade, contributor, and capability documentation around pinned releases.
+- [x] (2026-08-25T20:51:44Z) M3: Rewrite install, onboarding, multi-cluster, upgrade, contributor, and capability documentation around pinned releases.
 - [ ] M4: Run a clean-room clone-free acceptance rehearsal and document the maintainer release/rollback runbook.
 
 
@@ -98,6 +98,12 @@ Record every decision made while working on the plan.
   Rationale: Nix output identity must be proved on the platform that produced it, manual rehearsals
   must be incapable of publishing, and a rerun must either observe identical immutable attachments
   or stop rather than replace release evidence.
+  Date: 2026-08-25.
+- Decision: make the tagged `nagarectl` output the app-developer entry point and the tagged `nagare`
+  output the operator entry point; reserve `nix develop`, checkout-local `just`, and uncommitted flake
+  references for contributors.
+  Rationale: users can pin the smallest artifact they need, while platform recipes resolve the same
+  immutable payload without conflating released operation with source development.
   Date: 2026-08-25.
 
 

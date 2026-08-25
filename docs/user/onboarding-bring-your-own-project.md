@@ -15,22 +15,24 @@ as `prod` or `labs`.
 **Before you begin:**
 
 1. The GCP-side setup from [GCP prerequisites](gcp-prerequisites.md) is done.
-2. You have cloned this repository and can open a terminal in it.
+2. You installed the pinned full operator package from [Installing Nagare](installation.md).
 
 ---
 
-## Step 0 — Workstation + dev shell  ✅
+## Step 0 — Workstation + pinned release  ✅
 
-Install [Nix](https://nixos.org/download), then enter the pinned dev shell so every tool
-below (`pulumi`, `gcloud`, `kubectl`, `helm`, `ghc`/`cabal`, `sops`, `age`, `just`,
-`nagarectl`) comes from the flake, not a global install:
+Install [Nix](https://nixos.org/download), select the reviewed release, and install its operator
+package:
 
 ```bash
-direnv allow      # one-time authorization of .envrc; or run `nix develop`
+export NAGARE_VERSION=0.1.0
+nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
+nagarectl version --json
 ```
 
-Everything below runs **inside that shell, from the repo root**. See
-[getting started](getting-started.md) for detail.
+The `nagare` launcher resolves its immutable payload and writable context workspace, so everything
+below runs from any directory. Install the external cloud and Kubernetes clients listed in
+[getting started](getting-started.md); a Nagare checkout is not required.
 
 ## Step 1 — GCP prerequisites  ✅
 
@@ -143,13 +145,13 @@ copied; `--age-key-file` records only its on-host path. Repeating the command is
 See [secrets](secrets.md) for the exact `sops` and age-recipient mechanics — this page
 states only *that* and *when*.
 
-## Step 5 — Provision the cloud perimeter (first `just infra-up`)  🟡  *(EP-2)*
+## Step 5 — Provision the cloud perimeter (first `nagare infra-up`)  🟡  *(EP-2)*
 
 ```bash
-just infra-up
+nagare infra-up
 ```
 
-On a clean checkout the first apply creates everything **except the VM**, because
+The first apply creates everything **except the VM**, because
 `nagareImageSelfLink` isn't set yet (you build the image in Step 8). See
 [provisioning with Pulumi](provisioning-with-pulumi.md). Observable check — the reserved
 static IP exists:
@@ -184,10 +186,10 @@ a first-deploy surprise.)
 ## Step 8 — Build + register the NixOS image, then boot the VM  🟡  *(EP-3)*
 
 ```bash
-just host-image        # builds on the on-demand x86_64-linux Nix builder, uploads to
+nagare host-image      # builds on the on-demand x86_64-linux Nix builder, uploads to
                        # $NAGARE_IMAGE_BUCKET, registers the GCE image, and writes
                        # nagare:nagareImageSelfLink into Pulumi config
-just infra-up          # re-run: the VM is created now that the self-link is set
+nagare infra-up        # re-run: the VM is created now that the self-link is set
 ```
 
 See [host image and boot](host-image-and-boot.md). `nagareImageSelfLink` embeds the
@@ -206,8 +208,8 @@ kubectl get nodes      # nagare-01 should be Ready
 ## Step 10 — Bootstrap the cluster + observability  ✅  *(EP-4 / EP-5, verified live)*
 
 ```bash
-just cluster-bootstrap     # cert-manager + letsencrypt-dns issuer, Knative Serving, Kourier
-just observability         # VictoriaMetrics/Logs/Traces + OTel Collector + Grafana
+nagare cluster-bootstrap   # cert-manager + letsencrypt-dns issuer, Knative Serving, Kourier
+nagare observability       # VictoriaMetrics/Logs/Traces + OTel Collector + Grafana
 ```
 
 See [cluster bootstrap](cluster-bootstrap.md) and [observability](observability.md).
@@ -231,7 +233,7 @@ private key** and a copy of this repo (including Pulumi state under `infra/pulum
 
 ## Switching projects later
 
-To point the same checkout at a different GCP project, create or initialize a
+To point the same installed release at a different GCP project, create or initialize a
 second context:
 
 ```bash
