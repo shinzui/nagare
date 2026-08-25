@@ -83,9 +83,12 @@ This section must always reflect the actual current state of the work.
       — new `/v1` paths, the bearer API key, and en's hand-written wire JSON. Completed
       2026-08-25T13:36:23Z: the CLI and all 374 tests pass; exact tuple/expand request bytes
       and union/intersection/exclusion decoding are pinned in `AccessGrantsSpec`.
-- [ ] M5: update the cluster manifests and the image build script — en API-key Secret and
+- [x] M5: update the cluster manifests and the image build script — en API-key Secret and
       environment, shomei's moved health probes, a shomei migration Job, and a cabal-project
-      tail that mirrors upstream's current dependency pins (no more codd).
+      tail that mirrors upstream's current dependency pins (no more codd). Completed
+      2026-08-25T14:46:15Z: all manifests parse, all three production images build on
+      `linux/arm64`, and the image builder now preserves its Cabal caches and retries
+      transient registry downloads.
 - [ ] M6: recreate `shomei-db` and `en-db`, install the auth plane on the local cluster, and
       prove grant → sign-in → allow → revoke → deny end to end.
 - [ ] M7: update `docs/user/access.md`, the two bootstrap READMEs, and distil durable
@@ -146,6 +149,26 @@ implementation. Provide concise evidence.
   `consistency, context, cursor, limit, object, permission`; replacing generic derivation
   with the same explicit `toEncoding` sequence as En made the byte-exact test pass.
 
+- Observation: current Shomei cannot start with only its database and issuer/audience
+  configuration. `buildEnv` unconditionally loads `SHOMEI_KEY_ENCRYPTION_KEY`, so the
+  deployment needs a stable secret even when Nagare does not adopt Shomei's newly added
+  capabilities. Evidence: the current source at `mori://shinzui/shomei` calls
+  `loadKekFromEnv` while constructing the server environment; the M5 manifest now mounts
+  `nagare-shomei-keys/key-encryption-key`, created once by both installers.
+
+- Observation: local sibling checkouts can contain generated Unix sockets under `.dev/`
+  and `db/`, which cannot be copied reliably into a Docker build context. Evidence: the
+  first Shomei image attempt failed while `rsync` encountered `en/.dev/process-compose.sock`
+  and PostgreSQL `.s.PGSQL.*` sockets; excluding generated development/database trees and
+  socket names made all three `linux/arm64` images build.
+
+- Observation: Hackage's selected DreamHost mirror can transiently reject a package that
+  authoritative Hackage serves normally. Evidence: the first `nagare-access` image attempt
+  compiled through TLS and then received HTTP 403 for `wai-app-static-3.2.1` from
+  `objects-us-east-1.dream.io`; the authoritative Hackage URL returned HTTP 200 immediately.
+  BuildKit-backed Cabal cache mounts plus bounded build retries made the second attempt pass
+  and prevent a transient fetch from discarding the full compilation cache in future runs.
+
 
 ## Decision Log
 
@@ -199,6 +222,16 @@ Record every decision made while working on the plan.
   `mori://shinzui/biscuit-haskell` fork, resolving the combined shomei/en dependency solve
   without a Nagare-owned source patch. Pinning the remote tips keeps builds reproducible
   from a fresh checkout.
+  Date: 2026-08-25
+
+- Decision: Store raw En bearer secrets in `nagare-en-api-keys`, then compose En's required
+  `caller-name:secret` configuration strings in the Deployment environment while mounting
+  only each raw secret into its caller.
+  Rationale: En's server parser requires named entries such as `nagarectl:<secret>`, but its
+  HTTP middleware compares the bearer credential to the secret portion alone. Keeping raw
+  values in the Secret lets `nagarectl` receive the read-write bearer and `nagare-access`
+  receive the read-only bearer without either caller learning or stripping an En-specific
+  configuration prefix.
   Date: 2026-08-25
 
 

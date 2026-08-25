@@ -29,14 +29,34 @@ render_template() {
 
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
 
-render_service shomei | kubectl apply -f -
+if ! kubectl -n nagare-system get secret nagare-en-api-keys >/dev/null 2>&1; then
+  echo "==> creating en API-key Secret"
+  kubectl -n nagare-system create secret generic nagare-en-api-keys \
+    --from-literal=read-write="$(openssl rand -base64 32)" \
+    --from-literal=read-only="$(openssl rand -base64 32)"
+else
+  echo "==> en API-key Secret already present (left as-is)"
+fi
+
+if ! kubectl -n nagare-system get secret nagare-shomei-keys >/dev/null 2>&1; then
+  echo "==> creating Shomei key-encryption Secret"
+  kubectl -n nagare-system create secret generic nagare-shomei-keys \
+    --from-literal=key-encryption-key="$(openssl rand -base64 32)"
+else
+  echo "==> Shomei key-encryption Secret already present (left as-is)"
+fi
+
 # Job spec.template is immutable and a completed Job never re-runs, so a new
 # release image's embedded plan would otherwise silently never apply. Migrations are
 # ledger-backed and idempotent, so it applies only pending embedded migrations.
+kubectl -n nagare-system delete job shomei-migrate --ignore-not-found=true
+render_template "${bootstrap_dir}/shomei/migrations.yaml" | kubectl apply -f -
+kubectl -n nagare-system wait --for=condition=complete job/shomei-migrate --timeout=120s
 kubectl -n nagare-system delete job en-migrate --ignore-not-found=true
 render_template "${bootstrap_dir}/en/migrations.yaml" | kubectl apply -f -
 kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
 kubectl apply -f "${bootstrap_dir}/en/configmap.yaml"
+render_service shomei | kubectl apply -f -
 render_service en | kubectl apply -f -
 kubectl apply -f "${bootstrap_dir}/nagare-access/configmap.yaml"
 render_service nagare-access | kubectl apply -f -

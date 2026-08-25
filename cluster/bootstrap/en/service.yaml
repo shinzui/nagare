@@ -87,6 +87,22 @@ spec:
               value: "10000"
             - name: EN_OPTIMIZED_REVISION_CACHE_TTL_MS
               value: "5000"
+            # Keep raw bearer secrets reusable by callers; En's parser requires
+            # each configured entry to carry a distinct caller name.
+            - name: NAGARE_EN_API_KEY_READ_WRITE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-write
+            - name: NAGARE_EN_API_KEY_READ_ONLY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-only
+            - name: EN_API_KEYS_READ_WRITE
+              value: "nagarectl:$(NAGARE_EN_API_KEY_READ_WRITE)"
+            - name: EN_API_KEYS_READ_ONLY
+              value: "nagare-access:$(NAGARE_EN_API_KEY_READ_ONLY)"
           volumeMounts:
             - name: schema
               mountPath: /etc/en/schema

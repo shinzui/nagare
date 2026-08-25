@@ -75,13 +75,20 @@ spec:
               value: "nagare-shomei"
             - name: SHOMEI_AUDIENCE
               value: "nagare-access"
+            - name: SHOMEI_KEY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-shomei-keys
+                  key: key-encryption-key
           readinessProbe:
             httpGet:
-              path: /ready
+              # Current Shomei serves servant-health's readiness endpoint here.
+              path: /health/ready
               port: 8080
           livenessProbe:
             httpGet:
-              path: /health
+              # Current Shomei serves servant-health's liveness endpoint here.
+              path: /health/live
               port: 8080
 ---
 apiVersion: v1
