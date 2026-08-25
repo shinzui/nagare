@@ -43,6 +43,10 @@
           inherit (nagarePackages) nagarectl;
           nagare-platform = nagarePackages.nagarePlatform;
           nagare = nagarePackages.nagare;
+          release-tools = pkgs.symlinkJoin {
+            name = "nagare-release-tools";
+            paths = [ pkgs.coreutils pkgs.jq ];
+          };
           default = nagarePackages.nagarectl;
         });
 
@@ -246,6 +250,13 @@
               chmod -R u+w source
               cd source
               ./scripts/test-release.sh
+              touch "$out"
+            '';
+
+          github-actions = pkgs.runCommand "github-actions"
+            { nativeBuildInputs = [ pkgs.actionlint ]; src = ./.; }
+            ''
+              actionlint "$src/.github/workflows/"*.yml
               touch "$out"
             '';
         });

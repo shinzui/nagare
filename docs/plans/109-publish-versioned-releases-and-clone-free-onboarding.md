@@ -36,7 +36,7 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T20:40:11Z) M1: Define and test the release consistency gate and machine-readable release artifact set.
-- [ ] M2: Add tag-driven CI that builds supported Nix outputs and publishes checksums, metadata, and release notes.
+- [x] (2026-08-25T20:46:56Z) M2: Add tag-driven CI that builds supported Nix outputs and publishes checksums, metadata, and release notes.
 - [ ] M3: Rewrite install, onboarding, multi-cluster, upgrade, contributor, and capability documentation around pinned releases.
 - [ ] M4: Run a clean-room clone-free acceptance rehearsal and document the maintainer release/rollback runbook.
 
@@ -58,6 +58,11 @@ implementation. Provide concise evidence.
   native artifacts; the workflow matrix owns native proof for the other system. Evidence: the first
   full gate failed on `packages.x86_64-linux.nagarectl.name`, while the revised gate and full
   `nix flake check --print-build-logs` passed locally. Date: 2026-08-25.
+- The two native runners must not upload into one merged artifact directory because their common
+  manifest and notes filenames collide. Each runner now uploads a uniquely named directory; the
+  publish job compares the shared files byte-for-byte before assembling one checksum set. Evidence:
+  the assembly test covers both declared systems and `actionlint` validates the workflow. Date:
+  2026-08-25.
 
 
 ## Decision Log
@@ -87,6 +92,12 @@ Record every decision made while working on the plan.
   Rationale: Cabal versions remain package metadata that the gate independently compares, but the
   flake and payload must not maintain a second supported-system or platform-version list. Revision is
   provenance of one build, not a manually edited source value.
+  Date: 2026-08-25.
+- Decision: build each supported Nix system on a native trusted runner, keep repository permissions
+  read-only through validation, and grant `contents: write` only to the tag-only publication job.
+  Rationale: Nix output identity must be proved on the platform that produced it, manual rehearsals
+  must be incapable of publishing, and a rerun must either observe identical immutable attachments
+  or stop rather than replace release evidence.
   Date: 2026-08-25.
 
 

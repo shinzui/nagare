@@ -1,0 +1,192 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to rehearse without publishing
+        required: true
+        default: "0.1.0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve candidate
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      tag: ${{ steps.candidate.outputs.tag }}
+      publish: ${{ steps.candidate.outputs.publish }}
+    steps:
+      - name: Resolve version and publication mode
+        id: candidate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            {
+              printf 'version=%s\n' "${REF_NAME#v}"
+              printf 'tag=%s\n' "$REF_NAME"
+              printf 'publish=true\n'
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              printf 'version=%s\n' "$INPUT_VERSION"
+              printf 'tag=\n'
+              printf 'publish=false\n'
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ matrix.system }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+          extra_nix_config: experimental-features = nix-command flakes
+
+      - name: Install pinned release tools
+        run: nix profile install .#release-tools
+
+      - name: Run the normal flake checks
+        run: nix flake check --print-build-logs
+
+      - name: Validate release consistency
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          set -euo pipefail
+          artifact_dir="artifacts/$SYSTEM"
+          mkdir -p "$artifact_dir"
+          args=(--version "$VERSION" --output-dir "$artifact_dir" --json)
+          if [[ -n "$TAG" ]]; then
+            args+=(--tag "$TAG")
+          fi
+          ./scripts/check-release.sh "${args[@]}" > "$artifact_dir/gate.json"
+
+      - name: Record native Nix output identities
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          set -euo pipefail
+          artifact_dir="artifacts/$SYSTEM"
+          revision="$(jq -er '.revision' "$artifact_dir/nagare-release-$VERSION.json")"
+          cli_path="$(nix build --no-link --print-out-paths .#nagarectl)"
+          payload_path="$(nix build --no-link --print-out-paths .#nagare-platform)"
+          cli_info="$(nix path-info --json --json-format 1 "$cli_path" | jq --arg path "$cli_path" '.[$path] | {narHash, narSize}')"
+          payload_info="$(nix path-info --json --json-format 1 "$payload_path" | jq --arg path "$payload_path" '.[$path] | {narHash, narSize}')"
+          jq -n -S \
+            --arg version "$VERSION" \
+            --arg revision "$revision" \
+            --arg system "$SYSTEM" \
+            --argjson cli "$cli_info" \
+            --argjson payload "$payload_info" \
+            '{version: $version, revision: $revision, system: $system,
+              outputs: {nagarectl: $cli, "nagare-platform": $payload}}' \
+            > "$artifact_dir/nix-output-$SYSTEM.json"
+
+      - name: Upload immutable rehearsal artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: nagare-release-${{ matrix.system }}
+          path: artifacts/${{ matrix.system }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: nagare-release-*
+          path: native-artifacts
+
+      - name: Assemble deterministic release attachments
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: ./scripts/assemble-release.sh --version "$VERSION" --input-root native-artifacts --output-dir dist
+
+      - name: Refuse to replace a different existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            printf 'publish=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir existing-release
+          for asset in \
+            "nagare-release-$VERSION.json" \
+            "nagare-v$VERSION.md" \
+            "nix-output-x86_64-linux.json" \
+            "nix-output-aarch64-darwin.json" \
+            SHA256SUMS; do
+            gh release download "$TAG" --dir existing-release --pattern "$asset"
+            cmp "dist/$asset" "existing-release/$asset"
+          done
+          printf 'publish=false\n' >> "$GITHUB_OUTPUT"
+          printf 'Release %s already exists with identical immutable assets.\n' "$TAG"
+
+      - name: Create the release
+        if: steps.existing.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Nagare ${{ needs.prepare.outputs.version }}
+          body_path: dist/nagare-v${{ needs.prepare.outputs.version }}.md
+          generate_release_notes: true
+          overwrite_files: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/nagare-release-${{ needs.prepare.outputs.version }}.json
+            dist/nagare-v${{ needs.prepare.outputs.version }}.md
+            dist/nix-output-x86_64-linux.json
+            dist/nix-output-aarch64-darwin.json
+            dist/SHA256SUMS

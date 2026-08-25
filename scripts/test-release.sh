@@ -47,6 +47,28 @@ test -s "$test_root/artifacts/nagare-release-0.1.0.json"
 test -s "$test_root/artifacts/nagare-v0.1.0.md"
 test -s "$test_root/artifacts/SHA256SUMS"
 
+for system in x86_64-linux aarch64-darwin; do
+  native_dir="$test_root/native/$system"
+  mkdir -p "$native_dir"
+  cp "$test_root/artifacts/nagare-release-0.1.0.json" "$native_dir/"
+  cp "$test_root/artifacts/nagare-v0.1.0.md" "$native_dir/"
+  jq -n -S \
+    --arg system "$system" \
+    '{version: "0.1.0", revision: "fixture-revision", system: $system,
+      outputs: {
+        nagarectl: {narHash: "sha256-cli", narSize: 1},
+        "nagare-platform": {narHash: "sha256-platform", narSize: 2}
+      }}' > "$native_dir/nix-output-$system.json"
+done
+"$repo_root/scripts/assemble-release.sh" \
+  --version 0.1.0 \
+  --input-root "$test_root/native" \
+  --output-dir "$test_root/assembled"
+test -s "$test_root/assembled/nagare-release-0.1.0.json"
+test -s "$test_root/assembled/nix-output-x86_64-linux.json"
+test -s "$test_root/assembled/nix-output-aarch64-darwin.json"
+test -s "$test_root/assembled/SHA256SUMS"
+
 expect_failure malformed-version \
   "$repo_root/scripts/check-release.sh" --version 01.1.0 --source-root "$fixture" --source-only
 expect_failure malformed-tag \
