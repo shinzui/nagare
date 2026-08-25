@@ -436,7 +436,7 @@ runAppDeploy p = do
           , reAppImageTagged = imageRefText qImg <> ":" <> effTag
           , reAppEnv = mergeGenerated brokerEnv (app ^. #env)
           , reNamespace = namespaceText (app ^. #namespace)
-          , reBaseDomain = maybe (tpBaseDomain tp) id (adpBaseDomain p)
+          , reBaseDomain = fromMaybe (tpBaseDomain tp) (adpBaseDomain p)
           , reTargetProfile = tp
           }
 

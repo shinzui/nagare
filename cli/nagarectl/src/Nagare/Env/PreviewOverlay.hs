@@ -23,12 +23,14 @@
 module Nagare.Env.PreviewOverlay
   ( withPreviewEnvFrom
   , previewEnvFrom
-  ) where
+  )
+where
 
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
@@ -93,7 +95,7 @@ keyCompare :: Text -> Text -> Ordering
 keyCompare a b = compare (rank a, a) (rank b, b)
   where
     rank :: Text -> Int
-    rank k = maybe maxBound id (lookup k ranks)
+    rank k = fromMaybe maxBound (lookup k ranks)
     ranks :: [(Text, Int)]
     ranks =
       [ ("apiVersion", 0)
