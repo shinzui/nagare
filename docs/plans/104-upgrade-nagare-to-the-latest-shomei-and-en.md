@@ -94,8 +94,10 @@ This section must always reflect the actual current state of the work.
       2026-08-25T14:55:59Z on a fresh `k3d-nagare-local` cluster: both migration Jobs and
       all three auth workloads reached Ready, Shomei signup and password sign-in succeeded,
       and the protected example produced 302 → 403 → 200 → 403 across the grant lifecycle.
-- [ ] M7: update `docs/user/access.md`, the two bootstrap READMEs, and distil durable
-      findings into ADRs.
+- [x] M7: update `docs/user/access.md`, the auth bootstrap READMEs, and distil durable
+      findings into ADRs. Completed 2026-08-25T15:02:44Z: the operator flow now names
+      both migration Jobs and En credentials, all stale codd descriptions are gone from
+      `cluster/`, and Nagare's first two ADRs record dependency-plan and schema ownership.
 
 
 ## Surprises & Discoveries
@@ -178,6 +180,13 @@ implementation. Provide concise evidence.
   `(none)` after 12 seconds. End-to-end revocation additionally remained allowed until
   nagare-access's configured 30-second decision-cache TTL expired, then returned 403.
 
+- Observation: the workstation initially pointed at the cloud `sennari` context and had no
+  saved local Nagare context, so the planned database delete was neither safe nor necessary.
+  Evidence: the preflight context check stopped before any mutation, `just local-up` created
+  a fresh `k3d-nagare-local` cluster, and `nagare-system` contained no databases to delete;
+  creating `shomei-db` and `en-db` there still satisfied the clean-ledger decision without
+  touching cloud state or the unrelated `kotei-dev` cluster.
+
 - Observation: a Ready local Knative DomainMapping can still appear unreachable when a
   workstation reverse proxy owns ports 80/443. Evidence: the mapping itself reported Ready,
   but direct curl reached the host's Caddy 404; forwarding `svc/kourier` to port 18080 and
@@ -190,6 +199,13 @@ implementation. Provide concise evidence.
   seconds to report Ready. Evidence: the fresh install briefly showed `RevisionMissing`,
   then converged without intervention; all service and proxy pods were Running before the
   behavioural checks began.
+
+- Observation: M7 originally named only the Shomei and En bootstrap READMEs, but the
+  nagare-access and local-auth READMEs carried the same stale build-closure and one-Job
+  descriptions. Evidence: the final documentation search found codd in
+  `cluster/bootstrap/nagare-access/README.md` and found local-auth claiming it created only
+  the cookie Secret and ran only `en-migrate`; updating all four bootstrap guides made the
+  repository-wide search clean and aligned the operator path with the manifests.
 
 
 ## Decision Log
@@ -254,6 +270,22 @@ Record every decision made while working on the plan.
   values in the Secret lets `nagarectl` receive the read-write bearer and `nagare-access`
   receive the read-only bearer without either caller learning or stripping an En-specific
   configuration prefix.
+  Date: 2026-08-25
+
+- Decision: Treat the generated Cabal projects in the local-source image builder as mirrors
+  of the relevant Shomei and En dependency pins and compatibility constraints.
+  Rationale: Nagare consumes those projects through both its standalone nagare-access plan
+  and generated image plans. Letting the latter drift can select a different cryptographic
+  closure or omit a reviewed fork even when the library build remains green. This durable
+  rule is recorded in `docs/adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md`.
+  Date: 2026-08-25
+
+- Decision: Apply each auth service's embedded pg-migrate plan through an explicit Job from
+  the exact same image tag as its server, and keep no Nagare-owned copy of upstream SQL.
+  Rationale: one owner and one embedded plan prevent schema drift, while same-image Jobs
+  provide observable ordering and provenance. Ledger checksums and advisory locking make
+  the delete-and-recreate Job lifecycle idempotent. This durable rule is recorded in
+  `docs/adr/0002-auth-service-images-own-and-apply-their-database-schemas.md`.
   Date: 2026-08-25
 
 
@@ -800,13 +832,14 @@ Acceptance is stated as observable behaviour in Validation and Acceptance below.
 
 ### Milestone M7 — Documentation and ADR distillation
 
-Scope: `docs/user/access.md`, `cluster/bootstrap/shomei/README.md`,
-`cluster/bootstrap/en/README.md`, and a new `docs/adr/` directory.
+Scope: `docs/user/access.md`, the Shomei, En, nagare-access, and local-auth bootstrap
+READMEs, and a new `docs/adr/` directory.
 
-The two bootstrap READMEs both still describe the build script as assembling "a temporary
+The Shomei, En, and nagare-access READMEs still describe the build script as assembling "a temporary
 Docker context from the local Nagare, shomei, en, codd checkout, plus pinned public git
-dependencies for jose, servant-openapi, openapi-hs" and both still mention `CODD_SRC`. Every
-one of those clauses is now false. `docs/user/access.md` line 84 still says "en currently
+dependencies for jose, servant-openapi, openapi-hs" and mention `CODD_SRC`. Every
+one of those clauses is now false. The local-auth README also describes only the old En
+migration and cookie Secret. `docs/user/access.md` line 84 still says "en currently
 expects its PostgreSQL..." and needs to describe the `en-migrate` and `shomei-migrate` Jobs
 instead; the "Manage grants" section needs the new `NAGARE_EN_API_KEY`.
 
@@ -1020,6 +1053,36 @@ nix flake check
 ```
 
 
+## Outcomes & Retrospective
+
+The upgrade achieved its intended behaviour. Nagare-access builds against Shomei
+`26361f21325f4c0d2d1751365542d6c0adc83839` and En
+`054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`; its 103 focused tests pass, and
+nagarectl's 374 tests pass with the current En protocol pinned by exact wire fixtures. En
+now rejects missing bearer credentials, nagare-access uses the read-only key, and nagarectl
+uses the read-write key.
+
+All three `linux/arm64` production images built successfully. On a fresh local cluster the
+Shomei and En migration Jobs completed from those images, their ledgers contained 28 and 1
+applied migrations respectively, both Deployments reached Ready, and the nagare-access
+Knative revision converged to Ready. The protected example then demonstrated the full
+contract: an unauthenticated document request returned 302, a signed-in ungranted user
+received 403, a grant produced `Hello Nagare!` with status 200, and a revoke returned to 403
+after the configured decision-cache TTL. En's relationship listing converged to `(none)`.
+
+The durable operational result is smaller than the code diff: each service image now owns
+both its server and its schema executable, and Nagare carries neither copied SQL nor a codd
+build path. ADRs 1 and 2 preserve that schema-ownership rule and the corresponding
+dependency-plan maintenance obligation.
+
+One repository-wide check remains constrained by existing infrastructure rather than this
+upgrade: the isolated Nix `nagare-access-build-test` cannot clone the private
+`mori://shinzui/en` repository without a credential helper. The authenticated focused build,
+test suites, production image builds, and live cluster proof all pass. Cloud rollout was
+explicitly outside this plan; the validated images remain deployed only to the disposable
+local k3d cluster.
+
+
 ## Idempotence and Recovery
 
 Every step in this plan is safe to repeat.
@@ -1039,9 +1102,10 @@ Both install scripts are idempotent by construction: the Secret creation is guar
 before being re-applied precisely so a completed Job can be re-run. Re-running
 `local-auth/install.sh` after a partial failure is the normal recovery path.
 
-The one destructive step is M6's `nagarectl db delete`. It is destructive on purpose and it is
-authorised by the Decision Log entry recording that these databases hold nothing that must
-survive. Before running it, confirm you are on the intended context —
+The planned destructive step is M6's `nagarectl db delete`. It was not needed during this
+execution because the new local cluster had no auth databases, but it is authorised for an
+existing local auth plane by the Decision Log entry recording that these databases hold
+nothing that must survive. Before running it, confirm you are on the intended context —
 `nagarectl context show` — because the same command against a cloud context would delete real
 databases. If a delete succeeds and the following create fails, simply re-run the create; the
 migration Jobs will populate an empty database from scratch, which is the expected path.
