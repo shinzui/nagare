@@ -25,10 +25,11 @@ applying.
 To avoid private GitHub fetches during Docker build, set
 `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
 delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
-temporary context from the local Nagare, shomei, en, and codd checkouts plus
-pinned public git dependencies for jose, servant-openapi, openapi-hs, and the
-Shomei WebAuthn fork before building the same
-`nagare-access` executable.
+temporary context from the local Nagare, Shomei, and En checkouts. The generated
+Cabal project mirrors their current closure: the reviewed WebAuthn and Biscuit forks
+remain Git-pinned, OpenAPI and JOSE resolve from Hackage, and the cryptographic
+compatibility floors remain explicit before building the same `nagare-access`
+executable.
 
 On Apple Silicon or another non-amd64 local Docker host, combine the local-source
 path with Cloud Build for the real amd64 image:
@@ -55,6 +56,10 @@ shomei and en now have matching local-source image helpers at
 Their manifests expect managed PostgreSQL databases named `shomei-db` and
 `en-db` in the `nagare-system` namespace, created with
 `nagarectl db create postgres ...`.
+
+Every En request carries the read-only bearer value from
+`nagare-en-api-keys`. The installers generate and preserve that Secret; the CLI uses
+its separate read-write value for relationship mutations.
 
 ## Install
 
