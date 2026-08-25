@@ -13,25 +13,35 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
       nagarePackagesFor = pkgs:
-        import ./nix/haskell-packages.nix { inherit pkgs; cradleSrc = cradle; };
+        let
+          platformPackage = import ./nix/platform-package.nix { inherit pkgs; sourceRoot = ./.; };
+        in
+        import ./nix/haskell-packages.nix { inherit pkgs platformPackage; cradleSrc = cradle; };
     in
     {
       packages = forAllSystems (pkgs:
         let nagarePackages = nagarePackagesFor pkgs;
         in {
           inherit (nagarePackages) nagarectl;
+          nagare-platform = nagarePackages.nagarePlatform;
+          nagare = nagarePackages.nagare;
           default = nagarePackages.nagarectl;
         });
 
       apps = forAllSystems (pkgs:
         let
+          nagarePackages = nagarePackagesFor pkgs;
           app = {
             type = "app";
-            program = "${(nagarePackagesFor pkgs).nagarectl}/bin/nagarectl";
+            program = "${nagarePackages.nagarectl}/bin/nagarectl";
           };
         in
         {
           nagarectl = app;
+          nagare = {
+            type = "app";
+            program = "${nagarePackages.nagare}/bin/nagare";
+          };
           default = app;
         });
 
@@ -54,6 +64,66 @@
           # Build and test the typed DSL and CLI through the hermetic package set.
           nagare-dsl-build-test = nagarePackages.checkedNagareDsl;
           nagarectl-build-test = nagarePackages.checkedNagarectl;
+
+          nagare-platform-assets = pkgs.runCommand "nagare-platform-assets"
+            { nativeBuildInputs = [ pkgs.jq ]; payload = nagarePackages.nagarePlatform; }
+            ''
+              root="$payload/share/nagare"
+              jq -e '.assetSchemaVersion == 1 and (.payloadId | length > 0)' "$root/release.json" >/dev/null
+              test -f "$root/infra/pulumi/Pulumi.yaml"
+              test -f "$root/cluster/bootstrap/render-context-template.sh"
+              test -f "$root/nixos/flake.nix"
+              test -f "$root/scripts/lib/target.sh"
+              test -f "$root/justfile"
+              test -f "$root/docs/user/reference.md"
+              touch "$out"
+            '';
+
+          nagare-clone-free-platform =
+            let
+              fakePulumi = pkgs.writeShellScriptBin "pulumi" ''
+                printf '%s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+                exit 0
+              '';
+              fakeJsonTool = name: pkgs.writeShellScriptBin name ''
+                printf '%s %s\n' "${name}" "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+                printf '%s\n' '{"items":[]}'
+              '';
+              fakeTools = pkgs.symlinkJoin {
+                name = "nagare-fake-platform-tools";
+                paths = map fakeJsonTool [ "curl" "gcloud" "gsutil" "kubectl" ];
+              };
+            in
+            pkgs.runCommand "nagare-clone-free-platform"
+              { nativeBuildInputs = [ nagarePackages.nagarectl nagarePackages.nagare pkgs.jq fakePulumi fakeTools ]; }
+              ''
+                mkdir -p isolated/home isolated/config isolated/state isolated/empty
+                export HOME="$PWD/isolated/home"
+                export XDG_CONFIG_HOME="$PWD/isolated/config"
+                export XDG_STATE_HOME="$PWD/isolated/state"
+                export NAGARE_FAKE_TOOL_LOG="$PWD/isolated/tools.log"
+                touch "$NAGARE_FAKE_TOOL_LOG"
+                cd isolated/empty
+
+                nagarectl context create local \
+                  --mode local \
+                  --registry-host localhost:5000 \
+                  --base-domain 127-0-0-1.sslip.io \
+                  --local-object-store http://minio:9000/nagare-backups
+                nagarectl context use local
+                nagarectl platform root --json > root.json
+                jq -e '.source == "installed" and (.workspaceRoot | contains("/nagare/local/platform/"))' root.json >/dev/null
+                nagarectl init trial --project example --dry-run --skip-preflight > init.out
+                grep -q 'DRY RUN: would run:' init.out
+                grep -q "$XDG_STATE_HOME/nagare/trial/platform/" init.out
+                nagarectl server status --skip-vm > status.out
+                nagare --list > recipes.out
+                grep -q 'infra-preview' recipes.out
+                nagare --dry-run infra-preview > recipe-dry-run.out 2>&1
+                grep -q 'cd infra/pulumi && pulumi preview' recipe-dry-run.out
+                grep -q -- '-C.*nagare/local/platform/' "$NAGARE_FAKE_TOOL_LOG"
+                touch "$out"
+              '';
 
           # Compile-and-run every shipped cluster/examples/*/nagare/Config.hs through
           # the same packaged runghc runtime used by the installed CLI.

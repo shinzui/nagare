@@ -94,6 +94,8 @@ data InventoryOpts = InventoryOpts
   -- ^ VM instance name, e.g. @"nagare-01"@
   , ioPulumiDir :: !FilePath
   -- ^ Pulumi project dir, e.g. @"infra/pulumi"@
+  , ioIapSsh :: !FilePath
+  -- ^ resolved IAP helper, e.g. @"/share/nagare/scripts/iap-ssh.sh"@
   , ioSkipVm :: !Bool
   -- ^ when 'True', skip the best-effort IAP-SSH disk probe
   }

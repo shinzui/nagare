@@ -21,17 +21,19 @@ module Nagare.Ops.Doctor
   ( Remediation (..)
   , Check (..)
   , remediationFor
+  , remediationForAt
   , gradeChecks
+  , gradeChecksAt
   , formatDoctor
   , doctorExitOk
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Text qualified as T
-
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Target (TargetProfile (..))
+import System.FilePath ((</>))
 
 -- ---------------------------------------------------------------------------
 -- Model
@@ -60,25 +62,31 @@ data Check = Check
 gradeChecks :: TargetProfile -> [Probe] -> [Check]
 gradeChecks tp = map (\p -> Check p (remediationFor tp p))
 
+gradeChecksAt :: FilePath -> FilePath -> FilePath -> TargetProfile -> [Probe] -> [Check]
+gradeChecksAt root pulumiDir iapSsh tp = map (\p -> Check p (remediationForAt root pulumiDir iapSsh tp p))
+
 -- | The knowledge base: map a probe to a remediation hint. 'Nothing' for an
 -- @OK@ probe. A 'StatusUnknown' probe always yields a @"could not check; …"@
 -- hint (it renders as @WARN@, never @FAIL@). All other non-OK probes get the
 -- catalogued /why/ and command, falling back to a generic pointer for any probe
 -- name not yet catalogued.
 remediationFor :: TargetProfile -> Probe -> Maybe Remediation
-remediationFor tp p = case probeStatus p of
+remediationFor = remediationForAt "." "infra/pulumi" "scripts/iap-ssh.sh"
+
+remediationForAt :: FilePath -> FilePath -> FilePath -> TargetProfile -> Probe -> Maybe Remediation
+remediationForAt root pulumiDir iapSsh tp p = case probeStatus p of
   StatusOk -> Nothing
   StatusUnknown ->
     Just
       Remediation
         { remWhy = "could not check; " <> probeDetail p
-        , remCommand = command tp (probeName p)
+        , remCommand = commandAt root pulumiDir iapSsh tp (probeName p)
         }
   _ ->
     Just
       Remediation
         { remWhy = why tp (probeName p) (probeDetail p)
-        , remCommand = command tp (probeName p)
+        , remCommand = commandAt root pulumiDir iapSsh tp (probeName p)
         }
 
 -- | The catalogued plain-language /why/ for a non-OK probe name. Falls back to
@@ -101,43 +109,64 @@ why tp name detail
 
 -- | The catalogued remediation command for a probe name (used for both @FAIL@
 -- and @UNKNOWN@ — the fix is the same: make the source reachable / healthy).
-command :: TargetProfile -> Text -> Text
-command tp name
+commandAt :: FilePath -> FilePath -> FilePath -> TargetProfile -> Text -> Text
+commandAt root pulumiDir iapSsh tp name
   | name == "VM" =
       "gcloud compute instances start " <> tpInstanceName tp <> " --zone=" <> tpZone tp
   | name == "k3s node" =
       "point kubectl at the k3s cluster — the workstation default context often points at the unrelated "
-        <> "GKE cluster tan-cluster; retrieve the k3s kubeconfig per docs/runbooks/cluster-access.md"
+        <> "GKE cluster tan-cluster; retrieve the k3s kubeconfig per "
+        <> asset "docs/runbooks/cluster-access.md"
   | isDeploy name =
       let (dep, ns, readme) = deployTarget name
-       in "kubectl rollout status deploy/" <> dep <> " -n " <> ns <> "; consult " <> readme
+       in "kubectl rollout status deploy/" <> dep <> " -n " <> ns <> "; consult " <> asset (T.unpack readme)
   | name == "ClusterIssuer" =
       "kubectl get clusterissuer letsencrypt-dns -o yaml "
         <> "(note: TLS is HTTP-first/deferred while the base domain is the placeholder apps.example.com)"
   | name == "Kourier ingress" =
-      "curl -sS -o /dev/null -w '%{http_code}\\n' http://$(pulumi -C infra/pulumi stack output publicIp)/ "
+      "curl -sS -o /dev/null -w '%{http_code}\\n' http://$(pulumi -C "
+        <> T.pack pulumiDir
+        <> " stack output publicIp)/ "
         <> "(active context stack); "
         <> "also: kubectl get svc -n kourier-system kourier -o wide; kubectl get nodes -o wide"
   | name == "private image pull" =
       "apply the declarative private-image-pull config (config-deployment registriesSkippingTagResolving "
-        <> "+ node registries.yaml) per docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md"
+        <> "+ node registries.yaml) per "
+        <> asset "docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md"
   | name == "build platform" =
       "set NAGARE_TARGET_PLATFORM (e.g. linux/amd64) in nagare.target.env to match the node architecture; "
-        <> "see docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
+        <> "see "
+        <> asset "docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
   | name == "base domain" =
-      "re-render config-domain from the active context stack: pulumi -C infra/pulumi stack output baseDomain "
-        <> "(see cluster/bootstrap/knative-serving/README.md)"
+      "re-render config-domain from the active context stack: pulumi -C "
+        <> T.pack pulumiDir
+        <> " stack output baseDomain "
+        <> "(see "
+        <> asset "cluster/bootstrap/knative-serving/README.md"
+        <> ")"
   | name == "external-domain-tls" =
       "expected while the base domain is the placeholder apps.example.com; "
-        <> "enable once a real DNS-01-capable domain is set (cluster/bootstrap/net-certmanager/README.md)"
+        <> "enable once a real DNS-01-capable domain is set ("
+        <> asset "cluster/bootstrap/net-certmanager/README.md"
+        <> ")"
   | name == "Artifact Registry" =
-      "gcloud auth configure-docker " <> tpRegistryHost tp <> "; "
+      "gcloud auth configure-docker "
+        <> tpRegistryHost tp
+        <> "; "
         <> "verify the nagare-node service account holds roles/artifactregistry.writer"
   | isDisk name =
-      "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 scripts/iap-ssh.sh ssh nagare-01 -- 'df -h'; "
+      "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 "
+        <> T.pack iapSsh
+        <> " ssh "
+        <> tpInstanceName tp
+        <> " -- 'df -h'; "
         <> "then run nagarectl cleanup once available (EP-41)"
-  | isBackup name = "take an on-demand managed-DB backup: nagarectl db backup <name>; consult docs/runbooks/disaster-recovery.md"
-  | otherwise = "see docs/runbooks/"
+  | isBackup name = "take an on-demand managed-DB backup: nagarectl db backup <name>; consult " <> asset "docs/runbooks/disaster-recovery.md"
+  | otherwise = "see " <> asset "docs/runbooks/"
+  where
+    asset relative
+      | root == "." = T.pack relative
+      | otherwise = T.pack (root </> relative)
 
 -- | Whether a probe name is one of the control-plane Deployment rollouts.
 isDeploy :: Text -> Bool

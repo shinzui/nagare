@@ -16,11 +16,20 @@
 # DECLARES — or, when no context declares one, unless gcloud's configured
 # project agrees. In local mode it asserts the target is provably loopback.
 
-# Resolve the repository root from THIS file's path, independent of the caller's
-# cwd. ${BASH_SOURCE[0]} is this file; its parent is scripts/lib, so ../.. is the
-# repo root.
+# Resolve the physical payload from THIS file's path, independent of the caller's
+# cwd. An operator launcher may point at a writable, materialized workspace; the
+# repository-root name remains as a compatibility alias for existing recipes.
 _target_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAGARE_REPO_ROOT="$(cd "${_target_lib_dir}/../.." && pwd)"
+_nagare_physical_root="$(cd "${_target_lib_dir}/../.." && pwd)"
+NAGARE_PLATFORM_ROOT="${NAGARE_PLATFORM_ROOT:-${_nagare_physical_root}}"
+NAGARE_REPO_ROOT="${NAGARE_WORKSPACE_ROOT:-${NAGARE_PLATFORM_ROOT}}"
+
+if [ ! -f "${NAGARE_REPO_ROOT}/release.json" ] || [ ! -f "${NAGARE_REPO_ROOT}/justfile" ]; then
+  echo "nagare: invalid operational root '${NAGARE_REPO_ROOT}' (missing release.json or justfile)" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+export NAGARE_PLATFORM_ROOT NAGARE_REPO_ROOT
 
 _NAGARE_CONTEXT_VARS=(
   CLOUDSDK_CORE_PROJECT CLOUDSDK_COMPUTE_REGION CLOUDSDK_COMPUTE_ZONE

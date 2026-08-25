@@ -266,6 +266,7 @@ import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
 import Nagare.Task.Run (oneOffJobName, runArgs)
 import Nagare.Version (BuildVersion (..), renderBuildVersionJson, renderBuildVersionText)
+import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((<.>), (</>))
@@ -283,6 +284,7 @@ main = do
       testGroup
         "nagarectl"
         [ testGroup "Nagare.Static.Image" dockerfileTests
+        , platformTests
         , testGroup "Nagare.Static.Build" prepareTests
         , testGroup "Nagare.Static.Release" releaseTests
         , testGroup "Nagare.Static.Preview" previewTests
@@ -404,8 +406,8 @@ initTests =
               , "nagare:instanceName"
               ]
     , testCase "pulumiConfigSetArgs targets the active context stack" $
-        pulumiConfigSetArgs "labs" "gcp:project" "acme-prod"
-          @?= ["-C", "infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
+        pulumiConfigSetArgs "/payload/infra/pulumi" "labs" "gcp:project" "acme-prod"
+          @?= ["-C", "/payload/infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
     , testCase "pulumiEnvFor derives a per-context LOCAL backend, home, and stack" $
         pulumiEnvFor "/tmp/nagare-state" "labs" initProfile
           @?= PulumiEnv

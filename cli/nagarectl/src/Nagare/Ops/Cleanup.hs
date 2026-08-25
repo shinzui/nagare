@@ -223,14 +223,14 @@ humanBytes b
 -- the deletions; return the assembled report. When no category flag is set, all
 -- three are acted on. Read-only sources degrade gracefully (a missing tool or
 -- unreachable VM yields an empty category, not a crash).
-executeCleanup :: CleanupOpts -> IO CleanupReport
-executeCleanup o = do
+executeCleanup :: FilePath -> Text -> CleanupOpts -> IO CleanupReport
+executeCleanup iapSsh instanceName o = do
   let allCats = not (doImages o || doPreviews o || doReleases o)
       wantImages = doImages o || allCats
       wantPreviews = doPreviews o || allCats
       wantReleases = doReleases o || allCats
       ns = fromMaybe "default" (namespace o)
-  imagesR <- if wantImages then Just <$> imageStep o else pure Nothing
+  imagesR <- if wantImages then Just <$> imageStep iapSsh instanceName o else pure Nothing
   previewsR <- if wantPreviews then previewStep o ns else pure []
   releasesR <- if wantReleases then releaseStep o ns else pure []
   pure
@@ -243,13 +243,13 @@ executeCleanup o = do
 
 -- | Images: list the containerd store over IAP-SSH (read-only), and under
 -- @--confirm@ run @crictl rmi --prune@. A missing/unreachable VM yields (0, 0).
-imageStep :: CleanupOpts -> IO (Int, Integer)
-imageStep o = do
-  m <- captureTool "scripts/iap-ssh.sh" ["ssh", "nagare-01", "--", "sudo k3s crictl images"]
+imageStep :: FilePath -> Text -> CleanupOpts -> IO (Int, Integer)
+imageStep iapSsh instanceName o = do
+  m <- captureTool iapSsh ["ssh", T.unpack instanceName, "--", "sudo k3s crictl images"]
   let imgs = maybe [] parseCrictlImages m
   when (confirm o) $
     void $
-      captureTool "scripts/iap-ssh.sh" ["ssh", "nagare-01", "--", "sudo k3s crictl rmi --prune"]
+      captureTool iapSsh ["ssh", T.unpack instanceName, "--", "sudo k3s crictl rmi --prune"]
   pure (length imgs, sumReclaimableBytes imgs)
 
 -- | Previews: list the namespace's Knative Services, keep those matching the

@@ -23,21 +23,17 @@ module Nagare.Init
   , runPreflight
   , enableApis
   , seedPulumiConfig
-  ) where
+  )
+where
 
 import Control.Monad (when)
-import Data.Function ((&))
-import GHC.Generics (Generic)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8)
-import qualified Data.Text.IO as TIO
-import System.Directory (doesFileExist)
-import System.Environment (setEnv, unsetEnv)
-import System.Exit (ExitCode (..))
-
 import Cradle (addArgs, cmd, run)
-
+import Data.Function ((&))
+import Data.Text (Text)
+import Data.Text qualified as T
+import Data.Text.Encoding (decodeUtf8)
+import Data.Text.IO qualified as TIO
+import GHC.Generics (Generic)
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Target
   ( Mode (..)
@@ -45,6 +41,9 @@ import Nagare.Target
   , pulumiBackendToken
   , resolveTargetProfile
   )
+import System.Directory (doesFileExist)
+import System.Environment (setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 
 -- | Options for @nagarectl init@. The four target flags are 'Maybe' so an absent
 -- flag triggers an interactive prompt (on a TTY) or an error (non-TTY). The skip
@@ -157,9 +156,9 @@ seedKeys tp =
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.
 -- Pure so it is unit-testable without Pulumi.
-pulumiConfigSetArgs :: Text -> Text -> Text -> [String]
-pulumiConfigSetArgs stack key value =
-  ["-C", "infra/pulumi", "config", "set", "--stack", T.unpack stack, T.unpack key, T.unpack value]
+pulumiConfigSetArgs :: FilePath -> Text -> Text -> Text -> [String]
+pulumiConfigSetArgs pulumiDir stack key value =
+  ["-C", pulumiDir, "config", "set", "--stack", T.unpack stack, T.unpack key, T.unpack value]
 
 -- | The ordered follow-on commands printed after a successful init.
 nextStepsText :: Text
@@ -200,24 +199,24 @@ writeTargetEnv force dryRun tp = do
 -- Returns the exit code so the handler can fail the command on a real error. With
 -- @dryRun@, sets NAGARE_ENABLE_APIS_DRY_RUN=1 so the script prints the argv. The
 -- script's stdout/stderr stream to the terminal (no capture).
-enableApis :: Bool -> IO ExitCode
-enableApis dryRun = do
+enableApis :: FilePath -> Bool -> IO ExitCode
+enableApis script dryRun = do
   when dryRun (setEnv "NAGARE_ENABLE_APIS_DRY_RUN" "1")
-  run $ cmd "bash" & addArgs (["scripts/enable-apis.sh"] :: [String])
+  run $ cmd "bash" & addArgs [script]
 
 -- | @pulumi config set@ each seed key from the profile, against the infra/pulumi
 -- stack. Stops and returns the first failing key (with its exit code) so the
 -- handler can report a precise, recoverable error. @dryRun@ prints the argv.
-seedPulumiConfig :: Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())
-seedPulumiConfig dryRun stack tp = go (seedKeys tp)
+seedPulumiConfig :: FilePath -> Bool -> Text -> TargetProfile -> IO (Either (Text, ExitCode) ())
+seedPulumiConfig pulumiDir dryRun stack tp = go (seedKeys tp)
   where
     go [] = pure (Right ())
     go ((k, v) : rest)
       | dryRun = do
-          TIO.putStrLn ("  pulumi " <> T.pack (unwords (pulumiConfigSetArgs stack k v)))
+          TIO.putStrLn ("  pulumi " <> T.pack (unwords (pulumiConfigSetArgs pulumiDir stack k v)))
           go rest
       | otherwise = do
-          code <- run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs stack k v)
+          code <- run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs pulumiDir stack k v)
           case code of
             ExitSuccess -> go rest
             ExitFailure _ -> pure (Left (k, code))
@@ -271,10 +270,10 @@ runPreflight project = do
             <> map ("    " <>) missing
             <> [ "  Grant them (or roles/owner), e.g.:"
                , "    gcloud projects add-iam-policy-binding "
-                  <> proj
-                  <> " --member=user:"
-                  <> acct
-                  <> " --role=<role>"
+                   <> proj
+                   <> " --member=user:"
+                   <> acct
+                   <> " --role=<role>"
                , "  then re-run `nagarectl init` (or pass --skip-preflight to bypass)."
                ]
         )

@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc }:
+{ pkgs, cradleSrc, platformPackage }:
 
 let
   inherit (pkgs) lib;
@@ -49,11 +49,25 @@ let
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
-        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime ]}
+        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime ]} \
+        --set NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare
     '';
     meta.mainProgram = "nagarectl";
   };
+
+  nagare = pkgs.writeShellApplication {
+    name = "nagare";
+    runtimeInputs = [ nagarectl pkgs.jq pkgs.just ];
+    text = ''
+      export NAGARE_PLATFORM_ROOT="${platformPackage}/share/nagare"
+      workspace_json="$(nagarectl platform root --json)"
+      workspace_root="$(printf '%s' "$workspace_json" | jq -er '.workspaceRoot')"
+      export NAGARE_WORKSPACE_ROOT="$workspace_root"
+      exec just --justfile "$workspace_root/justfile" --working-directory "$workspace_root" "$@"
+    '';
+  };
 in
 {
-  inherit checkedNagareDsl checkedNagarectl haskellPackages nagarectl typedConfigRuntime;
+  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl typedConfigRuntime;
+  nagarePlatform = platformPackage;
 }
