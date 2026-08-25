@@ -58,28 +58,24 @@ the helper's default paths.
 The service and migration Job both read `POSTGRES_USER`, `POSTGRES_PASSWORD`,
 and `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-en-db`. The
 service builds `EN_DATABASE_URL` as a libpq keyword connection string, and the
-migration Job uses the standard `PG*` environment variables for `psql`. Create
+migration executable uses the same standard `PG*` environment variables through
+libpq. Create
 the database `en-db` in `nagare-system` before running migrations. The database
 name intentionally differs from the service name `en` to avoid a Kubernetes
 Service name collision.
 
-`migrations.yaml` is the Nagare bootstrap wrapper for en's current SQL
-migrations. It mounts the en migration files into a Kubernetes Job and runs
-`psql` from the `postgres:18` image against the same database Secret used by
-`en-server`. The Job first checks whether `public.relation_tuple` already
-exists; if it does, the Job exits successfully without reapplying the SQL. This
-keeps the first bootstrap idempotent while en does not publish a migration image
-or executable.
-
-Earlier bootstrap work tried DockerHub `mzabani/codd:latest`, but containerd on
-`nagare-01` rejects that image because its image config encodes `Entrypoint` as
-a string instead of the OCI array shape. Replace this psql bootstrap with codd
-when en publishes a valid migration image or embedded migration executable.
+`migrations.yaml` runs en's supported `en-migrate up` executable from the exact
+same image tag as `en-server`. The executable embeds the append-only migration
+manifest owned by `mori://shinzui/en/packages/en-migrations` and records applied
+checksums in pg-migrate's database ledger (`mori://shinzui/pg-migrate`). Both auth
+installers delete the completed Kubernetes Job before applying it because Job pod
+templates are immutable and completed Jobs do not rerun. Recreating the Job is
+safe: pg-migrate takes an advisory lock and applies only pending migrations.
 
 ```bash
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
 nagarectl db create postgres en-db --namespace nagare-system
-kubectl apply -f cluster/bootstrap/en/migrations.yaml
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/en/migrations.yaml | kubectl apply -f -
 kubectl -n nagare-system wait --for=condition=complete job/en-migrate --timeout=120s
 cluster/bootstrap/en/build-image.sh
 kubectl apply -f cluster/bootstrap/en/configmap.yaml
@@ -90,6 +86,5 @@ If the migration Job fails, inspect it before retrying:
 
 ```bash
 kubectl -n nagare-system logs job/en-migrate
-kubectl -n nagare-system delete job en-migrate
-kubectl apply -f cluster/bootstrap/en/migrations.yaml
+cluster/bootstrap/auth-install.sh
 ```

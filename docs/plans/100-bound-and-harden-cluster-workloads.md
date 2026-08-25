@@ -68,12 +68,24 @@ opt-in.
   `victoria-logs/collector-values.yaml`. (2026-08-24)
 - [x] M2: verify the exact pinned charts with `helm template`, assert the Secret and
   datasource ConfigMap shapes, and shellcheck the installer; commit M2. (2026-08-24)
-- [ ] M3: make each migration file idempotent and remove the all-or-nothing guard in `cluster/bootstrap/en/migrations.yaml`
-- [ ] M3: delete-then-apply the Job in `cluster/bootstrap/auth-install.sh` and `cluster/bootstrap/local-auth/install.sh`
-- [ ] M3: default `NAGARE_AUTH_TAG` to the git SHA in `auth-install.sh` and `render-context-template.sh`
-- [ ] M3: pin MinIO images and document the emptyDir decision in `cluster/local/minio/minio.yaml`
-- [ ] M3: update `cluster/bootstrap/en/README.md` to match the new migration behavior
-- [ ] M3: prove the migration re-run behavior locally (edit a migration, re-run installer, observe it applies); commit M3
+- [x] M3: replace the stale embedded-SQL ConfigMap with the supported
+  `en-migrate up` executable from the exact same image as `en-server`, and build both
+  binaries into that image. (2026-08-24)
+- [x] M3: delete-then-render-and-apply the migration Job in
+  `cluster/bootstrap/auth-install.sh` and
+  `cluster/bootstrap/local-auth/install.sh`. (2026-08-24)
+- [x] M3: default `NAGARE_AUTH_TAG` to the git SHA in `auth-install.sh` and
+  `render-context-template.sh`. (2026-08-24)
+- [x] M3: pin MinIO images to Docker Hub-verified release tags and document the
+  `emptyDir` decision in `cluster/local/minio/minio.yaml`. (2026-08-24)
+- [x] M3: update `cluster/bootstrap/en/README.md` to match the pg-migrate-backed
+  Job behavior and cite its canonical cross-repository packages. (2026-08-24)
+- [x] M3: prove migration rerun behavior against disposable PostgreSQL: the first
+  `en-migrate up` reported `applied_now`, the second `already_applied`, and
+  `en-migrate verify` reported one applied, zero pending, zero unknown. (2026-08-24)
+- [ ] M3 live installer validation: run the local installer twice and confirm the
+  recreated Job succeeds against the cluster database. No local cluster is running.
+- [x] M3: commit the pg-migrate Job, immutable tag defaults, and MinIO pins. (2026-08-24)
 - [ ] Cloud rollout: apply M1/M2/M3 against the active cloud context and record observed steady-state usage
 - [ ] Write Outcomes & Retrospective
 
@@ -85,10 +97,9 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
 - The en server's health endpoints are `GET /healthz` (unconditional 200 — "the
   process serves HTTP") and `GET /readyz` (pings PostgreSQL through the
   connection pool, 503 with a `store_error` JSON body while the store is
-  unreachable). Verified by reading the en checkout at
-  `/Users/shinzui/Keikaku/bokuno/en/en-server/app/Health.hs` (the `healthRoutes`
-  middleware, lines 32-41). If that checkout has moved, re-verify with
-  `grep -rn "healthz" <en-checkout>/en-server/app/` before wiring probes.
+  unreachable). Verified in the `en-server` source exposed by
+  `mori://shinzui/en/packages/en-server` (`en-server/app/Health.hs`, the
+  `healthRoutes` middleware).
 - The Job-immutability problem in finding 5 is subtler than "apply fails": when
   only the ConfigMap SQL changes, `kubectl apply` on the Job succeeds (the Job
   spec is byte-identical) — but the completed Job never re-runs, so new
@@ -141,6 +152,23 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   through `GF_PLUGINS_PREINSTALL_SYNC`, not the older `GF_INSTALL_PLUGINS` variable
   named by the plan. The rendered ConfigMap value is exactly
   `victoriametrics-logs-datasource 0.31.0`.
+
+- Implementation (2026-08-24): `mori://shinzui/en/packages/en-migrations` changed
+  from the two timestamped SQL files assumed during planning to an append-only,
+  pg-migrate-managed component with an `en-migrate` executable and a fixed-point
+  bootstrap schema. The old Nagare ConfigMap was not merely behind: its live unique
+  index still included `caveat_name` and it lacked the datastore identity and GC
+  horizon tables. Adding `IF NOT EXISTS` would therefore have preserved an obsolete
+  schema while reporting success. M3 now runs the dependency-owned executable from
+  the same image as `en-server`. The controlling cross-repository ADR is in
+  `mori://shinzui/en` at project-relative path
+  `docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md`; an
+  artifact-level Mori URI is pending registry coverage.
+
+- Implementation (2026-08-24): the MinIO release tags named during planning still
+  exist in Docker Hub's authoritative registry for amd64 and arm64:
+  `minio/minio:RELEASE.2025-09-07T16-13-09Z` and
+  `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
 
 
 ## Decision Log
@@ -202,6 +230,22 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   machinery. With guards, re-running all files is a fast no-op, which also
   makes the delete-then-apply Job strategy cheap.
   Date: 2026-07-15.
+  Superseded on 2026-08-24 by the dependency-owned migration decision below.
+- Decision: run `en-migrate up` from the same tagged image as `en-server`, and
+  treat `mori://shinzui/en/packages/en-migrations` as the sole owner of the en
+  schema. Nagare must not copy en SQL into a ConfigMap.
+  Rationale: en now publishes an append-only, pg-migrate-backed migration
+  component and executable. Its accepted schema includes datastore identity
+  and garbage-collection horizon state and changed a live uniqueness contract;
+  retaining Nagare's guarded bootstrap SQL would silently preserve the obsolete
+  schema. The pg-migrate ledger, checksums, advisory lock, and forward-only
+  manifest provide the rerun behavior this plan needs without a second schema
+  authority. The dependency is `mori://shinzui/pg-migrate`; release 1.1.0.0 was
+  verified against Hackage and upstream tag `v1.1.0.0` on 2026-08-24. The
+  controlling cross-repository ADR is in `mori://shinzui/en` at
+  `docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md`;
+  an artifact-level URI is pending registry coverage.
+  Date: 2026-08-24.
 - Decision: Job re-run strategy is `kubectl delete job en-migrate
   --ignore-not-found` followed by `kubectl apply`, in both installers, rather
   than content-hash-suffixed Job names.
@@ -261,7 +305,18 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+M1, M2, and the code portion of M3 are complete as of 2026-08-24. Offline
+manifest assertions, exact pinned Helm renders, sops shape checks, shell
+linting, immutable-tag rendering, Docker Hub tag verification, and a disposable
+PostgreSQL `en-migrate up`/rerun/verify proof all passed. The implementation
+also eliminated a more serious form of drift than the original finding: Nagare
+no longer carries stale en SQL and instead consumes en's accepted migration
+interface from the same release image.
+
+The plan remains in progress because neither a local Docker/k3d cluster nor an
+authenticated cloud context is currently available. Live installer reruns,
+probe behavior, rollout status, and steady-state resource observations remain
+explicit acceptance work rather than inferred success.
 
 
 ## Context and Orientation
@@ -296,12 +351,11 @@ The **auth plane** lives under `cluster/bootstrap/`:
   It sits on the auth decision path. It currently has **no** resources, probes,
   or securityContext. Its container (line 25 onward) configures two
   10,000-entry in-memory caches via env vars (lines 56-59).
-- `cluster/bootstrap/en/migrations.yaml` — a ConfigMap holding two SQL
-  migration files plus a Job `en-migrate` that runs `psql` (image
-  `postgres:18`) against en's database. Lines 100-103 hold the all-or-nothing
-  guard: if the `relation_tuple` table exists, ALL migrations are skipped —
-  so a later migration file added to the ConfigMap never applies to an
-  existing database.
+- `cluster/bootstrap/en/migrations.yaml` — originally a ConfigMap containing a
+  stale copy of en's SQL plus a `postgres:18` Job. M3 reduces it to a Job that
+  runs `/usr/local/bin/en-migrate up` from the exact tagged en release image.
+  That image carries both `en-server` and `en-migrate`; the dependency-owned
+  embedded manifest and pg-migrate ledger decide what applies.
 - `cluster/bootstrap/shomei/service.yaml` — Deployment + Service for `shomei`,
   the WebAuthn/passkey signer. Has probes (lines 60-67: readiness `/ready`,
   liveness `/health`) but no resources or securityContext.
@@ -512,9 +566,9 @@ resources (no securityContext — Decision Log):
               memory: 1Gi
 ```
 
-In `cluster/bootstrap/en/migrations.yaml`, inside the Job's `migrate` container
-(line 92 onward), add the securityContext block (the `postgres:18` image runs
-`psql` fine as an arbitrary UID; it only reads `/migrations` and env vars) and:
+In `cluster/bootstrap/en/migrations.yaml`, inside the Job's `migrate` container,
+add the securityContext block. The en release image already runs as UID/GID
+10001 and `en-migrate` only needs its embedded plan plus PostgreSQL access. Add:
 
 ```yaml
           # psql streaming two small SQL files; tiny fixed bounds.
@@ -587,14 +641,14 @@ introductory comment) and replace it with a pointer comment:
   # below (same mechanism the chart itself uses).
 ```
 
-Pin the plugin (lines 106-107). Discover the current version first —
-`curl -s https://grafana.com/api/plugins/victoriametrics-logs-datasource | grep -o '"version": *"[^"]*"' | head -1`
-printed 0.29.0 on 2026-07-15 — then use Grafana's space-separated
-`GF_INSTALL_PLUGINS` pin syntax:
+Pin the plugin. The Grafana plugin API reported 0.29.0 during planning and
+0.31.0 at implementation time; use the verified current release. The pinned
+stack chart carries the space-separated pin through
+`GF_PLUGINS_PREINSTALL_SYNC`:
 
 ```yaml
   plugins:
-    - victoriametrics-logs-datasource 0.29.0
+    - victoriametrics-logs-datasource 0.31.0
 ```
 
 Keep the `sidecar:` block unchanged (both sidecars stay enabled; the datasource
@@ -691,114 +745,68 @@ resources:
 
 New CPU requests added by M2: 50+25+25 = 100m (grand total with M1: 375m).
 
-### Milestone M3 — Idempotent migrations, immutable-by-default image tags, pinned MinIO
+### Milestone M3 — Dependency-owned migrations, immutable-by-default tags, pinned MinIO
 
-Scope: the migration ConfigMap/Job, both installers, the render script, and the
-local MinIO manifest. At the end of M3, adding a migration file and re-running
-either installer applies exactly the new file against an existing database; the
-cloud installer and the render script default the auth image tag to the current
-git short SHA; MinIO images are pinned and the emptyDir tradeoff is documented.
-Verification: the two-run installer experiment in Validation, plus rendered-tag
-inspection.
+Scope: the migration Job, the auth-image builder, both installers, the render
+script, the en bootstrap README, and the local MinIO manifest. At the end of
+M3, Nagare delegates schema ownership to en's embedded pg-migrate plan, both
+en executables ship in the same tagged image, each installer recreates the Job,
+the cloud installer and render script default auth images to the current git
+short SHA, and MinIO uses verified immutable release tags with an explicit
+local-volatility contract.
 
-In `cluster/bootstrap/en/migrations.yaml`:
+Treat `mori://shinzui/en/packages/en-migrations` as the schema authority and
+`mori://shinzui/pg-migrate` as its migration engine. The controlling accepted
+ADR is in `mori://shinzui/en` at project-relative path
+`docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md` (artifact
+URI pending). Do not duplicate its SQL in Nagare.
 
-1. Make each SQL file individually idempotent. In
-   `2026-06-23-04-41-57-create-relation-tuples.sql`, change both `CREATE TABLE`
-   statements to `CREATE TABLE IF NOT EXISTS` and all five index statements to
-   `CREATE UNIQUE INDEX IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`
-   (PostgreSQL supports `IF NOT EXISTS` on all of these). In
-   `2026-06-23-16-00-00-historical-read-indexes.sql`, change both
-   `CREATE INDEX` statements to `CREATE INDEX IF NOT EXISTS`. Future files
-   added to this ConfigMap must follow the same rule (guard every statement, or
-   open with a `DO $$ ... $$` block that checks a marker object); note this in
-   a comment at the top of the ConfigMap.
-2. Replace the Job's script (lines 99-106) — deleting the
-   `to_regclass('public.relation_tuple')` all-or-nothing guard — with a loop
-   that applies every file, every run, in filename order (shell glob order is
-   lexical, and the filenames are UTC timestamps, so order is chronological):
+In `cluster/bootstrap/auth-images/build-local-image.sh`, build both
+`exe:en-server` and `exe:en-migrate` for service `en`, copy both into the
+runtime image, and keep Shomei's codd source/dependency isolated to service
+`shomei`. The generated en cabal-project tail must retain the currently pinned
+OpenAPI forks using canonical repository URIs so the image build matches the
+dependency checkout.
 
-```yaml
-          args:
-            - |
-              for f in /migrations/*.sql; do
-                echo "applying ${f}"
-                psql -v ON_ERROR_STOP=1 -f "${f}"
-              done
-```
-
-In `cluster/bootstrap/auth-install.sh`:
-
-1. Change line 16 to default the tag to this repo's short SHA (mutable `latest`
-   becomes an explicit opt-in via `NAGARE_AUTH_TAG=latest`):
-
-```bash
-# Immutable-by-default: Knative skips tag->digest resolution for our registry
-# (knative-serving/config-deployment.yaml), so a mutable tag can silently change
-# across node restarts. build-local-image.sh tags with the same short SHA.
-tag="${NAGARE_AUTH_TAG:-$(git -C "${repo_root}" rev-parse --short HEAD)}"
-```
-
-2. Insert before line 26's `kubectl apply -f .../en/migrations.yaml`:
-
-```bash
-# Job spec.template is immutable and a completed Job never re-runs, so a changed
-# migration ConfigMap would otherwise silently never apply. Migrations are
-# individually idempotent (IF NOT EXISTS), so re-running all of them is a no-op.
-kubectl -n nagare-system delete job en-migrate --ignore-not-found=true
-```
-
-In `cluster/bootstrap/local-auth/install.sh`, insert the same
-`kubectl -n "$ns" delete job en-migrate --ignore-not-found=true` line (with the
-same two-line comment) immediately before its `kubectl apply -f
-"$bootstrap_dir/en/migrations.yaml"` (line 62). Leave `tag="${NAGARE_AUTH_TAG:-dev}"`
-as is (Decision Log).
-
-In `cluster/bootstrap/render-context-template.sh`, replace line 23
-(`auth_tag="${NAGARE_AUTH_TAG:-latest}"`) with a default that only hard-fails
-when it matters (the script also renders templates that never mention the tag,
-e.g. cert-manager issuers, and must keep working outside a git checkout for
-those):
-
-```bash
-if [ -n "${NAGARE_AUTH_TAG:-}" ]; then
-  auth_tag="${NAGARE_AUTH_TAG}"
-else
-  # Immutable-by-default (see auth-install.sh). Fall back to the repo's short
-  # SHA; only error if the template actually needs the tag and git can't answer.
-  auth_tag="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --short HEAD 2>/dev/null || true)"
-  if [ -z "${auth_tag}" ] && grep -q '\${NAGARE_AUTH_TAG}' "${template}"; then
-    echo "error: NAGARE_AUTH_TAG is unset and no git SHA is available; set NAGARE_AUTH_TAG (NAGARE_AUTH_TAG=latest opts back into the mutable tag)" >&2
-    exit 2
-  fi
-fi
-```
-
-In `cluster/local/minio/minio.yaml`, pin both images. Verified-current tags as
-of 2026-07-15 (re-check with
-`curl -s "https://hub.docker.com/v2/repositories/minio/minio/tags?page_size=5&ordering=last_updated"`
-and the same for `minio/mc`):
-line 55 `minio/minio:latest` becomes `minio/minio:RELEASE.2025-09-07T16-13-09Z`,
-line 98 `minio/mc:latest` becomes `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
-Replace the bare `emptyDir` volume entry (lines 70-72) with:
+In `cluster/bootstrap/en/migrations.yaml`, remove the SQL ConfigMap and mount.
+Use the same `${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}` image as the en
+Deployment and invoke the embedded migration interface directly:
 
 ```yaml
-      volumes:
-        # emptyDir is deliberate (EP-100 Decision Log): local mode is disposable
-        # (`just local-down` wipes the cluster) and local-smoke deletes its
-        # snapshot object on exit. A MinIO pod restart therefore evaporates
-        # local "backups" — acceptable for a GCS stand-in used only by tests.
-        # Do not rely on local snapshots surviving a restart.
-        - name: data
-          emptyDir: {}
+          command: ["/usr/local/bin/en-migrate"]
+          args: ["up"]
 ```
 
-Finally update `cluster/bootstrap/en/README.md`: the paragraph describing the
-`relation_tuple` existence check ("The Job first checks whether
-`public.relation_tuple` already exists...") must now describe the per-file
-`IF NOT EXISTS` idempotence and the installer's delete-then-apply of the Job,
-and the failure-retry snippet at the bottom no longer needs the manual
-`kubectl delete job` step (the installers do it).
+Keep the M1 securityContext and small resource bounds on this Job. The Job's
+database environment remains sourced from `en-db-app`; pg-migrate supplies the
+ledger, checksum verification, advisory locking, and rerun semantics.
+
+In both `cluster/bootstrap/auth-install.sh` and
+`cluster/bootstrap/local-auth/install.sh`, delete `job/en-migrate` with
+`--ignore-not-found=true`, render `en/migrations.yaml` through
+`render-context-template.sh` using the installer-selected registry and tag,
+apply it on stdin, and wait for completion. A completed Job never reruns, and
+its pod template is immutable; recreation handles both facts without creating
+unbounded hash-suffixed Jobs. The local installer keeps its deliberate `dev`
+tag default.
+
+In the cloud installer and `cluster/bootstrap/render-context-template.sh`, make
+unset `NAGARE_AUTH_TAG` resolve to this repository's short git SHA. Preserve
+`NAGARE_AUTH_TAG=latest` as an explicit opt-in and fail only when a template
+actually needs the tag but no SHA can be discovered. This matches the builder's
+default and avoids silently mutable images at a registry excluded from
+Knative's tag-to-digest resolution.
+
+In `cluster/local/minio/minio.yaml`, pin the Docker Hub-verified releases
+`minio/minio:RELEASE.2025-09-07T16-13-09Z` and
+`minio/mc:RELEASE.2025-08-13T08-35-41Z`. Retain `emptyDir`, with a comment that
+local MinIO is a disposable GCS stand-in and its objects do not survive a pod
+restart. Both tags were rechecked in Docker Hub's registry for amd64 and arm64
+on 2026-08-24.
+
+Finally, update `cluster/bootstrap/en/README.md` to explain the same-image
+`en-migrate up` contract, the dependency-owned append-only plan, Job
+recreation, failure-log procedure, and canonical Mori package references.
 
 
 ## Concrete Steps
@@ -849,7 +857,7 @@ helm template victoria-traces vm/victoria-traces-single --version 0.1.6 -n traci
 helm template victoria-logs-collector vm/victoria-logs-collector --version 0.3.4 -n logging \
   -f cluster/observability/victoria-logs/collector-values.yaml | grep -A4 'resources:'
 helm template vmks vm/victoria-metrics-k8s-stack --version 0.81.0 -n monitoring \
-  -f cluster/observability/victoria-metrics/values.yaml | grep -E 'GF_SECURITY_ADMIN|GF_INSTALL_PLUGINS|grafana-admin'
+  -f cluster/observability/victoria-metrics/values.yaml | grep -E 'GF_SECURITY_ADMIN|GF_PLUGINS_PREINSTALL_SYNC|grafana-admin'
 ```
 
 Expected in the first two: `--retention.maxDiskSpaceUsageBytes=15GiB` (logs) and
@@ -863,28 +871,42 @@ logs-single transcript should contain:
 
 Expected in the last: `GF_SECURITY_ADMIN_USER`/`GF_SECURITY_ADMIN_PASSWORD`
 sourced via `secretKeyRef` from `grafana-admin`, and
-`GF_INSTALL_PLUGINS: victoriametrics-logs-datasource 0.29.0`. Also shellcheck
+`GF_PLUGINS_PREINSTALL_SYNC: victoriametrics-logs-datasource 0.31.0`. Also shellcheck
 the installer: `shellcheck cluster/observability/install.sh`.
 
 Step 4 — commit M2 (`feat(observability): ...` with the same trailers). Confirm
 the secret is encrypted in the staged copy:
 `git show :cluster/secrets/grafana-admin.yaml | grep -c 'ENC\['` prints ≥ 2.
 
-Step 5 — implement M3 edits (migrations.yaml, both installers, render script,
-minio.yaml, en README), then:
+Step 5 — implement M3 edits (auth-image builder, migrations.yaml, both
+installers, render script, minio.yaml, and en README), then:
 
 ```bash
 shellcheck cluster/bootstrap/auth-install.sh cluster/bootstrap/local-auth/install.sh \
-  cluster/bootstrap/render-context-template.sh
-kubectl apply --dry-run=client -f cluster/bootstrap/en/migrations.yaml
-kubectl apply --dry-run=client -f cluster/local/minio/minio.yaml
+  cluster/bootstrap/render-context-template.sh \
+  cluster/bootstrap/auth-images/build-local-image.sh
+cluster/bootstrap/render-context-template.sh cluster/bootstrap/en/migrations.yaml \
+  | yq 'select(.kind == "Job")' \
+  | yq -e '.spec.template.spec.containers[0] as $c |
+      $c.command[0] == "/usr/local/bin/en-migrate" and
+      $c.args[0] == "up" and ($c | has("volumeMounts") | not)'
+yq -e 'select(.kind == "Deployment") |
+  .spec.template.spec.containers[0].image ==
+    "minio/minio:RELEASE.2025-09-07T16-13-09Z"' cluster/local/minio/minio.yaml
 NAGARE_AUTH_TAG= cluster/bootstrap/render-context-template.sh cluster/bootstrap/en/service.yaml | grep 'image:'
 ```
 
-Expected: shellcheck silent; dry-runs clean; the rendered image line ends in
-`:<7-char-git-sha>`, not `:latest`. Then
+Expected: shellcheck has no errors, the migration assertion succeeds, the
+MinIO assertion succeeds, and the rendered image line ends in the current
+short git SHA, not `:latest`. Then
 `NAGARE_AUTH_TAG=latest cluster/bootstrap/render-context-template.sh cluster/bootstrap/en/service.yaml | grep image:`
 must end in `:latest` (the opt-in still works).
+
+Prove the dependency-owned migration contract outside Kubernetes with a
+disposable PostgreSQL instance: run the current en checkout's `en-migrate up`
+twice and `en-migrate verify` once against the empty database. The first run
+must report `applied_now`, the second `already_applied`, and verify must report
+zero pending and zero unknown migrations. This was completed on 2026-08-24.
 
 Step 6 — commit M3 (`fix(bootstrap): ...` with trailers).
 
@@ -906,18 +928,14 @@ Local path (no GCP; requires Docker):
    `nagare-system` reaches Running/Ready and
    `kubectl -n nagare-system describe pod -l app.kubernetes.io/part-of=nagare-auth-plane | grep -A3 Limits`
    shows the memory limits from M1.
-3. The migration re-run proof (the behavior that was broken): append a
-   trivially idempotent third migration to the ConfigMap in
-   `cluster/bootstrap/en/migrations.yaml`, e.g. key
-   `2026-07-15-00-00-00-noop.sql` containing
-   `CREATE INDEX IF NOT EXISTS relation_tuple_noop_idx ON relation_tuple (id);`,
-   then re-run `cluster/bootstrap/local-auth/install.sh`. Acceptance: the
-   installer completes (before this plan, the second run either failed on the
-   immutable Job or silently skipped the new file);
-   `kubectl -n nagare-system logs job/en-migrate` shows `applying` lines for
-   ALL files including the new one; and
-   `kubectl -n nagare-system run psql-check --rm -i --restart=Never --image=postgres:18 --env=...` (or a psql exec into the db pod)
-   shows the new index exists. Revert the test migration afterwards.
+3. The migration rerun proof (the behavior that was broken): run
+   `cluster/bootstrap/local-auth/install.sh` twice without changing tags.
+   Acceptance: both runs complete; the installer recreates `job/en-migrate`;
+   `kubectl -n nagare-system logs job/en-migrate` on the second run reports the
+   embedded plan as already applied; and `en-migrate verify` against the same
+   database reports zero pending and zero unknown migrations. New migrations
+   are authored and tested in `mori://shinzui/en/packages/en-migrations`, not
+   by editing this repository's Job manifest.
 4. Probe proof for en: `kubectl -n nagare-system get pod -l app.kubernetes.io/name=en`
    shows READY 1/1; then scale the en database to zero
    (`kubectl -n nagare-system scale statefulset/en-db --replicas=0` or the
@@ -971,10 +989,11 @@ schedule.
 ## Idempotence and Recovery
 
 Every step here is re-runnable. All `kubectl apply` calls are declarative; both
-installers are idempotent by design and remain so — the new
-`delete job --ignore-not-found` line is safe when the Job is absent, and the
-migrations it re-runs are individually guarded no-ops against an up-to-date
-database. `helm upgrade --install` re-converges each release. The sops secret
+installers are idempotent by design — `delete job --ignore-not-found` is safe
+when the Job is absent, and `en-migrate up` serializes through a PostgreSQL
+advisory lock, verifies the append-only manifest against its checksum ledger,
+and reports already-applied entries without executing them again. `helm upgrade
+--install` re-converges each release. The sops secret
 apply (`sops -d | kubectl apply -f -`) is idempotent; re-generating the secret
 file with a NEW random password is also safe because Grafana has no persistence
 and re-reads the env on pod restart — after rotating, run
@@ -991,9 +1010,12 @@ cleanly; nothing stateful is touched). Watch with
 The Job delete discards the previous run's logs. If a migration run FAILS, do
 not immediately re-run the installer — read
 `kubectl -n nagare-system logs job/en-migrate` first (the failed Job is left in
-place precisely so this works), fix the SQL, then re-run the installer.
-`ON_ERROR_STOP=1` means a failed statement halts that run before later files,
-and the per-statement guards make the eventual successful re-run converge.
+place precisely so this works). Do not edit an already-applied migration or
+patch SQL into Nagare. Fix the migration component upstream in
+`mori://shinzui/en/packages/en-migrations` by appending the appropriate
+forward-only migration, rebuild the en release image, and then re-run the
+installer. Checksum or unknown-ledger failures are deliberate stop conditions,
+not conditions to bypass.
 
 The retention caps only ever delete the OLDEST logs/traces (that is the
 documented VictoriaLogs/VictoriaTraces semantics of
@@ -1015,14 +1037,16 @@ Tools (all from `nix develop` at the repo root): `kubectl`, `helm` (>= 3),
 `age1pqfv2y...vcsf`; private key at `~/.config/sops/age/keys.txt`), `openssl`,
 `shellcheck`, `just`, `git`.
 
-Helm charts and the exact value keys this plan relies on (all verified against
-the pinned versions with `helm show values` / `helm template` on 2026-07-15):
+Helm charts and the exact value keys this plan relies on (verified against the
+pinned versions with `helm show values` / `helm template`, most recently on
+2026-08-24):
 
 - `vm/victoria-metrics-k8s-stack` 0.81.0 — `grafana.admin.existingSecret`,
   `grafana.admin.userKey`, `grafana.admin.passwordKey` (pass through to the
   upstream grafana chart and become `GF_SECURITY_ADMIN_*` env via
-  `secretKeyRef`); `grafana.plugins` entries land in `GF_INSTALL_PLUGINS`,
-  which accepts the space-separated `<id> <version>` pin syntax; sidecar
+  `secretKeyRef`); `grafana.plugins` entries land in
+  `GF_PLUGINS_PREINSTALL_SYNC`, which accepts the space-separated
+  `<id> <version>` pin syntax; sidecar
   defaults `sidecar.datasources.label: grafana_datasource`, labelValue `"1"`.
 - `vm/victoria-logs-single` 0.13.5 and `vm/victoria-traces-single` 0.1.6 —
   `server.retentionDiskSpaceUsage` (default unit GiB, renders as
@@ -1042,10 +1066,13 @@ Kubernetes objects and contracts that must hold at the end:
   `seccompProfile.type: RuntimeDefault`}.
 - en's probe endpoints: `GET /readyz` (readiness; 200 iff PostgreSQL
   reachable) and `GET /healthz` (liveness; unconditional 200) on port 8080,
-  implemented by the `healthRoutes` middleware in the en project
-  (`en-server/app/Health.hs` in the en checkout, default sibling path
-  `/Users/shinzui/Keikaku/bokuno/en` per
-  `cluster/bootstrap/auth-images/build-local-image.sh`).
+  implemented by the `healthRoutes` middleware in
+  `mori://shinzui/en/packages/en-server`.
+- Job `en-migrate` uses the exact same registry prefix and tag as the en
+  Deployment and invokes `/usr/local/bin/en-migrate up`. The image builder must
+  therefore ship both `en-server` and `en-migrate`. The schema/manifest owner is
+  `mori://shinzui/en/packages/en-migrations`; its released migration engine is
+  `mori://shinzui/pg-migrate` 1.1.0.0.
 - Secret `grafana-admin` (namespace `monitoring`, keys `admin-user`,
   `admin-password`), stored encrypted at `cluster/secrets/grafana-admin.yaml`
   under the existing `.sops.yaml` rule; applied by
@@ -1075,3 +1102,10 @@ Revision note (2026-07-15): rewritten from the skeleton into the full ExecPlan
 for MasterPlan 19 finding group 4 ("Bound and harden cluster workloads"),
 after verifying all nine review findings against the working tree, the en
 source checkout, and the pinned Helm charts. Reason: initial authoring.
+
+Revision note (2026-08-24): replaced the planned Nagare-owned guarded SQL
+ConfigMap with the dependency-owned `en-migrate` interface, extended the en
+release image to carry both executables, updated the rerun/recovery contract,
+and refreshed Grafana plugin rendering details. Reason: the en dependency's
+accepted pg-migrate component made the original bootstrap approach both stale
+and unsafe.

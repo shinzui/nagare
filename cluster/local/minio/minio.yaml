@@ -52,7 +52,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: minio/minio:latest
+          image: minio/minio:RELEASE.2025-09-07T16-13-09Z
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -68,6 +68,11 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
       volumes:
+        # emptyDir is deliberate (EP-100 Decision Log): local mode is disposable
+        # (`just local-down` wipes the cluster) and local-smoke deletes its
+        # snapshot object on exit. A MinIO pod restart therefore evaporates
+        # local "backups" — acceptable for a GCS stand-in used only by tests.
+        # Do not rely on local snapshots surviving a restart.
         - name: data
           emptyDir: {}
 ---
@@ -95,7 +100,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: minio/mc:latest
+          image: minio/mc:RELEASE.2025-08-13T08-35-41Z
           command: ["/bin/sh", "-c"]
           args:
             - >

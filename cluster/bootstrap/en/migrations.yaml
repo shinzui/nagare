@@ -3,73 +3,6 @@ kind: Namespace
 metadata:
   name: nagare-system
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: en-migrations
-  namespace: nagare-system
-  labels:
-    app.kubernetes.io/name: en
-    app.kubernetes.io/part-of: nagare-auth-plane
-data:
-  2026-06-23-04-41-57-create-relation-tuples.sql: |
-    CREATE TABLE en_transaction
-      ( xid xid8 PRIMARY KEY
-      , snapshot pg_snapshot NOT NULL DEFAULT pg_current_snapshot()
-      , schema_hash text NOT NULL
-      , created_at timestamptz NOT NULL DEFAULT now()
-      );
-
-    CREATE TABLE relation_tuple
-      ( id bigserial PRIMARY KEY
-      , object_type text NOT NULL
-      , object_id text NOT NULL
-      , relation text NOT NULL
-      , subject_type text NOT NULL
-      , subject_id text NOT NULL
-      , subject_relation text NULL
-      , caveat_name text NULL
-      , caveat_payload jsonb NULL
-      , created_xid xid8 NOT NULL
-      , deleted_xid xid8 NULL
-      , CHECK ((subject_relation IS NULL) OR (subject_relation <> ''))
-      );
-
-    CREATE UNIQUE INDEX relation_tuple_live_unique
-      ON relation_tuple
-        ( object_type
-        , object_id
-        , relation
-        , subject_type
-        , subject_id
-        , coalesce(subject_relation, '')
-        , coalesce(caveat_name, '')
-        )
-      WHERE deleted_xid IS NULL;
-
-    CREATE INDEX relation_tuple_object_live_idx
-      ON relation_tuple (object_type, object_id, relation, id)
-      WHERE deleted_xid IS NULL;
-
-    CREATE INDEX relation_tuple_subject_live_idx
-      ON relation_tuple
-        (subject_type, subject_id, coalesce(subject_relation, ''), object_type, relation, id)
-      WHERE deleted_xid IS NULL;
-
-    CREATE INDEX relation_tuple_created_xid_idx
-      ON relation_tuple (created_xid);
-
-    CREATE INDEX relation_tuple_deleted_xid_idx
-      ON relation_tuple (deleted_xid)
-      WHERE deleted_xid IS NOT NULL;
-  2026-06-23-16-00-00-historical-read-indexes.sql: |
-    CREATE INDEX relation_tuple_object_hist_idx
-      ON relation_tuple (object_type, object_id, relation, id);
-
-    CREATE INDEX relation_tuple_subject_hist_idx
-      ON relation_tuple
-        (subject_type, subject_id, coalesce(subject_relation, ''), object_type, relation, id);
----
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -90,7 +23,10 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: migrate
-          image: postgres:18
+          # The en image carries both en-server and en-migrate from the same
+          # source checkout, so the executable's embedded migration plan always
+          # matches the server being deployed.
+          image: ${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -102,7 +38,7 @@ spec:
             runAsGroup: 10001
             seccompProfile:
               type: RuntimeDefault
-          # psql streams two small SQL files; tiny fixed bounds.
+          # A small administrative CLI applying embedded SQL; fixed bounds.
           resources:
             requests:
               cpu: 25m
@@ -110,17 +46,9 @@ spec:
             limits:
               memory: 128Mi
           command:
-            - /bin/sh
-            - -ceu
+            - /usr/local/bin/en-migrate
           args:
-            - |
-              if [ "$(psql -tAc "select to_regclass('public.relation_tuple') is not null")" = "t" ]; then
-                echo "en schema already present; skipping"
-                exit 0
-              fi
-
-              psql -v ON_ERROR_STOP=1 -f /migrations/2026-06-23-04-41-57-create-relation-tuples.sql
-              psql -v ON_ERROR_STOP=1 -f /migrations/2026-06-23-16-00-00-historical-read-indexes.sql
+            - up
           env:
             - name: PGHOST
               value: en-db.nagare-system.svc.cluster.local
@@ -141,11 +69,3 @@ spec:
                 secretKeyRef:
                   name: nagare-db-en-db
                   key: POSTGRES_DB
-          volumeMounts:
-            - name: migrations
-              mountPath: /migrations
-              readOnly: true
-      volumes:
-        - name: migrations
-          configMap:
-            name: en-migrations
