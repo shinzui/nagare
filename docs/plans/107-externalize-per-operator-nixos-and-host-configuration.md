@@ -36,7 +36,7 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-08-25T18:24:27Z) M1: Define reusable NixOS module options and export the module and host-construction helper from the Nagare flake.
 - [x] (2026-08-25T18:33:05Z) M2: Add safe `nagarectl host init|show|path` generation for a context-owned host flake and operator config.
-- [ ] M3: Move host image, registry, sops, and day-2 commands from checkout files to the generated host flake.
+- [x] (2026-08-25T18:34:58Z) M3: Move host image, registry, sops, and day-2 commands from checkout files to the generated host flake.
 - [ ] M4: Validate two isolated contexts, migration compatibility, secret hygiene, and documentation.
 
 
@@ -61,6 +61,10 @@ implementation. Provide concise evidence.
   replace the destination. After correcting the renderer, an isolated `prod` host installed,
   repeated as `Unchanged`, and evaluated hostname, registry, and image derivation successfully.
   Date: 2026-08-25.
+- The existing image script can use the same context guardrail and mutable Pulumi workspace while
+  building from an independently resolved host flake. Isolated dry runs reported project
+  `acme-prod`, registry `us-central1-docker.pkg.dev`, the context-owned flake, and the target
+  `deploy@prod-node` without creating `registry-host.nix` in source. Date: 2026-08-25.
 
 
 ## Decision Log

@@ -56,17 +56,18 @@ vm-start:
 host-image:
     scripts/upload-images.sh
 
-# Generate the NixOS registry host override from the active target context.
+# Show the registry host now carried by the generated context host flake.
 [group('host')]
 nixos-registry-host:
-    printf '{ registryHost = "%s"; }\n' "${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}" > nixos/hosts/nagare-01/registry-host.nix
+    @echo "nixos-registry-host no longer writes into the Nagare source."
+    nagarectl host show
 
 # EP-3: apply day-2 host configuration changes to the running nagare-01
 # over Tailscale. The non-root deploy user needs --sudo.
 # Apply day-2 host config to running nagare-01.
 [group('host')]
 host-switch:
-    nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo
+    scripts/host-switch.sh
 
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
 # each cluster/bootstrap/*/README.md for the version-discovery procedure.
