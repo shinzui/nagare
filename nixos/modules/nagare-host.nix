@@ -13,6 +13,7 @@ in
     ../hosts/nagare-01/k3s.nix
     ../hosts/nagare-01/tailscale.nix
     ../hosts/nagare-01/registries.nix
+    ../hosts/nagare-01/forge-credentials.nix
   ];
 
   options.nagare.host = {

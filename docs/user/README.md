@@ -165,6 +165,9 @@ you can observe.
      broker health, and understand the future Tansu provider contract. 🟡
 10. [Secrets](secrets.md) — `sops-nix` for the host, `sops`+`age` for the
    cluster. 🟡
+   - [Forge credentials](forge-credentials.md) — publish rotating, role-named
+     GitHub App installation tokens for runtime workloads without a personal
+     access token. 🟡
 11. [Backups and disaster recovery](backups-and-disaster-recovery.md) — what to
     back up, and the "rebuild from zero" runbook. 🟡
 
