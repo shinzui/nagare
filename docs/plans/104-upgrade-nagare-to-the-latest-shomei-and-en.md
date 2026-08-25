@@ -89,8 +89,11 @@ This section must always reflect the actual current state of the work.
       2026-08-25T14:46:15Z: all manifests parse, all three production images build on
       `linux/arm64`, and the image builder now preserves its Cabal caches and retries
       transient registry downloads.
-- [ ] M6: recreate `shomei-db` and `en-db`, install the auth plane on the local cluster, and
-      prove grant → sign-in → allow → revoke → deny end to end.
+- [x] M6: recreate `shomei-db` and `en-db`, install the auth plane on the local cluster, and
+      prove grant → sign-in → allow → revoke → deny end to end. Completed
+      2026-08-25T14:55:59Z on a fresh `k3d-nagare-local` cluster: both migration Jobs and
+      all three auth workloads reached Ready, Shomei signup and password sign-in succeeded,
+      and the protected example produced 302 → 403 → 200 → 403 across the grant lifecycle.
 - [ ] M7: update `docs/user/access.md`, the two bootstrap READMEs, and distil durable
       findings into ADRs.
 
@@ -168,6 +171,25 @@ implementation. Provide concise evidence.
   `objects-us-east-1.dream.io`; the authoritative Hackage URL returned HTTP 200 immediately.
   BuildKit-backed Cabal cache mounts plus bounded build retries made the second attempt pass
   and prevent a transient fetch from discarding the full compilation cache in future runs.
+
+- Observation: a successful En relationship mutation is not immediately visible to an
+  expand/list query because En publishes optimized revisions on an interval. Evidence: an
+  immediate list after revoke still returned the subject, while the same command returned
+  `(none)` after 12 seconds. End-to-end revocation additionally remained allowed until
+  nagare-access's configured 30-second decision-cache TTL expired, then returned 403.
+
+- Observation: a Ready local Knative DomainMapping can still appear unreachable when a
+  workstation reverse proxy owns ports 80/443. Evidence: the mapping itself reported Ready,
+  but direct curl reached the host's Caddy 404; forwarding `svc/kourier` to port 18080 and
+  preserving the public `Host` header exercised the intended route and produced the full
+  302 → 403 → 200 → 403 sequence. This is the documented local-development access path and
+  did not require changing cluster state.
+
+- Observation: the auth installers return as soon as their Deployment rollouts and
+  migration Jobs finish, while the Knative nagare-access revision can take a few additional
+  seconds to report Ready. Evidence: the fresh install briefly showed `RevisionMissing`,
+  then converged without intervention; all service and proxy pods were Running before the
+  behavioural checks began.
 
 
 ## Decision Log
