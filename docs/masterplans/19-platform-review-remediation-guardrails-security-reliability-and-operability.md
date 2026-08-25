@@ -68,11 +68,17 @@ track's alerting finding lands in the same Helm values file as the cluster track
 Grafana finding); the chosen split gives each shared artifact exactly one owning
 plan (see Integration Points).
 
-Seven plans slightly exceeds the preferred two-to-five, so they are grouped into
-three phases that act as implementation waves. All seven are mutually independent
-at the compile level; the only ordering pressure is the soft dependency of EP-5 on
-EP-4 (shared Helm values file and the sops-secret pattern) and the shared-file
-ownership rules in Integration Points.
+Eight plans exceed the preferred two-to-five, so they are grouped into three phases
+that act as implementation waves. All eight are mutually independent at the compile
+level; the only ordering pressure is the soft dependency of EP-5 on EP-4 (shared
+Helm values file and the sops-secret pattern), the soft dependency of EP-8 on EP-4
+(both edit the auth-plane manifests under `cluster/bootstrap/`), and the
+shared-file ownership rules in Integration Points.
+
+EP-8 was added on 2026-08-25. It is remediation of the same auth-plane surfaces
+EP-4 began: an authorization service that runs without any caller authentication,
+health probes pointing at URLs the upstream service no longer serves, and Git pins
+120 and 155 commits stale. It is grouped into Phase 3 (hygiene).
 
 
 ## Exec-Plan Registry
@@ -86,18 +92,19 @@ ownership rules in Integration Points.
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | In Progress |
+| 8 | Upgrade nagare to the latest shomei and en | docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md | None | EP-4 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
 
 Phases: Phase 1 (promise-breaking holes) = EP-1, EP-2, EP-3. Phase 2 (keep the box
-alive) = EP-4, EP-5. Phase 3 (hygiene) = EP-6, EP-7.
+alive) = EP-4, EP-5. Phase 3 (hygiene) = EP-6, EP-7, EP-8.
 
 
 ## Dependency Graph
 
 There are no hard dependencies: every plan compiles and verifies on its own, so all
-seven could in principle proceed in parallel. Three soft dependencies shape the
+eight could in principle proceed in parallel. Four soft dependencies shape the
 sensible order.
 
 EP-5 (alerting) benefits from EP-4 (cluster workloads) landing first because both
@@ -116,6 +123,16 @@ EP-7 (host tuning and docs) soft-depends on EP-3 (infra protection) because EP-3
 rewrites the age-key section of `docs/runbooks/disaster-recovery.md` while EP-7
 fixes the rest of that runbook; landing EP-3's key-model change first means EP-7
 documents the final two-recipient reality rather than the current fragile one.
+
+EP-8 (upgrade shomei and en) soft-depends on EP-4 (cluster workloads) because both
+edit the four auth-plane manifests under `cluster/bootstrap/` and the shared image
+build script `cluster/bootstrap/auth-images/build-local-image.sh`. EP-4 established
+the resource bounds, `securityContext` blocks and the migration-Job-per-service
+shape those files now carry; EP-8 changes the probe paths, adds en's API-key
+environment and adds a second migration Job on top of that shape. Landing EP-4
+first avoids conflicting edits to the same five files. EP-8 also touches
+`cli/nagare-access/` and `cli/nagarectl/src/Nagare/Access/Grants.hs`, which EP-2
+and EP-6 own respectively — see Integration Points.
 
 Within Phase 1 the three plans are fully parallel: EP-1 is pure bash/justfile, EP-2
 is pure Haskell, EP-3 is Pulumi TypeScript plus sops configuration.
@@ -149,8 +166,23 @@ The `cli/` Haskell tree — split by module ownership. EP-2 owns
 `cli/nagare-access/`. EP-6 owns `cli/nagarectl/src/Nagare/Deploy.hs`,
 `App/Deploy.hs`, `Database/Create.hs`, `Database/Secret.hs`, `Env/Store.hs`, and
 any `Dsl/Render.hs` change needed for structural label stamping. EP-5 owns
-`cli/nagarectl/src/Nagare/Ops/Status.hs` (backup-freshness probing). No module
-appears in two plans.
+`cli/nagarectl/src/Nagare/Ops/Status.hs` (backup-freshness probing). EP-8 owns
+`cli/nagare-access/cabal.project` and the three shomei/en adapter modules
+(`Nagare/Access/Shomei.hs`, `ShomeiClient.hs`, `En.hs`), plus
+`cli/nagarectl/src/Nagare/Access/Grants.hs`. That last file is the one genuine
+overlap: EP-2 owns everything under `cli/nagare-access/` for its security fixes,
+and EP-8 rewrites those same adapters for upstream compatibility. EP-2's three
+milestones are complete as of 2026-08-05, so EP-8 rebases on them rather than
+racing them; EP-8 must preserve EP-2's unavailable-vs-denied distinction, which is
+exactly the invariant its `EnResult` mapping restates.
+
+`cluster/bootstrap/` auth-plane manifests and
+`cluster/bootstrap/auth-images/build-local-image.sh` — shared by EP-4 and EP-8.
+EP-4 owns the resource bounds, `securityContext` blocks, and the pattern of running
+each service's migrations from its own release image. EP-8 owns the probe paths,
+en's API-key Secret and environment, the new shomei migration Job, and the
+generated cabal-project tails. Landing EP-4 first is what makes EP-8's edits
+additive rather than conflicting.
 
 `docs/runbooks/disaster-recovery.md` — EP-3 owns the age-key/root-of-trust section;
 EP-7 owns every other section (stale paths, contradictory power-management text,
@@ -215,6 +247,14 @@ complete; the child plans hold the granular checklists.
   the upgrade guide and IAP fallback; synchronized DR, secrets, kubeconfig, and
   active-context docs; parse, evaluation, stale-string, and path checks pass;
   optional k3d rehearsal skipped because Docker is unavailable)
+- [ ] EP-8 M0: Resolve the shomei/en pins and capture the baseline
+- [ ] EP-8 M1: Repin and make the nagare-access library compile
+- [ ] EP-8 M2: Make the nagare-access test suite compile and pass
+- [ ] EP-8 M3: Send en's mandatory API key from nagare-access
+- [ ] EP-8 M4: Fix nagarectl's hand-written en client
+- [ ] EP-8 M5: Cluster manifests and the image build script
+- [ ] EP-8 M6: Recreate the auth databases and prove access end to end
+- [ ] EP-8 M7: Documentation and ADR distillation
 
 
 ## Surprises & Discoveries
