@@ -73,6 +73,10 @@ outputs=()
 while IFS= read -r candidate; do
   outputs+=("$candidate")
 done < <(find "$input_root" -type f -name 'nix-output-*.json' | sort)
+rehearsals=()
+while IFS= read -r candidate; do
+  rehearsals+=("$candidate")
+done < <(find "$input_root" -type f -name 'clone-free-*.json' | sort)
 
 [[ ${#manifests[@]} -gt 0 ]] || die "no $manifest_name inputs found"
 [[ ${#notes[@]} -gt 0 ]] || die "no $notes_name inputs found"
@@ -110,16 +114,32 @@ done
 [[ "$(jq -r 'length' <<<"$observed_systems")" == "$(jq -r 'length' <<<"$expected_systems")" ]] \
   || die "duplicate native output manifests found"
 
+rehearsed_systems='[]'
+for rehearsal in "${rehearsals[@]}"; do
+  jq -e --arg version "$version" \
+    '.version == $version and .cloneFree == true and (.system | type == "string")' \
+    "$rehearsal" >/dev/null || die "invalid clone-free rehearsal: $rehearsal"
+  system="$(jq -er '.system' "$rehearsal")"
+  rehearsed_systems="$(jq -c --arg system "$system" '. + [$system]' <<<"$rehearsed_systems")"
+done
+[[ "$(jq -c 'sort | unique' <<<"$rehearsed_systems")" == "$expected_systems" ]] \
+  || die "clone-free rehearsals do not cover every supported system exactly once"
+[[ "$(jq -r 'length' <<<"$rehearsed_systems")" == "$(jq -r 'length' <<<"$expected_systems")" ]] \
+  || die "duplicate clone-free rehearsals found"
+
 mkdir -p "$output_dir"
 cp "$base_manifest" "$output_dir/$manifest_name"
 cp "$base_notes" "$output_dir/$notes_name"
 for output in "${outputs[@]}"; do
   cp "$output" "$output_dir/$(basename "$output")"
 done
+for rehearsal in "${rehearsals[@]}"; do
+  cp "$rehearsal" "$output_dir/$(basename "$rehearsal")"
+done
 
 (
   cd "$output_dir"
-  for file in "$manifest_name" "$notes_name" nix-output-*.json; do
+  for file in "$manifest_name" "$notes_name" nix-output-*.json clone-free-*.json; do
     hash_file "$file"
   done
 ) > "$output_dir/SHA256SUMS"
