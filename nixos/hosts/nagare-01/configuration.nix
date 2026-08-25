@@ -1,26 +1,17 @@
 { ... }:
 
 {
-  imports = [
-    ./networking.nix
-    ./storage.nix
-    ./users.nix
-    ./security.nix
-    ./k3s.nix
-    ./tailscale.nix
-    ./registries.nix
-  ];
-
-  # sops-nix: decrypt secrets at activation using an age key on the host.
-  # The encrypted file is committed to Git; the private age key lives only on
-  # the host at the path below (placed before first boot — see the plan's
-  # Concrete Steps). EP-7 expands this; here we manage exactly one secret.
-  sops.defaultSopsFile = ./secrets/nagare-01.yaml;
-  sops.age.keyFile = "/var/lib/sops-nix/age-key.txt";
-
-  # The Tailscale pre-authentication key. tailscale.nix consumes this path.
-  sops.secrets."tailscale/authkey" = {
-    # Mode 0400 owned by root; tailscaled reads it as root at start.
-    mode = "0400";
+  # Source-checkout compatibility fixture. Real operators generate this module
+  # under their XDG configuration root with `nagarectl host init`.
+  nagare.host = {
+    hostName = "nagare-01";
+    instanceName = "nagare-01";
+    registryHost = "us-west1-docker.pkg.dev";
+    deployUser = "deploy";
+    authorizedKeys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly nagare-evaluation-fixture"
+    ];
+    sopsDefaultFile = ./secrets/nagare-01.yaml;
+    ageKeyFile = "/var/lib/sops-nix/age-key.txt";
   };
 }

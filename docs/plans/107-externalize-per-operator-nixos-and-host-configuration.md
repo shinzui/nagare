@@ -34,7 +34,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Define reusable NixOS module options and export the module and host-construction helper from the Nagare flake.
+- [x] (2026-08-25T18:24:27Z) M1: Define reusable NixOS module options and export the module and host-construction helper from the Nagare flake.
 - [ ] M2: Add safe `nagarectl host init|show|path` generation for a context-owned host flake and operator config.
 - [ ] M3: Move host image, registry, sops, and day-2 commands from checkout files to the generated host flake.
 - [ ] M4: Validate two isolated contexts, migration compatibility, secret hygiene, and documentation.
@@ -51,6 +51,11 @@ implementation. Provide concise evidence.
 - Nix pure evaluation cannot casually import arbitrary files outside a flake source tree. A generated
   context host flake must contain its own operator module and import Nagare as a pinned flake input,
   instead of asking the immutable Nagare payload to reach outward into XDG config. Date: 2026-08-25.
+- The nested flake can export a `lib.mkNagareSystem` function that closes over its pinned nixpkgs,
+  sops-nix, GCE image module, and reusable Nagare module. Both image and day-2 outputs then evaluate
+  from the same `nixosSystem`, while a generated flake contributes only its operator module. Evidence:
+  `nix eval ./nixos#packages.x86_64-linux.nagare-image.drvPath` produced a derivation and
+  `nix flake check ./nixos --no-build` accepted `nixosModules.nagare-host`. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -69,6 +74,12 @@ Record every decision made while working on the plan.
   unencrypted Tailscale keys, kubeconfigs, or cloud credentials into the host flake.
   Rationale: the host flake is operator configuration and may be backed up or version-controlled; it
   must remain safe to inspect and share deliberately.
+  Date: 2026-08-25.
+- Decision: keep `nixos/hosts/nagare-01/configuration.nix` as an evaluation-only compatibility
+  fixture with a conspicuously synthetic public key, while all real image and rebuild operations use
+  a generated host flake.
+  Rationale: preserving the old Nix output makes source evaluation and migration tests stable, but
+  retaining a maintainer key anywhere in distributable source would violate the security boundary.
   Date: 2026-08-25.
 
 

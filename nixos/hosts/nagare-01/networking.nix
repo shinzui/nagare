@@ -1,8 +1,6 @@
 { ... }:
 
 {
-  networking.hostName = "nagare-01";
-
   # DNS. On this VM the GCE metadata server (169.254.169.254) — which DHCP
   # hands out as the resolver — is unreachable (ping/HTTP/DNS all fail), so
   # name resolution broke and k3s could not pull container images
