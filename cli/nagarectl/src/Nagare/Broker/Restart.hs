@@ -8,7 +8,7 @@ import Cradle
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Broker.Discover (getBroker)
-import Nagare.Deploy (waitForRollout)
+import Nagare.Deploy (requireWait, waitForRollout)
 import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
@@ -28,5 +28,5 @@ runBrokerRestart ns name dryRun = do
           run_ $
             cmd "kubectl"
               & addArgs ["rollout", "restart", "statefulset/" <> T.unpack name, "-n", T.unpack ns]
-          waitForRollout ns name
+          waitForRollout ns name >>= requireWait ("broker '" <> name <> "'")
           TIO.putStrLn ("Restarted broker: " <> name)

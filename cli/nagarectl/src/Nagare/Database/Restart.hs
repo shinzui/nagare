@@ -3,14 +3,14 @@
 -- command and does nothing.
 module Nagare.Database.Restart
   ( runDbRestart
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Nagare.Deploy (waitForRollout)
+import Nagare.Deploy (requireWait, waitForRollout)
+import Nagare.Dsl.Prelude
 
 -- | Roll the StatefulSet (namespace, name, dry-run).
 runDbRestart :: Text -> Text -> Bool -> IO ()
@@ -22,5 +22,5 @@ runDbRestart ns name dryRun
       run_ $
         cmd "kubectl"
           & addArgs ["rollout", "restart", "statefulset/" <> T.unpack name, "-n", T.unpack ns]
-      waitForRollout ns name
+      waitForRollout ns name >>= requireWait ("database '" <> name <> "'")
       TIO.putStrLn ("Restarted: " <> name)

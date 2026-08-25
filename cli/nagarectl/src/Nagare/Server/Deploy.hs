@@ -12,15 +12,14 @@ module Nagare.Server.Deploy
   , serverManifests
   , deployServerProduction
   , serverUrl
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text (Text)
-import Nagare.Deploy (applyManifests, waitForReady)
+import Nagare.Deploy (applyManifests, requireWait, waitForReady)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
   ( ServerDeployContext (..)
   , renderServerDockerfile
@@ -90,6 +89,7 @@ deployServerProduction inputs src = do
       pushImage ref
       applyManifests (m ^. #service : m ^. #domainMappings)
       waitForReady (m ^. #serviceName) ns
+        >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
       recorded <-
         recordReleaseFor
           (imageRefText (s ^. #image))

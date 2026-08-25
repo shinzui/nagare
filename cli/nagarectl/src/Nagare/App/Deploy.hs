@@ -28,6 +28,7 @@ module Nagare.App.Deploy
   , PhaseResult (..)
   , PhaseExec
   , runPhases
+  , waitResult
 
     -- * Rendering + the shared-identity label
   , RolloutEnv (..)
@@ -192,6 +193,18 @@ runPhases exec = go
         PhaseOk -> go ps
         failed -> pure failed
 
+-- | Convert a readiness wait's exit code into a phase result, mirroring how
+-- 'runHooks' converts 'waitForJobComplete' exit codes.
+waitResult :: Text -> ExitCode -> PhaseResult
+waitResult _ ExitSuccess = PhaseOk
+waitResult what (ExitFailure code) =
+  PhaseFailed
+    ( what
+        <> " did not become Ready within the 300s timeout (kubectl wait exited "
+        <> T.pack (show code)
+        <> ")"
+    )
+
 -- ---------------------------------------------------------------------------
 -- Rendering + the shared-identity label
 
@@ -200,45 +213,49 @@ runPhases exec = go
 -- Pure (no cluster): the basis of both the human dry-run transcript and the
 -- machine-readable @--json@ plan (EP-2 M3). Database manifests are rendered by
 -- the database phase in M3; M1 renders hooks, service, and workers.
-renderAppObjects :: RolloutEnv -> Application -> [(Text, ByteString)]
+renderAppObjects :: RolloutEnv -> Application -> Either Text [(Text, ByteString)]
 renderAppObjects env app =
-  concatMap (renderPhaseObjects env) (planPhases app)
+  concat <$> traverse (renderPhaseObjects env) (planPhases app)
 
 -- | The stamped, phase-tagged manifests for one phase.
-renderPhaseObjects :: RolloutEnv -> Phase -> [(Text, ByteString)]
-renderPhaseObjects env (PhaseHooks ts) = concatMap (renderTaskObjects env) ts
-renderPhaseObjects env (PhaseDatabases dbs) = concatMap (renderDatabaseObjects env) dbs
+renderPhaseObjects :: RolloutEnv -> Phase -> Either Text [(Text, ByteString)]
+renderPhaseObjects env (PhaseHooks ts) = concat <$> traverse (renderTaskObjects env) ts
+renderPhaseObjects env (PhaseDatabases dbs) = concat <$> traverse (renderDatabaseObjects env) dbs
 renderPhaseObjects env (PhaseService svc) = renderServiceObjects env svc
-renderPhaseObjects env (PhaseWorkers ws) = concatMap (renderWorkerObjects env) ws
+renderPhaseObjects env (PhaseWorkers ws) = concat <$> traverse (renderWorkerObjects env) ws
 
 -- | Render a managed database's manifests (PVC, optional ConfigMap, Service,
 -- StatefulSet) and stamp the app label. The database keeps its OWN engine image
 -- (it is not the shared app image), so no image/env flow-down applies.
-renderDatabaseObjects :: RolloutEnv -> Database -> [(Text, ByteString)]
-renderDatabaseObjects env db = map (stamp env "database") (renderDatabase db)
+renderDatabaseObjects :: RolloutEnv -> Database -> Either Text [(Text, ByteString)]
+renderDatabaseObjects env db = traverse (stamp env "database") (renderDatabase db)
 
 -- | Apply the shared image + shared env to the web service, render its PVCs,
 -- Knative Service, and DomainMappings, and stamp the app label on each.
-renderServiceObjects :: RolloutEnv -> Deployment -> [(Text, ByteString)]
+renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteString)]
 renderServiceObjects env svc0 =
-  map (stamp env "service") (renderVolumeClaims svc <> [renderService svc (reImageTag env)] <> renderDomainMappings svc)
+  traverse
+    (stamp env "service")
+    (renderVolumeClaims svc <> [renderService svc (reImageTag env)] <> renderDomainMappings svc)
   where
     svc = svc0 & #image .~ reQualImage env & #env %~ flowEnv env
 
 -- | Apply the shared image + shared env to a worker, render its PVCs + Deployment,
 -- and stamp the app label on each.
-renderWorkerObjects :: RolloutEnv -> Worker -> [(Text, ByteString)]
+renderWorkerObjects :: RolloutEnv -> Worker -> Either Text [(Text, ByteString)]
 renderWorkerObjects env w0 =
-  map (stamp env "worker") (renderWorker w (reImageTag env))
+  traverse (stamp env "worker") (renderWorker w (reImageTag env))
   where
     w = w0 & #image .~ reQualImage env & #env %~ flowEnv env
 
 -- | Render a pre-deploy hook Task's CronJob with the shared env flowed in and the
 -- app's resolved image substituted (an inheriting task runs the app's code), then
 -- stamp the app label.
-renderTaskObjects :: RolloutEnv -> Task -> [(Text, ByteString)]
+renderTaskObjects :: RolloutEnv -> Task -> Either Text [(Text, ByteString)]
 renderTaskObjects env t0 =
-  [stamp env "hook" (renderResolvedTask (reAppImageTagged env) (reEffTag env) withPredef t)]
+  traverse
+    (stamp env "hook")
+    [renderResolvedTask (reAppImageTagged env) (reEffTag env) withPredef t]
   where
     t = t0 & #taskEnv %~ flowEnv env
     withPredef tk = tk & #taskEnv %~ mergeGenerated (predefinedTaskEnv tk)
@@ -249,8 +266,8 @@ flowEnv :: RolloutEnv -> Map EnvName ScopedEnvVar -> Map EnvName ScopedEnvVar
 flowEnv env own = mergeGenerated own (reAppEnv env)
 
 -- | Tag a rendered manifest with its phase and the app-identity label.
-stamp :: RolloutEnv -> Text -> ByteString -> (Text, ByteString)
-stamp env ph bs = (ph, stampAppLabel (reAppName env) bs)
+stamp :: RolloutEnv -> Text -> ByteString -> Either Text (Text, ByteString)
+stamp env ph bs = (\stamped -> (ph, stamped)) <$> stampAppLabel (reAppName env) bs
 
 -- | Insert @nagare.dev/app: \<name\>@ into a rendered manifest's top-level
 -- @metadata.labels@, immediately after the @nagare.dev/managed-by: nagarectl@
@@ -259,10 +276,15 @@ stamp env ph bs = (ph, stampAppLabel (reAppName env) bs)
 -- Idempotent: a manifest that already carries a @nagare.dev/app@ label (e.g. a
 -- volume PVC) is left unchanged. Only the FIRST @managed-by@ (the object's own
 -- @metadata.labels@, not a nested pod-template) is matched.
-stampAppLabel :: Text -> ByteString -> ByteString
+stampAppLabel :: Text -> ByteString -> Either Text ByteString
 stampAppLabel appName bs
-  | "nagare.dev/app:" `T.isInfixOf` text = bs
-  | otherwise = TE.encodeUtf8 (T.unlines (insertAfterFirst (T.lines text)))
+  | "nagare.dev/app:" `T.isInfixOf` text = verify bs
+  | not ("nagare.dev/managed-by:" `T.isInfixOf` text) =
+      Left
+        ( describe bs
+            <> " has no 'nagare.dev/managed-by:' anchor to stamp nagare.dev/app after"
+        )
+  | otherwise = verify (TE.encodeUtf8 (T.unlines (insertAfterFirst (T.lines text))))
   where
     text = TE.decodeUtf8 bs
     insertAfterFirst [] = []
@@ -270,6 +292,30 @@ stampAppLabel appName bs
       | "nagare.dev/managed-by:" `T.isInfixOf` l =
           l : (T.takeWhile (== ' ') l <> "nagare.dev/app: " <> appName) : ls
       | otherwise = l : insertAfterFirst ls
+
+    verify stamped
+      | topLevelAppLabel stamped == Just appName = Right stamped
+      | otherwise =
+          Left
+            ( describe bs
+                <> ": stamped nagare.dev/app label did not land in metadata.labels"
+            )
+
+    topLevelAppLabel stamped =
+      case Yaml.decodeEither' stamped of
+        Right (Object top) -> do
+          Object metadata <- KM.lookup "metadata" top
+          Object labels <- KM.lookup "labels" metadata
+          String value <- KM.lookup "nagare.dev/app" labels
+          pure value
+        _ -> Nothing
+
+    describe rendered =
+      let obj = toRenderedObject "" rendered
+       in case (roKind obj, roName obj) of
+            ("", "") -> "rendered manifest"
+            (kind, "") -> kind
+            (kind, name) -> kind <> " '" <> name <> "'"
 
 -- ---------------------------------------------------------------------------
 -- Machine-readable plan (the kotei contract, EP-2 M3)
@@ -323,13 +369,15 @@ instance ToJSON AppDeployPlan where
 -- | Build the machine-readable plan from the rendered, label-stamped objects.
 -- Each 'RenderedObject'\'s metadata is parsed back from its stamped manifest, so
 -- the JSON's labels and the YAML's labels cannot drift.
-renderPlan :: RolloutEnv -> Application -> AppDeployPlan
-renderPlan env app =
-  AppDeployPlan
-    { adpApp = reAppName env
-    , adpImage = reAppImageTagged env
-    , adpObjects = [toRenderedObject ph bs | (ph, bs) <- renderAppObjects env app]
-    }
+renderPlan :: RolloutEnv -> Application -> Either Text AppDeployPlan
+renderPlan env app = do
+  objects <- renderAppObjects env app
+  pure
+    AppDeployPlan
+      { adpApp = reAppName env
+      , adpImage = reAppImageTagged env
+      , adpObjects = [toRenderedObject ph bs | (ph, bs) <- objects]
+      }
 
 -- | Parse a rendered manifest's identity (apiVersion/kind/name/namespace/labels)
 -- back out of its YAML for the JSON plan. A manifest that fails to parse yields
@@ -395,10 +443,13 @@ runAppDeploy p = do
   if adpDryRun p
     then
       if adpJson p
-        then -- the machine-readable plan: a single JSON document on stdout, nothing else.
-          LBS.putStr (encode (renderPlan env app)) >> BC.putStrLn ""
+        then do
+          -- The machine-readable plan: a single JSON document on stdout, nothing else.
+          plan <- requireRendered (renderPlan env app)
+          LBS.putStr (encode plan) >> BC.putStrLn ""
         else do
-          forM_ (renderAppObjects env app) $ \(ph, bs) -> do
+          objects <- requireRendered (renderAppObjects env app)
+          forM_ objects $ \(ph, bs) -> do
             TIO.putStrLn ("--- " <> ph <> " manifest ---")
             BC.putStr bs
           TIO.putStrLn (summaryLine app env)
@@ -451,8 +502,15 @@ livePhaseExec :: RolloutEnv -> PhaseExec
 livePhaseExec env = \case
   PhaseHooks ts -> runHooks env ts
   PhaseDatabases dbs -> mapM_ (ensureDatabase env) dbs >> pure PhaseOk
-  PhaseService svc -> applyServicePhase env svc >> pure PhaseOk
-  PhaseWorkers ws -> mapM_ (applyWorkerPhase env) ws >> pure PhaseOk
+  PhaseService svc -> applyServicePhase env svc
+  PhaseWorkers ws -> runWorkers ws
+  where
+    runWorkers [] = pure PhaseOk
+    runWorkers (w : rest) = do
+      result <- applyWorkerPhase env w
+      case result of
+        PhaseOk -> runWorkers rest
+        failed -> pure failed
 
 -- | Run each pre-deploy hook Task to completion. Apply its CronJob (so a Job can
 -- be created from it), create a one-off Job, and wait for it to complete. The
@@ -463,7 +521,8 @@ runHooks env = go
   where
     go [] = pure PhaseOk
     go (t : rest) = do
-      applyManifests (map snd (renderTaskObjects env t))
+      objects <- requireRendered (renderTaskObjects env t)
+      applyManifests (map snd objects)
       now <- getCurrentTime
       let task = serviceNameText (taskName t)
           ns = reNamespace env
@@ -515,17 +574,29 @@ ensureDatabase env db =
 
 -- | Apply the web Service (PVCs first, then the Service and DomainMappings) and
 -- wait for it to become Ready.
-applyServicePhase :: RolloutEnv -> Deployment -> IO ()
+applyServicePhase :: RolloutEnv -> Deployment -> IO PhaseResult
 applyServicePhase env svc = do
-  applyManifests (map snd (renderServiceObjects env svc))
-  waitForReady (serviceNameText (svc ^. #name)) (reNamespace env)
-  resolveDeploymentAccess (reBaseDomain env) svc
+  objects <- requireRendered (renderServiceObjects env svc)
+  applyManifests (map snd objects)
+  let name = serviceNameText (svc ^. #name)
+  code <- waitForReady name (reNamespace env)
+  case waitResult ("service '" <> name <> "'") code of
+    PhaseOk -> resolveDeploymentAccess (reBaseDomain env) svc >> pure PhaseOk
+    failed -> pure failed
 
 -- | Apply one Worker (PVCs first, then the Deployment) and wait for the rollout.
-applyWorkerPhase :: RolloutEnv -> Worker -> IO ()
+applyWorkerPhase :: RolloutEnv -> Worker -> IO PhaseResult
 applyWorkerPhase env w = do
-  applyManifests (map snd (renderWorkerObjects env w))
-  waitForWorkerRollout (reNamespace env) (serviceNameText (w ^. #name))
+  objects <- requireRendered (renderWorkerObjects env w)
+  applyManifests (map snd objects)
+  let name = serviceNameText (w ^. #name)
+  code <- waitForWorkerRollout (reNamespace env) name
+  pure (waitResult ("worker '" <> name <> "'") code)
+
+-- | Turn a pure rendering/stamping failure into the command's normal one-line
+-- error at the IO boundary.
+requireRendered :: Either Text a -> IO a
+requireRendered = either (dieT . ("nagarectl app deploy: " <>)) pure
 
 -- | The build spec the shared image's effective tag is resolved against — the
 -- service's when the app has a web service, else the first worker's, else

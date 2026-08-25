@@ -67,6 +67,7 @@ import Nagare.Cdn.Provision
   , renderCdnPlan
   )
 import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
+import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
@@ -77,7 +78,7 @@ import Nagare.Database.List (runDbList)
 import Nagare.Database.Restart (runDbRestart)
 import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
-import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, serviceUrl, waitForReady)
+import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, requireWait, serviceUrl, waitForReady)
 import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveConnectionEnv, resolveTag)
 import Nagare.Dsl.Broker (BrokerProvider (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
@@ -185,7 +186,6 @@ import Nagare.Storage.Inspect (runStorageInspect)
 import Nagare.Storage.List (runStorageList)
 import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
-import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Target
   ( ActiveTarget (..)
   , ContextName
@@ -200,12 +200,12 @@ import Nagare.Target
   , deleteContext
   , listContexts
   , mkContextName
+  , nagareStateDir
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
   , readContextProfile
   , readCurrentContext
-  , nagareStateDir
   , resolveActiveContext
   , resolveActiveTarget
   , setCurrentContext
@@ -2520,7 +2520,7 @@ runDeploy mctx dopts = do
       unless (null taskBytes) $ do
         applyManifests taskBytes
         TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
-      waitForReady name ns
+      waitForReady name ns >>= requireWait ("service '" <> name <> "'")
       resolveDeploymentAccess bd dep'
       reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The
@@ -2716,7 +2716,7 @@ runSiteRollback mctx copts rid = do
         Just rel -> do
           let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
           applyManifests (svc : dms)
-          waitForReady name ns
+          waitForReady name ns >>= requireWait ("service '" <> name <> "'")
           writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
           TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
 
@@ -2907,7 +2907,7 @@ runAppRestart o = do
       name = T.pack (o ^. #nameArg)
   stamp <- computeTag
   restartApp ns name stamp
-  waitForReady name ns
+  waitForReady name ns >>= requireWait ("service '" <> name <> "'")
   TIO.putStrLn ("Restarted: " <> name)
 
 -- | @app stop NAME@: take the app offline recoverably.

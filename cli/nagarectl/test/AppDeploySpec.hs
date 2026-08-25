@@ -9,16 +9,20 @@ module AppDeploySpec (appDeployTests) where
 
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
 import Nagare.Dsl.Types (mkImageRef)
 import Nagare.Target (Mode (..), PulumiBackendKind (..), TargetProfile (..))
+import System.Exit (ExitCode (..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -29,6 +33,7 @@ appDeployTests =
     [ testGroup "render + shared label (M1)" renderTests
     , testGroup "rollout phases (M2)" phaseTests
     , testGroup "machine-readable plan (M3)" planTests
+    , testGroup "remediation guardrails (EP-6)" remediationTests
     ]
 
 fixturePath :: FilePath
@@ -75,15 +80,17 @@ renderTests =
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app ->
-          map fst (renderAppObjects testEnv app)
+        Right app -> do
+          objects <- unwrapRender (renderAppObjects testEnv app)
+          map fst objects
             @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
   , testCase "every rendered object carries the shared nagare.dev/app label" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app ->
-          forM_ (renderAppObjects testEnv app) $ \(ph, bs) ->
+        Right app -> do
+          objects <- unwrapRender (renderAppObjects testEnv app)
+          forM_ objects $ \(ph, bs) ->
             assertBool
               ("object in phase '" <> T.unpack ph <> "' is missing nagare.dev/app: kizashi")
               (BS.isInfixOf "nagare.dev/app: kizashi" bs)
@@ -92,7 +99,8 @@ renderTests =
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
-          let svcBytes = [bs | (ph, bs) <- renderAppObjects testEnv app, ph == "service"]
+          objects <- unwrapRender (renderAppObjects testEnv app)
+          let svcBytes = [bs | (ph, bs) <- objects, ph == "service"]
           assertBool "one service object" (length svcBytes == 1)
           forM_ svcBytes $ \bs -> do
             assertBool "is a Knative Service" (BS.isInfixOf "kind: Service" bs)
@@ -144,7 +152,7 @@ planTests =
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
-          let plan = renderPlan testEnv app
+          plan <- unwrapRender (renderPlan testEnv app)
           adpApp plan @?= "kizashi"
           adpImage plan @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
           map roPhase (adpObjects plan)
@@ -153,20 +161,63 @@ planTests =
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app ->
-          forM_ (adpObjects (renderPlan testEnv app)) $ \o ->
+        Right app -> do
+          plan <- unwrapRender (renderPlan testEnv app)
+          forM_ (adpObjects plan) $ \o ->
             Map.lookup "nagare.dev/app" (roLabels o) @?= Just "kizashi"
   , testCase "the plan encodes to a single parseable JSON document" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
-          let bytes = LBS.toStrict (Aeson.encode (renderPlan testEnv app))
+          plan <- unwrapRender (renderPlan testEnv app)
+          let bytes = LBS.toStrict (Aeson.encode plan)
           case Aeson.eitherDecodeStrict bytes :: Either String Aeson.Value of
             Left e -> assertFailure ("plan JSON did not parse: " <> e)
             Right _ -> pure ()
           assertBool "JSON names the app" (BS.isInfixOf "\"app\":\"kizashi\"" bytes)
   ]
+
+remediationTests :: [TestTree]
+remediationTests =
+  [ testCase "waitResult converts readiness failures to PhaseFailed" $ do
+      waitResult "service 'kizashi-serve'" ExitSuccess @?= PhaseOk
+      case waitResult "service 'kizashi-serve'" (ExitFailure 1) of
+        PhaseFailed message ->
+          assertBool "failure names the readiness problem" ("did not become Ready" `T.isInfixOf` message)
+        PhaseOk -> assertFailure "non-zero readiness wait unexpectedly succeeded"
+  , testCase "stampAppLabel fails loudly when the managed-by anchor is absent" $ do
+      let unstamped = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n"
+          result = stampAppLabel "kizashi" unstamped
+      assertBool "anchor-less manifest is rejected" (isLeft result)
+      case result of
+        Left message ->
+          assertBool "error identifies the missing anchor" ("nagare.dev/managed-by" `T.isInfixOf` message)
+        Right _ -> assertFailure "anchor-less manifest unexpectedly stamped"
+  , testCase "stampAppLabel verifies the top-level metadata label structurally" $ do
+      let unstamped =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n  labels:\n    nagare.dev/managed-by: nagarectl\n"
+      stamped <- unwrapRender (stampAppLabel "kizashi" unstamped)
+      topLevelAppLabel stamped @?= Just "kizashi"
+  , testCase "stampAppLabel is byte-identical when already stamped" $ do
+      let stamped =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n  labels:\n    nagare.dev/managed-by: nagarectl\n    nagare.dev/app: kizashi\n"
+      stampAppLabel "kizashi" stamped @?= Right stamped
+  ]
+
+unwrapRender :: Either Text a -> IO a
+unwrapRender (Right value) = pure value
+unwrapRender (Left message) = do
+  _ <- assertFailure (T.unpack message)
+  pure (error "unreachable after assertFailure")
+
+topLevelAppLabel :: BS.ByteString -> Maybe Text
+topLevelAppLabel bytes = do
+  Aeson.Object top <- either (const Nothing) Just (Yaml.decodeEither' bytes)
+  Aeson.Object metadata <- KeyMap.lookup "metadata" top
+  Aeson.Object labels <- KeyMap.lookup "labels" metadata
+  Aeson.String value <- KeyMap.lookup "nagare.dev/app" labels
+  pure value
 
 unsafe :: Either Text a -> a
 unsafe (Right a) = a

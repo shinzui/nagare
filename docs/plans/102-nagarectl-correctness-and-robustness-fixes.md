@@ -81,24 +81,24 @@ that `b64decode` on non-UTF-8 bytes returns `Left` instead of throwing.
       `composeConnectionUrl` expectations if needed (plain passwords are unchanged).
 - [x] M1: run `cabal build all` and `cabal test nagarectl-test` in `cli/nagarectl`;
       format with fourmolu; commit.
-- [ ] M2: change `waitForReady` / `waitForRollout` / `waitForWorkerRollout` in
+- [x] M2: change `waitForReady` / `waitForRollout` / `waitForWorkerRollout` in
       `cli/nagarectl/src/Nagare/Deploy.hs` to return `IO ExitCode` and add the
       `requireWait` helper for the non-app call sites.
-- [ ] M2: update all legacy callers (`app/Main.hs`, `Server/Deploy.hs`,
+- [x] M2: update all legacy callers (`app/Main.hs`, `Server/Deploy.hs`,
       `Static/Deploy.hs`, `Worker/Deploy.hs`, `Broker/Create.hs`,
       `Broker/Restart.hs`, `Database/Create.hs`, `Database/Restart.hs`) to
       `requireWait`-wrap the new exit-code-returning waits.
-- [ ] M2: add pure `waitResult` to `cli/nagarectl/src/Nagare/App/Deploy.hs`; make
+- [x] M2: add pure `waitResult` to `cli/nagarectl/src/Nagare/App/Deploy.hs`; make
       `applyServicePhase` / `applyWorkerPhase` return `IO PhaseResult` and convert
       wait exit codes into `PhaseFailed`.
-- [ ] M2: make `stampAppLabel` return `Either Text ByteString` with structural
+- [x] M2: make `stampAppLabel` return `Either Text ByteString` with structural
       post-verification; thread the `Either` through `stamp`, `renderAppObjects`,
       `renderPlan`, and `runAppDeploy`.
-- [ ] M2: unit tests — `waitResult` conversion, `stampAppLabel` loud failure on a
+- [x] M2: unit tests — `waitResult` conversion, `stampAppLabel` loud failure on a
       manifest without the anchor, structural verification of a stamped manifest,
       idempotent already-stamped case; adapt `test/AppDeploySpec.hs` to the new
       `Either` shape.
-- [ ] M2: build, test, format, commit.
+- [x] M2: build, test, format, commit.
 - [ ] M3: `fromMaybe` cleanup at `Target.hs:347`, `Target.hs:427`,
       `App/Deploy.hs:391` (plus the same-package incidental sites listed in the
       Plan of Work).
@@ -130,6 +130,10 @@ entries as they occur):
 - Mori has no registered local corpus project for `http-types`, so the exact
   `urlEncode` behavior was re-verified against the current authoritative Hackage
   documentation and in the repository's resolved build environment before M1.
+- The library component already depended on `yaml`, but the test component did
+  not expose it. M2's direct structural YAML assertion therefore required adding
+  the existing package to the test suite's `build-depends`; no new package was
+  introduced.
 
 (Append implementation-time discoveries here.)
 
@@ -227,9 +231,14 @@ entries as they occur):
   raw Secret password key remains unchanged. Both base64 decoders now return
   `Left` for invalid UTF-8. `cabal build all` passed, and the post-format
   `nagarectl-test` run passed all 368 tests (five more than the EP-5 baseline).
+- M2 completed on 2026-08-24. Readiness waits now return `ExitCode`; legacy
+  commands fail with a one-line diagnostic, while app deploy converts service
+  and worker timeouts into `PhaseFailed` and stops the rollout. Label stamping
+  fails when its anchor is missing and verifies the resulting top-level label
+  structurally. The build passed, all 372 tests passed, and the fixed-tag dry-run
+  transcript remained byte-identical before and after the change.
 
-(Complete this section after M2 and M3 with the readiness, stamping, and style
-outcomes.)
+(Complete this section after M3 with the style outcome.)
 
 
 ## Context and Orientation

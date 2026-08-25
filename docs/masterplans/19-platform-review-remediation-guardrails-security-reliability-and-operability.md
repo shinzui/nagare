@@ -198,7 +198,9 @@ complete; the child plans hold the granular checklists.
 - [x] EP-6 M1: URL-safe database credentials and total secret decoding
   (2026-08-24 — hex generation, percent-encoded URL userinfo, total UTF-8
   decoding, and all 368 tests pass)
-- [ ] EP-6 M2: Clean phase failures and verified label stamping
+- [x] EP-6 M2: Clean phase failures and verified label stamping
+  (2026-08-24 — clean `ExitCode` propagation, structural stamping verification,
+  byte-identical dry-run output, and all 372 tests pass)
 - [ ] EP-6 M3: House-style sweep and final validation
 - [ ] EP-7 M1: Host tuning and k3s hardening flags
 - [ ] EP-7 M2: Registry credentials without k3s restarts

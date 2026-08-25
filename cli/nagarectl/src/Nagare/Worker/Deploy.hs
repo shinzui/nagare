@@ -22,7 +22,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
-import Nagare.Deploy (applyManifests, applyPVCs, waitForWorkerRollout)
+import Nagare.Deploy (applyManifests, applyPVCs, requireWait, waitForWorkerRollout)
 import Nagare.Deploy.Resolve (resolveBrokerEnv)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Load (loadWorker, renderLoadError)
@@ -107,7 +107,7 @@ runWorkerDeploy params = do
       -- the Deployment.
       applyPVCs pvcBytes
       applyManifests depBytes
-      waitForWorkerRollout ns name
+      waitForWorkerRollout ns name >>= requireWait ("worker '" <> name <> "'")
       TIO.putStrLn
         ( "Worker "
             <> name

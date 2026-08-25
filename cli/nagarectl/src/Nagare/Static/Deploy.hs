@@ -16,16 +16,15 @@ module Nagare.Static.Deploy
   , deployStaticProduction
   , deployStaticPreview
   , staticUrl
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
-import Nagare.Deploy (applyManifests, waitForReady)
+import Nagare.Deploy (applyManifests, requireWait, waitForReady)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
   ( StaticDeployContext (..)
   , renderNginxConfig
@@ -120,6 +119,7 @@ deployStaticProduction inputs src = do
     pushImage ref
     applyManifests (service m : domainMappings m)
     waitForReady (serviceName m) ns
+      >>= requireWait ("site '" <> serviceName m <> "'")
     recordRelease s (inputs ^. #imageTag) (m ^. #url) (serviceName m) ns src
 
 -- | Preview deploy: same build/push path under a derived preview Service name
@@ -139,6 +139,7 @@ deployStaticPreview inputs raw =
         pushImage ref
         applyManifests (service m : domainMappings m)
         waitForReady (serviceName m) ns
+          >>= requireWait ("preview site '" <> serviceName m <> "'")
         pure (Right (m ^. #url))
 
 -- | Run the build-preparation, then @k@ if it succeeded; thread a build-prep

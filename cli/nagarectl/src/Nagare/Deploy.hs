@@ -10,17 +10,18 @@ module Nagare.Deploy
   , waitForReady
   , waitForRollout
   , waitForWorkerRollout
+  , requireWait
   , serviceUrl
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment
   , canonicalDomain
@@ -28,8 +29,8 @@ import Nagare.Dsl.Types
   , namespaceText
   , serviceNameText
   )
-import System.Exit (ExitCode (..))
-import System.IO (hClose)
+import System.Exit (ExitCode (..), exitFailure)
+import System.IO (hClose, stderr)
 import System.IO.Temp (withSystemTempFile)
 
 -- | Apply each manifest by writing it to a temp file and running
@@ -84,9 +85,9 @@ pvcPhases ns = traverse one
 
 -- | Run @kubectl wait --for=condition=Ready --timeout=300s ksvc/\<name\> -n \<namespace\>@.
 -- Blocks until the Knative Service is Ready or the 5-minute timeout expires.
-waitForReady :: Text -> Text -> IO ()
+waitForReady :: Text -> Text -> IO ExitCode
 waitForReady name namespace =
-  run_ $
+  run $
     cmd "kubectl"
       & addArgs
         [ "wait"
@@ -101,9 +102,9 @@ waitForReady name namespace =
 -- Blocks until the database StatefulSet's single replica is Ready or the timeout
 -- expires (MasterPlan 9, EP-45). Unlike 'waitForReady' (a Knative @ksvc@), a
 -- database is a StatefulSet, so the readiness gate is a rollout-status wait.
-waitForRollout :: Text -> Text -> IO ()
+waitForRollout :: Text -> Text -> IO ExitCode
 waitForRollout namespace name =
-  run_ $
+  run $
     cmd "kubectl"
       & addArgs
         [ "rollout"
@@ -119,9 +120,9 @@ waitForRollout namespace name =
 -- which exposes rollout status exactly as the database StatefulSet does
 -- ('waitForRollout'); this is the parallel @deployment/\<name\>@ form. Blocks
 -- until the requested replicas are Ready or the 5-minute timeout expires.
-waitForWorkerRollout :: Text -> Text -> IO ()
+waitForWorkerRollout :: Text -> Text -> IO ExitCode
 waitForWorkerRollout namespace name =
-  run_ $
+  run $
     cmd "kubectl"
       & addArgs
         [ "rollout"
@@ -131,6 +132,21 @@ waitForWorkerRollout namespace name =
         , T.unpack namespace
         , "--timeout=300s"
         ]
+
+-- | Exit with a clean one-line error when a readiness wait failed. @what@ is a
+-- human description such as @service 'api'@ or @database 'pg-main'@.
+requireWait :: Text -> ExitCode -> IO ()
+requireWait _ ExitSuccess = pure ()
+requireWait what (ExitFailure code) = do
+  TIO.hPutStrLn
+    stderr
+    ( "nagarectl: "
+        <> what
+        <> " did not become ready within the timeout (kubectl exited "
+        <> T.pack (show code)
+        <> ")"
+    )
+  exitFailure
 
 -- | Compute the service URL.
 --
