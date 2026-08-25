@@ -1,4 +1,4 @@
-{ pkgs, sourceRoot }:
+{ pkgs, sourceRoot, releaseVersion, sourceRevision ? null }:
 
 let
   src = pkgs.lib.cleanSourceWith {
@@ -9,11 +9,26 @@ let
         && !(name != "Pulumi.yaml" && pkgs.lib.hasPrefix "Pulumi." name && pkgs.lib.hasSuffix ".yaml" name);
   };
 in
-pkgs.runCommand "nagare-platform-0.1.0" { inherit src; } ''
+pkgs.runCommand "nagare-platform-${releaseVersion}" {
+  inherit src;
+  nativeBuildInputs = [ pkgs.jq ];
+  revision = if sourceRevision == null then "" else sourceRevision;
+} ''
   payload="$out/share/nagare"
   mkdir -p "$payload/infra" "$payload/docs/plans"
 
-  cp "$src/release.json" "$payload/release.json"
+  payload_id="nagare-${releaseVersion}-source"
+  if [ -n "$revision" ]; then
+    payload_id="nagare-${releaseVersion}-''${revision:0:12}"
+  fi
+  jq \
+    --arg version "${releaseVersion}" \
+    --arg revision "$revision" \
+    --arg payloadId "$payload_id" \
+    '.platformVersion = $version
+      | .sourceRevision = (if $revision == "" then null else $revision end)
+      | .payloadId = $payloadId' \
+    "$src/release.json" > "$payload/release.json"
   cp "$src/justfile" "$payload/justfile"
   cp -R "$src/infra/pulumi" "$payload/infra/pulumi"
   cp -R "$src/cluster" "$payload/cluster"

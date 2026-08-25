@@ -9,16 +9,34 @@
 
   outputs = { self, nixpkgs, cradle }:
     let
-      systems = [ "x86_64-linux" "aarch64-darwin" ];
+      releaseMetadata = builtins.fromJSON (builtins.readFile ./release.json);
+      releaseVersion = releaseMetadata.platformVersion;
+      systems = releaseMetadata.supportedSystems;
+      sourceRevision =
+        if self ? rev then self.rev
+        else if self ? dirtyRev then self.dirtyRev
+        else null;
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
       nagarePackagesFor = pkgs:
         let
-          platformPackage = import ./nix/platform-package.nix { inherit pkgs; sourceRoot = ./.; };
+          platformPackage = import ./nix/platform-package.nix {
+            inherit pkgs releaseVersion sourceRevision;
+            sourceRoot = ./.;
+          };
         in
-        import ./nix/haskell-packages.nix { inherit pkgs platformPackage; cradleSrc = cradle; };
+        import ./nix/haskell-packages.nix {
+          inherit pkgs platformPackage sourceRevision;
+          cradleSrc = cradle;
+        };
     in
     {
+      lib.release = {
+        version = releaseVersion;
+        inherit sourceRevision;
+        supportedSystems = systems;
+      };
+
       packages = forAllSystems (pkgs:
         let nagarePackages = nagarePackagesFor pkgs;
         in {
@@ -218,6 +236,16 @@
             ''
               cd "$src"
               shellcheck --severity=error scripts/*.sh scripts/lib/*.sh
+              touch "$out"
+            '';
+
+          release-consistency-source = pkgs.runCommand "release-consistency-source"
+            { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ]; src = ./.; }
+            ''
+              cp -R "$src" source
+              chmod -R u+w source
+              cd source
+              ./scripts/test-release.sh
               touch "$out"
             '';
         });
