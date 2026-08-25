@@ -67,9 +67,11 @@ cluster a compatible release identity and provides staged upgrades. EP-109 publi
 result and rewrites onboarding around released artifacts. Five plans remain within the recommended
 two-to-seven range and keep each outcome demonstrable on its own.
 
-The repository has no `docs/adr/` directory, `mori show --full` reports no ADR OKF bundle, and
-`mori registry concepts --search 'Nix package CLI release distribution' --json` returned no relevant
-cross-repository ADR. The checked-in MasterPlan most relevant to this work is
+At plan creation the repository had no `docs/adr/` directory, `mori show --full` reported no ADR OKF
+bundle, and `mori registry concepts --search 'Nix package CLI release distribution' --json` returned
+no relevant cross-repository ADR. The repository has since adopted numbered Markdown ADRs; EP-105's
+runtime boundary is recorded in
+`docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md`. The checked-in MasterPlan most relevant to this work is
 `docs/masterplans/17-first-class-target-contexts-for-nagare.md`: it established the user-level context
 store, per-context XDG state, context-aware Pulumi state, and the remaining checkout-local generated
 host files. This initiative preserves that context selection and extends its flat environment schema;
@@ -99,7 +101,7 @@ until the Nix-first path proves that the program is actually checkout-independen
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 105 | Package nagarectl and its typed config runtime with Nix | docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md | None | None | Not Started |
+| 105 | Package nagarectl and its typed config runtime with Nix | docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md | None | None | Complete |
 | 106 | Make Nagare platform assets resolvable outside a source checkout | docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md | EP-105 | None | Not Started |
 | 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | Not Started |
 | 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | Not Started |
@@ -195,8 +197,8 @@ decisions that should become ADRs during implementation.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-105: Hermetic Nix derivations build `nagare-dsl`, pinned `cradle`, and `nagarectl` without network-enabled Cabal checks.
-- [ ] EP-105: `nix run .#nagarectl` loads and dry-runs an external typed config with no Nagare checkout or Cabal package environment.
+- [x] (2026-08-25T16:32:07Z) EP-105: Hermetic Nix derivations build `nagare-dsl`, pinned `cradle`, and `nagarectl` without network-enabled Cabal checks.
+- [x] (2026-08-25T16:32:07Z) EP-105: `nix run .#nagarectl` loads and dry-runs an external typed config with no Nagare checkout or Cabal package environment.
 - [ ] EP-106: A `nagare-platform` payload and single path resolver replace repository-relative CLI resource paths while preserving source development.
 - [ ] EP-106: A fresh temporary directory can run checkout-independent init/status dry runs against an isolated context workspace.
 - [ ] EP-107: Nagare exports a reusable NixOS host module and generates one context-owned host flake without a personal key in tracked source.
@@ -226,6 +228,13 @@ interactions between child plans. Provide concise evidence.
 - The tracked `nixos/hosts/nagare-01/users.nix` contains one operator's public key. Distribution is not
   safe or credible until EP-107 removes this source-owned identity and requires explicit generated
   configuration. Date: 2026-08-25.
+- EP-105 proved that a `ghcWithPackages` runtime containing `nagare-dsl`, placed on the installed
+  wrapper's `PATH` with Cabal's inherited environment disabled during checks, is sufficient for
+  checkout-independent typed configs. Later plans must compose this wrapper instead of introducing a
+  second Haskell build. Date: 2026-08-25.
+- The unrelated `nagare-access` check still has private network-resolved Cabal dependencies. EP-105
+  moved it to a dedicated `hydraJobs`/CI compatibility path so the default flake check is hermetic;
+  packaging that service remains separate from the developer CLI distribution. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -270,4 +279,8 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-(To be filled during and after implementation.)
+Wave 1 (EP-105) is complete. Nagare now has a hermetic, installable `nagarectl` application with its
+typed-config runtime, a stable version command, checkout-independent loader tests, and Nix-first
+installation documentation. The immutable executable/runtime boundary is captured in
+`docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md`. EP-106 is now unblocked and can
+extend the same flake outputs with the platform payload and resource resolver.
