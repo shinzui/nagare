@@ -36,10 +36,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Inventory every repository-relative runtime path and define the payload manifest, path resolver, and workspace layout.
-- [ ] M2: Package `nagare-platform` and implement idempotent per-context workspace materialization.
-- [ ] M3: Migrate Haskell, shell, Pulumi, bootstrap, and operator-recipe call sites to resolved absolute paths.
-- [ ] M4: Prove clone-free dry-run operations from an empty directory while preserving source-checkout compatibility.
+- [x] M1: Inventory every repository-relative runtime path and define the payload manifest, path resolver, and workspace layout.
+- [x] M2: Package `nagare-platform` and implement idempotent per-context workspace materialization.
+- [x] M3: Migrate Haskell, shell, Pulumi, bootstrap, and operator-recipe call sites to resolved absolute paths.
+- [x] M4: Prove clone-free dry-run operations from an empty directory while preserving source-checkout compatibility.
 
 
 ## Surprises & Discoveries
@@ -54,6 +54,17 @@ implementation. Provide concise evidence.
   directories. Because Nix payloads are read-only and contexts may operate concurrently, installed
   operation needs a writable per-context copy rather than direct mutation of `$out/share/nagare`.
   Date: 2026-08-25.
+- Nix flakes exclude untracked files from their source snapshot, so new payload modules and the
+  package expression must be staged before a local package build can validate them. This is source
+  visibility, not a requirement to commit an unverified milestone. Date: 2026-08-25.
+- Source checkouts can contain ignored `Pulumi.<context>.yaml` projections. Including them in a
+  payload digest or workspace copy would leak one context's generated configuration into another;
+  both the Nix source filter and workspace copier now exclude those files while retaining the
+  canonical `Pulumi.yaml`. Date: 2026-08-25.
+- The status inventory documents missing tools as degradable, but a completely absent `kubectl`
+  currently escapes one probe's IO wrapper. The clone-free check therefore supplies inert fake
+  external tools, as its test contract already required, and still proves every path passed to
+  Pulumi is workspace-absolute. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -75,6 +86,11 @@ Record every decision made while working on the plan.
   Rationale: contributor workflows remain useful, while installed commands fail with a precise
   resource error instead of operating on unrelated same-named files.
   Date: 2026-08-25.
+- Decision: identify workspaces by the manifest payload id plus a SHA-256 digest over the shipped
+  asset paths and contents.
+  Rationale: a development payload can retain a stable human identity while any asset change still
+  selects a distinct immutable workspace; repeated preparation of identical bytes is a no-op.
+  Date: 2026-08-25.
 
 
 ## Outcomes & Retrospective
@@ -84,7 +100,23 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The root flake now exports `nagare-platform`, a wrapped `nagarectl`, and the `nagare` operator
+launcher. `Nagare.Platform.Paths` validates explicit, installed, and source roots through one
+sentinel contract; `Nagare.Platform.Workspace` content-addresses shipped bytes and materializes them
+atomically below the selected context's XDG state. Init, Pulumi stack selection and outputs, status,
+cleanup, doctor remediation, IAP, shared shell setup, bootstrap assets, NixOS assets, and recipes now
+consume those resolved paths.
+
+Validation covers 381 Haskell tests, including invalid roots, idempotent reuse, changed digests,
+generated-stack exclusion, and two-context isolation. Nix checks validate every installed sentinel
+and run context create/use, platform diagnostics, init dry-run, status, and an operator-recipe
+dry-run from an empty directory. Source compatibility is covered by the Cabal suite, shell syntax,
+and the repository `justfile` listing. The immutable-payload/mutable-workspace decision is recorded
+in [ADR 0004](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md).
+
+This plan intentionally does not make the tracked host identity safe to distribute or define
+upgrade/rollback selection. EP-107 owns external host configuration and EP-108 owns platform-version
+negotiation on top of the payload and workspace boundary delivered here.
 
 
 ## Context and Orientation
@@ -114,7 +146,8 @@ per-context materialization of one payload used by programs that create generate
 or Nix inputs. Application project roots and build contexts are not platform workspaces and must never
 be rewritten through this resolver.
 
-No relevant local or Mori ADR exists. MasterPlan 17,
+The platform payload is a separate boundary from the typed runtime established by
+[ADR 0003](../adr/0003-package-the-typed-config-runtime-with-nagarectl.md). MasterPlan 17,
 `docs/masterplans/17-first-class-target-contexts-for-nagare.md`, is authoritative context history:
 it established `${XDG_STATE_HOME}/nagare/<context>` and noted the remaining checkout-local generated
 files. This plan extends that state root without changing context-selection precedence.
