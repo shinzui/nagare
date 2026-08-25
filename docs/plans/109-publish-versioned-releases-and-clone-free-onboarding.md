@@ -35,7 +35,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Define and test the release consistency gate and machine-readable release artifact set.
+- [x] (2026-08-25T20:40:11Z) M1: Define and test the release consistency gate and machine-readable release artifact set.
 - [ ] M2: Add tag-driven CI that builds supported Nix outputs and publishes checksums, metadata, and release notes.
 - [ ] M3: Rewrite install, onboarding, multi-cluster, upgrade, contributor, and capability documentation around pinned releases.
 - [ ] M4: Run a clean-room clone-free acceptance rehearsal and document the maintainer release/rollback runbook.
@@ -52,6 +52,12 @@ implementation. Provide concise evidence.
 - `docs/capabilities/index.md` explicitly says every capability is unreleased because Nagare has no
   release tags. The first release must update both the catalog-level statement and each shipped
   capability's `since` field consistently, under the existing OKF profile. Date: 2026-08-25.
+- Forcing a foreign-system package derivation field during release validation starts Nix import from
+  derivation and therefore tried the unavailable configured Linux SSH builder on this Apple Silicon
+  workstation. The gate now compares foreign package attribute names lazily and builds/inspects only
+  native artifacts; the workflow matrix owns native proof for the other system. Evidence: the first
+  full gate failed on `packages.x86_64-linux.nagarectl.name`, while the revised gate and full
+  `nix flake check --print-build-logs` passed locally. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -74,6 +80,13 @@ Record every decision made while working on the plan.
   are metadata and checksums, not a promise of portable binaries.
   Rationale: native archives would need separate runtime-dependency and platform support work and were
   explicitly excluded by the MasterPlan.
+  Date: 2026-08-25.
+- Decision: make root `release.json` the source of truth for the semantic platform version, supported
+  Nix systems, and release schema versions, while Nix injects the clean or dirty Git revision into the
+  built CLI and payload.
+  Rationale: Cabal versions remain package metadata that the gate independently compares, but the
+  flake and payload must not maintain a second supported-system or platform-version list. Revision is
+  provenance of one build, not a manually edited source value.
   Date: 2026-08-25.
 
 

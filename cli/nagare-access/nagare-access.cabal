@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: nagare-access
-version: 0.1.0.0
+version: 0.1.0
 synopsis: Shared identity-aware access enforcer for Nagare sites.
 description:
   nagare-access is the shared forward-auth enforcer used by protected Nagare

@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc, platformPackage }:
+{ pkgs, cradleSrc, platformPackage, sourceRevision ? null }:
 
 let
   inherit (pkgs) lib;
@@ -13,9 +13,20 @@ let
         hfinal.callCabal2nix "nagare-dsl" ../cli/nagare-dsl { }
       );
 
-      nagarectl = pkgs.haskell.lib.dontCheck (
-        hfinal.callCabal2nix "nagarectl" ../cli/nagarectl { }
-      );
+      nagarectl =
+        let
+          package = hfinal.callCabal2nix "nagarectl" ../cli/nagarectl { };
+          revisionPackage =
+            if sourceRevision == null then package
+            else pkgs.haskell.lib.overrideCabal package (_old: {
+              postPatch = ''
+                substituteInPlace src/Nagare/Version.hs \
+                  --replace-fail "revisionText = Nothing" \
+                  'revisionText = Just "${sourceRevision}"'
+              '';
+            });
+        in
+        pkgs.haskell.lib.dontCheck revisionPackage;
     };
   };
 
