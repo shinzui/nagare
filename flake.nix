@@ -2,25 +2,43 @@
   description = "nagare developer shell (project-pinned Pulumi + Haskell + cloud toolchain)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.cradle = {
+    url = "github:garnix-io/cradle/711c441fa8f190a8964c56a3bae864cd5321c5c5";
+    flake = false;
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, cradle }:
     let
       systems = [ "x86_64-linux" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
-    in {
-      # EP-5 (docs/plans/69, MasterPlan 13): CI as Nix flake checks — the SOURCE
-      # OF TRUTH. `nix flake check` builds every entry below; the GitHub Actions
-      # workflow (.github/workflows/ci.yml) is a thin shell that installs Nix and
-      # runs the same command, so local and hosted behavior are identical.
-      #
-      # NETWORK: these derivations run `cabal`, which fetches Hackage deps and the
-      # `cradle` source-repository-package from GitHub. Nix's build sandbox blocks
-      # the network, so each is marked `__noChroot = true` and the checks are run
-      # with a relaxed sandbox: locally `nix flake check` (macOS sandbox is off by
-      # default); on CI the workflow sets `sandbox = relaxed`. The trade-off
-      # (network-dependent, not fully hermetic) is the documented first iteration;
-      # a later hardening can migrate to haskell.nix / callCabal2nix.
+      nagarePackagesFor = pkgs:
+        import ./nix/haskell-packages.nix { inherit pkgs; cradleSrc = cradle; };
+    in
+    {
+      packages = forAllSystems (pkgs:
+        let nagarePackages = nagarePackagesFor pkgs;
+        in {
+          inherit (nagarePackages) nagarectl;
+          default = nagarePackages.nagarectl;
+        });
+
+      apps = forAllSystems (pkgs:
+        let
+          app = {
+            type = "app";
+            program = "${(nagarePackagesFor pkgs).nagarectl}/bin/nagarectl";
+          };
+        in
+        {
+          nagarectl = app;
+          default = app;
+        });
+
+      # EP-5 (docs/plans/69, MasterPlan 13): `nix flake check` is the hermetic
+      # source of truth for Nagare's packages, examples, and scripts. The one
+      # inherited networked Cabal check for nagare-access is kept separately in
+      # `hydraJobs` until that executable gets its own package derivation.
       #
       # NOTE: a `fourmolu-format` check is intentionally NOT included — the pinned
       # fourmolu (0.19.x) reformats 82/93 committed files (a version drift from the
@@ -30,84 +48,63 @@
       # Surprises & Discoveries.
       checks = forAllSystems (pkgs:
         let
-          ghc = pkgs.haskell.compiler.ghc912;
-          # Tooling for the cabal-based checks: the pinned GHC + cabal, the C deps
-          # (zlib via pkg-config, PostgreSQL/libpq for en-client's current dependency
-          # closure), git (for source-repository-package dependencies), and CA certs
-          # (for Hackage/GitHub https).
-          haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.postgresql pkgs.pkg-config pkgs.git pkgs.cacert ];
-          cabalEnv = ''
-            export HOME="$PWD/.home"
-            export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-            export LANG=C.UTF-8
-          '';
-        in {
-          # Build + test nagare-dsl (the typed model + renderer).
-          nagare-dsl-build-test = pkgs.runCommand "nagare-dsl-build-test"
-            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
-            ''
-              cp -r "$src" build && chmod -R +w build
-              cd build/cli/nagare-dsl
-              ${cabalEnv}
-              cabal update
-              # `cabal build` (not the implicit build in `cabal test`) is what
-              # materialises the .ghc.environment.* file (write-ghc-environment-files:
-              # always). The loader tests (loadServerSite/loadSite) shell out to
-              # runghc, which needs that file present to resolve nagare-dsl, so build
-              # explicitly first.
-              cabal build all
-              cabal test nagare-dsl-test --test-show-details=streaming
-              touch "$out"
-            '';
-
-          # Build + test nagarectl (builds against the local nagare-dsl per its cabal.project).
-          nagarectl-build-test = pkgs.runCommand "nagarectl-build-test"
-            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
-            ''
-              cp -r "$src" build && chmod -R +w build
-              cd build/cli/nagarectl
-              ${cabalEnv}
-              cabal update
-              cabal build all
-              cabal test nagarectl-test --test-show-details=streaming
-              touch "$out"
-            '';
-
-          # Build + test nagare-access (the shared forward-auth enforcer).
-          nagare-access-build-test = pkgs.runCommand "nagare-access-build-test"
-            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
-            ''
-              cp -r "$src" build && chmod -R +w build
-              cd build/cli/nagare-access
-              ${cabalEnv}
-              cabal update
-              cabal build all
-              cabal test nagare-access-test --test-show-details=streaming
-              touch "$out"
-            '';
+          nagarePackages = nagarePackagesFor pkgs;
+        in
+        {
+          # Build and test the typed DSL and CLI through the hermetic package set.
+          nagare-dsl-build-test = nagarePackages.checkedNagareDsl;
+          nagarectl-build-test = nagarePackages.checkedNagarectl;
 
           # Compile-and-run every shipped cluster/examples/*/nagare/Config.hs through
-          # the loader's runghc contract (runghc -XGHC2024 -i<dir>), resolving
-          # nagare-dsl via `cabal exec` from the nagarectl package. This is the guard
-          # that catches a rotted example (the 2026-06-10 audit found 3 silently broken).
+          # the same packaged runghc runtime used by the installed CLI.
           examples-compile = pkgs.runCommand "examples-compile"
-            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            { nativeBuildInputs = [ nagarePackages.typedConfigRuntime ]; src = ./.; }
             ''
-              cp -r "$src" build && chmod -R +w build
-              cd build
-              ${cabalEnv}
-              ( cd cli/nagarectl && cabal update && cabal build all )
+              cd "$src"
               fail=0
               for cfg in cluster/examples/*/nagare/Config.hs; do
                 dir="$(dirname "$cfg")"
                 echo "== compiling $cfg =="
-                if ! ( cd cli/nagarectl && cabal exec -v0 -- \
-                         runghc -XGHC2024 -i"../../$dir" "../../$cfg" >/dev/null ); then
+                if ! runghc -XGHC2024 -i"$dir" "$cfg" >/dev/null; then
                   echo "FAILED: $cfg" >&2
                   fail=1
                 fi
               done
               [ "$fail" -eq 0 ] || exit 1
+              touch "$out"
+            '';
+
+          # Prove the installed wrapper loads a typed config from a directory with
+          # no Nagare checkout ancestor and no Cabal-generated package environment.
+          nagarectl-external-config = pkgs.runCommand "nagarectl-external-config"
+            { nativeBuildInputs = [ nagarePackages.nagarectl ]; src = ./.; }
+            ''
+              mkdir -p isolated/nagare
+              cp "$src/cluster/examples/hello-knative-service/nagare/Config.hs" isolated/nagare/Config.hs
+              cd isolated
+              unset GHC_ENVIRONMENT NAGARE_GHC_ENVIRONMENT
+              nagarectl deploy --dry-run --file "$PWD/nagare/Config.hs" > output
+              grep -q "kind: Service" output
+              grep -q "name: hello" output
+
+              cat > nagare/Invalid.hs <<'INVALID_CONFIG'
+              module Main where
+
+              import Nagare.Dsl.Config (emitDeployment)
+
+              main :: IO ()
+              main = emitDeployment missingDeployment
+              INVALID_CONFIG
+              if nagarectl deploy --dry-run --file "$PWD/nagare/Invalid.hs" \
+                > invalid-output 2> invalid-error; then
+                echo "invalid typed config unexpectedly succeeded" >&2
+                exit 1
+              fi
+              grep -q "nagare: compile error" invalid-error
+              if grep -Eqi 'docker|kubectl|knative' invalid-output invalid-error; then
+                echo "invalid typed config reached an external deployment phase" >&2
+                exit 1
+              fi
               touch "$out"
             '';
 
@@ -119,6 +116,31 @@
             ''
               cd "$src"
               shellcheck --severity=error scripts/*.sh scripts/lib/*.sh
+              touch "$out"
+            '';
+        });
+
+      # This check predates the packaged CLI and still resolves private
+      # source-repository-package dependencies through Cabal. Keeping it outside
+      # `checks` makes `nix flake check` sandboxed and reproducible while the
+      # dedicated CI job continues to exercise nagare-access.
+      hydraJobs = forAllSystems (pkgs:
+        let
+          ghc = pkgs.haskell.compiler.ghc912;
+          haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.postgresql pkgs.pkg-config pkgs.git pkgs.cacert ];
+        in
+        {
+          nagare-access-build-test = pkgs.runCommand "nagare-access-build-test"
+            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            ''
+              cp -r "$src" build && chmod -R +w build
+              cd build/cli/nagare-access
+              export HOME="$PWD/.home"
+              export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              export LANG=C.UTF-8
+              cabal update
+              cabal build all
+              cabal test nagare-access-test --test-show-details=streaming
               touch "$out"
             '';
         });
@@ -166,7 +188,8 @@
                 cp -t "$out/bin" ../../dist/pulumi-resource-pulumi-nodejs
               '';
             }));
-        in {
+        in
+        {
           default = pkgs.mkShell {
             name = "nagare";
             packages = [

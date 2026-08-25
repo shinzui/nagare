@@ -265,6 +265,7 @@ import Nagare.Task.Discover
 import Nagare.Task.Logs (TaskLogTarget (..), grafanaHint, taskLogArgs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask, resolveTaskImage)
 import Nagare.Task.Run (oneOffJobName, runArgs)
+import Nagare.Version (BuildVersion (..), renderBuildVersionJson, renderBuildVersionText)
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((<.>), (</>))
@@ -306,6 +307,7 @@ main = do
         , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
         , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
         , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
+        , testGroup "Nagare.Version" versionTests
         , testGroup "Nagare.Database (EP-45)" databaseTests
         , testGroup "Nagare.Broker (EP-78)" brokerTests
         , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
@@ -329,6 +331,15 @@ main = do
         , accessResolveTests
         , appDeployTests
         ]
+
+versionTests :: [TestTree]
+versionTests =
+  [ testCase "text rendering includes the program and semantic version" $
+      renderBuildVersionText (BuildVersion "1.2.3" Nothing) @?= "nagarectl 1.2.3"
+  , testCase "JSON rendering preserves optional revision metadata" $
+      (eitherDecodeStrict (renderBuildVersionJson (BuildVersion "1.2.3" (Just "abc123"))) :: Either String Aeson.Value)
+        @?= Right (Aeson.object ["version" Aeson..= ("1.2.3" :: Text), "revision" Aeson..= ("abc123" :: Text)])
+  ]
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Init (MasterPlan 12, EP-63): the pure pieces of `nagarectl init` — the

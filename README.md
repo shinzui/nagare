@@ -105,6 +105,27 @@ nagarectl owns the developer experience.
 
 Raw Kubernetes is intentionally *not* the deployment interface.
 
+## Install `nagarectl`
+
+Nix builds `nagarectl` together with the GHC runtime required to load an app's
+typed `nagare/Config.hs`; no Cabal package environment is needed. From a Nagare
+checkout, run it directly or install it into your Nix profile:
+
+```bash
+nix run .#nagarectl -- version
+nix profile install .#nagarectl
+```
+
+The installed command can validate and dry-run a config from any app directory:
+
+```bash
+nagarectl deploy --dry-run --file nagare/Config.hs
+```
+
+At this stage, commands that consume platform-owned Pulumi, NixOS, manifest, or
+script assets still require a Nagare checkout. Those assets become independently
+resolvable in the next distribution milestone.
+
 ## Recommended GCP instance
 
 ```text

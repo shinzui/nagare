@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "cradle": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1759779411,
+        "narHash": "sha256-wg1/WMu624PQuzrSEE2SP31AbzrIQmUZm4dcCQ/yvYk=",
+        "owner": "garnix-io",
+        "repo": "cradle",
+        "rev": "711c441fa8f190a8964c56a3bae864cd5321c5c5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "garnix-io",
+        "repo": "cradle",
+        "rev": "711c441fa8f190a8964c56a3bae864cd5321c5c5",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1780243769,
@@ -18,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "cradle": "cradle",
         "nixpkgs": "nixpkgs"
       }
     }
