@@ -5,9 +5,13 @@ module HostSpec (hostTests) where
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Nagare.Host.Config
 import Nagare.Target (ContextName, mkContextName)
 import Nagare.Version (BuildVersion (..))
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
 
@@ -45,6 +49,27 @@ hostTests =
         assertBool "prod has only its host" ("prod-host" `T.isInfixOf` prodModule && not ("labs-host" `T.isInfixOf` prodModule))
         assertBool "labs has only its registry" ("asia-northeast1-docker.pkg.dev" `T.isInfixOf` labsModule && not ("us-west1-docker.pkg.dev" `T.isInfixOf` labsModule))
         assertBool "operator keys do not cross contexts" (fixtureKey `T.isInfixOf` prodModule && not (fixtureKey `T.isInfixOf` labsModule))
+    , testCase "staging and committing a release pin preserves operator-owned files" $
+        withSystemTempDirectory "nagare-host-upgrade" $ \root -> do
+          context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
+          let source = root </> "source"
+              staged = root </> "transaction" </> "host"
+              original = renderHostFlake (fixtureConfig context) (BuildVersion "0.1.0" (Just "old"))
+              hostModule = renderHostModule (fixtureConfig context)
+              secrets = "tailscaleAuthKey: ENC[AES256_GCM,data:test]\nsops: {}\n"
+          createDirectoryIfMissing True source
+          TIO.writeFile (source </> "flake.nix") original
+          TIO.writeFile (source </> "host.nix") hostModule
+          TIO.writeFile (source </> "secrets.yaml") secrets
+          _ <- stageHostFlake source staged "/nix/store/new-nagare/nixos" (BuildVersion "0.2.0" (Just "new")) >>= either (assertFailure . T.unpack) pure
+          stagedFlake <- TIO.readFile (staged </> "flake.nix")
+          assertBool "target release is staged" ("Nagare platform version: 0.2.0" `T.isInfixOf` stagedFlake)
+          assertBool "target NixOS input is staged" ("path:/nix/store/new-nagare/nixos" `T.isInfixOf` stagedFlake)
+          TIO.readFile (staged </> "host.nix") >>= (@?= hostModule)
+          TIO.readFile (staged </> "secrets.yaml") >>= (@?= secrets)
+          commitStagedHostFlake staged source >>= either (assertFailure . T.unpack) pure
+          TIO.readFile (source </> "host.nix") >>= (@?= hostModule)
+          TIO.readFile (source </> "secrets.yaml") >>= (@?= secrets)
     ]
 
 fixtureConfig :: ContextName -> HostConfig

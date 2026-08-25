@@ -43,6 +43,7 @@ data PayloadManifest = PayloadManifest
   , pmPayloadId :: !Text
   , pmPlatformVersion :: !Text
   , pmSourceRevision :: !(Maybe Text)
+  , pmRollbackSupportedFrom :: ![Text]
   }
   deriving stock (Eq, Show)
 
@@ -53,6 +54,7 @@ instance Aeson.FromJSON PayloadManifest where
       <*> o .: "payloadId"
       <*> o .: "platformVersion"
       <*> o .: "sourceRevision"
+      <*> o Aeson..:? "rollbackSupportedFrom" Aeson..!= []
 
 data PlatformWorkspace = PlatformWorkspace
   { pwRoot :: !FilePath

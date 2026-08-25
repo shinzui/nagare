@@ -7,9 +7,11 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
+import Data.IORef
 import Data.Text qualified as T
 import Nagare.Platform.Paths
 import Nagare.Platform.Status
+import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
 import Nagare.Target (mkContextName)
 import Nagare.Version (BuildVersion (..), Compatibility (..))
@@ -93,7 +95,53 @@ platformTests =
             status = assessPlatformStatus release release release unknown unknown
         statusCompatibility status @?= LegacyUnknown
         guardPlatformMutation status @?= Right ()
+    , testCase "upgrade planning and apply persist every phase in order" $ do
+        events <- newIORef []
+        saved <- newIORef Nothing
+        let tx = newUpgradeTransaction "tx-1" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False "2026-08-25T19:00:00Z"
+            ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) (const (pure False))
+        planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
+        transactionState planned @?= Planned
+        applied <- applyUpgrade False ops planned >>= either (assertFailure . T.unpack) pure
+        transactionState applied @?= Completed
+        observed <- readIORef events
+        observed @?= previewPhases <> applyPhases
+        assertBool "context commit is final" (last (transactionPhases applied) == PhaseRecord ContextCommit Succeeded (Just "ok") (Just fixtureNow))
+        (Aeson.eitherDecode (Aeson.encode applied) :: Either String UpgradeTransaction) @?= Right applied
+    , testCase "failed apply preserves the old commit point and resume rechecks succeeded phases" $ do
+        events <- newIORef []
+        saved <- newIORef Nothing
+        failHost <- newIORef True
+        let run phase = do
+              shouldFail <- readIORef failHost
+              pure (if shouldFail && phase == HostApply then Left "host unavailable" else Right "ok")
+            satisfied phase = pure (phase == PulumiApply)
+            tx = newUpgradeTransaction "tx-2" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
+            ops = fixtureUpgradeOps events saved run satisfied
+        planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
+        failed <- applyUpgrade False ops planned
+        assertBool "first apply fails" (either (const True) (const False) failed)
+        Just persisted <- readIORef saved
+        transactionState persisted @?= TransactionFailed
+        observedAfterFailure <- readIORef events
+        assertBool "context commit did not run" (ContextCommit `notElem` observedAfterFailure)
+        writeIORef failHost False
+        resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
+        transactionState resumed @?= Completed
+        assertBool "context commit ran after recovery" (phaseState (last (transactionPhases resumed)) == Succeeded)
     ]
+
+fixtureNow :: T.Text
+fixtureNow = "2026-08-25T19:00:00Z"
+
+fixtureUpgradeOps :: IORef [UpgradePhase] -> IORef (Maybe UpgradeTransaction) -> (UpgradePhase -> IO (Either T.Text T.Text)) -> (UpgradePhase -> IO Bool) -> UpgradeOps
+fixtureUpgradeOps events saved run satisfied =
+  UpgradeOps
+    { runUpgradePhase = \phase -> modifyIORef' events (<> [phase]) >> run phase
+    , upgradePhaseSatisfied = satisfied
+    , saveUpgradeTransaction = writeIORef saved . Just
+    , upgradeNow = pure fixtureNow
+    }
 
 withFixture :: (FilePath -> IO a) -> IO a
 withFixture action = withSystemTempDirectory "nagare-platform-fixture" $ \root -> do
@@ -107,7 +155,7 @@ withFixture action = withSystemTempDirectory "nagare-platform-fixture" $ \root -
     ]
   BS.writeFile
     (root </> "release.json")
-    "{\"assetSchemaVersion\":1,\"payloadId\":\"test-payload\",\"platformVersion\":\"0.1.0\",\"sourceRevision\":null}"
+    "{\"assetSchemaVersion\":1,\"payloadId\":\"test-payload\",\"platformVersion\":\"0.1.0\",\"sourceRevision\":null,\"rollbackSupportedFrom\":[]}"
   BS.writeFile (root </> "infra" </> "pulumi" </> "Pulumi.prod.yaml") "config:\n  secret: local-only\n"
   action root
 

@@ -47,6 +47,19 @@ Platform-changing recipes call the shared guard before mutation. Cloud and local
 cluster only after all earlier bootstrap commands succeed, so the ConfigMap is an observed completion
 marker rather than an optimistic desired version.
 
+An explicit upgrade is a schema-versioned JSON transaction under the context's XDG state directory.
+Planning stages a content-addressed payload workspace and a copied host flake, then records Nix
+evaluation, Pulumi preview, and Kubernetes diff evidence. Apply records Pulumi, host, Kubernetes,
+cluster-stamp, and context-commit phases in that order. Each successful phase is persisted; resume
+re-checks the postcondition before skipping it. The host phase can advance only generated `flake.nix`
+and `flake.lock`; it never copies staged `host.nix` or `secrets.yaml` back over operator files. The
+context version is the final commit point.
+
+Release metadata may list versions from which selecting this release can later be reversed. Nagare
+offers an automated reverse transaction only when that direction was explicitly recorded and the old
+content-addressed workspace is retained. It does not claim to reverse application data or Pulumi
+schema migrations.
+
 ## Consequences
 
 Operators can distinguish CLI/payload drift from context intent and live host/cluster state. Known
@@ -57,3 +70,7 @@ Every future distribution channel must populate the same payload metadata and pr
 compatibility policy. A missing marker cannot prove compatibility, so automation that requires a
 strictly managed target must first adopt or upgrade it. The context pin remains operator intent; a
 later upgrade transaction advances it only after host and cluster phases succeed.
+
+Interrupted upgrades can leave the host or cluster at the target release while the context still
+names the previous version. That visible skew is intentional: status reports it, the transaction
+identifies the completed phase, and resume converges forward without inventing success.

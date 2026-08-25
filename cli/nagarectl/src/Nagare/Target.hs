@@ -30,6 +30,7 @@ module Nagare.Target
   , setCurrentContext
   , clearCurrentContext
   , deleteContext
+  , writeContextPlatformVersion
   , parseMode
   , parseContextEnv
   , readContextMap
@@ -49,6 +50,7 @@ module Nagare.Target
   )
 where
 
+import Control.Exception (IOException, try)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.List (sort)
 import Data.Map.Strict (Map)
@@ -62,7 +64,7 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , parseLocalObjectStore
   )
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
 
@@ -221,6 +223,32 @@ deleteContext name = do
   path <- contextFilePath name
   exists <- doesFileExist path
   if exists then removeFile path else pure ()
+
+-- | Atomically set the context's release intent while preserving every other
+-- line in the flat environment file. This is the final commit point of an
+-- upgrade transaction and is also reused by explicit legacy adoption.
+writeContextPlatformVersion :: ContextName -> Text -> IO (Either Text ())
+writeContextPlatformVersion name version = do
+  path <- contextFilePath name
+  exists <- doesFileExist path
+  if not exists
+    then pure (Left ("context '" <> contextNameText name <> "' does not exist"))
+    else do
+      result <- try $ do
+        contents <- TIO.readFile path
+        let retained = filter (not . isVersionLine) (T.lines contents)
+            rendered = T.unlines (retained <> ["export NAGARE_PLATFORM_VERSION=" <> version])
+            temporary = path <> ".upgrade"
+        TIO.writeFile temporary rendered
+        renameFile temporary path
+      pure $ case result of
+        Left (err :: IOException) -> Left ("could not update platform version in " <> T.pack path <> ": " <> T.pack (show err))
+        Right () -> Right ()
+  where
+    isVersionLine line =
+      let stripped = T.stripStart line
+       in "export NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
+            || "NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
 
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.

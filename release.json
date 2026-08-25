@@ -2,5 +2,6 @@
   "assetSchemaVersion": 1,
   "payloadId": "source-development",
   "platformVersion": "0.1.0",
-  "sourceRevision": null
+  "sourceRevision": null,
+  "rollbackSupportedFrom": []
 }
