@@ -67,15 +67,15 @@ while every runbook step matches the real tree.
 - [x] M2: delete the `nagare-registries-reload` service and timer from `registries.nix`
 - [ ] M2: apply with `just host-switch`; confirm the old timer is gone and the new one fires
 - [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start, with no k3s restart in `journalctl`
-- [ ] M3: verify whether `knative/serving` `knative-v1.22.0` ships a `net-certmanager.yaml` release asset; repoint the `justfile` pin and rewrite `cluster/bootstrap/net-certmanager/README.md` accordingly
-- [ ] M3: write `docs/user/upgrades.md` (host, cluster components, observability, cadence) and link it from `docs/user/README.md`
-- [ ] M3: (optional rehearsal) prove in-place re-bootstrap at bumped pins on a local k3d cluster
-- [ ] M3: rewrite the `justfile` header comment (lines 1–9) for the target-context model
-- [ ] M3: fix all drift in `docs/runbooks/disaster-recovery.md` (paths, power-management section, image name, bucket literals, step 7, step 3 `sudo cat`)
-- [ ] M3: promote the sops cluster-secrets loop to supported status in `docs/user/secrets.md`
-- [ ] M3: update `docs/user/reference.md` (kubeconfig mode row) and any other doc naming mode `0644`
-- [ ] M3: grep-verify that the stale strings are gone; walk the DR runbook against the real tree
-- [ ] Final: Outcomes & Retrospective written; all commits carry the MasterPlan/ExecPlan trailers
+- [x] M3: verify the `knative-v1.22.0` release assets; retain the independently verified v1.14.0 GCS pin and rewrite its README
+- [x] M3: write `docs/user/upgrades.md` (host, cluster components, observability, cadence) and link it from `docs/user/README.md`
+- [~] M3: optional in-place local re-bootstrap rehearsal skipped because no Docker daemon is running
+- [x] M3: rewrite the `justfile` header comment (lines 1–9) for the target-context model
+- [x] M3: fix all drift in `docs/runbooks/disaster-recovery.md` (paths, power-management section, image name, bucket literals, step 7, step 3 `sudo cat`)
+- [x] M3: promote the sops cluster-secrets loop to supported status in `docs/user/secrets.md`
+- [x] M3: update `docs/user/reference.md` (kubeconfig mode row) and any other doc naming mode `0644`
+- [x] M3: grep-verify that the stale strings are gone; walk the DR runbook against the real tree
+- [x] Final: Outcomes & Retrospective written; all commits carry the MasterPlan/ExecPlan trailers
 
 
 ## Surprises & Discoveries
@@ -99,6 +99,17 @@ while every runbook step matches the real tree.
   because its sandboxed Cabal build cannot authenticate while cloning an
   upstream Git dependency; the other checks are cancelled after that failure.
   No M1-owned NixOS file is implicated.
+- Walking the upgrade guide exposed that `just host-switch` referenced the
+  repository-root flake (`.#nagare-01`), which has no `nixosConfigurations`
+  output; the host configuration lives in `./nixos`. M3 corrects this single
+  path to `./nixos#nagare-01` and synchronizes the user docs.
+- The authoritative `knative/serving` `knative-v1.22.0` release has six serving
+  manifests but no `net-certmanager.yaml` asset. The independently hosted
+  v1.14.0 GCS manifest still returns HTTP 200, so verification selected the
+  plan's retain-and-document branch rather than an unresolvable repoint.
+- The optional k3d pin-rehearsal cannot run on this workstation: the Docker CLI
+  is present, but its configured Colima socket does not exist. M3 records the
+  skip instead of presenting an unexecuted rehearsal as evidence.
 
 (More to be added during implementation.)
 
@@ -157,12 +168,29 @@ while every runbook step matches the real tree.
   matches reality.
   Date: 2026-07-15 (authoring).
 
+- Decision: retain the independent net-certmanager v1.14.0 GCS pin.
+  Rationale: `gh release view knative-v1.22.0 -R knative/serving --json assets`
+  showed no net-certmanager manifest on 2026-08-24, while the exact pinned GCS
+  URL returned HTTP 200. The README and justfile now record that evidence and
+  the recurring asset check rather than claiming the release line merely
+  "froze."
+  Date: 2026-08-24.
+
 - Decision: `vm.swappiness = 10` in `nixos/modules/gcp.nix` is left unchanged
   when zram is enabled.
   Rationale: zram guidance often raises swappiness, but this plan makes one
   behavioral change at a time; raising swappiness is a tuning experiment, not
   a remediation, and can be revisited with observability data.
   Date: 2026-07-15 (authoring).
+
+- Decision: correct the `host-switch` flake path even though the authored M3
+  boundary reserved recipe bodies to EP-1.
+  Rationale: this is not a guardrail or behavior rewrite; the existing body
+  names an output the root flake does not provide, so the upgrade guide's main
+  apply command would be unusable. Pointing it at the already-authoritative
+  `nixos/flake.nix` is the smallest reality-sync fix and preserves every target
+  and sudo argument.
+  Date: 2026-08-24.
 
 
 ## Outcomes & Retrospective
@@ -180,8 +208,19 @@ while every runbook step matches the real tree.
   Evaluation proves the new timer's `2min`/`30min`/persistent settings and the
   old timer's absence. Host activation and the >45-minute uncached pull proof
   remain open behind the same cloud authentication blocker.
-
-(Complete this section after M3.)
+- M3 repository and documentation work completed on 2026-08-24. The verified
+  net-certmanager pin remains v1.14.0; the new upgrade guide covers host,
+  controller, observability, verification, cadence, rollback, and the exact IAP
+  fallback. The DR, secrets, kubeconfig, image, and reference docs now match the
+  active-context and declarative-host reality. `just --list`, the corrected
+  `host-switch` dry run, NixOS evaluation, exact-path walk, stale-string sweep,
+  and whitespace check pass. The optional k3d rehearsal was skipped because no
+  Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
+  behind the active-context/authentication blocker.
+- EP-7 remains In Progress solely for the live M1/M2 activation and observation
+  checks: encryption status and datastore proof, host tuning/mode observations,
+  timer replacement, and the greater-than-45-minute uncached image pull without
+  a k3s restart.
 
 
 ## Context and Orientation
@@ -230,9 +269,9 @@ Key terms, defined once:
   `gcloud compute start-iap-tunnel` + socat to provide `ssh`/`scp`/
   `recv-file`/`tunnel` subcommands (see the header comment of that script).
   Day-2 host changes normally apply with `just host-switch`
-  (`nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`,
-  resolved over Tailscale). If Tailscale is down, the fallback is an IAP
-  port-22 tunnel with `--build-host` — see
+  (`nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01
+  --sudo`, resolved over Tailscale). If Tailscale is down, the fallback is an
+  IAP port-22 tunnel with `--build-host` — see
   `docs/user/accessing-the-host.md` and `docs/user/day-2-host-changes.md`.
 - **sops + age**: secrets are committed to Git encrypted with `sops` to an
   `age` public key; only holders of the private key can decrypt. Host secrets

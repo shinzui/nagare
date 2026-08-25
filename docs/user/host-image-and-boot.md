@@ -50,7 +50,8 @@ breaks `nixosConfigurations.nagare-01` evaluation. It's correctly shared here.)
 `nixos/hosts/nagare-01/` configures:
 
 - **k3s** (`k3s.nix`) — `role = server`, Traefik disabled, ServiceLB kept,
-  kubeconfig mode `0644`, local-path storage at `/var/lib/nagare/local-path`.
+  kubeconfig mode `0640 root:wheel`, Secret encryption enabled, local-path
+  storage at `/var/lib/nagare/local-path`.
   Ordered after the data-disk mount and the directory-layout unit.
 - **Storage** (`storage.nix`) — auto-formats the blank data disk to ext4 on
   first boot (idempotent), mounts it `nofail` at `/var/lib/nagare`, then creates

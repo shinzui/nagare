@@ -18,13 +18,13 @@ Edit the relevant file under `nixos/`, then:
 
 ```bash
 just host-switch
-# = nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo
+# = nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo
 ```
 
 What each flag does:
 
-- `--flake .#nagare-01` — build the `nixosConfigurations.nagare-01` defined in
-  `nixos/flake.nix`.
+- `--flake ./nixos#nagare-01` — build the
+  `nixosConfigurations.nagare-01` defined in `nixos/flake.nix`.
 - `--target-host nagare-01` — activate it on the remote host (resolved via
   Tailscale; you must be able to `ssh deploy@nagare-01`).
 - `--sudo` — the `deploy` user isn't root, so activation runs under `sudo`.
@@ -35,6 +35,32 @@ The build happens on a builder; because the workstation is `aarch64-darwin`, the
 as the image build — see [Host image and first boot](host-image-and-boot.md)).
 `deploy` is a Nix `trusted-user` (`@wheel`), so it can receive the pushed
 closure.
+
+## Break-glass switch over IAP
+
+If Tailscale is unavailable, tunnel SSH port 22 to localhost and make the VM
+both the build host and target host. The `NIX_SSHOPTS` value applies the tunnel
+port and the same declarative operator identity to every SSH connection opened
+by `nixos-rebuild`:
+
+```bash
+TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)
+trap 'kill "$TUNPID" 2>/dev/null || true' EXIT
+
+export NIX_SSHOPTS="-p 2222 -i ${SSH_KEY:-$HOME/.ssh/id_ed25519} \
+  -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null"
+nixos-rebuild switch --flake ./nixos#nagare-01 \
+  --build-host deploy@127.0.0.1 --target-host deploy@127.0.0.1 --sudo
+
+unset NIX_SSHOPTS
+kill "$TUNPID"
+trap - EXIT
+```
+
+The active target context supplies the project and zone used by the IAP
+wrapper. Run the command from the repository root so the relative flake path
+resolves correctly.
 
 ## How the host config is organized
 
@@ -76,7 +102,8 @@ entry and the consuming module, then a `host-switch`.
 ### Change k3s flags
 
 Edit `nixos/hosts/nagare-01/k3s.nix`. The current server flags are
-`--disable=traefik --write-kubeconfig-mode=0644
+`--disable=traefik --write-kubeconfig-mode=0640 --write-kubeconfig-group=wheel
+--secrets-encryption
 --default-local-storage-path=/var/lib/nagare/local-path` (ServiceLB is
 intentionally left enabled — Kourier needs a LoadBalancer). k3s is ordered after
 the data-disk mount and the `nagare-data-layout` unit; preserve that ordering if

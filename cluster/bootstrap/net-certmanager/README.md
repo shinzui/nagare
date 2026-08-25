@@ -7,16 +7,23 @@ resources, which the `letsencrypt-dns` ClusterIssuer fulfils via DNS-01.
 
 ## Install
 
-net-certmanager release artifacts left GitHub after v1.14.0, and its version
-line **diverged from Knative's and froze at v1.14.0** — the Knative GCS bucket's
-`net-certmanager/latest/` and newest `previous/` both resolve to **v1.14.0**
-(April 2024). So v1.14.0 is the current net-certmanager even against Knative
-Serving v1.22; there is no v1.22.0 net-certmanager. To check for a newer one:
-`gsutil ls gs://knative-releases/net-certmanager/previous/`.
+The controller is pinned independently at v1.14.0 in the Knative release GCS
+bucket. On 2026-08-24, the authoritative `knative/serving` v1.22.0 release asset
+list contained six serving manifests and no `net-certmanager.yaml`, while this
+GCS artifact still returned HTTP 200. Therefore it cannot be versioned from
+`knative_version` and the independent pin remains evidence-based rather than an
+assumed lockstep release.
 
 ```bash
 kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/v1.14.0/net-certmanager.yaml
 kubectl -n knative-serving rollout status deploy/net-certmanager-controller
+```
+
+Before changing the pin, inspect both sources again:
+
+```bash
+gh release view knative-v1.22.0 -R knative/serving --json assets --jq '.assets[].name'
+gsutil ls gs://knative-releases/net-certmanager/previous/
 ```
 
 Compatibility: the v1.14.0 controller reconciles `networking.internal.knative.dev`

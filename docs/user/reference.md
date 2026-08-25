@@ -26,7 +26,7 @@ host `<region>-docker.pkg.dev`, buckets `<project>-nagare-*`, SA
 | Image-staging bucket | `tan-nb-exp-nagare-images` |
 | Data disk device | `/dev/disk/by-id/google-nagare-data` → mounted at `/var/lib/nagare` |
 | Host age key (on host) | `/var/lib/sops-nix/age-key.txt` |
-| k3s kubeconfig (on host) | `/etc/rancher/k3s/k3s.yaml` (mode `0644`) |
+| k3s kubeconfig (on host) | `/etc/rancher/k3s/k3s.yaml` (mode `0640`, owner `root:wheel`) |
 | NixOS `stateVersion` | `26.05` |
 
 ## Context store
@@ -106,7 +106,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
 | `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
 | `just nixos-registry-host` | Regenerate the NixOS registry-host projection from the active context | MP-17 EP-91 |
-| `just host-switch` | `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo` | EP-3 |
+| `just host-switch` | `nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo` | EP-3 |
 | `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ |
 | `just cluster-enable-tls` | Enable Knative external-domain TLS after DNS delegation | EP-4 |
 | `just job-runs-bootstrap` | Apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ |
@@ -194,7 +194,9 @@ Created by the `nagare-data-layout` unit *after* the data-disk mount:
 
 ```text
 --disable=traefik
---write-kubeconfig-mode=0644
+--write-kubeconfig-mode=0640
+--write-kubeconfig-group=wheel
+--secrets-encryption
 --default-local-storage-path=/var/lib/nagare/local-path
 ```
 
@@ -244,7 +246,7 @@ project's existing bindings).
 ## Global `nagarectl` target selection
 
 The global parser accepts `nagarectl --context NAME ...`. Commands that resolve
-a Nagare target profile use it instead of `NAGARE_CONTEXT` or the
+a Nagare target context use it instead of `NAGARE_CONTEXT` or the
 current-context pointer. Kubernetes-only lifecycle commands still use the
 current `kubectl` context, so verify that it names the same target before a live
 operation.
