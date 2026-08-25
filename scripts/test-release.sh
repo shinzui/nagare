@@ -59,6 +59,12 @@ for system in x86_64-linux aarch64-darwin; do
         nagarectl: {narHash: "sha256-cli", narSize: 1},
         "nagare-platform": {narHash: "sha256-platform", narSize: 2}
       }}' > "$native_dir/nix-output-$system.json"
+  jq -n -S \
+    --arg system "$system" \
+    '{version: "0.1.0", revision: "fixture-revision", system: $system,
+      supportedSystems: ["x86_64-linux", "aarch64-darwin"], cloneFree: true,
+      checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe"]}' \
+    > "$native_dir/clone-free-$system.json"
 done
 "$repo_root/scripts/assemble-release.sh" \
   --version 0.1.0 \
@@ -67,6 +73,8 @@ done
 test -s "$test_root/assembled/nagare-release-0.1.0.json"
 test -s "$test_root/assembled/nix-output-x86_64-linux.json"
 test -s "$test_root/assembled/nix-output-aarch64-darwin.json"
+test -s "$test_root/assembled/clone-free-x86_64-linux.json"
+test -s "$test_root/assembled/clone-free-aarch64-darwin.json"
 test -s "$test_root/assembled/SHA256SUMS"
 
 expect_failure malformed-version \

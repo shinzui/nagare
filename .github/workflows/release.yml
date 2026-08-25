@@ -95,6 +95,18 @@ jobs:
           fi
           ./scripts/check-release.sh "${args[@]}" > "$artifact_dir/gate.json"
 
+      - name: Rehearse clone-free operation
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          set -euo pipefail
+          flake_ref="git+file://$GITHUB_WORKSPACE?rev=$GITHUB_SHA"
+          ./scripts/rehearse-clone-free-release.sh \
+            --version "$VERSION" \
+            --flake-ref "$flake_ref" \
+            --output "artifacts/$SYSTEM/clone-free-$SYSTEM.json"
+
       - name: Record native Nix output identities
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -167,6 +179,8 @@ jobs:
             "nagare-v$VERSION.md" \
             "nix-output-x86_64-linux.json" \
             "nix-output-aarch64-darwin.json" \
+            "clone-free-x86_64-linux.json" \
+            "clone-free-aarch64-darwin.json" \
             SHA256SUMS; do
             gh release download "$TAG" --dir existing-release --pattern "$asset"
             cmp "dist/$asset" "existing-release/$asset"
@@ -189,4 +203,6 @@ jobs:
             dist/nagare-v${{ needs.prepare.outputs.version }}.md
             dist/nix-output-x86_64-linux.json
             dist/nix-output-aarch64-darwin.json
+            dist/clone-free-x86_64-linux.json
+            dist/clone-free-aarch64-darwin.json
             dist/SHA256SUMS
