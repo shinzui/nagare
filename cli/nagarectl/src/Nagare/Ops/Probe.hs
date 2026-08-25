@@ -39,6 +39,7 @@ module Nagare.Ops.Probe
   , parseConfigDomain
   , parseClusterIssuerReady
   , parseNewestBackupAge
+  , backupPrefixes
   , parseDfUsage
 
     -- * EP-4 doctor-correctness helpers (unit-tested)
@@ -48,12 +49,11 @@ module Nagare.Ops.Probe
   , parseSkipTagResolvingHosts
   , parseNodeArch
   , gradeArch
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Cradle
 import Control.Exception (IOException, catch)
+import Cradle
 import Data.Aeson (decodeStrict)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -63,6 +63,7 @@ import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
+import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
 
 -- ---------------------------------------------------------------------------
@@ -250,6 +251,17 @@ parseNewestBackupAge out =
         , "T" `T.isInfixOf` t -- crude RFC3339 filter
         ]
    in if null stamps then Nothing else Just (maximum stamps)
+
+-- | Object-store prefixes probed by @nagarectl server status@ for backup
+-- freshness. Managed database dumps live under @databases/<name>@; when no
+-- databases can be discovered, retain one database-level fallback probe so a
+-- missing or unreachable cluster does not erase backup visibility altogether.
+-- The removed host-Postgres flow's legacy @postgres@ prefix is intentionally
+-- absent.
+backupPrefixes :: [Text] -> [Text]
+backupPrefixes dbNames =
+  (if null dbNames then ["databases"] else map ("databases/" <>) dbNames)
+    <> ["litestream", "volumes"]
 
 -- | Extract a @"<Use%> of <Size>"@ description for a given mountpoint from
 -- @df -h@ output. The standard six columns are

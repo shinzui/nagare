@@ -33,6 +33,8 @@ helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version "$VMKS_VERSI
   -f "$ROOT/victoria-metrics/values.yaml" --wait --timeout 10m
 
 kubectl apply -f "$ROOT/brokers/vmservicescrape.yaml"
+kubectl apply -f "$ROOT/cert-manager/vmservicescrape.yaml"
+kubectl apply -f "$ROOT/vmrules/nagare-alerts.yaml"
 kubectl -n monitoring create configmap grafana-dashboard-nagare-brokers \
   --from-file=nagare-brokers.json="$ROOT/grafana/dashboards/nagare-brokers.json" \
   --dry-run=client -o yaml | \

@@ -4,6 +4,7 @@ slug: alerting-and-backup-freshness-monitoring
 title: "Alerting and backup freshness monitoring"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
+intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 ---
 
@@ -55,27 +56,35 @@ After this plan is implemented:
       `alertmanager.yaml`, Pushover receiver).
 - [ ] M1: Edit `cluster/observability/victoria-metrics/values.yaml` — enable
       `alertmanager` and `vmalert` with trimmed resources, point Alertmanager at
-      the config Secret, set `defaultRules.create: false`.
+      the config Secret, remove M2's blackhole notifier, and retain
+      `defaultRules.enabled: false`.
 - [ ] M1: Edit `cluster/observability/install.sh` — apply the Alertmanager
       Secret before the vmks helm upgrade.
 - [ ] M1: Run `just observability`; confirm the vmalert and Alertmanager pods
       are Running in `monitoring`.
 - [ ] M1: Inject a synthetic alert into Alertmanager and receive the push
       notification on the phone.
+- [x] M2: Enable vmalert with trimmed resources and an explicit blackhole
+      notifier while M1's operator-owned Pushover credential is unavailable;
+      disable the chart's bundled rules with the current `defaultRules.enabled`
+      key. Exact chart 0.81.0 render passed. (2026-08-24)
 - [ ] M2: Verify metric names against the live cluster in vmui (node-exporter
-      filesystem metrics, kube-state-metrics CronJob/restart/node metrics).
-- [ ] M2: Add `cluster/observability/cert-manager/vmservicescrape.yaml` so
-      cert-manager's metrics (certificate expiry timestamps) are scraped.
-- [ ] M2: Add `cluster/observability/vmrules/nagare-alerts.yaml` with the five
-      alert rules; wire both new manifests into `install.sh`.
-- [ ] M2: Add pure `backupPrefixes` to `cli/nagarectl/src/Nagare/Ops/Probe.hs`,
+      filesystem metrics, kube-state-metrics CronJob/restart/node metrics). The
+      cloud context still requires interactive reauthentication.
+- [x] M2: Add `cluster/observability/cert-manager/vmservicescrape.yaml` using
+      the selector and port verified against upstream cert-manager v1.20.2.
+      (2026-08-24)
+- [x] M2: Add `cluster/observability/vmrules/nagare-alerts.yaml` with six rules
+      covering five failure modes; wire both manifests into `install.sh`;
+      `promtool` reports all six rules valid. (2026-08-24)
+- [x] M2: Add pure `backupPrefixes` to `cli/nagarectl/src/Nagare/Ops/Probe.hs`,
       rewire `gatherInventory` in `cli/nagarectl/src/Nagare/Ops/Status.hs` to
       enumerate managed databases and probe `databases/<name>` prefixes; drop
-      the legacy `postgres` probe.
-- [ ] M2: Add unit tests for `backupPrefixes` to `cli/nagarectl/test/Spec.hs`;
-      `cabal test` green.
-- [ ] M2: Update `docs/runbooks/disaster-recovery.md` (line ~45) so the restore
-      map reads `databases/<name>/` instead of `postgres/`.
+      the legacy `postgres` probe. (2026-08-24)
+- [x] M2: Add unit tests for `backupPrefixes` to `cli/nagarectl/test/Spec.hs`;
+      all 363 tests pass. (2026-08-24)
+- [x] M2: Update `docs/runbooks/disaster-recovery.md` so the restore map has
+      only the managed `databases/<name>/` layout. (2026-08-24)
 - [ ] M2: `nagarectl server status` against the live cluster shows
       `backup databases/<name>` lines with fresh ages.
 - [ ] M3: Append the managed-DB backup→restore round-trip (new step 5) to
@@ -87,7 +96,25 @@ After this plan is implemented:
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Mori has no registered VictoriaMetrics, cert-manager, or kube-state-metrics
+  project, so their pinned interfaces were checked against the exact Helm chart,
+  upstream release tag/manifests, and upstream metric documentation instead.
+  (2026-08-24)
+- The cert-manager Service port in the exact v1.20.2 release manifest is
+  `tcp-prometheus-servicemonitor`, not the plan's
+  `tcp-prometheus-servicemonitoring`. The latter would have silently selected no
+  endpoint. Its selector labels match the planned name/component labels.
+  (2026-08-24)
+- Chart 0.81.0 prefers `defaultRules.enabled` (the old `create` remains only a
+  fallback) and refuses to render vmalert without a notifier. Because M1's
+  Pushover credential is operator-owned, M2 uses
+  `extraArgs.notifier.blackhole: "true"`; M1 must remove that flag when enabling
+  the real Alertmanager notifier. (2026-08-24)
+- kube-state-metrics can expose both `kube_job_status_failed` and
+  `kube_job_status_succeeded` for a Job whose earlier attempt failed but retry
+  succeeded. The backup-failure rule therefore subtracts successful Jobs. The
+  stale rule also covers CronJobs older than 48 hours that have never succeeded,
+  for which no last-success series exists. (2026-08-24)
 
 
 ## Decision Log
@@ -121,7 +148,7 @@ After this plan is implemented:
   `databases/<name>/` prefixes via `gsutil`.
   Date: 2026-07-15.
 
-- Decision: Set `defaultRules.create: false` in the vmks chart values and ship a
+- Decision: Disable the chart's default rules and ship a
   single curated VMRule instead of the chart's bundled kube-prometheus rule
   library.
   Rationale: the bundled library assumes a full multi-node cluster and alerts on
@@ -129,7 +156,8 @@ After this plan is implemented:
   etcd, HA quorum), which would fire permanently-false alerts on a single-node
   k3s box and train the operator to ignore the channel. Five meaningful rules
   the operator will actually act on beat two hundred noisy ones.
-  Date: 2026-07-15.
+  Date: 2026-07-15. Implemented with the current chart key
+  `defaultRules.enabled: false` on 2026-08-24.
 
 - Decision: `nagarectl server status` enumerates managed databases with the
   existing `Nagare.Database.Discover.listDatabases` in the `personal` namespace
@@ -162,10 +190,25 @@ After this plan is implemented:
   other plans.
   Date: 2026-07-15.
 
+- Decision: Implement and validate M2 with vmalert in explicit blackhole mode
+  while M1 remains blocked on operator-owned Pushover credentials and live phone
+  delivery.
+  Rationale: rule evaluation, scrape selection, and backup-freshness correctness
+  are independent repository work. Chart 0.81.0 requires an explicit notifier;
+  blackhole mode makes the temporary no-delivery state deliberate and renderable
+  without inventing credentials. M1 removes the flag when its real notifier is
+  enabled.
+  Date: 2026-08-24.
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+M2's repository implementation is complete: the exact pinned chart renders,
+the cert-manager scrape matches the pinned upstream Service, all six PromQL
+rules pass `promtool`, and all 363 nagarectl tests pass. Live series discovery,
+rule evaluation, and the status transcript remain open because the cloud context
+requires interactive gcloud reauthentication. M1 remains operator-gated on real
+Pushover credentials and phone delivery.
 
 
 ## Context and Orientation
@@ -281,7 +324,7 @@ this plan touches:
 - `cert-manager` — installed in namespace `cert-manager` from the upstream
   v1.20.2 manifest (see `cluster/bootstrap/cert-manager/README.md`). The
   upstream manifest's `cert-manager` Service exposes the controller's metrics
-  on port 9402 (port name `tcp-prometheus-servicemonitoring`), which nothing
+  on port 9402 (port name `tcp-prometheus-servicemonitor`), which nothing
   currently scrapes. cert-manager exports
   `certmanager_certificate_expiration_timestamp_seconds` per Certificate.
 
@@ -348,7 +391,7 @@ config (with Pushover credentials) from a sops-managed Secret, and wire the
 Secret into `cluster/observability/install.sh`. At the end, `kubectl get pods
 -n monitoring` shows vmalert and Alertmanager Running, and a synthetic alert
 POSTed to Alertmanager arrives as a push notification on the phone. No rules
-exist yet (`defaultRules.create: false` and no VMRule) — the pipeline is
+exist yet (`defaultRules.enabled: false` and no VMRule) — the pipeline is
 deliberately validated empty so rule bugs (M2) can never be confused with
 delivery bugs.
 
@@ -432,7 +475,7 @@ The edits:
    # Alerting starts from the curated VMRule in
    # cluster/observability/vmrules/nagare-alerts.yaml (EP-101 M2).
    defaultRules:
-     create: false
+     enabled: false
    ```
 
    Do not touch any other block, especially `grafana:` (owned by plan 100).
@@ -478,7 +521,7 @@ synthetic alert POSTed to Alertmanager's API produces a push notification on
 the phone within ~a minute (exact commands and transcripts in Concrete Steps).
 
 
-### Milestone 2 — five real alert rules, and a truthful freshness probe
+### Milestone 2 — six rules for five failure modes, and a truthful freshness probe
 
 Scope: give vmalert its rules, add the one missing scrape (cert-manager), and
 fix `nagarectl server status` to probe `databases/<name>/`. At the end, `kubectl
@@ -524,7 +567,7 @@ rule, and record the substitution. `certmanager_*` names are verified after 2b.
 ```yaml
 # Scrape cert-manager's controller metrics (EP-101): the upstream v1.20.x
 # manifest's `cert-manager` Service exposes port 9402, name
-# "tcp-prometheus-servicemonitoring". VMAgent's selectAllByDefault picks this
+# "tcp-prometheus-servicemonitor". VMAgent's selectAllByDefault picks this
 # object up automatically. Feeds the CertificateExpiringSoon rule
 # (certmanager_certificate_expiration_timestamp_seconds).
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -543,7 +586,7 @@ spec:
       app.kubernetes.io/name: cert-manager
       app.kubernetes.io/component: controller
   endpoints:
-    - port: tcp-prometheus-servicemonitoring
+    - port: tcp-prometheus-servicemonitor
       path: /metrics
       interval: 60s
 ```
@@ -567,7 +610,7 @@ empty and the rule simply cannot fire yet; note that in the report).
 ```yaml
 # The curated Nagare alert set (EP-101). Five rules the operator will actually
 # act on; the chart's bundled kube-prometheus library is disabled
-# (defaultRules.create: false in victoria-metrics/values.yaml) because it
+# (defaultRules.enabled: false in victoria-metrics/values.yaml) because it
 # false-fires on single-node k3s. Expressions are plain PromQL (valid
 # MetricsQL). Applied by cluster/observability/install.sh; vmalert discovers it
 # via selectAllByDefault.
@@ -625,8 +668,12 @@ spec:
         - alert: BackupJobFailed
           # A run of any nagare-dbbackup-<name> CronJob failed. kube-state-
           # metrics exposes child Jobs as kube_job_status_failed{job_name=...};
-          # the CronJob's children inherit its name prefix.
-          expr: kube_job_status_failed{job_name=~"nagare-dbbackup-.*"} > 0
+          # the CronJob's children inherit its name prefix. Exclude an
+          # eventually successful Job whose earlier attempt failed.
+          expr: |
+            kube_job_status_failed{job_name=~"nagare-dbbackup-.*"} > 0
+              unless on(namespace, job_name)
+                kube_job_status_succeeded{job_name=~"nagare-dbbackup-.*"} > 0
           for: 5m
           labels:
             severity: warning
@@ -639,7 +686,12 @@ spec:
           # catches a suspended or deleted-but-expected CronJob going quiet
           # only while the metric exists; the nagarectl server status probe
           # (this plan, M2) covers the object-store view on demand.
-          expr: (time() - kube_cronjob_status_last_successful_time{cronjob=~"nagare-dbbackup-.*"}) > 172800
+          expr: |
+            (time() - kube_cronjob_status_last_successful_time{cronjob=~"nagare-dbbackup-.*"}) > 172800
+              or
+            (time() - kube_cronjob_created{cronjob=~"nagare-dbbackup-.*"} > 172800
+              unless on(namespace, cronjob)
+                kube_cronjob_status_last_successful_time{cronjob=~"nagare-dbbackup-.*"})
           for: 30m
           labels:
             severity: warning
@@ -751,7 +803,7 @@ Finally, update the restore map in `docs/runbooks/disaster-recovery.md` (~line
 and reality.
 
 Acceptance for M2: `cabal test` green; `kubectl get vmrule -n monitoring` shows
-only `nagare-alerts`; vmalert's rule status shows all five rules evaluating
+only `nagare-alerts`; vmalert's rule status shows all six rules evaluating
 without errors; `nagarectl server status` shows `backup databases/<name>` lines
 (transcripts in Validation).
 
@@ -969,7 +1021,7 @@ vmservicescrape.operator.victoriametrics.com/nagare-brokers
 ```
 
 Check vmalert accepted the rules (port-forward the vmalert service, open
-`http://127.0.0.1:8080/vmalert/groups` — all five rules listed, none in an
+`http://127.0.0.1:8080/vmalert/groups` — all six rules listed, none in an
 error state; or grep the vmalert container logs for `error`).
 
 **M2.3 — the probe fix.** Apply the Haskell edits from Plan of Work 2d, then:
@@ -1174,3 +1226,9 @@ restore target; `nagare-db-<name>` Secret/PVC naming), `.sops.yaml` +
 `scripts/local-smoke.sh` + `scripts/live-smoke.sh` + `justfile`,
 `.github/workflows/live-smoke.yml` (dispatch-only), and
 `docs/user/backups-and-disaster-recovery.md` + `docs/runbooks/disaster-recovery.md`.
+
+Revision note (2026-08-24): implemented M2 while preserving M1's operator-only
+Pushover gate; corrected the cert-manager v1.20.2 port, current chart key and
+notifier requirement, backup retry false-positive, and never-succeeded CronJob
+case. Reason: exact pinned dependency verification exposed material drift from
+the authored assumptions.

@@ -179,6 +179,7 @@ import Nagare.Ops.Probe
   ( KourierEvidence (..)
   , Probe (..)
   , ProbeStatus (..)
+  , backupPrefixes
   , gradeArch
   , gradeKourier
   , parseClusterIssuerReady
@@ -1090,6 +1091,11 @@ opsTests =
       parseNewestBackupAge gsutilLs @?= Just "2026-06-09T03:00:01Z"
   , testCase "parseNewestBackupAge: empty prefix" $
       parseNewestBackupAge "" @?= Nothing
+  , testCase "backupPrefixes: one databases/<name> prefix per db + fixed tails" $
+      backupPrefixes ["notes", "shop"]
+        @?= ["databases/notes", "databases/shop", "litestream", "volumes"]
+  , testCase "backupPrefixes: no discoverable dbs -> bare databases prefix" $
+      backupPrefixes [] @?= ["databases", "litestream", "volumes"]
   , testCase "parseDfUsage: data mount" $
       parseDfUsage dfOutput "/var/lib/nagare" @?= Just "12% of 100G"
   , testCase "parseDfUsage: boot mount" $

@@ -1,0 +1,89 @@
+# Curated alerts for Nagare's single-node k3s platform. These six rules cover
+# the five operator-relevant failure modes; the chart's broad multi-node rule
+# library is deliberately disabled in victoria-metrics/values.yaml.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: nagare-alerts
+  namespace: monitoring
+  labels:
+    nagare.dev/component: alerting
+spec:
+  groups:
+    - name: nagare.node
+      interval: 60s
+      rules:
+        - alert: DiskUsageHigh
+          expr: |
+            (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}
+               / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}) * 100
+              > 80
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Disk {{ $labels.mountpoint }} is {{ $value | printf "%.0f" }}% full'
+            description: 'Filesystem {{ $labels.mountpoint }} has been above 80% for 15m. Free space or grow the disk.'
+        - alert: NodeNotReady
+          expr: |
+            kube_node_status_condition{condition="Ready",status="true"} == 0
+              or absent(kube_node_status_condition{condition="Ready",status="true"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'The k3s node is NotReady or absent for 5m'
+            description: 'Check the VM, then inspect the node and k3s service.'
+    - name: nagare.workloads
+      interval: 60s
+      rules:
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[30m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping'
+            description: 'Container {{ $labels.container }} restarted more than three times in 30m.'
+    - name: nagare.backups
+      interval: 60s
+      rules:
+        - alert: BackupJobFailed
+          # kube-state-metrics retains failed attempts even if a retry later
+          # succeeds. Exclude Jobs with any successful completion.
+          expr: |
+            kube_job_status_failed{job_name=~"nagare-dbbackup-.*"} > 0
+              unless on(namespace, job_name)
+                kube_job_status_succeeded{job_name=~"nagare-dbbackup-.*"} > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Database backup job {{ $labels.job_name }} failed'
+            description: 'Inspect the Job logs, fix the cause, and run nagarectl db backup manually.'
+        - alert: BackupStale
+          # Alert after two missed daily backups, including a CronJob that has
+          # existed for 48h but has never completed successfully.
+          expr: |
+            (time() - kube_cronjob_status_last_successful_time{cronjob=~"nagare-dbbackup-.*"}) > 172800
+              or
+            (time() - kube_cronjob_created{cronjob=~"nagare-dbbackup-.*"} > 172800
+              unless on(namespace, cronjob)
+                kube_cronjob_status_last_successful_time{cronjob=~"nagare-dbbackup-.*"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Backups of {{ $labels.cronjob }} are stale'
+            description: 'The daily dump has not succeeded in 48h. Inspect the CronJob and recent Jobs, then confirm object ages with nagarectl server status.'
+    - name: nagare.certificates
+      interval: 300s
+      rules:
+        - alert: CertificateExpiringSoon
+          expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < 1209600
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in less than 14d'
+            description: 'Inspect the Certificate and its issuer; renewal is likely failing.'

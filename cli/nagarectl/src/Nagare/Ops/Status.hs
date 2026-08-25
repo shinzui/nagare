@@ -12,9 +12,8 @@
 module Nagare.Ops.Status
   ( gatherInventory
   , inventoryOptsFor
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Aeson (decodeStrict)
 import Data.Aeson qualified as Aeson
@@ -25,7 +24,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
-
+import Nagare.Database.Discover (DbRow (..), listDatabases)
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Target (TargetProfile (..), registryPrefix)
@@ -51,28 +51,28 @@ gatherInventory tp o = do
   publicIp <- stackOutput (ioPulumiDir o) "publicIp"
   baseDomain <- stackOutput (ioPulumiDir o) "baseDomain"
   bucket <- maybe (tpBackupBucket tp) id <$> stackOutput (ioPulumiDir o) "backupBucket"
+  dbNames <- either (const []) (map drName) <$> listDatabases "personal"
   core <-
     sequence
-      [ probeVm o
-      , probeNode
-      , probeDeploy "knative-serving" "controller" "Knative controller"
-      , probeDeploy "knative-serving" "webhook" "Knative webhook"
-      , probeDeploy "kourier-system" "3scale-kourier-gateway" "Kourier gateway"
-      , probeDeploy "cert-manager" "cert-manager" "cert-manager"
-      , probeDeploy "cert-manager" "cert-manager-webhook" "cert-manager-webhook"
-      , probeDeploy "cert-manager" "cert-manager-cainjector" "cert-manager-cainjector"
-      , probeDeploy "knative-serving" "net-certmanager-controller" "net-certmanager"
-      , probeClusterIssuer
-      , probeKourierIp publicIp
-      , probeBaseDomain baseDomain
-      , probeTls
-      , probeRegistryAuth tp
-      , probePrivateImagePull tp
-      , probeArch tp
-      , probeBackup bucket "postgres"
-      , probeBackup bucket "litestream"
-      , probeBackup bucket "volumes"
-      ]
+      ( [ probeVm o
+        , probeNode
+        , probeDeploy "knative-serving" "controller" "Knative controller"
+        , probeDeploy "knative-serving" "webhook" "Knative webhook"
+        , probeDeploy "kourier-system" "3scale-kourier-gateway" "Kourier gateway"
+        , probeDeploy "cert-manager" "cert-manager" "cert-manager"
+        , probeDeploy "cert-manager" "cert-manager-webhook" "cert-manager-webhook"
+        , probeDeploy "cert-manager" "cert-manager-cainjector" "cert-manager-cainjector"
+        , probeDeploy "knative-serving" "net-certmanager-controller" "net-certmanager"
+        , probeClusterIssuer
+        , probeKourierIp publicIp
+        , probeBaseDomain baseDomain
+        , probeTls
+        , probeRegistryAuth tp
+        , probePrivateImagePull tp
+        , probeArch tp
+        ]
+          <> map (probeBackup bucket) (backupPrefixes dbNames)
+      )
   disk <- probeDisk o
   pure (core <> disk)
 
