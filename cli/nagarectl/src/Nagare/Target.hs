@@ -46,15 +46,17 @@ module Nagare.Target
   , registryPrefix
   , minioCredentialsSecret
   , storeBackendFor
-  ) where
+  )
+where
 
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.List (sort)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Nagare.Cluster.GcsJob
   ( MinioRef (..)
   , StoreBackend (..)
@@ -344,7 +346,7 @@ parseContextEnv = Map.fromList . concatMap lineKV . T.lines
        in if T.null s || "#" `T.isPrefixOf` s
             then []
             else
-              let s' = maybe s id (T.stripPrefix "export " s)
+              let s' = fromMaybe s (T.stripPrefix "export " s)
                in case T.breakOn "=" s' of
                     (k, v)
                       | T.null v -> []
@@ -424,7 +426,7 @@ loadActiveContextMap arg = do
 -- ./nagare.target.env, then overlays ./nagare.local.env when local mode applies.
 inRepoMap :: IO (Map String Text)
 inRepoMap = do
-  base <- maybe Map.empty id <$> readContextMap "nagare.target.env"
+  base <- fromMaybe Map.empty <$> readContextMap "nagare.target.env"
   local <- readContextMap "nagare.local.env"
   envMode <- lookupEnv "NAGARE_MODE"
   let localIsActive = case local of

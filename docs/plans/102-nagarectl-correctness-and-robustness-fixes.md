@@ -99,11 +99,11 @@ that `b64decode` on non-UTF-8 bytes returns `Left` instead of throwing.
       idempotent already-stamped case; adapt `test/AppDeploySpec.hs` to the new
       `Either` shape.
 - [x] M2: build, test, format, commit.
-- [ ] M3: `fromMaybe` cleanup at `Target.hs:347`, `Target.hs:427`,
+- [x] M3: `fromMaybe` cleanup at `Target.hs:347`, `Target.hs:427`,
       `App/Deploy.hs:391` (plus the same-package incidental sites listed in the
       Plan of Work).
-- [ ] M3: full `cabal build all` + `cabal test nagarectl-test`, format, commit.
-- [ ] Final: update Progress, Surprises & Discoveries, Outcomes & Retrospective in
+- [x] M3: full `cabal build all` + `cabal test nagarectl-test`, format, commit.
+- [x] Final: update Progress, Surprises & Discoveries, Outcomes & Retrospective in
       this file; record evidence transcripts.
 
 
@@ -237,8 +237,11 @@ entries as they occur):
   fails when its anchor is missing and verifies the resulting top-level label
   structurally. The build passed, all 372 tests passed, and the fixed-tag dry-run
   transcript remained byte-identical before and after the change.
-
-(Complete this section after M3 with the style outcome.)
+- M3 completed on 2026-08-24. All six owned `maybe x id` sites now use
+  `fromMaybe`; the only remaining match in `cli/nagarectl/src` is
+  `Nagare.Ops.Status`, deliberately owned by EP-5. The final build and all 372
+  tests pass. EP-6 delivered every behavior in the Purpose without modifying
+  `nagare-dsl`, `nagare-access`, or the sibling-plan-owned status module.
 
 
 ## Context and Orientation

@@ -35,9 +35,8 @@ module Nagare.Cdn.Cloudflare
   , parseEnvelopeUnit
   , parseDnsRecordId
   , parseZoneId
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Control.Exception (catch)
 import Data.Aeson (Value (..), decodeStrict, eitherDecodeStrict, encode, object, (.=))
@@ -48,11 +47,11 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
+import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..))
+import Nagare.Dsl.Prelude hiding ((.=))
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (newTlsManager)
 import System.Environment (lookupEnv)
-
-import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..))
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -119,8 +118,8 @@ buildCacheRulesPayload hostname cdn =
   object
     [ "rules"
         .= ( map (pathRule hostname) (cacheRules cdn)
-              ++ staticAssetRules hostname (cacheStaticAssets cdn)
-              ++ defaultRules hostname (defaultTtlSeconds cdn)
+               ++ staticAssetRules hostname (cacheStaticAssets cdn)
+               ++ defaultRules hostname (defaultTtlSeconds cdn)
            )
     ]
 
@@ -211,8 +210,9 @@ envelopeErrors v =
   case lookupPath ["errors"] v of
     Just (Array errs)
       | not (V.null errs) ->
-          T.intercalate "; "
-            [maybe "unknown error" id (textAt ["message"] e) | e <- V.toList errs]
+          T.intercalate
+            "; "
+            [fromMaybe "unknown error" (textAt ["message"] e) | e <- V.toList errs]
     _ -> "Cloudflare reported failure with no error detail"
 
 -- | A record id from a Cloudflare response. Handles both a single-object

@@ -25,12 +25,11 @@ module Nagare.Ops.Cleanup
   , sumReclaimableBytes
   , formatCleanupReport
   , executeCleanup
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Cradle
 import Control.Monad (forM, forM_)
+import Cradle
 import Data.Aeson (decodeStrict)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -42,11 +41,11 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Data.Vector qualified as V
-import Numeric (showFFloat)
-import Text.Read (readMaybe)
-
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Static.Release qualified as Rel
+import Numeric (showFFloat)
+import Text.Read (readMaybe)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -142,7 +141,7 @@ parseCrictlImages bs =
 parseSize :: Text -> Integer
 parseSize t =
   let (numTxt, unit) = T.span (\c -> isDigit c || c == '.') t
-      n = maybe 0 id (readMaybe (T.unpack numTxt)) :: Double
+      n = fromMaybe 0 (readMaybe (T.unpack numTxt)) :: Double
       mult = case T.toLower unit of
         "b" -> 1
         "kb" -> 1000
@@ -188,13 +187,13 @@ formatCleanupReport rep =
             then ["  RELEASES   none to trim"]
             else
               [ "  RELEASES   "
-                <> subj
-                <> ": "
-                <> tshow (length removed)
-                <> ( if confirmed
-                       then " entries trimmed (current kept)"
-                       else " entries beyond keep would be trimmed (current kept)"
-                   )
+                  <> subj
+                  <> ": "
+                  <> tshow (length removed)
+                  <> ( if confirmed
+                         then " entries trimmed (current kept)"
+                         else " entries beyond keep would be trimmed (current kept)"
+                     )
               | (subj, removed) <- trs
               ]
     lastLine =
@@ -249,7 +248,8 @@ imageStep o = do
   m <- captureTool "scripts/iap-ssh.sh" ["ssh", "nagare-01", "--", "sudo k3s crictl images"]
   let imgs = maybe [] parseCrictlImages m
   when (confirm o) $
-    void $ captureTool "scripts/iap-ssh.sh" ["ssh", "nagare-01", "--", "sudo k3s crictl rmi --prune"]
+    void $
+      captureTool "scripts/iap-ssh.sh" ["ssh", "nagare-01", "--", "sudo k3s crictl rmi --prune"]
   pure (length imgs, sumReclaimableBytes imgs)
 
 -- | Previews: list the namespace's Knative Services, keep those matching the
