@@ -105,7 +105,7 @@ until the Nix-first path proves that the program is actually checkout-independen
 | 106 | Make Nagare platform assets resolvable outside a source checkout | docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md | EP-105 | None | Complete |
 | 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | Complete |
 | 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | Complete |
-| 109 | Publish versioned releases and clone-free onboarding | docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md | EP-107, EP-108 | None | In Progress |
+| 109 | Publish versioned releases and clone-free onboarding | docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md | EP-107, EP-108 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -244,6 +244,9 @@ interactions between child plans. Provide concise evidence.
   transactions therefore replay the selected payload's idempotent recipe, suppress its ordinary
   early guard/stamp under an internal apply marker, and persist cluster stamping as a distinct
   penultimate phase. Date: 2026-08-25.
+- EP-109 confirmed that foreign-system Nix derivation inspection can trigger unavailable builders;
+  supported-system proof therefore belongs to native CI matrix runners, while local release checks
+  inspect only native store identities and compare foreign output names lazily. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -315,6 +318,20 @@ Legacy contexts have an explicit observed adoption command. Per-context upgrade 
 and preview immutable releases, persist each apply phase, preserve host keys and secrets, stamp the
 cluster, and advance context intent last; injected failure at every apply phase resumes successfully.
 The contract is captured in
-`docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md`. EP-109 is the
-remaining implementable plan and owns tags, publication, release consistency, and final clone-free
-onboarding commands.
+`docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md`. At that
+milestone EP-109 became implementable and took ownership of tags, publication, release consistency,
+and final clone-free onboarding commands.
+
+Wave 4 and the MasterPlan are complete with EP-109. Root release metadata, Cabal packages, built CLI,
+payload, schemas, compatibility fixtures, notes, and supported systems now pass one tested consistency
+gate. Native GitHub runners validate normal flake checks and clone-free operation before the tag-only
+publisher emits immutable notes, manifests, Nix output identities, and checksums. App developers and
+operators use distinct tagged Nix outputs without a checkout; mutable contexts, host inputs, payload
+workspaces, and upgrade transactions remain isolated by XDG roots. The strict capability catalog now
+contains 19 versioned experimental capabilities, including clone-free distribution.
+
+The initiative delivered the original checkout-independent boundary from executable through payload,
+host configuration, cluster version state, safe upgrades, publication, and onboarding. Its durable
+decisions are captured by ADRs 3–7. The actual signed `v0.1.0` tag and GitHub release were intentionally
+not created during implementation; maintainers use `docs/runbooks/releases.md` after review, and the
+first remote Linux/macOS workflow run supplies publication evidence without changing any cluster.
