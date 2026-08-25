@@ -38,7 +38,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-25T20:40:11Z) M1: Define and test the release consistency gate and machine-readable release artifact set.
 - [x] (2026-08-25T20:46:56Z) M2: Add tag-driven CI that builds supported Nix outputs and publishes checksums, metadata, and release notes.
 - [x] (2026-08-25T20:51:44Z) M3: Rewrite install, onboarding, multi-cluster, upgrade, contributor, and capability documentation around pinned releases.
-- [ ] M4: Run a clean-room clone-free acceptance rehearsal and document the maintainer release/rollback runbook.
+- [x] (2026-08-25T20:59:21Z) M4: Run a clean-room clone-free acceptance rehearsal and document the maintainer release/rollback runbook.
 
 
 ## Surprises & Discoveries
@@ -63,6 +63,11 @@ implementation. Provide concise evidence.
   publish job compares the shared files byte-for-byte before assembling one checksum set. Evidence:
   the assembly test covers both declared systems and `actionlint` validates the workflow. Date:
   2026-08-25.
+- An exact `git+file` revision preserves the immutable flake/ref behavior needed for a clean-room
+  rehearsal before unpublished commits exist on GitHub. From an isolated home and a directory outside
+  the checkout, revision `4430a972f86d4abcab8f82fbd6d8f586709ad0ff` passed version, context,
+  external typed-config, payload, host-config, local/cloud onboarding, and operator-recipe checks on
+  `aarch64-darwin`. The release matrix runs the same script on `x86_64-linux`. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -114,7 +119,23 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Nagare 0.1.0 now has one consistency gate across all Cabal packages, source release metadata, CLI,
+payload, host schema, compatibility fixtures, changelog, notes, revision, and supported systems. A
+tag/manual workflow validates normal flake checks and clone-free use on native Linux and Apple Silicon
+runners, then a tag-only minimal-permission job publishes deterministic metadata, Nix output
+identities, notes, and checksums without replacing different existing attachments.
+
+The user path is now release-first: app developers select tagged `nagarectl`, operators select the
+tagged `nagare` launcher and immutable payload, contexts/host inputs remain in XDG state, and only
+contributors use a checkout dev shell. All 19 capability records pass the strict shared profile and
+identify 0.1.0 while retaining experimental compatibility. The local exact-commit clean-room
+rehearsal passed every command family on `aarch64-darwin`; Linux execution is encoded in the same
+release matrix and will produce its native evidence when maintainers run the non-publishing workflow.
+
+No Git tag or GitHub release was created while implementing this plan. The signed first tag, native
+CI evidence, and public release remain explicit maintainer actions after review, as required by the
+runbook. Durable distribution and immutability decisions are captured in
+`docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md`.
 
 
 ## Context and Orientation
