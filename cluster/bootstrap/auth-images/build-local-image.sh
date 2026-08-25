@@ -27,7 +27,6 @@ Relevant environment variables:
   NAGARE_AUTH_K3S_IMAGE_PREFIX=<prefix> Default: dev.local/nagare-auth
   SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
   EN_SRC=<path>                  Default: ../en sibling checkout.
-  CODD_SRC=<path>                Default: local Mori codd checkout; needed by Shomei builds.
 USAGE
 }
 
@@ -102,12 +101,13 @@ fi
 
 shomei_src="${SHOMEI_SRC:-/Users/shinzui/Keikaku/bokuno/shomei}"
 en_src="${EN_SRC:-/Users/shinzui/Keikaku/bokuno/en}"
-codd_src="${CODD_SRC:-/Users/shinzui/Keikaku/hub/haskell/codd-project/codd}"
 
-required_sources=("$en_src")
-if [[ "$service" != "en" ]]; then
-  required_sources+=("$shomei_src" "$codd_src")
-fi
+required_sources=()
+case "$service" in
+  nagare-access) required_sources+=("$shomei_src" "$en_src") ;;
+  shomei) required_sources+=("$shomei_src") ;;
+  en) required_sources+=("$en_src") ;;
+esac
 for path in "${required_sources[@]}"; do
   [[ -d "$path" ]] || fail "required source directory does not exist: $path"
 done
@@ -125,63 +125,42 @@ copy_tree() {
   rsync -a \
     --exclude '.git' \
     --exclude '.direnv' \
+    --exclude '.dev' \
     --exclude '.stack-work' \
+    --exclude 'db' \
     --exclude 'dist-newstyle' \
     --exclude 'node_modules' \
     --exclude 'result' \
     --exclude 'result-*' \
     --exclude '.ghc.environment.*' \
     --exclude '.live-test' \
+    --exclude '*.sock' \
+    --exclude '.s.PGSQL.*' \
     "$src"/ "$dst"/
 }
 
 mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
 cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
 copy_tree "$root" "$tmpdir/workspace/nagare"
-copy_tree "$en_src" "$tmpdir/workspace/en"
+if [[ "$service" != "shomei" ]]; then
+  copy_tree "$en_src" "$tmpdir/workspace/en"
+fi
 if [[ "$service" != "en" ]]; then
   copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
-  copy_tree "$codd_src" "$tmpdir/workspace/deps/codd"
 fi
 
 write_common_cabal_tail() {
   cat <<'EOF'
-  deps/codd
-
-source-repository-package
-  type: git
-  location: https://github.com/sumo/hs-jose.git
-  tag: d00ad1794287ddd2d839b927690b580e58183fd9
-
-source-repository-package
-  type: git
-  location: https://github.com/shinzui/servant-openapi.git
-  tag: 558b7b9ee3aaf3bff70a4cf1d6c8e2ed4eaccbde
-
-source-repository-package
-  type: git
-  location: https://github.com/shinzui/openapi-hs.git
-  tag: dfcd77d1af494fb3b968c7318e09830f4882dbcc
-
 source-repository-package
   type: git
   location: https://github.com/shinzui/webauthn.git
   tag: c274e23a5e31aac8932bac6398b65e8bca584a99
-
-package codd
-  tests: False
-  benchmarks: False
-
-package jose
-  tests: False
-  benchmarks: False
 
 package webauthn
   tests: False
   benchmarks: False
 
 allow-newer:
-  haxl:time,
   webauthn:*
 EOF
 }
@@ -202,6 +181,7 @@ EOF
 write_en_packages() {
   cat <<'EOF'
   en/en-core
+  en/en-biscuit
   en/en-migrations
   en/en-postgres
   en/en-servant
@@ -213,21 +193,12 @@ EOF
 write_en_cabal_tail() {
   cat <<'EOF'
 
-constraints:
-  crypton >= 1.1
-
--- Current en source pins these GHC-9.12-compatible OpenAPI forks.
--- mori://shinzui/openapi-hs/repos/openapi-hs
+-- mori://shinzui/biscuit-haskell
 source-repository-package
   type: git
-  location: https://github.com/shinzui/openapi-hs.git
-  tag: 965340a30fad0782f2c964ab97b4ab0f12fa044d
-
--- mori://shinzui/servant-openapi-hs/repos/servant-openapi-hs
-source-repository-package
-  type: git
-  location: https://github.com/shinzui/servant-openapi-hs.git
-  tag: 7cbbc234cb7c0e900495b2f676e2912a7f456ff0
+  location: https://github.com/shinzui/biscuit-haskell.git
+  tag: 8c0b3c5a13ce4a310737c0336f2ae167a1597588
+  subdir: biscuit
 EOF
 }
 
@@ -243,7 +214,9 @@ with-compiler: ghc-9.12.4
 write-ghc-environment-files: never
 
 constraints:
-  time ==1.14
+  time ==1.14,
+  crypton-x509-validation >=1.9.1,
+  crypton >=1.1
 
 packages:
   nagare/cli/nagare-access
@@ -252,6 +225,7 @@ EOF
       write_shomei_packages
       write_en_packages
       write_common_cabal_tail
+      write_en_cabal_tail
     } > "$tmpdir/workspace/cabal.project"
     cat > "$tmpdir/runtime/usr/local/bin/auth-entrypoint" <<'EOF'
 #!/usr/bin/env sh
@@ -260,12 +234,16 @@ exec /usr/local/bin/nagare-access "$@"
 EOF
     ;;
   shomei)
-    cabal_targets=(exe:shomei-server exe:shomei-admin)
-    cabal_binaries=(exe:shomei-server exe:shomei-admin)
+    cabal_targets=(exe:shomei-server exe:shomei-admin exe:shomei-migrate)
+    cabal_binaries=(exe:shomei-server exe:shomei-admin exe:shomei-migrate)
     {
       cat <<'EOF'
 with-compiler: ghc-9.12.4
 write-ghc-environment-files: never
+
+constraints:
+  crypton-x509-validation >=1.9.1,
+  crypton >=1.1
 
 packages:
 EOF
@@ -281,6 +259,9 @@ EOF
       cat <<'EOF'
 with-compiler: ghc-9.12.4
 write-ghc-environment-files: never
+
+constraints:
+  crypton >=1.1
 
 packages:
 EOF

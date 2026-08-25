@@ -57,6 +57,13 @@ spec:
               value: "/etc/nagare-access/backends/backends.json"
             - name: NAGARE_ACCESS_DECISION_TTL
               value: "30"
+            # Keep this appended: local-auth/install.sh patches the cookie
+            # domain by its stable env index (5).
+            - name: NAGARE_ACCESS_EN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-only
           readinessProbe:
             httpGet:
               path: /_nagare/healthz

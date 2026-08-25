@@ -45,7 +45,9 @@ cookie_domain=".${base}"
 
 echo "==> auth-plane local install: registry=$registry base=$base tag=$tag"
 
-# 1) nagare-access cookie-signing key Secret — generate a real value once.
+kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+
+# 1) Auth-plane Secrets — generate real values once and preserve them on reruns.
 if ! kubectl -n "$ns" get secret nagare-access >/dev/null 2>&1; then
   echo "==> creating nagare-access cookie-key Secret"
   kubectl -n "$ns" create secret generic nagare-access \
@@ -54,14 +56,37 @@ else
   echo "==> nagare-access Secret already present (left as-is)"
 fi
 
+if ! kubectl -n "$ns" get secret nagare-en-api-keys >/dev/null 2>&1; then
+  echo "==> creating en API-key Secret"
+  kubectl -n "$ns" create secret generic nagare-en-api-keys \
+    --from-literal=read-write="$(openssl rand -base64 32)" \
+    --from-literal=read-only="$(openssl rand -base64 32)"
+else
+  echo "==> en API-key Secret already present (left as-is)"
+fi
+
+if ! kubectl -n "$ns" get secret nagare-shomei-keys >/dev/null 2>&1; then
+  echo "==> creating Shomei key-encryption Secret"
+  kubectl -n "$ns" create secret generic nagare-shomei-keys \
+    --from-literal=key-encryption-key="$(openssl rand -base64 32)"
+else
+  echo "==> Shomei key-encryption Secret already present (left as-is)"
+fi
+
 # 2) ConfigMaps: en authorization schema + the (initially empty) backends map.
 kubectl apply -f "$bootstrap_dir/en/configmap.yaml"
 kubectl apply -f "$bootstrap_dir/nagare-access/configmap.yaml"
 
-# 3) en schema migration must run BEFORE en-server starts (en does not self-migrate).
+# 3) Schema migrations run before either server starts.
 # Job spec.template is immutable and a completed Job never re-runs, so a new
 # release image's embedded plan would otherwise silently never apply. Migrations are
 # ledger-backed and idempotent, so it applies only pending embedded migrations.
+kubectl -n "$ns" delete job shomei-migrate --ignore-not-found=true
+NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
+  "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/shomei/migrations.yaml" | kubectl apply -f -
+echo "==> waiting for shomei-migrate Job to complete"
+kubectl -n "$ns" wait --for=condition=complete job/shomei-migrate --timeout=180s
+
 kubectl -n "$ns" delete job en-migrate --ignore-not-found=true
 NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
   "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/en/migrations.yaml" | kubectl apply -f -
@@ -88,6 +113,7 @@ kubectl -n "$ns" set env deployment/shomei \
   "SHOMEI_WEBAUTHN_ORIGINS=${app_origin}"
 # Cookie domain is env index 5 in nagare-access/service.yaml (the Knative
 # container is unnamed, so a name-keyed strategic merge cannot match it).
+# New environment variables must remain appended after that stable index.
 kubectl -n "$ns" patch ksvc nagare-access --type=json \
   -p "[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/env/5/value\",\"value\":\"${cookie_domain}\"}]"
 
