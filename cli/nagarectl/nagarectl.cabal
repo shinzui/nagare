@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: nagarectl
-version: 0.1.0.0
+version: 0.1.0
 synopsis: Deploy a typed-config Nagare app to Knative with one command.
 description:
   nagarectl is the Nagare deploy CLI. It loads a typed configuration file
@@ -30,6 +30,10 @@ common common
 library
   import: common
   hs-source-dirs: src
+  autogen-modules:
+    Paths_nagarectl
+  other-modules:
+    Paths_nagarectl
   exposed-modules:
     Nagare.Access.Grants
     Nagare.Access.Resolve
@@ -100,6 +104,7 @@ library
     Nagare.Task.Logs
     Nagare.Task.Resolve
     Nagare.Task.Run
+    Nagare.Version
     Nagare.Worker.Deploy
 
   build-depends:

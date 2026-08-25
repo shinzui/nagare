@@ -1,8 +1,8 @@
 name: CI
 
-# EP-5 (docs/plans/69, MasterPlan 13). This workflow is a THIN shell: all CI
-# logic lives in the root flake's `checks` output (the source of truth), so a
-# contributor reproduces CI exactly with `nix flake check` and no GitHub account.
+# EP-5 (docs/plans/69, MasterPlan 13). The default job runs the root flake's
+# hermetic `checks` output. A separate compatibility job retains the older,
+# networked nagare-access check until that package is migrated to Nix.
 
 on:
   push:
@@ -25,10 +25,24 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v27
         with:
-          # Flakes are still gated behind experimental features. `sandbox =
-          # relaxed` lets the cabal-based checks (marked `__noChroot` in flake.nix)
-          # reach the network to fetch Hackage deps and the `cradle`
-          # source-repository-package; see the NETWORK note in flake.nix.
+          extra_nix_config: experimental-features = nix-command flakes
+
+      - name: Run the flake checks (the source of truth)
+        # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
+        # compiling, either Haskell test suite fails, or a shell script has an
+        # error-level shellcheck finding, this step fails the build.
+        run: nix flake check --print-build-logs
+
+  nagare-access-check:
+    name: nagare-access compatibility check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
           extra_nix_config: |
             experimental-features = nix-command flakes
             sandbox = relaxed
@@ -45,8 +59,5 @@ jobs:
             url."https://x-access-token:${NAGARE_DEPENDENCY_TOKEN}@github.com/shinzui/".insteadOf \
             "https://github.com/shinzui/"
 
-      - name: Run the flake checks (the source of truth)
-        # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
-        # compiling, either Haskell test suite fails, or a shell script has an
-        # error-level shellcheck finding, this step fails the build.
-        run: nix flake check --print-build-logs
+      - name: Build and test nagare-access
+        run: nix build .#hydraJobs.x86_64-linux.nagare-access-build-test --print-build-logs

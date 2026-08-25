@@ -217,6 +217,7 @@ import Nagare.Task.List (runTaskList)
 import Nagare.Task.Logs (TaskLogTarget (..), runTaskLogs)
 import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
+import Nagare.Version (currentBuildVersion, renderBuildVersionJson, renderBuildVersionText)
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
@@ -393,7 +394,8 @@ data DepLogsOpts = DepLogsOpts
 
 -- | Everything @nagarectl@ can be asked to do.
 data Command
-  = Deploy DeployOpts
+  = Version VersionOpts
+  | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
   | SiteRollback SiteCommonOpts String
@@ -424,6 +426,11 @@ data Command
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
+
+newtype VersionOpts = VersionOpts
+  { json :: Bool
+  }
+  deriving stock (Generic, Show)
 
 -- | The @context@ subcommands (EP-88). They manage the user-level target context
 -- store introduced by EP-87.
@@ -1372,7 +1379,8 @@ opts =
   where
     commandParser =
       subparser
-        ( command "deploy" deployCmd
+        ( command "version" versionCmd
+            <> command "deploy" deployCmd
             <> command "site" siteCmd
             <> command "env" envCmd
             <> command "secret" secretCmd
@@ -1392,6 +1400,10 @@ opts =
             <> command "cdn" cdnCmd
             <> command "cleanup" cleanupCmd
         )
+    versionCmd =
+      info
+        (Version . VersionOpts <$> switch (long "json" <> help "Print machine-readable version metadata") <**> helper)
+        (progDesc "Print the nagarectl version")
     doctorCmd =
       info
         (Doctor <$> doctorOptsParser <**> helper)
@@ -1951,6 +1963,10 @@ opts =
 main :: IO ()
 main =
   execParser opts >>= \(mctx, cmd0) -> case cmd0 of
+    Version (VersionOpts versionJson) ->
+      if versionJson
+        then BC.putStrLn (renderBuildVersionJson currentBuildVersion)
+        else TIO.putStrLn (renderBuildVersionText currentBuildVersion)
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts

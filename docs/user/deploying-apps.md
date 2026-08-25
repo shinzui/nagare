@@ -209,15 +209,27 @@ guide: **[Build modes](build-modes.md)**.
 
 Because the chosen substrate is "configuration as a program", `nagarectl` loads
 your config by running it with `runghc`. That child process must be able to
-resolve the `nagare-dsl` package. Two ways to satisfy this:
+resolve the `nagare-dsl` package. The Nix application packages both together:
+
+```bash
+# Run from a Nagare checkout, or install once into your Nix profile.
+nix run .#nagarectl -- version
+nix profile install .#nagarectl
+
+# Then use the installed command from any app repository.
+nagarectl deploy --dry-run --file nagare/Config.hs
+```
+
+The wrapper supplies a GHC package database containing `nagare-dsl`, so it does
+not need a `.ghc.environment.*` file or a Nagare source ancestor. Contributor
+builds retain two explicit alternatives for development and debugging:
 
 - **In this repo's dev shell**, a `.ghc.environment.*` file is generated next to
   the package, and `runghc` discovers it automatically when you run from
   `cli/nagarectl/`. No flag needed.
-- **From an arbitrary app directory**, point the loader at a package-environment
+- **With a custom package set**, point the loader at a package-environment
   file with `--ghc-env <file>` or `export NAGARE_GHC_ENVIRONMENT=<file>`.
-  Hardening this into the standalone binary's package DB is the remaining
-  follow-up tied to the deferred live deploy.
+  These explicit overrides take precedence over automatic discovery.
 
 ### The rendered Knative Service
 
