@@ -93,17 +93,25 @@ If you omit `NAME`, `nagarectl init` keeps the legacy behavior and writes
 `./nagare.target.env`. That path is still supported, but named contexts are the
 multi-target workflow.
 
-`init` does **not** do the next two manual steps (SSH key, age key, Tailscale key) or the
+`init` does **not** do the next two host-identity steps (SSH key, age key, Tailscale key) or the
 Docker-auth step — its printed "Next steps" stop at the `just` recipes. Do them now, in
 order.
 
-## Step 3 — Operator SSH key in the host config  🟡  *(manual; before image build)*
+## Step 3 — Select the operator SSH public key  ✅
 
-The image bakes in the `deploy` user's authorized SSH key from
-`nixos/hosts/nagare-01/users.nix`. **Edit that file to your own public key before building
-the image**, or you cannot log in. See [accessing the host](accessing-the-host.md).
+Choose one or more public-key files. Nagare reads only public `.pub` files and rejects private-key
+material. Do not edit the packaged NixOS modules:
 
-## Step 4 — Host age key + Tailscale pre-auth key  🟡  *(manual; before first boot)*
+```bash
+test -f "$HOME/.ssh/id_ed25519.pub"
+nagarectl host init --context prod \
+  --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" --dry-run
+```
+
+The dry run shows the context, hostname, registry, generated-flake path, and public configuration.
+It writes nothing and does not require the host secrets file yet.
+
+## Step 4 — Encrypt host secrets and generate the context host flake  🟡
 
 `init` does not do this either. Both parts are required before the host boots cleanly:
 
@@ -112,11 +120,27 @@ the image**, or you cannot log in. See [accessing the host](accessing-the-host.m
   `/var/lib/sops-nix/age-key.txt` (mode `0400`, owned by root) before first boot. At NixOS
   activation, `sops-nix` decrypts the secrets file with this key.
 - **(b) Tailscale pre-auth key.** Put a Tailscale pre-auth key (a token that lets
-  `nagare-01` join your tailnet unattended at first boot) into the sops secrets file
-  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` under `tailscale/authkey`, encrypted to
-  the host's age public key.
+  the context's host join your tailnet unattended at first boot) into a sops-encrypted YAML file
+  under `tailscale/authkey`.
 
-See [secrets](secrets.md) for the exact `sops` and `.sops.yaml` mechanics — this page
+Install the public configuration and encrypted file under the context-owned XDG configuration root:
+
+```bash
+nagarectl host init --context prod \
+  --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
+  --sops-file /secure/path/prod-host-secrets.yaml
+nagarectl host path --context prod
+nagarectl host show --context prod
+```
+
+The resulting directory is
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/prod/`. It contains `flake.nix`, `host.nix`,
+the sops-encrypted `secrets.yaml`, and a generated `flake.lock`. The age private key is never read or
+copied; `--age-key-file` records only its on-host path. Repeating the command is unchanged, and
+`--force` atomically replaces generated scaffolding while preserving `secrets.yaml` if
+`--sops-file` is omitted.
+
+See [secrets](secrets.md) for the exact `sops` and age-recipient mechanics — this page
 states only *that* and *when*.
 
 ## Step 5 — Provision the cloud perimeter (first `just infra-up`)  🟡  *(EP-2)*

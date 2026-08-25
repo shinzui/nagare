@@ -33,12 +33,13 @@ GCE image  →  Pulumi config  nagareImageSelfLink (embeds the project; regenera
 nagare-01 boots the baked image
 ```
 
-Two NixOS outputs are produced from **one shared module list** so they never
-drift (`nixos/flake.nix`):
+Each context-owned host flake produces two NixOS outputs from **one shared system** so they never
+drift. The generated flake imports Nagare's reusable module and constructor from the packaged
+`nixos/flake.nix`:
 
 - `packages.x86_64-linux.nagare-image` — the GCE image
   (`config.system.build.image`, a directory containing one `*.raw.tar.gz`).
-- `nixosConfigurations.nagare-01` — the day-2 `nixos-rebuild` target.
+- `nixosConfigurations.<host-name>` — the day-2 `nixos-rebuild` target.
 
 Both include the upstream `google-compute-image.nix` module, so the day-2 target
 has a root filesystem and bootloader matching exactly what's baked into the
@@ -47,7 +48,7 @@ breaks `nixosConfigurations.nagare-01` evaluation. It's correctly shared here.)
 
 ## What the image config contains
 
-`nixos/hosts/nagare-01/` configures:
+Nagare's packaged modules under `nixos/` configure:
 
 - **k3s** (`k3s.nix`) — `role = server`, Traefik disabled, ServiceLB kept,
   kubeconfig mode `0640 root:wheel`, Secret encryption enabled, local-path
@@ -56,29 +57,28 @@ breaks `nixosConfigurations.nagare-01` evaluation. It's correctly shared here.)
 - **Storage** (`storage.nix`) — auto-formats the blank data disk to ext4 on
   first boot (idempotent), mounts it `nofail` at `/var/lib/nagare`, then creates
   the subdirectory layout *after* the mount.
-- **Networking** (`networking.nix`) — hostname, public DNS resolvers
+- **Networking** (`networking.nix`) — context-supplied hostname, public DNS resolvers
   (`8.8.8.8`/`8.8.4.4` — the GCE metadata resolver is unreachable on this VM),
   firewall (`22`/`80`/`443`, trust `tailscale0`).
 - **Security** (`security.nix`) — key-only SSH, no root login, `PerSourcePenalties`
   off, Google OS Login disabled, passwordless sudo for `wheel`.
-- **Users** (`users.nix`) — the `deploy` user with the operator's SSH key.
+- **Users** (`users.nix`) — the configured deploy user with the context's explicit SSH keys.
 - **Tailscale** (`tailscale.nix`) — joins the tailnet using a sops-provided
   auth key, with `--ssh` enabled.
-- **sops-nix** (`configuration.nix`) — decrypts secrets at activation using an
-  age key on the host.
+- **sops-nix** (`nixos/modules/nagare-host.nix`) — decrypts the context's encrypted secrets using an
+  age-key path on the host.
 
 The rationale for the non-obvious choices is in [Troubleshooting](troubleshooting.md)
 — they were each the fix for a real first-boot failure.
 
 ## Prerequisite: the host age key and secrets
 
-Before the host can boot cleanly, sops-nix needs to decrypt
-`nixos/hosts/nagare-01/secrets/nagare-01.yaml`. That requires:
+Before the host can boot cleanly, generate its context-owned flake with `nagarectl host init`.
+sops-nix then decrypts the copied `secrets.yaml`. That requires:
 
 - The host's **age private key** placed on the VM at
   `/var/lib/sops-nix/age-key.txt` (mode `0400`, root) **before first boot**.
-- The secrets file encrypted to the host's age **public** key (recorded in
-  `nixos/.sops.yaml`).
+- The supplied secrets file encrypted to the host's age **public** key.
 
 The one secret managed at this stage is `tailscale/authkey` (a Tailscale
 pre-auth key), consumed by `tailscale.nix`. See [Secrets](secrets.md) for how
@@ -86,7 +86,7 @@ the age key is generated, where it's stored, and how to add/rotate secrets.
 
 > On the from-zero path these are Steps 3–4 of the
 > [bring-your-own-project onboarding](onboarding-bring-your-own-project.md):
-> the operator SSH key (`users.nix`), the host age key, and the Tailscale key all
+> the operator SSH key, the host age key, and the Tailscale key all
 > go in **before first boot**, in that order. This page is the "how"; the runbook
 > fixes the "when."
 
@@ -99,9 +99,11 @@ as described in
 Do this before `host-image` writes a replacement-causing image self-link. First
 creation needs no such step.
 
-One recipe does the whole pipeline:
+Confirm the selected host before building, then run the pipeline:
 
 ```bash
+nagarectl host path
+scripts/upload-images.sh --dry-run
 just host-image      # runs scripts/upload-images.sh
 ```
 
@@ -109,7 +111,8 @@ just host-image      # runs scripts/upload-images.sh
 
 1. Ensures an x86_64-linux Nix builder is available
    (`scripts/setup-nix-builder.sh` provisions an on-demand one if needed).
-2. Builds `.#packages.x86_64-linux.nagare-image` on it.
+2. Resolves the active context's generated flake (or an explicit `NAGARE_HOST_FLAKE`) and builds
+   `.#packages.x86_64-linux.nagare-image` on it.
 3. Uploads the resulting `*.raw.tar.gz` to the active context's
    `$NAGARE_IMAGE_BUCKET` (`<project>-nagare-images` by default).
 4. Registers it as a GCE image (`gcloud compute images create --source-uri …`).

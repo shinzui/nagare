@@ -30,6 +30,21 @@ hostTests =
         assertBool "operator key is explicit" (fixtureKey `T.isInfixOf` hostModule)
         assertBool "sops file remains a relative flake path" ("sopsDefaultFile = ./secrets.yaml;" `T.isInfixOf` hostModule)
         assertBool "private data is absent" (not ("PRIVATE KEY" `T.isInfixOf` T.toUpper (flake <> hostModule)))
+    , testCase "two contexts render isolated identities and registries" $ do
+        prod <- either (assertFailure . T.unpack) pure (mkContextName "prod")
+        labs <- either (assertFailure . T.unpack) pure (mkContextName "labs")
+        let prodModule = renderHostModule (fixtureConfig prod)
+            labsConfig =
+              (fixtureConfig labs)
+                { hostName = "labs-host"
+                , instanceName = "labs-instance"
+                , registryHost = "asia-northeast1-docker.pkg.dev"
+                , authorizedKeys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILabsFixtureKeyOnly labs@example" :| []
+                }
+            labsModule = renderHostModule labsConfig
+        assertBool "prod has only its host" ("prod-host" `T.isInfixOf` prodModule && not ("labs-host" `T.isInfixOf` prodModule))
+        assertBool "labs has only its registry" ("asia-northeast1-docker.pkg.dev" `T.isInfixOf` labsModule && not ("us-west1-docker.pkg.dev" `T.isInfixOf` labsModule))
+        assertBool "operator keys do not cross contexts" (fixtureKey `T.isInfixOf` prodModule && not (fixtureKey `T.isInfixOf` labsModule))
     ]
 
 fixtureConfig :: ContextName -> HostConfig

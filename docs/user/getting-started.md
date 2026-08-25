@@ -31,9 +31,9 @@ You need, on your workstation:
   [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) for the
   from-zero runbook. This is required for cloud mode, not for local mode.
 - **Docker** if you want local mode (`just local-up` uses k3d).
-- An **SSH key** (`~/.ssh/id_ed25519`). The operator public key baked into
-  `nagare-01` is in `nixos/hosts/nagare-01/users.nix`; if your key differs,
-  see [Day-2 host changes](day-2-host-changes.md) to add it.
+- An **SSH key** (`~/.ssh/id_ed25519`). Supply its public `.pub` file when generating the selected
+  context's host flake; Nagare contains no default operator identity. See
+  [Host image and first boot](host-image-and-boot.md).
 
 > This workstation is `aarch64-darwin` (Apple Silicon). GCE images are
 > `x86_64-linux`, so the host image is **not** built locally — it's built on an

@@ -29,9 +29,9 @@ publicly. This is what makes `kubectl` and `nixos-rebuild --target-host`
 convenient — they ride the tailnet.
 
 > Set up a host alias so `nagare-01` resolves. With Tailscale MagicDNS this is
-> automatic; otherwise add an entry to `~/.ssh/config` pointing `nagare-01` at
-> its tailnet IP. The `deploy` user and your operator key are baked into the
-> image (`nixos/hosts/nagare-01/users.nix`).
+> automatic; otherwise add an entry to `~/.ssh/config` pointing the context's instance name at
+> its tailnet IP. The deploy user and operator keys come from the context-owned flake created by
+> `nagarectl host init`.
 
 ## Path 2: IAP tunnel (break-glass)
 

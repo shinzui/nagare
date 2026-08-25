@@ -37,7 +37,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-25T18:24:27Z) M1: Define reusable NixOS module options and export the module and host-construction helper from the Nagare flake.
 - [x] (2026-08-25T18:33:05Z) M2: Add safe `nagarectl host init|show|path` generation for a context-owned host flake and operator config.
 - [x] (2026-08-25T18:34:58Z) M3: Move host image, registry, sops, and day-2 commands from checkout files to the generated host flake.
-- [ ] M4: Validate two isolated contexts, migration compatibility, secret hygiene, and documentation.
+- [x] (2026-08-25T18:45:12Z) M4: Validate two isolated contexts, migration compatibility, secret hygiene, and documentation.
 
 
 ## Surprises & Discoveries
@@ -65,6 +65,14 @@ implementation. Provide concise evidence.
   building from an independently resolved host flake. Isolated dry runs reported project
   `acme-prod`, registry `us-central1-docker.pkg.dev`, the context-owned flake, and the target
   `deploy@prod-node` without creating `registry-host.nix` in source. Date: 2026-08-25.
+- Running `cabal test all` from `cli/nagarectl` also launches the sibling DSL suite with a package-db
+  path rooted under `cli/nagare-dsl`, which fails in that combined invocation. Running the suites from
+  their owning directories passes: 384 `nagarectl` tests and 384 `nagare-dsl` tests. The hermetic
+  root `nix flake check --print-build-logs` also passes both packaged checks. Date: 2026-08-25.
+- Strict capability-bundle validation now accepts the revised `single-node-gcp-substrate` concept and
+  its model-review provenance, but the bundle-wide command still exits nonzero because the other 17
+  pre-existing concepts lack the profile-recommended `reviews` field. That unrelated bundle migration
+  is outside this ExecPlan. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -105,7 +113,27 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Nagare now exports a reusable `nagare.host` NixOS module and shared GCE system constructor, with no
+maintainer SSH identity in the distributable source. `nagarectl host init|show|path` manages a
+Nix-evaluated, context-owned flake containing public operator inputs and a sops-encrypted secret file;
+generation is deterministic, idempotent, private-key aware, and atomically replaceable. Image and
+day-2 scripts resolve that flake and expose dry runs instead of writing a registry override into the
+checkout.
+
+The acceptance run created `prod` and `labs` below one isolated XDG root with distinct SSH keys,
+registries, instance names, and generated locks. Both NixOS configurations evaluated concurrently,
+the keys did not cross contexts, `--force` preserved the encrypted secret bytes, and secret scans found
+neither private-key blocks nor plaintext Tailscale tokens. Source compatibility still evaluates through
+the explicit synthetic-key fixture. The operator guides and CAP-2 capability evidence now describe the
+generated workflow. The durable boundary is recorded in
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`.
+
+Validation passed `env -u NAGARE_PLATFORM_ROOT cabal test nagarectl-test` (384 tests), `cabal test all`
+from `cli/nagare-dsl` (384 tests), `nix flake check --print-build-logs`,
+`nix flake check ./nixos --no-build --all-systems`, generated-flake image/hostname/registry evaluation,
+and the context-specific portion of strict capability validation. A live GCE image upload and remote
+switch remain intentionally unperformed because they require operator credentials and billable cloud
+mutation; command construction was verified by both script dry runs.
 
 
 ## Context and Orientation
@@ -134,8 +162,11 @@ as an input; its `host.nix` supplies values to the exported Nagare module; its e
 may live alongside it. The directory is separate from EP-106's derived workspace because it contains
 long-lived operator intent that must survive payload replacement.
 
-No local or Mori ADR covers this boundary. If the module option namespace and generated-flake model
-remain after implementation, record them as a new ADR before completing the plan.
+The implemented module option namespace and generated-flake boundary are recorded in
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. It extends the immutable
+payload and mutable workspace decision in
+`docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md` by giving long-lived
+operator host intent its own XDG configuration boundary.
 
 
 ## Plan of Work
@@ -214,7 +245,8 @@ nix eval "path:$host_root#packages.x86_64-linux.nagare-image.drvPath"
 Finish with Haskell, Nix, and secret scans:
 
 ```bash
-cd cli/nagarectl && cabal test all
+cd cli/nagarectl && env -u NAGARE_PLATFORM_ROOT cabal test nagarectl-test
+cd ../nagare-dsl && cabal test all
 cd ../.. && nix flake check --print-build-logs
 rg -n 'BEGIN .*PRIVATE KEY|tailscale.*authkey.*=' "$cfg_root/config/nagare/hosts" && exit 1 || true
 ```
@@ -293,3 +325,8 @@ renderHostModule :: HostConfig -> Text
 
 `NAGARE_HOST_FLAKE` is an explicit process override for scripts. Stored contexts do not embed the
 absolute generated path; `nagarectl host path` derives it from XDG config and the context name.
+
+Revision note (2026-08-25): implementation completed all four milestones. The validation commands now
+run the CLI and DSL suites from their owning package directories because the combined Cabal invocation
+misroots the DSL package database; the living sections record the generated-flake, secret-preservation,
+two-context, Nix, capability, and ADR evidence.

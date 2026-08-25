@@ -110,6 +110,9 @@ the back-compatible form of a `mode=local` context.
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
 | `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. |
 | `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
+| `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
+| `nagarectl host show [--context NAME]` | Print the generated public operator module. |
+| `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
 
 `nagarectl --context NAME ...` is the global per-command target selector.
 Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
@@ -123,8 +126,8 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just infra-up` | `pulumi up` the cloud perimeter | EP-2 |
 | `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
 | `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
-| `just nixos-registry-host` | Regenerate the NixOS registry-host projection from the active context | MP-17 EP-91 |
-| `just host-switch` | `nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo` | EP-3 |
+| `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
+| `just host-switch` | Apply the active context's generated NixOS configuration | MP-20 EP-107 |
 | `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ |
 | `just cluster-enable-tls` | Enable Knative external-domain TLS after DNS delegation | EP-4 |
 | `just job-runs-bootstrap` | Apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ |
@@ -227,8 +230,10 @@ it. Only Traefik is disabled.
 | Script | Purpose |
 | --- | --- |
 | `lib/target.sh` | Sourced helper: resolves the active context, sets `TARGET_PROJECT`/`REGION`/`ZONE`, exports `NAGARE_REGISTRY_PREFIX`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
+| `lib/host.sh` | Resolve and validate `NAGARE_HOST_FLAKE`, defaulting to `nagarectl host path` for the active context. |
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
 | `upload-images.sh` | Build the NixOS image on the remote builder, upload to GCS, register as a GCE image, write `nagareImageSelfLink`. |
+| `host-switch.sh` | Apply the active generated host flake over SSH; `--dry-run` prints the exact command. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
 | `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe). |
