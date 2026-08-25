@@ -42,10 +42,16 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [ ] Register and install two least-privilege GitHub Apps through the owning account's
-  GitHub settings, then record their non-secret settings and installation boundaries.
-- [ ] Declare the App bootstrap material with sops-nix and add the host refresh module.
-- [ ] Atomically publish the role-named Kubernetes Secrets from independent systemd timers.
-- [ ] Document workload consumption, rotation, failure behavior, and App-key recovery.
+  GitHub settings, encrypt their bootstrap values in the active context, and replace the
+  pending deployment-record fields with their exact non-secret installation boundaries.
+- [x] (2026-08-25T22:54:04Z) Declare all six sops-nix paths and import the forge refresher
+  from the reusable `nagare-host` module.
+- [x] (2026-08-25T23:18:00Z) Implement independent systemd services and timers, atomic
+  role-named Secret publication, sanitized failure handling, and focused success/malformed/
+  non-2xx preservation tests.
+- [x] (2026-08-25T23:26:00Z) Document workload consumption, inspection, rotation, failure
+  behavior, least-privilege probes, and App-key recovery in
+  `docs/user/forge-credentials.md` and link it from the operator guide.
 - [ ] Pass Nix evaluation plus live read, denial, rotation, and reboot acceptance tests.
 
 
@@ -67,6 +73,24 @@ implementation. Provide concise evidence.
   Nagare-owned Node wrapper, a locked npm dependency graph, and a Node runtime. There is
   no existing Nagare package or Nixpkgs command-line executable that removes the need for
   a local wrapper.
+
+- Discovery: ExecPlan 107 externalized operator NixOS inputs after this plan was drafted.
+  The checked-in `nixos/hosts/nagare-01/configuration.nix` and encrypted YAML are now
+  compatibility fixtures; live secrets belong to the context-owned host flake described by
+  `docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. The reusable
+  behavior must therefore be imported by `nixos/modules/nagare-host.nix`.
+
+- Discovery: The repository root flake has no `nixosConfigurations` output and no
+  `formatter.aarch64-darwin`. The current source-tree validation is
+  `nix build ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel`, with
+  `nixpkgs-fmt` for the Nix files on this workstation. Evaluation passed; the full Linux
+  build is currently blocked because the configured `nix-gcp-builder` SSH connection closes
+  before accepting work.
+
+- Discovery: `SecretName` is an abstract public type in `nagare-dsl`; its data constructor
+  is not exported. The operator example therefore validates `nagare-forge-read` with
+  `mkSecretName` before constructing `EnvSecretRef`, rather than using the plan's earlier
+  constructor shorthand.
 
 
 ## Decision Log
@@ -135,6 +159,21 @@ Record every decision made while working on the plan.
   revision rather than silently choosing one installation.
   Date: 2026-08-25
 
+- Decision: Install `forge-credentials.nix` through the reusable `nagare-host` module and
+  store live bootstrap material only in the active context's operator-owned `secrets.yaml`.
+  Rationale: ADR 5 made the checked-in host configuration an evaluation fixture. Importing
+  reusable behavior from that fixture or storing live credentials beside it would bypass the
+  context isolation and immutable-payload boundary already established by the project.
+  Date: 2026-08-25
+
+- Decision: Keep the refresh logic in a source-visible Bash fragment packaged by
+  `pkgs.writeShellApplication`, with role and secret paths passed by each systemd unit.
+  Rationale: One package still receives only locked runtime inputs and each role still has an
+  independent unit and runtime directory, while the source fragment can be ShellChecked and
+  exercised on the development host with fake GitHub and k3s commands. The focused test proves
+  successful three-key publication and proves malformed/non-2xx responses do not publish.
+  Date: 2026-08-25
+
 
 ## Outcomes & Retrospective
 
@@ -146,13 +185,16 @@ Compare the result against the original purpose.
 
 ## Context and Orientation
 
-The machine configuration is rooted at `nixos/hosts/nagare-01/configuration.nix`.
-That file imports focused modules and configures sops-nix to decrypt
-`nixos/hosts/nagare-01/secrets/nagare-01.yaml` with the host age key. The encrypted
-file is committed; the age private key and plaintext values are not. The worked timer
-pattern is `nixos/hosts/nagare-01/registries.nix`, which refreshes a different
-short-lived credential. `docs/user/secrets.md` explains current host and application
-secret practice.
+Reusable machine behavior is rooted at `nixos/modules/nagare-host.nix`. That module
+imports focused host modules and is consumed by a context-owned host flake under the
+operator's XDG configuration root. The context's encrypted `secrets.yaml` is committed to
+operator-controlled storage; the age private key and plaintext values are not. The checked-in
+`nixos/hosts/nagare-01/configuration.nix` and
+`nixos/hosts/nagare-01/secrets/nagare-01.yaml` are compatibility fixtures for source
+evaluation, not the live operator identity. This ownership is established by
+`docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md`. The worked timer
+pattern is `nixos/hosts/nagare-01/registries.nix`, which refreshes a different short-lived
+credential. `docs/user/secrets.md` explains current host and application secret practice.
 
 The k3s server runs on the same host. Root's k3s kubeconfig lets a root-owned systemd
 unit apply a Secret to `personal`; no token value needs to cross SSH or enter the Nix
@@ -230,7 +272,8 @@ settings URL directly into the encrypted input described below. After confirming
 sops contains the PEM, remove the browser-downloaded plaintext PEM; sops becomes the
 recovery copy.
 
-Edit the encrypted `nixos/hosts/nagare-01/secrets/nagare-01.yaml` with `sops`, adding:
+Resolve the active context with `nagarectl host path --context <name>` and edit its encrypted
+`secrets.yaml` with `sops`, adding:
 
 ```yaml
 github-app:
@@ -247,8 +290,8 @@ github-app:
 The placeholders above describe decrypted structure only; never paste real values into
 this plan, a terminal transcript, or an unencrypted file. In the new
 `nixos/hosts/nagare-01/forge-credentials.nix`, declare all six sops paths with root
-ownership and mode `0400`. Import that module from
-`nixos/hosts/nagare-01/configuration.nix`.
+ownership and mode `0400`. Import that reusable module from
+`nixos/modules/nagare-host.nix`.
 
 Milestone 1 is complete when the NixOS configuration evaluates, the encrypted file has
 no plaintext diff, and each App installation's repository list matches the documented
@@ -326,16 +369,17 @@ permissions exactly match `docs/user/forge-credentials.md`. Then edit the encryp
 and evaluate the machine configuration:
 
 ```bash
-sops nixos/hosts/nagare-01/secrets/nagare-01.yaml
-nix fmt
-nix build .#nixosConfigurations.nagare-01.config.system.build.toplevel
+host_root="$(nagarectl host path --context prod)"
+sops "$host_root/secrets.yaml"
+nixpkgs-fmt nixos/hosts/nagare-01/forge-credentials.nix nixos/modules/nagare-host.nix
+nix build ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel
 ```
 
 The build must finish with a `result` link and must not print a GitHub key. Inspect the
 encrypted diff without decrypting it:
 
 ```bash
-git diff -- nixos/hosts/nagare-01/secrets/nagare-01.yaml
+git diff -- "$host_root/secrets.yaml"
 rg -n -- 'BEGIN (RSA )?PRIVATE KEY|ghs_[A-Za-z0-9]+' nixos docs
 ```
 
@@ -501,3 +545,10 @@ the architecture and implementation scope are unchanged.
 2026-08-25: Made explicit that Milestone 1 creates two new GitHub App registrations and
 does not assume or reuse existing Apps. Creation remains a one-time operator action in
 GitHub's UI; Nagare code begins with storing the resulting bootstrap credentials.
+
+2026-08-25: Reconciled implementation with the completed context-owned-host work in
+ExecPlan 107 and ADR 5. Live sops inputs now belong to the active context, reusable
+behavior is imported by `nixos/modules/nagare-host.nix`, validation uses the nested
+`nixos` flake, and the public DSL example uses `mkSecretName`. Recorded the completed
+module, focused failure-preservation tests, operator documentation, offline remote-builder
+constraint, and remaining GitHub/live acceptance work.

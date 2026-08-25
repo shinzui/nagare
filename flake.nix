@@ -239,7 +239,21 @@
             { nativeBuildInputs = [ pkgs.shellcheck ]; src = ./.; }
             ''
               cd "$src"
-              shellcheck --severity=error scripts/*.sh scripts/lib/*.sh
+              shellcheck --severity=error \
+                scripts/*.sh \
+                scripts/lib/*.sh \
+                nixos/hosts/nagare-01/forge-credentials-refresh.sh
+              touch "$out"
+            '';
+
+          forge-credential-refresh = pkgs.runCommand "nagare-forge-credential-refresh-test"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.openssl ];
+              src = ./.;
+            }
+            ''
+              cd "$src"
+              bash scripts/test-forge-credentials-refresh.sh
               touch "$out"
             '';
 
