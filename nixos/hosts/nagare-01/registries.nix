@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 let
   # The Artifact Registry Docker host the cluster pulls private images from.
@@ -11,6 +11,7 @@ let
     then import ./registry-host.nix
     else { registryHost = "us-west1-docker.pkg.dev"; };
   registryHost = registryHostCfg.registryHost;
+  appNamespaces = [ "personal" ];
 
   # Refresh script: mint a fresh OAuth access token for the node service account
   # from the GCE metadata server and write k3s's per-registry credential file.
@@ -36,13 +37,64 @@ let
           password: "''${TOKEN}"
     EOF
     chmod 0600 /etc/rancher/k3s/registries.yaml
-    # NOTE: k3s reads registries.yaml only at START — it bakes the credential into
-    # containerd's generated config; the running containerd does NOT hot-reload a
-    # rewritten registries.yaml. So writing a fresh token here is necessary but not
-    # sufficient: containerd keeps using the token loaded at the last k3s start.
-    # The 'nagare-registries-reload' service below restarts k3s on a timer so the
-    # fresh token actually takes effect (this service re-runs before each restart).
-    # (Discovered by EP-5's live smoke test, 2026-06-11; see the EP-2 Decision Log.)
+    # k3s reads registries.yaml only at start. This file is therefore the bootstrap
+    # credential for early pulls; steady-state pulls use the Kubernetes pull Secret
+    # refreshed below, without restarting k3s.
+  '';
+
+  pullSecretScript = pkgs.writeShellScript "nagare-registry-pull-secret" ''
+    set -euo pipefail
+
+    TOKEN="$(${pkgs.curl}/bin/curl -sf -H 'Metadata-Flavor: Google' \
+      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
+      | ${pkgs.jq}/bin/jq -r .access_token)"
+    if [ -z "''${TOKEN}" ] || [ "''${TOKEN}" = "null" ]; then
+      echo "nagare-registry-pull-secret: failed to mint a metadata access token" >&2
+      exit 1
+    fi
+
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    kubectl() {
+      ${config.services.k3s.package}/bin/k3s kubectl "$@"
+    }
+    cluster_ready() {
+      kubectl get --raw=/readyz --request-timeout=10s >/dev/null 2>&1
+    }
+    fail_or_retry() {
+      message="$1"
+      if ! cluster_ready; then
+        echo "nagare-registry-pull-secret: cluster API is unavailable; timer will retry" >&2
+        exit 0
+      fi
+      echo "nagare-registry-pull-secret: $message" >&2
+      exit 1
+    }
+
+    if ! cluster_ready; then
+      echo "nagare-registry-pull-secret: cluster API is unavailable; timer will retry" >&2
+      exit 0
+    fi
+
+    for ns in ${builtins.concatStringsSep " " appNamespaces}; do
+      if ! kubectl get namespace "$ns" >/dev/null 2>&1; then
+        echo "nagare-registry-pull-secret: namespace $ns does not exist; skipping" >&2
+        continue
+      fi
+
+      if ! kubectl -n "$ns" create secret docker-registry nagare-registry-pull \
+        --docker-server="${registryHost}" \
+        --docker-username=oauth2accesstoken \
+        --docker-password="$TOKEN" \
+        --dry-run=client -o yaml \
+        | kubectl -n "$ns" apply -f -; then
+        fail_or_retry "failed to apply pull Secret in $ns"
+      fi
+
+      if ! kubectl -n "$ns" patch serviceaccount default \
+        -p '{"imagePullSecrets":[{"name":"nagare-registry-pull"}]}'; then
+        fail_or_retry "failed to patch the default ServiceAccount in $ns"
+      fi
+    done
   '';
 in
 {
@@ -53,28 +105,21 @@ in
   # /etc/rancher/k3s/registries.yaml; without it the pull is anonymous and AR
   # returns 403/DENIED. Rather than a hand-written token that expires in ~1 hour
   # (the non-durable fix the 2026-06-10 audit applied), a metadata-minted token is
-  # written on boot (before k3s) and refreshed on a timer.
+  # written on boot (before k3s). A Kubernetes pull Secret refreshed below is the
+  # steady-state credential and reaches kubelet without restarting the control
+  # plane.
   #
-  # The credential is durable via TWO cooperating units, because k3s only loads
-  # registries.yaml at start (the running containerd ignores later rewrites):
-  #   * nagare-registries-refresh — writes a fresh token; runs before k3s, so every
-  #     k3s (re)start picks up a fresh credential.
-  #   * nagare-registries-reload  — a timer-driven `systemctl restart k3s`, so the
-  #     refreshed token actually reaches containerd. It is deliberately NOT a k3s
-  #     dependency, to avoid an ordering cycle with the refresh service.
-  # A k3s SERVER restart briefly interrupts the control plane (~15-30s) but does
-  # NOT stop running workload pods (containerd keeps them), so app traffic is
-  # uninterrupted. (The kubelet image-credential-provider plugin would avoid the
-  # restart entirely by minting per-pull, but auth-provider-gcp is not packaged in
-  # nixpkgs — see the EP-2 Decision Log; packaging it is the recommended follow-up.)
+  # The boot unit remains useful during initial cluster startup. Once the API is
+  # ready, nagare-registry-pull-secret refreshes per-pod credentials every 30
+  # minutes and wires them into each app namespace's default ServiceAccount.
   systemd.services.nagare-registries-refresh = {
     description = "Refresh k3s Artifact Registry pull credentials from the metadata server";
     # The metadata server is link-local and available early, but require the
     # network stack so a cold boot does not race it.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    # Write a fresh token before k3s starts so the first pull (and every pull after
-    # a reload-triggered restart) is authenticated. wantedBy (not requiredBy) so a
+    # Write a fresh token before k3s starts so the first pull is authenticated.
+    # wantedBy (not requiredBy) means a
     # transient metadata blip never wedges k3s.
     before = [ "k3s.service" ];
     wantedBy = [ "k3s.service" "multi-user.target" ];
@@ -85,27 +130,23 @@ in
     };
   };
 
-  # Restart k3s so containerd reloads the refreshed registries.yaml token. Starting
-  # k3s re-runs nagare-registries-refresh (its Before/WantedBy), writing a fresh
-  # token first. This unit is intentionally NOT WantedBy/Before k3s, so there is no
-  # ordering cycle.
-  systemd.services.nagare-registries-reload = {
-    description = "Restart k3s so containerd reloads the refreshed Artifact Registry token";
+  systemd.services.nagare-registry-pull-secret = {
+    description = "Refresh Kubernetes Artifact Registry pull credentials";
+    after = [ "k3s.service" ];
+    wants = [ "k3s.service" ];
+    path = [ pkgs.curl pkgs.jq pkgs.coreutils config.services.k3s.package ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.systemd}/bin/systemctl restart k3s.service";
+      ExecStart = pullSecretScript;
     };
   };
 
-  systemd.timers.nagare-registries-reload = {
-    description = "Periodically reload k3s registry credentials (restart k3s with a fresh token)";
+  systemd.timers.nagare-registry-pull-secret = {
+    description = "Periodically refresh Kubernetes Artifact Registry pull credentials";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      # The boot-time token (written before k3s) is valid ~1 hour; restart every 45
-      # minutes so the token containerd holds is always < 45 min old (safely within
-      # its ~1h lifetime). Persistent catches up a missed firing after suspend.
-      OnBootSec = "45min";
-      OnUnitActiveSec = "45min";
+      OnBootSec = "2min";
+      OnUnitActiveSec = "30min";
       Persistent = true;
     };
   };

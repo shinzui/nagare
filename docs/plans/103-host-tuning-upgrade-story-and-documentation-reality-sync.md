@@ -63,8 +63,8 @@ while every runbook step matches the real tree.
 - [x] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
 - [ ] M1: apply to the live host (`just host-switch`) and run the online `k3s secrets-encrypt enable` + restart + `reencrypt` procedure
 - [ ] M1: verify kubeconfig mode/group on the host and encryption status `Enabled` / `reencrypt_finished`
-- [ ] M2: add the `nagare-registry-pull-secret` service + 30-minute timer to `nixos/hosts/nagare-01/registries.nix`
-- [ ] M2: delete the `nagare-registries-reload` service and timer from `registries.nix`
+- [x] M2: add the `nagare-registry-pull-secret` service + 30-minute timer to `nixos/hosts/nagare-01/registries.nix`
+- [x] M2: delete the `nagare-registries-reload` service and timer from `registries.nix`
 - [ ] M2: apply with `just host-switch`; confirm the old timer is gone and the new one fires
 - [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start, with no k3s restart in `journalctl`
 - [ ] M3: verify whether `knative/serving` `knative-v1.22.0` ships a `net-certmanager.yaml` release asset; repoint the `justfile` pin and rewrite `cluster/bootstrap/net-certmanager/README.md` accordingly
@@ -173,8 +173,15 @@ while every runbook step matches the real tree.
   configuration evaluates. Live activation, late encryption enablement, and
   host observations remain open because there is no active target context and
   the configured gcloud account requires interactive reauthentication.
+- M2 repository work completed on 2026-08-24. The restart timer is removed;
+  the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
+  namespaces, treats an unavailable API as retryable, and preserves hard
+  failures for token minting or Kubernetes mutations while the API is healthy.
+  Evaluation proves the new timer's `2min`/`30min`/persistent settings and the
+  old timer's absence. Host activation and the >45-minute uncached pull proof
+  remain open behind the same cloud authentication blocker.
 
-(Complete this section after M2 and M3.)
+(Complete this section after M3.)
 
 
 ## Context and Orientation
