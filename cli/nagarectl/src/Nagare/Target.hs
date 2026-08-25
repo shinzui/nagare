@@ -266,6 +266,9 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
   -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
   -- 'defaultGcsPulumiBackendUrl'.
+  , tpPlatformVersion :: !(Maybe Text)
+  -- ^ Optional NAGARE_PLATFORM_VERSION. 'Nothing' identifies a legacy
+  -- source-managed context whose release has not been explicitly adopted.
   }
   deriving stock (Eq, Show)
 
@@ -489,6 +492,7 @@ profileFromContextMap ctx =
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
       pulumiBackend = parsePulumiBackendKind (mapRaw ctx "NAGARE_PULUMI_BACKEND")
       pulumiBackendUrl = mapOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+      platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
    in TargetProfile
         { tpProject = project
         , tpRegion = region
@@ -504,6 +508,7 @@ profileFromContextMap ctx =
         , tpLocalObjectStore = localObjectStore
         , tpPulumiBackend = pulumiBackend
         , tpPulumiBackendUrl = pulumiBackendUrl
+        , tpPlatformVersion = platformVersion
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -522,6 +527,7 @@ resolveProfileFrom ctx = do
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
   pulumiBackend <- parsePulumiBackendKind <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND"
   pulumiBackendUrl <- ctxOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+  platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
   pure
     TargetProfile
       { tpProject = project
@@ -538,6 +544,7 @@ resolveProfileFrom ctx = do
       , tpLocalObjectStore = localObjectStore
       , tpPulumiBackend = pulumiBackend
       , tpPulumiBackendUrl = pulumiBackendUrl
+      , tpPlatformVersion = platformVersion
       }
 
 -- | Resolve the active context into a context name plus fully-derived

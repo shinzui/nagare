@@ -36,7 +36,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Define semantic platform versions, release metadata, context persistence, and compatibility rules.
+- [x] (2026-08-25T19:03:00Z) M1: Define semantic platform versions, release metadata, context persistence, and compatibility rules.
 - [ ] M2: Stamp and inspect cluster and host release identities and integrate version checks into doctor/status.
 - [ ] M3: Implement staged upgrade planning, apply, history, retry, and supported rollback behavior.
 - [ ] M4: Validate legacy migration, multi-context skew, failure recovery, and operator upgrade documentation.
@@ -53,6 +53,10 @@ implementation. Provide concise evidence.
 - Context files are deliberately a flat `export VAR=value` schema shared by Haskell and bash. The
   platform version must extend that schema through both resolvers rather than living only in Haskell
   JSON state. Date: 2026-08-25.
+- An ambient `NAGARE_PLATFORM_ROOT` from the packaged wrapper can leak into Cabal tests that intend to
+  exercise source-root discovery. The source-fallback test now clears and restores that variable,
+  while installed-root precedence remains covered separately. Evidence: all 386 `nagarectl-test`
+  cases pass under the packaged development environment. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -77,6 +81,10 @@ Record every decision made while working on the plan.
 - Decision: update the context version only after all selected apply phases succeed.
   Rationale: the context is operator intent and the recovery anchor. Advancing it before infrastructure
   and bootstrap success would turn a partial failure into misleading desired state.
+  Date: 2026-08-25.
+- Decision: keep semantic-version parsing in `Nagare.Version` and add no new package dependency.
+  Rationale: the required release grammar and compatibility matrix are small, strict, and now table
+  tested; avoiding another library keeps EP-105's hermetic package closure unchanged.
   Date: 2026-08-25.
 
 

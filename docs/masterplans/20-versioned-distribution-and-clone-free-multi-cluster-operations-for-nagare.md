@@ -104,7 +104,7 @@ until the Nix-first path proves that the program is actually checkout-independen
 | 105 | Package nagarectl and its typed config runtime with Nix | docs/plans/105-package-nagarectl-and-its-typed-config-runtime-with-nix.md | None | None | Complete |
 | 106 | Make Nagare platform assets resolvable outside a source checkout | docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md | EP-105 | None | Complete |
 | 107 | Externalize per-operator NixOS and host configuration | docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md | EP-106 | None | Complete |
-| 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | Not Started |
+| 108 | Add per-context platform versions and safe upgrades | docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md | EP-106 | EP-107 | In Progress |
 | 109 | Publish versioned releases and clone-free onboarding | docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md | EP-107, EP-108 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.

@@ -72,6 +72,7 @@ testProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpPlatformVersion = Nothing
     }
 
 renderTests :: [TestTree]
