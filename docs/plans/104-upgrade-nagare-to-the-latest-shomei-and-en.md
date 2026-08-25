@@ -79,8 +79,10 @@ This section must always reflect the actual current state of the work.
       2026-08-25T13:30:55Z: the configured bearer value and intentionally absent-header
       paths are covered by live HTTP tests; all 103 tests and `cabal build
       exe:nagare-access` pass.
-- [ ] M4: fix `nagarectl`'s hand-written en client (`cli/nagarectl/src/Nagare/Access/Grants.hs`)
-      — new `/v1` paths, the bearer API key, and en's hand-written wire JSON.
+- [x] M4: fix `nagarectl`'s hand-written en client (`cli/nagarectl/src/Nagare/Access/Grants.hs`)
+      — new `/v1` paths, the bearer API key, and en's hand-written wire JSON. Completed
+      2026-08-25T13:36:23Z: the CLI and all 374 tests pass; exact tuple/expand request bytes
+      and union/intersection/exclusion decoding are pinned in `AccessGrantsSpec`.
 - [ ] M5: update the cluster manifests and the image build script — en API-key Secret and
       environment, shomei's moved health probes, a shomei migration Job, and a cabal-project
       tail that mirrors upstream's current dependency pins (no more codd).
@@ -136,6 +138,13 @@ implementation. Provide concise evidence.
   .#checks.aarch64-darwin.nagare-access-build-test` reached the Git clone phase on
   2026-08-25 and exited 128 with `could not read Username for 'https://github.com'`; the
   focused suite passes from the authenticated/warm developer checkout.
+
+- Observation: Aeson's generic record encoding does not preserve En's reviewed golden field
+  order. The first M4 exact-byte test encoded `ExpandRequestWire` fields and nested
+  `ObjectRefWire` fields in key order rather than declaration order. Evidence: the focused
+  test expected En's `consistency, object, permission, context, limit, cursor` order but saw
+  `consistency, context, cursor, limit, object, permission`; replacing generic derivation
+  with the same explicit `toEncoding` sequence as En made the byte-exact test pass.
 
 
 ## Decision Log
