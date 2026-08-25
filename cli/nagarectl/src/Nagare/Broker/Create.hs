@@ -14,7 +14,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Broker.Topic (reconcileBrokerTopics, renderTopicPlan)
-import Nagare.Deploy (applyManifests, waitForRollout)
+import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render (brokerBootstrapServers, brokerStatefulSetName, renderBroker)
 import Nagare.Dsl.Load (loadBroker, renderLoadError)
@@ -108,6 +108,7 @@ runBrokerCreate provider nameT params = do
       applyManifests manifests
       stampMetadata ns name broker
       waitForRollout ns (brokerStatefulSetName name)
+        >>= requireWait ("broker '" <> name <> "'")
       reconcileBrokerTopics broker
       TIO.putStrLn ("Created broker " <> name <> " at " <> bootstrap)
 

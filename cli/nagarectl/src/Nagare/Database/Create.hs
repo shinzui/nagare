@@ -26,7 +26,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Database.Secret
-import Nagare.Deploy (applyManifests, waitForRollout)
+import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
 import Nagare.Dsl.Database
   ( Database (..)
   , Engine (..)
@@ -161,6 +161,7 @@ runDbCreate eng nameT params = do
       stampMetadata ns name db
       when backsUp (applyManifests [cronJob])
       waitForRollout ns (statefulSetName name)
+        >>= requireWait ("database '" <> name <> "'")
       TIO.putStrLn
         ("Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
 
