@@ -2,15 +2,7 @@
 
 let
   # The Artifact Registry Docker host the cluster pulls private images from.
-  # The pure NixOS flake cannot read the active shell context directly, so
-  # operators targeting another registry generate ./registry-host.nix from the
-  # active context. With no generated override, the worked-example default is
-  # byte-for-byte unchanged.
-  registryHostCfg =
-    if builtins.pathExists ./registry-host.nix
-    then import ./registry-host.nix
-    else { registryHost = "us-west1-docker.pkg.dev"; };
-  registryHost = registryHostCfg.registryHost;
+  registryHost = config.nagare.host.registryHost;
   appNamespaces = [ "personal" ];
 
   # Refresh script: mint a fresh OAuth access token for the node service account
