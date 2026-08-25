@@ -7,63 +7,64 @@ module Nagare.Access.ShomeiClient
   )
 where
 
+import Control.Applicative ((<|>))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Access.Auth (LoginCredentials (..), LoginOutcome (..), MfaChallenge (..), MfaCompletion (..), SessionTokens (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Shomei.Client qualified as Shomei
-import Shomei.Servant.DTO qualified as DTO
+import Shomei.Mfa.Dto qualified as Mfa
+import Shomei.Session.Dto qualified as DTO
 
 loginWithShomei :: Shomei.ClientEnv -> LoginCredentials -> IO LoginOutcome
-loginWithShomei env credentials = do
-  result <-
-    Shomei.login
-      env
-      ( DTO.LoginRequest
-          (loginCredentialId credentials)
-          (loginCredentialEmail credentials)
-          (loginCredentialPassword credentials)
-      )
-  pure $ case result of
-    Left _ ->
-      LoginFailed "invalid login"
-    Right (DTO.LoginMfaRequiredResponse ceremonyId options) ->
-      LoginMfaRequired MfaChallenge {mfaCeremonyId = ceremonyId, mfaOptions = options}
-    Right (DTO.LoginCompleteResponse _ (DTO.TokenPairResponse access refresh expires)) ->
-      LoginSucceeded (sessionTokens access refresh expires)
+loginWithShomei env credentials =
+  case loginCredentialId credentials <|> loginCredentialEmail credentials of
+    Nothing -> pure (LoginFailed "invalid login")
+    Just loginId -> do
+      result <- Shomei.login env (DTO.LoginRequest loginId (loginCredentialPassword credentials))
+      pure $ case result of
+        Right (Shomei.ApplicationSuccess response) ->
+          case Shomei.cookieBody response of
+            DTO.LoginMfaRequiredResponse ceremonyId options _methods ->
+              LoginMfaRequired MfaChallenge {mfaCeremonyId = ceremonyId, mfaOptions = options}
+            DTO.LoginCompleteResponse _ tokenPair ->
+              tokenPairOutcome "invalid login" tokenPair
+        -- Upstream now exposes RFC 7807 details on every non-success constructor.
+        -- Preserve nagare-access's existing outward failure text in this compatibility change.
+        _ -> LoginFailed "invalid login"
 
 completeMfaWithShomei :: Shomei.ClientEnv -> MfaCompletion -> IO LoginOutcome
 completeMfaWithShomei env completion = do
   result <-
     Shomei.mfaComplete
       env
-      ( DTO.MfaCompleteRequest
+      ( Mfa.MfaCompleteRequest
           (mfaCompletionCeremonyId completion)
-          (mfaCompletionAssertion completion)
+          (Mfa.PasskeyProof (mfaCompletionAssertion completion))
       )
   pure $ case result of
-    Left _ ->
-      LoginFailed "mfa failed"
-    Right (DTO.TokenPairResponse access refresh expires) ->
-      LoginSucceeded (sessionTokens access refresh expires)
+    Right (Shomei.ApplicationSuccess response) ->
+      tokenPairOutcome "mfa failed" (Shomei.cookieBody response)
+    _ -> LoginFailed "mfa failed"
 
 refreshWithShomei :: Shomei.ClientEnv -> Text -> IO LoginOutcome
 refreshWithShomei env refreshToken = do
-  result <- Shomei.refresh env (DTO.RefreshRequest refreshToken)
+  result <- Shomei.refresh env (DTO.RefreshRequest (Just refreshToken))
   pure $ case result of
-    Left _ ->
-      LoginFailed "refresh failed"
-    Right (DTO.TokenPairResponse access refresh expires) ->
-      LoginSucceeded (sessionTokens access refresh expires)
+    Right (Shomei.ApplicationSuccess response) ->
+      tokenPairOutcome "refresh failed" (Shomei.cookieBody response)
+    _ -> LoginFailed "refresh failed"
 
 shomeiLoginEnvFromAuthPlane :: AuthPlaneConfig -> IO Shomei.ClientEnv
 shomeiLoginEnvFromAuthPlane cfg =
   Shomei.shomeiClientEnv (Text.unpack (shomeiUrl cfg))
 
-sessionTokens :: Text -> Text -> Int -> SessionTokens
-sessionTokens access refresh expires =
-  SessionTokens
-    { accessToken = access
-    , refreshToken = Just refresh
-    , expiresIn = expires
-    }
+tokenPairOutcome :: Text -> DTO.TokenPairResponse -> LoginOutcome
+tokenPairOutcome _ (DTO.TokenPairResponse (Just access) refresh expires) =
+  LoginSucceeded
+    SessionTokens
+      { accessToken = access
+      , refreshToken = refresh
+      , expiresIn = expires
+      }
+tokenPairOutcome failureMessage _ = LoginFailed failureMessage

@@ -63,8 +63,12 @@ This section must always reflect the actual current state of the work.
       them in the Decision Log, and capture the current build failure as a baseline.
       Completed 2026-08-25T04:34:44Z. The baseline was a successful old-pin build rather
       than a failure; that result and the remote-pin evidence are recorded below.
-- [ ] M1: repin `cli/nagare-access/cabal.project` and make the `nagare-access` **library**
-      compile against current shomei and en.
+- [x] M1 (source adaptation): update the planned dependency closure and adapt the
+      `nagare-access` **library** source to current shomei/en APIs. Completed
+      2026-08-25T13:14:23Z.
+- [x] M1 (dependency validation): pin the newly corrected en dependency commit once it is reachable on
+      GitHub, remove the temporary downstream OpenAPI compatibility patch, and make
+      `cabal build lib:nagare-access` pass. Completed 2026-08-25T13:17:54Z.
 - [ ] M2: make the `nagare-access` **test suite** compile and pass.
 - [ ] M3: teach `nagare-access` to send en's mandatory API key, with a new
       `NAGARE_ACCESS_EN_API_KEY` configuration variable.
@@ -90,6 +94,22 @@ implementation. Provide concise evidence.
   2026-08-25 after resolving shomei `af09ace`, en `d27bb44`, codd `c32d365`, and the old
   Git-pinned `ephemeral-pg`. This is the before-state against which M1 is compared.
 
+- Observation: en at remote commit `c213e2b` and shomei at `26361f2` have no common
+  unmodified OpenAPI dependency pair. Hackage/fork OpenAPI 5.0 with servant-openapi-hs 5.1
+  compiles shomei but en imports the pre-5.0 ordered-map type; en's 4.1 fork pair compiles en
+  but shomei needs the newer MultiVerb class kind. Evidence: the 5.0 build failed in
+  `En.Servant.OpenApi` with `InsOrdHashMap` versus `InsOrdHashMap.Compat`; the 4.1 build
+  reached `Shomei.Servant.OpenApi` and failed because `IsSwaggerResponseList` had the old
+  kind.
+
+- Observation: the en checkout now contains the upstream resolution at local commit
+  `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`: it imports
+  `Data.HashMap.Strict.InsOrd.Compat`, consumes OpenAPI from Hackage, and pins the real
+  `mori://shinzui/biscuit-haskell` fork at
+  `8c0b3c5a13ce4a310737c0336f2ae167a1597588`. Both pins became remote-reachable on
+  2026-08-25, and `cabal build lib:nagare-access` then exited 0 using Hackage
+  `openapi-hs-5.0.0` and `servant-openapi-hs-5.1.0` without a downstream patch.
+
 
 ## Decision Log
 
@@ -111,7 +131,7 @@ Record every decision made while working on the plan.
   hand-written en HTTP client in place instead of switching it to the `en-client` library.
   Rationale: `cli/nagare-access/Dockerfile` and the separate `cli/nagare-access/cabal.project`
   exist specifically so the deploy CLI does not inherit that closure, which now includes a
-  forked `biscuit-haskell`, two forked OpenAPI libraries and a forked `webauthn`. Pulling
+  forked `biscuit-haskell`, Hackage OpenAPI libraries and a forked `webauthn`. Pulling
   `en-client` into `nagarectl` would drag all of that into every `nagarectl` build. The cost
   is that `nagarectl` must hand-encode en's wire JSON; M4 pins that with a byte-exact test so
   the duplication cannot drift silently again.
@@ -136,13 +156,13 @@ Record every decision made while working on the plan.
   Date: 2026-08-25
 
 - Decision: Pin shomei at `26361f21325f4c0d2d1751365542d6c0adc83839` and en at
-  `c213e2bc4a544075e6d1133b20b8f5de00e3a9e0`.
+  `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`.
   Rationale: `git ls-remote --heads --tags` showed those exact commits at each repository's
-  remote `master` ref on 2026-08-25. The shomei checkout is at that commit. The en checkout
-  is two commits ahead at `f3bf488`, but the additional commits publish capability and
-  dependency metadata only and are not reachable from GitHub, so a Cabal Git pin cannot use
-  them. Pinning the remote tip preserves all runtime/API work in scope while keeping builds
-  reproducible from a fresh checkout.
+  remote `master` ref on 2026-08-25. The en pin supersedes the initially selected `c213e2b`:
+  it carries the compatible OpenAPI 5 import and switches en to the real
+  `mori://shinzui/biscuit-haskell` fork, resolving the combined shomei/en dependency solve
+  without a Nagare-owned source patch. Pinning the remote tips keeps builds reproducible
+  from a fresh checkout.
   Date: 2026-08-25
 
 
@@ -417,21 +437,19 @@ into every generated project that includes shomei.** shomei has dropped its codd
 `servant-openapi-hs >=5.1 && <5.2`, and `shomei-migrations`'s public `test-support`
 sub-library requires `ephemeral-pg >=0.2.2 && <0.3`.
 
-en's `cabal.project` still pins three Git sources: the `shinzui/biscuit-haskell-project` fork
-at `61f2b31063db6bc7fe0fb885dd2da957634a525b` (subdir `biscuit-haskell/biscuit`), and forks of
-`shinzui/openapi-hs` at `965340a30fad0782f2c964ab97b4ab0f12fa044d` and
-`shinzui/servant-openapi-hs` at `7cbbc234cb7c0e900495b2f676e2912a7f456ff0`. It also constrains
-`crypton >= 1.1` and — conflicting with shomei — `ephemeral-pg ==0.2.1.0`.
+en's `cabal.project` pins the real `shinzui/biscuit-haskell` fork at
+`8c0b3c5a13ce4a310737c0336f2ae167a1597588` (subdir `biscuit`) and resolves OpenAPI from
+Hackage. It also constrains `crypton >= 1.1` and — conflicting with shomei —
+`ephemeral-pg ==0.2.1.0`.
 
 Three consequences follow. First, `en-servant` now depends on `en-biscuit` and
 `biscuit-haskell`, so **every generated project that includes `en-servant` must add the
 package `en/en-biscuit` and the biscuit fork pin** — nagare's current script lists neither, and
 `nagare-access` depends on `en-servant`. Second, the `ephemeral-pg` disagreement must be
 resolved in nagare's favour: nagare does not build en's test suites, so drop en's
-`ephemeral-pg` constraint and let shomei's `>=0.2.2` floor win. Third, the OpenAPI packages
-must be resolved one way for both; the plan's first attempt is Hackage
-(`openapi-hs` 5.0.0, `servant-openapi-hs` 5.1.0, both confirmed published) because shomei
-carries hard bounds and en carries none, with the Git forks as the documented fallback.
+`ephemeral-pg` constraint and let shomei's `>=0.2.2` floor win. Third, both projects now
+resolve `openapi-hs` 5.0.0 and `servant-openapi-hs` 5.1.0 from Hackage; the combined M1
+build proves no Git OpenAPI fallback or bound relaxation is needed.
 
 Verified on Hackage on 2026-08-25: `pg-migrate`, `pg-migrate-embed` and `pg-migrate-cli` are
 all at `1.1.0.0`; `ephemeral-pg` at `0.2.2.0`; `openapi-hs` at `5.0.0`; `servant-openapi-hs`
@@ -442,9 +460,10 @@ deletes.
 **10. Pin only commits that exist on the remote.** `cabal` fetches a
 `source-repository-package` from GitHub, not from the local checkout. As of 2026-08-25 the
 shomei checkout is at `26361f21325f4c0d2d1751365542d6c0adc83839` and in sync with
-`origin/master`. The en checkout is at `f3bf488f...` but is **two commits ahead of
-`origin/master`**, whose tip is `c213e2b`. M0 exists to resolve this rather than let a
-`cabal build` fail deep into a container build with an unhelpful message.
+`origin/master`. The en checkout is at
+`054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634` and in sync with `origin/master`. M0 exists to
+verify this rather than let a `cabal build` fail deep into a container build with an
+unhelpful message.
 
 ### Where this plan does not go
 
@@ -490,12 +509,10 @@ requires at least that. Keep the `shinzui/webauthn` pin and its `allow-newer: we
 Add the biscuit fork pin from en's project file, and add the two constraints that fork and
 pg-migrate imply: `crypton >= 1.1` and `crypton-x509-validation >= 1.9.1`. Keep
 `constraints: time ==1.14` — it is nagare's own pin and unrelated to this change. Do not add
-the two Git OpenAPI forks on the first attempt; let the solver take Hackage `openapi-hs`
-5.0.0 and `servant-openapi-hs` 5.1.0, which satisfy shomei's declared bounds and en's
-unbounded ones. If en fails to compile against them, add the two `source-repository-package`
-stanzas from en's `cabal.project` verbatim, relax shomei's bounds with `allow-newer`, and
-record both the failure and the workaround in Surprises & Discoveries — that outcome is a
-genuine upstream inconsistency worth writing down.
+Git OpenAPI forks; let the solver take Hackage `openapi-hs` 5.0.0 and
+`servant-openapi-hs` 5.1.0, which satisfy both projects' declarations. The M1 implementation
+briefly exposed an incompatibility in an earlier en commit, but en `054afad` fixes the import
+at source, so Nagare carries no downstream patch or relaxed OpenAPI bounds.
 
 Then fix the three source files.
 
@@ -671,9 +688,8 @@ webauthn:*`, adding `constraints: crypton-x509-validation >= 1.9.1` and `crypton
 `en/en-biscuit` to `write_en_packages` and the biscuit fork `source-repository-package` to the
 en tail, since `en-servant` now needs it. For the `shomei` service, add `exe:shomei-migrate`
 to `cabal_targets` and `cabal_binaries` so the migration Job has a binary to run. For the
-`nagare-access` service, the generated project is the union of all of the above; that is the
-one most likely to need the OpenAPI-fork fallback described in M1, so keep both variants
-documented in comments.
+`nagare-access` service, the generated project is the union of all of the above and resolves
+the OpenAPI packages from Hackage exactly as the standalone M1 project does.
 
 Acceptance: `cluster/bootstrap/auth-images/build-local-image.sh shomei` and `... en` and
 `... nagare-access` each build successfully with `NAGARE_AUTH_PUSH=0`; `grep -ri codd
@@ -734,8 +750,8 @@ Expect something like:
 ```text
 26361f21325f4c0d2d1751365542d6c0adc83839
 ## master...origin/master
-f3bf488fa23c0ed83c7a036d5cdc3bb733119683
-## master...origin/master [ahead 2]
+054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634
+## master...origin/master
 ```
 
 `[ahead N]` means those commits are not on GitHub and cannot be pinned. Confirm the chosen
@@ -769,9 +785,7 @@ cabal build lib:nagare-access
 ```
 
 A successful solve prints a plan that mentions `pg-migrate-1.1.0.0`, `openapi-hs-5.0.0`,
-`servant-openapi-hs-5.1.0`, `servant-health-0.1.0.0` and `ephemeral-pg-0.2.2.0`. If the solver
-reports a conflict mentioning `openapi-hs`, apply the Git-fork fallback described in the M1
-narrative and record it.
+`servant-openapi-hs-5.1.0`, `servant-health-0.1.0.0` and `ephemeral-pg-0.2.2.0`.
 
 ### M2
 
@@ -955,8 +969,8 @@ At the end of M1, `cli/nagare-access/cabal.project` must pin shomei's nine sub-p
 `shomei-migrations:test-support`) and en's six (`en-core`, `en-migrations`, `en-postgres`,
 `en-servant`, `en-client`, and the newly required `en-biscuit`) at the M0 SHAs. It must pin
 `https://github.com/shinzui/webauthn.git` at `c274e23a5e31aac8932bac6398b65e8bca584a99` and
-`https://github.com/shinzui/biscuit-haskell-project.git` at
-`61f2b31063db6bc7fe0fb885dd2da957634a525b` (subdir `biscuit-haskell/biscuit`). It must carry
+`https://github.com/shinzui/biscuit-haskell.git` at
+`8c0b3c5a13ce4a310737c0336f2ae167a1597588` (subdir `biscuit`). It must carry
 `allow-newer: webauthn:*` and the constraints `crypton >= 1.1` and
 `crypton-x509-validation >= 1.9.1`. It must contain no reference to `codd` and no
 `ephemeral-pg` Git pin.
