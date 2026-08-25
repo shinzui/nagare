@@ -9,22 +9,43 @@
 # therefore a new name, so old and new images coexist.
 set -euo pipefail
 
+DRY_RUN=0
+case "${1:-}" in
+  "") ;;
+  --dry-run) DRY_RUN=1 ;;
+  *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;;
+esac
+
 # Load the target profile and run the configurable, fail-closed project-isolation
 # preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/target.sh"
-_require_target_project
-PROJECT="$TARGET_PROJECT"
+# Resolve the context-owned NixOS flake. NAGARE_HOST_FLAKE remains an explicit
+# override for source compatibility and tests.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/host.sh"
+_nagare_resolve_host_flake
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NIXOS_DIR="${REPO_ROOT}/nixos"
+REPO_ROOT="${NAGARE_REPO_ROOT}"
 PULUMI_DIR="${REPO_ROOT}/infra/pulumi"
 IAP_SSH="${REPO_ROOT}/scripts/iap-ssh.sh"
+PROJECT="$TARGET_PROJECT"
 REGION="${TARGET_REGION}"
 BUILDER_INSTANCE="${BUILDER_INSTANCE:-nix-builder-x86}"
 OUTPUT="nagare-image"
 ATTR="packages.x86_64-linux.${OUTPUT}"
 
 log() { printf '[upload-images] %s\n' "$*" >&2; }
+
+if [ "${DRY_RUN}" -eq 1 ]; then
+  printf 'context: %s\n' "${NAGARE_CONTEXT}"
+  printf 'project: %s\n' "${PROJECT}"
+  printf 'registry: %s\n' "${NAGARE_REGISTRY_HOST}"
+  printf 'host flake: %s\n' "${NAGARE_HOST_FLAKE}"
+  printf 'image attribute: %s\n' "${ATTR}"
+  printf 'pulumi directory: %s\n' "${PULUMI_DIR}"
+  exit 0
+fi
+
+_require_target_project
 
 # Private scratch file for nix build's stderr. A fixed /tmp path is
 # world-predictable and shared between concurrent runs and users.
@@ -47,10 +68,10 @@ fi
 # and checking it exists on the builder.
 build_image() {
   local out_path
-  if out_path=$( (cd "${NIXOS_DIR}" && nix build --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
+  if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && nix build --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
     echo "${out_path}"; return 0
   fi
-  out_path=$(cd "${NIXOS_DIR}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
+  out_path=$(cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
     log "nix build failed and nix eval could not resolve the output path:"; cat "${NIX_BUILD_ERR}" >&2; return 1; }
   local q; q="$(printf '%q' "${out_path}")"
   if [ -n "${BUILDER_INSTANCE}" ] && "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "test -d ${q}" 2>/dev/null; then
