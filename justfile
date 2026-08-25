@@ -64,7 +64,7 @@ nixos-registry-host:
 # Apply day-2 host config to running nagare-01.
 [group('host')]
 host-switch:
-    nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo
+    nixos-rebuild switch --flake ./nixos#nagare-01 --target-host nagare-01 --sudo
 
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
 # each cluster/bootstrap/*/README.md for the version-discovery procedure.
