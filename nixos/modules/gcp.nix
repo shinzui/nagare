@@ -38,8 +38,15 @@ in {
 
     services.chrony.enable = true;
 
+    # Absorb short memory spikes on the small single-node host without reaching
+    # disk-backed swap or immediately OOM-killing workloads.
+    zramSwap.enable = true;
+
     boot.kernel.sysctl = {
       "vm.swappiness" = 10;
+      "vm.overcommit_memory" = 1;
+      "fs.inotify.max_user_instances" = 512;
+      "fs.inotify.max_user_watches" = 524288;
       "net.ipv4.tcp_keepalive_time" = 60;
       "kernel.unprivileged_bpf_disabled" = 1;
       "kernel.kptr_restrict" = 2;

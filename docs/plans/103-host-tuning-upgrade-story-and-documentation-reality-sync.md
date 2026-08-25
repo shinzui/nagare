@@ -5,6 +5,7 @@ title: "Host tuning, upgrade story, and documentation reality sync"
 kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+intention: "intention_01kzakvy1qeasagg3rpbn44749"
 ---
 
 # Host tuning, upgrade story, and documentation reality sync
@@ -56,10 +57,10 @@ while every runbook step matches the real tree.
 
 ## Progress
 
-- [ ] M1: change `--write-kubeconfig-mode` to `0640` with `--write-kubeconfig-group=wheel` in `nixos/hosts/nagare-01/k3s.nix`
-- [ ] M1: add `--secrets-encryption` to the k3s server flags
-- [ ] M1: add zram swap and the three sysctls to `nixos/modules/gcp.nix`
-- [ ] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
+- [x] M1: change `--write-kubeconfig-mode` to `0640` with `--write-kubeconfig-group=wheel` in `nixos/hosts/nagare-01/k3s.nix`
+- [x] M1: add `--secrets-encryption` to the k3s server flags
+- [x] M1: add zram swap and the three sysctls to `nixos/modules/gcp.nix`
+- [x] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
 - [ ] M1: apply to the live host (`just host-switch`) and run the online `k3s secrets-encrypt enable` + restart + `reencrypt` procedure
 - [ ] M1: verify kubeconfig mode/group on the host and encryption status `Enabled` / `reencrypt_finished`
 - [ ] M2: add the `nagare-registry-pull-secret` service + 30-minute timer to `nixos/hosts/nagare-01/registries.nix`
@@ -86,6 +87,18 @@ while every runbook step matches the real tree.
   *actually reports* today; changing the CLI probe itself is out of scope here —
   it is owned by `docs/plans/101-alerting-and-backup-freshness-monitoring.md`
   (Milestone 2), which rewrites the probe to enumerate `databases/<name>`.
+- Mori has no registered k3s corpus. The flags and online encryption procedure
+  were therefore checked against current upstream k3s documentation on
+  2026-08-24. The pinned v1.34.6+k3s1 is the first v1.34 release supporting
+  late enablement; its procedure uses `enable`, restart with the flag,
+  `rotate-keys`, another restart, and a final `reencrypt_finished` status. This
+  supersedes the single-restart legacy `reencrypt` sequence in the authored
+  Concrete Steps and will be reflected in the upgrade guide.
+- The NixOS host evaluation passes. The repo-wide `nix flake check` reaches the
+  build phase but currently fails in the unrelated `nagare-access-build-test`
+  because its sandboxed Cabal build cannot authenticate while cloning an
+  upstream Git dependency; the other checks are cancelled after that failure.
+  No M1-owned NixOS file is implicated.
 
 (More to be added during implementation.)
 
@@ -154,7 +167,14 @@ while every runbook step matches the real tree.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+- M1 repository work completed on 2026-08-24: kubeconfig access is narrowed to
+  `root:wheel` mode 0640, datastore Secret encryption is enabled for fresh
+  starts, and zram/inotify/overcommit tuning is declarative. The NixOS
+  configuration evaluates. Live activation, late encryption enablement, and
+  host observations remain open because there is no active target context and
+  the configured gcloud account requires interactive reauthentication.
+
+(Complete this section after M2 and M3.)
 
 
 ## Context and Orientation
@@ -302,14 +322,15 @@ exhausted on single-node clusters, surfacing as "too many open files"), and
 fork-heavy workloads expect; the managed-database Redis engine logs a warning
 without it).
 
-Then apply and enable encryption online. The k3s docs distinguish a fresh
-cluster (flag alone suffices) from an existing one: on an existing single-node
-server you run `k3s secrets-encrypt enable`, restart `k3s.service` (this one
-deliberate restart is acceptable; pods keep running under containerd), then
-`k3s secrets-encrypt reencrypt` to rewrite existing Secret rows encrypted, and
-watch `k3s secrets-encrypt status` until it reports `Encryption Status:
-Enabled` and `Current Rotation Stage: reencrypt_finished`. Back up `state.db`
-first (see Idempotence and Recovery). Also record in
+Then apply and enable encryption online. The current k3s procedure for the
+pinned v1.34.6+k3s1 distinguishes a fresh cluster (the flag suffices) from an
+existing one. On an existing single-node server: back up `state.db`, run
+`k3s secrets-encrypt enable`, activate the flag and restart `k3s.service`,
+verify the `start` stage, run `k3s secrets-encrypt rotate-keys`, restart once
+more, then wait for `k3s secrets-encrypt status` to report `Encryption Status:
+Enabled` and `Current Rotation Stage: reencrypt_finished`. The second restart
+is required by the version-gated late-enablement workflow; the authored legacy
+`reencrypt` sequence is not used. Also record in
 `docs/user/secrets.md`-adjacent docs nothing yet — doc updates are M3 — but
 verify mode and encryption per Validation below.
 
@@ -611,11 +632,14 @@ scripts/iap-ssh.sh ssh nagare-01 -- 'k3s server --help 2>&1 | grep -o -- --write
 # 5. Apply (builds on the remote x86_64-linux builder, activates over Tailscale):
 just host-switch
 
-# 6. Enable + reencrypt secrets encryption (one deliberate k3s restart; pods keep running):
+# 6. Enable encryption on this existing single-server cluster. The pinned
+#    v1.34.6+k3s1 uses the version-gated late-enablement procedure:
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo cp /var/lib/rancher/k3s/server/db/state.db /var/lib/rancher/k3s/server/db/state.db.pre-encryption.bak'
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt enable'
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo systemctl restart k3s'
-scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt reencrypt'
+scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt status' # Disabled, stage start
+scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt rotate-keys'
+scripts/iap-ssh.sh ssh nagare-01 -- 'sudo systemctl restart k3s'
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt status'
 ```
 
@@ -626,9 +650,10 @@ Encryption Status: Enabled
 Current Rotation Stage: reencrypt_finished
 ```
 
-If `enable` reports encryption already configured (because the flag from the
-switch already initialized it), that is fine — proceed to `status` and only
-run `reencrypt` if the stage is not `reencrypt_finished`.
+If the first post-switch status already reports Enabled and
+`reencrypt_finished`, the cluster was already encrypted and the enable/rotation
+steps are unnecessary. Do not mix this procedure with the legacy
+`prepare`/`rotate`/`reencrypt` workflow.
 
 ```bash
 # 7. Verify M1 acceptance:

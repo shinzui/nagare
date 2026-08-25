@@ -85,7 +85,7 @@ ownership rules in Integration Points.
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
-| 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Not Started |
+| 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -204,7 +204,9 @@ complete; the child plans hold the granular checklists.
 - [x] EP-6 M3: House-style sweep and final validation
   (2026-08-24 — all six owned sites use `fromMaybe`; final build and all 372
   tests pass)
-- [ ] EP-7 M1: Host tuning and k3s hardening flags
+- [~] EP-7 M1: Host tuning and k3s hardening flags
+  (2026-08-24 — declarative flags/tuning and NixOS evaluation complete; live
+  switch, encryption rotation, and host proof await an authenticated context)
 - [ ] EP-7 M2: Registry credentials without k3s restarts
 - [ ] EP-7 M3: Upgrade story and documentation reality sync
 
