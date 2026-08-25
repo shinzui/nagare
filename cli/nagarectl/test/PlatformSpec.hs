@@ -3,12 +3,16 @@
 module PlatformSpec (platformTests) where
 
 import Control.Exception (bracket, finally)
+import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
 import Data.Text qualified as T
 import Nagare.Platform.Paths
+import Nagare.Platform.Status
 import Nagare.Platform.Workspace
 import Nagare.Target (mkContextName)
+import Nagare.Version (BuildVersion (..), Compatibility (..))
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
@@ -70,6 +74,25 @@ platformTests =
           prodWorkspace <- preparePlatformWorkspace stateRoot prod paths >>= either (assertFailure . show) pure
           stagingWorkspace <- preparePlatformWorkspace stateRoot staging paths >>= either (assertFailure . show) pure
           assertBool "context workspace roots differ" (pwRoot prodWorkspace /= pwRoot stagingWorkspace)
+    , testCase "platform status compares all five identities and fails closed on major skew" $ do
+        let cli = identityFromBuild (BuildVersion "1.2.3" (Just "cli-rev"))
+            payload = ReleaseIdentity (Just "1.2.3") (Just "payload-rev") (Just 1)
+            context = ReleaseIdentity (Just "1.2.3") Nothing Nothing
+            host = parseHostIdentity "# Nagare platform version: 1.2.3\n# Nagare source revision: payload-rev\n"
+            clusterBytes = LBS.toStrict (Aeson.encode (clusterMarkerValue payload "2026-08-25T19:00:00Z"))
+            cluster = maybe (error "cluster marker did not parse") id (parseClusterIdentity clusterBytes)
+            exact = assessPlatformStatus cli payload context host cluster
+            incompatible = assessPlatformStatus cli payload context host (ReleaseIdentity (Just "2.0.0") Nothing (Just 1))
+        statusCompatibility exact @?= Exact
+        guardPlatformMutation exact @?= Right ()
+        statusCompatibility incompatible @?= MajorIncompatible
+        assertBool "major skew blocks mutation" (either (const True) (const False) (guardPlatformMutation incompatible))
+    , testCase "missing host and cluster identities remain a non-blocking legacy warning" $ do
+        let release = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
+            unknown = ReleaseIdentity Nothing Nothing Nothing
+            status = assessPlatformStatus release release release unknown unknown
+        statusCompatibility status @?= LegacyUnknown
+        guardPlatformMutation status @?= Right ()
     ]
 
 withFixture :: (FilePath -> IO a) -> IO a
