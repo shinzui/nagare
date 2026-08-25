@@ -27,7 +27,7 @@ Relevant environment variables:
   NAGARE_AUTH_K3S_IMAGE_PREFIX=<prefix> Default: dev.local/nagare-auth
   SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
   EN_SRC=<path>                  Default: ../en sibling checkout.
-  CODD_SRC=<path>                Default: local mori codd checkout package dir.
+  CODD_SRC=<path>                Default: local Mori codd checkout; needed by Shomei builds.
 USAGE
 }
 
@@ -104,7 +104,11 @@ shomei_src="${SHOMEI_SRC:-/Users/shinzui/Keikaku/bokuno/shomei}"
 en_src="${EN_SRC:-/Users/shinzui/Keikaku/bokuno/en}"
 codd_src="${CODD_SRC:-/Users/shinzui/Keikaku/hub/haskell/codd-project/codd}"
 
-for path in "$shomei_src" "$en_src" "$codd_src"; do
+required_sources=("$en_src")
+if [[ "$service" != "en" ]]; then
+  required_sources+=("$shomei_src" "$codd_src")
+fi
+for path in "${required_sources[@]}"; do
   [[ -d "$path" ]] || fail "required source directory does not exist: $path"
 done
 
@@ -134,9 +138,11 @@ copy_tree() {
 mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
 cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
 copy_tree "$root" "$tmpdir/workspace/nagare"
-copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
 copy_tree "$en_src" "$tmpdir/workspace/en"
-copy_tree "$codd_src" "$tmpdir/workspace/deps/codd"
+if [[ "$service" != "en" ]]; then
+  copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
+  copy_tree "$codd_src" "$tmpdir/workspace/deps/codd"
+fi
 
 write_common_cabal_tail() {
   cat <<'EOF'
@@ -180,16 +186,6 @@ allow-newer:
 EOF
 }
 
-write_codd_cabal_tail() {
-  cat <<'EOF'
-  deps/codd
-
-package codd
-  tests: False
-  benchmarks: False
-EOF
-}
-
 write_shomei_packages() {
   cat <<'EOF'
   shomei/shomei-core
@@ -211,6 +207,27 @@ write_en_packages() {
   en/en-servant
   en/en-server
   en/en-client
+EOF
+}
+
+write_en_cabal_tail() {
+  cat <<'EOF'
+
+constraints:
+  crypton >= 1.1
+
+-- Current en source pins these GHC-9.12-compatible OpenAPI forks.
+-- mori://shinzui/openapi-hs/repos/openapi-hs
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/openapi-hs.git
+  tag: 965340a30fad0782f2c964ab97b4ab0f12fa044d
+
+-- mori://shinzui/servant-openapi-hs/repos/servant-openapi-hs
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/servant-openapi-hs.git
+  tag: 7cbbc234cb7c0e900495b2f676e2912a7f456ff0
 EOF
 }
 
@@ -258,8 +275,8 @@ EOF
     cp "$shomei_src/deploy/entrypoint.sh" "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
     ;;
   en)
-    cabal_targets=(exe:en-server)
-    cabal_binaries=(exe:en-server)
+    cabal_targets=(exe:en-server exe:en-migrate)
+    cabal_binaries=(exe:en-server exe:en-migrate)
     {
       cat <<'EOF'
 with-compiler: ghc-9.12.4
@@ -268,7 +285,7 @@ write-ghc-environment-files: never
 packages:
 EOF
       write_en_packages
-      write_codd_cabal_tail
+      write_en_cabal_tail
     } > "$tmpdir/workspace/cabal.project"
     cat > "$tmpdir/runtime/usr/local/bin/auth-entrypoint" <<'EOF'
 #!/usr/bin/env sh

@@ -183,7 +183,10 @@ complete; the child plans hold the granular checklists.
 - [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
-- [ ] EP-4 M3: Idempotent migrations, immutable-by-default image tags, pinned MinIO
+- [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
+  pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
+  against disposable PostgreSQL, rendered manifests and registry tags verified;
+  live installer rerun remains)
 - [ ] EP-5 M1: vmalert + Alertmanager with a Pushover channel
 - [ ] EP-5 M2: Five real alert rules, and a truthful freshness probe
 - [ ] EP-5 M3: Prove backups restore, on a schedule
@@ -273,6 +276,17 @@ Discoveries from implementation:
   `tan-nb-exp` fail because gcloud requires interactive reauthentication. EP-3 remains
   In Progress; because this MasterPlan has no hard dependencies, EP-4 can proceed
   without weakening or concealing EP-3's operator-only acceptance gates.
+- **EP-4's planned SQL bootstrap became unsafe as the dependency evolved**
+  (2026-08-24). `mori://shinzui/en/packages/en-migrations` is now an accepted,
+  append-only pg-migrate component with an `en-migrate` executable, datastore
+  identity and GC-horizon schema, and a changed live uniqueness contract. The
+  prior Nagare ConfigMap would have retained an obsolete schema even after adding
+  `IF NOT EXISTS`. EP-4 now ships `en-server` and `en-migrate` in one tagged image
+  and treats the dependency-owned manifest as the only schema authority. Downstream
+  plans must not reintroduce copied en SQL. The controlling cross-repository ADR
+  is in `mori://shinzui/en` at project-relative path
+  `docs/adr/0001-en-s-schema-is-an-append-only-pg-migrate-component.md`; an
+  artifact-level Mori URI is pending registry coverage.
 
 
 ## Decision Log
@@ -322,10 +336,25 @@ Discoveries from implementation:
   so EP-4 can be implemented safely while those gates remain explicit and unchecked.
   Date: 2026-08-24
 
+- Decision: EP-4 consumes en's released migration executable from the same tagged
+  image as the server; Nagare does not own or mount a second SQL manifest.
+  Rationale: en's pg-migrate component is the accepted schema boundary and carries
+  ledger, checksum, advisory-lock, and forward-only behavior. Delegating to it
+  prevents the drift discovered in Nagare's bootstrap SQL and keeps the runtime
+  binary and schema plan version-locked. The dependency is
+  `mori://shinzui/pg-migrate`, whose 1.1.0.0 release was verified against Hackage
+  and upstream tag `v1.1.0.0` on 2026-08-24.
+  Date: 2026-08-24
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-(To be filled during and after implementation.)
+EP-4's repository changes for resource bounds, observability storage caps,
+Grafana credential handling, datasource single-sourcing, immutable auth tags,
+dependency-owned migrations, and local MinIO pinning are complete and pass their
+offline/rendered checks. Live local/cloud rollout remains open because this machine
+has neither a running Docker/k3d cluster nor an authenticated cloud context; those
+acceptance gates remain visible in EP-4 rather than being inferred from rendering.

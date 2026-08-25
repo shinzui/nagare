@@ -59,7 +59,12 @@ kubectl apply -f "$bootstrap_dir/en/configmap.yaml"
 kubectl apply -f "$bootstrap_dir/nagare-access/configmap.yaml"
 
 # 3) en schema migration must run BEFORE en-server starts (en does not self-migrate).
-kubectl apply -f "$bootstrap_dir/en/migrations.yaml"
+# Job spec.template is immutable and a completed Job never re-runs, so a new
+# release image's embedded plan would otherwise silently never apply. Migrations are
+# ledger-backed and idempotent, so it applies only pending embedded migrations.
+kubectl -n "$ns" delete job en-migrate --ignore-not-found=true
+NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
+  "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/en/migrations.yaml" | kubectl apply -f -
 echo "==> waiting for en-migrate Job to complete"
 kubectl -n "$ns" wait --for=condition=complete job/en-migrate --timeout=180s
 
