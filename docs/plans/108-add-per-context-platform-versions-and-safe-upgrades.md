@@ -39,7 +39,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-25T19:03:00Z) M1: Define semantic platform versions, release metadata, context persistence, and compatibility rules.
 - [x] (2026-08-25T19:50:27Z) M2: Stamp and inspect cluster and host release identities and integrate version checks into doctor/status.
 - [x] (2026-08-25T20:02:13Z) M3: Implement staged upgrade planning, apply, history, retry, and supported rollback behavior.
-- [ ] M4: Validate legacy migration, multi-context skew, failure recovery, and operator upgrade documentation.
+- [x] (2026-08-25T20:14:24Z) M4: Validate legacy migration, multi-context skew, failure recovery, and operator upgrade documentation.
 
 
 ## Surprises & Discoveries
@@ -63,6 +63,11 @@ implementation. Provide concise evidence.
   under an internal upgrade marker, and stamps the release separately as the penultimate phase.
   This keeps the pre-existing bootstrap behavior visible and prevents its ordinary guard/final stamp
   from committing early. Date: 2026-08-25.
+- A wrapped executable's `NAGARE_PLATFORM_ROOT` applies only to that child process; it is not exported
+  back into the calling shell. The installed empty-directory test must read `payloadRoot` from
+  `platform root --json` before passing an explicit payload to upgrade planning. Evidence: the
+  clone-free Nix check failed against its empty working directory when it expanded the unset shell
+  variable, then passed with the reported absolute payload root. Date: 2026-08-25.
 
 
 ## Decision Log
@@ -110,6 +115,13 @@ Record every decision made while working on the plan.
   Pulumi schema migrations cannot be inferred reversible. An absent allowlist produces a refusal and
   manual recovery guidance rather than a false rollback claim.
   Date: 2026-08-25.
+- Decision: make legacy adoption a confirmed observed-state commit that accepts unknown historical
+  markers but rejects every known mismatch.
+  Rationale: old hosts and clusters may truthfully lack version metadata, so absence cannot identify
+  a release. Requiring the requested payload and all present CLI/host/cluster observations to agree,
+  then stamping the cluster before the context, records only what the operator has inspected without
+  concealing real skew.
+  Date: 2026-08-25.
 
 
 ## Outcomes & Retrospective
@@ -119,7 +131,24 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+EP-108 is complete. Nagare now carries one semantic platform identity across the CLI, immutable
+payload, context intent, generated host flake, and cluster completion marker. Status and doctor
+explain exact, patch, minor, major, and legacy relationships; unsafe platform mutations fail before
+external changes.
+
+Upgrades are schema-versioned per-context transactions. Planning retains an immutable payload and
+host staging area and records Nix, Pulumi, and Kubernetes evidence. Apply persists each phase,
+preserves operator-owned host configuration, commits context intent last, resumes after every
+injected apply-phase failure, and refuses unsupported rollback claims. Explicit adoption covers old
+unversioned contexts without inventing their history.
+
+Validation includes 394 Haskell tests, both executable builds, shell syntax checks, the full native
+`nix flake check`, and an installed empty-directory scenario that adopts a legacy context and plans a
+different release without a source checkout. Cross-system Linux builds remain CI's responsibility;
+the local flake check reported `x86_64-linux` as incompatible with the Darwin evaluator. The durable
+contract and adoption/transaction boundaries are recorded in
+`docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md`. EP-109 still
+owns tag publication, released install commands, and release consistency checks.
 
 
 ## Context and Orientation

@@ -17,8 +17,9 @@ fast development:
 
 The context name is the operator-facing identity of a cluster. It selects the
 GCP project, region, registry, buckets, domain, VM, build target, and Pulumi
-stack. It does **not** select a Kubernetes API endpoint; pair it with the right
-`KUBECONFIG` before any live cluster operation.
+stack. It also owns the platform release pin, immutable payload workspaces, and
+upgrade transaction history. It does **not** select a Kubernetes API endpoint;
+pair it with the right `KUBECONFIG` before any live cluster operation.
 
 ## Decide whether you need another cluster
 
@@ -244,6 +245,43 @@ The default `just live-test` helper also uses shared local ports and
 For simultaneous cloud-cluster access, use separate worktrees with distinct
 `LIVE_TEST_PORT` and `LIVE_TEST_SSH_PORT` values, or prepare stable per-cluster
 kubeconfigs using the access procedure in the user manual.
+
+## Run different platform releases safely
+
+Contexts may intentionally remain on different Nagare platform releases. The
+payload workspace, generated host flake, Pulumi projection, and transaction
+history are stored below that context's XDG state/config roots; upgrading
+`labs` does not advance `prod`.
+
+Inspect each context with its own kubeconfig before planning:
+
+```bash
+NAGARE_CONTEXT=labs \
+KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml" \
+nagarectl platform status --json
+
+NAGARE_CONTEXT=prod \
+KUBECONFIG="$HOME/.config/nagare/kubeconfigs/prod.yaml" \
+nagarectl platform status --json
+```
+
+Rehearse a release on `labs`, keep its transaction identifier, and apply that
+same reviewed plan. Do not reuse the identifier for another context; the CLI
+rejects cross-context transaction histories.
+
+```bash
+export NAGARE_CONTEXT=labs
+export KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml"
+nagarectl platform upgrade --to 0.2.0 --dry-run --json > labs-upgrade.json
+labs_transaction="$(jq -r '.transactionId' labs-upgrade.json)"
+nagarectl platform upgrade --apply --resume "$labs_transaction" --yes
+nagarectl platform status
+```
+
+Leave `prod` selected at its old release until the labs verification is
+complete. A shell-local `NAGARE_CONTEXT` and `KUBECONFIG` pair is safer than
+changing the shared current-context pointer during parallel work. See
+[Upgrades](../user/upgrades.md) for adoption, recovery, and rollback limits.
 
 ## Deploy the same application to two clusters
 

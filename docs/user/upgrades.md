@@ -2,14 +2,114 @@
 
 > **Status:** ✅ Supported procedure
 
-Nagare pins the host, Kubernetes distribution, cluster controllers, and
-observability charts independently. Upgrade one layer at a time, verify it, and
-commit its lock or pin change before moving to the next layer. That separation
-makes a regression attributable and keeps rollback straightforward.
+Nagare treats the CLI, immutable platform payload, context, generated host
+flake, and cluster marker as one versioned release. `platform status` compares
+those five identities; `platform upgrade` stages and previews a new release,
+persists every phase, and advances the context only after the infrastructure,
+host, and cluster phases succeed.
 
 Run cloud commands with the intended [target context](contexts.md) active. Keep
 the IAP path in [Accessing the host](accessing-the-host.md) available before a
 host or networking change.
+
+## Inspect release identity
+
+Select both the Nagare context and its matching kubeconfig, then inspect the
+release before any mutation:
+
+```bash
+export NAGARE_CONTEXT=labs
+export KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml"
+nagarectl platform status
+nagarectl platform status --json
+```
+
+The report names the CLI, payload, context, host, and cluster versions. Its
+compatibility result has these meanings:
+
+| Result | Meaning |
+| --- | --- |
+| `exact` | Every identity reports the payload version. |
+| `patch-skew` | A patch differs; inspection and compatible mutation remain available. |
+| `minor-upgrade-required` | Run the explicit upgrade workflow before platform mutation. |
+| `major-incompatible` | Platform mutation is blocked until a compatible CLI and release are selected. |
+| `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
+
+Status and doctor remain read-only and useful when Kubernetes is unreachable.
+An absent `nagare-platform-version` ConfigMap is reported as unknown rather
+than inferred from currently running workloads.
+
+## Adopt a legacy context
+
+A context created before release pins has no `NAGARE_PLATFORM_VERSION`.
+Adoption records the release already in use; it is not an upgrade. First read
+the observations, verify that the selected kubeconfig points at this context's
+cluster, and then confirm the exact payload version:
+
+```bash
+nagarectl platform status
+nagarectl platform adopt --version 0.1.0 --yes
+```
+
+`platform adopt` repeats the observations before changing anything. It only
+accepts an unversioned context, requires the requested version to equal the
+active payload, and rejects every known CLI, host, or cluster mismatch. An
+absent cluster marker is created before the context pin is committed. If that
+write fails, the context remains legacy and the command can safely be retried.
+
+## Plan and apply a release upgrade
+
+Planning is the default and does not change the context, host, infrastructure,
+or cluster:
+
+```bash
+nagarectl platform upgrade --to 0.2.0 --dry-run --json > upgrade-plan.json
+transaction_id="$(jq -r '.transactionId' upgrade-plan.json)"
+nagarectl platform upgrade status "$transaction_id"
+```
+
+Review the immutable workspace and staged host-flake paths, Nix evaluation,
+Pulumi preview, and Kubernetes diff recorded in the transaction. Back up any
+stateful workloads when the release notes call for a migration. Apply only the
+reviewed transaction:
+
+```bash
+nagarectl platform upgrade --apply --resume "$transaction_id" --yes
+nagarectl platform status
+```
+
+Apply runs Pulumi, switches and commits the staged host flake, reconciles the
+cluster, stamps its release ConfigMap, and atomically advances the context pin
+last. A failure preserves the transaction and the old context pin. Inspect and
+resume the same identifier after correcting the cause:
+
+```bash
+nagarectl platform upgrade status "$transaction_id" --json
+nagarectl platform upgrade --apply --resume "$transaction_id" --yes
+```
+
+Resume rechecks successful phases and reruns convergent operations whose
+postcondition cannot be proven. Reapplying a completed transaction is a no-op.
+Each context has separate history and immutable workspaces under its XDG state
+directory.
+
+## Rollback boundaries
+
+Rollback is available only when the target release metadata explicitly allows
+the previous version and the retained old payload is still present:
+
+```bash
+nagarectl platform upgrade rollback "$transaction_id" --yes
+```
+
+This creates and applies a reverse release-selection transaction. It does not
+claim to delete infrastructure, reverse Pulumi schema migrations, restore
+databases, or restore persistent volumes. Use the backup and recovery
+procedures before attempting a release rollback involving stateful changes.
+
+The sections below describe how release maintainers update the individual pins
+that are assembled into a Nagare platform payload. Operators should normally
+use the transaction workflow above rather than changing those pins in place.
 
 ## NixOS host
 

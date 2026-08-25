@@ -9,11 +9,12 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Nagare.Platform.Paths
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
-import Nagare.Target (mkContextName)
+import Nagare.Target (contextFilePath, mkContextName, readContextProfile, tpPlatformVersion, writeContextPlatformVersion)
 import Nagare.Version (BuildVersion (..), Compatibility (..))
 import System.Directory
   ( createDirectoryIfMissing
@@ -95,6 +96,35 @@ platformTests =
             status = assessPlatformStatus release release release unknown unknown
         statusCompatibility status @?= LegacyUnknown
         guardPlatformMutation status @?= Right ()
+    , testCase "status and legacy adoption distinguish exact, patch, major, and absent observations" $ do
+        let exactIdentity = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
+            legacyIdentity = ReleaseIdentity Nothing Nothing Nothing
+            exact = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity exactIdentity
+            patch = assessPlatformStatus exactIdentity exactIdentity (ReleaseIdentity (Just "1.2.4") Nothing Nothing) exactIdentity exactIdentity
+            major = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity (ReleaseIdentity (Just "2.0.0") Nothing Nothing)
+            absent = assessPlatformStatus exactIdentity exactIdentity legacyIdentity exactIdentity legacyIdentity
+        statusCompatibility exact @?= Exact
+        statusCompatibility patch @?= PatchSkew
+        statusCompatibility major @?= MajorIncompatible
+        statusCompatibility absent @?= LegacyUnknown
+        validatePlatformAdoption "1.2.3" absent @?= Right ()
+        assertBool "known patch skew cannot be hidden by adoption" (either (const True) (const False) (validatePlatformAdoption "1.2.3" (absent {statusCli = ReleaseIdentity (Just "1.2.4") Nothing Nothing})))
+        assertBool "an already versioned context must upgrade" (either (const True) (const False) (validatePlatformAdoption "1.2.3" exact))
+    , testCase "adopting one of two contexts preserves the other context release" $
+        withSystemTempDirectory "nagare-platform-contexts" $ \xdg ->
+          withTemporaryEnv "XDG_CONFIG_HOME" xdg $ do
+            prod <- either (assertFailure . T.unpack) pure (mkContextName "prod")
+            labs <- either (assertFailure . T.unpack) pure (mkContextName "labs")
+            prodPath <- contextFilePath prod
+            labsPath <- contextFilePath labs
+            createDirectoryIfMissing True (takeDirectory prodPath)
+            TIO.writeFile prodPath "export CLOUDSDK_CORE_PROJECT=prod\nexport NAGARE_PLATFORM_VERSION=1.1.0\n"
+            TIO.writeFile labsPath "export CLOUDSDK_CORE_PROJECT=labs\n"
+            writeContextPlatformVersion labs "1.2.0" >>= either (assertFailure . T.unpack) pure
+            prodProfile <- readContextProfile prod >>= either (assertFailure . T.unpack) pure
+            labsProfile <- readContextProfile labs >>= either (assertFailure . T.unpack) pure
+            tpPlatformVersion prodProfile @?= Just "1.1.0"
+            tpPlatformVersion labsProfile @?= Just "1.2.0"
     , testCase "upgrade planning and apply persist every phase in order" $ do
         events <- newIORef []
         saved <- newIORef Nothing
@@ -108,6 +138,9 @@ platformTests =
         observed @?= previewPhases <> applyPhases
         assertBool "context commit is final" (last (transactionPhases applied) == PhaseRecord ContextCommit Succeeded (Just "ok") (Just fixtureNow))
         (Aeson.eitherDecode (Aeson.encode applied) :: Either String UpgradeTransaction) @?= Right applied
+        reapplied <- applyUpgrade True ops applied >>= either (assertFailure . T.unpack) pure
+        reapplied @?= applied
+        readIORef events >>= (@?= observed)
     , testCase "failed apply preserves the old commit point and resume rechecks succeeded phases" $ do
         events <- newIORef []
         saved <- newIORef Nothing
@@ -129,7 +162,30 @@ platformTests =
         resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
         transactionState resumed @?= Completed
         assertBool "context commit ran after recovery" (phaseState (last (transactionPhases resumed)) == Succeeded)
+    , testCase "failure at every apply phase leaves a resumable old-context commit point" $
+        traverse_ checkFailure applyPhases
     ]
+  where
+    checkFailure failingPhase = do
+      events <- newIORef []
+      saved <- newIORef Nothing
+      failing <- newIORef True
+      let run phase = do
+            shouldFail <- readIORef failing
+            pure (if shouldFail && phase == failingPhase then Left ("injected failure at " <> T.pack (show phase)) else Right "ok")
+          tx = newUpgradeTransaction ("tx-" <> T.pack (show failingPhase)) "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
+          ops = fixtureUpgradeOps events saved run (const (pure False))
+      planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
+      applyUpgrade False ops planned >>= assertBool ("expected failure at " <> show failingPhase) . either (const True) (const False)
+      Just persisted <- readIORef saved
+      transactionState persisted @?= TransactionFailed
+      let contextRecord = last (transactionPhases persisted)
+      whenBeforeContext failingPhase $ phaseState contextRecord @?= Pending
+      writeIORef failing False
+      resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
+      transactionState resumed @?= Completed
+      phaseState (last (transactionPhases resumed)) @?= Succeeded
+    whenBeforeContext phase assertion = if phase == ContextCommit then pure () else assertion
 
 fixtureNow :: T.Text
 fixtureNow = "2026-08-25T19:00:00Z"
@@ -169,3 +225,9 @@ withClearedEnv name = bracket (lookupEnv name <* unsetEnv name) restore . const
   where
     restore Nothing = unsetEnv name
     restore (Just value) = setEnv name value
+
+withTemporaryEnv :: String -> String -> IO a -> IO a
+withTemporaryEnv name value = bracket (lookupEnv name <* setEnv name value) restore . const
+  where
+    restore Nothing = unsetEnv name
+    restore (Just oldValue) = setEnv name oldValue

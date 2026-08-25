@@ -206,6 +206,7 @@ import Nagare.Platform.Status
   , platformProbe
   , platformStatusValue
   , renderPlatformStatus
+  , validatePlatformAdoption
   )
 import Nagare.Platform.Upgrade
   ( TransactionState (..)
@@ -470,6 +471,7 @@ data Command
   | PlatformStatusCmd Bool
   | PlatformGuard
   | PlatformStamp
+  | PlatformAdopt String Bool Bool
   | PlatformUpgrade UpgradeOpts
   | PlatformUpgradeStatus (Maybe String) Bool
   | PlatformUpgradeRollback String Bool Bool
@@ -1538,6 +1540,12 @@ opts =
                   "stamp"
                   (info (pure PlatformStamp <**> helper) (progDesc "Record the active payload identity after successful cluster bootstrap"))
                 <> command
+                  "adopt"
+                  ( info
+                      (PlatformAdopt <$> strOption (long "version" <> metavar "VERSION" <> help "Release identity to assign to a legacy context") <*> switch (long "yes" <> help "Confirm the displayed observations") <*> switch (long "json" <> help "Print machine-readable observations and result") <**> helper)
+                      (progDesc "Explicitly adopt the observed payload release for a legacy context")
+                  )
+                <> command
                   "upgrade"
                   (info (upgradeCommandParser <**> helper) (progDesc "Plan, apply, resume, or inspect a per-context platform upgrade"))
             )
@@ -2159,6 +2167,7 @@ main =
     PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
     PlatformGuard -> runPlatformGuard mctx
     PlatformStamp -> runPlatformStamp mctx
+    PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
     PlatformUpgrade options -> runPlatformUpgrade mctx options
     PlatformUpgradeStatus txId asJson -> runPlatformUpgradeStatus mctx txId asJson
     PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
@@ -2283,6 +2292,23 @@ runPlatformStamp mctx = do
   (paths, _) <- resolvePlatformWorkspace (atContextName active)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   applyClusterMarker manifest >>= either dieT TIO.putStrLn
+
+runPlatformAdopt :: Maybe String -> String -> Bool -> Bool -> IO ()
+runPlatformAdopt mctx rawVersion yes asJson = do
+  target <- either (dieT . ("invalid --version: " <>) . versionErrorText) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
+  (active, status) <- gatherPlatformStatus mctx
+  if asJson
+    then LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["context" Aeson..= contextNameText (atContextName active), "requestedVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
+    else TIO.putStr (renderPlatformStatus (contextNameText (atContextName active)) status)
+  either dieT pure (validatePlatformAdoption target status)
+  unless yes (dieT "refusing to adopt a legacy context without --yes after reviewing the observations above")
+  (paths, _) <- resolvePlatformWorkspace (atContextName active)
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  applyClusterMarker manifest >>= either dieT (const (pure ()))
+  writeContextPlatformVersion (atContextName active) target >>= either dieT pure
+  if asJson
+    then LBC.putStrLn (Aeson.encode (Aeson.object ["adopted" Aeson..= True, "context" Aeson..= contextNameText (atContextName active), "platformVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
+    else TIO.putStrLn ("adopted Nagare platform " <> target <> " for context '" <> contextNameText (atContextName active) <> "'")
 
 upgradeTransactionsDir :: ContextName -> IO FilePath
 upgradeTransactionsDir context = do
