@@ -4,7 +4,7 @@ type: Capability
 description: "Run a version-matched Nagare CLI and immutable platform payload from a semantic Git tag without a source checkout."
 generated:
   by: codex/gpt-5
-  at: "2026-08-25T20:51:44Z"
+  at: "2026-08-26T03:07:31Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -18,9 +18,21 @@ reviews:
     context: >-
       Reviewed release consistency tests, native artifact assembly, the tag workflow, Nix payload
       checks, and clone-free operator documentation for version 0.1.0.
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-08-26T03:07:31Z"
+    document_timestamp: "2026-08-26T03:07:31Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: codex/gpt-5
+    effort: unspecified
+    context: >-
+      Reviewed the isolated-home, out-of-checkout rehearsal against the clone-free interfaces and
+      added it as direct executable evidence for the capability claim.
 verified:
   by: process:openai-codex
-  at: "2026-08-25T20:51:44Z"
+  at: "2026-08-26T03:07:31Z"
 capabilityId: CAP-19
 provider: mori://shinzui/nagare
 status: shipped
@@ -41,6 +53,9 @@ evidence:
   - kind: test
     resource: scripts/test-release.sh
     proves: The release gate rejects inconsistent versions and tags and assembles deterministic native-system evidence.
+  - kind: test
+    resource: scripts/rehearse-clone-free-release.sh
+    proves: An isolated home outside the source checkout exercises the versioned CLI, typed config runtime, immutable payload, generated host configuration, and operator recipes.
   - kind: conformance
     resource: .github/workflows/release.yml
     proves: Native runners validate tagged outputs before the minimal-permission job publishes immutable attachments.
