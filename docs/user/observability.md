@@ -1,6 +1,7 @@
 # Observability
 
-> **Status:** Installed by `just observability`.
+> **Status:** Installed by `nagare observability` from the pinned operator
+> release (`just observability` is the contributor-checkout equivalent).
 
 Nagare's observability is the **Victoria stack** — VictoriaMetrics (metrics),
 VictoriaLogs (logs), and VictoriaTraces (traces) — plus an **OpenTelemetry
@@ -29,10 +30,17 @@ the host's `nagare-data-layout` unit).
 ## Install
 
 ```bash
-just observability
+nagare observability
 ```
 
-which adds the VictoriaMetrics Helm repo and installs each chart with the values
+The installer reads encrypted Kubernetes Secrets from
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`, or from
+the explicit `NAGARE_CLUSTER_SECRETS_DIR`. At minimum `grafana-admin.yaml` must
+exist. When Alertmanager is enabled, `alertmanager-config.yaml` is also required.
+Released payloads and workspaces deliberately contain neither file; see
+[Secrets](secrets.md).
+
+The command adds the VictoriaMetrics Helm repo and installs each chart with the values
 under `cluster/observability/`:
 
 ```bash

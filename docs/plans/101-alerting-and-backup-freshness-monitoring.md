@@ -17,10 +17,11 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 ## Purpose / Big Picture
 
 Nagare is a personal single-node PaaS: one GCP VM (`nagare-01`) running k3s and
-Knative, with a VictoriaMetrics/Logs/Traces + Grafana observability stack. Today
-that stack has dashboards but **zero alerting** — the Helm values at
-`cluster/observability/victoria-metrics/values.yaml` say, literally, `# No
-alerting in v1` with `alertmanager.enabled: false` and `vmalert.enabled: false`.
+Knative, with a VictoriaMetrics/Logs/Traces + Grafana observability stack. At
+authoring, that stack had dashboards but **zero alerting**. M2 has since enabled
+vmalert with a curated rule set and an explicit blackhole notifier; the Helm
+values still keep `alertmanager.enabled: false` until the operator supplies the
+Pushover credential required by M1.
 If the data disk fills up, a nightly database backup silently stops running, a
 TLS certificate approaches expiry, or a pod crash-loops, nothing tells the
 operator. Worse, the one tool that *does* check backup freshness on demand —
@@ -40,7 +41,7 @@ After this plan is implemented:
    exist: one `backup databases/<name>` line per managed database, plus the
    still-valid `litestream/` and `volumes/` prefixes. The legacy `postgres/`
    probe is gone.
-3. `just local-smoke` proves the managed-database backup story end-to-end with
+3. `nagare local-smoke` (or `just local-smoke` in a contributor checkout) proves the managed-database backup story end-to-end with
    zero cloud resources: create a Postgres database, insert a sentinel row, back
    it up to the local MinIO object store, clobber the live data, restore into
    the scratch target, and assert the row came back. The cloud live-smoke
@@ -51,16 +52,19 @@ After this plan is implemented:
 
 - [ ] M1: Create a Pushover account and application; obtain the user key and app
       token (manual, outside the repo — see Concrete Steps M1.1).
-- [ ] M1: Write and sops-encrypt `cluster/secrets/alertmanager-config.yaml`
+- [ ] M1: Write and sops-encrypt the active context's
+      `cluster-secrets/<context>/alertmanager-config.yaml`
       (Secret `nagare-alertmanager-config`, namespace `monitoring`, key
-      `alertmanager.yaml`, Pushover receiver).
+      `alertmanager.yaml`, Pushover receiver). A source checkout may retain a tracked
+      `cluster/secrets/alertmanager-config.yaml` compatibility copy.
 - [ ] M1: Edit `cluster/observability/victoria-metrics/values.yaml` — enable
       `alertmanager` and `vmalert` with trimmed resources, point Alertmanager at
       the config Secret, remove M2's blackhole notifier, and retain
       `defaultRules.enabled: false`.
-- [ ] M1: Edit `cluster/observability/install.sh` — apply the Alertmanager
-      Secret before the vmks helm upgrade.
-- [ ] M1: Run `just observability`; confirm the vmalert and Alertmanager pods
+- [x] M1: Make `cluster/observability/install.sh` resolve context-owned encrypted
+      Secrets, require Alertmanager's file when enabled, and preserve the checkout
+      fallback. Released payloads/workspaces exclude `cluster/secrets`. (2026-08-26)
+- [ ] M1: Run `nagare observability`; confirm the vmalert and Alertmanager pods
       are Running in `monitoring`.
 - [ ] M1: Inject a synthetic alert into Alertmanager and receive the push
       notification on the phone.
@@ -82,7 +86,7 @@ After this plan is implemented:
       enumerate managed databases and probe `databases/<name>` prefixes; drop
       the legacy `postgres` probe. (2026-08-24)
 - [x] M2: Add unit tests for `backupPrefixes` to `cli/nagarectl/test/Spec.hs`;
-      all 363 tests pass. (2026-08-24)
+      all 394 current tests pass in the packaged Nix check. (2026-08-26)
 - [x] M2: Update `docs/runbooks/disaster-recovery.md` so the restore map has
       only the managed `databases/<name>/` layout. (2026-08-24)
 - [ ] M2: `nagarectl server status` against the live cluster shows
@@ -91,11 +95,17 @@ After this plan is implemented:
       `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap;
       use the managed password without printing it and pin the cleanup client.
       (2026-08-24)
-- [ ] M3: `just local-smoke` passes end-to-end including the new step. Shell
-      syntax and error-level shellcheck pass, but no Docker daemon is available.
+- [x] M3: Packaged `nagare local-smoke` passes repeatedly end-to-end, including
+      volume restore, managed-DB backup/restore, `DB RESTORE OK`, and cleanup. The
+      final acceptance run also proves `nagare-dbbackup-smokedb` is absent after
+      teardown. Shell syntax and error-level shellcheck pass. (2026-08-26)
 - [x] M3: Add a monthly `schedule:` cron to `.github/workflows/live-smoke.yml`
       alongside `workflow_dispatch`, update its header comment, and make the
       unwired authentication step fail explicitly. (2026-08-24)
+- [x] Packaging reconciliation: ship `cluster/examples` in every context workspace,
+      make `scripts/local-smoke.sh` use the packaged `nagarectl` on `PATH` with a
+      checkout-only Cabal fallback, and add release checks proving examples are present
+      while secrets are absent. The asset and clone-free package checks pass. (2026-08-26)
 
 
 ## Surprises & Discoveries
@@ -119,9 +129,27 @@ After this plan is implemented:
   succeeded. The backup-failure rule therefore subtracts successful Jobs. The
   stale rule also covers CronJobs older than 48 hours that have never succeeded,
   for which no last-success series exists. (2026-08-24)
-- The local Docker endpoint is absent (`~/.colima/docker.sock` does not exist),
-  so the M3 shell/YAML can be validated offline but the k3d restore round-trip
-  cannot honestly be marked complete on this machine. (2026-08-24)
+- The local Docker endpoint was absent on 2026-08-24, so M3 initially stopped at
+  offline shell/YAML validation. Docker was available when work resumed on
+  2026-08-26; repeated packaged k3d runs then supplied the missing restore evidence.
+- MasterPlan 20's packaged workspace intentionally omitted `cluster/secrets` and
+  contributor source, exposing two checkout assumptions after this plan's last
+  revision: `install.sh` looked for `../secrets/grafana-admin.yaml`, and
+  `local-smoke.sh` unconditionally built `cli/nagarectl` even though neither path
+  exists in an installed workspace. The 2026-08-26 fix moves cluster credentials to
+  context-owned XDG configuration, ships the required `cluster/examples`, and uses the
+  release-matched CLI already on `PATH`.
+- A contributor shell can export `NAGARE_RESOLVED_CONTEXT` for the checkout.
+  When the packaged workspace then sources `target.sh`, its different root makes
+  that marker stale and clears `NAGARE_MODE=local`. The smoke harness now clears
+  inherited resolution markers and sets its complete, fixed loopback target before
+  sourcing the guardrail. (2026-08-26)
+- StatefulSet rollout completion is not PostgreSQL readiness because the managed
+  database manifest has no readiness probe. The first live run reached `psql`
+  before the server listened; the harness now waits with `pg_isready` and connects
+  explicitly over `127.0.0.1`. The same run exposed that `db delete` omitted its
+  deterministic backup CronJob, so deletion now removes that child resource too.
+  (2026-08-26)
 
 
 ## Decision Log
@@ -207,19 +235,42 @@ After this plan is implemented:
   enabled.
   Date: 2026-08-24.
 
+- Decision: make encrypted observability credentials context-owned and validate M1/M3
+  through the packaged operator release.
+  Rationale: [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md)
+  excludes credentials and contributor build trees from released workspaces. The
+  installer now resolves
+  `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` (or explicit
+  `NAGARE_CLUSTER_SECRETS_DIR`) and fails before Helm when a required file is missing.
+  `nagare local-smoke` uses the packaged CLI and shipped example, while `just` + Cabal
+  remain contributor fallbacks.
+  Date: 2026-08-26.
+
+- Decision: make local smoke own a deterministic loopback target rather than inherit
+  a caller's resolved cloud/check-out context.
+  Rationale: this test always creates and targets `nagare-local`,
+  `k3d-registry.localhost:5000`, the loopback sslip.io domain, and the in-cluster
+  MinIO endpoint. Carrying a cloud profile into that harness is both incorrect and
+  unsafe. Explicit local values also make packaged and contributor runs identical.
+  Date: 2026-08-26.
+
 
 ## Outcomes & Retrospective
 
 M2's repository implementation is complete: the exact pinned chart renders,
 the cert-manager scrape matches the pinned upstream Service, all six PromQL
-rules pass `promtool`, and all 363 nagarectl tests pass. Live series discovery,
+rules pass `promtool`, and all 394 current nagarectl tests pass. Live series discovery,
 rule evaluation, and the status transcript remain open because the cloud context
 requires interactive gcloud reauthentication. M1 remains operator-gated on real
 Pushover credentials and phone delivery.
-M3's restore round-trip and monthly workflow are implemented and pass shell/YAML
-checks. The real local create→backup→restore assertion remains open until a
-Docker daemon is available; the scheduled cloud workflow intentionally stops at
-its explicit authentication TODO rather than proceeding unauthenticated.
+M3's restore round-trip and monthly workflow are implemented. The packaged local
+create→backup→restore assertion passes repeatedly, including teardown and an explicit
+post-run check that the database's deterministic backup CronJob is gone;
+the scheduled cloud workflow intentionally stops at its explicit authentication
+TODO rather than proceeding unauthenticated.
+Packaging reconciliation now makes both remaining workflows runnable from a released
+operator package without a checkout and keeps encrypted credentials outside immutable
+payloads. Live Pushover and cluster metrics/status evidence remain open.
 
 
 ## Context and Orientation
@@ -229,9 +280,18 @@ This section is self-contained; you need no other document.
 **The repository.** `/…/nagare` is a mono-repo for a personal PaaS. The parts
 this plan touches:
 
+**Packaged operation.** [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md)
+distributes release assets in an immutable payload and materializes a per-context
+workspace under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/platform/`.
+Operators invoke `nagare observability` and `nagare local-smoke` from the pinned
+release; contributors may use the equivalent `just` recipes in this checkout.
+Encrypted cluster Secrets are not payload assets. `scripts/lib/cluster-secrets.sh`
+resolves the context-owned XDG directory or `NAGARE_CLUSTER_SECRETS_DIR`, with tracked
+`cluster/secrets/` only as a checkout compatibility fallback.
+
 - `cluster/observability/` — the observability stack, installed by the
-  idempotent script `cluster/observability/install.sh` (run via `just
-  observability` from the repo root). The script `helm upgrade --install`s the
+  idempotent script `cluster/observability/install.sh` (run via `nagare
+  observability`, or `just observability` while contributing). The script `helm upgrade --install`s the
   chart `vm/victoria-metrics-k8s-stack` **version 0.81.0** as release `vmks`
   into namespace `monitoring`, with values from
   `cluster/observability/victoria-metrics/values.yaml`. That chart bundles
@@ -241,14 +301,16 @@ this plan touches:
   `kube-state-metrics` (Kubernetes object state as metrics), the
   victoria-metrics-operator (which reconciles the `VMAlert`, `VMAlertmanager`,
   `VMRule`, and `VMServiceScrape` custom resources), and Grafana. Lines 66–70 of
-  the values file currently read:
+  the values file currently read, in substance:
 
   ```yaml
-  # No alerting in v1.
   alertmanager:
     enabled: false
   vmalert:
-    enabled: false
+    enabled: true
+    spec:
+      extraArgs:
+        notifier.blackhole: "true"
   ```
 
   An existing example of a hand-written scrape object is
@@ -256,19 +318,17 @@ this plan touches:
   namespace `monitoring`), applied by `install.sh` right after the vmks helm
   upgrade.
 
-- `cluster/secrets/` — sops-encrypted Kubernetes Secret manifests committed to
-  Git. The policy file `.sops.yaml` at the repo root encrypts only the
-  `data`/`stringData` values of any `cluster/secrets/*.yaml` (keys and metadata
-  stay readable in diffs) against the project age recipient. The existing
-  example is `cluster/secrets/notes-db-url.yaml`. Secrets are applied with
-  `sops -d <file> | kubectl apply -f -` (see
-  `docs/runbooks/disaster-recovery.md`, which does exactly that in a loop).
-  Decryption requires the age private key at `~/.config/sops/age/keys.txt`.
+- Context-owned cluster secrets live under
+  `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` and are
+  intentionally absent from released payloads/workspaces. The explicit
+  `NAGARE_CLUSTER_SECRETS_DIR` override wins. A source checkout may use tracked
+  `cluster/secrets/` as a compatibility fallback; its `.sops.yaml` encrypts only
+  `data`/`stringData`. `install.sh` requires `grafana-admin.yaml` and, when
+  Alertmanager is enabled, `alertmanager-config.yaml` before invoking Helm.
 
 - `cli/nagarectl/` — the Haskell CLI (cabal project). Modules relevant here:
   - `src/Nagare/Ops/Status.hs` — assembles the `nagarectl server status`
-    report. Its `gatherInventory` runs a fixed list of IO probes; lines 72–74
-    are the bug this plan fixes:
+    report. Before M2, `gatherInventory` ran these stale fixed probes:
 
     ```haskell
     , probeBackup bucket "postgres"
@@ -276,7 +336,9 @@ this plan touches:
     , probeBackup bucket "volumes"
     ```
 
-    `probeBackup bucket prefix` (same file, ~line 229) shells out to
+    M2 now discovers managed databases and appends
+    `map (probeBackup bucket) (backupPrefixes dbNames)`. `probeBackup bucket
+    prefix` shells out to
     `gsutil ls -l gs://<bucket>/<prefix>/`, extracts the newest object
     timestamp with the pure `parseNewestBackupAge`, and grades it with
     `gradeAge` (OK under 24h, WARN otherwise). The `postgres/` prefix belonged
@@ -316,21 +378,22 @@ this plan touches:
     CronJob but **keeps** the PVC when retention is `Retain` (the default),
     printing the manual `kubectl delete pvc` command.
 
-- `scripts/local-smoke.sh` — the zero-cloud end-to-end smoke test (`just
-  local-smoke`): stands up a k3d cluster + local registry + MinIO if needed,
+- `scripts/local-smoke.sh` — the zero-cloud end-to-end smoke test (`nagare
+  local-smoke`; `just local-smoke` in a checkout): stands up a k3d cluster + local registry + MinIO if needed,
   deploys the `uploads-volume` example app, writes a sentinel file, snapshots
   the volume to MinIO, restores it, asserts HTTP 200, and tears down via a
   `cleanup()` EXIT trap. It exports `NAGARE_MODE=local` up top, so any
   `nagarectl` command it runs automatically selects the MinIO backend. It
-  defines a `nagarectl()` shell function wrapping a freshly built binary, a
+  resolves the release-matched `nagarectl` from `PATH` and uses a checkout-only
+  Cabal fallback, defines a `nagarectl()` wrapper, a
   `minio_rm` helper that deletes an `s3://…` object via a throwaway `minio/mc`
   pod, and ends with `echo "local smoke: OK"`. Trap-safety refactors of this
   script are owned by `docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md`
   — this plan only **appends** a step and teardown lines.
 
-- `.github/workflows/live-smoke.yml` — the cloud smoke workflow. Today it
-  triggers on `workflow_dispatch:` only; its header comment says "MANUAL
-  trigger ONLY". Its "Authenticate to GCP" step is an explicit TODO stub.
+- `.github/workflows/live-smoke.yml` — the cloud smoke workflow. It now has both
+  `workflow_dispatch` and the monthly cron added by M3. Its "Authenticate to
+  GCP" step remains an explicit fail-fast TODO stub.
 
 - `cert-manager` — installed in namespace `cert-manager` from the upstream
   v1.20.2 manifest (see `cluster/bootstrap/cert-manager/README.md`). The
@@ -359,13 +422,16 @@ is its keypair encryption backend.
   `cluster/observability/victoria-metrics/values.yaml`: it owns the `grafana:`
   block (admin secret) and retention caps, and establishes the sops-Secret
   pattern for observability credentials. This plan is a **soft dependent**:
-  land after 100 when possible, and confine every edit here to the
-  `alertmanager:` / `vmalert:` / `defaultRules:` blocks — never touch
-  `grafana:`. If 100 has **not** landed, proceed anyway: the sops pattern
-  already exists in the repo (`.sops.yaml` + `cluster/secrets/notes-db-url.yaml`),
-  so create `cluster/secrets/alertmanager-config.yaml` following that exact
-  pattern (as this plan specifies) and leave the `grafana:` block untouched for
-  plan 100.
+  confine every edit here to the `alertmanager:` / `vmalert:` /
+  `defaultRules:` blocks — never touch `grafana:`. Plan 100 has landed; its
+  Grafana Secret must now be copied or re-encrypted into the active context's
+  operator-owned cluster-secret directory before running the packaged
+  installer.
+- `docs/masterplans/20-versioned-distribution-and-clone-free-multi-cluster-operations-for-nagare.md`
+  and its ExecPlan 106 established the immutable payload/context-workspace
+  boundary recorded by ADR 4. This plan must not add credentials or contributor
+  build trees to that payload. It may add immutable runtime inputs, such as
+  `cluster/examples`, and release checks for those inputs.
 - `docs/plans/102-nagarectl-correctness-and-robustness-fixes.md` touches
   `cli/nagarectl` in different modules (`Deploy.hs`, `Database/Create.hs`).
   This plan owns `Ops/Status.hs` (and the additive change to `Ops/Probe.hs`);
@@ -380,6 +446,7 @@ commit belonging to this plan:
 ```text
 MasterPlan: docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md
 ExecPlan: docs/plans/101-alerting-and-backup-freshness-monitoring.md
+Intention: intention_01kzakvy1qeasagg3rpbn44749
 ```
 
 
@@ -396,25 +463,29 @@ calendar.
 
 ### Milestone 1 — vmalert + Alertmanager with a Pushover channel
 
-Scope: enable the two disabled components in
+Scope: enable Alertmanager alongside the already-enabled vmalert in
 `cluster/observability/victoria-metrics/values.yaml`, feed Alertmanager its
-config (with Pushover credentials) from a sops-managed Secret, and wire the
-Secret into `cluster/observability/install.sh`. At the end, `kubectl get pods
+config (with Pushover credentials) from a context-owned, sops-managed Secret.
+The installer already resolves and applies that Secret without assuming a
+checkout path. At the end, `kubectl get pods
 -n monitoring` shows vmalert and Alertmanager Running, and a synthetic alert
 POSTed to Alertmanager arrives as a push notification on the phone. No rules
-exist yet (`defaultRules.enabled: false` and no VMRule) — the pipeline is
-deliberately validated empty so rule bugs (M2) can never be confused with
-delivery bugs.
+from the chart are enabled (`defaultRules.enabled: false`); the curated M2
+VMRule is already present, so verify its evaluation separately from the
+synthetic delivery test.
 
 The edits:
 
-1. **`cluster/secrets/alertmanager-config.yaml` (new).** A Kubernetes Secret
+1. **Context-owned `alertmanager-config.yaml` (new).** A Kubernetes Secret
    named `nagare-alertmanager-config` in namespace `monitoring` whose single
    key `alertmanager.yaml` is a complete Alertmanager configuration with one
-   Pushover receiver. Written in plaintext first, then encrypted in place with
-   `sops -e -i` (the root `.sops.yaml` rule for `cluster/secrets/.*\.ya?ml$`
-   encrypts only `stringData` values, exactly like the existing
-   `cluster/secrets/notes-db-url.yaml`). Plaintext template:
+   Pushover receiver. Store it under
+   `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`, or in
+   `NAGARE_CLUSTER_SECRETS_DIR`. Write it in plaintext first, then encrypt it in
+   place using an operator-owned sops policy that encrypts only `data` and
+   `stringData`. A checkout's `cluster/secrets/notes-db-url.yaml` shows the
+   manifest shape, but released workspaces never contain that directory.
+   Plaintext template:
 
    ```yaml
    apiVersion: v1
@@ -450,9 +521,9 @@ The edits:
    # --- Alerting (EP-101): vmalert evaluates the curated VMRule groups in
    # cluster/observability/vmrules/; Alertmanager routes firing alerts to a
    # phone push (Pushover). The Alertmanager config — which embeds the Pushover
-   # credentials — lives in the sops-managed Secret
-   # cluster/secrets/alertmanager-config.yaml (Secret nagare-alertmanager-config,
-   # key alertmanager.yaml), applied by install.sh BEFORE this chart. Resources
+   # credentials — lives in the active context's operator-owned cluster-secret
+   # directory (Secret nagare-alertmanager-config, key alertmanager.yaml),
+   # applied by install.sh BEFORE this chart. Resources
    # trimmed for the 2-vCPU node in the same style as vmsingle/vmagent above:
    # small CPU request, no CPU limit, memory limit as the OOM guard.
    alertmanager:
@@ -512,22 +583,15 @@ The edits:
    The non-negotiable outcome: Alertmanager's live config is the sops-managed
    Secret's `alertmanager.yaml`, and no plaintext credential appears in Git.
 
-3. **`cluster/observability/install.sh`.** Immediately before the vmks
-   `helm upgrade` (currently the `--- M1: metrics + Grafana ---` section),
-   insert:
+3. **`cluster/observability/install.sh`.** This packaging reconciliation is
+   implemented: source `scripts/lib/cluster-secrets.sh`, resolve the active
+   context directory (or explicit override), and require
+   `alertmanager-config.yaml` before Helm whenever the values file enables
+   Alertmanager. Keep this fail-closed resolver; do not reintroduce
+   `$ROOT/../secrets` as the operational path.
 
-   ```bash
-   # --- EP-101: Alertmanager config (sops-managed; must exist before the chart
-   # starts Alertmanager). Requires the age key at ~/.config/sops/age/keys.txt.
-   kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-   sops -d "$ROOT/../secrets/alertmanager-config.yaml" | kubectl apply -f -
-   ```
-
-   (`$ROOT` is already defined in the script as the `cluster/observability`
-   directory; the script runs `set -euo pipefail`, so a failed decrypt aborts
-   the install loudly — the fail-closed behavior we want.)
-
-Acceptance for M1: `just observability` completes; both new pods are Running; a
+Acceptance for M1: `nagare observability` completes from outside a checkout;
+both new pods are Running; a
 synthetic alert POSTed to Alertmanager's API produces a push notification on
 the phone within ~a minute (exact commands and transcripts in Concrete Steps).
 
@@ -824,8 +888,9 @@ without errors; `nagarectl server status` shows `backup databases/<name>` lines
 Scope: extend `scripts/local-smoke.sh` with a managed-database round-trip
 (create → sentinel row → backup to MinIO → clobber → restore → assert the row
 survived) and add a monthly cron to `.github/workflows/live-smoke.yml`. At the
-end, `just local-smoke` exercises the entire managed-DB backup/restore machinery
-with zero cloud resources on every run.
+end, `nagare local-smoke` exercises the entire managed-DB backup/restore machinery
+with zero cloud resources from the pinned release. `just local-smoke` preserves
+the contributor-checkout path.
 
 **3a. `scripts/local-smoke.sh`.** Two edits, both purely additive (plan 97 owns
 structural/trap changes).
@@ -866,9 +931,20 @@ nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}"   # waits for Ready
 PGUSER="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)"
 PGPASSWORD="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
 PGDB="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_DB}' | base64 -d)"
+for _attempt in $(seq 1 60); do
+  if kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
+      pg_isready -h 127.0.0.1 -U "${PGUSER}" -d "${PGDB}" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "${_attempt}" = "60" ]; then
+    echo "local smoke: PostgreSQL did not accept connections within 120s" >&2
+    exit 1
+  fi
+  sleep 2
+done
 psql_in_pod() {
   kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
-    env PGPASSWORD="${PGPASSWORD}" psql -U "${PGUSER}" -d "$1" -tAc "$2"
+    env PGPASSWORD="${PGPASSWORD}" psql -h 127.0.0.1 -U "${PGUSER}" -d "$1" -tAc "$2"
 }
 
 echo "== step 5a: write a sentinel row =="
@@ -923,7 +999,7 @@ on:
     - cron: "23 6 1 * *"   # 06:23 UTC on the 1st of each month
 ```
 
-Acceptance for M3: `just local-smoke` prints the step-5 markers ending in
+Acceptance for M3: `nagare local-smoke` prints the step-5 markers ending in
 `DB RESTORE OK` and finally `local smoke: OK`; `git grep 'schedule:' .github/workflows/live-smoke.yml`
 shows the cron; the GitHub Actions UI lists the schedule after the commit lands
 on the default branch.
@@ -931,10 +1007,13 @@ on the default branch.
 
 ## Concrete Steps
 
-All commands run from the repository root unless stated otherwise. Cloud-side
-steps (M1/M2 install and validation) assume `KUBECONFIG` points at `nagare-01`
-and the active context is a cloud context (see `docs/runbooks/cluster-access.md`);
-M3's local smoke needs only Docker + the dev shell.
+Packaged operator commands may run from any directory and resolve the active
+context's release workspace. Contributor build and source-edit commands run
+from the repository root. Cloud-side steps (M1/M2 install and validation)
+assume `KUBECONFIG` points at `nagare-01` and the active context is a cloud
+context (see `docs/runbooks/cluster-access.md`); M3's packaged local smoke needs
+Docker plus the installed release, while its contributor equivalent uses the
+dev shell.
 
 **M1.1 — Pushover credentials (manual, once).** Create an account at
 pushover.net, install the phone app, note the **user key** (dashboard). Create
@@ -944,12 +1023,18 @@ go only into the sops-encrypted Secret, never anywhere plaintext in Git.
 **M1.2 — the Secret.**
 
 ```bash
-# Write the plaintext (template in Plan of Work M1 item 1), then encrypt in place:
-$EDITOR cluster/secrets/alertmanager-config.yaml
-sops -e -i cluster/secrets/alertmanager-config.yaml
+# Write the plaintext (template in Plan of Work M1 item 1), then encrypt in place
+# using the operator-owned .sops.yaml beside this directory:
+context="$(nagarectl context current)"
+secret_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/${context}}"
+mkdir -p "$secret_dir"
+# First create "$secret_dir/.sops.yaml" with an operator-owned age recipient
+# and a rule matching *.yaml that encrypts ^(data|stringData)$.
+$EDITOR "$secret_dir/alertmanager-config.yaml"
+(cd "$secret_dir" && sops -e -i alertmanager-config.yaml)
 # Sanity: values encrypted, keys readable, round-trip works:
-grep -c ENC\\[AES256_GCM cluster/secrets/alertmanager-config.yaml   # >= 1
-sops -d cluster/secrets/alertmanager-config.yaml | head -8
+grep -c 'ENC\[AES256_GCM' "$secret_dir/alertmanager-config.yaml"   # >= 1
+sops -d "$secret_dir/alertmanager-config.yaml" | head -8
 ```
 
 Expected decrypt output (head):
@@ -965,14 +1050,17 @@ stringData:
     alertmanager.yaml: |
 ```
 
-**M1.3 — values + install.sh edits** as specified in Plan of Work, then verify
+**M1.3 — values edit + packaged installer verification.** Apply the values
+change specified in Plan of Work. The context-secret resolver and installer
+wiring were implemented on 2026-08-26; verify they remain present, then verify
 the chart rendering with the `helm template … | grep -B2 -A12 'kind:
-VMAlertmanager'` command shown there.
+VMAlertmanager'` command shown there. Build/check the package so the immutable
+payload is also proven to exclude `cluster/secrets`.
 
 **M1.4 — install and observe.**
 
 ```bash
-just observability
+nagare observability
 kubectl get pods -n monitoring
 ```
 
@@ -1013,6 +1101,7 @@ feat(observability): enable vmalert and alertmanager with a pushover channel
 
 MasterPlan: docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md
 ExecPlan: docs/plans/101-alerting-and-backup-freshness-monitoring.md
+Intention: intention_01kzakvy1qeasagg3rpbn44749
 ```
 
 **M2.1 — metric-name verification** per Plan of Work 2a (port-forward VMSingle,
@@ -1023,7 +1112,7 @@ adjust the rule expressions before committing them.
 add the two `kubectl apply` lines to `install.sh`, then:
 
 ```bash
-just observability
+nagare observability
 kubectl get vmrule,vmservicescrape -n monitoring
 ```
 
@@ -1051,10 +1140,11 @@ Expected: build clean; the test summary includes the two new `backupPrefixes`
 cases and ends with all tests passing (the suite prints a tasty summary; any
 failure names the case).
 
-Run the report against the live cluster (cloud context, VM running):
+Run the packaged report against the live cluster (cloud context, VM running):
 
 ```bash
-cabal run -v0 exe:nagarectl -- server status
+cd /tmp
+nagarectl server status
 ```
 
 Expected excerpt (one line per managed database that exists, e.g. `notes`; ages
@@ -1078,8 +1168,10 @@ backup prefixes in server status` — both with the plan trailers).
 **M3.1 — local smoke.** Apply the script edits from Plan of Work 3a, then:
 
 ```bash
-just local-smoke
+nagare local-smoke
 ```
+
+From a contributor checkout, run `just local-smoke` as a compatibility check.
 
 Expected transcript excerpts (in order, among the existing steps):
 
@@ -1105,6 +1197,7 @@ test(smoke): add managed-DB backup/restore round-trip and monthly live-smoke cro
 
 MasterPlan: docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md
 ExecPlan: docs/plans/101-alerting-and-backup-freshness-monitoring.md
+Intention: intention_01kzakvy1qeasagg3rpbn44749
 ```
 
 
@@ -1129,21 +1222,23 @@ The plan is done when all of the following observable behaviors hold:
    postgres` line. `cd cli/nagarectl && cabal test` passes, including the two
    new `backupPrefixes` cases.
 
-3. **Local smoke proves restorability.** `just local-smoke` exits 0 and its
+3. **Local smoke proves restorability.** `nagare local-smoke` exits 0 from
+   outside a checkout and its
    transcript contains `DB RESTORE OK: smoke_sentinel has 1 row` followed by
    `local smoke: OK`. Run it twice in a row: the second run must also pass
    (idempotence — the fixed `smokedb` name is recreated cleanly after the
-   previous teardown).
+   previous teardown). `just local-smoke` also passes in a contributor checkout.
 
 4. **The cloud drill is scheduled.** `.github/workflows/live-smoke.yml`
    contains both `workflow_dispatch:` and a `schedule:` cron, and the GitHub
    Actions UI shows the workflow as scheduled once the change is on the default
    branch.
 
-5. **No plaintext credentials in Git.** `git grep -i pushover -- ':!docs'`
-   matches only `cluster/secrets/alertmanager-config.yaml` (whose values are
-   `ENC[AES256_GCM,…]` blobs) and the values-file comment; `sops -d
-   cluster/secrets/alertmanager-config.yaml` round-trips.
+5. **Credentials stay outside the release.** The context-owned
+   `alertmanager-config.yaml` contains only `ENC[AES256_GCM,…]` values and
+   `sops -d` round-trips. The `nagare-platform` payload and a newly materialized
+   context workspace contain no `cluster/secrets`, while both contain
+   `cluster/examples/uploads-volume/nagare/Config.hs` for packaged local smoke.
 
 
 ## Idempotence and Recovery
@@ -1152,14 +1247,14 @@ Everything in this plan is safe to repeat. `cluster/observability/install.sh`
 is `helm upgrade --install` plus `kubectl apply` throughout — including the new
 Secret and manifest applies — so re-running it converges with no drift.
 `sops -e -i` must be run only once per plaintext write (running it on an
-already-encrypted file double-encrypts; if that happens, restore with `git
-checkout -- cluster/secrets/alertmanager-config.yaml` and redo). If the
-Alertmanager pod ever starts before the Secret exists (e.g. someone helm-runs
+already-encrypted file double-encrypts; if that happens, restore the
+operator-owned ciphertext from its private configuration backup and redo). If
+the Alertmanager pod ever starts before the Secret exists (e.g. someone helm-runs
 outside `install.sh`), it crash-loops or runs with a null config; fix by
 applying the Secret and deleting the pod — the operator recreates it.
 
-The `nagarectl` change is additive pure logic plus a rewired call site; if the
-build breaks midway, `git checkout -- cli/nagarectl` returns to the last commit.
+The `nagarectl` change is additive pure logic plus a rewired call site; revert
+its commit if the build breaks after integration.
 `server status` degrades exactly as before when tools are missing: an
 unreachable cluster makes `listDatabases` return `Right []`, which produces the
 bare `databases` fallback line rather than an error.
@@ -1168,10 +1263,11 @@ The local-smoke additions are covered by the existing `cleanup()` EXIT trap
 (extended in M3), so an aborted run leaves at most: the `smokedb`
 StatefulSet/PVC (removed by the trap on the next run's create-or-cleanup, or
 manually with `nagarectl db delete smokedb -n personal --yes` plus `kubectl -n
-personal delete pvc nagare-db-smokedb-data`) and a MinIO object (wiped by `just
-local-down` in any case). Reverting the workflow cron is deleting two lines.
+personal delete pvc nagare-db-smokedb-data`) and a MinIO object (wiped by
+`nagare local-down` in any case). Reverting the workflow cron is deleting two
+lines.
 
-Rolling back the whole milestone M1 is `git revert` of its commit plus `just
+Rolling back the whole milestone M1 is `git revert` of its commit plus `nagare
 observability` (helm returns `alertmanager`/`vmalert` to disabled and the
 operator garbage-collects their pods); the Secret may remain in the cluster
 harmlessly or be deleted with `kubectl -n monitoring delete secret
@@ -1181,16 +1277,17 @@ nagare-alertmanager-config`.
 ## Interfaces and Dependencies
 
 **External services.** Pushover (pushover.net): one user key + one application
-token, stored only in `cluster/secrets/alertmanager-config.yaml` (sops/age
-encrypted). No new in-cluster components beyond what the already-pinned
+token, stored only in the active context's operator-owned
+`cluster-secrets/<context>/alertmanager-config.yaml` (sops/age encrypted). No
+new in-cluster components beyond what the already-pinned
 `vm/victoria-metrics-k8s-stack` 0.81.0 chart provides (vmalert, Alertmanager —
 both reconciled by the victoria-metrics-operator the stack already runs).
 
 **Kubernetes objects introduced.**
 - Secret `monitoring/nagare-alertmanager-config`, key `alertmanager.yaml`
-  (source: `cluster/secrets/alertmanager-config.yaml`).
+  (source: context-owned `alertmanager-config.yaml`).
 - `VMRule monitoring/nagare-alerts`
-  (source: `cluster/observability/vmrules/nagare-alerts.yaml`), five alerts:
+  (source: `cluster/observability/vmrules/nagare-alerts.yaml`), six alert rules:
   `DiskUsageHigh`, `NodeNotReady`, `PodCrashLooping`, `BackupJobFailed` +
   `BackupStale`, `CertificateExpiringSoon`.
 - `VMServiceScrape monitoring/cert-manager`
@@ -1210,21 +1307,30 @@ listDatabases)` and consumes `backupPrefixes`. No other module signatures
 change. Tests: `cli/nagarectl/test/Spec.hs` (tasty/HUnit), run with `cabal
 test` from `cli/nagarectl`.
 
-**Scripts/CI.** `cluster/observability/install.sh` gains one Secret apply
-(pre-helm) and two manifest applies (post-helm). `scripts/local-smoke.sh` gains
-step 5 and teardown lines (structure otherwise owned by plan 97).
+**Scripts/CI.** `scripts/lib/cluster-secrets.sh` resolves operator-owned
+encrypted cluster Secrets; `cluster/observability/install.sh` requires and
+applies them before Helm and applies two observability manifests afterward.
+`scripts/local-smoke.sh` gains step 5 and teardown lines, resolves the packaged
+`nagarectl` from `PATH`, and keeps a checkout-only Cabal fallback. The workspace
+asset set includes `cluster/examples`; Nix release checks assert examples are
+present and `cluster/secrets` is absent.
 `.github/workflows/live-smoke.yml` gains a monthly `schedule:` trigger.
 
 **Plan interactions.** Soft-depends on
 `docs/plans/100-bound-and-harden-cluster-workloads.md` (shares
 `cluster/observability/victoria-metrics/values.yaml`; 100 owns the `grafana:`
-block and the observability sops-secret precedent — if unlanded, create the
-alert-channel secret per this plan's spec, identically, and still leave
-`grafana:` alone). Disjoint from
+block and its work has landed; keep the alert-channel secret context-owned and
+leave `grafana:` alone). Disjoint from
 `docs/plans/102-nagarectl-correctness-and-robustness-fixes.md` (different
 modules: 102 owns `Deploy.hs` and `Database/Create.hs`; this plan owns
 `Ops/Status.hs`). Appends-only to `scripts/local-smoke.sh`, whose structural
 hardening `docs/plans/97-…` owns.
+
+The immutable payload/context workspace constraints come from
+`docs/masterplans/20-versioned-distribution-and-clone-free-multi-cluster-operations-for-nagare.md`,
+ExecPlan 106, and ADR 4. They are integration dependencies, not ownership
+transfers: this plan owns only the observability/local-smoke reconciliation
+needed for its acceptance commands.
 
 ---
 
@@ -1252,3 +1358,17 @@ Revision note (2026-08-24): implemented M3's managed-database restore smoke step
 and monthly workflow, using the real managed password contract and an explicit
 CI authentication failure. Reason: repository work could proceed while Docker
 and cloud credentials remained unavailable.
+
+Revision note (2026-08-26): reconciled M1 and M3 with the packaged operator
+model introduced by MasterPlan 20/ExecPlan 106. Cluster credentials now live in
+context-owned configuration, the installer resolves them fail-closed, the
+immutable payload excludes them, and packaged local smoke receives its example
+asset and release-matched CLI. Reason: the prior plan still assumed checkout-only
+paths and therefore described commands that could not work from an installed
+release.
+
+Revision note (2026-08-26): completed packaged M3 validation and fixed the three
+runtime failures it exposed: stale inherited context resolution, PostgreSQL
+readiness/socket assumptions, and leaked managed-backup CronJobs. Reason: only an
+actual clone-free Docker run exercised the full package, target guardrail, database,
+backup, restore, and teardown sequence together.

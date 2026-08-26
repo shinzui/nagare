@@ -84,6 +84,7 @@ workspaceAssets =
   , "justfile"
   , "infra/pulumi"
   , "cluster/bootstrap"
+  , "cluster/examples"
   , "cluster/observability"
   , "cluster/local"
   , "scripts"

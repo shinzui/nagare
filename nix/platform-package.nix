@@ -1,15 +1,22 @@
 { pkgs, sourceRoot, releaseVersion, sourceRevision ? null }:
 
 let
+  clusterSecretsRoot = toString (sourceRoot + /cluster/secrets);
   src = pkgs.lib.cleanSourceWith {
     src = sourceRoot;
     filter = path: type:
-      let name = builtins.baseNameOf path;
-      in !(builtins.elem name [ ".direnv" ".git" ".pulumi-home" ".pulumi-state" "dist-newstyle" "node_modules" "result" ])
-        && !(name != "Pulumi.yaml" && pkgs.lib.hasPrefix "Pulumi." name && pkgs.lib.hasSuffix ".yaml" name);
+      let
+        name = builtins.baseNameOf path;
+        pathString = toString path;
+        isClusterSecret = pathString == clusterSecretsRoot || pkgs.lib.hasPrefix "${clusterSecretsRoot}/" pathString;
+      in
+      !isClusterSecret
+      && !(builtins.elem name [ ".direnv" ".git" ".pulumi-home" ".pulumi-state" "dist-newstyle" "node_modules" "result" ])
+      && !(name != "Pulumi.yaml" && pkgs.lib.hasPrefix "Pulumi." name && pkgs.lib.hasSuffix ".yaml" name);
   };
 in
-pkgs.runCommand "nagare-platform-${releaseVersion}" {
+pkgs.runCommand "nagare-platform-${releaseVersion}"
+{
   inherit src;
   nativeBuildInputs = [ pkgs.jq ];
   revision = if sourceRevision == null then "" else sourceRevision;

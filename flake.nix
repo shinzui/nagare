@@ -94,8 +94,11 @@
               jq -e '.assetSchemaVersion == 1 and (.payloadId | length > 0)' "$root/release.json" >/dev/null
               test -f "$root/infra/pulumi/Pulumi.yaml"
               test -f "$root/cluster/bootstrap/render-context-template.sh"
+              test -f "$root/cluster/examples/uploads-volume/nagare/Config.hs"
+              test ! -e "$root/cluster/secrets"
               test -f "$root/nixos/flake.nix"
               test -f "$root/scripts/lib/target.sh"
+              test -f "$root/scripts/lib/cluster-secrets.sh"
               test -f "$root/justfile"
               test -f "$root/docs/user/reference.md"
               touch "$out"
@@ -139,6 +142,23 @@
                 nagarectl context use local
                 nagarectl platform root --json > root.json
                 jq -e '.source == "installed" and (.workspaceRoot | contains("/nagare/local/platform/"))' root.json >/dev/null
+                workspace_root="$(jq -er '.workspaceRoot' root.json)"
+                test -f "$workspace_root/cluster/examples/uploads-volume/nagare/Config.hs"
+                test ! -e "$workspace_root/cluster/secrets"
+                mkdir -p "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
+                resolved_secrets="$({
+                  export NAGARE_PLATFORM_ROOT="$workspace_root"
+                  export NAGARE_WORKSPACE_ROOT="$workspace_root"
+                  . "$workspace_root/scripts/lib/target.sh"
+                  . "$workspace_root/scripts/lib/cluster-secrets.sh"
+                  nagare_cluster_secrets_dir
+                })"
+                test "$resolved_secrets" = "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
+                if "$workspace_root/cluster/observability/install.sh" > observability-missing-secret.out 2>&1; then
+                  echo "observability unexpectedly accepted a missing grafana Secret" >&2
+                  exit 1
+                fi
+                grep -q 'missing encrypted cluster secret:.*grafana-admin.yaml' observability-missing-secret.out
                 nagarectl init trial --project example --dry-run --skip-preflight > init.out
                 grep -q 'DRY RUN: would run:' init.out
                 grep -q "$XDG_STATE_HOME/nagare/trial/platform/" init.out
@@ -147,6 +167,8 @@
                 grep -q 'infra-preview' recipes.out
                 nagare --dry-run infra-preview > recipe-dry-run.out 2>&1
                 grep -q 'cd infra/pulumi && pulumi preview' recipe-dry-run.out
+                nagare --dry-run local-smoke > local-smoke-dry-run.out 2>&1
+                grep -q 'scripts/local-smoke.sh' local-smoke-dry-run.out
                 grep -q -- '-C.*nagare/local/platform/' "$NAGARE_FAKE_TOOL_LOG"
 
                 # A legacy context must be adopted explicitly. The command

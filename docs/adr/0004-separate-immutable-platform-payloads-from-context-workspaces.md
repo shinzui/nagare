@@ -5,6 +5,8 @@ date: 2026-08-25
 authors: [shinzui]
 related:
   - docs/plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md
+  - docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md
+  - docs/plans/101-alerting-and-backup-freshness-monitoring.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
 ---
@@ -15,6 +17,8 @@ related:
 
 Accepted, 2026-08-25. Implemented by
 [ExecPlan 106](../plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md).
+Amended 2026-08-26 to make the already-decided credential exclusion concrete
+for Kubernetes bootstrap Secrets used by ExecPlans 99 and 101.
 
 ## Context
 
@@ -43,6 +47,14 @@ renames it; a matching completed workspace is reused without rewriting it, while
 changed digest selects a distinct directory. Generated source stack configurations
 and contributor build outputs are excluded.
 
+Encrypted Kubernetes bootstrap secrets are operator-owned configuration, not release payloads. They
+live by default under
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` and may be redirected with the
+explicit `NAGARE_CLUSTER_SECRETS_DIR` override. A source checkout may use its tracked
+`cluster/secrets/` directory as a compatibility fallback, but a packaged workspace never receives
+that directory. Installers resolve this boundary and fail before mutation when a required encrypted
+secret is absent.
+
 Haskell command handlers, shared shell setup, and the packaged operator launcher use
 the resolved workspace paths. The source ancestor fallback preserves contributor
 workflows but is not used to recover from an invalid installed payload.
@@ -59,3 +71,6 @@ pruning is deliberately deferred because release rollback and retention semantic
 owned by later distribution work. Host-specific NixOS inputs use the separate
 context-owned flake boundary recorded in
 [ADR 5](0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md).
+Context-owned encrypted cluster secrets must be backed up with the context and host configuration;
+changing or removing a Nix release cannot remove them. Release checks assert that neither the
+payload nor its materialized workspace contains `cluster/secrets`.

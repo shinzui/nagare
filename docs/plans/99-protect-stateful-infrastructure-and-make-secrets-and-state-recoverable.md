@@ -27,11 +27,13 @@ is currently one mistake away from being unrecoverable:
 - The VM's service account holds `roles/storage.objectAdmin` on the backup bucket, so a
   compromised VM can silently delete its own backups; the bucket has no versioning, so
   deleted backups are gone instantly.
-- The host secrets file `nixos/hosts/nagare-01/secrets/nagare-01.yaml` is encrypted to
-  **only** the host's age key, whose private half exists **only** on the VM at
-  `/var/lib/sops-nix/age-key.txt`. If the VM dies before that key was copied to a vault,
-  the secrets are unrecoverable — and even today the operator cannot `sops` edit the
-  file from the workstation.
+- The operational host secrets file now belongs to the selected context at
+  `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/<context>/secrets.yaml`. A legacy
+  installation may still be sourced from the checked-in
+  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` compatibility fixture. In either case
+  it is encrypted only to the host's age key, whose private half exists only on the VM
+  at `/var/lib/sops-nix/age-key.txt`. If the VM dies before that key is copied to a
+  vault, the active secret is unrecoverable and the operator cannot edit it locally.
 - The VM's service account holds project-wide `roles/dns.admin` (it only needs the one
   zone), and the instance carries a contradictory `enable-oslogin: TRUE` metadata entry
   that NixOS force-disables.
@@ -49,7 +51,7 @@ in a versioned GCS bucket instead of only on the laptop. You can see it working:
 deliberate `pulumi destroy --preview-only`-style check refuses the protected resources,
 `gcloud` describes show `deletionProtection: true` and versioning enabled, `sops -d`
 succeeds with the recovery key on every encrypted file, and
-`pulumi -C infra/pulumi whoami -v` reports a `gs://` backend.
+the workspace-resolved `pulumi whoami -v` reports a `gs://` backend.
 
 
 ## Progress
@@ -58,11 +60,12 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-**Status summary (re-verified 2026-08-24): all of this plan's *code* is written,
-committed, and typechecks. Every step that requires a live GCP session is blocked on
-operator action — this workstation has no cloud target context and its gcloud
-credentials need an interactive re-login. See "The live-environment blocker" in
-Surprises & Discoveries for the evidence and the exact unblock procedure.**
+**Status summary (reconciled 2026-08-26): the Pulumi infrastructure changes are
+written, committed, and typecheck. The versioned-distribution work in MasterPlan 20
+made released workspaces and context-owned host/secret configuration authoritative;
+the remaining commands and recovery targets below now follow that model. Every live
+GCP step is still blocked on operator action — this workstation has no cloud target
+context and its gcloud credentials need an interactive re-login.**
 
 - [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
@@ -79,7 +82,7 @@ Surprises & Discoveries for the evidence and the exact unblock procedure.**
 - [ ] M1 (BLOCKED — needs a live GCP session): run `pulumi preview --diff`, confirm the
   acceptance gate (update/create only, plus the single expected delete of
   `nagare-iam-dns`), pin `bootDiskType` to the live boot disk's actual type if it is
-  not already `pd-balanced`, then `just infra-up` and run the post-apply `gcloud`
+  not already `pd-balanced`, then `nagare infra-up` and run the post-apply `gcloud`
   describe checks and the `kubectl get clusterissuer letsencrypt-dns` verification.
   **Do not apply without the preview.**
 - [x] M2a (partial — the half that needs no key material): delete the dead
@@ -88,17 +91,17 @@ Surprises & Discoveries for the evidence and the exact unblock procedure.**
   commit `4148e68`; verified by a `sops -e`/`sops -d` round-trip of a scratch file
   under `cluster/secrets/`)
 - [ ] M2a (BLOCKED — needs operator key handling): generate the offline recovery age
-  key, store the private half in the password manager, and add its public half — plus
-  the workstation key on the host rule — to the creation rules in both `.sops.yaml`
-  files. Deliberately not started: adding a recipient whose private half is not yet
-  safely stored would create a recipient nobody can use, and the private half must
-  never live on a machine or in this repo.
-- [ ] M2b (BLOCKED — needs the recovery key and the running VM): re-key both encrypted
-  files. `cluster/secrets/notes-db-url.yaml` can be done on the workstation once the
-  recovery recipient exists (the workstation key is already a recipient and does
-  decrypt — verified). `nixos/hosts/nagare-01/secrets/nagare-01.yaml` needs the
-  decrypt-over-IAP-SSH flow, because the host key is its only recipient and lives only
-  on the VM.
+  key, store the private half in the password manager, and add its public half to the
+  source-checkout cluster-secret policy and the operator-owned policy governing the
+  active context's host/cluster secrets. Add the workstation key to the host rule.
+  Deliberately not started: adding an unstored recovery recipient would create a key
+  path nobody can use.
+- [ ] M2b (BLOCKED — needs the recovery key, active cloud context, and running VM):
+  inventory and re-key every encrypted Secret in the context-owned cluster-secret
+  directory plus the actual host file returned by `nagarectl host path`. If the live
+  installation has not yet migrated to a generated host flake, decrypt and re-key the
+  legacy checked-in file over IAP first, then install that ciphertext into the new
+  context host flake with `nagarectl host init --sops-file`.
 - [ ] M2c (BLOCKED — depends on M2a/M2b): rewrite the age-key section of
   `docs/runbooks/disaster-recovery.md` to name all three keys. Not written yet because
   it would document a three-key model that does not exist until the re-key lands.
@@ -109,6 +112,11 @@ Surprises & Discoveries for the evidence and the exact unblock procedure.**
   directory is still absent, the active gcloud configuration still names
   `tan-nb-exp`/`us-west1-a`, and explicit read-only instance, disk, and bucket queries
   still fail because gcloud requires interactive reauthentication. (2026-08-24)
+- [x] Packaging reconciliation: make encrypted cluster secrets context-owned and
+  excluded from released payloads/workspaces; update this plan to use the packaged
+  `nagare` launcher, workspace-resolved Pulumi/migration paths, and the generated host
+  flake as the operational recovery target. The asset and clone-free package checks
+  pass with the new secret boundary. (2026-08-26)
 - [ ] Final: update MasterPlan 19's registry/progress for EP-99 and write the Outcomes
   & Retrospective entry here. (MasterPlan registry updated 2026-08-05 to In Progress;
   the retrospective waits for the blocked steps.)
@@ -229,6 +237,17 @@ execution` error recorded on 2026-08-05. No live apply, state migration, or host
 re-key was attempted. Because the MasterPlan has no hard dependencies, implementation
 can proceed with EP-4 while these operator-only steps remain visible here.
 
+**MasterPlan 20 changed the operational filesystem boundary on 2026-08-25.**
+[ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md)
+makes released assets immutable and context workspaces content-addressed, while
+[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md)
+makes `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/<context>/secrets.yaml` the
+operational host secret. The old checked-in host file is only a compatibility fixture.
+Following the original M2 literally would therefore recover the fixture but could miss
+the real host. The packaged secret resolver added on 2026-08-26 similarly keeps
+encrypted cluster credentials outside payloads at
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`.
+
 (Add further implementation discoveries here as they occur.)
 
 
@@ -321,6 +340,16 @@ Record every decision made while working on the plan.
   identical argument shape, so nothing else in the plan changes.
   Date: 2026-08-05
 
+- Decision: perform all remaining live work through the selected packaged release and
+  recover context-owned configuration rather than treating this checkout as the
+  operator state root.
+  Rationale: ADRs 4–7 separate immutable release assets, mutable workspaces, context
+  intent, generated host flakes, and encrypted credentials. Direct checkout paths can
+  still validate contributor changes, but they no longer identify the live context's
+  Pulumi program or secrets. Cluster secrets default to the context-owned XDG path and
+  host secrets come from `nagarectl host path`; both must be included in M2 acceptance.
+  Date: 2026-08-26
+
 (Record further decisions as work proceeds.)
 
 
@@ -329,10 +358,24 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+The infrastructure implementation remains complete but unapplied. Packaging
+reconciliation on 2026-08-26 closed a newly discovered distribution gap: released
+payloads/workspaces no longer carry cluster secrets, and recovery work now targets the
+generated host flake and context-owned encrypted Secret directory. The packaged asset
+and clone-free checks prove that boundary. Live GCP apply,
+offline-key creation/re-keying, state migration, and final retrospective remain open.
 
 
 ## Context and Orientation
+
+The remaining operator work uses the pinned `nagare` package, not a mutable checkout.
+`nagarectl platform root --json` reports the immutable payload and writable context
+workspace; `nagare infra-preview`, `nagare infra-up`, and `nagare host-switch` run the
+release's recipes in that workspace. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md),
+[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md), and
+[ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
+are the durable contracts. Checkout-relative paths below describe the source files
+that implemented M1; workspace-resolved paths are authoritative for live validation.
 
 Nagare provisions its GCP perimeter with a TypeScript Pulumi program under
 `infra/pulumi/`. The entrypoint `infra/pulumi/index.ts` reads Pulumi config (project,
@@ -359,27 +402,26 @@ via `NagareInstance` (lines 141–152).
 `deploy` user's declarative `authorized_keys` over the IAP tunnel
 (`scripts/iap-ssh.sh`).
 
-Secrets use **sops** with **age** keys. sops is a file encryptor that stores ciphertext
-plus a metadata block listing the age *recipients* (public keys) that can decrypt; a
-`.sops.yaml` policy file (sops searches upward from the file being encrypted and uses
-the nearest one) maps path regexes to recipient sets via `creation_rules`. Two policy
-files exist:
+Secrets use **sops** with **age** keys. sops stores ciphertext plus age recipients
+(public keys) that can unwrap the file's data key. Released payloads exclude operator
+credentials. The active cloud context therefore has two operator-owned stores to
+inventory in addition to any legacy checkout ciphertext:
 
-- Root `.sops.yaml` — rule 1 (lines 11–14) covers `cluster/secrets/*.ya?ml`
-  (Kubernetes Secret manifests; only `data`/`stringData` encrypted) with recipient
-  `age1pqfv2y3u3y66y5zsr3qd7pnxstatvnlnx39nttzksg8kynn4a5tsq9vcsf` (the "project" /
-  workstation key; private half at `~/.config/sops/age/keys.txt`). Rule 2 (lines
-  18–20) covers `nixos/secrets/*.ya?ml` — a **dead rule**: that directory does not
-  exist; real host secrets live under `nixos/hosts/nagare-01/secrets/`.
-- `nixos/.sops.yaml` (lines 1–7) — covers `hosts/nagare-01/secrets/*.yaml` (relative
-  to `nixos/`) with the single recipient
-  `age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99` (the **host** key;
-  private half exists only on the VM at `/var/lib/sops-nix/age-key.txt`, where
-  sops-nix reads it during NixOS activation).
+- `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` contains
+  encrypted Kubernetes Secret manifests. `NAGARE_CLUSTER_SECRETS_DIR` may name an
+  explicit alternative. `scripts/lib/cluster-secrets.sh` resolves the context path and
+  permits tracked `cluster/secrets/` only as a source-checkout compatibility fallback.
+- `nagarectl host path --context <context>` returns a generated host flake whose
+  `secrets.yaml` is the operational sops-nix input. Its policy is operator-owned and
+  may live beside that flake or in a private configuration repository. The checked-in
+  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` and `nixos/.sops.yaml` are legacy /
+  evaluation compatibility inputs, not an operational fallback after host generation.
 
-Currently exactly two encrypted files exist: `cluster/secrets/notes-db-url.yaml` and
-`nixos/hosts/nagare-01/secrets/nagare-01.yaml` (holds the Tailscale auth key). Confirm
-the inventory before re-keying with `git grep -l 'ENC\[AES256_GCM'`.
+The root `.sops.yaml` still governs tracked checkout examples with the workstation
+recipient `age1pqfv2y3…`; the existing host recipient is `age1rc26869…`, whose private
+half is on the VM at `/var/lib/sops-nix/age-key.txt`. Before re-keying, inventory both
+Git (`git grep -l 'ENC\[AES256_GCM'`) and the two context-owned directories. Acceptance
+covers the union, not merely the files committed in this repository.
 
 Pulumi **state** (the ledger of which cloud resources Pulumi owns) lives, per target
 context, in a local `file://` backend under
@@ -387,16 +429,16 @@ context, in a local `file://` backend under
 (`docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md`, Complete) added an
 opt-in GCS backend: a context sets `NAGARE_PULUMI_BACKEND=gcs` (URL defaulting to
 `gs://<project>-nagare-pulumi-state/nagare/<context>`), and
-`scripts/migrate-pulumi-backend.sh` performs the supported `pulumi stack export` /
+the selected workspace's `scripts/migrate-pulumi-backend.sh` performs the supported `pulumi stack export` /
 `stack import` migration, bootstraps the versioned state bucket, verifies stack outputs
 match, and only then flips the context file (rollback supported). EP-93 deliberately
 deferred the *live* GCS run; M3 performs it. This plan references EP-93 for all backend
 mechanics rather than restating them.
 
-Applies run through the repo's normal flow: `just infra-preview` runs
-`cd infra/pulumi && pulumi preview` (justfile lines 24–26) and `just infra-up` runs
-`cd infra/pulumi && pulumi up` (lines 19–21), with the backend/stack environment already
-exported by `.envrc` / `scripts/lib/target.sh` for the active context.
+Live applies run through the selected release: `nagare infra-preview` and
+`nagare infra-up` prepare the content-addressed workspace and run its recipes with the
+backend/stack environment exported by `scripts/lib/target.sh`. Direct Pulumi inspection
+uses `$(nagarectl platform root --json | jq -r .workspaceRoot)/infra/pulumi`.
 
 Ownership boundaries with sibling plans (do not cross them):
 
@@ -449,8 +491,8 @@ cfg.getBoolean("vmDeletionProtection") ?? true;`, through a new
 `vmDeletionProtection: boolean` field on `NagarePerimeterArgs`, into the
 `NagareInstance` construction (lines 141–152). Document the deliberate unprotect
 procedure (see Idempotence and Recovery) in a code comment next to each option: for the
-disk/bucket, `pulumi state unprotect '<urn>'`; for the VM,
-`pulumi -C infra/pulumi config set vmDeletionProtection false && just infra-up` before
+disk/bucket, `pulumi state unprotect '<urn>'`; for the VM, set
+`vmDeletionProtection false` in the workspace Pulumi directory and run `nagare infra-up` before
 an intentional rebuild, then set it back to `true` after.
 
 **Backup bucket hardening (finding 2).** On the backup bucket (lines 89–94) add:
@@ -554,15 +596,15 @@ differs from the declared type, the provider forces an instance **replacement** 
 cannot convert a boot disk type in place). Before previewing, check reality:
 `gcloud compute disks describe nagare-01 --zone "$CLOUDSDK_COMPUTE_ZONE"
 --format='value(type)'`. If it reports `pd-standard` (expected) and no VM rebuild is
-planned right now, pin the live stack — `pulumi -C infra/pulumi config set bootDiskType
-pd-standard` — so preview stays replace-free; the pin is removed at the next deliberate
+planned right now, pin the live stack in the workspace Pulumi directory with
+`pulumi config set bootDiskType pd-standard` so preview stays replace-free; the pin is removed at the next deliberate
 rebuild (see Idempotence and Recovery), at which point the fresh VM boots on
 `pd-balanced`. If it already reports `pd-balanced`, no pin is needed.
 
-Apply gate: run `just infra-preview` (add `--diff` via
-`cd infra/pulumi && pulumi preview --diff` for the transcript) and require that no line
+Apply gate: run `nagare infra-preview`, plus workspace-resolved `pulumi preview --diff`
+for the transcript, and require that no line
 begins with `+-` (replace) or `--` (delete) except the single expected delete of
-`nagare-iam-dns`. Only then run `just infra-up`. Suggested commits: one for
+`nagare-iam-dns`. Only then run `nagare infra-up`. Suggested commits: one for
 protection + buckets + snapshots (`feat(infra): protect stateful resources and harden
 backup buckets`), one for the IAM scope-down (`feat(infra): scope node SA DNS rights to
 the nagare zone`), one for the instance fixes (`fix(infra): drop dead OS Login metadata
@@ -570,14 +612,14 @@ and make boot disk config-driven`).
 
 ### Milestone 2 — sops: an offline recovery recipient for every secret
 
-Scope: `.sops.yaml`, `nixos/.sops.yaml`, the two encrypted files, and the age-key
-section of `docs/runbooks/disaster-recovery.md`. At the end, every encrypted file in
-the repo is decryptable by (a) its original consumer key, (b) the operator's
+Scope: the checkout's cluster-secret policy/examples, the active context's
+operator-owned cluster-secret directory and host flake, and the age-key section of
+`docs/runbooks/disaster-recovery.md`. At the end, every encrypted file used by the
+active context is decryptable by (a) its original consumer key, (b) the operator's
 workstation key, and (c) a new offline recovery key whose private half lives only in
-the operator's vault; the dead `nixos/secrets/` rule is gone; and the runbook names all
-three keys. Acceptance: `sops -d` succeeds on every encrypted file with the workstation
-key and with the recovery key; the host still decrypts its file (its recipient stanza
-is present, and optionally a `just host-switch` activation proves it live).
+the operator's vault. Acceptance inventories both Git and XDG configuration, decrypts
+their union with the workstation and recovery keys, and proves the host still renders
+its generated flake's secrets with `nagare host-switch`.
 
 First generate the recovery key with `age-keygen` (age is in the dev shell). Record the
 public key (a string starting `age1`), store the private half (`AGE-SECRET-KEY-…`) in
@@ -585,16 +627,12 @@ the password manager under a clearly-named entry ("nagare sops recovery age key"
 delete any on-disk copy after M2b's verification. **Never commit the private half; it
 must not permanently live on any machine.**
 
-Edit root `.sops.yaml`: fix the header comment (lines 1–7) to stop claiming one key
-lives in both places and instead point at the runbook's key table; add the recovery
-public key as a second recipient in the `cluster/secrets/` rule's `age:` list (a sops
-`age:` value with multiple recipients is a comma-separated string or a YAML list —
-use the list form for diffability); and **delete the dead rule** (lines 16–20,
-`path_regex: nixos/secrets/…`) after confirming it matches nothing
-(`git ls-files 'nixos/secrets/*'` prints nothing). Edit `nixos/.sops.yaml`: add two
-recipients alongside the host key — the workstation project key (`age1pqfv…`, so the
-operator can edit host secrets locally) and the recovery key — naming each with a YAML
-anchor comment as the file already does for `&host_nagare01`.
+Add the recovery public key to the root `.sops.yaml` rule that governs tracked
+checkout cluster-secret examples. Update or create the operator-owned sops policy that
+governs `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` and the
+file returned by `nagarectl host path`; its host rule lists the host key, workstation
+key, and recovery key. Do not make `nixos/.sops.yaml` the policy for a generated host
+flake: ADR 5 deliberately places that configuration outside the release.
 
 Re-key the encrypted files. `sops updatekeys` re-wraps the file's data key for the new
 recipient set, but it needs to *decrypt* the data key first, i.e. it requires access to
@@ -605,21 +643,17 @@ some **existing** recipient's private key:
   ~/.config/sops/age/keys.txt`, which must print `age1pqfv…`). Run
   `sops updatekeys -y cluster/secrets/notes-db-url.yaml` from the repo root. The diff
   touches only the sops metadata block (new `age:` recipient stanzas; MAC unchanged).
-- `nixos/hosts/nagare-01/secrets/nagare-01.yaml`: the *only* existing recipient is the
-  host key, which lives solely on the VM — `updatekeys` on the workstation cannot
-  decrypt it. Use the re-encrypt flow: start the VM if stopped, decrypt over IAP SSH
-  into a shell variable (plaintext never touches disk), then re-encrypt locally under
-  the updated rule (which now lists host + workstation + recovery recipients). The
-  exact commands are in Concrete Steps. If the VM lacks a `sops` binary, `nix run
-  nixpkgs#sops -- -d …` on the host or `nix shell` works; the fallback is copying the
-  encrypted file *to* the VM and running `updatekeys` there against the updated
-  `nixos/.sops.yaml`, then copying it back. Whole-file re-encryption changes every
-  ciphertext byte — that is expected; only the plaintext must round-trip identically.
+- The actual host `secrets.yaml` returned by `nagarectl host path` may still have only
+  the host recipient, whose private key lives on the VM. If the generated flake does
+  not exist yet, use the legacy checked-in ciphertext as the migration source. Decrypt
+  over IAP SSH into a shell variable, re-encrypt under the operator-owned three-key
+  policy, then pass that encrypted file to `nagarectl host init --sops-file`. Whole-file
+  re-encryption changes every ciphertext byte; only the plaintext must round-trip.
 
 Verify per Concrete Steps: decrypt each file with the workstation key; decrypt each
 with the recovery key (feed it via `SOPS_AGE_KEY` from the vault copy); statically
 confirm the host recipient `age1rc26…` still appears in the host file's metadata; and
-(recommended, live) run `just host-switch` so sops-nix re-activates and Tailscale stays
+(recommended, live) run `nagare host-switch` so sops-nix re-activates and Tailscale stays
 up, proving the host still decrypts. Note the pre-existing wrinkle recorded in project
 memory: the host has a known sops age-key/Tailscale issue that can make `host-switch`
 exit non-zero for unrelated reasons — the assertion that matters is that sops-nix
@@ -650,16 +684,17 @@ the local backend remains intact as a rollback source, and
 `docs/user/backups-and-disaster-recovery.md` + `docs/user/contexts.md` say GCS is the
 recommended backend for cloud contexts.
 
-Run `scripts/migrate-pulumi-backend.sh` with the active cloud context (it refuses
+Resolve the selected release workspace with `nagarectl platform root --json`, then run
+its `scripts/migrate-pulumi-backend.sh` with the active cloud context (it refuses
 local-mode contexts, exports the stack to a timestamped rollback artifact under
 `…/nagare/<context>/pulumi-migrations/`, bootstraps the bucket with versioning +
 uniform access + public-access prevention, imports, verifies `baseDomain` and
 `backupBucket` outputs match, and only then flips the context file to
-`NAGARE_PULUMI_BACKEND=gcs`). Then verify: `pulumi -C infra/pulumi whoami -v` reports
-the `gs://` backend; `pulumi -C infra/pulumi preview` completes with `unchanged`
+`NAGARE_PULUMI_BACKEND=gcs`). Then verify against the workspace's `infra/pulumi`:
+`pulumi whoami -v` reports the `gs://` backend and `pulumi preview` completes with `unchanged`
 resources (this also re-proves M1 left no pending diff); `gcloud storage ls` shows the
 `.pulumi/stacks/` objects. Rollback, if anything looks wrong, is
-`scripts/migrate-pulumi-backend.sh --rollback` (never deletes GCS objects).
+the same workspace script with `--rollback` (never deletes GCS objects).
 
 Doc edits: in `docs/user/backups-and-disaster-recovery.md`, update the Pulumi-state row
 (line 24) and the "three things you must keep off-machine" note (lines 90–95) to state
@@ -675,10 +710,16 @@ performed migration in the body.
 
 ## Concrete Steps
 
-All commands run from the repo root `/Users/shinzui/Keikaku/bokuno/nagare` inside the
-dev shell (`direnv allow` or `nix develop`), with the intended cloud context active
-(`nagarectl context use <name>` or `NAGARE_CONTEXT=<name>`; the guardrail in
-`scripts/lib/target.sh` fail-closes if `gcloud`'s project disagrees).
+Remaining live commands use the pinned operator package and may run from any directory.
+Select the intended cloud context (`nagarectl context use <name>` or
+`NAGARE_CONTEXT=<name>`), verify `nagarectl platform status`, and resolve:
+
+```bash
+workspace="$(nagarectl platform root --json | jq -r .workspaceRoot)"
+pulumi_dir="${workspace}/infra/pulumi"
+```
+
+The workspace's `scripts/lib/target.sh` fail-closes if gcloud's project disagrees.
 
 ### M1
 
@@ -688,8 +729,8 @@ preview:
 ```bash
 gcloud compute disks describe nagare-01 --zone "$CLOUDSDK_COMPUTE_ZONE" --format='value(type)'
 # expected: .../diskTypes/pd-standard  -> pin the live stack:
-pulumi -C infra/pulumi config set bootDiskType pd-standard
-cd infra/pulumi && pulumi preview --diff; cd -
+pulumi -C "${pulumi_dir}" config set bootDiskType pd-standard
+pulumi -C "${pulumi_dir}" preview --diff
 ```
 
 Expected preview shape (resource names abbreviated; exact URNs will differ):
@@ -711,7 +752,7 @@ a `replace` (`+-`), stop: the usual culprit is the boot-disk type pin (re-check 
 `bootDisk.initializeParams.image`. Do not apply until the replace is gone. Then:
 
 ```bash
-just infra-up
+nagare infra-up
 ```
 
 Post-apply checks (all should print exactly the noted values):
@@ -719,11 +760,11 @@ Post-apply checks (all should print exactly the noted values):
 ```bash
 gcloud compute instances describe nagare-01 --zone "$CLOUDSDK_COMPUTE_ZONE" \
   --format='value(deletionProtection)'                      # True
-gcloud storage buckets describe "gs://$(pulumi -C infra/pulumi stack output backupBucket)" \
+gcloud storage buckets describe "gs://$(pulumi -C "${pulumi_dir}" stack output backupBucket)" \
   --format='value(versioning.enabled,public_access_prevention)'   # True enforced
-gcloud compute disks describe "$(pulumi -C infra/pulumi stack output dataDiskName)" \
+gcloud compute disks describe "$(pulumi -C "${pulumi_dir}" stack output dataDiskName)" \
   --zone "$CLOUDSDK_COMPUTE_ZONE" --format='value(resourcePolicies)'  # ...-data-snapshots policy URL
-gcloud dns managed-zones get-iam-policy "$(pulumi -C infra/pulumi stack output dnsZoneName)" \
+gcloud dns managed-zones get-iam-policy "$(pulumi -C "${pulumi_dir}" stack output dnsZoneName)" \
   | grep -A2 dns.admin                                      # serviceAccount:nagare-node@... member
 kubectl get clusterissuer letsencrypt-dns                   # READY True (cert-manager still authorized)
 ```
@@ -731,7 +772,7 @@ kubectl get clusterissuer letsencrypt-dns                   # READY True (cert-m
 Prove the protection bites (read-only; do not confirm any prompt):
 
 ```bash
-cd infra/pulumi && pulumi destroy --preview-only 2>&1 | head -20; cd -
+pulumi -C "${pulumi_dir}" destroy --preview-only 2>&1 | head -20
 # expected: error lines naming the protected disk/bucket URNs:
 #   error: Resource "...nagare-data..." cannot be deleted because it is protected.
 ```
@@ -742,73 +783,85 @@ Commit each logical change with explicit paths and the trailers, e.g.:
 git add infra/pulumi/src/components/NagarePerimeter.ts infra/pulumi/index.ts
 git commit -m "feat(infra): protect stateful resources and harden backup buckets" \
   -m "MasterPlan: docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md" \
-  -m "ExecPlan: docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md"
+  -m "ExecPlan: docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md" \
+  -m "Intention: intention_01kzakvy1qeasagg3rpbn44749"
 ```
 
 ### M2
 
-Generate and stash the recovery key, then edit the two policy files per Plan of Work:
+Generate and stash the recovery key, then inventory Git and the selected context:
 
 ```bash
 age-keygen -o /tmp/nagare-recovery.txt      # prints "Public key: age1..."
 # Copy the file's contents into the password manager NOW ("nagare sops recovery age key").
-git ls-files 'nixos/secrets/*'              # must print nothing (dead rule confirmed)
-git grep -l 'ENC\[AES256_GCM'               # inventory: expect exactly the two files below
+context="$(nagarectl context current)"
+host_root="$(nagarectl host path --context "${context}" 2>/dev/null || true)"
+cluster_secret_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/${context}}"
+git grep -l 'ENC\[AES256_GCM'
+find "${cluster_secret_dir}" -maxdepth 1 -type f -name '*.yaml' -print
+test -n "${host_root}" && printf '%s\n' "${host_root}/secrets.yaml"
 ```
 
-Re-key the cluster secret (workstation key is an existing recipient):
+Update the checkout and operator-owned sops policies, then re-key every context-owned
+cluster secret. The workstation key is an existing recipient for the tracked examples:
 
 ```bash
 age-keygen -y ~/.config/sops/age/keys.txt   # must print age1pqfv2y3...
-sops updatekeys -y cluster/secrets/notes-db-url.yaml
-git diff cluster/secrets/notes-db-url.yaml  # only sops-metadata recipient stanzas change
+SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops updatekeys -y cluster/secrets/notes-db-url.yaml
+for secret in "${cluster_secret_dir}"/*.yaml; do
+  SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops updatekeys -y "${secret}"
+done
 ```
 
-Re-key the host secret via decrypt-over-SSH + local re-encrypt (VM must be running;
-tunnel per `scripts/iap-ssh.sh`):
+For the host, use `${host_root}/secrets.yaml` when it exists. If this legacy target has
+not generated a host flake yet, use the checked-in compatibility ciphertext as the
+migration source, re-encrypt it under the operator-owned host policy, then run
+`nagarectl host init --context "${context}" --sops-file <encrypted-file>` with the
+complete operator SSH-key arguments. The decrypt step requires the running VM:
 
 ```bash
-TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)
+if [ -n "${host_root}" ] && [ -f "${host_root}/secrets.yaml" ]; then
+  source_secret="${host_root}/secrets.yaml"
+else
+  source_secret="nixos/hosts/nagare-01/secrets/nagare-01.yaml"
+fi
+TUNPID="$("${workspace}/scripts/iap-ssh.sh" tunnel "${NAGARE_INSTANCE_NAME}" 22 2222)"
 PLAINTEXT=$(ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -p 2222 deploy@127.0.0.1 \
   "sudo SOPS_AGE_KEY_FILE=/var/lib/sops-nix/age-key.txt \
-   nix run nixpkgs#sops -- -d /dev/stdin" < nixos/hosts/nagare-01/secrets/nagare-01.yaml)
-printf '%s\n' "$PLAINTEXT" | sops --config nixos/.sops.yaml \
-  -e --input-type yaml --output-type yaml /dev/stdin > nixos/hosts/nagare-01/secrets/nagare-01.yaml
+   nix run nixpkgs#sops -- -d /dev/stdin" < "${source_secret}")
+# Re-encrypt with the operator-owned policy and write to a staging encrypted file;
+# never put plaintext on disk. Replace this command's --config path with the
+# operator policy that covers the context host file.
+printf '%s\n' "$PLAINTEXT" | sops --config /secure/operator/.sops.yaml \
+  -e --input-type yaml --output-type yaml /dev/stdin > /secure/operator/rekeyed-host-secrets.yaml
 unset PLAINTEXT; kill "$TUNPID"
 ```
 
-(If `sops -e` refuses to match a `/dev/stdin` path against the creation rules, write
-the plaintext to a file *inside* `nixos/hosts/nagare-01/secrets/` on a tmpfs-free
-workflow: `sops -e nagare-01.dec.yaml > nagare-01.yaml` run from that directory, then
-`shred -u nagare-01.dec.yaml`. The path just has to match
-`hosts/nagare-01/secrets/.*\.yaml$` relative to `nixos/`.)
-
-Verify all decryption paths:
+Verify every inventoried ciphertext with the workstation and recovery keys. The host
+metadata must retain its consumer recipient; then activate through the packaged recipe:
 
 ```bash
-sops -d cluster/secrets/notes-db-url.yaml > /dev/null && echo cluster-ok       # workstation key
-sops -d nixos/hosts/nagare-01/secrets/nagare-01.yaml > /dev/null && echo host-file-ok
-SOPS_AGE_KEY="$(cat /tmp/nagare-recovery.txt | grep AGE-SECRET-KEY)" \
-  sops -d cluster/secrets/notes-db-url.yaml > /dev/null && echo recovery-ok-1
-SOPS_AGE_KEY="$(cat /tmp/nagare-recovery.txt | grep AGE-SECRET-KEY)" \
-  sops -d nixos/hosts/nagare-01/secrets/nagare-01.yaml > /dev/null && echo recovery-ok-2
-grep -c 'recipient: age1rc26869' nixos/hosts/nagare-01/secrets/nagare-01.yaml   # >= 1 (host still listed)
+recovery_key="$(grep AGE-SECRET-KEY /tmp/nagare-recovery.txt)"
+for secret in "${cluster_secret_dir}"/*.yaml "${host_root}/secrets.yaml"; do
+  SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops -d "${secret}" >/dev/null
+  SOPS_AGE_KEY="${recovery_key}" sops -d "${secret}" >/dev/null
+done
+grep -q 'recipient: age1rc26869' "${host_root}/secrets.yaml"
+nagare host-switch
 shred -u /tmp/nagare-recovery.txt            # vault copy is now the only private copy
 ```
 
-Expected output is the four `…-ok` lines and a count of at least 1. Recommended live
-proof: `just host-switch`, then over the tunnel `sudo ls /run/secrets` shows the
-rendered secrets (see the memory note about the pre-existing non-zero-exit wrinkle).
-Then edit the runbook key section and commit (policy files, both secret files, runbook
-— explicit paths, trailers as in M1).
+Then verify over the tunnel that `sudo ls /run/secrets` shows the rendered secrets and
+edit the runbook key section. Never commit the recovery private key or a generated host
+flake unless it lives in the operator's intended private configuration repository.
 
 ### M3
 
 ```bash
-scripts/migrate-pulumi-backend.sh                       # active context; add --context NAME to target another
-pulumi -C infra/pulumi whoami -v                        # Backend URL: gs://<project>-nagare-pulumi-state/nagare/<ctx>
-pulumi -C infra/pulumi stack output backupBucket        # unchanged value
-cd infra/pulumi && pulumi preview; cd -                 # "unchanged: N" — no diff on the GCS backend
+"${workspace}/scripts/migrate-pulumi-backend.sh"       # add --context NAME to target another
+pulumi -C "${pulumi_dir}" whoami -v                    # Backend URL: gs://<project>-nagare-pulumi-state/nagare/<ctx>
+pulumi -C "${pulumi_dir}" stack output backupBucket    # unchanged value
+pulumi -C "${pulumi_dir}" preview                      # "unchanged: N" — no diff on the GCS backend
 gcloud storage ls "gs://${CLOUDSDK_CORE_PROJECT}-nagare-pulumi-state/nagare/" # .pulumi/ objects listed
 ```
 
@@ -860,14 +913,14 @@ and a certificate issuance or renewal completes (no `403` / `forbidden` events o
 Challenge resources: `kubectl describe challenge -A` clean).
 
 **Secrets are recoverable and editable.** With only the recovery key
-(`SOPS_AGE_KEY=…`), `sops -d` succeeds on **every** file listed by
-`git grep -l 'ENC\[AES256_GCM'`. With the workstation key, the same — including the
-host file, which was previously workstation-undecryptable. The host file's metadata
-still lists the host recipient `age1rc26869…`, and after `just host-switch` sops-nix
-renders `/run/secrets` on the VM. Root `.sops.yaml` contains no `nixos/secrets/` rule.
+(`SOPS_AGE_KEY=…`), `sops -d` succeeds on the union of files listed by
+`git grep -l 'ENC\[AES256_GCM'`, the active context's cluster-secret directory, and
+`$(nagarectl host path)/secrets.yaml`. With the workstation key, the same. The
+operational host file's metadata still lists the host recipient `age1rc26869…`, and
+after `nagare host-switch` sops-nix renders `/run/secrets` on the VM.
 
-**State is off the laptop.** `pulumi -C infra/pulumi whoami -v` reports the `gs://`
-backend for the active cloud context, `pulumi preview` against it reports all resources
+**State is off the laptop.** Workspace-resolved `pulumi whoami -v` reports the `gs://`
+backend for the active cloud context, and `pulumi preview` against it reports all resources
 `unchanged`, and the state bucket has versioning + public-access prevention (the
 migration script's `ensure_bucket` asserts this; re-check with
 `gcloud storage buckets describe`).
@@ -883,10 +936,10 @@ Every M1 edit is declarative: re-running `pulumi preview`/`up` after a partial o
 repeated apply converges with no further diff. `protect: true` takes effect on the next
 state write and is reversible per-resource with
 `pulumi state unprotect '<urn>'` (find URNs with `pulumi stack --show-urns`); the
-documented deliberate-rebuild procedure is: unprotect the VM path via
-`pulumi -C infra/pulumi config set vmDeletionProtection false && just infra-up`
+documented deliberate-rebuild procedure is: unprotect the VM path via the workspace's
+Pulumi directory, then run `nagare infra-up`
 (in-place update), remove the `bootDiskType` pin if present
-(`pulumi -C infra/pulumi config rm bootDiskType`) so the rebuilt VM gets `pd-balanced`,
+(`pulumi -C "${pulumi_dir}" config rm bootDiskType`) so the rebuilt VM gets `pd-balanced`,
 perform the image-driven replacement, then set `vmDeletionProtection` back to `true`.
 Disk/bucket protection should be re-asserted (it is, by the code) on the next `up`
 after any manual unprotect. The snapshot policy and attachment are idempotent creates;
@@ -894,21 +947,16 @@ deleting them never touches the disk. If the M1 preview ever shows a replace, th
 recovery is simply "do not apply" — fix the pin or the edit and re-preview.
 
 M2 is safe to repeat: `sops updatekeys -y` is a no-op when recipients already match,
-and the re-encrypt flow can be re-run from the same SSH decrypt at any time (the
-working tree change is only committed after verification). The risky asset is the
-plaintext of `nagare-01.yaml`: keep it in a shell variable or a `shred`-ed temp file,
-never in the repo or scratch dirs, and never commit the recovery private key. Rollback
-before commit is `git checkout -- <file>`; after commit, the old ciphertext remains in
-Git history and the host key still decrypts both old and new versions, so nothing can
-be lost by re-keying — the failure mode to guard is *forgetting a recipient*, which the
-per-key `sops -d` verification catches before commit. If the SSH decrypt path is
-unavailable (VM down), stop M2b and record it in Progress; do not improvise by moving
-the host private key off the VM.
+and the re-encrypt flow can be re-run from the same SSH decrypt at any time. Keep host
+plaintext in a shell variable, never in the workspace or XDG tree, and never commit the
+recovery private key. Preserve the prior ciphertext until both workstation/recovery
+decryptions and `nagare host-switch` succeed. If the SSH decrypt path is unavailable,
+stop M2b; do not move the host private key off the VM.
 
 M3 inherits EP-93's safety design: the migration script exports a timestamped rollback
 artifact before touching anything, verifies outputs before flipping the context file,
-is a no-op when the context is already on GCS, and
-`scripts/migrate-pulumi-backend.sh --rollback` restores the local backend without
+is a no-op when the context is already on GCS, and the workspace-resolved migration
+script's `--rollback` restores the local backend without
 deleting any GCS object. Leave the local backend directory in place until a GCS
 `pulumi preview` has succeeded (the script says the same in its final log line).
 
@@ -925,7 +973,7 @@ Infrastructure code: `@pulumi/pulumi` and `@pulumi/gcp` (already dependencies of
   `vmDeletionProtection: boolean; bootDiskSizeGb: number; bootDiskType: string;`. New
   resources `gcp.compute.ResourcePolicy` (`…-data-snapshots`),
   `gcp.compute.DiskResourcePolicyAttachment` (`…-data-snapshot-attach`),
-  `gcp.dns.ManagedZoneIamMember` (`…-iam-dns-zone`), `gcp.projects.IAMMember`
+  `gcp.dns.DnsManagedZoneIamMember` (`…-iam-dns-zone`), `gcp.projects.IAMMember`
   (`…-iam-dns-read`); removed resource `…-iam-dns` (project-wide `dns.admin`). Resource
   options `protect: true` on the data disk and backup bucket. Do not rename any of the
   nine exported stack outputs in `index.ts` (they are MasterPlan integration
@@ -935,16 +983,15 @@ Infrastructure code: `@pulumi/pulumi` and `@pulumi/gcp` (already dependencies of
   bootDiskType: string;`; the instance sets `deletionProtection` and the explicit boot
   disk `size`/`type`; the `metadata` block is removed.
 
-Secrets tooling: `sops` and `age` from the dev shell. Policy interfaces at the end of
-M2: root `.sops.yaml` has exactly one creation rule (`cluster/secrets/`, recipients =
-workstation key + recovery key, `encrypted_regex` unchanged); `nixos/.sops.yaml` has
-one rule (`hosts/nagare-01/secrets/`, recipients = host key + workstation key +
-recovery key). Consumers unchanged: sops-nix on the host reads
-`/var/lib/sops-nix/age-key.txt`; the runbook step "Restore secrets" keeps working
-byte-for-byte.
+Secrets tooling: `sops` and `age`. At the end of M2, tracked cluster-secret examples
+and the operator-owned context policy include the recovery recipient; the generated
+host flake's file includes host + workstation + recovery recipients. sops-nix still
+reads `/var/lib/sops-nix/age-key.txt`. `scripts/lib/cluster-secrets.sh` resolves
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`, permits
+`NAGARE_CLUSTER_SECRETS_DIR`, and uses tracked `cluster/secrets/` only in a checkout.
 
-State tooling: `pulumi`, `gcloud storage`, and the shipped EP-93 machinery —
-`scripts/migrate-pulumi-backend.sh` and the context fields
+State tooling: `pulumi`, `gcloud storage`, and the shipped EP-93 machinery — the
+workspace-resolved `scripts/migrate-pulumi-backend.sh` and the context fields
 `NAGARE_PULUMI_BACKEND`/`NAGARE_PULUMI_BACKEND_URL` consumed by `scripts/lib/target.sh`
 and `nagarectl` (see `docs/plans/93-remote-gcs-pulumi-backends-for-target-contexts.md`
 for the full contract). This plan adds no interface there.
@@ -954,6 +1001,11 @@ justfile guardrail logic (this plan touches neither); EP-103 owns
 `docs/runbooks/disaster-recovery.md` except the age-key section edited by M2c (if both
 plans are in flight, coordinate that file's merge by section). EP-93 is Complete and is
 consumed, not modified.
+
+Packaging dependencies: MasterPlan 20 EP-105 through EP-109 are complete. This plan
+consumes the immutable payload/workspace, generated host-flake, platform-version, and
+tagged-release contracts recorded in `docs/adr/0003-*.md` through
+`docs/adr/0007-*.md`; it must not reintroduce checkout-relative operator state.
 
 
 ## Revision Notes
@@ -966,3 +1018,10 @@ consumed, not modified.
   replacement hazard, the `updatekeys`-needs-an-existing-key constraint, and the
   EP-93 opt-in decision drove the corresponding Decision Log entries. Planning only;
   no source or config was modified.
+
+- 2026-08-26 — Reconciled the remaining live, secret-recovery, and Pulumi-state steps
+  with MasterPlan 20's packaged distribution. Host and cluster secrets now resolve
+  from context-owned XDG configuration, live commands use the selected release's
+  workspace, and checkout paths remain contributor/legacy compatibility only. This
+  revision also records and fixes the packaged cluster-secret omission discovered by
+  resuming this plan after EP-105–109.
