@@ -41,9 +41,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Register and install two least-privilege GitHub Apps through the owning account's
-  GitHub settings, encrypt their bootstrap values in the active context, and replace the
-  pending deployment-record fields with their exact non-secret installation boundaries.
+- [x] (2026-08-26T00:15:00Z) Register the private, webhook-disabled read App
+  `nagare-forge-read-shinzui` under `@shinzui` with only Contents read and mandatory
+  Metadata read permission.
+- [ ] Register the prepared write App, install both Apps on explicitly selected
+  repositories, generate and immediately encrypt one key per App in the active context,
+  and replace the remaining pending deployment-record fields with the exact non-secret
+  installation boundaries.
 - [x] (2026-08-25T22:54:04Z) Declare all six sops-nix paths and import the forge refresher
   from the reusable `nagare-host` module.
 - [x] (2026-08-25T23:18:00Z) Implement independent systemd services and timers, atomic
@@ -103,9 +107,10 @@ implementation. Provide concise evidence.
   which this session can encrypt bootstrap material and no live host on which it can switch or
   reboot the timers.
 
-- Discovery: The signed-in GitHub session reaches the App-registration route but GitHub sudo
-  mode requires the operator to reauthenticate before the form is available. No App or
-  installation state was created in this session.
+- Discovery: GitHub sudo mode required the operator to reauthenticate before registration.
+  After reauthentication the read App registration succeeded. Key generation and installation
+  remain deliberately deferred because there is no production sops context in which to encrypt
+  a downloaded private key and no explicit selected-repository boundary.
 
 
 ## Decision Log
@@ -189,6 +194,12 @@ Record every decision made while working on the plan.
   successful three-key publication and proves malformed/non-2xx responses do not publish.
   Date: 2026-08-25
 
+- Decision: Use the globally unique registration slugs `nagare-forge-read-shinzui` and
+  `nagare-forge-write-shinzui`; keep the stable runtime Secret names suffix-free.
+  Rationale: GitHub App names are global and may require an owner suffix, while consumers
+  should bind to the provider-independent role names already defined by the platform contract.
+  Date: 2026-08-26
+
 
 ## Outcomes & Retrospective
 
@@ -201,11 +212,13 @@ root-only sops declarations, focused success and failure-preservation tests, and
 runbook. The full compatible-system `nix flake check` passes. The durable architecture is
 recorded in `docs/adr/0008-mint-role-scoped-github-app-tokens-on-the-host.md`.
 
-The plan is not complete. GitHub registration is waiting for operator sudo-mode
-reauthentication and an explicit selected-repository boundary. Live deployment is waiting for
-a production context-owned host flake, a reachable `nagare-01`, and the configured Linux remote
-builder. Those prerequisites also block the authorization matrix, rotation/failure evidence,
-journal audit, and reboot test; none is represented as passed.
+The plan is not complete. The read registration now exists and the write registration form is
+prepared, but key generation and both installations are waiting for an explicit
+selected-repository boundary and a production sops context that can receive each generated key
+immediately. Live deployment is also waiting for a production context-owned host flake, a
+reachable `nagare-01`, and the configured Linux remote builder. Those prerequisites block the
+authorization matrix, rotation/failure evidence, journal audit, and reboot test; none is
+represented as passed.
 
 
 ## Context and Orientation
@@ -584,3 +597,8 @@ constraint, and remaining GitHub/live acceptance work.
 completion from the blocked external acceptance work. The plan now states the observed absence
 of a production context/reachable host and GitHub's sudo-mode reauthentication requirement; it
 does not claim registration or live validation.
+
+2026-08-26: Recorded the successful read App registration after operator sudo-mode
+reauthentication, chose globally unique owner-suffixed App slugs, and left key generation and
+installation pending until the private key can be encrypted immediately and exact repository
+boundaries are supplied.
