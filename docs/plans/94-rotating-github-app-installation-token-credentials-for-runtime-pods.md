@@ -50,6 +50,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-26T00:24:00Z) During the same interpretation, register a private,
   webhook-disabled write App under `@shinzui`; it also remains uninstalled and keyless and is not
   part of the product interface.
+- [x] (2026-08-26T00:45:00Z) The operator chose to retain both `@shinzui` registrations for a
+  future personal opt-in deployment. They remain operator-owned external state and may supply the
+  first context-specific live acceptance run.
 - [x] (2026-08-26T00:28:00Z) Correct the product boundary: make forge credentials an opt-in
   `nagare.host.forgeCredentials` capability, disabled by default, with a configurable namespace.
 - [x] (2026-08-26T00:28:00Z) Convert `docs/user/forge-credentials.md` from a record of one
@@ -241,6 +244,12 @@ Record every decision made while working on the plan.
   initial validation are examples of external state, not names prescribed by Nagare.
   Date: 2026-08-26
 
+- Decision: Retain the two uninstalled, keyless `@shinzui` registrations for the operator's
+  personal use rather than deleting them after the product-boundary correction.
+  Rationale: They have the intended least-privilege permission ceilings and can bootstrap a future
+  personal context, while remaining clearly separate from Nagare's reusable module and release
+  documentation.
+  Date: 2026-08-26
 
 ## Outcomes & Retrospective
 
@@ -258,8 +267,8 @@ The hermetic implementation is complete once the corrected option boundary passe
 the aggregate flake checks. Live acceptance is intentionally not Nagare-owned global state: each
 operator who enables the feature must retain redacted evidence with their context's deployment
 record. The two `@shinzui` registrations created during the initial interpretation are uninstalled
-and keyless. They are neither required by the feature nor deleted by this implementation because
-deleting external identities requires an explicit operator choice.
+and keyless. They are not required by the feature; the operator has chosen to retain them for a
+future personal opt-in deployment and possible live acceptance run.
 
 
 ## Context and Orientation
@@ -682,3 +691,7 @@ playbook and template; live registrations, repository selections, encrypted valu
 records, and acceptance evidence belong to each enabling operator context. The two uninstalled,
 keyless `@shinzui` registrations created during the earlier interpretation are recorded as external
 leftovers, not product prerequisites, and are not deleted without explicit approval.
+
+2026-08-26: Recorded the operator's decision to keep both uninstalled, keyless `@shinzui`
+registrations for future personal use. This changes only the disposition of external operator state;
+the Nagare module remains generic, optional, and disabled by default.
