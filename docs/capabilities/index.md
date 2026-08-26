@@ -48,6 +48,7 @@ individual pages. Confirm that a tag is published on the
 | [CAP-17](edge-cdn-management.md) | Edge CDN management | `nagare-dsl`, `nagarectl`, `infra-pulumi` |
 | [CAP-18](forward-auth-route-enforcement.md) | Forward-auth route enforcement | `nagare-access`, `nagarectl` |
 | [CAP-19](versioned-nix-distribution.md) | Versioned Nix distribution and clone-free operation | `nagarectl`, `nagare-platform` |
+| [CAP-20](rotating-forge-credentials.md) | Rotating role-scoped forge credentials | `nixos-hosts` |
 
 ## Validation
 
