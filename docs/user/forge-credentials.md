@@ -24,8 +24,8 @@ private keys, or installation tokens here.
 
 | Setting | Read role | Write role |
 | --- | --- | --- |
-| Registration owner | Pending GitHub registration | Pending GitHub registration |
-| App slug | Pending GitHub registration | Pending GitHub registration |
+| Registration owner | `@shinzui` | Pending GitHub registration |
+| App slug | `nagare-forge-read-shinzui` | Pending GitHub registration |
 | Installation owner | Pending GitHub registration | Pending GitHub registration |
 | Webhooks | Disabled; no event subscriptions | Disabled; no event subscriptions |
 | Repository permissions | Metadata read; Contents read | Metadata read; Contents read/write; Pull requests read/write |
