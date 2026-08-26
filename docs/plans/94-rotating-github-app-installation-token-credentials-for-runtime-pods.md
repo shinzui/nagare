@@ -250,8 +250,9 @@ Compare the result against the original purpose.
 Commit `a7470db` established the source-visible refresh helper, role-isolated service/timer pairs,
 focused success and failure-preservation tests, and the first operator guide. That first pass made
 the module unconditional and embedded one maintainer's GitHub state in release documentation. The
-2026-08-26 correction makes the capability opt-in, keeps the namespace configurable, and turns the
-guide into a reusable playbook. ADR 8 now records the product/context ownership boundary.
+2026-08-26 correction in commit `ea63a64` makes the capability opt-in, keeps the namespace
+configurable, and turns the guide into a reusable playbook. ADR 8 now records the product/context
+ownership boundary.
 
 The hermetic implementation is complete once the corrected option boundary passes evaluation and
 the aggregate flake checks. Live acceptance is intentionally not Nagare-owned global state: each
