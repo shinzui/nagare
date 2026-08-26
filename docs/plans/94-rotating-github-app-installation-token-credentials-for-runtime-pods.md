@@ -44,10 +44,12 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-26T00:15:00Z) Register the private, webhook-disabled read App
   `nagare-forge-read-shinzui` under `@shinzui` with only Contents read and mandatory
   Metadata read permission.
-- [ ] Register the prepared write App, install both Apps on explicitly selected
-  repositories, generate and immediately encrypt one key per App in the active context,
-  and replace the remaining pending deployment-record fields with the exact non-secret
-  installation boundaries.
+- [x] (2026-08-26T00:24:00Z) Register the private, webhook-disabled write App
+  `nagare-forge-write-shinzui` under `@shinzui` with Contents and Pull requests
+  read/write plus mandatory Metadata read permission.
+- [ ] Install both Apps on explicitly selected repositories, generate and immediately
+  encrypt one key per App in the active context, and replace the remaining pending
+  deployment-record fields with the exact non-secret installation boundaries.
 - [x] (2026-08-25T22:54:04Z) Declare all six sops-nix paths and import the forge refresher
   from the reusable `nagare-host` module.
 - [x] (2026-08-25T23:18:00Z) Implement independent systemd services and timers, atomic
@@ -108,9 +110,10 @@ implementation. Provide concise evidence.
   reboot the timers.
 
 - Discovery: GitHub sudo mode required the operator to reauthenticate before registration.
-  After reauthentication the read App registration succeeded. Key generation and installation
-  remain deliberately deferred because there is no production sops context in which to encrypt
-  a downloaded private key and no explicit selected-repository boundary.
+  After reauthentication both App registrations succeeded with their intended effective
+  permission matrices. Key generation and installation remain deliberately deferred because
+  there is no production sops context in which to encrypt a downloaded private key and no
+  explicit selected-repository boundary.
 
 
 ## Decision Log
@@ -212,13 +215,12 @@ root-only sops declarations, focused success and failure-preservation tests, and
 runbook. The full compatible-system `nix flake check` passes. The durable architecture is
 recorded in `docs/adr/0008-mint-role-scoped-github-app-tokens-on-the-host.md`.
 
-The plan is not complete. The read registration now exists and the write registration form is
-prepared, but key generation and both installations are waiting for an explicit
-selected-repository boundary and a production sops context that can receive each generated key
-immediately. Live deployment is also waiting for a production context-owned host flake, a
-reachable `nagare-01`, and the configured Linux remote builder. Those prerequisites block the
-authorization matrix, rotation/failure evidence, journal audit, and reboot test; none is
-represented as passed.
+The plan is not complete. Both least-privilege registrations now exist, but key generation and
+both installations are waiting for an explicit selected-repository boundary and a production
+sops context that can receive each generated key immediately. Live deployment is also waiting
+for a production context-owned host flake, a reachable `nagare-01`, and the configured Linux
+remote builder. Those prerequisites block the authorization matrix, rotation/failure evidence,
+journal audit, and reboot test; none is represented as passed.
 
 
 ## Context and Orientation
@@ -602,3 +604,8 @@ does not claim registration or live validation.
 reauthentication, chose globally unique owner-suffixed App slugs, and left key generation and
 installation pending until the private key can be encrypted immediately and exact repository
 boundaries are supplied.
+
+2026-08-26: Recorded the successful write App registration and verified its effective
+Contents/Pull requests read-write plus Metadata read-only permission matrix. Both registrations
+now exist; installation and private-key generation remain pending on explicit repository and
+production sops boundaries.
