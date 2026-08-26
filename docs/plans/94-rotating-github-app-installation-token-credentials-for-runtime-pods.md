@@ -74,9 +74,11 @@ This section must always reflect the actual current state of the work.
   both timers, and exactly six mode-`0400` sops paths. Re-run the focused refresher test,
   `git diff --check`, and the aggregate root `nix flake check`; all thirteen compatible
   aarch64-darwin checks passed, including ShellCheck.
-- [ ] Build the x86_64-linux option-boundary derivation and NixOS toplevel when
-  `nix-gcp-builder` is reachable. Evaluation succeeds, but the builder still closes its SSH
-  connection and leaves no available x86_64-linux machine.
+- [x] (2026-08-26T01:06:00Z) Build the x86_64-linux option-boundary derivation and full
+  `nagare-01` NixOS toplevel successfully on `nix-builder-x86`. The managed
+  `nix-gcp-builder` ProxyCommand still timed out during SSH banner exchange, so validation used a
+  direct local-port IAP tunnel and pinned the scanned ED25519 host key in the temporary Nix builder
+  URI. Both builds completed and the tunnel was stopped afterward.
 - [ ] Record live registration, read, denial, rotation, failure-preservation, journal, and reboot
   evidence in the first operator context that opts in; this evidence is context-owned rather than a
   prerequisite that forces every Nagare maintainer or user to provision GitHub state.
@@ -108,11 +110,18 @@ implementation. Provide concise evidence.
   behavior must therefore be imported by `nixos/modules/nagare-host.nix`.
 
 - Discovery: The repository root flake has no `nixosConfigurations` output and no
-  `formatter.aarch64-darwin`. The current source-tree validation is
+  `formatter.aarch64-darwin`. The source-tree validation is
   `nix build ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel`, with
-  `nixpkgs-fmt` for the Nix files on this workstation. Evaluation passed; the full Linux
-  build is currently blocked because the configured `nix-gcp-builder` SSH connection closes
-  before accepting work.
+  `nixpkgs-fmt` for the Nix files on this workstation. Initial attempts were blocked because the
+  configured `nix-gcp-builder` SSH ProxyCommand closed or timed out during banner exchange.
+
+- Discovery: After GCP reauthentication, `nix-builder-x86` was running and a direct
+  `gcloud compute start-iap-tunnel --local-host-port` connection reached SSH successfully, while
+  the managed `--listen-on-stdin` ProxyCommand still timed out. Nix's
+  `base64-ssh-public-host-key` store setting expects the base64 encoding of the complete
+  `ssh-ed25519 <key-body>` public-key text, not merely the already-base64 key body returned by
+  `ssh-keyscan`. Using that encoding in a temporary direct-tunnel builder URI allowed both the
+  focused check and the 98-derivation NixOS toplevel build to complete.
 
 - Discovery: `SecretName` is an abstract public type in `nagare-dsl`; its data constructor
   is not exported. The operator example therefore validates `nagare-forge-read` with
@@ -263,12 +272,13 @@ the module unconditional and embedded one maintainer's GitHub state in release d
 configurable, and turns the guide into a reusable playbook. ADR 8 now records the product/context
 ownership boundary.
 
-The hermetic implementation is complete once the corrected option boundary passes evaluation and
-the aggregate flake checks. Live acceptance is intentionally not Nagare-owned global state: each
-operator who enables the feature must retain redacted evidence with their context's deployment
-record. The two `@shinzui` registrations created during the initial interpretation are uninstalled
-and keyless. They are not required by the feature; the operator has chosen to retain them for a
-future personal opt-in deployment and possible live acceptance run.
+The hermetic implementation is complete: the corrected option boundary passes evaluation, the
+aggregate flake checks pass, and both the focused x86_64-linux check and the full `nagare-01` NixOS
+toplevel build succeed on the remote Linux builder. Live acceptance is intentionally not
+Nagare-owned global state: each operator who enables the feature must retain redacted evidence with
+their context's deployment record. The two `@shinzui` registrations created during the initial
+interpretation are uninstalled and keyless. They are not required by the feature; the operator has
+chosen to retain them for a future personal opt-in deployment and possible live acceptance run.
 
 
 ## Context and Orientation
@@ -471,6 +481,12 @@ nix build ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel
 The first command must print `false`. Evaluating the check derivation proves that an injected
 enabled configuration exposes both timers, the configured namespace, and all six secret paths. The
 build must finish with a `result` link.
+
+If the managed `nix-gcp-builder` ProxyCommand times out during banner exchange, verify that
+`nix-builder-x86` is running in project `tan-nb-exp`, open a temporary local-port IAP tunnel, scan
+and pin its ED25519 host key with Nix's `base64-ssh-public-host-key` setting, and pass that temporary
+builder URI with `--builders`. Stop the tunnel after the build. Do not disable host-key checking or
+copy the root-owned builder private key into a user-readable location.
 
 For an operator deployment, follow `docs/user/forge-credentials.md`. Before handling a PEM, turn
 shell tracing off and create no plaintext notes. Confirm on each installed App's settings page that
@@ -695,3 +711,9 @@ leftovers, not product prerequisites, and are not deleted without explicit appro
 2026-08-26: Recorded the operator's decision to keep both uninstalled, keyless `@shinzui`
 registrations for future personal use. This changes only the disposition of external operator state;
 the Nagare module remains generic, optional, and disabled by default.
+
+2026-08-26: Recorded successful x86_64-linux validation after GCP reauthentication. The managed
+builder ProxyCommand still fails during SSH banner exchange, but a temporary direct local-port IAP
+tunnel with a pinned scanned host key successfully built both the focused module check and the full
+`nagare-01` NixOS toplevel. Hermetic repository validation is now complete; only context-owned live
+acceptance remains.
