@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 
 let
-  namespace = "personal";
+  cfg = config.nagare.host.forgeCredentials;
 
   roles = [ "read" "write" ];
 
@@ -34,7 +34,7 @@ let
         config.sops.secrets.${secretPath role "installation-id"}.path
         config.sops.secrets.${secretPath role "private-key"}.path
         (kubernetesSecretName role)
-        namespace
+        cfg.namespace
       ];
       RuntimeDirectory = unitName role;
       RuntimeDirectoryMode = "0700";
@@ -54,37 +54,46 @@ let
   };
 in
 {
-  sops.secrets = lib.listToAttrs (
-    lib.concatMap
-      (role:
-        map
-          (field: {
-            name = secretPath role field;
-            value = {
-              owner = "root";
-              group = "root";
-              mode = "0400";
-            };
-          })
-          [ "app-id" "installation-id" "private-key" ])
-      roles
-  );
+  config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.namespace != "";
+        message = "nagare.host.forgeCredentials.namespace must not be empty";
+      }
+    ];
 
-  systemd.services = lib.listToAttrs (
-    map
-      (role: {
-        name = unitName role;
-        value = mkService role;
-      })
-      roles
-  );
+    sops.secrets = lib.listToAttrs (
+      lib.concatMap
+        (role:
+          map
+            (field: {
+              name = secretPath role field;
+              value = {
+                owner = "root";
+                group = "root";
+                mode = "0400";
+              };
+            })
+            [ "app-id" "installation-id" "private-key" ])
+        roles
+    );
 
-  systemd.timers = lib.listToAttrs (
-    map
-      (role: {
-        name = unitName role;
-        value = mkTimer role;
-      })
-      roles
-  );
+    systemd.services = lib.listToAttrs (
+      map
+        (role: {
+          name = unitName role;
+          value = mkService role;
+        })
+        roles
+    );
+
+    systemd.timers = lib.listToAttrs (
+      map
+        (role: {
+          name = unitName role;
+          value = mkTimer role;
+        })
+        roles
+    );
+  };
 }
