@@ -9,25 +9,28 @@
 # Local mode (NAGARE_MODE=local) makes scripts/lib/target.sh's GCP guardrail step
 # aside (MasterPlan 16, Integration Point 6): there is no GCP project to protect.
 #
-# Requires only Docker + the dev shell. If the local cluster is down the script
-# stands it up (just local-up + local-bootstrap + local-minio, all EP-82/EP-84).
+# Requires Docker plus the platform tools used by the local recipes. The
+# packaged launcher supplies nagarectl; a contributor dev shell supplies the
+# same toolchain. If the local cluster is down the script stands it up (just
+# local-up + local-bootstrap + local-minio, all EP-82/EP-84).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export NAGARE_MODE=local                 # set BEFORE the guardrail call (IP-6)
+# This harness owns one fixed loopback target. Clear an inherited resolution
+# marker before sourcing target.sh: a packaged workspace has a different root
+# from the contributor shell that may have exported the marker, and target.sh
+# deliberately clears stale context variables when those identities disagree.
+unset NAGARE_RESOLVED_CONTEXT NAGARE_ACTIVE_CONTEXT NAGARE_ACTIVE_CONTEXT_FILE
+export NAGARE_MODE=local
+export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000
+export NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io
+export NAGARE_LOCAL_OBJECT_STORE=http://minio.nagare-system.svc.cluster.local:9000/nagare-backups
+case "$(uname -m)" in
+  arm64|aarch64) export NAGARE_TARGET_PLATFORM=linux/arm64 ;;
+  *) export NAGARE_TARGET_PLATFORM=linux/amd64 ;;
+esac
 # shellcheck source=scripts/lib/target.sh
 source "${SCRIPT_DIR}/lib/target.sh"
-
-# Populate the local-target contract variables (Integration Point 1) when the
-# shell did not already (e.g. invoked outside direnv). Environment wins; we only
-# fill in from the profile — preferring the real nagare.local.env, else the
-# tracked worked example — when the canonical vars are unset.
-if [ -z "${NAGARE_BASE_DOMAIN:-}" ] || [ -z "${NAGARE_REGISTRY_HOST:-}" ]; then
-  LOCAL_ENV="${NAGARE_REPO_ROOT}/nagare.local.env"
-  [ -f "${LOCAL_ENV}" ] || LOCAL_ENV="${NAGARE_REPO_ROOT}/nagare.local.env.example"
-  # shellcheck disable=SC1090
-  [ -f "${LOCAL_ENV}" ] && . "${LOCAL_ENV}"
-fi
 
 _require_target_project                  # short-circuits in local mode (EP-82)
 
@@ -41,10 +44,25 @@ APP_DIR="${NAGARE_REPO_ROOT}/cluster/examples/${SMOKE_APP}"
 SENTINEL="smoke-sentinel-$$.txt"
 CONFIG="${APP_DIR}/nagare/Config.hs"
 
-# Resolve a runnable nagarectl: prefer one on PATH, else build + use the binary.
-echo "== building nagarectl =="
-( cd "${NAGARE_REPO_ROOT}/cli/nagarectl" && cabal build -v0 exe:nagarectl )
-NAGARECTL_BIN="$(ls "${NAGARE_REPO_ROOT}"/cli/nagarectl/dist-newstyle/build/*/ghc-*/nagarectl-*/x/nagarectl/build/nagarectl/nagarectl | head -1)"
+# Resolve a runnable nagarectl. Packaged `nagare local-smoke` already puts the
+# release-matched CLI on PATH and its workspace deliberately has no contributor
+# `cli/` tree. A source checkout without an installed CLI retains the Cabal
+# fallback so contributor behavior stays unchanged.
+if command -v nagarectl >/dev/null 2>&1; then
+  NAGARECTL_BIN="$(command -v nagarectl)"
+  echo "== using nagarectl: ${NAGARECTL_BIN} =="
+elif [ -d "${NAGARE_REPO_ROOT}/cli/nagarectl" ]; then
+  echo "== building checkout nagarectl =="
+  ( cd "${NAGARE_REPO_ROOT}/cli/nagarectl" && cabal build -v0 exe:nagarectl )
+  NAGARECTL_BIN="$(find "${NAGARE_REPO_ROOT}/cli/nagarectl/dist-newstyle/build" -path '*/x/nagarectl/build/nagarectl/nagarectl' -type f -print -quit)"
+  if [ -z "${NAGARECTL_BIN}" ]; then
+    echo "local smoke: Cabal completed but no nagarectl executable was found" >&2
+    exit 1
+  fi
+else
+  echo "local smoke: nagarectl is not on PATH and this platform workspace has no contributor CLI source" >&2
+  exit 1
+fi
 nagarectl() { "${NAGARECTL_BIN}" "$@"; }
 
 SNAPSHOT_URL=""
@@ -185,9 +203,20 @@ nagarectl db create postgres "${SMOKE_DB}" -n "${SMOKE_NS}"
 PGUSER="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)"
 PGPASSWORD="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
 PGDB="$(kubectl -n "${SMOKE_NS}" get secret "nagare-db-${SMOKE_DB}" -o jsonpath='{.data.POSTGRES_DB}' | base64 -d)"
+for _attempt in $(seq 1 60); do
+  if kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
+      pg_isready -h 127.0.0.1 -U "${PGUSER}" -d "${PGDB}" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "${_attempt}" = "60" ]; then
+    echo "local smoke: PostgreSQL did not accept connections within 120s" >&2
+    exit 1
+  fi
+  sleep 2
+done
 psql_in_pod() {
   kubectl -n "${SMOKE_NS}" exec "${SMOKE_DB}-0" -- \
-    env PGPASSWORD="${PGPASSWORD}" psql -U "${PGUSER}" -d "$1" -tAc "$2"
+    env PGPASSWORD="${PGPASSWORD}" psql -h 127.0.0.1 -U "${PGUSER}" -d "$1" -tAc "$2"
 }
 
 echo "== step 5a: write a sentinel row =="

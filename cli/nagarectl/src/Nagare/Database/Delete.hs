@@ -1,6 +1,6 @@
 -- | @nagarectl db delete NAME@ (MasterPlan 9, EP-45): remove a managed database,
--- honoring its 'RetentionPolicy'. Deletes the StatefulSet, then the Service, then
--- the Secret (and the ClickHouse memory ConfigMap), each @--ignore-not-found@ and
+-- honoring its 'RetentionPolicy'. Deletes the StatefulSet, scheduled backup,
+-- Service, Secret (and the ClickHouse memory ConfigMap), each @--ignore-not-found@ and
 -- in dependency order (MasterPlan 7 found namespace-cascade leaves resources
 -- stuck). The data PVC is removed only when the policy is @Delete@; @Retain@
 -- keeps it and prints how to remove it manually. Guarded by @--yes@: without it
@@ -71,12 +71,13 @@ runDbDelete p = do
                 )
               TIO.putStrLn ("Deleted database " <> name)
 
--- | The objects deleted in dependency order (workload, then Service, then Secret,
--- then the ClickHouse memory ConfigMap). The data PVC is handled separately by
--- the retention policy.
+-- | The objects deleted in dependency order (workload, scheduled backup, then
+-- Service, Secret, and the ClickHouse memory ConfigMap). The data PVC is
+-- handled separately by the retention policy.
 objectsToDelete :: Text -> [Text]
 objectsToDelete name =
   [ "statefulset/" <> name
+  , "cronjob/nagare-dbbackup-" <> name
   , "service/" <> name
   , "secret/" <> dbSecretName name
   , "configmap/" <> dbConfigMapName name

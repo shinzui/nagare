@@ -102,10 +102,11 @@ kube-state-metrics:
 # --- Grafana (the dashboard UI). Values pass through to the upstream grafana chart. ---
 grafana:
   enabled: true
-  # Admin credentials come from the sops-managed Secret `grafana-admin`
-  # (cluster/secrets/grafana-admin.yaml), applied by install.sh BEFORE the
-  # chart so the grafana Deployment can mount it. Grafana persistence is not
-  # enabled, so credentials re-seed from the Secret on every pod start.
+  # Admin credentials come from the sops-managed Secret `grafana-admin`, read
+  # from the active context's operator-owned cluster-secret directory and
+  # applied by install.sh BEFORE the chart so the Grafana Deployment can mount
+  # it. Grafana persistence is not enabled, so credentials re-seed from the
+  # Secret on every pod start.
   admin:
     existingSecret: grafana-admin
     userKey: admin-user

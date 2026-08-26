@@ -62,6 +62,11 @@ but incomplete payload fails without falling back. The packaged `nagare`
 launcher runs operator recipes from the active workspace, so its current
 directory does not need to be a Nagare checkout.
 
+Encrypted cluster bootstrap credentials are not workspace assets. They default
+to `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`; set
+`NAGARE_CLUSTER_SECRETS_DIR` for an explicit operator-owned location. Source
+checkouts retain `cluster/secrets/` only as a compatibility fallback.
+
 | Platform command | Does |
 | --- | --- |
 | `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |
@@ -150,8 +155,8 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just local-bootstrap` | Install Knative/Kourier locally, HTTP-first | MP-16 EP-82 |
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
-| `just local-smoke` | Local zero-cloud smoke: deploy → volume snapshot/restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 ✅ |
-| `just observability` | Install the Victoria stack + Grafana via Helm | EP-5 ✅ |
+| `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: deploy → volume/database backup+restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 / MP-19 EP-101 |
+| `nagare observability` (`just observability` in a checkout) | Install the Victoria stack + Grafana via Helm using context-owned encrypted Secrets | EP-5 / MP-19 EP-101 |
 | `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 | `just live-test` | Open an IAP/SSH-forwarded kube connection and print the `KUBECONFIG` to use | MP-8 EP-70 |

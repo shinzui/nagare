@@ -2,19 +2,20 @@
 
 > **Status:** ✅ Supported. Host secrets use sops-nix, runtime app secrets use
 > `nagarectl secret` (see [Environment and secrets](env-and-secrets.md)), and
-> Git-encrypted cluster bootstrap Secrets use the `sops -d | kubectl apply`
+> Context-owned encrypted cluster bootstrap Secrets use the `sops -d | kubectl apply`
 > loop below. Backing up the private recovery keys remains an operator duty.
 
-Nagare keeps secrets simple and rebuildable: **encrypted in Git**, decrypted on
-the host at activation. There's no external secret manager — sops + age is
-simpler to operate and to rebuild from scratch, which is the whole point of a
-disposable single-node platform.
+Nagare keeps secrets simple and rebuildable: **encrypted in operator-owned
+configuration**, decrypted only where they are consumed. A source checkout may
+track encrypted examples or a personal deployment's ciphertext, but released
+Nagare payloads never package cluster credentials. There's no external secret
+manager — sops + age is simpler to operate and to rebuild from scratch.
 
 ```text
 Host secrets:     sops-nix  (decrypt at NixOS activation)
 App runtime:      nagarectl secret (Kubernetes Secret per app/scope)
 Cluster bootstrap secrets: sops + age (`sops -d | kubectl apply`)
-Encrypted files:  committed to Git
+Encrypted files:  operator-owned and safe to back up or commit to a private config repo
 ```
 
 External Secrets Operator + GCP Secret Manager is an explicit non-goal for v1.
@@ -23,8 +24,9 @@ External Secrets Operator + GCP Secret Manager is an explicit non-goal for v1.
 
 ## How host secrets work (sops-nix) — ✅
 
-The encrypted secrets file is **committed to Git**; the **private age key lives
-only on the host**, never in Git. At activation, sops-nix decrypts the file
+The encrypted secrets file is **operator-owned and may be committed to a private
+configuration repository**; the **private age key lives only on the host**,
+never in Git. At activation, sops-nix decrypts the file
 using that key and writes each secret to a runtime path.
 
 The generated context `host.nix` supplies the encrypted file and on-host age-key path through the
@@ -80,7 +82,8 @@ activation; without it the host can't bring up anything that depends on a secret
    example: `tailscale.nix` reads
    `config.sops.secrets."tailscale/authkey".path`.
 
-3. Apply: `just host-switch` (see [Day-2 host changes](day-2-host-changes.md)).
+3. Apply: `nagare host-switch` (`just host-switch` in a contributor checkout;
+   see [Day-2 host changes](day-2-host-changes.md)).
 
 ## App runtime secrets — ✅
 
@@ -91,16 +94,37 @@ rendered Service through optional `envFrom` blocks. See
 
 ## Cluster bootstrap secrets — ✅
 
-Commit each platform bootstrap credential as a normal Kubernetes `Secret`
-manifest under `cluster/secrets/`, then encrypt it in place with `sops -e -i`.
-The repository's `.sops.yaml` encrypts only `data` and `stringData`, leaving the
-kind, name, namespace, and keys readable in review. The existing
-`cluster/secrets/notes-db-url.yaml` is the worked example.
+Store each platform bootstrap credential as a normal Kubernetes `Secret`
+manifest under the active context's directory:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/
+```
+
+Set `NAGARE_CLUSTER_SECRETS_DIR` to use an explicitly managed directory instead.
+A source checkout also accepts its tracked `cluster/secrets/` as a compatibility
+fallback when the context-owned directory does not exist. Encrypt manifests in
+place with `sops -e -i`; put an operator-owned `.sops.yaml` in that directory
+with a rule like the following (replace the recipient with the public key for
+your workstation/recovery policy):
+
+```yaml
+creation_rules:
+  - path_regex: .*\.ya?ml$
+    encrypted_regex: "^(data|stringData)$"
+    age: age1REPLACE_WITH_OPERATOR_PUBLIC_RECIPIENT
+```
+
+This leaves kind, name, namespace, and keys readable.
+The checkout's `cluster/secrets/notes-db-url.yaml` remains a worked example, not
+part of the released payload.
 
 Apply every encrypted manifest idempotently:
 
 ```bash
-for f in cluster/secrets/*.yaml; do
+context="$(nagarectl context current)"
+secret_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/${context}}"
+for f in "${secret_dir}"/*.yaml; do
   sops -d "$f" | kubectl apply -f -
 done
 ```
@@ -110,22 +134,23 @@ working tree.
 
 ## Rotation
 
-- **Tailscale auth key:** edit the sops file, `just host-switch`.
+- **Tailscale auth key:** edit the sops file, `nagare host-switch`.
 - **GitHub App forge credentials (optional):** follow the operator-owned App,
   key, installation, and live-token procedures in
   [Forge credentials](forge-credentials.md).
 - **Host age key:** regenerate, re-encrypt all secrets to the new public key,
   update `.sops.yaml`, re-place the private key on the host, rebuild.
 - **App runtime secrets:** use `nagarectl secret set/delete`.
-- **Cluster bootstrap secrets:** edit with
-  `sops cluster/secrets/<file>.yaml`, then re-apply the loop above.
+- **Cluster bootstrap secrets:** edit the context-owned encrypted file, then
+  re-apply the loop above. `nagare observability` resolves the same directory
+  and fails closed when a required Secret is absent.
 
 ## What's committed vs. what isn't
 
-| In Git | Never in Git |
+| Back up or commit to a private configuration repo | Never commit or package |
 | --- | --- |
-| `*.yaml` sops-**encrypted** secrets | the host age **private** key |
-| `.sops.yaml` (public keys + rules) | decrypted secret values |
+| context-owned `*.yaml` sops-**encrypted** secrets | the host age **private** key |
+| operator-owned `.sops.yaml` (public keys + rules) | decrypted secret values |
 | NixOS config referencing secrets | the k3s kubeconfig (`k3s.yaml`) |
 
 ## Next

@@ -18,15 +18,56 @@ VLOGS_COLLECTOR_VERSION="0.3.4"  # vm/victoria-logs-collector
 VTRACES_VERSION="0.1.6"          # vm/victoria-traces-single (BETA)
 OTEL_VERSION="0.158.0"           # open-telemetry/opentelemetry-collector
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLATFORM_ROOT="$(cd "${ROOT}/../.." && pwd)"
+# shellcheck source=scripts/lib/target.sh
+source "${PLATFORM_ROOT}/scripts/lib/target.sh"
+# shellcheck source=scripts/lib/cluster-secrets.sh
+source "${PLATFORM_ROOT}/scripts/lib/cluster-secrets.sh"
+
+SECRETS_DIR="$(nagare_cluster_secrets_dir)"
+GRAFANA_SECRET="$(nagare_require_cluster_secret "${SECRETS_DIR}" grafana-admin.yaml)"
+
+# This sops build does not discover the conventional age identity file on its
+# own. Honor an explicit setting, otherwise adopt the conventional XDG path
+# when it exists; other sops identity mechanisms remain available when it does
+# not.
+if [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
+  DEFAULT_SOPS_AGE_KEY_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/sops/age/keys.txt"
+  if [ -f "${DEFAULT_SOPS_AGE_KEY_FILE}" ]; then
+    export SOPS_AGE_KEY_FILE="${DEFAULT_SOPS_AGE_KEY_FILE}"
+  fi
+fi
+
+# Alertmanager remains optional until EP-101 M1 enables it. Once enabled in
+# the values file, fail before Helm unless its context-owned encrypted config
+# exists. This keeps released operation fail-closed without packaging secrets.
+ALERTMANAGER_ENABLED="$({
+  awk '
+    $1 == "alertmanager:" { in_alertmanager = 1; next }
+    in_alertmanager && /^[^[:space:]]/ { exit }
+    in_alertmanager && $1 == "enabled:" { print $2; exit }
+  ' "${ROOT}/victoria-metrics/values.yaml"
+} || true)"
+ALERTMANAGER_SECRET=""
+if [ "${ALERTMANAGER_ENABLED}" = "true" ]; then
+  ALERTMANAGER_SECRET="$(nagare_require_cluster_secret "${SECRETS_DIR}" alertmanager-config.yaml)"
+elif [ -f "${SECRETS_DIR}/alertmanager-config.yaml" ]; then
+  ALERTMANAGER_SECRET="${SECRETS_DIR}/alertmanager-config.yaml"
+fi
+
+# Resolve every required operator-owned input before contacting Helm or
+# mutating the cluster. A missing packaged secret therefore fails closed.
 helm repo add vm https://victoriametrics.github.io/helm-charts/
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
 helm repo update
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # --- M1: metrics + Grafana ---
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-sops -d "$ROOT/../secrets/grafana-admin.yaml" | kubectl apply -f -
+sops -d "${GRAFANA_SECRET}" | kubectl apply -f -
+if [ -n "${ALERTMANAGER_SECRET}" ]; then
+  sops -d "${ALERTMANAGER_SECRET}" | kubectl apply -f -
+fi
 
 helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version "$VMKS_VERSION" \
   --namespace monitoring --create-namespace \
