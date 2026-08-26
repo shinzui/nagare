@@ -16,23 +16,26 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 
 ## Purpose / Big Picture
 
-Nagare will publish two stable, role-named Kubernetes Secrets in the `personal`
-namespace: `nagare-forge-read` and `nagare-forge-write`. Their values will be
-short-lived installation tokens for two GitHub Apps. In this plan, a GitHub App is a
-GitHub-managed machine identity, similar to a service account: it has its own name,
-private key, permission ceiling, and repository access, but it is not an application
-binary, Pod, GitHub Action, OAuth login, or webhook service. The tokens are minted on the
-`nagare-01` host and replaced every thirty minutes. A runtime workload selects a role name
-and receives `GITHUB_TOKEN`; it does not know an App ID, installation ID, private key, or
-a user's personal access token.
+Nagare will provide an optional host capability and reusable operator playbook that publish two
+stable, role-named Kubernetes Secrets: `nagare-forge-read` and `nagare-forge-write`. Their values
+are short-lived installation tokens for two operator-owned GitHub Apps. In this plan, a GitHub App
+is a GitHub-managed machine identity, similar to a service account: it has its own name, private
+key, permission ceiling, and repository access, but it is not an application binary, Pod, GitHub
+Action, OAuth login, or webhook service. The tokens are minted on the Nagare host and replaced every
+thirty minutes. A runtime workload selects a role name and receives `GITHUB_TOKEN`; it does not know
+an App ID, installation ID, private key, or a user's personal access token.
 
-An operator can see the feature working by checking the timer state, observing that a
-Secret's value changes after a forced refresh, using the read token to fetch an allowed
-repository, and observing that the same token cannot write. A reboot and NixOS rebuild
-must restore the refreshers without re-entering a live token.
+The capability is disabled by default, so a Nagare user who does not need GitHub credentials has no
+forge-specific secret or service requirements. An operator opts in from their context-owned host
+configuration, chooses the Kubernetes namespace, provisions their own GitHub registrations and
+repository boundaries, and stores bootstrap material in that context's encrypted sops file. Nagare
+does not own or prescribe a maintainer account's live registrations.
 
-This plan creates two new GitHub App registrations. It does not assume that suitable
-Apps already exist, and it does not reuse an unrelated existing App.
+An operator can see the feature working by checking the timer state, observing that a Secret's value
+changes after a forced refresh, using the read token to fetch an allowed repository, and observing
+that the same token cannot write. A reboot and NixOS rebuild must restore the refreshers without
+re-entering a live token. The repository proves the disabled and enabled module shapes hermetically;
+each opt-in deployment owns its live GitHub acceptance evidence.
 
 
 ## Progress
@@ -41,17 +44,19 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [x] (2026-08-26T00:15:00Z) Register the private, webhook-disabled read App
-  `nagare-forge-read-shinzui` under `@shinzui` with only Contents read and mandatory
-  Metadata read permission.
-- [x] (2026-08-26T00:24:00Z) Register the private, webhook-disabled write App
-  `nagare-forge-write-shinzui` under `@shinzui` with Contents and Pull requests
-  read/write plus mandatory Metadata read permission.
-- [ ] Install both Apps on explicitly selected repositories, generate and immediately
-  encrypt one key per App in the active context, and replace the remaining pending
-  deployment-record fields with the exact non-secret installation boundaries.
-- [x] (2026-08-25T22:54:04Z) Declare all six sops-nix paths and import the forge refresher
-  from the reusable `nagare-host` module.
+- [x] (2026-08-26T00:15:00Z) During the initial maintainer-specific interpretation, register
+  a private, webhook-disabled read App under `@shinzui`; it remains uninstalled and keyless and is
+  not part of the Nagare product interface.
+- [x] (2026-08-26T00:24:00Z) During the same interpretation, register a private,
+  webhook-disabled write App under `@shinzui`; it also remains uninstalled and keyless and is not
+  part of the product interface.
+- [x] (2026-08-26T00:28:00Z) Correct the product boundary: make forge credentials an opt-in
+  `nagare.host.forgeCredentials` capability, disabled by default, with a configurable namespace.
+- [x] (2026-08-26T00:28:00Z) Convert `docs/user/forge-credentials.md` from a record of one
+  maintainer deployment into a reusable provisioning, acceptance, rotation, recovery, and disablement
+  playbook whose live state belongs to each operator's context.
+- [x] (2026-08-25T22:54:04Z) Declare the six sops-nix paths only when the capability is enabled and
+  import the forge refresher from the reusable `nagare-host` module.
 - [x] (2026-08-25T23:18:00Z) Implement independent systemd services and timers, atomic
   role-named Secret publication, sanitized failure handling, and focused success/malformed/
   non-2xx preservation tests.
@@ -61,8 +66,17 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-08-25T23:52:00Z) Pass focused ShellCheck, NixOS option evaluation,
   `git diff --check`, and the complete compatible-system `nix flake check` (all ten
   aarch64-darwin checks passed).
-- [ ] Build the x86_64-linux NixOS toplevel when `nix-gcp-builder` is reachable, then pass
-  live registration, read, denial, rotation, failure-preservation, journal, and reboot tests.
+- [x] (2026-08-26T00:30:00Z) Add and evaluate the nested-flake option-boundary check: default
+  configuration has no forge units or sops paths; enabled configuration has the chosen namespace,
+  both timers, and exactly six mode-`0400` sops paths. Re-run the focused refresher test,
+  `git diff --check`, and the aggregate root `nix flake check`; all thirteen compatible
+  aarch64-darwin checks passed, including ShellCheck.
+- [ ] Build the x86_64-linux option-boundary derivation and NixOS toplevel when
+  `nix-gcp-builder` is reachable. Evaluation succeeds, but the builder still closes its SSH
+  connection and leaves no available x86_64-linux machine.
+- [ ] Record live registration, read, denial, rotation, failure-preservation, journal, and reboot
+  evidence in the first operator context that opts in; this evidence is context-owned rather than a
+  prerequisite that forces every Nagare maintainer or user to provision GitHub state.
 
 
 ## Surprises & Discoveries
@@ -114,6 +128,13 @@ implementation. Provide concise evidence.
   permission matrices. Key generation and installation remain deliberately deferred because
   there is no production sops context in which to encrypt a downloaded private key and no
   explicit selected-repository boundary.
+
+- Discovery: The initial implementation confused reference-deployment state with the Nagare
+  product boundary. Importing the module unconditionally caused every generated Nagare host to
+  declare six GitHub sops keys and two timers, while the user guide embedded `@shinzui` App slugs.
+  A user correctly challenged that scope. The reusable capability must be disabled by default,
+  and registration records, selected repositories, encrypted values, and live evidence must
+  belong to the operator context that opts in.
 
 
 ## Decision Log
@@ -189,6 +210,22 @@ Record every decision made while working on the plan.
   context isolation and immutable-payload boundary already established by the project.
   Date: 2026-08-25
 
+- Decision: Expose the refresher as `nagare.host.forgeCredentials`, disabled by default, with a
+  configurable Kubernetes namespace that defaults to `personal`.
+  Rationale: Forge access is an optional workload capability, not a prerequisite for operating a
+  Nagare host. An unconfigured user must not be forced to supply GitHub keys or run unused timers,
+  while an operator who opts in still receives a stable runtime Secret contract.
+  Date: 2026-08-26
+
+- Decision: Keep GitHub registrations, installation boundaries, non-secret deployment records,
+  encrypted bootstrap material, and live acceptance evidence in each enabling operator's context.
+  Nagare ships a copyable record template and an operational playbook rather than a completed
+  maintainer-specific record.
+  Rationale: A Nagare release cannot own or safely generalize one account's authorization state.
+  Context ownership makes the trust boundary explicit and lets every user review their own account,
+  repositories, and responsible operators.
+  Date: 2026-08-26
+
 - Decision: Keep the refresh logic in a source-visible Bash fragment packaged by
   `pkgs.writeShellApplication`, with role and secret paths passed by each systemd unit.
   Rationale: One package still receives only locked runtime inputs and each role still has an
@@ -197,10 +234,11 @@ Record every decision made while working on the plan.
   successful three-key publication and proves malformed/non-2xx responses do not publish.
   Date: 2026-08-25
 
-- Decision: Use the globally unique registration slugs `nagare-forge-read-shinzui` and
-  `nagare-forge-write-shinzui`; keep the stable runtime Secret names suffix-free.
-  Rationale: GitHub App names are global and may require an owner suffix, while consumers
-  should bind to the provider-independent role names already defined by the platform contract.
+- Decision: Let each operator choose globally unique registration slugs derived from
+  `nagare-forge-read` and `nagare-forge-write`; keep the stable runtime Secret names suffix-free.
+  Rationale: GitHub App names are global and normally require an operator-specific suffix, while
+  consumers should bind to provider-independent role names. The two `-shinzui` slugs created during
+  initial validation are examples of external state, not names prescribed by Nagare.
   Date: 2026-08-26
 
 
@@ -209,18 +247,18 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-The repository-owned milestone is complete. Commit `a7470db` adds the reusable NixOS module,
-source-visible and ShellChecked refresh helper, two role-isolated service/timer pairs, six
-root-only sops declarations, focused success and failure-preservation tests, and the operator
-runbook. The full compatible-system `nix flake check` passes. The durable architecture is
-recorded in `docs/adr/0008-mint-role-scoped-github-app-tokens-on-the-host.md`.
+Commit `a7470db` established the source-visible refresh helper, role-isolated service/timer pairs,
+focused success and failure-preservation tests, and the first operator guide. That first pass made
+the module unconditional and embedded one maintainer's GitHub state in release documentation. The
+2026-08-26 correction makes the capability opt-in, keeps the namespace configurable, and turns the
+guide into a reusable playbook. ADR 8 now records the product/context ownership boundary.
 
-The plan is not complete. Both least-privilege registrations now exist, but key generation and
-both installations are waiting for an explicit selected-repository boundary and a production
-sops context that can receive each generated key immediately. Live deployment is also waiting
-for a production context-owned host flake, a reachable `nagare-01`, and the configured Linux
-remote builder. Those prerequisites block the authorization matrix, rotation/failure evidence,
-journal audit, and reboot test; none is represented as passed.
+The hermetic implementation is complete once the corrected option boundary passes evaluation and
+the aggregate flake checks. Live acceptance is intentionally not Nagare-owned global state: each
+operator who enables the feature must retain redacted evidence with their context's deployment
+record. The two `@shinzui` registrations created during the initial interpretation are uninstalled
+and keyless. They are neither required by the feature nor deleted by this implementation because
+deleting external identities requires an explicit operator choice.
 
 
 ## Context and Orientation
@@ -236,13 +274,13 @@ evaluation, not the live operator identity. This ownership is established by
 pattern is `nixos/hosts/nagare-01/registries.nix`, which refreshes a different short-lived
 credential. `docs/user/secrets.md` explains current host and application secret practice.
 
-The k3s server runs on the same host. Root's k3s kubeconfig lets a root-owned systemd
-unit apply a Secret to `personal`; no token value needs to cross SSH or enter the Nix
-store. In this plan, “bootstrap material” means each GitHub App's PEM private key, App
-ID, and installation ID. “Installation token” means the roughly one-hour bearer token
-returned by GitHub's installation-access-token endpoint. The former is durable and
-encrypted at rest; the latter is ephemeral and exists only in a root-only runtime file
-and a Kubernetes Secret.
+The k3s server runs on the same host. Root's k3s kubeconfig lets a root-owned systemd unit apply a
+Secret to the namespace selected by the operator; no token value needs to cross SSH or enter the
+Nix store. The namespace defaults to `personal` for compatibility with the downstream content-plane
+contract. In this plan, “bootstrap material” means each GitHub App's PEM private key, App ID, and
+installation ID. “Installation token” means the roughly one-hour bearer token returned by GitHub's
+installation-access-token endpoint. The former is durable and encrypted at rest; the latter is
+ephemeral and exists only in a root-only runtime file and a Kubernetes Secret.
 
 A GitHub App is an authorization identity stored by GitHub. Its registration establishes
 the identity and the maximum permissions it may ever receive. Its private key lets
@@ -255,9 +293,10 @@ account. “Installation” is the separate grant that attaches the identity to 
 repositories owned by one account. An “installation token” is the temporary credential
 created from the registration's private key for one installation; its effective access
 is the intersection of the App's permission ceiling and the repositories selected by the
-installation. This plan has two registrations and two installations: one
-registration/installation pair for the read role and one for the write role. The App
-registrations are operator-managed GitHub state, not NixOS or Pulumi resources.
+installation. An enabled operator context has two registrations and two installations: one
+registration/installation pair for the read role and one for the write role. The App registrations
+are operator-managed GitHub state, not Nagare release, NixOS, or Pulumi resources. A context that
+does not enable the feature has none of these requirements.
 
 The source requirement is
 `mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`,
@@ -276,18 +315,20 @@ and one-installation-per-role constraint.
 
 ## Plan of Work
 
-### Milestone 1: establish the forge identities and encrypted inputs
+### Milestone 1: define the opt-in boundary and establish operator-owned inputs
 
-This milestone creates two new GitHub App registrations rather than discovering or
-reusing existing registrations. An owner of the GitHub user or organization account that
-owns the target repositories must register the two private Apps through GitHub's Settings,
-Developer settings, GitHub Apps, New GitHub App page. Use globally unique names derived
-from `nagare-forge-read` and `nagare-forge-write`; the suffix needed for global uniqueness
-is not part of the stable Kubernetes Secret name. For both Apps, set the Nagare repository
-URL as the homepage,
-select the option that restricts installation to the owning account, disable webhooks,
-subscribe to no events, request no user authorization, and leave callback and setup URLs
-unset.
+Add an `enable` option beneath `nagare.host.forgeCredentials` whose default is false, plus a
+configurable namespace whose default is `personal`. Wrap all forge-specific sops declarations,
+services, and timers in that option. Prove that the ordinary compatibility host evaluates with the
+feature absent and that an explicitly enabled module evaluates with both role timers.
+
+For each operator deployment that opts in, an owner of the GitHub user or organization account that
+owns the target repositories registers two private Apps through GitHub's Settings, Developer
+settings, GitHub Apps, New GitHub App page. Use globally unique names derived from
+`nagare-forge-read` and `nagare-forge-write`; the suffix needed for global uniqueness is not part of
+the stable Kubernetes Secret name. For both Apps, use an operator-controlled homepage URL, select
+the option that restricts installation to the owning account, disable webhooks, subscribe to no
+events, request no user authorization, and leave callback and setup URLs unset.
 
 For the read App, set repository Contents permission to read-only. For the write App,
 set repository Contents and Pull requests permissions to read-and-write so the publishing
@@ -305,17 +346,17 @@ the required repositories span multiple user or organization accounts, stop and 
 the one-installation-per-role bootstrap interface before creating additional
 installations.
 
-Write the App owner, actual App slug, installation owner, webhook-disabled state,
-permission matrix, and exact selected-repository list into
-`docs/user/forge-credentials.md`. Record owners for private-key and installation changes,
-but never record App IDs, installation IDs, or keys in plaintext documentation. Copy the
-App ID from the App settings page and the installation ID from the installed App's
-settings URL directly into the encrypted input described below. After confirming that
-sops contains the PEM, remove the browser-downloaded plaintext PEM; sops becomes the
+Copy the deployment-record template from `docs/user/forge-credentials.md` into the operator
+context's documentation. Write the App owner, actual App slug, installation owner,
+webhook-disabled state, permission matrix, and exact selected-repository list there. Record owners
+for private-key and installation changes, but never record App IDs, installation IDs, or keys in
+plaintext documentation. Copy the App ID from the App settings page and the installation ID from
+the installed App's settings URL directly into the encrypted input described below. After
+confirming that sops contains the PEM, remove the browser-downloaded plaintext PEM; sops becomes the
 recovery copy.
 
-Resolve the active context with `nagarectl host path --context <name>` and edit its encrypted
-`secrets.yaml` with `sops`, adding:
+Enable `nagare.host.forgeCredentials` in the operator context's `host.nix`, resolve that context with
+`nagarectl host path --context <name>`, and edit its encrypted `secrets.yaml` with `sops`, adding:
 
 ```yaml
 github-app:
@@ -329,15 +370,15 @@ github-app:
     private-key: <PEM>
 ```
 
-The placeholders above describe decrypted structure only; never paste real values into
-this plan, a terminal transcript, or an unencrypted file. In the new
-`nixos/hosts/nagare-01/forge-credentials.nix`, declare all six sops paths with root
-ownership and mode `0400`. Import that reusable module from
+The placeholders above describe decrypted structure only; never paste real values into this plan,
+a terminal transcript, or an unencrypted file. In
+`nixos/hosts/nagare-01/forge-credentials.nix`, declare all six sops paths with root ownership and
+mode `0400` only inside the enabled branch. Import that reusable module from
 `nixos/modules/nagare-host.nix`.
 
-Milestone 1 is complete when the NixOS configuration evaluates, the encrypted file has
-no plaintext diff, and each App installation's repository list matches the documented
-boundary.
+The repository portion of Milestone 1 is complete when both disabled and enabled NixOS shapes
+evaluate. For an operator deployment, it is complete when the encrypted file has no plaintext diff
+and each App installation's repository list matches that context's documented boundary.
 
 ### Milestone 2: mint and publish independently rotating role Secrets
 
@@ -395,32 +436,42 @@ write token must create and delete a probe file in its allowed disposable reposi
 must receive 403 or 404 in a repository outside its installation. Finally reboot the
 host, wait for both timers, and repeat a read request.
 
-Milestone 3 is complete only when the access matrix, refresh, failure preservation, and
-reboot recovery are observed, with no token value in shell history, journal output, or
-test artifacts.
+The repository portion of Milestone 3 is complete when the reusable playbook explains the access
+matrix, refresh, failure preservation, and reboot recovery. Each opt-in operator deployment is
+accepted only when those behaviors are observed with no token value in shell history, journal
+output, or test artifacts, and redacted evidence is retained with that context.
 
 
 ## Concrete Steps
 
 Run repository commands from `/Users/shinzui/Keikaku/bokuno/nagare`.
 
-First complete the two GitHub UI registrations and installations described in Milestone
-1. Before handling a PEM, turn shell tracing off and create no plaintext notes. Confirm
-on each installed App's settings page that the account owner, selected repositories, and
-permissions exactly match `docs/user/forge-credentials.md`. Then edit the encrypted input
-and evaluate the machine configuration:
+First prove the reusable option boundary without any GitHub state. The compatibility host must have
+the feature disabled, while an explicit extra module must expose both timers. Then format and check
+the implementation:
 
 ```bash
-host_root="$(nagarectl host path --context prod)"
-sops "$host_root/secrets.yaml"
-nixpkgs-fmt nixos/hosts/nagare-01/forge-credentials.nix nixos/modules/nagare-host.nix
+nix eval ./nixos#nixosConfigurations.nagare-01.config.nagare.host.forgeCredentials.enable
+nix eval ./nixos#checks.x86_64-linux.forge-credentials-module.drvPath --raw
+nixpkgs-fmt nixos/flake.nix nixos/hosts/nagare-01/forge-credentials.nix nixos/modules/nagare-host.nix
+nix flake check
 nix build ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel
 ```
 
-The build must finish with a `result` link and must not print a GitHub key. Inspect the
-encrypted diff without decrypting it:
+The first command must print `false`. Evaluating the check derivation proves that an injected
+enabled configuration exposes both timers, the configured namespace, and all six secret paths. The
+build must finish with a `result` link.
+
+For an operator deployment, follow `docs/user/forge-credentials.md`. Before handling a PEM, turn
+shell tracing off and create no plaintext notes. Confirm on each installed App's settings page that
+the account owner, selected repositories, and permissions exactly match the context-owned deployment
+record. Enable the feature in that context's `host.nix`, edit only its encrypted input, and inspect
+the encrypted diff without decrypting it:
 
 ```bash
+context_name="<context>"
+host_root="$(nagarectl host path --context "$context_name")"
+sops "$host_root/secrets.yaml"
 git diff -- "$host_root/secrets.yaml"
 rg -n -- 'BEGIN (RSA )?PRIVATE KEY|ghs_[A-Za-z0-9]+' nixos docs
 ```
@@ -469,27 +520,37 @@ proceeds.
 
 ## Validation and Acceptance
 
-Acceptance requires all of the following behaviors:
+Repository acceptance requires all of the following behaviors:
 
-* `nix flake check` and the `nagare-01` toplevel build succeed from a clean checkout that
-  has access to the host age key only at activation time.
-* GitHub shows two private, webhook-disabled App registrations. The read registration has
+- `nix flake check` succeeds, the default host evaluates with forge credentials disabled and no
+  forge units or secrets, and an explicitly enabled host evaluates with both role timers and six
+  root-only sops declarations.
+- The `nagare-01` toplevel build succeeds from a clean checkout; no GitHub or age key is required at
+  build time.
+- The user guide is a reusable playbook and contains no maintainer-specific App owner, slug,
+  selected-repository list, or deployment status.
+- Focused tests prove exact three-key Secret publication and preservation on malformed and non-2xx
+  GitHub responses.
+
+Each operator deployment that opts in additionally requires all of these behaviors:
+
+- GitHub shows two private, webhook-disabled App registrations. The read registration has
   only Metadata read and Contents read permissions; the write registration has only
   Metadata read plus Contents and Pull requests read-and-write permissions. Each has one
-  installation on the documented owner account with exactly the documented selected
+  installation on the context-documented owner account with exactly the documented selected
   repositories.
-* Each timer creates its named Secret independently. Each Secret contains exactly the
+- Each timer creates its named Secret independently. Each Secret contains exactly the
   required `token`, `GITHUB_TOKEN`, and `expires_at` data keys, and the two token keys
   decode to identical bytes.
-* A forced successful refresh changes the token hash and expiry without requiring a
+- A forced successful refresh changes the token hash and expiry without requiring a
   consumer restart. A forced mint failure leaves the existing Secret unchanged and logs
   a role-scoped, non-secret error.
-* A Pod consuming `GITHUB_TOKEN` from `nagare-forge-read` can read an installed
+- A Pod consuming `GITHUB_TOKEN` from `nagare-forge-read` can read an installed
   repository. A write request made with that token is denied. The write token can mutate
   only its deliberately installed disposable repository and is denied outside it.
-* `journalctl -u 'nagare-forge-*-refresh.service'`, the Git diff, shell history, and test
+- `journalctl -u 'nagare-forge-*-refresh.service'`, the Git diff, shell history, and test
   artifacts contain no PEM or installation token.
-* After reboot, both timers are active and the read check succeeds without manual token
+- After reboot, both timers are active and the read check succeeds without manual token
   entry.
 
 The GitHub authorization checks are live integration tests, not unit tests. Use probe
@@ -512,18 +573,20 @@ delete the last valid Secret while diagnosing.
 
 Changing repository permissions or installation scope is security-sensitive. Apply
 the narrow change in GitHub first, force refresh, rerun the access matrix, and update the
-documented boundary. Removing this feature consists of disabling the timers, removing
-the NixOS declarations, switching the host, and then deleting the two Kubernetes Secrets;
-reverse that order when restoring it.
+documented boundary. Removing this feature consists of removing workload references, setting
+`nagare.host.forgeCredentials.enable = false`, switching the host, and then deleting the two
+Kubernetes Secrets. Delete the operator-owned GitHub installations and registrations only after
+confirming that no other context uses them; reverse that order when restoring the capability.
 
 
 ## Interfaces and Dependencies
 
-The two GitHub App registrations and their selected-repository installations are created
-once in GitHub's settings UI and remain operator-managed external state. No package,
-Pulumi resource, or NixOS module creates them. The repository records their non-secret
-configuration in `docs/user/forge-credentials.md` and stores their bootstrap credentials
-only through sops-nix.
+Each enabling operator creates two GitHub App registrations and their selected-repository
+installations once in GitHub's settings UI. They remain context-owned external state; no package,
+Pulumi resource, NixOS module, or Nagare maintainer account creates them on a user's behalf. The
+repository supplies a copyable record template in `docs/user/forge-credentials.md`; the completed
+record and bootstrap credentials remain in operator-owned configuration, with secret values only in
+sops-nix.
 
 The runtime implementation uses GitHub's App JWT and installation-token HTTP APIs,
 sops-nix for durable bootstrap material, systemd for scheduling, and k3s's `kubectl` for
@@ -534,8 +597,8 @@ manager, or runtime package download is introduced. The researched
 `haskellPackages.github-app-token` and `@octokit/auth-app` libraries are deliberately not
 part of the implementation.
 
-At completion, `nixos/hosts/nagare-01/forge-credentials.nix` must expose these systemd
-units:
+When `nagare.host.forgeCredentials.enable` is true,
+`nixos/hosts/nagare-01/forge-credentials.nix` exposes these systemd units:
 
 ```text
 nagare-forge-read-refresh.service
@@ -544,10 +607,11 @@ nagare-forge-write-refresh.service
 nagare-forge-write-refresh.timer
 ```
 
-Their Kubernetes interface is:
+When the option is false or absent, none of the units or forge-specific sops declarations exist.
+The enabled Kubernetes interface is:
 
 ```text
-Namespace: personal
+Namespace: nagare.host.forgeCredentials.namespace (default: personal)
 Secret: nagare-forge-read | nagare-forge-write
 data.token: installation token bytes
 data.GITHUB_TOKEN: the same installation token bytes
@@ -609,3 +673,11 @@ boundaries are supplied.
 Contents/Pull requests read-write plus Metadata read-only permission matrix. Both registrations
 now exist; installation and private-key generation remain pending on explicit repository and
 production sops boundaries.
+
+2026-08-26: Corrected the implementation after user review identified that the plan had conflated a
+maintainer-specific deployment with the Nagare product. The forge module is now an optional,
+disabled-by-default host capability with a configurable namespace. The user document is a reusable
+playbook and template; live registrations, repository selections, encrypted values, deployment
+records, and acceptance evidence belong to each enabling operator context. The two uninstalled,
+keyless `@shinzui` registrations created during the earlier interpretation are recorded as external
+leftovers, not product prerequisites, and are not deleted without explicit approval.

@@ -111,8 +111,9 @@ working tree.
 ## Rotation
 
 - **Tailscale auth key:** edit the sops file, `just host-switch`.
-- **GitHub App forge credentials:** follow the key, installation, and live-token
-  procedures in [Forge credentials](forge-credentials.md).
+- **GitHub App forge credentials (optional):** follow the operator-owned App,
+  key, installation, and live-token procedures in
+  [Forge credentials](forge-credentials.md).
 - **Host age key:** regenerate, re-encrypt all secrets to the new public key,
   update `.sops.yaml`, re-place the private key on the host, rebuild.
 - **App runtime secrets:** use `nagarectl secret set/delete`.

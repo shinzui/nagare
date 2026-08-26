@@ -54,6 +54,16 @@ in
       default = "/var/lib/sops-nix/age-key.txt";
       description = "On-host path to the age private key used by sops-nix.";
     };
+
+    forgeCredentials = {
+      enable = lib.mkEnableOption "rotating GitHub App credentials for runtime workloads";
+
+      namespace = lib.mkOption {
+        type = lib.types.str;
+        default = "personal";
+        description = "Kubernetes namespace in which to publish the role-named forge Secrets.";
+      };
+    };
   };
 
   config = {

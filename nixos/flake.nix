@@ -36,7 +36,22 @@
       compatibilitySystem = mkNagareSystem {
         hostModule = ./hosts/nagare-01/configuration.nix;
       };
-    in {
+      forgeCredentialsSystem = mkNagareSystem {
+        hostModule = ./hosts/nagare-01/configuration.nix;
+        extraModules = [
+          {
+            nagare.host.forgeCredentials = {
+              enable = true;
+              namespace = "forge-test";
+            };
+          }
+        ];
+      };
+      forgeSecretNames = builtins.filter
+        (name: builtins.match "github-app/.*" name != null)
+        (builtins.attrNames forgeCredentialsSystem.config.sops.secrets);
+    in
+    {
       lib.mkNagareSystem = mkNagareSystem;
 
       nixosModules.nagare-host = nagareHostModule;
@@ -52,5 +67,18 @@
       };
 
       nixosConfigurations.nagare-01 = compatibilitySystem;
+
+      checks.${system}.forge-credentials-module =
+        assert compatibilitySystem.config.nagare.host.forgeCredentials.enable == false;
+        assert !(builtins.hasAttr "nagare-forge-read-refresh" compatibilitySystem.config.systemd.services);
+        assert !(builtins.hasAttr "github-app/read/app-id" compatibilitySystem.config.sops.secrets);
+        assert forgeCredentialsSystem.config.nagare.host.forgeCredentials.namespace == "forge-test";
+        assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-read-refresh.timerConfig.OnUnitActiveSec == "30min";
+        assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-write-refresh.timerConfig.OnUnitActiveSec == "30min";
+        assert builtins.length forgeSecretNames == 6;
+        assert forgeCredentialsSystem.config.sops.secrets."github-app/read/private-key".mode == "0400";
+        nixpkgs.legacyPackages.${system}.runCommand "nagare-forge-credentials-module-check" { } ''
+          touch "$out"
+        '';
     };
 }

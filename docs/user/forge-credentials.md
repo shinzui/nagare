@@ -1,14 +1,15 @@
 # Forge credentials
 
-> **Status:** 🟡 In progress. The host refresher, focused tests, and operator
-> workflow are implemented. The two GitHub Apps must still be registered,
-> installed, encrypted into the active context, deployed, and live-verified.
+> **Status:** 🟢 Available as an opt-in host capability. Each operator supplies
+> their own GitHub App registrations, repository selections, and encrypted keys.
 
-Nagare gives runtime workloads short-lived GitHub credentials through two stable
-Kubernetes Secrets in the `personal` namespace:
+Use this playbook when workloads deployed through Nagare need short-lived GitHub
+credentials without receiving a personal access token or a GitHub App private
+key. The capability is disabled by default. Enabling it publishes two stable
+Kubernetes Secrets in a namespace chosen by the operator:
 
 ```text
-nagare-forge-read   broad selected-repository read access, never write access
+nagare-forge-read   selected-repository read access, never write access
 nagare-forge-write  narrow selected-repository write and pull-request access
 ```
 
@@ -16,39 +17,55 @@ The host refreshes each role independently every thirty minutes. Workloads know
 only a role Secret name and receive `GITHUB_TOKEN`; they never receive a GitHub
 App ID, installation ID, private key, or personal access token.
 
-## Deployment record
+## Before you enable it
 
-Complete this record before enabling the timers. It is the reviewable source of
-truth for the non-secret GitHub state. Do not record App IDs, installation IDs,
-private keys, or installation tokens here.
+You need:
+
+- a Nagare context with an operator-owned host flake;
+- permission to create and install GitHub Apps for the account that owns the
+  target repositories;
+- an exact selected-repository boundary for each role; and
+- access to the context's sops recipient and age-key recovery process.
+
+One role has one installation ID, and one installation belongs to one GitHub
+user or organization account. If a role must cover repositories owned by more
+than one account, do not combine them under this interface; use separate Nagare
+contexts or extend the module with an explicitly reviewed multi-installation
+design.
+
+## Record the operator-owned GitHub state
+
+Copy the following table into documentation owned by the target context, beside
+its host flake or in the operator's configuration repository. Do not fill it in
+inside Nagare's release documentation: App registrations, installations, and
+repository choices belong to the operator who enables the feature. Never record
+App IDs, installation IDs, private keys, or installation tokens in the table.
 
 | Setting | Read role | Write role |
 | --- | --- | --- |
-| Registration owner | `@shinzui` | `@shinzui` |
-| App slug | `nagare-forge-read-shinzui` | `nagare-forge-write-shinzui` |
-| Installation owner | Pending GitHub registration | Pending GitHub registration |
+| Registration owner | `<GitHub user or organization>` | `<GitHub user or organization>` |
+| App slug | `<globally unique read App slug>` | `<globally unique write App slug>` |
+| Installation owner | `<same owner as selected repositories>` | `<same owner as selected repositories>` |
 | Webhooks | Disabled; no event subscriptions | Disabled; no event subscriptions |
 | Repository permissions | Metadata read; Contents read | Metadata read; Contents read/write; Pull requests read/write |
-| Selected repositories | Pending: enumerate every repository explicitly | Pending: enumerate the disposable publishing target and each approved production target explicitly |
-| Private-key owner | Nagare host operator | Nagare host operator |
-| Installation-scope owner | Portfolio repository owner | Portfolio repository owner |
+| Selected repositories | `<enumerate every repository>` | `<enumerate the disposable publishing target and each approved production target>` |
+| Private-key owner | `<operator role or team>` | `<operator role or team>` |
+| Installation-scope owner | `<repository owner or team>` | `<repository owner or team>` |
 
-Every repository listed in one role must belong to the same GitHub user or
-organization account. One role has one installation ID. If a role must cross
-account boundaries, stop and revise the refresher schema before creating another
-installation.
+Treat this context-owned record as the reviewable source of truth for non-secret
+GitHub state. Update it whenever permissions or repository selections change.
 
-## Register and install the Apps
+## Register and install two GitHub Apps
 
 An owner of the account that owns the selected repositories performs this
 one-time setup in GitHub under **Settings → Developer settings → GitHub Apps →
 New GitHub App**. Create two private Apps with globally unique names derived from
-`nagare-forge-read` and `nagare-forge-write`. The uniqueness suffix is external
-metadata; it never changes the Kubernetes Secret names above.
+`nagare-forge-read` and `nagare-forge-write`. A uniqueness suffix is external
+metadata; it never changes the stable Kubernetes Secret names.
 
 For both Apps:
 
-- use the Nagare repository URL as the homepage;
+- use a URL controlled by the operator as the homepage;
 - leave callback and setup URLs empty and request no user authorization;
 - disable webhooks and subscribe to no events;
 - restrict installation to the owning account; and
@@ -61,19 +78,37 @@ Metadata read permission automatically. Do not grant Administration, Actions,
 Workflows, Members, Secrets, or webhook permissions.
 
 Generate exactly one private key for each App. Install each App on the recorded
-owner using **Only select repositories**. The read installation contains the
-explicit mirror boundary. The write installation contains only a disposable
+owner using **Only select repositories**. The read installation contains only
+the explicit mirror boundary. The write installation contains only a disposable
 probe/publishing repository and narrow production publishing targets. Copy the
-App ID from the App settings page and the installation ID from the installed
-App settings URL directly into sops; do not put either in a plaintext note.
+App ID from the App settings page and the installation ID from the installed App
+settings URL directly into sops; do not put either in a plaintext note.
 
-## Encrypt the bootstrap inputs
+## Enable the host capability and encrypt its inputs
 
-Host inputs belong to the active context's operator-owned host flake, not to the
-checked-in `nagare-01` compatibility fixture. Resolve and edit it with:
+Choose the context and resolve its operator-owned host flake:
 
 ```bash
-host_root="$(nagarectl host path --context prod)"
+context_name="<context>"
+host_root="$(nagarectl host path --context "$context_name")"
+```
+
+Add the opt-in block to that context's `host.nix` inside `nagare.host`:
+
+```nix
+forgeCredentials = {
+  enable = true;
+  namespace = "personal";
+};
+```
+
+The namespace defaults to `personal`, so it may be omitted when that is the
+desired target. When `enable` is false or absent, Nagare declares none of the six
+sops inputs, services, timers, or Kubernetes Secrets described by this playbook.
+
+Now edit the context's encrypted file:
+
+```bash
 sops "$host_root/secrets.yaml"
 ```
 
@@ -98,7 +133,8 @@ backed up separately as described in [Secrets](secrets.md).
 
 ## Deploy and inspect rotation
 
-Review the active context and apply the reusable host module:
+Review the selected context and apply its host configuration using your normal
+Nagare host workflow. For a context selected in the current shell:
 
 ```bash
 just context-show
@@ -107,7 +143,8 @@ ssh nagare-01 'systemctl status nagare-forge-read-refresh.timer nagare-forge-wri
 ```
 
 Both timers should show `active (waiting)`. Force an immediate independent
-refresh and inspect metadata only:
+refresh and inspect metadata only, substituting your configured namespace and
+host name when they differ:
 
 ```bash
 ssh nagare-01 'sudo systemctl start nagare-forge-read-refresh.service'
@@ -131,10 +168,10 @@ and curl authorization config in a root-only systemd runtime directory and
 removes them on exit. A non-2xx or malformed GitHub response exits before
 `kubectl apply`, so the previous Secret remains available until its expiry.
 
-There is no automated expiration alert in this change. Operators should alert
-when either timer's last result is failed or when a decoded `expires_at` has less
-than twenty minutes remaining. Never put the token value itself in an alert,
-metric label, journal query, or support artifact.
+There is no automated expiration alert in this capability. Alert when either
+timer's last result is failed or when a decoded `expires_at` has less than twenty
+minutes remaining. Never put a token value in an alert, metric label, journal
+query, or support artifact.
 
 ## Select a role from `nagare-dsl`
 
@@ -170,27 +207,34 @@ SHA-256 hashes, and remove the files afterward. The acceptance matrix is:
 
 Force each unit twice and verify that its token hash and expiry change. For a
 failure-preservation drill, temporarily set one role's encrypted installation ID
-to a nonexistent value, deploy, record the live Secret resource version and token
-hash, and start only that role's service. The service must fail while both values
-remain unchanged. Restore and deploy the valid value immediately.
+to a nonexistent value, deploy, record the live Secret resource version and
+token hash, and start only that role's service. The service must fail while both
+values remain unchanged. Restore and deploy the valid value immediately.
 
 Reboot the host after the access matrix passes. Both timers must return to
-`active (waiting)`, and the read probe must succeed without any manual token
-entry.
+`active (waiting)`, and the read probe must succeed without manual token entry.
+Store the redacted acceptance evidence with the context-owned deployment record,
+not in Nagare's release documentation.
 
-## Rotate or recover
+## Rotate, recover, or disable
 
 To rotate an App private key, generate a second key in GitHub, replace the sops
 value, deploy, force that role's refresher, and verify its access matrix. Revoke
 the old key only after the new key has minted and published a valid token.
 
 To change repository scope or permissions, make the narrow GitHub change, update
-the deployment record above, force refresh, and rerun the full access matrix. An
-installation token copied before a scope reduction remains live until GitHub
-expires or revokes it.
+the context-owned deployment record, force refresh, and rerun the full access
+matrix. An installation token copied before a scope reduction remains live until
+GitHub expires or revokes it.
 
 If a private key is exposed, generate and deploy a replacement before revoking
 the old key when a safe recovery window exists. If a live installation token is
-exposed, suspend affected workloads, rotate or revoke the App installation/key as
-appropriate, and republish. Deleting the Kubernetes Secret alone does not revoke
-a copied bearer token.
+exposed, suspend affected workloads, rotate or revoke the App installation/key
+as appropriate, and republish. Deleting the Kubernetes Secret alone does not
+revoke a copied bearer token.
+
+To disable the capability, first remove any workload references, set
+`nagare.host.forgeCredentials.enable = false`, and switch the host. The systemd
+units and sops declarations disappear from the configuration. Delete the two
+Kubernetes Secrets and the operator-owned GitHub registrations only when their
+credentials are no longer needed.
