@@ -14,6 +14,17 @@
 default:
     @just --list
 
+# Strictly validate commit-pinned review records against the shared
+# assurance.reviews profile. Findings stay in the review body or become records
+# in the owning bug-report or improvement-request bundle.
+[group('docs')]
+reviews-validate:
+    okf validate docs/reviews \
+      --strict \
+      --profile docs/reviews/profile.dhall \
+      --profile-enforce \
+      --log-enforce
+
 # EP-2 (docs/plans/2-pulumi-gcp-infrastructure.md): create/update the GCP
 # resources (VM, static IP, Cloud DNS, disks, service account, Artifact
 # Registry, backup bucket).
