@@ -17,49 +17,49 @@ packages:
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-core
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-jwt
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-servant
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-client
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-migrations
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-postgres
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-webauthn
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 26361f21325f4c0d2d1751365542d6c0adc83839
+  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
   subdir: shomei-server
 
 source-repository-package

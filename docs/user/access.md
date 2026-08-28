@@ -87,8 +87,24 @@ and `en`.
 Each service owns its PostgreSQL schema as an embedded pg-migrate plan. The installer
 runs `shomei-migrate up` and `en-migrate up` as explicit Kubernetes Jobs from the same
 image tags as their servers, waits for both Jobs to complete, and only then rolls out
-the workloads. The ledger makes reruns idempotent; Nagare does not carry a duplicate
-copy of either service's SQL.
+the workloads. The ledger makes reruns idempotent while published migration history is
+unchanged; Nagare does not carry a duplicate copy of either service's SQL.
+
+> **Shomei 0.2.0.0 upgrade:** the release repaired migration bugs by rewriting its
+> existing 36-file history to be schema-qualified. That intentionally changes the
+> pg-migrate checksums, so a `shomei-db` initialized by an earlier Shomei revision
+> cannot be upgraded in place. Nagare has not retained any auth-plane data yet; delete
+> and recreate that database before installing this release:
+>
+> ```bash
+> nagarectl context show
+> nagarectl db delete shomei-db --namespace nagare-system --yes
+> nagarectl db create postgres shomei-db --namespace nagare-system
+> ```
+>
+> This discard policy is specific to Nagare's unused deployment. A deployment with
+> data to preserve needs an operator-led ledger remediation instead. See
+> `mori://shinzui/shomei/packages/shomei-migrations`.
 
 ## Deploy a protected site
 

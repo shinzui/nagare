@@ -80,7 +80,9 @@ kubectl apply -f "$bootstrap_dir/nagare-access/configmap.yaml"
 # 3) Schema migrations run before either server starts.
 # Job spec.template is immutable and a completed Job never re-runs, so a new
 # release image's embedded plan would otherwise silently never apply. Migrations are
-# ledger-backed and idempotent, so it applies only pending embedded migrations.
+# ledger-backed and idempotent while their published history is unchanged. Shomei
+# 0.2.0.0 intentionally changed existing checksums; the local-auth README requires
+# Nagare's unused pre-0.2 shomei-db to be recreated before this Job runs.
 kubectl -n "$ns" delete job shomei-migrate --ignore-not-found=true
 NAGARE_REGISTRY_PREFIX="$registry" NAGARE_AUTH_TAG="$tag" \
   "$bootstrap_dir/render-context-template.sh" "$bootstrap_dir/shomei/migrations.yaml" | kubectl apply -f -

@@ -43,6 +43,7 @@ tokenErrorToAuthFailure :: TokenError -> AuthFailure
 tokenErrorToAuthFailure TokenExpired = ExpiredCredential
 tokenErrorToAuthFailure TokenMalformed = InvalidCredential
 tokenErrorToAuthFailure TokenSignatureInvalid = InvalidCredential
+tokenErrorToAuthFailure (TokenKeyNotFound _) = InvalidCredential
 tokenErrorToAuthFailure TokenIssuerInvalid = InvalidCredential
 tokenErrorToAuthFailure TokenAudienceInvalid = InvalidCredential
 tokenErrorToAuthFailure (TokenOtherError _) = InvalidCredential
