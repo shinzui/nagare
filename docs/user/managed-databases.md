@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Managed databases"
+description: "Declare, provision, connect, back up, restore, and operate Nagare-managed databases."
+docId: DOC-21
+tags: [databases, postgres, redis, clickhouse, backups]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T01:38:13Z
+---
+
 # Managed databases
 
 > 🟡 **In progress.** Built and tested through render/unit coverage: typed model,

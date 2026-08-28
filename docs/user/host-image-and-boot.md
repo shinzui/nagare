@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Host image and first boot"
+description: "Build and register the Nagare NixOS image, boot the VM, and verify the first host startup."
+docId: DOC-17
+tags: [host, nixos, image, boot, gcp]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Host image and first boot
 
 > **Status:** 🟡 In progress (EP-3)

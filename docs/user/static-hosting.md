@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Static & full-stack site hosting"
+description: "Configure, deploy, release, preview, and troubleshoot static and full-stack sites on Nagare."
+docId: DOC-33
+tags: [sites, static-hosting, full-stack, deployment]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Static & full-stack site hosting
 
 > **Status:** 🟡 **Built and tested offline; cloud and local deploy targets are supported.**

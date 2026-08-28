@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Observability"
+description: "Install, access, emit to, and verify Nagare metrics, logs, traces, and Grafana dashboards."
+docId: DOC-23
+tags: [observability, metrics, logs, traces, grafana]
+generated:
+  by: human:nadeem
+  at: 2026-08-26T18:35:50Z
+---
+
 # Observability
 
 > **Status:** Installed by `nagare observability` from the pinned operator

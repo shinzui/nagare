@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Provisioning with Pulumi"
+description: "Configure, preview, apply, verify, and recover Nagare cloud infrastructure managed by Pulumi."
+docId: DOC-28
+tags: [pulumi, provisioning, gcp, infrastructure]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Provisioning with Pulumi
 
 > **Status:** 🟡 In progress (EP-2)

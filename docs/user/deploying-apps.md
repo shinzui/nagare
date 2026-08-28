@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Deploying apps"
+description: "Define, deploy, verify, and operate applications on Nagare with the typed configuration model and nagarectl."
+docId: DOC-12
+tags: [applications, deployment, nagarectl, knative]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Deploying apps
 
 > **Status:** 🟡 Built and tested through CLI/render coverage. The live deploy path

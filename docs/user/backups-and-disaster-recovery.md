@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Backups and disaster recovery"
+description: "Back up Nagare state, recover platform and workload data, and drill the documented failure procedures safely."
+docId: DOC-5
+tags: [backups, disaster-recovery, restore, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Backups and disaster recovery
 
 > **Status:** 🟡 Database backups and app-volume snapshots/restores are built for

@@ -1,3 +1,14 @@
+---
+type: Reference
+title: "App lifecycle"
+description: "Look up Nagare application inspection, logging, restart, stop, deletion, and deployment-history operations."
+docId: DOC-4
+tags: [applications, lifecycle, nagarectl, operations]
+generated:
+  by: human:nadeem
+  at: 2026-06-10T04:02:47Z
+---
+
 # App lifecycle
 
 > **Status:** 🟡 **Built, not yet exercised against the live cluster.**

@@ -1,3 +1,14 @@
+---
+type: Tutorial
+title: "Local development"
+description: "Create a local Nagare platform, deploy a sample workload, and exercise the development and smoke-test workflow."
+docId: DOC-20
+tags: [local-development, k3d, tutorial, testing]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T14:31:04Z
+---
+
 # Local development
 
 > **Status:** 🟢 Local mode is complete. The local cluster, the local

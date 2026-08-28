@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Messaging brokers"
+description: "Provision, bind, size, observe, and operate Kafka-compatible messaging brokers on Nagare."
+docId: DOC-22
+tags: [messaging, kafka, redpanda, brokers]
+generated:
+  by: human:nadeem
+  at: 2026-06-21T17:58:55Z
+---
+
 # Messaging brokers
 
 > **Status:** Working for Redpanda-backed, single-node, in-cluster brokers.

@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Resizing the VM (vertical scale)"
+description: "Resize the Nagare virtual machine safely, verify retained state, and roll back an unsuitable machine type."
+docId: DOC-30
+tags: [gcp, vm, scaling, maintenance, rollback]
+generated:
+  by: human:nadeem
+  at: 2026-06-10T19:02:50Z
+---
+
 # Resizing the VM (vertical scale)
 
 > **Status:** 🟡 In progress (EP-2)

@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Secrets"
+description: "Set up, edit, rotate, and recover Nagare host, application, and cluster-bootstrap secrets safely."
+docId: DOC-32
+tags: [secrets, sops, age, rotation, security]
+generated:
+  by: human:nadeem
+  at: 2026-08-26T18:35:50Z
+---
+
 # Secrets
 
 > **Status:** ✅ Supported. Host secrets use sops-nix, runtime app secrets use

@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Cluster bootstrap"
+description: "Install, configure, smoke-test, and verify the Nagare Kubernetes platform components."
+docId: DOC-8
+tags: [cluster, bootstrap, kubernetes, knative, tls]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Cluster bootstrap
 
 > **Status:** ✅ Cloud bootstrap is implemented and verified live. Local bootstrap

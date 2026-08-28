@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Running multiple Nagare clusters"
+description: "Plan, provision, select, operate, upgrade, and remove multiple isolated Nagare clusters safely."
+docId: DOC-2
+tags: [clusters, contexts, multi-cluster, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Running multiple Nagare clusters
 
 > **Supported topology:** one named Nagare context per cluster, one GCP project

@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Bounded one-shot jobs"
+description: "Define, run, observe, and safely constrain deadline-bounded one-shot jobs on Nagare."
+docId: DOC-25
+tags: [jobs, kubernetes, workloads, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Bounded one-shot jobs
 
 > **Status:** 🟢 Complete. The typed `Job` model, loader, hardened renderer, two-slot

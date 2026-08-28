@@ -1,3 +1,14 @@
+---
+type: Reference
+title: "Config reference"
+description: "Look up the typed Nagare application configuration model, fields, defaults, and rendering behavior."
+docId: DOC-9
+tags: [configuration, dsl, applications, reference]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Config reference
 
 > **Status:** ✅ **Built and tested** by the `nagare-dsl` unit, golden,

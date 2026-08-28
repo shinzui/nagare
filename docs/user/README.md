@@ -1,3 +1,14 @@
+---
+type: Navigation
+title: "Nagare operator guide"
+description: "Route operators and developers through Nagare setup, deployment, platform operations, and reference documentation."
+docId: DOC-1
+tags: [nagare, navigation, operator-guide]
+generated:
+  by: human:nadeem
+  at: 2026-08-26T00:31:47Z
+---
+
 # Nagare operator guide
 
 This is the **operator** documentation for Nagare (流れ, "flow") — the person
