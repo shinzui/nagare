@@ -7,6 +7,8 @@ bootstrap_dir="${repo_root}/cluster/bootstrap"
 
 # shellcheck source=scripts/lib/target.sh
 source "${repo_root}/scripts/lib/target.sh"
+# shellcheck source=scripts/lib/release.sh
+source "${repo_root}/scripts/lib/release.sh"
 
 if [ "${NAGARE_MODE:-cloud}" = "local" ]; then
   echo "error: auth-install.sh is the cloud installer; use cluster/bootstrap/local-auth/install.sh for NAGARE_MODE=local" >&2
@@ -16,7 +18,7 @@ fi
 # Immutable-by-default: Knative skips tag->digest resolution for our registry
 # (knative-serving/config-deployment.yaml), so a mutable tag can silently change
 # across node restarts. build-local-image.sh tags with the same short SHA.
-tag="${NAGARE_AUTH_TAG:-$(git -C "${repo_root}" rev-parse --short HEAD)}"
+tag="${NAGARE_AUTH_TAG:-$(nagare_release_source_tag "${repo_root}")}"
 
 render_service() {
   local svc="$1"

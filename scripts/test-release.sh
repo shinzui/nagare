@@ -3,6 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
+# shellcheck source=scripts/lib/release.sh
+source "$repo_root/scripts/lib/release.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -125,5 +127,13 @@ git -C "$git_fixture" add CHANGELOG.md
 git -C "$git_fixture" commit -qm 'docs: move candidate head'
 expect_failure moving-tag \
   "$repo_root/scripts/check-release.sh" --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build
+
+metadata_fixture="$git_fixture/packaged-source"
+mkdir -p "$metadata_fixture"
+jq '.sourceRevision = "0123456789abcdef0123456789abcdef01234567"' \
+  "$repo_root/release.json" > "$metadata_fixture/release.json"
+# A materialized payload can live below an unrelated Git worktree. Its injected
+# provenance must win over that parent worktree's HEAD.
+[[ "$(nagare_release_source_tag "$metadata_fixture")" == "0123456789ab" ]]
 
 printf 'release consistency tests passed\n'

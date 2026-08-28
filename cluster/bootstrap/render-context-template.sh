@@ -8,6 +8,9 @@ if [ "$#" -ne 1 ]; then
 fi
 
 template="$1"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/lib/release.sh
+source "${repo_root}/scripts/lib/release.sh"
 
 sed_escape() {
   sed -e 's/[&|]/\\&/g'
@@ -25,12 +28,9 @@ acme_email="${NAGARE_ACME_EMAIL:-nadeem@gmail.com}"
 if [ -n "${NAGARE_AUTH_TAG:-}" ]; then
   auth_tag="${NAGARE_AUTH_TAG}"
 else
-  # Immutable-by-default (see auth-install.sh). Fall back to the repo's short
-  # SHA; only error if the template actually needs the tag and git can't answer.
-  auth_tag="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --short HEAD 2>/dev/null || true)"
-  if [ -z "${auth_tag}" ] && grep -q '\${NAGARE_AUTH_TAG}' "${template}"; then
-    echo "error: NAGARE_AUTH_TAG is unset and no git SHA is available; set NAGARE_AUTH_TAG (NAGARE_AUTH_TAG=latest opts back into the mutable tag)" >&2
-    exit 2
+  auth_tag=""
+  if grep -q '\${NAGARE_AUTH_TAG}' "${template}"; then
+    auth_tag="$(nagare_release_source_tag "${repo_root}")"
   fi
 fi
 

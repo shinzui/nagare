@@ -54,6 +54,7 @@ and attaches:
 - `nagare-release-X.Y.Z.json`;
 - `nagare-vX.Y.Z.md`;
 - `nix-output-x86_64-linux.json` and `nix-output-aarch64-darwin.json`;
+- `clone-free-x86_64-linux.json` and `clone-free-aarch64-darwin.json`;
 - `SHA256SUMS`.
 
 Verify the release page, checksums, manifest revision, native systems, and the documented command

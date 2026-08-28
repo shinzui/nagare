@@ -37,6 +37,8 @@ fail() {
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$script_dir/../../.." && pwd)"
+# shellcheck source=scripts/lib/release.sh
+source "$root/scripts/lib/release.sh"
 service="${1:-}"
 [[ -n "$service" ]] || { usage; exit 2; }
 shift || true
@@ -46,7 +48,7 @@ case "$service" in
   *) usage; exit 2 ;;
 esac
 
-tag="${1:-${NAGARE_AUTH_TAG:-$(git -C "$root" rev-parse --short HEAD)}}"
+tag="${1:-${NAGARE_AUTH_TAG:-$(nagare_release_source_tag "$root")}}"
 registry_host="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
 artifact_repository="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
 # Local mode (NAGARE_MODE=local, MasterPlan 16 Integration Point 1) builds for
