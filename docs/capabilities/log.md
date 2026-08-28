@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-08-28
+* **Update**: Remove the pre-release limitation from CAP-6 for the 0.1.0 release candidate.
+
 ## 2026-08-26
 * **Addition**: Add CAP-20 for opt-in, role-scoped GitHub App installation-token rotation on Nagare hosts.
 * **Update**: Cite the isolated-home clone-free release rehearsal as executable evidence for CAP-19.
