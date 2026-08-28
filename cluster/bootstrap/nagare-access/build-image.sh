@@ -5,11 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 if [[ "${NAGARE_AUTH_LOCAL_SOURCES:-0}" == "1" || "${NAGARE_ACCESS_LOCAL_SOURCES:-0}" == "1" ]]; then
   exec "$ROOT/cluster/bootstrap/auth-images/build-local-image.sh" nagare-access "$@"
 fi
+# shellcheck source=scripts/lib/release.sh
+source "$ROOT/scripts/lib/release.sh"
 
 REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
 ARTIFACT_REPOSITORY="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
 PLATFORM="${NAGARE_CONTAINER_PLATFORM:-linux/amd64}"
-TAG="${1:-$(git -C "$ROOT" rev-parse --short HEAD)}"
+TAG="${1:-${NAGARE_AUTH_TAG:-$(nagare_release_source_tag "$ROOT")}}"
 
 PROJECT="${CLOUDSDK_CORE_PROJECT:-}"
 if [[ -z "$PROJECT" ]]; then

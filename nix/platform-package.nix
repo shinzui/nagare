@@ -22,7 +22,7 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
   revision = if sourceRevision == null then "" else sourceRevision;
 } ''
   payload="$out/share/nagare"
-  mkdir -p "$payload/infra" "$payload/docs/plans"
+  mkdir -p "$payload/infra" "$payload/docs/plans" "$payload/cli"
 
   payload_id="nagare-${releaseVersion}-source"
   if [ -n "$revision" ]; then
@@ -37,6 +37,8 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
       | .payloadId = $payloadId' \
     "$src/release.json" > "$payload/release.json"
   cp "$src/justfile" "$payload/justfile"
+  cp -R "$src/cli/nagare-dsl" "$payload/cli/nagare-dsl"
+  cp -R "$src/cli/nagare-access" "$payload/cli/nagare-access"
   cp -R "$src/infra/pulumi" "$payload/infra/pulumi"
   cp -R "$src/cluster" "$payload/cluster"
   cp -R "$src/scripts" "$payload/scripts"

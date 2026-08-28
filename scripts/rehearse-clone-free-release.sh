@@ -93,6 +93,14 @@ run_cli platform root --json > platform-root.json
 jq -e --arg version "$version" \
   '.source == "installed" and .platformVersion == $version and (.workspaceRoot | length > 0)' \
   platform-root.json >/dev/null
+workspace_root="$(jq -er '.workspaceRoot' platform-root.json)"
+test -f "$workspace_root/cli/nagare-dsl/nagare-dsl.cabal"
+test -f "$workspace_root/cli/nagare-access/nagare-access.cabal"
+test -f "$workspace_root/cli/nagare-access/Dockerfile"
+# shellcheck source=scripts/lib/release.sh
+source "$workspace_root/scripts/lib/release.sh"
+expected_source_tag="$(jq -er '.revision' version.json | cut -c1-12)"
+[[ "$(nagare_release_source_tag "$workspace_root")" == "$expected_source_tag" ]]
 run_operator --dry-run local-up > local-init.out 2>&1
 
 run_cli context create rehearsal-cloud \
