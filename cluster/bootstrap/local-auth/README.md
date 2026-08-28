@@ -30,6 +30,22 @@ MasterPlan 16 Integration Points 4 and 5.
 4. The local TLS issuer (`cluster/bootstrap/local-tls/`) — needed for the browser
    login (WebAuthn secure context).
 
+### Upgrading from pre-0.2 Shomei
+
+Shomei 0.2.0.0 repaired migration bugs by rewriting its migration history with
+schema-qualified SQL, changing pg-migrate checksums. Nagare has no retained auth
+data, so discard and recreate an existing pre-0.2 database before installing:
+
+```bash
+nagarectl context show
+nagarectl db delete shomei-db -n nagare-system --yes
+nagarectl db create postgres shomei-db -n nagare-system
+```
+
+This is a Nagare-only discard policy, not an in-place upgrade procedure for a
+deployment with data to preserve; see
+`mori://shinzui/shomei/packages/shomei-migrations`.
+
 ## Install
 
 ```bash
@@ -79,8 +95,8 @@ curl -sS http://localhost:8080/_nagare/healthz   # 200
 kubectl -n nagare-system delete deploy shomei en
 kubectl -n nagare-system delete ksvc nagare-access
 kubectl -n nagare-system delete secret nagare-access
-nagarectl db delete postgres shomei-db -n nagare-system --yes
-nagarectl db delete postgres en-db     -n nagare-system --yes
+nagarectl db delete shomei-db -n nagare-system --yes
+nagarectl db delete en-db     -n nagare-system --yes
 ```
 
 None of this touches the cloud path — the cloud bases and their cloud image

@@ -52,6 +52,13 @@ the container image that runs the service also carries the migration executable 
 that service's schema, and the databases are recreated from empty so each new ledger starts
 clean.
 
+A post-completion refresh on 2026-08-27 moves Nagare to Shomei's official second release,
+`release-2026-08-27` / package version `0.2.0.0`. This release fixes migration namespace
+bugs by rewriting the existing 36-file history in place, so its checksums deliberately do
+not match the earlier Shomei plan. Nagare has no retained auth-plane data, so the supported
+Nagare upgrade is to discard and recreate only `shomei-db`; a deployment with data to
+preserve must not copy that policy and instead needs operator-led ledger remediation.
+
 
 ## Progress
 
@@ -98,6 +105,12 @@ This section must always reflect the actual current state of the work.
       findings into ADRs. Completed 2026-08-25T15:02:44Z: the operator flow now names
       both migration Jobs and En credentials, all stale codd descriptions are gone from
       `cluster/`, and Nagare's first two ADRs record dependency-plan and schema ownership.
+- [x] M8: refresh Shomei to its 2026-08-27 `0.2.0.0` release, adapt the new verifier and
+      embedded-server test seams, and document the breaking migration reset. Completed
+      2026-08-28T05:18:13Z: the authoritative release tag peels to `6a96185`, `cabal build
+      all` succeeds, all 104 focused tests pass against a freshly migrated database, and
+      the updated Shomei production image and all native `nix flake check` targets succeed
+      on `aarch64-darwin`/`linux/arm64`.
 
 
 ## Surprises & Discoveries
@@ -174,6 +187,12 @@ implementation. Provide concise evidence.
   BuildKit-backed Cabal cache mounts plus bounded build retries made the second attempt pass
   and prevent a transient fetch from discarding the full compilation cache in future runs.
 
+- Observation: building the refreshed Shomei image for `linux/amd64` under emulation on the
+  arm64 workstation exhausted Docker's available memory during dependency compilation; the
+  same source built successfully for native `linux/arm64`, including `shomei-server`,
+  `shomei-admin`, and `shomei-migrate`. This is a local cross-architecture resource limit,
+  not a Shomei 0.2 source or migration-package failure.
+
 - Observation: a successful En relationship mutation is not immediately visible to an
   expand/list query because En publishes optimized revisions on an interval. Evidence: an
   immediate list after revoke still returned the subject, while the same command returned
@@ -206,6 +225,22 @@ implementation. Provide concise evidence.
   `cluster/bootstrap/nagare-access/README.md` and found local-auth claiming it created only
   the cookie Secret and ran only `en-migrate`; updating all four bootstrap guides made the
   repository-wide search clean and aligned the operator path with the manifests.
+
+- Observation: Shomei's second release intentionally rewrites all 36 published migration
+  files to fix namespace leakage instead of appending corrective migrations. Evidence:
+  `shomei-migrations` 0.2.0.0 states that every checksum differs from 0.1.0.0, so an existing
+  ledger fails verification before any pending migration can run.
+
+- Observation: the Shomei 0.2 server test seam grew with its security and operability work.
+  `TokenError` adds `TokenKeyNotFound`; `acquirePool` adds a statement-timeout argument; and
+  `Shomei.Server.App.Env` adds notifier secrets and a bounded notifier queue. Evidence: after
+  adapting those surfaces, Nagare's real Shomei JWT plus En authorization test passes as one
+  of 104 focused cases against Shomei's freshly applied 36-file plan.
+
+- Observation: the host's bare GHC 9.10.3 cannot solve packages that require
+  `MultilineStrings`, while Nagare's Nix shell supplies GHC 9.12.3 and builds the release.
+  Evidence: bare `cabal build all` rejected `pg-migrate-cli-1.1.0.0`; the same build under
+  `nix develop` completed with Shomei 0.2.0.0.
 
 
 ## Decision Log
@@ -252,7 +287,8 @@ Record every decision made while working on the plan.
   already large compatibility change. They remain available to a later plan.
   Date: 2026-08-25
 
-- Decision: Pin shomei at `26361f21325f4c0d2d1751365542d6c0adc83839` and en at
+- Decision: For the initial 2026-08-25 upgrade, pin shomei at
+  `26361f21325f4c0d2d1751365542d6c0adc83839` and en at
   `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`.
   Rationale: `git ls-remote --heads --tags` showed those exact commits at each repository's
   remote `master` ref on 2026-08-25. The en pin supersedes the initially selected `c213e2b`:
@@ -287,6 +323,23 @@ Record every decision made while working on the plan.
   the delete-and-recreate Job lifecycle idempotent. This durable rule is recorded in
   `docs/adr/0002-auth-service-images-own-and-apply-their-database-schemas.md`.
   Date: 2026-08-25
+
+- Decision: Refresh only Shomei to commit
+  `6a96185f4f809e5e7a99095274caa6bd90e7a8d7`, the commit peeled from the authoritative
+  `release-2026-08-27` and `shomei-*-0.2.0.0` tags; retain En at its existing pin.
+  Rationale: the release tags and GitHub remote agree on that exact commit, and an exact
+  commit keeps Nagare's source-repository-package build reproducible even though
+  `shomei-server`, `shomei-client`, and `shomei-webauthn` are not all published on Hackage.
+  Date: 2026-08-27
+
+- Decision: Treat Shomei 0.2.0.0 as a destructive reset boundary for Nagare's unused
+  `shomei-db`, but do not make either installer delete the database automatically.
+  Rationale: the release repairs bad migrations by changing already-ledgered SQL bytes, so
+  checksum verification correctly blocks an in-place run. The repository owner confirmed
+  Nagare has no data to preserve, making recreation the smallest safe path. Keeping deletion
+  explicit prevents a routine installer rerun from destroying a future deployment that does
+  have retained identities and sessions. ADR 2 records this qualified exception.
+  Date: 2026-08-27
 
 
 ## Context and Orientation
@@ -406,7 +459,8 @@ live in `Shomei.Session.Dto` (`LoginRequest`, `LoginResponse` with its construct
 `LoginCompleteResponse` and `LoginMfaRequiredResponse`, `TokenPairResponse`, `RefreshRequest`)
 and `Shomei.Mfa.Dto` (`MfaCompleteRequest`). These remain present and unchanged in shape:
 `Shomei.Config` (with `ShomeiConfig` and `defaultShomeiConfig`), `Shomei.Error` (with
-`TokenError` and its six constructors), `Shomei.Id`, `Shomei.Client`,
+`TokenError`; six constructors at the initial pin, with Shomei 0.2 later adding
+`TokenKeyNotFound`), `Shomei.Id`, `Shomei.Client`,
 `Shomei.Migrations.TestSupport` (with `withShomeiMigratedDatabase`), `Shomei.Server.App`,
 `Shomei.Server.Boot`, and `Shomei.Server.Keys` (with `bootstrapKeys`). `verifyToken` keeps
 the signature `JWKSet -> ShomeiConfig -> Text -> IO (Either TokenError AuthClaims)`, and
@@ -588,6 +642,16 @@ shomei checkout is at `26361f21325f4c0d2d1751365542d6c0adc83839` and in sync wit
 verify this rather than let a `cabal build` fail deep into a container build with an
 unhelpful message.
 
+**11. The Shomei 0.2.0.0 release is a deliberate migration-history break.** The
+authoritative `release-2026-08-27` tag peels to
+`6a96185f4f809e5e7a99095274caa6bd90e7a8d7`. Its `shomei-migrations` package has 36 files,
+and every one was rewritten to schema-qualify Shomei relations while installing a
+transaction-local safe search path. Because pg-migrate checks exact SQL bytes, a database
+that applied the earlier history cannot accept this release through an ordinary `up` run.
+Nagare's pre-use database is explicitly disposable, so M8 documents deletion and recreation
+instead of inventing a checksum override. This is not a general Shomei data migration
+procedure.
+
 ### Where this plan does not go
 
 The live `nagare-01` cloud cluster is not touched by this plan. All validation happens
@@ -642,8 +706,10 @@ Then fix the three source files.
 In `Shomei.hs`, change `import Shomei.Domain.Claims (Audience (..), Issuer (..))` and
 `import Shomei.Domain.Claims qualified as Claims` to `Shomei.Authorization.Claims.Domain`,
 and `import Shomei.Jwt.Verify (verifyToken)` to `import Shomei.SigningKey.Verify.Jwt
-(verifyToken)`. Nothing else in that file changes: `verifyToken`'s signature, `TokenError`'s
-six constructors, `defaultShomeiConfig`, and `AuthClaims`'s `subject` field are all unchanged.
+(verifyToken)`. At the original M1 pin, nothing else in that file changes: `verifyToken`'s
+signature, `TokenError`'s six constructors, `defaultShomeiConfig`, and `AuthClaims`'s
+`subject` field are unchanged. M8 adds the seventh `TokenKeyNotFound` constructor to the
+fail-closed mapping.
 
 In `ShomeiClient.hs`, replace `import Shomei.Servant.DTO qualified as DTO` with imports of
 `Shomei.Session.Dto` (for `LoginRequest`, `LoginResponse`'s constructors, `TokenPairResponse`,
@@ -853,6 +919,24 @@ applied by a Job from the same image tag, so nagare never keeps a second copy of
 SQL. Cite en's two ADRs from them using the canonical-project-URI-plus-path form used in
 Context and Orientation.
 
+### Milestone M8 — Refresh to Shomei 0.2.0.0
+
+Scope: `cli/nagare-access/cabal.project`, `cli/nagare-access/src/Nagare/Access/Shomei.hs`,
+`cli/nagare-access/test/Spec.hs`, the Shomei operator documentation, this plan, and
+`docs/adr/0002-auth-service-images-own-and-apply-their-database-schemas.md`.
+
+Resolve Shomei through `mori://shinzui/shomei`, verify the newest upstream release tags,
+and repin every Shomei source stanza to the peeled release commit. Adapt Nagare's exhaustive
+token-error mapping for `TokenKeyNotFound`. Update the embedded real-server fixture with
+Shomei's current pool timeout and notifier queue/secrets fields, following the upstream test
+fixture rather than constructing the new API from memory.
+
+Document the database boundary prominently: a pre-0.2 `shomei-db` must be deleted and
+recreated before the migration Job runs because the fixed history has different checksums.
+Keep that deletion an explicit operator command; the idempotent install scripts must never
+silently destroy the database. Acceptance is a full Nagare-access build and all focused
+tests under the repository's GHC 9.12 Nix shell.
+
 
 ## Concrete Steps
 
@@ -980,6 +1064,31 @@ Expect `28`. The equivalent against `en-db` should print `1`. If `db shell` is u
 your environment, the same query runs through
 `kubectl -n nagare-system exec statefulset/shomei-db -- psql ...`.
 
+### M8
+
+Verify the registered source and authoritative release tag, then build and test with the
+repository toolchain:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/nagare
+mori registry show shinzui/shomei --full
+git ls-remote --tags https://github.com/shinzui/shomei.git
+cd cli/nagare-access
+nix develop ../.. --command cabal build all
+nix develop ../.. --command cabal test nagare-access-test --test-show-details=streaming
+```
+
+The release tag must peel to `6a96185f4f809e5e7a99095274caa6bd90e7a8d7`, the build must
+select Shomei 0.2.0.0, and the suite must report all 104 tests passing. Before deploying over
+an existing pre-0.2 Nagare auth plane, confirm the target context and recreate only Shomei's
+disposable database:
+
+```bash
+nagarectl context show
+nagarectl db delete shomei-db --namespace nagare-system --yes
+nagarectl db create postgres shomei-db --namespace nagare-system
+```
+
 
 ## Validation and Acceptance
 
@@ -1045,6 +1154,11 @@ confirm `403` returns. That full cycle exercises every surface this plan touched
 `/v1` sign-in through the regenerated client, the JWKS fetch at `.well-known`, en's
 API-key-protected `/v1/check` returning an `EnResult`, and nagarectl's rewritten wire JSON.
 
+**7. The Shomei 0.2 refresh uses a clean migration ledger.** The focused suite reports all
+104 cases passing, including the real Shomei JWT plus En authorization test. That test starts
+from an empty ephemeral PostgreSQL database and applies Shomei's current 36-file embedded
+plan, proving Nagare does not depend on the incompatible pre-0.2 checksums.
+
 Finally, confirm nothing regressed in the rest of the repository by running the Nix checks the
 CI runs, if the toolchain is available:
 
@@ -1055,9 +1169,9 @@ nix flake check
 
 ## Outcomes & Retrospective
 
-The upgrade achieved its intended behaviour. Nagare-access builds against Shomei
-`26361f21325f4c0d2d1751365542d6c0adc83839` and En
-`054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`; its 103 focused tests pass, and
+The upgrade achieved its intended behaviour. After the 2026-08-27 refresh, Nagare-access
+builds against Shomei `6a96185f4f809e5e7a99095274caa6bd90e7a8d7` (the official 0.2.0.0
+release) and En `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`; its 104 focused tests pass, and
 nagarectl's 374 tests pass with the current En protocol pinned by exact wire fixtures. En
 now rejects missing bearer credentials, nagare-access uses the read-only key, and nagarectl
 uses the read-write key.
@@ -1069,6 +1183,8 @@ Knative revision converged to Ready. The protected example then demonstrated the
 contract: an unauthenticated document request returned 302, a signed-in ungranted user
 received 403, a grant produced `Hello Nagare!` with status 200, and a revoke returned to 403
 after the configured decision-cache TTL. En's relationship listing converged to `(none)`.
+The M8 refresh separately rebuilt the Shomei `linux/arm64` image at the 0.2.0.0 pin,
+including the rewritten 36-migration bundle.
 
 The durable operational result is smaller than the code diff: each service image now owns
 both its server and its schema executable, and Nagare carries neither copied SQL nor a codd
@@ -1082,10 +1198,17 @@ test suites, production image builds, and live cluster proof all pass. Cloud rol
 explicitly outside this plan; the validated images remain deployed only to the disposable
 local k3d cluster.
 
+The refresh also makes the migration limitation explicit. Shomei's fixed, schema-qualified
+36-file history is verified on an empty database by the focused suite, while operator docs
+require Nagare's unused pre-0.2 `shomei-db` to be recreated. No installer performs an
+implicit destructive reset, and no in-place preservation claim is made for a database with
+real auth data.
+
 
 ## Idempotence and Recovery
 
-Every step in this plan is safe to repeat.
+Every non-destructive source and validation step in this plan is safe to repeat. Database
+deletion is intentionally separate and requires the explicit target check described below.
 
 `cabal build` and `cabal test` are pure re-runs. Editing `cabal.project` and rebuilding never
 mutates anything outside `dist-newstyle/`; if a dependency solve goes wrong, `rm -rf
@@ -1097,10 +1220,17 @@ with `NAGARE_AUTH_PUSH=0` never touches a registry. Because images are tagged wi
 repository's short Git SHA rather than a mutable tag, rebuilding the same commit produces the
 same reference and re-applying the manifests is a no-op.
 
-Both install scripts are idempotent by construction: the Secret creation is guarded by a
+Both install scripts are idempotent for a database whose applied migration history matches
+the image by construction: the Secret creation is guarded by a
 `kubectl get ... ||` test, `kubectl apply` is declarative, and each migration Job is deleted
 before being re-applied precisely so a completed Job can be re-run. Re-running
 `local-auth/install.sh` after a partial failure is the normal recovery path.
+
+That idempotence does not cross Shomei's 0.1-to-0.2 history rewrite. A pre-0.2 ledger fails
+checksum verification by design and must not be edited by hand. For Nagare only, confirm the
+target context, delete the explicitly disposable `shomei-db`, recreate it, and then rerun the
+installer. A deployment with data to retain needs an operator-led remediation supplied by
+Shomei instead of this reset.
 
 The planned destructive step is M6's `nagarectl db delete`. It was not needed during this
 execution because the new local cluster had no auth databases, but it is authorised for an
@@ -1129,6 +1259,13 @@ At the end of M1, `cli/nagare-access/cabal.project` must pin shomei's nine sub-p
 `allow-newer: webauthn:*` and the constraints `crypton >= 1.1` and
 `crypton-x509-validation >= 1.9.1`. It must contain no reference to `codd` and no
 `ephemeral-pg` Git pin.
+
+After M8, every Shomei stanza is pinned to
+`6a96185f4f809e5e7a99095274caa6bd90e7a8d7`, while En remains at
+`054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`. `TokenError` includes
+`TokenKeyNotFound (Maybe Text)`, which Nagare maps to `InvalidCredential`. The embedded
+server fixture supplies `defaultDbStatementTimeoutMs` to `acquirePool` and initializes
+`envNotifierSecrets` plus `envNotifierQueue`, matching Shomei 0.2's public server seam.
 
 At the end of M1, these signatures must hold in `cli/nagare-access/src/Nagare/Access/`:
 
@@ -1168,3 +1305,8 @@ local checkout nagare was copying into every image build.
 The upstream projects themselves are `mori://shinzui/shomei` and `mori://shinzui/en`; their
 migration components are described by `mori://shinzui/shomei/packages/shomei-migrations` and
 `mori://shinzui/en/packages/en-migrations`.
+
+Revision note (2026-08-27): extended the completed plan with M8 for Shomei's official
+0.2.0.0 release, including the exact remote tag commit, API adaptations, 104-test evidence,
+native arm64 image-build evidence, and the explicit Nagare-only reset policy required by
+Shomei's checksum-breaking migration bug fixes.

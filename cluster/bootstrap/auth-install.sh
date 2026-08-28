@@ -48,7 +48,9 @@ fi
 
 # Job spec.template is immutable and a completed Job never re-runs, so a new
 # release image's embedded plan would otherwise silently never apply. Migrations are
-# ledger-backed and idempotent, so it applies only pending embedded migrations.
+# ledger-backed and idempotent while their published history is unchanged. Shomei
+# 0.2.0.0 intentionally changed existing checksums; docs/user/access.md requires
+# Nagare's unused pre-0.2 shomei-db to be recreated before this Job runs.
 kubectl -n nagare-system delete job shomei-migrate --ignore-not-found=true
 render_template "${bootstrap_dir}/shomei/migrations.yaml" | kubectl apply -f -
 kubectl -n nagare-system wait --for=condition=complete job/shomei-migrate --timeout=120s

@@ -46,13 +46,30 @@ Override `SHOMEI_SRC` if the local checkout lives somewhere other than the helpe
 default path.
 
 The explicit `shomei-migrate` Job applies Shomei's embedded pg-migrate plan before
-the server rollout. Shomei startup also migrates idempotently and ensures an active
-signing key. The manifest reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+the server rollout. Shomei startup also migrates idempotently when the published
+history is unchanged and ensures an active signing key. The manifest reads
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-shomei-db`, then
 builds `PG_CONNECTION_STRING` as a libpq keyword connection string. Create the
 database `shomei-db` in `nagare-system` before applying the service. The database
 name intentionally differs from the service name `shomei` to avoid a Kubernetes
 Service name collision.
+
+Shomei 0.2.0.0 repairs migration bugs by rewriting its existing 36-file history to
+be schema-qualified. The corrected SQL has different pg-migrate checksums, so an
+older `shomei-db` cannot be upgraded in place. Nagare has no auth data to preserve
+yet: delete and recreate `shomei-db` before installing this release. Do not use this
+discard policy for a deployment with retained data; that requires operator-led
+ledger remediation. The owning component is
+`mori://shinzui/shomei/packages/shomei-migrations`.
+
+For an existing Nagare database created by pre-0.2 Shomei:
+
+```bash
+nagarectl context show
+nagarectl db delete shomei-db --namespace nagare-system --yes
+nagarectl db create postgres shomei-db --namespace nagare-system
+```
 
 ```bash
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -

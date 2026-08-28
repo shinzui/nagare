@@ -83,9 +83,12 @@ import Shomei.Error (TokenError (..))
 import Shomei.Mfa.Dto qualified as ShomeiMfaDTO
 import Shomei.Mfa.Totp.Postgres (TotpEncryptionKey, totpEncryptionKeyFromBytes)
 import Shomei.Migrations.TestSupport (withShomeiMigratedDatabase)
+import Shomei.Notify (noNotifierSecrets)
+import Shomei.Notify.Queue (newNotifierQueue)
 import Shomei.Persistence.Pool.Postgres (acquirePool)
 import Shomei.Server.App qualified as ShomeiServer
 import Shomei.Server.Boot qualified as ShomeiBoot
+import Shomei.Server.Config (defaultDbStatementTimeoutMs)
 import Shomei.Server.Keys (bootstrapKeys)
 import Shomei.Session.Dto qualified as ShomeiSessionDTO
 import Shomei.SigningKey.Domain (SigningAlgorithm (ES256))
@@ -355,6 +358,8 @@ shomeiTests =
         audience shomeiCfg @?= Audience "nagare-access"
     , testCase "expired shomei tokens map to expired credentials" $
         tokenErrorToAuthFailure TokenExpired @?= ExpiredCredential
+    , testCase "unknown shomei signing keys fail closed" $
+        tokenErrorToAuthFailure (TokenKeyNotFound (Just "rotated-key")) @?= InvalidCredential
     , testCase "malformed shomei token verifies as an invalid credential" $ do
         runtime <- assertRight (parseRuntimeConfig completeAuthEnv)
         cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
@@ -1252,10 +1257,11 @@ userRef user =
 withRealShomeiServer :: (Int -> IO a) -> IO a
 withRealShomeiServer action =
   withShomeiMigratedDatabase $ \connStr ->
-    bracket (acquirePool 4 10 connStr) HasqlPool.release $ \pool -> do
+    bracket (acquirePool 4 10 defaultDbStatementTimeoutMs connStr) HasqlPool.release $ \pool -> do
       keys <- newIORef =<< bootstrapKeys testKek ES256 pool
       manager <- HC.newManager HC.defaultManagerSettings
       limiter <- newHashingLimiter 2
+      notifierQueue <- newNotifierQueue 64
       let shomeiCfg = defaultShomeiConfig (Issuer "shomei") (Audience "shomei-clients")
           env =
             ShomeiServer.Env
@@ -1265,6 +1271,8 @@ withRealShomeiServer action =
               , ShomeiServer.envKek = testKek
               , ShomeiServer.envTotpKey = testTotpKey
               , ShomeiServer.envHttpManager = manager
+              , ShomeiServer.envNotifierSecrets = noNotifierSecrets
+              , ShomeiServer.envNotifierQueue = notifierQueue
               , ShomeiServer.envArgon2Params = testArgon2Params
               , ShomeiServer.envHashingLimiter = limiter
               }
