@@ -48,6 +48,9 @@ data PlatformPathError
 requiredPlatformAssets :: [FilePath]
 requiredPlatformAssets =
   [ "release.json"
+  , "cli/nagare-dsl/nagare-dsl.cabal"
+  , "cli/nagare-access/nagare-access.cabal"
+  , "cli/nagare-access/Dockerfile"
   , "infra/pulumi/Pulumi.yaml"
   , "cluster/bootstrap/render-context-template.sh"
   , "nixos/flake.nix"

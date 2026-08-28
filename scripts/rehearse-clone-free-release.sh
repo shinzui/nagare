@@ -81,6 +81,9 @@ run_operator() {
 
 run_cli version --json > version.json
 jq -e --arg version "$version" '.version == $version and (.revision | length > 0)' version.json >/dev/null
+nix shell "${flake_ref}#nagare" -c nagarectl version --json > operator-version.json
+jq -e --arg version "$version" --arg revision "$(jq -er '.revision' version.json)" \
+  '.version == $version and .revision == $revision' operator-version.json >/dev/null
 
 run_cli context create local --mode local \
   --registry-host localhost:5000 \
@@ -107,8 +110,8 @@ run_cli context create rehearsal-cloud \
   --project nagare-release-rehearsal \
   --region us-west1 \
   --zone us-west1-a \
-  --base-domain rehearsal.example.com \
-  --use
+  --base-domain rehearsal.example.com
+export NAGARE_CONTEXT=rehearsal-cloud
 run_cli init cloud-onboarding \
   --project nagare-release-rehearsal \
   --base-domain rehearsal.example.com \

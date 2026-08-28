@@ -64,6 +64,10 @@ platformTests =
           second <- preparePlatformWorkspace stateRoot context paths >>= either (assertFailure . show) pure
           pwRoot second @?= pwRoot first
           pwDigest second @?= pwDigest first
+          dslPackage <- doesFileExist (pwRoot first </> "cli" </> "nagare-dsl" </> "nagare-dsl.cabal")
+          accessPackage <- doesFileExist (pwRoot first </> "cli" </> "nagare-access" </> "nagare-access.cabal")
+          assertBool "the writable workspace contains the typed-config package" dslPackage
+          assertBool "the writable workspace contains the access service package" accessPackage
           leaked <- doesFileExist (pwPulumiDir first </> "Pulumi.prod.yaml")
           assertBool "generated source stack config is excluded" (not leaked)
           BS.appendFile (root </> "justfile") "\n# changed\n"
