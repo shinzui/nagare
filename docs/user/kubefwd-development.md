@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Using kubefwd for development"
+description: "Reach cluster services from a development machine with kubefwd and the active Nagare context."
+docId: DOC-19
+tags: [development, kubefwd, kubernetes, networking]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T14:31:04Z
+---
+
 # Using kubefwd for development
 
 > **Status:** 🟡 **Compatible, external tool.**

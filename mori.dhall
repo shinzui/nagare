@@ -138,5 +138,21 @@ in  Schema.Project::{
         , description = Some
             "JTBD use cases Nagare owns, with the features their delivery depends on"
         }
+      , Schema.OkfBundle::{
+        , name = "user-documentation"
+        , path = "docs/user"
+        , profile = Some "mori/user-documentation-profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Nagare operator manual, command reference, and feature documentation"
+        }
+      , Schema.OkfBundle::{
+        , name = "guides"
+        , path = "docs/guides"
+        , profile = Some "mori/user-documentation-profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Goal-oriented walkthroughs that combine Nagare features into complete operating patterns"
+        }
       ]
     }

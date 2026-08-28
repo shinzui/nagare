@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Persistent storage"
+description: "Declare, deploy, back up, restore, and operate persistent application volumes on Nagare."
+docId: DOC-26
+tags: [storage, volumes, backups, applications]
+generated:
+  by: human:nadeem
+  at: 2026-06-30T23:08:36Z
+---
+
 # Persistent storage
 
 > **Status:** 🟡 **Built and tested through render/unit coverage, with cloud GCS

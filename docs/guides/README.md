@@ -1,3 +1,14 @@
+---
+type: Navigation
+title: "Nagare guides"
+description: "Route readers to goal-oriented walkthroughs that combine Nagare features into complete operating patterns."
+docId: DOC-1
+tags: [nagare, guides, navigation]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T21:32:22Z
+---
+
 # Nagare guides
 
 These guides are goal-oriented walkthroughs that combine several parts of

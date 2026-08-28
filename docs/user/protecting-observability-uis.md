@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Protecting observability UIs"
+description: "Expose Nagare observability interfaces behind identity-aware access and remove unsafe public access."
+docId: DOC-27
+tags: [observability, access-control, grafana, security]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T14:31:04Z
+---
+
 # Protecting observability UIs
 
 > **Status:** 🟡 **Manual integration.**

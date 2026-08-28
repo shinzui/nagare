@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "CDN (edge caching)"
+description: "Configure and operate edge caching for Nagare applications through the supported CDN workflow."
+docId: DOC-7
+tags: [cdn, caching, cloudflare, domains]
+generated:
+  by: human:nadeem
+  at: 2026-06-19T14:49:44Z
+---
+
 # CDN (edge caching)
 
 > 🟡 **Built and tested offline; live edge deploy pending `nagare-01`.** The typed

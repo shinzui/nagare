@@ -1,3 +1,14 @@
+---
+type: Tutorial
+title: "Getting started"
+description: "Install Nagare, choose a target, and complete an initial working deployment."
+docId: DOC-16
+tags: [getting-started, installation, deployment, tutorial]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Getting started
 
 > **Status:** ✅ Working

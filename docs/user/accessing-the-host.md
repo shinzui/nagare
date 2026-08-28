@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Accessing the host"
+description: "Reach a Nagare host through Tailscale SSH or an IAP break-glass tunnel and obtain cluster access."
+docId: DOC-3
+tags: [host, ssh, tailscale, iap, kubectl]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T18:46:42Z
+---
+
 # Accessing the host
 
 > **Status:** 🟡 In progress (EP-3)

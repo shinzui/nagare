@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Installing Nagare"
+description: "Install, select, upgrade, and remove released Nagare commands with Nix."
+docId: DOC-18
+tags: [installation, nix, releases, nagarectl]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Installing Nagare
 
 > **Status:** ✅ Versioned Nix distribution

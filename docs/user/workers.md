@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Running workers"
+description: "Define, deploy, observe, scale, pause, and test long-running worker workloads on Nagare."
+docId: DOC-36
+tags: [workers, workloads, queues, deployment]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T01:38:13Z
+---
+
 # Running workers
 
 > 🟡 **In progress.** Built and offline-verified — the typed `Worker` model, the

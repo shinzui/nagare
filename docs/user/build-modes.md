@@ -1,3 +1,14 @@
+---
+type: Explanation
+title: "Build modes"
+description: "Understand Nagare prebuilt-image, Dockerfile, and Nixpacks build modes and choose the right mode for an application."
+docId: DOC-6
+tags: [builds, containers, dockerfile, nixpacks]
+generated:
+  by: human:nadeem
+  at: 2026-07-01T01:38:13Z
+---
+
 # Build modes
 
 > **Status:** 🟡 **Built and tested.** The typed model, the CLI dispatch, and the

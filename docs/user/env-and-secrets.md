@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Environment and secrets"
+description: "Configure scoped application environment variables and secrets, including imports, overlays, and build-time values."
+docId: DOC-13
+tags: [environment, secrets, configuration, security]
+generated:
+  by: human:nadeem
+  at: 2026-06-30T04:53:19Z
+---
+
 # Environment and secrets
 
 > **Status:** 🟡 **Built and tested offline; applies to any active Kubernetes target.**

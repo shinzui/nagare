@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Identity-aware access"
+description: "Configure, verify, operate, and revoke identity-aware access to protected Nagare services."
+docId: DOC-2
+tags: [access, authentication, authorization, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-28T12:26:08Z
+---
+
 # Identity-aware access
 
 > **Status:** 🟢 **Built and locally validated.**

@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Target contexts"
+description: "Create, select, inspect, migrate, and troubleshoot named Nagare target contexts."
+docId: DOC-10
+tags: [contexts, targets, configuration, migration]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Target contexts
 
 > **Status:** ✅ Working

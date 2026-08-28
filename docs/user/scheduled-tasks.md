@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "Scheduled tasks"
+description: "Declare, deploy, run, observe, and troubleshoot scheduled application tasks on Nagare."
+docId: DOC-31
+tags: [scheduled-tasks, cronjobs, workloads, operations]
+generated:
+  by: human:nadeem
+  at: 2026-06-19T14:49:44Z
+---
+
 # Scheduled tasks
 
 > 🟡 **In progress.** Built and offline-verified — the typed `Task` model, the

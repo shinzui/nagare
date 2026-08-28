@@ -14,6 +14,10 @@
 default:
     @just --list
 
+# Run every repository-native documentation validation target.
+[group('docs')]
+docs-validate: reviews-validate user-documentation-validate
+
 # Strictly validate commit-pinned review records against the shared
 # assurance.reviews profile. Findings stay in the review body or become records
 # in the owning bug-report or improvement-request bundle.
@@ -24,6 +28,23 @@ reviews-validate:
       --profile docs/reviews/profile.dhall \
       --profile-enforce \
       --log-enforce
+
+# Strictly validate and graph the reader-facing documentation bundles against
+# mori://shinzui/okf-profiles/profiles/user-documentation.
+[group('docs')]
+user-documentation-validate:
+    okf validate docs/user \
+      --strict \
+      --profile mori/user-documentation-profile.dhall \
+      --profile-enforce \
+      --log-enforce
+    @okf graph docs/user --json >/dev/null
+    okf validate docs/guides \
+      --strict \
+      --profile mori/user-documentation-profile.dhall \
+      --profile-enforce \
+      --log-enforce
+    @okf graph docs/guides --json >/dev/null
 
 # EP-2 (docs/plans/2-pulumi-gcp-infrastructure.md): create/update the GCP
 # resources (VM, static IP, Cloud DNS, disks, service account, Artifact

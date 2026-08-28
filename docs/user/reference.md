@@ -1,3 +1,14 @@
+---
+type: Reference
+title: "Reference"
+description: "Look up Nagare identifiers, context variables, commands, infrastructure contracts, ports, paths, and operational interfaces."
+docId: DOC-29
+tags: [nagare, commands, configuration, infrastructure, reference]
+generated:
+  by: human:nadeem
+  at: 2026-08-26T18:35:50Z
+---
+
 # Reference
 
 > **Status:** ✅ Working — a quick lookup for the fixed identifiers, config keys,

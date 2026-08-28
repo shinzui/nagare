@@ -1,3 +1,14 @@
+---
+type: Guide
+title: "GCP prerequisites"
+description: "Prepare authentication, billing, IAM, service APIs, and DNS before provisioning Nagare on Google Cloud."
+docId: DOC-15
+tags: [gcp, prerequisites, iam, dns, onboarding]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # GCP prerequisites
 
 > **Status:** ✅ Working

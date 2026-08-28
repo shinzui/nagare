@@ -1,3 +1,14 @@
+---
+type: Tutorial
+title: "Bring-your-own-project onboarding"
+description: "Onboard a new Google Cloud project and complete the first Nagare platform setup from prerequisites through verification."
+docId: DOC-24
+tags: [onboarding, gcp, contexts, tutorial]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Bring-your-own-project onboarding
 
 > **Status:** ✅ Working — this is the consolidated zero-to-running runbook. Each

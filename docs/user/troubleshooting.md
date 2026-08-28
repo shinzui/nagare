@@ -1,3 +1,14 @@
+---
+type: Reference
+title: "Troubleshooting"
+description: "Diagnose and resolve known Nagare host, cluster, networking, backup, broker, and deployment failures by symptom."
+docId: DOC-34
+tags: [troubleshooting, failures, diagnostics, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-23T20:57:05Z
+---
+
 # Troubleshooting
 
 > **Status:** ✅ Working — every entry below is a failure actually hit while

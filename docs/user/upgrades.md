@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Upgrades"
+description: "Plan, apply, verify, and roll back Nagare platform, host, cluster, and observability upgrades."
+docId: DOC-35
+tags: [upgrades, releases, rollback, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T20:53:35Z
+---
+
 # Upgrades
 
 > **Status:** ✅ Supported procedure

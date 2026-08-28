@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Forge credentials"
+description: "Provision, install, rotate, verify, and recover Nagare forge credentials without storing long-lived tokens."
+docId: DOC-14
+tags: [forge, github, credentials, rotation, security]
+generated:
+  by: human:nadeem
+  at: 2026-08-26T00:31:47Z
+---
+
 # Forge credentials
 
 > **Status:** 🟢 Available as an opt-in host capability. Each operator supplies

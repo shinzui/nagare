@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: "Day-2 host changes"
+description: "Apply, verify, and recover from routine Nagare host configuration changes after initial provisioning."
+docId: DOC-11
+tags: [host, nixos, maintenance, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-25T18:46:42Z
+---
+
 # Day-2 host changes
 
 > **Status:** 🟡 In progress (EP-3)
