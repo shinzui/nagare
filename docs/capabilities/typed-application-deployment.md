@@ -66,4 +66,5 @@ This capability consumes the [Knative serving, ingress, and TLS bootstrap](knati
   time and output bounds, but consumers should still treat project configuration as trusted code.
 - The local end-to-end path is exercised. The latest cloud deployment path has not been rerun since
   the live VM was powered down.
-- `nagare-dsl` and `nagarectl` are versioned 0.1.0.0 but have not been released or published.
+- The `nagare-dsl` and `nagarectl` interfaces remain experimental in 0.1.0; later pre-1.0 releases
+  may require an explicit platform upgrade.
