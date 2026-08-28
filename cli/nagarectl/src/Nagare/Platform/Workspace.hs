@@ -82,6 +82,8 @@ workspaceAssets :: [FilePath]
 workspaceAssets =
   [ "release.json"
   , "justfile"
+  , "cli/nagare-dsl"
+  , "cli/nagare-access"
   , "infra/pulumi"
   , "cluster/bootstrap"
   , "cluster/examples"

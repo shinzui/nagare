@@ -128,7 +128,7 @@
               };
             in
             pkgs.runCommand "nagare-clone-free-platform"
-              { nativeBuildInputs = [ nagarePackages.nagarectl nagarePackages.nagare pkgs.jq fakeNix fakePulumi fakeTools ]; }
+              { nativeBuildInputs = [ nagarePackages.nagare pkgs.jq fakeNix fakePulumi fakeTools ]; }
               ''
                 mkdir -p isolated/home isolated/config isolated/state isolated/empty
                 export HOME="$PWD/isolated/home"

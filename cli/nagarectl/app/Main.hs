@@ -2852,11 +2852,15 @@ runContext mctx = \case
       then do
         setCurrentContext name
         tp <- either dieT pure =<< readContextProfile name
-        workspace <- ensurePulumiForContext name tp
-        s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
-        case s of
-          Right () -> TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
-          Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
+        case tpMode tp of
+          Local -> void (resolvePlatformWorkspace name)
+          Cloud -> do
+            workspace <- ensurePulumiForContext name tp
+            s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
+            case s of
+              Right () -> pure ()
+              Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
+        TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
       else dieT ("no such context: " <> contextNameText name)
   ContextShow mname -> do
     tp <- case mname of
@@ -2878,12 +2882,13 @@ runContext mctx = \case
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     when (ccoUse o) $ do
       setCurrentContext name
-      bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> ccoPulumiBackendMember o)
-      workspace <- ensurePulumiForContext name tp
-      s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
-      case s of
-        Right () -> pure ()
-        Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
+      when (tpMode tp == Cloud) $ do
+        bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> ccoPulumiBackendMember o)
+        ensurePulumiInWorkspace name tp workspace
+        s <- seedPulumiConfig (pwPulumiDir workspace) False (contextNameText name) tp
+        case s of
+          Right () -> pure ()
+          Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextDelete rawName yes -> do
     name <- parseContextNameOrDie rawName

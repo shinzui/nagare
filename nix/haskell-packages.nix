@@ -66,7 +66,7 @@ let
     meta.mainProgram = "nagarectl";
   };
 
-  nagare = pkgs.writeShellApplication {
+  nagareLauncher = pkgs.writeShellApplication {
     name = "nagare";
     runtimeInputs = [ nagarectl pkgs.jq pkgs.just ];
     text = ''
@@ -76,6 +76,12 @@ let
       export NAGARE_WORKSPACE_ROOT="$workspace_root"
       exec just --justfile "$workspace_root/justfile" --working-directory "$workspace_root" "$@"
     '';
+  };
+
+  nagare = pkgs.symlinkJoin {
+    name = "nagare-${haskellPackages.nagarectl.version}";
+    paths = [ nagarectl nagareLauncher ];
+    meta.mainProgram = "nagare";
   };
 in
 {
