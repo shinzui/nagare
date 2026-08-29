@@ -87,7 +87,7 @@ jobs:
           SYSTEM: ${{ matrix.system }}
         run: |
           set -euo pipefail
-          artifact_dir="artifacts/$SYSTEM"
+          artifact_dir="$RUNNER_TEMP/nagare-release-artifacts/$SYSTEM"
           mkdir -p "$artifact_dir"
           args=(--version "$VERSION" --output-dir "$artifact_dir" --json)
           if [[ -n "$TAG" ]]; then
@@ -105,7 +105,7 @@ jobs:
           ./scripts/rehearse-clone-free-release.sh \
             --version "$VERSION" \
             --flake-ref "$flake_ref" \
-            --output "artifacts/$SYSTEM/clone-free-$SYSTEM.json"
+            --output "$RUNNER_TEMP/nagare-release-artifacts/$SYSTEM/clone-free-$SYSTEM.json"
 
       - name: Record native Nix output identities
         env:
@@ -113,7 +113,7 @@ jobs:
           SYSTEM: ${{ matrix.system }}
         run: |
           set -euo pipefail
-          artifact_dir="artifacts/$SYSTEM"
+          artifact_dir="$RUNNER_TEMP/nagare-release-artifacts/$SYSTEM"
           revision="$(jq -er '.revision' "$artifact_dir/nagare-release-$VERSION.json")"
           cli_path="$(nix build --no-link --print-out-paths .#nagarectl)"
           payload_path="$(nix build --no-link --print-out-paths .#nagare-platform)"
@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: nagare-release-${{ matrix.system }}
-          path: artifacts/${{ matrix.system }}
+          path: ${{ runner.temp }}/nagare-release-artifacts/${{ matrix.system }}
           if-no-files-found: error
           retention-days: 14
 
