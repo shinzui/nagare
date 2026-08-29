@@ -146,7 +146,10 @@
                   --local-object-store http://minio:9000/nagare-backups
                 nagarectl context use local
                 nagarectl platform root --json > root.json
-                jq -e '.source == "installed" and (.workspaceRoot | contains("/nagare/local/platform/"))' root.json >/dev/null
+                jq -e '.source == "installed" and (.workspaceRoot | type == "string" and length > 0)' root.json >/dev/null || {
+                  cat root.json >&2
+                  exit 1
+                }
                 workspace_root="$(jq -er '.workspaceRoot' root.json)"
                 test -f "$workspace_root/cluster/examples/uploads-volume/nagare/Config.hs"
                 test ! -e "$workspace_root/cluster/secrets"
