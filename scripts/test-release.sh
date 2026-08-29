@@ -8,6 +8,14 @@ source "$repo_root/scripts/lib/release.sh"
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
+check_release() {
+  bash "$repo_root/scripts/check-release.sh" "$@"
+}
+
+assemble_release() {
+  bash "$repo_root/scripts/assemble-release.sh" "$@"
+}
+
 copy_release_sources() {
   local destination="$1"
   mkdir -p \
@@ -38,7 +46,7 @@ expect_failure() {
 fixture="$test_root/source"
 copy_release_sources "$fixture"
 
-"$repo_root/scripts/check-release.sh" \
+check_release \
   --version 0.1.0 \
   --source-root "$fixture" \
   --source-only \
@@ -68,7 +76,7 @@ for system in x86_64-linux aarch64-darwin; do
       checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe"]}' \
     > "$native_dir/clone-free-$system.json"
 done
-"$repo_root/scripts/assemble-release.sh" \
+assemble_release \
   --version 0.1.0 \
   --input-root "$test_root/native" \
   --output-dir "$test_root/assembled"
@@ -80,9 +88,9 @@ test -s "$test_root/assembled/clone-free-aarch64-darwin.json"
 test -s "$test_root/assembled/SHA256SUMS"
 
 expect_failure malformed-version \
-  "$repo_root/scripts/check-release.sh" --version 01.1.0 --source-root "$fixture" --source-only
+  check_release --version 01.1.0 --source-root "$fixture" --source-only
 expect_failure malformed-tag \
-  "$repo_root/scripts/check-release.sh" --version 0.1.0 --tag release-0.1.0 --source-root "$fixture" --source-only
+  check_release --version 0.1.0 --tag release-0.1.0 --source-root "$fixture" --source-only
 
 for package in nagare-dsl nagarectl nagare-access; do
   mismatch="$test_root/mismatch-$package"
@@ -90,21 +98,21 @@ for package in nagare-dsl nagarectl nagare-access; do
   sed -i.bak 's/version: *0\.1\.0$/version: 0.1.1/' "$mismatch/cli/$package/$package.cabal"
   rm "$mismatch/cli/$package/$package.cabal.bak"
   expect_failure "mismatch-$package" \
-    "$repo_root/scripts/check-release.sh" --version 0.1.0 --source-root "$mismatch" --source-only
+    check_release --version 0.1.0 --source-root "$mismatch" --source-only
 done
 
 missing_notes="$test_root/missing-notes"
 copy_release_sources "$missing_notes"
 rm "$missing_notes/docs/releases/v0.1.0.md"
 expect_failure missing-notes \
-  "$repo_root/scripts/check-release.sh" --version 0.1.0 --source-root "$missing_notes" --source-only
+  check_release --version 0.1.0 --source-root "$missing_notes" --source-only
 
 unsupported="$test_root/unsupported-system"
 copy_release_sources "$unsupported"
 jq '.supportedSystems += ["x86_64-darwin"]' "$unsupported/release.json" > "$unsupported/release.tmp"
 mv "$unsupported/release.tmp" "$unsupported/release.json"
 expect_failure unsupported-system \
-  "$repo_root/scripts/check-release.sh" --version 0.1.0 --source-root "$unsupported" --source-only
+  check_release --version 0.1.0 --source-root "$unsupported" --source-only
 
 git_fixture="$test_root/git-source"
 copy_release_sources "$git_fixture"
@@ -114,19 +122,19 @@ git -C "$git_fixture" config user.email 'release-test@example.invalid'
 git -C "$git_fixture" add .
 git -C "$git_fixture" commit -qm 'test: seed release fixture'
 git -C "$git_fixture" tag -a v0.1.0 -m 'Nagare v0.1.0'
-"$repo_root/scripts/check-release.sh" \
+check_release \
   --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build --json \
   | jq -e '.consistent' >/dev/null
 
 touch "$git_fixture/dirty"
 expect_failure dirty-tree \
-  "$repo_root/scripts/check-release.sh" --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build
+  check_release --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build
 rm "$git_fixture/dirty"
 printf '\n' >> "$git_fixture/CHANGELOG.md"
 git -C "$git_fixture" add CHANGELOG.md
 git -C "$git_fixture" commit -qm 'docs: move candidate head'
 expect_failure moving-tag \
-  "$repo_root/scripts/check-release.sh" --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build
+  check_release --version 0.1.0 --tag v0.1.0 --source-root "$git_fixture" --skip-build
 
 metadata_fixture="$git_fixture/packaged-source"
 mkdir -p "$metadata_fixture"
