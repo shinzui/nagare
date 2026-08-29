@@ -146,7 +146,6 @@
                   --base-domain 127-0-0-1.sslip.io \
                   --local-object-store http://minio:9000/nagare-backups
                 nagarectl context use local
-                set -x
                 if nagarectl platform root --json > root.json 2> root.err; then
                   :
                 else
@@ -173,7 +172,7 @@
                   nagare_cluster_secrets_dir
                 })"
                 test "$resolved_secrets" = "$XDG_CONFIG_HOME/nagare/cluster-secrets/local"
-                if "$workspace_root/cluster/observability/install.sh" > observability-missing-secret.out 2>&1; then
+                if bash "$workspace_root/cluster/observability/install.sh" > observability-missing-secret.out 2>&1; then
                   echo "observability unexpectedly accepted a missing grafana Secret" >&2
                   exit 1
                 fi
