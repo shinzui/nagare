@@ -78,7 +78,7 @@ jobs:
         run: nix profile install .#release-tools
 
       - name: Run the normal flake checks
-        run: nix flake check --print-build-logs
+        run: nix flake check --print-build-logs --max-jobs 1
 
       - name: Validate release consistency
         env:
