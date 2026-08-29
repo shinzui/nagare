@@ -136,6 +136,7 @@
                 export XDG_STATE_HOME="$PWD/isolated/state"
                 export NAGARE_FAKE_TOOL_LOG="$PWD/isolated/tools.log"
                 export LANG=C.UTF-8
+                export LC_ALL=C.UTF-8
                 touch "$NAGARE_FAKE_TOOL_LOG"
                 cd isolated/empty
 
@@ -145,8 +146,18 @@
                   --base-domain 127-0-0-1.sslip.io \
                   --local-object-store http://minio:9000/nagare-backups
                 nagarectl context use local
-                nagarectl platform root --json > root.json
+                set +e
+                nagarectl platform root --json > root.json 2> root.err
+                platform_root_status="$?"
+                set -e
+                if [ "$platform_root_status" -ne 0 ]; then
+                  echo "nagarectl platform root exited with status $platform_root_status" >&2
+                  cat root.err >&2
+                  test ! -s root.json || cat root.json >&2
+                  exit "$platform_root_status"
+                fi
                 jq -e '.source == "installed" and (.workspaceRoot | type == "string" and length > 0)' root.json >/dev/null || {
+                  echo "nagarectl platform root returned unexpected JSON:" >&2
                   cat root.json >&2
                   exit 1
                 }
