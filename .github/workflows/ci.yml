@@ -31,7 +31,7 @@ jobs:
         # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
         # compiling, either Haskell test suite fails, or a shell script has an
         # error-level shellcheck finding, this step fails the build.
-        run: nix flake check --print-build-logs
+        run: nix flake check --print-build-logs --max-jobs 1
 
   nagare-access-check:
     name: nagare-access compatibility check
