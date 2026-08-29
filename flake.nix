@@ -146,6 +146,7 @@
                   --base-domain 127-0-0-1.sslip.io \
                   --local-object-store http://minio:9000/nagare-backups
                 nagarectl context use local
+                set -x
                 if nagarectl platform root --json > root.json 2> root.err; then
                   :
                 else
