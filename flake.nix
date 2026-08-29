@@ -135,6 +135,7 @@
                 export XDG_CONFIG_HOME="$PWD/isolated/config"
                 export XDG_STATE_HOME="$PWD/isolated/state"
                 export NAGARE_FAKE_TOOL_LOG="$PWD/isolated/tools.log"
+                export LANG=C.UTF-8
                 touch "$NAGARE_FAKE_TOOL_LOG"
                 cd isolated/empty
 
