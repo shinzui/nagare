@@ -47,6 +47,20 @@ git tag -s vX.Y.Z -m 'Nagare vX.Y.Z'
 git push origin vX.Y.Z
 ```
 
+The default command uses Git's configured signing backend. When OpenPGP is unavailable but the
+maintainer already has a usable SSH signing key, use Git's SSH backend for the tag instead:
+
+```bash
+git -c gpg.format=ssh -c user.signingkey=/path/to/key.pub \
+  tag -s vX.Y.Z -m 'Nagare vX.Y.Z'
+```
+
+Before pushing, verify that the ref is an annotated `tag`, resolves to the reviewed commit, and has a
+good signature. SSH verification requires an allowed-signers file that maps the maintainer's email to
+the existing public key; create it outside the repository and pass it with
+`-c gpg.ssh.allowedSignersFile=/path/to/allowed_signers`. Do not generate or register credentials as
+part of a release run, and never fall back to an unsigned tag.
+
 The tag workflow reruns the normal flake checks, release gate, native builds, and clone-free rehearsal.
 Only its final job receives `contents: write`. It creates the GitHub release from the reviewed notes
 and attaches:
