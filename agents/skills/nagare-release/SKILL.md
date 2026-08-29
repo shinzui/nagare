@@ -185,6 +185,13 @@ release notes, supported-system evidence, and authorization to sign and push the
 request to release or publish supplies that authorization for the end-to-end workflow.
 Then follow the runbook's exact signed annotated tag command and push only `vX.Y.Z` to `origin`.
 
+Use the maintainer's already-configured Git signing backend when available. If the default OpenPGP
+command is unavailable but an existing usable SSH signing key is present, create the signed annotated
+tag with per-command `gpg.format=ssh` and `user.signingkey` settings, then verify it against a temporary
+allowed-signers file outside the repository before pushing. Never generate a key, register a key with
+a forge, or weaken the tag to unsigned operation automatically. If neither an existing OpenPGP nor
+SSH signing identity can produce and locally verify the tag, report a release blocker.
+
 Do not run a separate `gh release create`: the tag-triggered workflow reruns the gates and creates the
 GitHub Release with minimal write permission. Monitor it through completion and verify:
 
