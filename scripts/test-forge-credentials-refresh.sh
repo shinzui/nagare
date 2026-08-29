@@ -15,8 +15,8 @@ printf '%s\n' 67890 > "$test_root/installation-id"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
   -out "$test_root/private-key.pem" >/dev/null 2>&1
 
-cat > "$fake_bin/curl" <<'FAKE_CURL'
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" > "$fake_bin/curl"
+cat >> "$fake_bin/curl" <<'FAKE_CURL'
 set -euo pipefail
 config_file=${2:?missing curl config}
 output_file="$(awk -F'"' '$1 == "output = " { print $2 }' "$config_file")"
@@ -40,8 +40,8 @@ case "${FAKE_CURL_MODE:-success}" in
 esac
 FAKE_CURL
 
-cat > "$fake_bin/k3s" <<'FAKE_K3S'
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" > "$fake_bin/k3s"
+cat >> "$fake_bin/k3s" <<'FAKE_K3S'
 set -euo pipefail
 case " $* " in
   *" create secret generic nagare-forge-read "*)
