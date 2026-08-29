@@ -146,11 +146,10 @@
                   --base-domain 127-0-0-1.sslip.io \
                   --local-object-store http://minio:9000/nagare-backups
                 nagarectl context use local
-                set +e
-                nagarectl platform root --json > root.json 2> root.err
-                platform_root_status="$?"
-                set -e
-                if [ "$platform_root_status" -ne 0 ]; then
+                if nagarectl platform root --json > root.json 2> root.err; then
+                  :
+                else
+                  platform_root_status="$?"
                   echo "nagarectl platform root exited with status $platform_root_status" >&2
                   cat root.err >&2
                   test ! -s root.json || cat root.json >&2
