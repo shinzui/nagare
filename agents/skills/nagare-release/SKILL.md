@@ -62,7 +62,17 @@ upstream release tags before choosing bounds or pins.
 ## Select the operating phase
 
 Determine whether the user wants an audit, candidate preparation, CI rehearsal, publication, or
-recovery. Do only the requested phase and its safe prerequisites.
+recovery. Do only the requested phase and its safe prerequisites. When the user explicitly asks to
+release or publish a version, treat that as one end-to-end operation: audit and prepare the candidate,
+commit release fixes, run local and native gates, assemble evidence, create and push the signed tag,
+monitor GitHub publication, and verify the public flake and attachments.
+
+Do not pause an end-to-end release for routine confirmation between those stages. Keep the user
+informed through concise progress updates and continue until the release is verified. Stop only for
+a failed release gate, missing credentials or signing capability, conflicting immutable tag/release
+state, an unresolved version or compatibility decision, unrelated worktree changes that cannot be
+preserved, or another condition that makes publication unsafe. Diagnose a failed gate and prepare a
+focused fix when it remains within the authorized release scope; do not bypass the gate.
 
 - Read-only audits may run in a dirty worktree. Record pre-existing changes and do not attribute them
   to the release.
@@ -70,10 +80,11 @@ recovery. Do only the requested phase and its safe prerequisites.
   stash, reset, discard, or fold unrelated edits into the release commit.
 - A full rehearsal requires a clean, committed candidate so the revision is exact.
 - Manual workflow dispatch, tag creation, tag push, release-description edits, and live smoke tests
-  are external mutations. Perform them only when the user's current request authorizes that action;
-  otherwise stop at the corresponding handoff.
-- Tag creation is a deliberate maintainer action. Even when the candidate is ready, do not infer
-  permission to sign or push a tag from a request to audit, prepare, or rehearse it.
+  are external mutations. An explicit request to release or publish authorizes the normal mutations
+  required by this runbook; a request only to audit, prepare, or rehearse does not.
+- Tag creation is a deliberate maintainer action. Do not infer permission to sign or push a tag from
+  a request to audit, prepare, or rehearse, but continue through it without another confirmation in
+  an explicitly requested end-to-end release.
 
 ## Audit the candidate
 
@@ -134,6 +145,8 @@ mori validate
 
 Show the proposed version, release notes, compatibility/rollback claims, and focused diff to the
 user before making the candidate commit unless their request already approved those exact choices.
+During an explicitly requested end-to-end release, present this as a progress update and continue
+without pausing unless the change requires an unresolved version, compatibility, or scope decision.
 Use one reviewed Conventional Commit, normally `chore(release): prepare vX.Y.Z`. Do not include
 unrelated worktree changes.
 
@@ -168,7 +181,8 @@ justifies bypassing a check.
 ## Publish only an exact reviewed candidate
 
 Immediately before publication, confirm the version, clean HEAD revision, candidate CI results,
-release notes, supported-system evidence, and the user's authorization to sign and push the tag.
+release notes, supported-system evidence, and authorization to sign and push the tag. An explicit
+request to release or publish supplies that authorization for the end-to-end workflow.
 Then follow the runbook's exact signed annotated tag command and push only `vX.Y.Z` to `origin`.
 
 Do not run a separate `gh release create`: the tag-triggered workflow reruns the gates and creates the
