@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T21:32:01Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T21:42:30Z
+      mode: "implement"
+      note: "Milestone 0 inventory and operator confirmations recorded; implementation begun"
 ---
 
 # Move operator-private deployment material into a private development repository
@@ -47,7 +53,7 @@ repository holds operator development material from now on, including the Pulumi
 
 ## Progress
 
-- [ ] Milestone 0: confirm the inventory below against the working tree, and get the operator's explicit answers to the three confirmation questions (repository name and visibility, backend choice, which tracked files leave the public repository).
+- [x] Milestone 0: confirm the inventory below against the working tree, and get the operator's explicit answers to the three confirmation questions (repository name and visibility, backend choice, which tracked files leave the public repository). (2026-09-12T21:42Z — inventory matched; all answers recorded in the Decision Log, plus the secrets-provider choice.)
 - [ ] Milestone 1: create the private repository (only after confirmation) and populate it with the context, host flake, stack config, and sops material; point Nagare at it through the existing XDG paths.
 - [ ] Milestone 2: migrate Pulumi state to the chosen backend with `scripts/migrate-pulumi-backend.sh`; gate on a clean `pulumi preview --refresh`.
 - [ ] Milestone 3: remove operator-private tracked files from the public repository, replacing them with examples; update documentation.
@@ -73,6 +79,18 @@ were not printed):
 - The generated host flake keeps a second copy of the encrypted host secrets at
   `~/.config/nagare/hosts/tan-nb-exp/secrets.yaml` (copied from the tracked
   `nixos/hosts/nagare-01/secrets/nagare-01.yaml` by `nagarectl host init --sops-file`).
+- Milestone 0 (2026-09-12T21:40Z): `age-keygen -y ~/.config/nagare/nagare-01-age-key.txt` prints
+  `age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99`, identical to `&host_nagare01` in
+  `nixos/.sops.yaml:2`. The workstation file **is** the host's age private key, so the host's missing
+  key is recoverable from it. It stays out of every repository; restoring it to the host is a
+  separate, guarded follow-up.
+- Milestone 0: `~/.local/state/nagare/default/state/.pulumi/stacks/nagare/default.json` is 372 bytes
+  (an empty stack, last written 2026-06-30). It is not live; this plan leaves it and the leftover
+  git-ignored `infra/pulumi/Pulumi.{acme-demo,default,prod,ep90-*}.yaml` files untouched.
+- Milestone 0: cluster secrets already have an out-of-repository source. `cluster/observability/install.sh`
+  reads them through `nagare_require_cluster_secret` from a secrets directory that honors
+  `NAGARE_CLUSTER_SECRETS_DIR`, and `flake.nix` checks that packaged payloads carry no
+  `cluster/secrets`. Tracked `cluster/secrets/` is only a source-checkout fallback (ADR 4).
 
 
 ## Decision Log
@@ -104,6 +122,16 @@ were not printed):
   Rationale: `scripts/lib/target.sh` and `nagarectl` already resolve contexts and host flakes from
   those paths (ADR 5), so no code change is needed to prove the move. Adding a "private repository
   root" setting can be a later plan if symlinks prove awkward.
+  Date: 2026-09-12
+
+- Decision (Milestone 0 operator answers, 2026-09-12T21:42Z): (1) the private repository is
+  `shinzui/nagare-ops`, visibility **private**, cloned to `/Users/shinzui/Keikaku/bokuno/nagare-ops`;
+  (2) Pulumi state moves to the **GCS backend** as decided above, not into git; (3) **all five**
+  tracked files leave the public repository: the three encrypted secret files move, and both
+  `.sops.yaml` files get placeholder recipients; (4) the stack's secrets provider is rotated to a
+  **non-empty passphrase** the operator keeps in a password manager and exports as
+  `PULUMI_CONFIG_PASSPHRASE` (no KMS resource).
+  Rationale: operator's explicit selections in this session.
   Date: 2026-09-12
 
 
