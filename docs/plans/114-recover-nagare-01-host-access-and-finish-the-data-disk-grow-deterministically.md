@@ -106,7 +106,7 @@ Milestone 4 — Prove and commit the ordering-cycle fix:
 - [x] (2026-09-12T21:04Z) Add the diagnostics, the by-id `wait_until_succeeds`, and the no-cycle assertion (after both `multi-user.target` waits) to the `data-disk-online-grow` VM test.
 - [x] (2026-09-12T21:08Z) Gate: the builder is reachable. The plan's probe `nix store info --store ssh://builder@nix-gcp-builder` fails as the operator user (`Load key "/etc/nix/builder_ed25519": Permission denied`), because the key is readable only by the Nix daemon. Substituted a daemon-routed probe: `nix build .#checks.x86_64-linux.data-disk-online-grow.driver` built on `ssh://builder@nix-gcp-builder`, `DRIVER_EXIT=0` (this also lints the edited test script). See the Decision Log.
 - [x] (2026-09-12T21:18Z) Run the VM test (attempt 1): `EXIT=1`, with KVM. The by-id link was present, so no fallback applies.
-- [ ] **STOP (2026-09-12T21:20Z):** attempt 1 failed at Phase 0 `test -d /var/lib/nagare/local-path`. The ordering fix makes `format-nagare-data` run before udev creates the by-id link (see Surprises). Nothing was committed and the host was not switched. Waiting for a human decision on the proposed storage.nix fix.
+- [x] (2026-09-12T21:20Z) STOP, resolved by the operator-approved fix below: attempt 1 failed at Phase 0 `test -d /var/lib/nagare/local-path`. The ordering fix makes `format-nagare-data` run before udev creates the by-id link (see Surprises). Nothing was committed and the host was not switched. Waiting for a human decision on the proposed storage.nix fix.
 - [x] (2026-09-12T21:25Z) Operator approved the fix. `format-nagare-data` now `wants`/`after` `dev-disk-by\x2did-google\x2dnagare\x2ddata.device`; `data-disk-auto-grow` asserts it. Pre-run checks: `EVAL_CHECK_EXIT=0`, `OTHER_CHECKS_EXIT=0` (forge, fixture, boot menu), `DRIVER_EXIT=0`.
 - [x] (2026-09-12T21:40Z) Gate PASS, attempt 2: `EXIT=0` (script 69 s, KVM). Format ran before the mount (`[15.90] no filesystem ...; creating ext4`), and the log has 0 `skipped`/`Dependency failed`/`Failed to mount` lines for the data disk. The only `ordering cycle` lines are the driver echoing its own `must fail` assertions. `systemd-growfs` reported `Successfully resized "/var/lib/nagare" to 2G` in each phase. Log: `/tmp/ep114/vmtest-attempt2.log`.
 
@@ -136,12 +136,12 @@ Milestone 5 — Live grow on nagare-01:
 
 Milestone 6 — Hand back to ExecPlan 111 and author the private-repo plan:
 
-- [ ] Update ExecPlan 111 Progress and Surprises with this plan's evidence.
-- [ ] Complete ExecPlan 111 Milestone 5 (documentation, alert, close IR-5) using the corrected facts listed here.
+- [x] (2026-09-12T22:37Z) Update ExecPlan 111 Progress and Surprises with this plan's evidence.
+- [x] (2026-09-12T22:37Z) Complete ExecPlan 111 Milestone 5 (documentation, alert, close IR-5) using the corrected facts listed here, plus `systemctl restart`: commit `e95cad5`. The `host-switch.sh` `--no-check-sigs` fix landed in `efa31bc`.
 - (The lockout-prevention plan already exists as ExecPlan 115; this milestone does not author it.)
-- [ ] Author the private development repository ExecPlan with `init-plan.ts`.
-- [ ] Fill in Outcomes & Retrospective and run the ADR distillation pass for both plans.
-- [ ] Final report back.
+- [x] (2026-09-12T22:45Z) Author the private development repository ExecPlan with `init-plan.ts`: [ExecPlan 116](116-move-operator-private-deployment-material-into-a-private-development-repository.md). It chooses the `gcs` backend over committed state, pending operator confirmation, after finding the stack passphrase empty.
+- [x] (2026-09-12T22:46Z) Fill in Outcomes & Retrospective and run the ADR distillation pass for both plans: ADR 12 is new, and ADR 11 gains the `nix copy` note. ADR 5 already records the fixture rule (ExecPlan 115).
+- [x] (2026-09-12T22:47Z) Final report back.
 
 
 ## Surprises & Discoveries
@@ -465,7 +465,26 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Delivered 2026-09-12. Every purpose item holds. `deploy` can SSH to nagare-01. No temporary
+metadata, rescue VM, or snapshot remains, and `pulumi preview --refresh` reports `31 unchanged`
+with `dataDiskSizeGb` 110. The host runs the context-owned configuration (`system-5-link`, real key,
+serial boot menu). `/var/lib/nagare` is 108G on a 110 GiB disk. The ordering-cycle fix is proven by
+the VM test and committed (`5bcf428`). ExecPlan 111 and IR-5 are closed (`e95cad5`), and
+ExecPlan 116 exists.
+
+Gaps and follow-ups. ExecPlan 116 is authored but not started; it needs operator answers first.
+The host's missing sops age key (Tailscale down, `tailscaled-autoconnect` failing) is untouched,
+and ExecPlan 116's inventory found a candidate key on the workstation. The guard hook's "ask" does
+not prompt under auto permission mode, so human approval for cloud mutations was collected by
+asking directly.
+
+Lessons. The plan's gates caught every defect before it did harm, but four of the stops came from
+steps that had never been run for real: the symlinked sshd config check, the builder probe as the
+wrong user, the unsigned `nix copy`, and `systemctl start` on a `RemainAfterExit` unit. Each cost a
+stop-and-ask cycle at a moment when a mistake was expensive. A step that will run against a live
+host, or before a long build, should first be dry-run cheaply in the exact state it will meet. The
+evaluation-plus-driver-build check before VM attempt 2 is the pattern: it made that run
+pass first time.
 
 
 ## Context and Orientation
