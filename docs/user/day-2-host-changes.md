@@ -6,7 +6,7 @@ docId: DOC-11
 tags: [host, nixos, maintenance, operations]
 generated:
   by: human:nadeem
-  at: 2026-08-25T18:46:42Z
+  at: 2026-09-12T21:26:55Z
 ---
 
 # Day-2 host changes
@@ -48,8 +48,11 @@ activation, no `switch-to-configuration`). `just host-switch` does the following
 3. **Builds and copies.** By default the `x86_64-linux` toplevel is built from the workstation
    (an `aarch64-darwin` workstation dispatches to the remote Linux Nix builder, the same mechanism
    as the image build — see [Host image and first boot](host-image-and-boot.md)) and copied with
-   `nix copy --to ssh-ng://deploy@<instance>`. With `--build-on-host` it is built straight into
-   the host's store. `deploy` is a Nix `trusted-user` (`@wheel`), so it can receive the closure.
+   `nix copy --no-check-sigs --to ssh-ng://deploy@<instance>`. With `--build-on-host` it is built
+   straight into the host's store. `deploy` is a Nix `trusted-user` (`@wheel`), so it can receive
+   the closure. `--no-check-sigs` is required because paths built on the remote builder are
+   unsigned, and `nix copy` otherwise rejects them on the workstation side even though the host
+   trusts `deploy` (`lacks a signature by a trusted key`).
 4. **Arms a rollback, activates, verifies, commits.** It prints:
    - `ARMED prev=… new=… seconds=600`: an on-host systemd timer will reactivate the boot-default
      generation after the window (`NAGARE_SWITCH_CONFIRM_SECONDS`, default 600).

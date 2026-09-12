@@ -83,3 +83,8 @@ only the deny layer is unconditional.
 The hook matches command text, so shell commands that merely *mention* a forbidden command (for
 example a heredoc that edits documentation) are also denied; edit such text with file-editing
 tools instead.
+
+The switch copies its closure with `nix copy --no-check-sigs`. Paths built on the remote builder
+carry no signature, and `nix copy` otherwise rejects them on the workstation side even though the
+host trusts `deploy`. The first live switch (ExecPlan 114) failed this way before arming and left
+the host untouched. The host still has to trust the deploy user for the copy to be accepted.
