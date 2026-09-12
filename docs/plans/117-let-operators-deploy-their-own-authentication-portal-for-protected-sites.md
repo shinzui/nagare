@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5"
     harness: "claude-code"
     at: 2026-09-12T21:38:15Z
+  revisions:
+    - model: "claude-opus-5"
+      harness: "claude-code"
+      at: 2026-09-12T21:55:22Z
+      mode: "update"
+      note: "Replace bare-Text and nested Either/Maybe interfaces with domain types"
 ---
 
 # Let operators deploy their own authentication portal for protected sites
@@ -249,6 +255,28 @@ These were found while researching the plan (2026-09-12), before any implementat
   forked WebAuthn dependency closure (see
   [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md)) into an
   example that operators are meant to copy.
+  Date: 2026-09-12
+
+- Decision: New code carries domain types instead of bare `Text` and layered
+  `Either`/`Maybe`.
+  - New types: `PublicHost`, `AccessToken`, `RefreshToken`, `SafePath`,
+    `ReturnTarget`, `SessionHandoff`, `CapturedResponse`, `PortalPage`, and `Origin` on
+    the enforcer side; `BackendMap`, `BackendEntry`, `BaseDomain`, and
+    `ShomeiPortalChange` on the `nagarectl` side.
+  - `nagarectl`'s `AccessOps` is refactored so that operations return domain values
+    (`loadBackends :: IO BackendMap`), and the `kubectl` boundary handles decode
+    failures and absence.
+  - Side effects that vary by case are described as data (`RouteOp`,
+    `ShomeiPortalChange`) and interpreted by one operation each, instead of one record
+    field per variant.
+  - The multi-step hand-off is one `ExceptT HandoffFailure IO` block.
+
+  Rationale: The first draft specified signatures such as
+  `loadBackendMap :: IO (Either Text (Maybe (Map Text BackendEntry)))`,
+  `portalLoginUrl :: Text -> Text -> Text -> Text`, and
+  `configureShomeiPortal :: Text -> Text -> IO ()`. They let hosts, tokens, and URLs be
+  swapped silently, and made every caller unwrap the same failure layers. The user
+  rejected them as not idiomatic Haskell.
   Date: 2026-09-12
 
 - Decision: Per-IP rate limiting in Shomei (all logins arrive from one pod IP) is out of
@@ -523,7 +551,13 @@ map accepts both the old format and the new object format, and upstreams no long
 
 **Backend map.** In `cli/nagare-access/src/Nagare/Access/BackendMap.hs`:
 
-- Add a role to `BackendTarget`:
+- Introduce `newtype PublicHost = PublicHost Text`, a host already put through
+  `canonicalHost`. Its only constructor is `mkPublicHost :: Text -> Either Text
+  PublicHost`, and the module exports the type without its data constructor.
+  - New code passes hosts as `PublicHost`, never as bare `Text`.
+  - Existing `Text`-typed host plumbing (for example `DecisionKey`) is converted only
+    where this plan touches it.
+- Give `BackendTarget` a role:
 
   ```haskell
   data BackendRole = ProtectedBackend | PortalBackend
@@ -535,18 +569,21 @@ map accepts both the old format and the new object format, and upstreams no long
     }
   ```
 
+- The map becomes `newtype BackendMap = BackendMap (Map PublicHost BackendTarget)`.
 - `decodeBackendMap` accepts, for each host, either:
   - a JSON string, which means `ProtectedBackend` (today's format, so existing
     ConfigMaps keep working), or
   - an object `{"upstream": "<url>", "role": "protected" | "portal"}`.
 
-  Any other shape, an unknown role, or more than one `portal` entry is a decode error
-  whose message names the offending host.
-- Add `portalBackend :: BackendMap -> Maybe (Text, BackendTarget)` (the canonical portal
-  host and its target) and `backendHosts :: BackendMap -> [Text]`.
-- Keep `backendMapFromList :: [(Text, Text)] -> Either Text BackendMap` for existing
-  callers (all entries protected) and add
-  `backendMapFromEntries :: [(Text, Text, BackendRole)] -> Either Text BackendMap`.
+  Write a `FromJSON BackendTarget` instance that handles both shapes. Any other shape,
+  an unknown role, or more than one `portal` entry is a decode error whose message
+  names the offending host.
+- Add a `Portal` value (see Interfaces and Dependencies), plus:
+  - `findPortal :: BackendMap -> Maybe Portal`
+  - `isRoutedHost :: PublicHost -> BackendMap -> Bool`
+- `backendMapFromList :: [(Text, Text)] -> Either Text BackendMap` keeps its type for
+  existing callers (all entries protected), and
+  `backendMapFromTargets :: [(Text, BackendTarget)] -> Either Text BackendMap` is added.
 - Update every construction of `BackendTarget` in `cli/nagare-access/src` and
   `cli/nagare-access/test/Spec.hs`.
 
@@ -568,7 +605,7 @@ map accepts both the old format and the new object format, and upstreams no long
   - the object format decodes both roles;
   - two portals are rejected, with the error naming a host;
   - an unknown role is rejected;
-  - `portalBackend` finds the portal.
+  - `findPortal` finds the portal.
 - In `proxyTests`, a `hardenRequestHeaders` case with
   `Cookie: theme=dark; nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z; lang=en`
   yields exactly `Cookie: theme=dark; lang=en`, and a header containing only enforcer
@@ -583,37 +620,55 @@ At the end of this milestone, a request to the portal host is proxied with optio
 identity. A portal response can create or clear a session, and logout revokes the Shomei
 session. Protected-host behavior is unchanged except for the logout revocation.
 
+**New module.** Create `cli/nagare-access/src/Nagare/Access/Portal.hs`, added to
+`exposed-modules` in `cli/nagare-access/nagare-access.cabal`. It holds the portal
+vocabulary listed in Interfaces and Dependencies:
+
+- the `AccessToken` and `RefreshToken` newtypes;
+- `PortalIdentity`, `SessionHandoff`, `CapturedResponse`, `PortalUpstreamResult`,
+  `PortalPageKind`, `PortalPageRequest`, `PortalPage`, `SafePath`, and
+  `ReturnTarget`;
+- the pure functions that decode and render them.
+
+Keeping the contract in one module keeps `App.hs` about routing and `Proxy.hs` about
+HTTP.
+
+`decodeSessionHandoff :: ByteString -> Either Text SessionHandoff` base64url-decodes the
+header value and parses the JSON with a `FromJSON SessionHandoff` instance. Both token
+fields are required, and `returnTo` is optional.
+
 **New service functions.** Extend `AccessServices` in
 `cli/nagare-access/src/Nagare/Access/Auth.hs`:
 
-- `revokeSession :: !(Text -> IO ())`: revoke the Shomei session that owns this access
-  token, best effort. Log failures and never throw.
-- `forwardPortal :: !(PortalIdentity -> Text -> BackendTarget -> Request -> IO PortalUpstreamResult)`:
+- `revokeSession :: !(AccessToken -> IO ())`: revoke the Shomei session that owns this
+  access token, best effort. Log failures and never throw.
+- `forwardPortal :: !(Portal -> PortalIdentity -> Request -> IO PortalUpstreamResult)`:
   proxy to the portal and report whether the response asked for a session change.
-- `fetchPortalPage :: !(BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString))`:
-  used in Milestone 3. Add it now with a stub that returns `Nothing`, so the record
-  changes once.
-
-`PortalIdentity`, `PortalUpstreamResult`, and `PortalPageRequest` are defined in
-Interfaces and Dependencies.
+- `fetchPortalPage :: !(Portal -> PortalPageRequest -> IO (Maybe PortalPage))`: used in
+  Milestone 3. Add it now with a stub that returns `Nothing`, so the record changes
+  once.
 
 **Real implementations.**
 
-- `revokeSession`: add `logoutWithShomei :: Shomei.ClientEnv -> Text -> IO ()` to
+- `revokeSession`: add `logoutWithShomei :: Shomei.ClientEnv -> AccessToken -> IO ()` to
   `cli/nagare-access/src/Nagare/Access/ShomeiClient.hs`. It calls Shomei's
   `POST /v1/auth/logout` with `Authorization: Bearer`. Use the generated `Shomei.Client`
   function if it exposes one; otherwise issue the request with the existing
   `http-client` manager. Record which you used in the Decision Log.
-- `forwardPortal`: add `portalForwarder` to `Proxy.hs`.
+- `forwardPortal`: add `portalForwarder :: HC.Manager -> Portal -> PortalIdentity ->
+  Wai.Request -> IO PortalUpstreamResult` to `Proxy.hs`.
   - It builds the upstream request like `buildProxyRequest`. It first strips any
     client `Authorization`, `X-Forwarded-User`, `Nagare-Session-Establish`, and
     `Nagare-Session-Clear`, and then adds `X-Forwarded-User` and
     `Authorization: Bearer` only for `PortalAuthenticated`.
-  - It opens the response. If the response headers contain `Nagare-Session-Establish`
-    or `Nagare-Session-Clear`, it reads at most 64 KiB of the body, closes the response,
-    and returns `PortalSessionEstablish payload` or `PortalSessionClear response`.
-    Otherwise it returns `PortalPassThrough response`, the same streaming response
-    `proxyResponseToWai` builds.
+  - It opens the response.
+    - If the response carries `Nagare-Session-Establish`, it closes the response and
+      returns `PortalSessionEstablish` or `PortalHandoffMalformed`, depending on
+      `decodeSessionHandoff`.
+    - If it carries `Nagare-Session-Clear`, it reads at most 64 KiB of the body into a
+      `CapturedResponse`, closes the response, and returns `PortalSessionClear`.
+    - Otherwise it returns `PortalPassThrough`, holding the same streaming response
+      `proxyResponseToWai` builds.
   - Closing the upstream response before returning is required on the interception
     path. Otherwise the connection leaks, because `proxyResponseToWai` only closes it
     inside the streaming body.
@@ -634,48 +689,55 @@ works like this:
    - With no credential, or an invalid credential and no usable refresh cookie, the
      identity is `PortalAnonymous`.
    - With a verified credential it is `PortalAuthenticated user token`. The token is
-     the raw access token from the cookie or bearer header, or the refreshed token.
+     the access token from the cookie or bearer header, or the refreshed token.
    - Refresh-cookie headers produced during authentication are added to whatever
      response is finally returned.
    - A failed refresh clears the auth cookies, just as `refreshOrChallenge` does.
 2. Call `forwardPortal`.
 3. For `PortalPassThrough`, return the response with the refresh headers added.
-4. For `PortalSessionEstablish raw`:
-   - Base64url-decode and JSON-decode `raw` into
-     `{accessToken :: Text, refreshToken :: Text, returnTo :: Maybe Text}`.
-   - Verify the access token with `verifyCredential (BearerToken accessToken)`.
-   - Call `refreshUserSession refreshToken`. It must return `LoginSucceeded` with a new
-     refresh token. Verify that new access token too.
-   - Compute the return URL with `validatePortalReturnTo backends portalHost returnTo`
-     (below).
-   - Build `sessionHeaders` from the refreshed tokens. Answer `303` with `Location`, or
-     `200 {"redirect": url}` when `classifyChallenge` says the request is a JSON API
-     call.
-   - On any failure, answer `303` to `https://<portalHost>/login?error=session`, set no
-     cookies, and log one line naming the failing step, never token values.
-5. For `PortalSessionClear response`:
-   - If the identity is authenticated, call `revokeSession token`.
-   - Return the captured portal response (status, filtered headers, and the at most
-     64 KiB body) with the clear-cookie headers added.
+4. For `PortalSessionEstablish handoff`:
+   - Verify the handoff's access token with `verifyCredential`.
+   - Call `refreshUserSession` with its refresh token. It must return `LoginSucceeded`
+     with a new refresh token. Verify that new access token too.
+   - Choose the destination with `parseReturnTarget backends (handoffReturnTo handoff)`,
+     falling back to `portalHome portal`.
+   - Build `sessionHeaders` from the refreshed tokens. Answer `303` with
+     `Location: renderReturnTarget target`, or `200 {"redirect": …}` when
+     `classifyChallenge` says the request is a JSON API call.
+   - On any failure, answer `303` to `portalLoginUrl portal (Just SessionFailed)
+     Nothing`, set no cookies, and log one line naming the failing step, never token
+     values.
+5. For `PortalHandoffMalformed reason`, do the same as a failed hand-off.
+6. For `PortalSessionClear captured`:
+   - If the identity is authenticated, call `revokeSession` with its token.
+   - Return `captured` (status, filtered headers, and the at most 64 KiB body) with the
+     clear-cookie headers added.
 
-**Return URL validation.** Add
-`validatePortalReturnTo :: BackendMap -> Text -> Maybe Text -> Text` to
-`cli/nagare-access/src/Nagare/Access/Challenge.hs`. The candidate is accepted only if all
-of the following hold; otherwise the result is `"https://" <> portalHost <> "/"`:
+Write the steps of 4 as one `ExceptT HandoffFailure IO` block, with a
+`data HandoffFailure` naming each step. Do not use a ladder of nested `case`s.
 
-- it starts with `https://`;
-- the authority (up to the first `/`, `?`, or `#`) contains no `@` or `\`;
-- the authority's canonical host (via `BackendMap`'s `canonicalHost`, which must be
-  exported for this) equals the portal host or is in `backendHosts`;
-- the remainder (defaulting to `/`) passes `safeReturnDestination`.
+**Return targets.** Add to `Nagare.Access.Portal`:
 
-**Logout.** In `logoutResponse`, change the signature to `IO Response`.
+- `newtype SafePath = SafePath Text`, built only by
+  `mkSafePath :: Text -> Maybe SafePath`, which wraps the existing
+  `safeReturnDestination`.
+- `data ReturnTarget = ReturnTarget { targetHost :: PublicHost, targetPath :: SafePath }`.
+- `renderReturnTarget :: ReturnTarget -> Text`, which renders `https://host/path`.
+- `parseReturnTarget :: BackendMap -> Text -> Maybe ReturnTarget`. It accepts a
+  candidate only if all of the following hold:
+  - it starts with `https://`;
+  - the authority (up to the first `/`, `?`, or `#`) contains no `@` or `\`;
+  - `mkPublicHost` accepts the authority, and the resulting host is routed by the
+    backend map (`isRoutedHost`, which includes the portal itself);
+  - `mkSafePath` accepts the remainder (defaulting to `/`).
+- `portalHome :: Portal -> ReturnTarget`, which is the portal host and `/`.
+
+**Logout.** `logoutResponse` becomes `IO Response`.
 
 - It calls `revokeSession` when the request carries a verifiable credential.
 - It keeps clearing the cookies.
-- The redirect target is `/_nagare/login` when there is no portal (unchanged). When a
-  portal exists, it is `https://<portalHost>/login?logged_out=1`.
-- `appWithRuntime` needs the backend map to know this, and it already has it.
+- The redirect target is `/_nagare/login` when `findPortal backends` is `Nothing`
+  (unchanged). With a portal, it is `portalLoginUrl portal (Just LoggedOut) Nothing`.
 
 **Tests.** Add to `cli/nagare-access/test/Spec.hs`, with a `portalBackends` fixture
 (one protected host `app.example.test`, and portal `auth.example.test`) and a
@@ -715,44 +777,52 @@ At the end of this milestone, when a portal is registered, protected hosts send 
 to the portal to sign in and show the portal's 403 and 503 pages. When no portal is
 registered, every response is identical to today.
 
-**Challenges.** In `cli/nagare-access/src/Nagare/Access/Challenge.hs`, add
-`portalLoginUrl :: Text -> Text -> Text -> Text`. It takes the portal host, the protected
-host, and the raw request path with its query, and returns
-`https://P/login?return_to=<urlencoded https://H<safe path>>`. The path goes through
-`safeReturnDestination`, defaulting to `/`. Encode with `urlEncode True`, as
-`loginPathFor` does.
+**Challenges.** Add to `Nagare.Access.Portal`:
 
-Change `classifyChallenge`'s callers, not `classifyChallenge` itself:
+```haskell
+data LoginNotice = SessionFailed | LoggedOut
+portalLoginUrl :: Portal -> Maybe LoginNotice -> Maybe ReturnTarget -> Text
+```
 
-- In `handleProtected` and `refreshOrChallenge` (`App.hs`), compute the login location
-  as `loginPathFor path` when there is no portal (today's behavior), or as
-  `portalLoginUrl portalHost host path` when there is one.
-- Thread the backend map (or the `Maybe` portal host) into those functions. The
-  cleanest way is a small `ChallengeTarget` value:
-  `BuiltinLogin | PortalLogin portalHost protectedHost`.
+It renders `https://P/login`, with `error=session` or `logged_out=1` for the notice, and
+`return_to=<urlencoded renderReturnTarget target>` for the target. Encode with
+`urlEncode True`, as `loginPathFor` does.
+
+Change `classifyChallenge`'s callers, not `classifyChallenge` itself.
+
+- Introduce, in `App.hs`:
+
+  ```haskell
+  data LoginPage = BuiltinLoginPage | PortalLoginPage Portal
+  ```
+
+  It is computed once per request as `maybe BuiltinLoginPage PortalLoginPage (findPortal backends)`.
+- `handleProtected` and `refreshOrChallenge` take the `LoginPage`. The location is
+  `loginPathFor path` for `BuiltinLoginPage` (today's behavior). For `PortalLoginPage
+  portal` it is `portalLoginUrl portal Nothing (ReturnTarget host <$> mkSafePath path)`.
 - `Response.challengeResponse` keeps its type. `ChallengeMode` already carries the
   location text, so only the text changes.
 
-**The built-in login route.** In `appWithRuntime`, the `GET /_nagare/login` branch works
-as follows when a portal exists:
+**The built-in login route.** In `appWithRuntime`, the `GET /_nagare/login` branch cases
+on `LoginPage`:
 
-- If the query has `builtin=1`, serve today's form. The form's hidden `rd` field
-  already posts back to `/_nagare/login`, and that POST path is unchanged.
-- Otherwise answer `302` to
-  `portalLoginUrl portalHost requestHost (rd or "/")`.
-
-With no portal, it behaves as today.
+- `BuiltinLoginPage`: today's form.
+- `PortalLoginPage _` with `builtin=1` in the query: today's form. Its hidden `rd`
+  field posts back to `/_nagare/login`, and that POST path is unchanged.
+- `PortalLoginPage portal` otherwise: `302` to
+  `portalLoginUrl portal Nothing (ReturnTarget requestHost <$> mkSafePath rd)`.
 
 **Branded errors.**
 
 - In `handleProtected`, for `AuthorizationDecision _` (403) and
   `AuthorizationUnavailable _` (503), when the challenge mode is `RedirectDocument` and
-  a portal exists, call `fetchPortalPage portalTarget PortalPageRequest{…}`.
-  - `Just html` becomes
-    `responseLBS status [("Content-Type","text/html; charset=utf-8"),("Cache-Control","no-store")] html`.
+  the `LoginPage` is `PortalLoginPage portal`, call
+  `fetchPortalPage portal PortalPageRequest{…}`.
+  - `Just page` becomes `portalPageResponse status page`, which is
+    `text/html; charset=utf-8` with `Cache-Control: no-store`.
   - `Nothing` keeps today's response.
-  - JSON requests and the no-portal case keep today's responses exactly.
-- Implement `portalPageFetcher :: HC.Manager -> BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString)`
+  - JSON requests and `BuiltinLoginPage` keep today's responses exactly.
+- Implement `portalPageFetcher :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)`
   in `Proxy.hs`:
   - It sends `GET upstream + "/errors/403"` or `"/errors/503"` with the contract
     headers, and uses `HC.responseTimeout = HC.responseTimeoutMicro 2000000`.
@@ -772,8 +842,8 @@ With no portal, it behaves as today.
   - `GET /_nagare/login` on `app.example.test` yields `302` to the portal.
   - `GET /_nagare/login?builtin=1` yields the built-in form (body contains
     `<h1>Sign in</h1>`).
-  - A denied document request whose `fetchPortalPage` returns `Just "<p>portal 403</p>"`
-    yields `403` with that body.
+  - A denied document request whose `fetchPortalPage` returns
+    `Just (PortalPage "<p>portal 403</p>")` yields `403` with that body.
   - When it returns `Nothing`, the body is `Forbidden`.
   - The same pair of checks holds for 503.
 - A real-socket test of `portalPageFetcher`:
@@ -810,13 +880,32 @@ setups, and deleting the app unregisters it.
 
 **Resolver.** In `cli/nagarectl/src/Nagare/Access/Resolve.hs`:
 
-- **Backend map type.** Change the in-memory map from `Map Text Text` to
-  `Map Text BackendEntry`, where `BackendEntry = BackendEntry { beUpstream :: Text,
-  beRole :: EntryRole }` and `EntryRole = ProtectedEntry | PortalEntry`.
-  - Loading accepts both JSON shapes, mirroring Milestone 1.
-  - Rendering writes a plain string for protected entries, so existing ConfigMaps do
-    not churn, and `{"upstream":…,"role":"portal"}` for the portal.
-  - Update `AccessOps.loadBackendMap` and `writeBackendMap` to the new type.
+- **Backend map type.** Replace the raw `Map Text Text` with a real type:
+
+  ```haskell
+  newtype BackendMap = BackendMap (Map PublicHost BackendEntry)
+  ```
+
+  - `BackendEntry` holds the upstream and an `EntryRole` (`ProtectedEntry` or
+    `PortalEntry`), and `PublicHost` is a canonical host with a smart constructor.
+  - `FromJSON`/`ToJSON` instances for `BackendEntry` accept both JSON shapes, mirroring
+    Milestone 1. They render a plain string for protected entries, so existing
+    ConfigMaps do not churn, and `{"upstream":…,"role":"portal"}` for the portal.
+  - An absent ConfigMap is simply `mempty`. It is not a separate `Maybe` layer, because
+    every caller already treats "absent" and "empty" the same way.
+- **Refactor `AccessOps` instead of growing it.** Today's
+  `loadBackendMap :: IO (Either Text (Maybe (Map Text Text)))` pushes decoding
+  failures, absence, and the map's representation onto every caller.
+  - Replace it with a small store interface whose operations return domain values:
+    `loadBackends :: IO BackendMap` and `saveBackends :: BackendMap -> IO ()`.
+    `saveBackends` writes the ConfigMap and patches the reload annotation, since the
+    two always happen together.
+  - A ConfigMap that exists but does not decode is a fatal error at the `kubectl`
+    boundary. `kubectlAccessOps` reports it with `dieT`, exactly as the resolver does
+    today, so the pure resolution logic never sees an `Either`.
+  - Routes and Shomei changes are described as data (`RouteOp`, `ShomeiPortalChange`)
+    and interpreted by one operation each. The full record is in Interfaces and
+    Dependencies.
 - **Registering with `Just policy`:** the entry's role follows `policy ^. #role`.
 - **Refusal: portal outside the base domain.** Before writing a portal entry, refuse
   (with `dieT`) if the host does not end in `"." <> baseDomain`:
@@ -838,14 +927,14 @@ setups, and deleting the app unregisters it.
   Name the service from the existing entry's upstream URL.
 - **Portal with several domains.** A portal app with more than one domain is refused
   ("an auth portal must have exactly one public host").
-- **Configuring Shomei.** After writing a portal entry and reloading, call a new
-  `AccessOps` operation, `configureShomeiPortal :: Text -> Text -> IO ()` (portal host,
-  base domain). It is idempotent. The real implementation (`kubectlAccessOps`):
+- **Configuring Shomei.** After saving a portal entry, call
+  `applyShomeiPortal ops (EnablePortal host baseDomain)`. It is idempotent. The real
+  implementation (`kubectlAccessOps`):
   1. Reads the current `SHOMEI_WEBAUTHN_ORIGINS` from
      `kubectl -n nagare-system get deployment shomei -o json`
      (`.spec.template.spec.containers[0].env`).
-  2. Computes the union with `https://<portal host>`, keeping order and removing
-     duplicates.
+  2. Parses it into `[Origin]` and computes `addOrigin (portalOrigin host)`, which keeps
+     order and removes duplicates.
   3. If anything differs, runs:
 
      ```bash
@@ -857,7 +946,7 @@ setups, and deleting the app unregisters it.
 
      Changing env rolls the Deployment. If nothing differs, it runs nothing.
 - **When a portal entry is removed** (policy `Nothing`, or role switched to protected),
-  call `unconfigureShomeiPortal :: Text -> IO ()`. It removes that origin from
+  call `applyShomeiPortal ops (DisablePortal host)`. It removes that origin from
   `SHOMEI_WEBAUTHN_ORIGINS` and unsets `SHOMEI_PUBLIC_BASE_URL` with
   `kubectl set env deployment/shomei SHOMEI_PUBLIC_BASE_URL-`. It leaves
   `SHOMEI_WEBAUTHN_RP_ID` in place, because local mode sets it for `protected-hello`
@@ -868,12 +957,14 @@ the Knative Service:
 
 - Load the backend map.
 - Remove every entry whose upstream is `http://<name>.<ns>.svc.cluster.local`.
-- If any were removed, write the map and reload the enforcer, delete the
-  `nagare-system` DomainMapping for each removed host
-  (`kubectl -n nagare-system delete domainmapping <host> --ignore-not-found`), and, if
-  one of them was the portal, call `unconfigureShomeiPortal`.
+- If any were removed:
+  - save the map;
+  - apply `DeleteEnforcerRoute` for each removed host (a new `RouteOp` constructor,
+    interpreted as
+    `kubectl -n nagare-system delete domainmapping <host> --ignore-not-found`);
+  - if one of them was the portal, apply `DisablePortal`.
 - Put this logic in `Nagare.Access.Resolve` as
-  `removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [Text]`,
+  `removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [PublicHost]`,
   so it is testable with `fakeOps`. `deleteApp` calls the `kubectlAccessOps` version.
 - A missing ConfigMap or a missing `nagare-access` is a no-op, so deleting apps on
   clusters without the auth plane keeps working.
@@ -882,7 +973,7 @@ the Knative Service:
 
 - `nagarectl access portal show` prints `portal: <host> -> <upstream>` or
   `portal: (none; protected sites use the built-in sign-in pages)`.
-- `nagarectl access portal sync` re-runs `configureShomeiPortal` for the registered
+- `nagarectl access portal sync` re-applies `EnablePortal` for the registered
   portal, and prints `no portal registered` and exits 0 when there is none.
 
 `sync` exists for the case where `cluster/bootstrap/auth-install.sh` is re-run and
@@ -892,8 +983,9 @@ replaces Shomei's env. Milestone 6 checks whether that happens and documents the
 
 - In `cli/nagare-dsl/test`: `authPortal` round-trips through `accessPolicyJSON` and
   `toAccessPolicy`, and JSON without `role` loads as `ProtectedSite`.
-- In `cli/nagarectl/test/AccessResolveSpec.hs`, extending `fakeOps` with recorded
-  `ConfiguredShomei` and `UnconfiguredShomei` events:
+- In `cli/nagarectl/test/AccessResolveSpec.hs`, rework `fakeOps` for the new `AccessOps`
+  (an `IORef BackendMap` as the store, recording `Saved`, `Routed`, and `ShomeiChanged
+  ShomeiPortalChange` events):
   - a portal deploy writes `{"upstream":…,"role":"portal"}`, reloads, routes to
     `nagare-access`, and configures Shomei with the host and base domain;
   - a second portal host is refused, with nothing written;
@@ -904,8 +996,8 @@ replaces Shomei's env. Milestone 6 checks whether that happens and documents the
   - `removeServiceAccessWithOps` removes only that service's hosts and returns them;
   - loading an old all-string ConfigMap still works, and re-rendering it produces
     identical JSON.
-- A pure test for the origins union and removal helper
-  (`mergeOrigins`/`removeOrigin`).
+- Pure tests for `addOrigin` and `removeOrigin` (order kept, no duplicates, removing an
+  absent origin is a no-op), and for `BackendEntry`'s JSON round trip.
 
 Acceptance: `cabal test nagare-dsl-test` and `cabal test nagarectl-test` pass. In addition,
 `nagarectl deploy --dry-run` on the reference portal config (Milestone 5) shows no
@@ -1304,7 +1396,7 @@ re-run.
 **Deploy-time registration is idempotent.**
 
 - Deploying the portal twice writes the same backend map.
-- `configureShomeiPortal` changes nothing when the origins union and base URL are
+- `applyShomeiPortal (EnablePortal …)` changes nothing when the origin and base URL are
   already present, so it does not roll Shomei needlessly.
 - `nagarectl access portal sync` can be run any number of times.
 
@@ -1342,9 +1434,23 @@ No new Haskell or npm dependencies are added.
   `cli/nagare-access/cabal.project`.
 - The reference portal uses Node 22's standard library only.
 
+The signatures below are the shape the code must have at the end of each milestone. They
+follow two rules. Values that mean different things get different types, so a portal
+host, a return URL, an access token, and a refresh token can never be swapped for one
+another. And effectful records return domain values, while decoding failures and
+absence are handled at the boundary that talks to `kubectl` or HTTP, never threaded
+through every caller as `Either`/`Maybe` layers.
+
 At the end of Milestone 1, in `cli/nagare-access/src/Nagare/Access/BackendMap.hs`:
 
 ```haskell
+-- | A host already canonicalized (lowercase, no port, no trailing dot).
+newtype PublicHost = PublicHost Text
+  deriving stock (Eq, Ord, Show)
+
+mkPublicHost :: Text -> Either Text PublicHost
+publicHostText :: PublicHost -> Text
+
 data BackendRole = ProtectedBackend | PortalBackend
   deriving stock (Eq, Show)
 
@@ -1354,10 +1460,18 @@ data BackendTarget = BackendTarget
   }
   deriving stock (Eq, Show)
 
-canonicalHost :: Text -> Either Text Text          -- now exported
-backendMapFromEntries :: [(Text, Text, BackendRole)] -> Either Text BackendMap
-portalBackend :: BackendMap -> Maybe (Text, BackendTarget)
-backendHosts :: BackendMap -> [Text]
+newtype BackendMap = BackendMap (Map PublicHost BackendTarget)
+  deriving stock (Eq, Show)
+
+data Portal = Portal
+  { portalHost :: !PublicHost
+  , portalTarget :: !BackendTarget
+  }
+  deriving stock (Eq, Show)
+
+backendMapFromTargets :: [(Text, BackendTarget)] -> Either Text BackendMap
+findPortal :: BackendMap -> Maybe Portal
+isRoutedHost :: PublicHost -> BackendMap -> Bool
 ```
 
 and in `cli/nagare-access/src/Nagare/Access/Proxy.hs`:
@@ -1366,53 +1480,123 @@ and in `cli/nagare-access/src/Nagare/Access/Proxy.hs`:
 stripEnforcerCookies :: [Header] -> [Header]
 ```
 
-At the end of Milestone 2, in `cli/nagare-access/src/Nagare/Access/Auth.hs`:
+At the end of Milestone 2, the new module `cli/nagare-access/src/Nagare/Access/Portal.hs`
+holds the contract vocabulary. It imports `Nagare.Access.BackendMap` and
+`Nagare.Access.Challenge`, but not `Nagare.Access.Auth`, so that `Auth` can import it
+without an import cycle:
+
+```haskell
+newtype AccessToken = AccessToken Text
+  deriving stock (Eq, Show)
+
+newtype RefreshToken = RefreshToken Text
+  deriving stock (Eq, Show)
+
+-- | What the portal hands back after a completed sign-in.
+data SessionHandoff = SessionHandoff
+  { handoffAccessToken :: !AccessToken
+  , handoffRefreshToken :: !RefreshToken
+  , handoffReturnTo :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON SessionHandoff
+
+decodeSessionHandoff :: ByteString -> Either Text SessionHandoff
+
+-- | A portal response that nagare-access has read into memory (bounded).
+data CapturedResponse = CapturedResponse
+  { capturedStatus :: !Status
+  , capturedHeaders :: ![Header]
+  , capturedBody :: !LBS.ByteString
+  }
+
+-- | A path that passed 'safeReturnDestination'.
+newtype SafePath = SafePath Text
+  deriving stock (Eq, Show)
+
+mkSafePath :: Text -> Maybe SafePath
+
+data ReturnTarget = ReturnTarget
+  { targetHost :: !PublicHost
+  , targetPath :: !SafePath
+  }
+  deriving stock (Eq, Show)
+
+renderReturnTarget :: ReturnTarget -> Text
+parseReturnTarget :: BackendMap -> Text -> Maybe ReturnTarget
+portalHome :: Portal -> ReturnTarget
+
+data LoginNotice = SessionFailed | LoggedOut
+  deriving stock (Eq, Show)
+
+portalLoginUrl :: Portal -> Maybe LoginNotice -> Maybe ReturnTarget -> Text
+
+data PortalPageKind = ForbiddenPage | UnavailablePage
+  deriving stock (Eq, Show)
+
+newtype PortalPage = PortalPage LBS.ByteString
+
+portalPageResponse :: Status -> PortalPage -> Response
+```
+
+and in `cli/nagare-access/src/Nagare/Access/Auth.hs`, the types that mention
+`AuthenticatedUser`, plus the new `AccessServices` fields:
 
 ```haskell
 data PortalIdentity
   = PortalAnonymous
-  | PortalAuthenticated !AuthenticatedUser !Text   -- user, raw access token
+  | PortalAuthenticated !AuthenticatedUser !AccessToken
   deriving stock (Eq, Show)
 
 data PortalUpstreamResult
   = PortalPassThrough !Response
-  | PortalSessionEstablish !BS.ByteString          -- raw header value
-  | PortalSessionClear !Status ![Header] !LBS.ByteString
-
-data PortalPageKind = PortalForbiddenPage | PortalUnavailablePage
-  deriving stock (Eq, Show)
+  | PortalSessionEstablish !SessionHandoff
+  | PortalHandoffMalformed !Text
+  | PortalSessionClear !CapturedResponse
 
 data PortalPageRequest = PortalPageRequest
   { pageKind :: !PortalPageKind
-  , pageHost :: !Text
-  , pagePath :: !Text
+  , pageTarget :: !ReturnTarget
   , pageUser :: !(Maybe AuthenticatedUser)
   }
 
--- new AccessServices fields
-revokeSession :: !(Text -> IO ())
-forwardPortal :: !(PortalIdentity -> Text -> BackendTarget -> Request -> IO PortalUpstreamResult)
-fetchPortalPage :: !(BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString))
+data AccessServices = AccessServices
+  { -- existing fields unchanged
+    revokeSession :: !(AccessToken -> IO ())
+  , forwardPortal :: !(Portal -> PortalIdentity -> Request -> IO PortalUpstreamResult)
+  , fetchPortalPage :: !(Portal -> PortalPageRequest -> IO (Maybe PortalPage))
+  }
 ```
 
 together with:
 
 ```haskell
 -- Nagare.Access.ShomeiClient
-logoutWithShomei :: Shomei.ClientEnv -> Text -> IO ()
+logoutWithShomei :: Shomei.ClientEnv -> AccessToken -> IO ()
+
 -- Nagare.Access.Proxy
-portalForwarder :: HC.Manager -> PortalIdentity -> Text -> BackendTarget -> Wai.Request -> IO PortalUpstreamResult
--- Nagare.Access.Challenge
-validatePortalReturnTo :: BackendMap -> Text -> Maybe Text -> Text
+portalForwarder :: HC.Manager -> Portal -> PortalIdentity -> Wai.Request -> IO PortalUpstreamResult
+
+-- Nagare.Access.App (internal)
+data HandoffFailure
+  = HandoffMalformed !Text
+  | HandoffAccessTokenRejected
+  | HandoffRefreshFailed
+  | HandoffRefreshedTokenRejected
+  deriving stock (Eq, Show)
+
+establishSession :: AccessServices -> BackendMap -> Portal -> SessionHandoff -> ExceptT HandoffFailure IO (ReturnTarget, [Header])
 ```
 
 At the end of Milestone 3:
 
 ```haskell
--- Nagare.Access.Challenge
-portalLoginUrl :: Text -> Text -> Text -> Text     -- portal host, protected host, raw path+query
+-- Nagare.Access.App (internal)
+data LoginPage = BuiltinLoginPage | PortalLoginPage !Portal
+
 -- Nagare.Access.Proxy
-portalPageFetcher :: HC.Manager -> BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString)
+portalPageFetcher :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)
 ```
 
 At the end of Milestone 4, in `cli/nagare-dsl/src/Nagare/Dsl/Access.hs`:
@@ -1433,24 +1617,60 @@ authPortal :: AccessPolicy
 and in `cli/nagarectl/src/Nagare/Access/Resolve.hs`:
 
 ```haskell
+newtype PublicHost = PublicHost Text
+  deriving stock (Eq, Ord, Show)
+
+mkPublicHost :: Text -> Either Text PublicHost
+
 data EntryRole = ProtectedEntry | PortalEntry
-data BackendEntry = BackendEntry { beUpstream :: !Text, beRole :: !EntryRole }
+  deriving stock (Eq, Show)
+
+data BackendEntry = BackendEntry
+  { entryUpstream :: !Text
+  , entryRole :: !EntryRole
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON BackendEntry   -- a bare string, or {"upstream", "role"}
+instance ToJSON BackendEntry     -- a bare string for protected entries
+
+newtype BackendMap = BackendMap (Map PublicHost BackendEntry)
+  deriving stock (Eq, Show)
+  deriving newtype (Semigroup, Monoid)
+
+newtype Origin = Origin Text
+  deriving stock (Eq, Show)
+
+portalOrigin :: PublicHost -> Origin
+addOrigin :: Origin -> [Origin] -> [Origin]
+removeOrigin :: Origin -> [Origin] -> [Origin]
+
+data ShomeiPortalChange
+  = EnablePortal !PublicHost !BaseDomain
+  | DisablePortal !PublicHost
+  deriving stock (Eq, Show)
+
+data RouteOp
+  = RouteTo !RouteTarget
+  | DeleteRouteOverride
+  | DeleteEnforcerRoute
+  deriving stock (Eq, Show)
 
 data AccessOps = AccessOps
   { checkEnforcerPresent :: !(IO Bool)
-  , loadBackendMap :: !(IO (Either Text (Maybe (Map Text BackendEntry))))
-  , writeBackendMap :: !(Map Text BackendEntry -> IO ())
-  , reloadBackendMap :: !(IO ())
-  , applyRouteOp :: !(Text -> Text -> RouteOp -> IO ())
-  , configureShomeiPortal :: !(Text -> Text -> IO ())   -- portal host, base domain
-  , unconfigureShomeiPortal :: !(Text -> IO ())         -- portal host
-  , deleteSystemDomainMapping :: !(Text -> IO ())       -- host
+  , loadBackends :: !(IO BackendMap)
+  , saveBackends :: !(BackendMap -> IO ())
+  , applyRouteOp :: !(Namespace -> PublicHost -> RouteOp -> IO ())
+  , applyShomeiPortal :: !(ShomeiPortalChange -> IO ())
   }
 
-removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [Text]
-mergeOrigins :: Text -> [Text] -> [Text]
-removeOrigin :: Text -> [Text] -> [Text]
+removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [PublicHost]
 ```
+
+`nagarectl` has no base-domain type today; it passes `Text` everywhere. Add
+`newtype BaseDomain = BaseDomain Text` next to `PublicHost`, make
+`resolveDeploymentAccessWithOps` take it instead of `Text`, and add
+`isUnderBaseDomain :: BaseDomain -> PublicHost -> Bool` for the portal refusal.
 
 The wire contract between `nagare-access` and a portal (headers `X-Forwarded-User`,
 `Authorization`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Nagare-Session-Establish`,
@@ -1459,3 +1679,16 @@ The wire contract between `nagare-access` and a portal (headers `X-Forwarded-Use
 `/v1/auth/password-reset/confirm`, `/v1/auth/verify-email/confirm`) is the public
 interface of this plan. Any change to it after Milestone 6 must update
 `docs/user/auth-portal.md`, the reference portal, and the ADR together.
+
+
+## Revision notes
+
+- 2026-09-12: Reworked the Haskell interfaces after review.
+  - Replaced bare-`Text` and nested `Either`/`Maybe` signatures with domain types.
+    There is a new `Nagare.Access.Portal` module for the contract vocabulary, and
+    `Portal`/`PublicHost` in `BackendMap`.
+  - Refactored `nagarectl`'s `AccessOps` to `loadBackends`/`saveBackends`, with data
+    descriptions of route and Shomei changes.
+  - Updated Milestones 1–4, the tests, Idempotence and Recovery, and Interfaces and
+    Dependencies to match, and recorded the decision in the Decision Log.
+  - The portal wire contract and milestone scope are unchanged.
