@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: "Accessing the host"
-description: "Reach a Nagare host through Tailscale SSH or an IAP break-glass tunnel and obtain cluster access."
+description: "Reach a Nagare host through Tailscale SSH, an IAP tunnel, or the serial console boot menu, and obtain cluster access."
 docId: DOC-3
 tags: [host, ssh, tailscale, iap, kubectl]
 generated:
@@ -17,10 +17,15 @@ generated:
 > exists specifically because plain `gcloud … --tunnel-through-iap` is broken on
 > macOS OpenSSH 10.x (see below).
 
-There are two ways onto `nagare-01`, by design. Tailscale is the day-to-day
-path; the IAP tunnel is the break-glass path that works even if Tailscale is
-down. Port 22 is **never** open to the public internet — the firewall only
-admits SSH from Google's IAP range (`35.235.240.0/20`).
+There are two SSH paths onto `nagare-01`, by design. Tailscale is the day-to-day
+path; the IAP tunnel works even if Tailscale is down. Both use the same operator
+key, so neither helps if a configuration removed that key. For that case there is
+a break-glass path that needs no SSH key (the serial console boot menu), and a
+last resort (the rescue disk). Port 22 is **never** open to the public internet —
+the firewall only admits SSH from Google's IAP range (`35.235.240.0/20`).
+
+GCE startup scripts (`startup-script` metadata) **do not run** on Nagare's NixOS
+image. They are not a recovery tool; do not use them.
 
 ---
 
@@ -44,7 +49,7 @@ convenient — they ride the tailnet.
 > its tailnet IP. The deploy user and operator keys come from the context-owned flake created by
 > `nagarectl host init`.
 
-## Path 2: IAP tunnel (break-glass)
+## Path 2: IAP tunnel
 
 When Tailscale isn't available (first boot before the node joins, a tailnet
 outage, debugging the network stack), tunnel in over Google IAP.
@@ -95,6 +100,52 @@ gcloud project must match the selected target context.
 > declarative `authorized_keys`. So for both paths, log in as `deploy` with the
 > operator key. (The VM metadata still has `enable-oslogin=TRUE` at the GCE
 > layer, but the host's sshd ignores it.)
+
+## Path 3: Serial console boot menu (break-glass)
+
+Use this when SSH is refused on both paths even after a `NOT COMMITTED` switch's confirmation
+window has passed. It needs no SSH key. `boot-recovery.nix` puts the GRUB menu on the GCE serial
+port with a ten-second timeout and keeps the last 20 generations. Rebooting the instance takes
+the platform down for a few minutes, so only do this when you have no other way in.
+
+1. Make sure your account can use the serial console (IAM
+   `roles/compute.instanceAdmin.v1` on the project, or an equivalent custom role).
+2. Enable the serial port on the instance. This is a cloud mutation; in agent sessions it needs
+   your approval:
+
+   ```bash
+   gcloud compute instances add-metadata nagare-01 --metadata=serial-port-enable=TRUE
+   ```
+
+3. Connect to the serial console and leave it open:
+
+   ```bash
+   gcloud compute connect-to-serial-port nagare-01
+   ```
+
+4. From a second terminal, reset the instance:
+
+   ```bash
+   gcloud compute instances reset nagare-01
+   ```
+
+5. Within ten seconds, in the serial console, choose **NixOS - All configurations**, then the
+   newest generation that is *older* than the bad one, and press Enter.
+6. Once it has booted, confirm `ssh deploy@nagare-01 true` (or the IAP path) works. Then fix the
+   configuration and run `just host-switch`, which makes a verified generation the boot default
+   again. The generation you picked in the menu is only booted once.
+7. Disable the serial port again:
+
+   ```bash
+   gcloud compute instances remove-metadata nagare-01 --keys=serial-port-enable
+   ```
+
+## Path 4: Rescue disk (last resort)
+
+If the boot menu cannot help (for example, every listed generation lacks your key), stop the
+instance, attach its boot disk to a temporary rescue VM, and repair the system profile from
+there. The step-by-step procedure, with pass/fail gates, is Path B in
+[ExecPlan 114](../plans/114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md).
 
 ## Getting a working `kubectl`
 

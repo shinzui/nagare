@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
+  - docs/adr/0011-host-activation-is-guarded-and-self-reverting.md
 ---
 
 # ADR 5 — Use context-owned host flakes for operator NixOS inputs
@@ -58,3 +59,6 @@ Operators must create and back up one small host flake and encrypted secrets fil
 building an image. Changing reusable platform behavior still requires a new Nagare payload or source
 revision; changing operator identity requires regenerating only that context's host flake. The current
 generator targets one x86_64-linux GCE host per context, matching Nagare's single-node scope.
+
+The fixture's evaluation-only status is enforced mechanically, not just stated here: see
+[ADR 11](0011-host-activation-is-guarded-and-self-reverting.md).
