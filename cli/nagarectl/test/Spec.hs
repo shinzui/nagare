@@ -253,6 +253,7 @@ import Nagare.Target
   , effectivePulumiBackend
   , listContexts
   , mkContextName
+  , renderContextShellEnv
   , parseContextEnv
   , parseMode
   , parsePulumiBackendKind
@@ -292,6 +293,7 @@ import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurre
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process (readProcess)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -504,6 +506,41 @@ initTests =
             tp = profileFromContextMap ctx
         tpPulumiBackend tp @?= PulumiBackendGcs
         tpPulumiBackendUrl tp @?= "gs://acme-prod-nagare-pulumi-state/nagare/prod"
+    , -- EP-113: the launcher has no .envrc, so `nagarectl context env` must emit
+      -- the whole contract, Pulumi selection included, safely quoted.
+      testCase "renderContextShellEnv emits the local backend's per-context file URL" $ do
+        let name = either (error . T.unpack) id (mkContextName "labs")
+            penv = pulumiEnvFor "/tmp/nagare-state" "labs" initProfile
+            out = renderContextShellEnv name initProfile penv
+        assertBool "context" (T.isInfixOf "export NAGARE_CONTEXT='labs'\n" out)
+        assertBool "project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT='acme-prod'\n" out)
+        assertBool
+          "local backend url"
+          (T.isInfixOf "export PULUMI_BACKEND_URL='file:///tmp/nagare-state/labs/state'\n" out)
+        assertBool "pulumi home" (T.isInfixOf "export PULUMI_HOME='/tmp/nagare-state/labs/home'\n" out)
+        assertBool "stack" (T.isInfixOf "export NAGARE_PULUMI_STACK='labs'\n" out)
+        assertBool "empty passphrase" (T.isInfixOf "export PULUMI_CONFIG_PASSPHRASE=''\n" out)
+    , testCase "renderContextShellEnv emits the gcs backend's remote URL" $ do
+        let name = either (error . T.unpack) id (mkContextName "labs")
+            gcsProfile = initProfile {tpPulumiBackend = PulumiBackendGcs}
+            penv = pulumiEnvFor "/tmp/nagare-state" "labs" gcsProfile
+            out = renderContextShellEnv name gcsProfile penv
+        assertBool
+          "gcs backend url"
+          (T.isInfixOf "export PULUMI_BACKEND_URL='gs://acme-prod-nagare-pulumi-state/nagare/labs'\n" out)
+        -- PULUMI_HOME stays the per-context LOCAL home even for a remote backend.
+        assertBool "pulumi home" (T.isInfixOf "export PULUMI_HOME='/tmp/nagare-state/labs/home'\n" out)
+    , testCase "renderContextShellEnv round-trips a value containing a single quote" $ do
+        let name = either (error . T.unpack) id (mkContextName "labs")
+            odd' = initProfile {tpBaseDomain = "it's.example.com"}
+            penv = pulumiEnvFor "/tmp/nagare-state" "labs" odd'
+            out = renderContextShellEnv name odd' penv
+        got <-
+          readProcess
+            "bash"
+            ["-c", T.unpack out <> "\nprintf '%s' \"$NAGARE_BASE_DOMAIN\""]
+            ""
+        got @?= "it's.example.com"
     , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
         assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
     , testCase "nextStepsText names the ordered just targets" $ do

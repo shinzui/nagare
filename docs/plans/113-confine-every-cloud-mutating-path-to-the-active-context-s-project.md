@@ -102,10 +102,18 @@ test that fails before the change and passes after it.
       `Nagare.Ops.ContextGuard (EP-113)` group pass, and the
       `nagare-clone-free-platform` check now drives the guard twice through a fake
       `pulumi config get gcp:project`, expecting acceptance then refusal.
-- [ ] M5: add `nagarectl context env --export`; have the `nagare` launcher in
-      `nix/haskell-packages.nix` evaluate it; extend
-      `scripts/rehearse-clone-free-release.sh` to run a recipe with no `.envrc` present and
-      assert the Pulumi backend and stack are the active context's.
+- [x] M5 (2026-09-12): `renderContextShellEnv` added to
+      `cli/nagarectl/src/Nagare/Target.hs` with shell-safe single quoting;
+      `nagarectl context env` added to the context subparser; the `nagare` launcher in
+      `nix/haskell-packages.nix` evaluates it (its build-time shellcheck accepted the
+      `eval` unmodified); `scripts/rehearse-clone-free-release.sh` asserts the stack,
+      backend URL and project in `nagarectl context env` output and that the recipe plan
+      contains the guard, and records `context-env` in its `checks` array. Three unit
+      cases pass, including a single-quote round-trip through `bash -c`.
+      The command is `nagarectl context env`, not `--export`: the plan named a flag in
+      Progress that its own Milestone 5 body and Interfaces section never define, and the
+      subcommand prints nothing but `export` lines, so a flag would have no other mode to
+      select against.
 - [ ] M6: update `docs/user/gcp-prerequisites.md`, `docs/user/contexts.md` and
       `docs/user/provisioning-with-pulumi.md` with the enforced promise; write the ADR;
       accept IR-2 and register EP-113 in `docs/plan-registry.md`.

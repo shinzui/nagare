@@ -271,6 +271,7 @@ import Nagare.Target
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
+  , renderContextShellEnv
   , readContextProfile
   , readCurrentContext
   , resolveActiveContext
@@ -566,6 +567,9 @@ data ContextCommand
   | -- | EP-113: refuse when anything disagrees about which project the next
     -- Pulumi operation would write to. The 'Bool' is @--json@.
     ContextGuard Bool
+  | -- | EP-113: print the active context's shell environment for @eval@ by the
+    -- @nagare@ launcher, which has no @.envrc@.
+    ContextEnv
   deriving stock (Generic, Show)
 
 data ContextCreateOpts = ContextCreateOpts
@@ -1630,6 +1634,7 @@ opts =
             <> command "create" (info (ContextCreate <$> contextNameArg <*> contextCreateOptsParser <**> helper) (progDesc "Write a new context into the store"))
             <> command "delete" (info (ContextDelete <$> contextNameArg <*> switch (long "yes" <> help "Confirm deletion") <**> helper) (progDesc "Delete a context from the store"))
             <> command "guard" (info (ContextGuard <$> switch (long "json" <> help "Emit the compared values as JSON") <**> helper) (progDesc "Refuse unless the Pulumi stack, the environment and gcloud all agree with the active context's project"))
+            <> command "env" (info (pure ContextEnv <**> helper) (progDesc "Print the active context's shell environment as export lines, safe to eval"))
         )
     initCmd =
       info
@@ -2905,6 +2910,7 @@ runContext mctx = \case
           Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextGuard asJson -> runContextGuard mctx asJson
+  ContextEnv -> runContextEnv mctx
   ContextDelete rawName yes -> do
     name <- parseContextNameOrDie rawName
     ok <- contextExists name
@@ -2918,6 +2924,23 @@ runContext mctx = \case
             cur <- readCurrentContext
             when (cur == Just name) clearCurrentContext
             TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
+
+-- | @nagarectl context env@ (EP-113). Print the active context's shell environment
+-- as @export K=V@ lines and nothing else, so the packaged @nagare@ launcher can
+-- @eval@ it. A clone-free install has no @.envrc@, so without this every
+-- Pulumi-invoking recipe inherits whatever Pulumi state the invoking shell happens
+-- to carry — which, for an installed operator, is none.
+--
+-- Ensuring the per-context Pulumi home and state directory exist is done here, not
+-- in the launcher, so the launcher stays a two-line shim.
+runContextEnv :: Maybe String -> IO ()
+runContextEnv mctx = do
+  active <- activeTarget mctx
+  let name = atContextName active
+      tp = atProfile active
+  _ <- ensurePulumiForContext name tp
+  stateRoot <- nagareStateDir
+  TIO.putStr (renderContextShellEnv name tp (pulumiEnvFor stateRoot (contextNameText name) tp))
 
 -- | @nagarectl context guard@ (EP-113). The project-confinement preflight for
 -- @just infra-up@ / @just infra-preview@, which before this had no project check at
@@ -2964,7 +2987,7 @@ runContextGuard mctx asJson = do
               , pgiAmbient = nonBlank =<< ambient
               , pgiConfigured = configured
               }
-          value =
+          observed =
             Aeson.object
               [ "context" Aeson..= pgiContext pgi
               , "declaredProject" Aeson..= pgiDeclared pgi
@@ -2976,11 +2999,11 @@ runContextGuard mctx asJson = do
       case projectGuardVerdict pgi of
         Left msg -> do
           when asJson $
-            LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= value]))
+            LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= observed]))
           dieT msg
         Right () ->
           if asJson
-            then LBC.putStrLn (Aeson.encode (Aeson.object ["confined" Aeson..= True, "observations" Aeson..= value]))
+            then LBC.putStrLn (Aeson.encode (Aeson.object ["confined" Aeson..= True, "observations" Aeson..= observed]))
             else TIO.putStrLn (renderProjectGuard pgi)
   where
     nonBlank t = if T.null (T.strip t) then Nothing else Just (T.strip t)

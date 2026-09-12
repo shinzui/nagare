@@ -37,6 +37,7 @@ module Nagare.Target
   , readCurrentContext
   , profileFromContextMap
   , pulumiEnvFor
+  , renderContextShellEnv
   , parsePulumiBackendKind
   , pulumiBackendToken
   , defaultGcsPulumiBackendUrl
@@ -357,6 +358,56 @@ pulumiEnvFor stateRoot ctx tp =
         , peStack = ctx
         , peKind = kind
         }
+
+-- | The full shell environment an operator recipe needs (EP-113): the
+-- @CLOUDSDK_*@ \/ @NAGARE_*@ contract plus the per-context Pulumi selection,
+-- emitted as shell-quoted @export K=V@ lines for @eval@ by the @nagare@ launcher,
+-- which has no @.envrc@ to load.
+--
+-- This is deliberately __not__ @Nagare.Init.renderTargetEnv@: that renders the
+-- persisted /context file/ and must not grow Pulumi keys, because the Pulumi
+-- selection is derived state, not part of the context an operator edits. This is
+-- the Haskell twin of what @scripts\/lib\/target.sh@ exports; the two must agree,
+-- and @scripts\/rehearse-clone-free-release.sh@ proves they do.
+--
+-- Every value is single-quoted with embedded single quotes escaped, so the output
+-- is safe to @eval@ whatever a context declares.
+renderContextShellEnv :: ContextName -> TargetProfile -> PulumiEnv -> Text
+renderContextShellEnv name tp penv =
+  T.unlines
+    [ line "NAGARE_CONTEXT" ctx
+    , line "CLOUDSDK_CORE_PROJECT" (tpProject tp)
+    , line "CLOUDSDK_COMPUTE_REGION" (tpRegion tp)
+    , line "CLOUDSDK_COMPUTE_ZONE" (tpZone tp)
+    , line "NAGARE_REGISTRY_HOST" (tpRegistryHost tp)
+    , line "NAGARE_ARTIFACT_REGISTRY_ID" (tpArtifactRegistryId tp)
+    , line "NAGARE_IMAGE_BUCKET" (tpImageBucket tp)
+    , line "NAGARE_BACKUP_BUCKET" (tpBackupBucket tp)
+    , line "NAGARE_BASE_DOMAIN" (tpBaseDomain tp)
+    , line "NAGARE_INSTANCE_NAME" (tpInstanceName tp)
+    , line "NAGARE_TARGET_PLATFORM" (tpTargetPlatform tp)
+    , line "NAGARE_MODE" (modeToken (tpMode tp))
+    , line "NAGARE_LOCAL_OBJECT_STORE" (tpLocalObjectStore tp)
+    , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
+    , line "NAGARE_PULUMI_BACKEND_URL" (tpPulumiBackendUrl tp)
+    , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
+    , line "PULUMI_HOME" (T.pack (peHome penv))
+    , line "PULUMI_BACKEND_URL" (peBackendUrl penv)
+    , line "PULUMI_CONFIG_PASSPHRASE" ""
+    , line "PULUMI_CONFIG_PASSPHRASE_FILE" (T.pack (peHome penv </> "passphrase"))
+    , line "NAGARE_PULUMI_STACK" (peStack penv)
+    ]
+  where
+    ctx = contextNameText name
+    line k v = "export " <> k <> "=" <> shellQuote v
+    modeToken Cloud = "cloud"
+    modeToken Local = "local"
+
+-- | Single-quote a value for POSIX shell. A literal single quote is closed,
+-- escaped, and reopened — @'@ becomes @'\\''@ — which is the only quoting that is
+-- correct for every byte a context file can hold.
+shellQuote :: Text -> Text
+shellQuote v = "'" <> T.replace "'" "'\\''" v <> "'"
 
 -- | The Artifact Registry image-name prefix: @"\<host>/\<project>/\<repo-id>"@. An
 -- app's short image name is appended to this to form a full image ref (EP-62 M3,
