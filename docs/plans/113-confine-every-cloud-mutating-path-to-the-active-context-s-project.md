@@ -240,7 +240,63 @@ requests at once. (2026-09-12)
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All six milestones are implemented and committed (`63b9642`, `17da481`, `aba8549`,
+`560a8b3`, `732be3b`, `e6a4863`, `3304094`, `43151d4`). All four paths named in IR-2 are
+closed, and each closure is held by an automated test that fails before the change.
+
+**What an operator can now do that they could not before.** With a production project
+selected in `gcloud config`, or exported as `CLOUDSDK_CORE_PROJECT`, every Nagare command
+that would write outside the active context's project stops and names both compared values.
+`scripts/upload-images.sh` and the Pulumi state-bucket bootstrap refuse a bucket whose
+owning project number is not the target's — including when that number cannot be read at
+all. `cluster/bootstrap/auth-images/build-local-image.sh` no longer has any way to learn a
+project from `gcloud config`. `just infra-up` and `just infra-preview` refuse before Pulumi
+is invoked. And `nagare <recipe>` from a directory with no `.envrc` carries the active
+context's Pulumi backend and stack, so the preflight has correct inputs outside a checkout.
+
+**Evidence.** `nix flake check` passes all sixteen checks, including the two added here
+(`bucket-ownership-guard`, `image-build-guard`), the extended `shellcheck-scripts` — which
+now lints the two `cluster/bootstrap` build scripts it previously skipped — and the extended
+`nagare-clone-free-platform`, which drives `nagarectl context guard` through a fake
+`pulumi config get gcp:project` and expects acceptance then refusal. The `nagarectl` suite
+grew from 400 to 411 cases with no new failures; the eight pre-existing `AppDeploySpec`
+failures are the local Cabal-store problem recorded in Surprises & Discoveries.
+`bash scripts/rehearse-clone-free-release.sh --version 0.1.0` completes and lists
+`context-env` among its `checks`. `just docs-validate` passes.
+
+**Three deviations from the plan as written, each recorded above.** The `nagarectl context
+env` subcommand takes no `--export` flag (Progress named one that the milestone body and
+Interfaces section never define, and the command has no other output mode to select
+against). The `image-build-guard` test runs the real `build-local-image.sh` against a
+minimal four-file platform root rather than the repository, because the script stages its
+build context by rsyncing the whole tree — gigabytes here, and unaffordable inside a Nix
+check. And `scripts/rehearse-clone-free-release.sh` strips the `CLOUDSDK_*` / `NAGARE_*`
+contract for its `nagarectl context env` invocation, because a developer runs the rehearsal
+from a `direnv`-loaded checkout whose profile wins the documented per-field precedence
+(environment over context) and would make the assertion describe the developer's machine
+rather than the context under test (`e6a4863`).
+
+**Two things were not done, both deliberately.** `just local-smoke` was not run: it needs a
+live k3d cluster and the Docker daemon is not running on this machine. The property it would
+regress — local mode never requiring a GCP project or invoking `gcloud` — is instead held by
+three automated assertions: case four of `scripts/test-bucket-ownership-guard.sh` (empty
+`gcloud` log in local mode), case three of `scripts/test-image-build-guard.sh` (a local-mode
+no-push build never invokes `gcloud`), and the `nagare-clone-free-platform` check, which
+exercises the new launcher `eval` against a `mode=local` context end to end. Running
+`just local-smoke` once with a cluster available would close the last of it. Separately, the
+`docs/improvement-requests` strict validation named in Milestone 6's acceptance still exits
+1; it did so identically before this plan, for all four September-2026 requests, and the
+only way to make it pass is to write review provenance for reviews that did not happen. It
+is left open as a follow-up in Progress.
+
+**Lessons.** Two are worth carrying forward and are recorded in
+[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
+First, an entry-point check is not a confinement guarantee: the two bucket bugs were both
+cases where the project the script believed in was correct and the *object* was not ours, so
+the assertion has to sit at the mutation, not at the door. Second, the tests that actually
+prove confinement assert on the recorded argv of a fake tool, not on the returned value — a
+guard that returns an error after issuing the mutation would pass a return-value test and
+fail the argv test, and the argv test is the one that matches the promise.
 
 
 ## Context and Orientation
