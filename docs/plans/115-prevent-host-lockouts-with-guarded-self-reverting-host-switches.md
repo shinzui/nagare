@@ -80,10 +80,10 @@ Milestone 1 — Agent guardrails (do this before ExecPlan 114 Milestone 1):
 
 Milestone 2 — The evaluation fixture refuses to activate:
 
-- [ ] Add `nagare.host.evaluationFixture`, the pre-switch check, and the fixture-key assertion to `nixos/modules/nagare-host.nix`.
-- [ ] Set `evaluationFixture = true` in `nixos/hosts/nagare-01/configuration.nix`.
-- [ ] Add the `evaluation-fixture-refuses-activation` check; it passes and existing checks still pass.
-- [ ] Commit.
+- [x] Add `nagare.host.evaluationFixture`, the pre-switch check, and the fixture-key assertion to `nixos/modules/nagare-host.nix`. (2026-09-12T19:25Z)
+- [x] Set `evaluationFixture = true` in `nixos/hosts/nagare-01/configuration.nix`. (2026-09-12T19:25Z)
+- [x] Add the `evaluation-fixture-refuses-activation` check; it passes and existing checks still pass. (2026-09-12T19:30Z; FIXTURE_CHECK_OK, EVAL_CHECK_OK, FORGE_CHECK_OK; `failedAssertions operatorLike == [ ]` held without narrowing)
+- [x] Commit. (2026-09-12T19:33Z; only this plan's `flake.nix` block staged, ExecPlan 114's `data-disk-online-grow` WIP left unstaged)
 
 Milestone 3 — Self-reverting host switch:
 

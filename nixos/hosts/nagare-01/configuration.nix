@@ -4,6 +4,8 @@
   # Source-checkout compatibility fixture. Real operators generate this module
   # under their XDG configuration root with `nagarectl host init`.
   nagare.host = {
+    # Refuses activation (ExecPlan 115): this fixture's key locks every operator out.
+    evaluationFixture = true;
     hostName = "nagare-01";
     instanceName = "nagare-01";
     registryHost = "us-west1-docker.pkg.dev";

@@ -69,6 +69,41 @@
       nixosConfigurations.nagare-01 = compatibilitySystem;
 
       checks.${system} = {
+        # ExecPlan 115: the in-repo fixture refuses activation by any tool, an
+        # operator-like configuration does not, and a configuration carrying the
+        # fixture's placeholder key without the fixture flag fails to build.
+        evaluation-fixture-refuses-activation =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            lib = nixpkgs.lib;
+            operatorLike = mkNagareSystem {
+              hostModule = ./hosts/nagare-01/configuration.nix;
+              extraModules = [{
+                nagare.host.evaluationFixture = lib.mkForce false;
+                nagare.host.authorizedKeys = lib.mkForce [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOperatorExampleKeyForChecksOnly operator-example" ];
+              }];
+            };
+            unmarkedFixtureKey = mkNagareSystem {
+              hostModule = ./hosts/nagare-01/configuration.nix;
+              extraModules = [{ nagare.host.evaluationFixture = lib.mkForce false; }];
+            };
+            failedAssertions = sys: builtins.filter (a: !a.assertion) sys.config.assertions;
+          in
+          assert compatibilitySystem.config.system.preSwitchChecks ? nagareEvaluationFixture;
+          assert !(operatorLike.config.system.preSwitchChecks ? nagareEvaluationFixture);
+          assert failedAssertions operatorLike == [ ];
+          assert failedAssertions unmarkedFixtureKey != [ ];
+          pkgs.runCommand "nagare-evaluation-fixture-refuses-activation" { } ''
+            set +e
+            ${pkgs.bash}/bin/bash -c ${lib.escapeShellArg compatibilitySystem.config.system.preSwitchChecks.nagareEvaluationFixture} nagare-pre-switch-check /nonexistent switch > log 2>&1
+            rc=$?
+            set -e
+            cat log
+            test "$rc" -ne 0
+            grep -q "refusing to activate the in-repo evaluation fixture" log
+            touch "$out"
+          '';
+
         data-disk-auto-grow =
           let
             dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";

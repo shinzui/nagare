@@ -17,6 +17,15 @@ in
   ];
 
   options.nagare.host = {
+    evaluationFixture = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Marks the in-repository evaluation fixture. A fixture configuration refuses activation
+        through a pre-switch check, so it can be evaluated and built but never switched onto a host.
+      '';
+    };
+
     hostName = lib.mkOption {
       type = lib.types.str;
       description = "NixOS host name for this Nagare node.";
@@ -73,6 +82,11 @@ in
         message = "nagare.host.authorizedKeys must contain at least one operator SSH public key";
       }
       {
+        assertion = cfg.evaluationFixture
+          || !(lib.any (key: lib.hasInfix "FixtureKeyForNagareEvaluationOnly" key) cfg.authorizedKeys);
+        message = "nagare.host.authorizedKeys contains the evaluation-fixture placeholder key; a real host would lock its operator out";
+      }
+      {
         assertion = cfg.hostName != "";
         message = "nagare.host.hostName must not be empty";
       }
@@ -85,6 +99,13 @@ in
         message = "nagare.host.registryHost must not be empty";
       }
     ];
+
+    # ExecPlan 115 / ADR 11: the fixture's "do not deploy" status lives in the configuration
+    # itself. switch-to-configuration runs this before changing anything, for every tool.
+    system.preSwitchChecks.nagareEvaluationFixture = lib.mkIf cfg.evaluationFixture ''
+      echo "nagare: refusing to activate the in-repo evaluation fixture (nixos#${cfg.hostName}). Use 'just host-switch' with the context-owned host flake." >&2
+      exit 1
+    '';
 
     networking.hostName = cfg.hostName;
 
