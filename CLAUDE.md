@@ -65,9 +65,18 @@ become anything but fail-closed.
    which is instant and works before any stack exists.
 
 5. **Pulumi state is isolated per context** via
-   `PULUMI_BACKEND_URL=file://${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`,
-   with matching per-context `PULUMI_HOME`. The stack name is the context name,
-   and generated `infra/pulumi/Pulumi.<context>.yaml` files are ignored.
+   `PULUMI_BACKEND_URL=file://${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`
+   by default, or `gs://<project>-nagare-pulumi-state/nagare/<context>` when the
+   context sets `NAGARE_PULUMI_BACKEND=gcs` (as `tan-nb-exp` does), with matching
+   per-context `PULUMI_HOME`. The stack name is the context name, and generated
+   `infra/pulumi/Pulumi.<context>.yaml` files are ignored. A shell loaded before a
+   backend change keeps the old backend in its environment; reload it first.
+
+6. **Operator material is not in this repository** (ADR 13). Contexts, host
+   flakes, encrypted secrets, and sops recipients for a real installation live in
+   the operator's private repository (for `tan-nb-exp`, `shinzui/nagare-ops`),
+   symlinked into the XDG paths. Never commit operator secrets, recipients, keys,
+   passphrases, or Pulumi state here.
 
 ### Decision Log basis
 
