@@ -6,7 +6,7 @@ docId: DOC-26
 tags: [storage, volumes, backups, applications]
 generated:
   by: human:nadeem
-  at: 2026-06-30T23:08:36Z
+  at: 2026-09-12T21:26:55Z
 ---
 
 # Persistent storage
@@ -49,6 +49,14 @@ it from the CLI, and can back it up to GCS in cloud mode or MinIO in local mode.
 > volume mounted at `/data`) survives pod restarts, revision rolls, and
 > scale-to-zero. A file at `/tmp/app.db` or `/app/app.db` (not under a mount
 > path) is gone the moment the pod is replaced.
+
+> **Running out of room.** Every volume shares the one host data disk at
+> `/var/lib/nagare` (100 GiB by default), and a volume's declared `size` is not a
+> hard quota on `local-path`. When that disk fills, the `DiskUsageHigh` alert
+> fires. Find the consumer with `sudo du -sh /var/lib/nagare/*` on the host, then
+> either free space or follow
+> [Growing the data disk](resizing-the-vm.md#growing-the-data-disk). The disk can
+> grow but never shrink.
 
 
 ## Declaring a volume in `Config.hs`

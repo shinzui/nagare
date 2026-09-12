@@ -23,7 +23,8 @@ spec:
             severity: warning
           annotations:
             summary: 'Disk {{ $labels.mountpoint }} is {{ $value | printf "%.0f" }}% full'
-            description: 'Filesystem {{ $labels.mountpoint }} has been above 80% for 15m. Free space or grow the disk.'
+            description: 'Filesystem {{ $labels.mountpoint }} has been above 80% for 15m. First find the consumer on the host with `sudo du -sh /var/lib/nagare/*` (observability stores are capped, so growth is app volumes, database data, or backups), then free space or grow the data disk. The boot disk (/) cannot be grown in place.'
+            runbook: 'docs/user/resizing-the-vm.md#growing-the-data-disk'
         - alert: NodeNotReady
           expr: |
             kube_node_status_condition{condition="Ready",status="true"} == 0

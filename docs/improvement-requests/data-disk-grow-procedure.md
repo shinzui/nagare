@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Document and automate growing the data disk
 description: Make the data-disk grow a real, tested procedure instead of a one-sentence reference that an operational alert already links to.
-timestamp: "2026-09-12T17:19:01Z"
+timestamp: "2026-09-12T21:27:16Z"
 generated:
   by: process:claude-code
-  at: "2026-09-12T17:19:01Z"
+  at: "2026-09-12T21:27:16Z"
 requestId: IR-5
-status: in-progress
+status: completed
+completedAt: "2026-09-12T21:27:16Z"
+resolution: "EP-111 added autoResize (x-systemd.growfs) to /var/lib/nagare; EP-114 fixed the ordering cycle that silently dropped the grow (format-nagare-data without default dependencies, ordered after its device) and proved it with the data-disk-online-grow VM test (blank-disk format, grow on reboot, grow online; no ordering cycle) plus the data-disk-auto-grow evaluation check. Recorded previews show a dataDiskSizeGb increase is an in-place update and a decrease fails closed once protect is in state; a bootDiskSizeGb change forces instance replacement. Live on nagare-01 on 2026-09-12 the disk grew 100 to 110 GiB and df went 98G to 108G via systemctl restart systemd-growfs@var-lib-nagare.service, node Ready. docs/user/resizing-the-vm.md#growing-the-data-disk documents the procedure and the DiskUsageHigh alert now points at it."
 targetPlan: docs/plans/111-automate-and-document-growing-the-data-disk.md
 origin: mori://shinzui/nagare
 ---
@@ -17,7 +19,7 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight review of `v0.1.0` (HEAD `da24748`) performed while planning the
 validation sweep for a new cluster.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** in progress; implemented by [ExecPlan 111](../plans/111-automate-and-document-growing-the-data-disk.md).
+**Status:** completed by [ExecPlan 111](../plans/111-automate-and-document-growing-the-data-disk.md), with the fix and live grow finished under [ExecPlan 114](../plans/114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md).
 **Created:** 2026-09-12.
 
 

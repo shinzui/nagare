@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-12T17:19:10Z
       mode: "implement"
       note: "Implementing milestones 1-5: data-disk autoResize, VM test, Pulumi previews, live rehearsal, documentation."
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T21:29:27Z
+      mode: "implement"
+      note: "Milestones 2-4 completed under ExecPlan 114; Milestone 5 docs, alert, IR-5 closure, ADR 12"
 ---
 
 # Automate and document growing the data disk
@@ -88,44 +93,45 @@ Milestone 1 — the data disk grows itself:
 
 Milestone 2 — prove the online grow without touching GCP:
 
-- [ ] Add a `data-disk-online-grow` NixOS virtual-machine test to `nixos/flake.nix` that imports the real `storage.nix`, puts a deliberately undersized ext4 filesystem on an oversized disk, and proves the filesystem reaches the device size.
-- [ ] Prove the reboot path (grow happens by itself on the next boot).
-- [ ] Prove the no-reboot path (`systemctl start systemd-growfs@var-lib-nagare.service` grows it on a running machine).
-- [ ] Record the test transcript in Surprises & Discoveries or here.
-- [ ] Commit.
+- [x] (2026-09-12) **Paused, then resumed under [ExecPlan 114](114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md).** That plan records the ordering-cycle bug in commit `489daf3`, the Milestone 3 preview evidence, and the SSH lockout on nagare-01, and it completed Milestones 2–4.
+- [x] (2026-09-12T21:40Z) Add a `data-disk-online-grow` NixOS virtual-machine test to `nixos/flake.nix` that imports the real `storage.nix`, puts a deliberately undersized ext4 filesystem on an oversized disk, and proves the filesystem reaches the device size. It needed the ordering-cycle fix and a device-ordering fix in `storage.nix` (see Surprises).
+- [x] (2026-09-12T21:40Z) Prove the reboot path (grow happens by itself on the next boot): `PHASE 1 /dev/vdb 2.0G`.
+- [x] (2026-09-12T21:40Z) Prove the no-reboot path. The test's `systemctl start systemd-growfs@var-lib-nagare.service` grows the filesystem only because the test stopped the mount first: `PHASE 2 /dev/vdb 2.0G`. On a live host the command must be `restart` (see Surprises).
+- [x] (2026-09-12T21:40Z) Record the test transcript: ExecPlan 114 Progress, Milestone 4 (`PHASE 0/1/2` all `2.0G`, no ordering cycle).
+- [x] (2026-09-12T21:42Z) Commit: `5bcf428`.
 
 Milestone 3 — prove what the cloud plan actually does:
 
-- [ ] Record the current `nagare:dataDiskSizeGb` and `nagare:bootDiskSizeGb` values before touching anything.
-- [ ] Preview an *increase* of `dataDiskSizeGb` and record the verbatim plan; confirm it is an in-place update and not a replacement.
-- [ ] Preview a *decrease* of `dataDiskSizeGb` and record verbatim what Pulumi says; confirm it fails closed and never silently destroys the disk.
-- [ ] Preview an *increase* of `bootDiskSizeGb` and record whether it updates in place or forces instance replacement.
-- [ ] Restore both config values to what they were, and verify a preview is clean.
-- [ ] Commit the recorded evidence into this plan.
+- [x] (2026-09-12) Record the current `nagare:dataDiskSizeGb` and `nagare:bootDiskSizeGb` values before touching anything: both unset, so both default to 100.
+- [x] (2026-09-12) Preview an *increase* of `dataDiskSizeGb` and record the verbatim plan: in-place `~ size: 100 => 110`, no replacement (ExecPlan 114 Context and Orientation).
+- [x] (2026-09-12) Preview a *decrease* of `dataDiskSizeGb` and record verbatim what Pulumi says. Before `protect` was in state: `+- (replace)`, no error. After a `pulumi up` wrote it: `unable to replace resource ... marked for protection`, exit 1. It fails closed only once the flag is in state.
+- [x] (2026-09-12) Preview an *increase* of `bootDiskSizeGb`: `~ initializeParams: { ~ size : 100 => 110 }` inside an instance `+- (replace)`. The size is create-time-only, so the change forces instance replacement.
+- [x] (2026-09-12) Restore both config values to what they were, and verify a preview is clean: `31 unchanged`.
+- [x] (2026-09-12) Commit the recorded evidence into this plan: recorded in ExecPlan 114 (`ee66ee4`).
 
 Milestone 4 — prove it end to end on the live host:
 
-- [ ] Confirm the operator explicitly consents to a permanent disk-size increase (a grow cannot be undone).
-- [ ] Roll the new host configuration out with `just host-switch`.
-- [ ] Capture `df -h /var/lib/nagare` before the grow.
-- [ ] Apply the size increase with `just infra-up`.
-- [ ] Capture `df -h /var/lib/nagare` after the apply but before any grow command, to show the gap this plan closes.
-- [ ] Grow the filesystem on the running host and capture `df -h` again.
-- [ ] Confirm the cluster is healthy afterwards.
-- [ ] Commit the recorded evidence into this plan.
+- [x] (2026-09-12) Confirm the operator explicitly consents to a permanent disk-size increase (a grow cannot be undone): consent to 100 → 110 GiB given 2026-09-12.
+- [x] (2026-09-12T22:05Z) Roll the new host configuration out with `just host-switch`: `COMMITTED`, `system-5-link`, fstab `x-systemd.growfs,defaults,nofail`.
+- [x] (2026-09-12T22:06Z) Capture `df -h /var/lib/nagare` before the grow: `/dev/sdb 98G 209M 93G 1%`.
+- [x] (2026-09-12T22:08Z) Apply the size increase: `pulumi up`, `~ 1 updated`, `30 unchanged`.
+- [x] (2026-09-12T22:08Z) Capture `df -h /var/lib/nagare` after the apply but before any grow command: `/dev/sdb 98G 212M 93G 1%` on `sdb 110G`.
+- [x] (2026-09-12T22:12Z) Grow the filesystem on the running host: `systemctl restart systemd-growfs@var-lib-nagare.service` → `/dev/sdb 108G 212M 103G 1%` (`start` was a no-op).
+- [x] (2026-09-12T22:12Z) Confirm the cluster is healthy afterwards: node `Ready`, no newly failing pods.
+- [x] (2026-09-12T22:15Z) Commit the recorded evidence into this plan: ExecPlan 114, `ee66ee4`.
 
 Milestone 5 — make the documentation and the alert tell the truth:
 
-- [ ] Write the "Growing the data disk" section in `docs/user/resizing-the-vm.md`, replacing the one-sentence bullet.
-- [ ] State plainly that shrinking is impossible and what happens if it is attempted.
-- [ ] Fix the hard-coded `tan-nb-exp` instruction at `docs/user/resizing-the-vm.md:95`, which contradicts the context model.
-- [ ] Fill in the `nagare:dataDiskSizeGb` notes in `docs/user/reference.md` and `docs/user/provisioning-with-pulumi.md`, and correct the boot-disk claim to match Milestone 3's evidence.
-- [ ] Point `docs/user/persistent-storage.md` at the new procedure.
-- [ ] Give the `DiskUsageHigh` alert in `cluster/observability/vmrules/nagare-alerts.yaml` a remediation pointer and a stated first response.
-- [ ] Run `just docs-validate` and fix whatever it reports.
-- [ ] Close IR-5 as `completed` with `completedAt` and a `resolution`, log it, and revalidate.
-- [ ] Fill in Outcomes & Retrospective and run the ADR distillation pass.
-- [ ] Commit.
+- [x] (2026-09-12T22:30Z) Write the "Growing the data disk" section in `docs/user/resizing-the-vm.md`, replacing the one-sentence bullet.
+- [x] (2026-09-12T22:30Z) State plainly that shrinking is impossible and what happens if it is attempted, including when `protect` takes effect.
+- [x] (2026-09-12T22:30Z) Fix the hard-coded `tan-nb-exp` instruction in `docs/user/resizing-the-vm.md` step 1; it now says to confirm the intended context with `nagarectl context current`.
+- [x] (2026-09-12T22:30Z) Fill in the `nagare:dataDiskSizeGb` notes in `docs/user/reference.md` and `docs/user/provisioning-with-pulumi.md`, and correct the boot-disk claim: create-time only, and a change forces instance replacement.
+- [x] (2026-09-12T22:30Z) Point `docs/user/persistent-storage.md` at the new procedure.
+- [x] (2026-09-12T22:30Z) Give the `DiskUsageHigh` alert in `cluster/observability/vmrules/nagare-alerts.yaml` a remediation pointer (`runbook` annotation) and a stated first response (find the consumer with `du`).
+- [x] (2026-09-12T22:31Z) Run `just docs-validate`: `docs/user` `OK: 36 concepts`, `docs/guides` `OK`, `docs/reviews` `OK`.
+- [x] (2026-09-12T22:33Z) Close IR-5 as `completed` with `completedAt` and a `resolution`, log it, and revalidate. `okf validate docs/improvement-requests ...` prints only the four pre-existing `missing profile-recommended field: reviews` advisories. It exits 1, and so does the committed `HEAD` bundle, so this is not a regression.
+- [x] (2026-09-12T22:36Z) Fill in Outcomes & Retrospective and run the ADR distillation pass: new [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md), plus a copy note in ADR 11.
+- [x] (2026-09-12T22:37Z) Commit.
 
 
 ## Surprises & Discoveries
@@ -175,6 +181,48 @@ error: assertion '(dataFs).autoResize' failed
 
 The line was restored immediately afterwards. The pre-existing `forge-credentials-module` check
 still builds after the restructuring.
+
+
+### The shipped grow never ran: an ordering cycle deleted it
+
+As committed in `489daf3`, `autoResize` did nothing. `format-nagare-data` (default dependencies,
+so `After=basic.target`) is ordered before the mount, and growfs makes `local-fs.target` wait on
+the mount. That closes a cycle, and systemd broke it by deleting the grow job. The VM test showed
+it first, then the live host's own boot log:
+
+```text
+sysinit.target: Job systemd-growfs@var-lib-nagare.service/start deleted to break ordering cycle starting with sysinit.target/start
+```
+
+The fix sets `DefaultDependencies = false` with `after = [ "local-fs-pre.target" ]`. That alone
+created a first-boot race: the service ran before udev made the by-id link, skipped formatting,
+and a blank disk failed to mount. So it also `wants`/`after` the by-id `.device` unit. Details and
+logs are in [ExecPlan 114](114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md) Surprises.
+
+### QEMU tests replace `fileSystems` wholesale
+
+`qemu-vm.nix` sets `fileSystems` with `mkVMOverride virtualisation.fileSystems`. Importing
+`storage.nix` into a test node therefore silently drops the data-disk mount. The test mirrors the
+shipped definition into `virtualisation.fileSystems`.
+
+### `systemctl start` on the growfs unit is a no-op on a live host
+
+`systemd-growfs@.service` is `RemainAfterExit=yes`. After its boot-time run it stays
+`active (exited)`, so `start` exits 0 and does nothing. `restart` grows the filesystem. The Plan of
+Work's command was wrong for exactly the case it was written for.
+
+### `protect: true` protects only once it is in state, and the boot-disk size is create-time
+
+A decrease previewed as a plain replacement until a `pulumi up` wrote `protect` into state. After
+that it failed closed. `bootDiskSizeGb` changes `bootDisk.initializeParams`, which forces instance
+replacement.
+
+### Pulumi state migration and the SSH lockout
+
+On 2026-09-12 the live stack's state moved from the in-repo `infra/pulumi/.pulumi-state` (stack
+`dev`) to the context backend (stack `tan-nb-exp`). The first attempt at Milestone 4 switched
+nagare-01 onto the in-repo evaluation fixture and removed the operator's SSH key. [ExecPlan 114](114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md) recovered
+access and finished the milestones. ExecPlan 115 and ADR 11 prevent a recurrence.
 
 
 ## Decision Log
@@ -265,6 +313,18 @@ Record every decision made while working on the plan.
   Date: 2026-09-12
 
 
+- Decision: Record the forward-only storage-capacity rule as a new ADR 12 rather than amending ADR 5.
+  Rationale: ADR 5 is about where operator inputs live. This rule is about storage semantics: grow
+  only, automatic grow, the `DefaultDependencies` constraint for units ordered before a growfs
+  mount, and create-time boot-disk size. It is new durable context and applies to every operator.
+  The day-2 switching lesson was already recorded by ExecPlan 115 in ADR 5 and ADR 11. ADR 11 gains
+  one paragraph on `nix copy --no-check-sigs`.
+  Date: 2026-09-12
+
+- Decision: Document the live grow command as `systemctl restart`, not the Plan of Work's `start`.
+  Rationale: `start` was observed to be a no-op on nagare-01 (ExecPlan 114 Surprises).
+  Date: 2026-09-12
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -272,7 +332,19 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Delivered (2026-09-12). The data disk grows itself on every boot, and one documented command grows
+it on a running host. Both paths are proven by a VM test and by a live 100 → 110 GiB grow on
+nagare-01 (98G → 108G). The previews prove increases are in place and decreases fail closed once
+`protect` is in state. The docs and the `DiskUsageHigh` alert now lead to a working procedure. IR-5
+is closed, and the durable rule is [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md).
+
+What went wrong. The option-level evaluation check passed while the feature did not work, because
+an ordering cycle deleted the grow. Only the VM test exposed it, and only a second VM run exposed
+the first-boot race in the first fix. The Plan of Work's manual command (`start`) was also wrong
+on a live host, a case the VM test did not cover because it remounted first. The live milestone
+was attempted before the VM test proved the change, and without the guarded host switch. That
+caused the lockout recovered in [ExecPlan 114](114-recover-nagare-01-host-access-and-finish-the-data-disk-grow-deterministically.md). The lesson: prove behavior in a VM before touching the host,
+and exercise the exact operator command in the exact host state.
 
 
 ## Context and Orientation
@@ -1238,3 +1310,13 @@ docs-validate` against `mori/user-documentation-profile.dhall`. Preserve each fi
 If the distillation pass creates a record, name it `NNNN-slug.md`, give it frontmatter with
 `title`, `status`, `date`, `authors` and `related`, and open it with `# ADR N — Title`. Do not
 run `okf id next` against it and do not add OKF frontmatter.
+
+
+## Revision notes
+
+- 2026-09-12T22:37Z — Milestones 2–4 were completed under ExecPlan 114 after the Milestone 4 attempt
+  locked out nagare-01. Their progress items are checked here with pointers. Milestone 5 was done in
+  this session with corrections the original text lacked: `restart` instead of `start`, the boot
+  disk being create-time, `protect` taking effect only from state, and host changes only through
+  `just host-switch`. Validation and Acceptance still names `systemctl start` for the VM test,
+  which is correct there, because the test stops the mount first.
