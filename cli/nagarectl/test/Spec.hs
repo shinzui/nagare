@@ -238,7 +238,8 @@ import Nagare.Storage.Snapshot
   , snapshotsToPrune
   )
 import Nagare.Target
-  ( ActiveTarget (..)
+  ( AcmeDirectory (..)
+  , ActiveTarget (..)
   , ContextName
   , Mode (..)
   , PulumiBackendKind (..)
@@ -254,8 +255,11 @@ import Nagare.Target
   , listContexts
   , mkContextName
   , renderContextShellEnv
+  , acmeDirectoryUrl
+  , parseAcmeDirectory
   , parseContextEnv
   , parseMode
+  , validateAcmeEmail
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
@@ -543,6 +547,49 @@ initTests =
             ["-c", T.unpack out <> "\nprintf '%s' \"$NAGARE_BASE_DOMAIN\""]
             ""
         got @?= "it's.example.com"
+    , testCase "renderTargetEnv emits the ACME identity fields (EP-112)" $ do
+        let out = renderTargetEnv initProfile
+        assertBool "acme contact" (T.isInfixOf "export NAGARE_ACME_EMAIL=ops@acme.example" out)
+        assertBool "acme directory (default production)" (T.isInfixOf "export NAGARE_ACME_DIRECTORY=production" out)
+    , testCase "renderTargetEnv emits an EMPTY ACME contact rather than inventing one" $ do
+        -- The absence of a contact must round-trip as an empty value: a context
+        -- written without one has no contact, and the renderer refuses. No
+        -- default may appear here.
+        let out = renderTargetEnv initProfile {tpAcmeEmail = ""}
+        assertBool "empty contact line" (T.isInfixOf "export NAGARE_ACME_EMAIL=\n" out)
+    , testCase "profileFromContextMap reads the ACME fields from a context (EP-112)" $ do
+        let ctx =
+              parseContextEnv
+                (T.unlines ["export NAGARE_ACME_EMAIL=ops@acme.example", "export NAGARE_ACME_DIRECTORY=staging"])
+            tp = profileFromContextMap ctx
+        tpAcmeEmail tp @?= "ops@acme.example"
+        tpAcmeDirectory tp @?= "staging"
+    , testCase "profileFromContextMap defaults the endpoint to production and the contact to empty" $ do
+        let tp = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\n")
+        tpAcmeEmail tp @?= ""
+        tpAcmeDirectory tp @?= "production"
+    , testCase "parseAcmeDirectory: an unrecognized token is an ERROR, not a fallback" $ do
+        parseAcmeDirectory "" @?= Right AcmeProduction
+        parseAcmeDirectory "production" @?= Right AcmeProduction
+        parseAcmeDirectory "staging" @?= Right AcmeStaging
+        parseAcmeDirectory "STAGING" @?= Right AcmeStaging
+        parseAcmeDirectory "https://acme.example/directory" @?= Right (AcmeCustom "https://acme.example/directory")
+        assertBool "typo rejected" (isLeft (parseAcmeDirectory "stagingg"))
+        -- Plain http is not an ACME directory URL: the account key would travel
+        -- in the clear.
+        assertBool "bare http rejected" (isLeft (parseAcmeDirectory "http://acme.example/directory"))
+    , testCase "acmeDirectoryUrl produces the two Let's Encrypt endpoints verbatim" $ do
+        acmeDirectoryUrl AcmeProduction @?= "https://acme-v02.api.letsencrypt.org/directory"
+        acmeDirectoryUrl AcmeStaging @?= "https://acme-staging-v02.api.letsencrypt.org/directory"
+        acmeDirectoryUrl (AcmeCustom "https://acme.example/d") @?= "https://acme.example/d"
+    , testCase "validateAcmeEmail accepts one usable address and rejects the rest" $ do
+        validateAcmeEmail "ops@acme.example" @?= Right "ops@acme.example"
+        assertBool "empty rejected" (isLeft (validateAcmeEmail ""))
+        assertBool "no domain rejected" (isLeft (validateAcmeEmail "ops"))
+        assertBool "undotted domain rejected" (isLeft (validateAcmeEmail "ops@acme"))
+        assertBool "multi-address rejected" (isLeft (validateAcmeEmail "a@b.c,d@e.f"))
+        assertBool "embedded space rejected" (isLeft (validateAcmeEmail "ops @acme.example"))
+        assertBool "two at-signs rejected" (isLeft (validateAcmeEmail "a@b@c.example"))
     , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
         assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
     , testCase "nextStepsText names the ordered just targets" $ do
