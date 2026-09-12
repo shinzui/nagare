@@ -128,14 +128,19 @@ This section must always reflect the actual current state of the work.
         `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl`.
   - [x] Make the `cluster-bootstrap` recipe in `justfile` render-then-apply so a refusal cannot
         reach `kubectl apply`.
-- [ ] M3: Automated proof.
-  - [ ] Add `scripts/test-render-context-template.sh` with the five scenarios.
-  - [ ] Add the `render-context-template` check to `flake.nix`.
-  - [ ] Add the `cluster-bootstrap-defaults` grep guard check to `flake.nix`.
-  - [ ] Extend `nagare-clone-free-platform` in `flake.nix`: `init` refuses without `--acme-email`,
+- [x] M3: Automated proof. (2026-09-12)
+  - [x] Add `scripts/test-render-context-template.sh` with the five scenarios.
+  - [x] Add the `render-context-template` check to `flake.nix`.
+  - [x] Add the `cluster-bootstrap-defaults` grep guard check to `flake.nix`, with the
+        RFC 2606 reserved-example-domain carve-out and the two-URL drift guard.
+  - [x] Extend `nagare-clone-free-platform` in `flake.nix`: `init` refuses without `--acme-email`,
         accepts it, and the dry-run recipe renders before applying.
-  - [ ] Add the ACME unit tests to `cli/nagarectl/test/Spec.hs`.
-  - [ ] `nix flake check` green.
+  - [x] Add the ACME unit tests to `cli/nagarectl/test/Spec.hs`.
+  - [x] Add `--acme-email` to `nagarectl init` in `scripts/rehearse-clone-free-release.sh`
+        (not in the plan; the rehearsal drives the same now-mandatory flag).
+  - [x] Add `cluster/bootstrap/render-context-template.sh` to the `shellcheck-scripts` file list
+        (not in the plan; the renderer was never linted).
+  - [x] `nix flake check` green (18 checks, aarch64-darwin).
 - [ ] M4: Documentation tells an operator the field exists before they need it.
   - [ ] `docs/user/contexts.md`: the two fields in the core table plus an ACME identity section.
   - [ ] `docs/user/reference.md`: the context-variable table, the `init` flags, the
@@ -163,6 +168,28 @@ implementation. Provide concise evidence.
   required strict field(s)`: a second literal in `cli/nagarectl/test/Spec.hs:798` (`tnbProfile`)
   and one in `cli/nagarectl/test/AppDeploySpec.hs:60` (`testProfile`). All were updated.
   `cli/nagarectl/app/Main.hs:2806` uses record *update* syntax and needed no change.
+  Date: 2026-09-12.
+
+- **The grep guard trips on the renderer's own refusal message.** The plan's Decision Log
+  expected illustrative addresses to live in *comments*, which the guard skips. They do not: the
+  refusal has to print `nagarectl init <name> --acme-email you@example.com` from an `echo`, which
+  is not a comment line. Rather than weaken the guard or garble the message, addresses at the
+  RFC 2606 / RFC 6761 reserved example domains (`example.com`/`.org`/`.net`, `*.example`) are
+  now *erased from each line* before matching — erasing the address rather than exempting the
+  whole line keeps a real address on the same line detectable. Verified non-vacuous: run against
+  the pre-change tree the guard still reports exactly
+  `render-context-template.sh:23` (`tan-nb-exp`) and `:26` (`nadeem@gmail.com`), and nothing
+  else. Date: 2026-09-12.
+
+- **The URL drift guard had to exempt `flake.nix` itself.** The check names both Let's Encrypt
+  directory URLs in order to assert on them, so `grep -rlF` found the guard as its own offender:
+  `https://acme-v02.api.letsencrypt.org/directory is duplicated outside the two resolvers:
+  ./flake.nix`. Date: 2026-09-12.
+
+- **`nix flake check` only sees git-tracked files.** The first run of the new
+  `render-context-template` check failed with
+  `bash: scripts/test-render-context-template.sh: No such file or directory` because the script
+  was written but not yet `git add`ed; `src = ./.` in a flake resolves to the git tree.
   Date: 2026-09-12.
 
 - **The local `cabal run test:nagarectl-test` has 8 pre-existing failures unrelated to this

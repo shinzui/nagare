@@ -115,6 +115,7 @@ export NAGARE_CONTEXT=rehearsal-cloud
 run_cli init cloud-onboarding \
   --project nagare-release-rehearsal \
   --base-domain rehearsal.example.com \
+  --acme-email ops@rehearsal.example.com \
   --skip-preflight --skip-enable --skip-seed --dry-run > cloud-init.out
 run_cli host init --context rehearsal-cloud \
   --ssh-public-key-file "$test_root/work/operator.pub" --dry-run > host-init.out
@@ -139,6 +140,7 @@ run_cli_clean_context() {
     -u NAGARE_MODE -u NAGARE_LOCAL_OBJECT_STORE \
     -u NAGARE_PULUMI_BACKEND -u NAGARE_PULUMI_BACKEND_URL \
     -u NAGARE_PLATFORM_VERSION \
+    -u NAGARE_ACME_EMAIL -u NAGARE_ACME_DIRECTORY \
     nix run "${flake_ref}#nagarectl" -- "$@"
 }
 run_cli_clean_context context env > context-env.sh
