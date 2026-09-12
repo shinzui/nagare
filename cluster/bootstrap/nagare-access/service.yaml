@@ -47,7 +47,7 @@ spec:
             - name: NAGARE_ACCESS_EN_URL
               value: "http://en.nagare-system.svc.cluster.local"
             - name: NAGARE_ACCESS_COOKIE_DOMAIN
-              value: ".apps.example.com"
+              value: "${NAGARE_ACCESS_COOKIE_DOMAIN}"
             - name: NAGARE_ACCESS_COOKIE_KEY
               valueFrom:
                 secretKeyRef:

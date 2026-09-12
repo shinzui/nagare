@@ -84,8 +84,9 @@ mandatory key-encryption key. It never prints or commits those generated values.
 
 `cluster/bootstrap/auth-install.sh` renders the `image:` values from the active
 target context (`NAGARE_REGISTRY_PREFIX`, `NAGARE_AUTH_TAG`) before applying the
-manifests. The `nagare-access` cookie domain still defaults to `.apps.example.com`;
-patch it for a real domain if needed.
+manifests. It also sets the `nagare-access` cookie domain to `.${NAGARE_BASE_DOMAIN}`,
+so one sign-in covers every protected host under the context's base domain. Rerun
+the installer after changing a context's base domain.
 
 The shomei and en manifests read `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` from Nagare's managed DB Secrets `nagare-db-shomei-db` and

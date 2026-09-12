@@ -76,8 +76,21 @@ if grep -q '\${NAGARE_ACME_EMAIL}\|\${NAGARE_ACME_DIRECTORY_URL}' "${template}";
   fi
 fi
 
+# The nagare-access session cookie is scoped to the parent of every protected
+# host, so one sign-in covers all protected apps under the context's base domain.
+cookie_domain=""
+if grep -q '\${NAGARE_ACCESS_COOKIE_DOMAIN}' "${template}"; then
+  base_domain="${NAGARE_BASE_DOMAIN:-}"
+  if ! printf '%s' "${base_domain}" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'; then
+    echo "nagare: NAGARE_BASE_DOMAIN='${base_domain}' is not a usable cookie parent domain for context '${NAGARE_CONTEXT:-default}' (expected a bare DNS name such as apps.example.com)." >&2
+    exit 1
+  fi
+  cookie_domain=".${base_domain}"
+fi
+
 sed \
   -e 's|${CLOUDSDK_CORE_PROJECT}|'"$(esc "${project}")"'|g' \
+  -e 's|${NAGARE_ACCESS_COOKIE_DOMAIN}|'"$(esc "${cookie_domain}")"'|g' \
   -e 's|${NAGARE_ACME_EMAIL}|'"$(esc "${acme_email}")"'|g' \
   -e 's|${NAGARE_ACME_DIRECTORY_URL}|'"$(esc "${acme_directory_url}")"'|g' \
   -e 's|${NAGARE_REGISTRY_PREFIX}|'"$(esc "${registry_prefix}")"'|g' \

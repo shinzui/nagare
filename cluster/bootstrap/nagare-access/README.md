@@ -63,8 +63,8 @@ its separate read-write value for relationship mutations.
 
 ## Install
 
-Create a real cookie key secret from the example, update `service.yaml` with the
-image and cookie domain for the target base domain, then apply:
+Create a real cookie key secret from the example, then apply. The renderer fills
+the image from the active context and the cookie domain as `.${NAGARE_BASE_DOMAIN}`:
 
 ```bash
 cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
