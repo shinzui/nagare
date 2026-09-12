@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T14:08:28Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T14:37:24Z
+      mode: "implement"
+      note: "Implementing EP-113 milestones 1-6"
 ---
 
 # Confine every cloud-mutating path to the active context's project
@@ -66,9 +72,12 @@ test that fails before the change and passes after it.
 
 ## Progress
 
-- [ ] M1: add `_require_bucket_in_target_project` to `scripts/lib/target.sh`; call it from
-      `scripts/migrate-pulumi-backend.sh` and `scripts/upload-images.sh`; add
-      `scripts/test-bucket-ownership-guard.sh` and wire it into `flake.nix` checks.
+- [x] M1 (2026-09-12): added `_require_bucket_in_target_project` to `scripts/lib/target.sh`;
+      `scripts/migrate-pulumi-backend.sh` now calls it instead of carrying its own copy;
+      `scripts/upload-images.sh` calls it after the create-if-missing block and again inside
+      `upload_if_missing`; `scripts/test-bucket-ownership-guard.sh` added and registered in
+      `flake.nix` as the `bucket-ownership-guard` check. All four cases pass and
+      `nix build .#checks.aarch64-darwin.bucket-ownership-guard` succeeds.
 - [ ] M2: give `Nagare.Ops.PulumiBackend` the same assertion behind an injectable gcloud
       seam; unit-test refusal and acceptance; make the bootstrap failure fatal to
       `nagarectl init` and `nagarectl context create --use`.

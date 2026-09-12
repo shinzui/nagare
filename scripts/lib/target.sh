@@ -328,3 +328,27 @@ _require_target_project() {
     fi
   fi
 }
+
+# Fail-closed assertion that a GCS bucket belongs to the ACTIVE CONTEXT'S project
+# (EP-113). GCS bucket names are GLOBAL: a same-named bucket may exist in a
+# FOREIGN project that the operator can describe, so "the bucket exists" is not
+# evidence that it is ours. Compare owning PROJECT NUMBERS, which a name
+# collision cannot forge. An unreadable number (missing tool, missing permission,
+# network failure) is a MISMATCH, never permission to continue.
+#
+#   _require_bucket_in_target_project <bucket-name-without-gs-prefix> [remedy-hint]
+#
+# Local mode has no GCS bucket and no project: return 0 without invoking any tool.
+_require_bucket_in_target_project() {
+  local bucket="${1:?_require_bucket_in_target_project: bucket name required}"
+  local hint="${2:-}"
+  [ "${NAGARE_MODE:-}" = "local" ] && return 0
+  local bucket_pn target_pn
+  bucket_pn="$(gcloud storage buckets describe "gs://${bucket}" --format='value(projectNumber)' 2>/dev/null || true)"
+  target_pn="$(gcloud projects describe "${TARGET_PROJECT}" --format='value(projectNumber)' 2>/dev/null || true)"
+  if [ -z "${bucket_pn}" ] || [ -z "${target_pn}" ] || [ "${bucket_pn}" != "${target_pn}" ]; then
+    echo "refusing: gs://${bucket} is owned by project number '${bucket_pn:-<unknown>}', not the target project '${TARGET_PROJECT}' (number '${target_pn:-<unknown>}')." >&2
+    echo "  GCS bucket names are global; ${hint:-choose a bucket name that is unique across all of Google Cloud.}" >&2
+    return 1
+  fi
+}

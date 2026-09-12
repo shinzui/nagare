@@ -286,6 +286,20 @@
               touch "$out"
             '';
 
+          # EP-113: the fail-closed GCS bucket-ownership assertion in
+          # scripts/lib/target.sh. Bucket names are global, so "the bucket
+          # exists" is not evidence that it is ours.
+          bucket-ownership-guard = pkgs.runCommand "nagare-bucket-ownership-guard-test"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep ];
+              src = ./.;
+            }
+            ''
+              cd "$src"
+              bash scripts/test-bucket-ownership-guard.sh
+              touch "$out"
+            '';
+
           forge-credential-refresh = pkgs.runCommand "nagare-forge-credential-refresh-test"
             {
               nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.openssl ];
