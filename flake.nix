@@ -282,6 +282,8 @@
               shellcheck --severity=error \
                 scripts/*.sh \
                 scripts/lib/*.sh \
+                cluster/bootstrap/auth-images/build-local-image.sh \
+                cluster/bootstrap/nagare-access/build-image.sh \
                 nixos/hosts/nagare-01/forge-credentials-refresh.sh
               touch "$out"
             '';
@@ -297,6 +299,19 @@
             ''
               cd "$src"
               bash scripts/test-bucket-ownership-guard.sh
+              touch "$out"
+            '';
+
+          # EP-113: the auth-plane image builders take their project only from the
+          # active context, with no `gcloud config get-value project` fallback.
+          image-build-guard = pkgs.runCommand "nagare-image-build-guard-test"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.rsync ];
+              src = ./.;
+            }
+            ''
+              cd "$src"
+              bash scripts/test-image-build-guard.sh
               touch "$out"
             '';
 

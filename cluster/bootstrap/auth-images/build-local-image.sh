@@ -39,6 +39,12 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$script_dir/../../.." && pwd)"
 # shellcheck source=scripts/lib/release.sh
 source "$root/scripts/lib/release.sh"
+# Resolve the active target context and make the configurable, fail-closed
+# guardrail available (EP-113). Sourcing exports CLOUDSDK_* / NAGARE_* and
+# TARGET_PROJECT; it does NOT itself refuse — `_require_target_project` does,
+# and this script calls it before every cloud mutation.
+# shellcheck source=scripts/lib/target.sh
+source "$root/scripts/lib/target.sh"
 service="${1:-}"
 [[ -n "$service" ]] || { usage; exit 2; }
 shift || true
@@ -68,15 +74,18 @@ if [[ "$builder" == "cloud-build" && "$push" != "1" ]]; then
   fail "NAGARE_AUTH_BUILDER=cloud-build requires NAGARE_AUTH_PUSH=1 because the image is produced remotely"
 fi
 
-project="${CLOUDSDK_CORE_PROJECT:-}"
-# In local mode there is no GCP project and gcloud must never be invoked
-# (MasterPlan 16 Integration Point 2): skip the project lookup entirely.
-if [[ -z "$project" && "$mode" != "local" ]]; then
-  project="$(gcloud config get-value project 2>/dev/null || true)"
+# The project comes ONLY from the resolved context (EP-113). There is deliberately
+# no `gcloud config get-value project` fallback: an ambient gcloud default is not
+# the Nagare target, and reading it is how a build lands in a production project.
+# In local mode there is no project at all, and gcloud must never be invoked
+# (MasterPlan 16 Integration Point 2).
+project=""
+if [[ "$mode" != "local" ]]; then
+  project="${CLOUDSDK_CORE_PROJECT:-}"
 fi
 
 if [[ "$builder" == "cloud-build" && ( -z "$project" || "$project" == "(unset)" ) ]]; then
-  fail "NAGARE_AUTH_BUILDER=cloud-build requires CLOUDSDK_CORE_PROJECT or an active gcloud project"
+  fail "NAGARE_AUTH_BUILDER=cloud-build requires an active cloud context that declares a project (see 'nagarectl context use')"
 fi
 
 image_override="${NAGARE_AUTH_IMAGE:-}"
@@ -96,7 +105,7 @@ elif [[ "$builder" == "k3s-import" ]]; then
 elif [[ -n "$project" && "$project" != "(unset)" ]]; then
   image="${registry_host}/${project}/${artifact_repository}/${service}:${tag}"
 elif [[ "$push" == "1" ]]; then
-  fail "CLOUDSDK_CORE_PROJECT is not set and gcloud has no active project."
+  fail "the active context declares no project; pushing needs one (see 'nagarectl context use')."
 else
   image="nagare-auth/${service}:${tag}"
 fi
@@ -307,6 +316,9 @@ steps:
 images:
   - "$image"
 EOF
+  # Cloud mutation: refuse unless the effective project agrees with the active
+  # context (EP-113). This must run BEFORE the submit, not after it.
+  _require_target_project
   gcloud builds submit "$tmpdir" \
     --config "$tmpdir/cloudbuild.yaml" \
     --project "$project" \
@@ -376,6 +388,10 @@ else
       # insecure-registries prerequisite is documented in nagare.local.env.example.
       docker push "$image"
     else
+      # Cloud mutation: the pushed image name embeds the project, so refuse
+      # unless the effective project agrees with the active context (EP-113).
+      # The call sits inside the cloud arm so local mode stays gcloud-free.
+      _require_target_project
       gcloud auth configure-docker "$registry_host" --quiet
       docker push "$image"
     fi

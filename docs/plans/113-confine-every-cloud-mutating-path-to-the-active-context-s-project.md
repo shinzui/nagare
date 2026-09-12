@@ -85,10 +85,15 @@ test that fails before the change and passes after it.
       reads in the dry run; `bootstrapGcsIfNeeded` in `cli/nagarectl/app/Main.hs` is now
       fatal. Fourteen cases in the `Nagare.Ops.PulumiBackend (EP-93, EP-113)` group pass,
       including the three behavioral cases that assert on the recorded `gcloud` argv.
-- [ ] M3: bring `cluster/bootstrap/auth-images/build-local-image.sh` and
-      `cluster/bootstrap/nagare-access/build-image.sh` under `_require_target_project`,
-      delete the `gcloud config get-value project` fallback, extend the shellcheck check,
-      and add `scripts/test-image-build-guard.sh`.
+- [x] M3 (2026-09-12): both `cluster/bootstrap/auth-images/build-local-image.sh` and
+      `cluster/bootstrap/nagare-access/build-image.sh` source `scripts/lib/target.sh`,
+      take the project only from the resolved context, and call
+      `_require_target_project` before every cloud mutation; the
+      `gcloud config get-value project` fallback is gone from both (the only remaining
+      matches under `cluster/` are the comments explaining its absence);
+      `shellcheck-scripts` now lints both; `scripts/test-image-build-guard.sh` is added
+      and registered as the `image-build-guard` check. All three cases pass, and case one
+      fails when the change is stashed.
 - [ ] M4: add `nagarectl context guard`; call it from the `infra-up` and `infra-preview`
       recipes in `justfile`; unit-test the pure comparison and add a clone-free fixture that
       proves the refusal.
