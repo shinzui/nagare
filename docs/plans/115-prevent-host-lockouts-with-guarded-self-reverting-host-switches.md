@@ -116,14 +116,19 @@ Milestone 4 — Break-glass boot menu:
 
 - [x] Add `nixos/hosts/nagare-01/boot-recovery.nix` and import it from `nixos/modules/nagare-host.nix`. (2026-09-12T19:50Z)
 - [x] Add the `boot-recovery-menu` evaluation check; it passes. (2026-09-12T19:51Z)
-- [ ] Commit.
+- [x] Commit. (2026-09-12T20:20Z, together with Milestone 3 in `f6a3ce7`, because both add blocks to the same `checks` set)
 
 Milestone 5 — Documentation, ADR, and hand-off:
 
 - [x] Update `docs/user/day-2-host-changes.md` and `docs/user/accessing-the-host.md`; `just docs-validate` passes. (2026-09-12T20:00Z)
 - [x] Write ADR 11 and link it from ADR 5. (2026-09-12T20:02Z)
 - [x] Update ExecPlan 114 Milestone 5 to use the new switch output and verify the boot menu on the live host. (2026-09-12T20:05Z: already done by ExecPlan 114's 18:55Z revision, which gates on `COMMITTED` and greps `/boot/grub/grub.cfg`; no further edit needed. Every bash block in ExecPlan 114 was scanned against the hook; see Decision Log for the one rule narrowed as a result)
-- [ ] Commit; fill in Outcomes & Retrospective.
+- [x] Commit; fill in Outcomes & Retrospective. (2026-09-12T20:25Z, `f33dc50`)
+- [x] Builder KVM side fix: template committed in `086d80e`. The operator applied it to `nix-builder-x86`'s `startup-script` metadata (the hook denies that command by design); the live value was verified byte-identical to the rendered template. (2026-09-12T20:35Z)
+
+Open acceptance items (outside this session's reach):
+
+- [ ] First live use: ExecPlan 114 Milestone 5's `just host-switch` ends with `COMMITTED`, and the host's `/boot/grub/grub.cfg` shows `terminal_input serial` and a 10-second timeout.
 
 
 ## Surprises & Discoveries
