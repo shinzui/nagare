@@ -58,8 +58,8 @@ repository holds operator development material from now on, including the Pulumi
 - [x] Milestone 1 complete (2026-09-12T22:20Z): operator confirmed the staged list; committed and pushed `shinzui/nagare-ops@79b7af5` on `main` (visibility PRIVATE).
 - [x] Milestone 2 prerequisite (2026-09-12T22:40Z): fixed passphrase shadowing/truncation in `.envrc`, `scripts/lib/target.sh`, `scripts/migrate-pulumi-backend.sh`, and `nagarectl`, and symlink-clobbering context writes; commit `9cc4764`. Verified the real stack still decrypts through the empty file with an inherited empty variable.
 - [x] Milestone 2 backup (2026-09-12T22:44Z): `~/.local/state/nagare/tan-nb-exp/pre-passphrase-rotation-20260912T224445Z` holds the encrypted export (32 resources), the pre-rotation stack config with its salt, and a copy of `state/`.
-- [ ] Milestone 2 remaining: rebuild `result/bin/nagarectl`; operator saves a new passphrase in the password manager, runs `stack change-secrets-provider` interactively, writes the passphrase file; verify decrypt with the file and failure with an empty passphrase; commit the new salt to `nagare-ops`.
-- [ ] Milestone 2: migrate Pulumi state to the chosen backend with `scripts/migrate-pulumi-backend.sh`; gate on a clean `pulumi preview --refresh`.
+- [x] Rebuilt `result/bin/nagarectl` with the passphrase fix (2026-09-12T23:00Z). Passphrase rotation **dropped** by operator decision (see Decision Log).
+- [x] Milestone 2 (2026-09-12T23:35Z): first migration run was refused by the bucket-ownership guard (gcloud 570 hides `projectNumber`); fixed with `--raw` in `ed238ba`, verified it accepts our bucket and refuses a foreign one, and re-ran with operator approval. State is in `gs://tan-nb-exp-nagare-pulumi-state/nagare/tan-nb-exp` (versioning on, PAP enforced, UBLA, project number 1087727631858); outputs matched; context flipped through the symlink (`nagare-ops@c057928`). Gate: `pulumi preview --refresh` = `31 unchanged` against GCS from a clean environment. Old local state renamed to `state.migrated-to-gcs-20260912T233425Z`; rollback artifact `pulumi-migrations/pre-gcs-20260912T233218Z.json`.
 - [ ] Milestone 3: remove operator-private tracked files from the public repository, replacing them with examples; update documentation.
 - [ ] Milestone 4: prove the setup from a clean second checkout; write Outcomes and ADR.
 
@@ -118,6 +118,15 @@ were not printed):
   `stack export --show-secrets` backup was also refused, so the rotation backup is the encrypted
   export plus the old salt and a state copy (equivalent, because the old passphrase is empty).
 - Editing `.envrc` blocks direnv until the operator runs `direnv allow`.
+- gcloud 570.0.0 omits `projectNumber` from `gcloud storage buckets describe` formatted output, so
+  `_require_bucket_in_target_project` (and `nagarectl`'s `bucketProjectNumberArgs`) refused every
+  bucket, including one just created in the target project. `--raw` returns the API field. The
+  first migration run had already created the bucket before refusing; nothing was imported.
+- A shell that loaded the context before the migration keeps `NAGARE_PULUMI_BACKEND=local` and
+  `PULUMI_BACKEND_URL=file://…` in its environment, and environment beats the context file, so it
+  silently targets the old local state. The first post-migration preview in this session did exactly
+  that. Renaming the old `state/` directory makes such a shell see an empty stack instead of stale
+  state; operators must reload direnv (or open a new shell) after a backend migration.
 
 
 ## Decision Log
@@ -168,6 +177,14 @@ were not printed):
   Rationale: every tool path already names that file, an empty file keeps today's contexts working,
   and the operator required that the passphrase cannot be lost. The rotation is typed by the
   operator into Pulumi's TTY prompt so the agent never sees or invents the value.
+  Date: 2026-09-12
+
+- Decision (supersedes answer 4 above): keep the **empty passphrase** for the `tan-nb-exp` stack; do
+  not rotate the secrets provider.
+  Rationale: the operator judged the rotation steps not worth it for this cluster (2026-09-12T23:10Z).
+  Consequence accepted: the 18 secret-marked state values are effectively plaintext to anyone who
+  can read the state bucket, which is private, uniform-access, public-access-prevented, and inside
+  `tan-nb-exp`. The tooling fixes from `9cc4764` remain, so a future rotation works.
   Date: 2026-09-12
 
 - Decision: The private repository keeps `.sops.yaml` at its root rather than `sops/.sops.yaml`, and
