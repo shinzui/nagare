@@ -82,6 +82,19 @@ is the later architectural decision that supersedes the single-profile framing
 with first-class target contexts. Any further change to the target model is
 recorded in that MasterPlan's Decision Log.
 
+## Host and cloud mutation rules
+
+- Host configuration changes go **only** through `just host-switch`, which verifies SSH access
+  with a fresh login and reverts itself otherwise (ExecPlan 115, ADR 11). Never run
+  `nixos-rebuild switch|boot|test`, `switch-to-configuration`, or edit the system profile
+  directly. The in-repo `nixos#nagare-01` is an evaluation fixture and refuses activation.
+- **When any guard, check, or script refuses, stop and report to the user.** Do not work around
+  it, and do not chain speculative recovery actions against a host you cannot observe. Write the
+  recovery as an ExecPlan with pass/fail gates first.
+- GCE startup scripts do not run on Nagare's NixOS image. Never use them for recovery.
+- Cloud-mutating commands require the human's approval each time (enforced by
+  `.claude/hooks/guard_host_mutation.py`).
+
 ## Git conventions
 
 - **Conventional Commits.** Every commit message follows the Conventional
