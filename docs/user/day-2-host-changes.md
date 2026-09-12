@@ -13,13 +13,14 @@ generated:
 
 > **Status:** 🟡 In progress (EP-3)
 >
-> `nixos-rebuild switch --target-host` works against `nagare-01` over Tailscale.
-> The `--sudo` flag is required because you deploy as the non-root `deploy` user.
+> Every host switch goes through `just host-switch`, which reverts itself unless a
+> fresh SSH login proves you still have access (ExecPlan 115,
+> [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md)).
 
 Once a host is booted, you do **not** rebuild the image and recreate the VM
 for ordinary config changes. Operator inputs live in the context-owned generated flake; reusable
 platform behavior remains in Nagare's packaged NixOS modules. Push the selected configuration
-to the running host with `nixos-rebuild switch`. The image build pipeline is
+to the running host with `just host-switch`. The image build pipeline is
 only for the *initial* boot (or a deliberate from-scratch rebuild).
 
 ---
@@ -31,45 +32,66 @@ under `nixos/` when contributing platform behavior, then:
 
 ```bash
 just host-switch
-scripts/host-switch.sh --dry-run  # inspect the exact flake, host, and command
+scripts/host-switch.sh --dry-run        # inspect the flake, attribute, target, key file, window
+scripts/host-switch.sh --build-on-host  # build on the host instead of the workstation
 ```
 
-What each flag does:
+Never activate a configuration on a Nagare host any other way (no direct `nixos-rebuild`
+activation, no `switch-to-configuration`). `just host-switch` does the following, in order:
 
-- `--flake <context-host-flake>#<host-name>` — build the selected generated flake's configuration.
-- `--target-host deploy@<instance-name>` — activate it on the context's remote host, normally over
-  Tailscale.
-- `--sudo` — the `deploy` user isn't root, so activation runs under `sudo`.
-  Passwordless sudo for `wheel` (set in `security.nix`) makes this unattended.
+1. **Refuses the evaluation fixture.** If the attribute is the in-repo `nixos#nagare-01`
+   fixture (`nagare.host.evaluationFixture = true`), it exits 3.
+2. **Refuses a lockout before building.** It reads your public key
+   (`NAGARE_SSH_PUBLIC_KEY_FILE`, else `${SSH_KEY:-~/.ssh/id_ed25519}.pub`) and exits 3 with
+   `refusing: the configuration does not authorize … applying it would lock you out` unless the
+   configuration's deploy user authorizes that key.
+3. **Builds and copies.** By default the `x86_64-linux` toplevel is built from the workstation
+   (an `aarch64-darwin` workstation dispatches to the remote Linux Nix builder, the same mechanism
+   as the image build — see [Host image and first boot](host-image-and-boot.md)) and copied with
+   `nix copy --to ssh-ng://deploy@<instance>`. With `--build-on-host` it is built straight into
+   the host's store. `deploy` is a Nix `trusted-user` (`@wheel`), so it can receive the closure.
+4. **Arms a rollback, activates, verifies, commits.** It prints:
+   - `ARMED prev=… new=… seconds=600`: an on-host systemd timer will reactivate the boot-default
+     generation after the window (`NAGARE_SWITCH_CONFIRM_SECONDS`, default 600).
+   - `ACTIVATE_RC=<n>`: the new configuration is running but is **not** the boot default. The
+     code is informational; pre-existing failed units make it non-zero.
+   - `fresh login and sudo verified`: a brand-new SSH connection (no multiplexing) ran
+     `sudo -n true` and saw the new system.
+   - `COMMITTED new=…`: the timer is cancelled and the new configuration is the boot default.
+     Exit 0.
 
-The build happens on a builder; because the workstation is `aarch64-darwin`, the
-`x86_64-linux` closure is built on the remote Linux Nix builder (same mechanism
-as the image build — see [Host image and first boot](host-image-and-boot.md)).
-`deploy` is a Nix `trusted-user` (`@wheel`), so it can receive the pushed
-closure.
+If verification fails, it prints `NOT COMMITTED: access could not be verified …` and exits 4.
+**Do not run further commands against the host.** Wait for the window to pass, then try a fresh
+`ssh deploy@<instance> true`. By then the host has reactivated the previous configuration by
+itself. A reboot would also boot the previous one, because the boot default never changed.
+Investigate the configuration before switching again. If SSH still fails after the window, use
+the serial console boot menu in
+[Accessing the host](accessing-the-host.md#path-3-serial-console-boot-menu-break-glass).
 
-## Break-glass switch over IAP
+## Switch over an IAP tunnel
 
-If Tailscale is unavailable, tunnel SSH port 22 to localhost and make the VM
-both the build host and target host. The `NIX_SSHOPTS` value applies the tunnel
-port and the same declarative operator identity to every SSH connection opened
-by `nixos-rebuild`:
+If Tailscale is unavailable, tunnel SSH port 22 to localhost and point every SSH connection the
+switch opens (the closure copy, arm, activate, the fresh verification login, commit) at the
+tunnel with `NIX_SSHOPTS`. `-o HostName=127.0.0.1` keeps the target named `deploy@<instance>`
+while connecting through the tunnel:
 
 ```bash
 TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)
 trap 'kill "$TUNPID" 2>/dev/null || true' EXIT
 
-export NIX_SSHOPTS="-p 2222 -i ${SSH_KEY:-$HOME/.ssh/id_ed25519} \
+export NIX_SSHOPTS="-o HostName=127.0.0.1 -p 2222 -i ${SSH_KEY:-$HOME/.ssh/id_ed25519} \
   -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null"
-host_flake="$(nagarectl host path)"
-nixos-rebuild switch --flake "$host_flake#${NAGARE_INSTANCE_NAME:-nagare-01}" \
-  --build-host deploy@127.0.0.1 --target-host deploy@127.0.0.1 --sudo
+just host-switch
+# or, to build on the VM instead of the workstation:
+# scripts/host-switch.sh --build-on-host
 
 unset NIX_SSHOPTS
 kill "$TUNPID"
 trap - EXIT
 ```
+
+Keep the tunnel open until the script prints `COMMITTED` or `NOT COMMITTED`.
 
 The active target context supplies the project, zone, host identity, and absolute generated-flake
 path used by the IAP wrapper.
@@ -137,10 +159,18 @@ you touch it, or k3s may start before its storage path exists.
 
 - **`stateVersion` is `26.05`.** Never bump it on a running system without a
   migration plan — it pins the semantics of stateful options.
-- **Don't lock yourself out.** A bad `security.nix` or `networking.firewall`
-  change applied via `switch` can sever SSH. Keep the IAP break-glass path
-  (`scripts/iap-ssh.sh`) in mind, and consider `nixos-rebuild test` (activates
-  without making it the boot default) for risky changes so a reboot reverts.
+- **Lockouts are guarded in three layers.** (1) The in-repo `nixos#nagare-01` evaluation
+  fixture refuses activation by any tool through a NixOS pre-switch check, and a configuration
+  carrying its placeholder key without being marked as the fixture fails to build.
+  (2) `just host-switch` refuses a configuration that does not authorize your key. (3) Every
+  switch reverts itself within the confirmation window, and on any reboot, unless a fresh SSH
+  login and `sudo` succeed. If all of that fails, the GRUB menu on the serial console lets you
+  boot an earlier generation (see
+  [Accessing the host](accessing-the-host.md#path-3-serial-console-boot-menu-break-glass)). In
+  Claude Code sessions, `.claude/hooks/guard_host_mutation.py` also blocks direct activation
+  commands.
+- **The boot menu waits ten seconds** on every boot (`boot-recovery.nix`) and keeps the last 20
+  generations. That is the cost of the break-glass path.
 - **`nofail` on the data disk** means a disk problem won't wedge the whole boot —
   but it also means a missing disk boots a host with no `/var/lib/nagare`. Check
   the mount after risky storage changes.

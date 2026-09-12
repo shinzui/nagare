@@ -321,7 +321,30 @@ Milestone 5 — Documentation, ADR, and hand-off:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+2026-09-12. All four layers exist and are proven off-host.
+
+- **Agent hook.** It blocks direct activation. This was verified live, and it also blocked the
+  implementer twice, on a doc edit and a log grep that merely mentioned forbidden commands. The
+  "ask" layer is not a human gate under `defaultMode: "auto"`.
+- **Fixture.** It refuses activation (`evaluation-fixture-refuses-activation`).
+- **Self-reverting switch.** `host-switch.sh` refuses the fixture and key-missing
+  configurations (exit 3). `host-switch-auto-rollback` passes all three scenarios on KVM.
+- **Boot menu.** It is configured (`boot-recovery-menu`).
+- **Docs and ADR.** Docs and ADR 11 are written, and `just docs-validate` passes.
+
+Remaining:
+- The first live use is ExecPlan 114 Milestone 5, which gates on `COMMITTED` and checks
+  `/boot/grub/grub.cfg`.
+- Re-check the ask prompt in a default-permission-mode session.
+
+Lessons:
+- **Prove verification against real ssh output.** Stderr noise defeated an exact-match check.
+- **Always use `BatchMode` for automated ssh.** A missing key otherwise becomes an indefinite
+  hang, not a failure.
+- **Check for KVM before trusting VM-test timings.**
+- **Watch long runs for stalls,** not just for pass/fail markers.
+
+Side fix: the remote builder now exposes `/dev/kvm` to sandboxed builds (see Surprises).
 
 
 ## Context and Orientation
