@@ -123,9 +123,44 @@ for the bucket naming, required IAM, and migration/rollback details.
 From the dev shell:
 
 ```bash
-just infra-preview     # cd infra/pulumi && pulumi preview
-just infra-up          # cd infra/pulumi && pulumi up
+just infra-preview     # nagarectl context guard; cd infra/pulumi && pulumi preview
+just infra-up          # nagarectl platform guard; nagarectl context guard; cd infra/pulumi && pulumi up
 ```
+
+### The project preflight
+
+Both recipes run `nagarectl context guard` **before** Pulumi is invoked at all. It refuses
+when the selected stack's `gcp:project`, the ambient `CLOUDSDK_CORE_PROJECT`, or `gcloud`'s
+configured project disagrees with the active context's project, and it has no escape hatch —
+unlike `nagarectl platform guard`, which checks release compatibility and can be skipped
+during an upgrade, there is no situation in which writing to the wrong project is correct.
+
+When it accepts you see one line before Pulumi's output:
+
+```text
+context guard: labs confined to project acme-prod (stack labs)
+```
+
+When it refuses, the recipe stops with no Pulumi output at all:
+
+```text
+refusing to run: Pulumi stack 'labs' targets project 'some-other-project', not the active context's project 'acme-prod'.
+fix: re-project the stack config with 'nagarectl context use labs', or select the context that owns 'some-other-project'.
+```
+
+**If you see this, do not reach for a way around it — find out which of the two is wrong.**
+The stack config is a *derived projection* of the context, never hand-edited, so a stack
+naming a foreign project means either the projection is stale or you have the wrong context
+selected. Regenerate the projection with `nagarectl context use <name>`, or switch to the
+context that owns the project the stack names. If the message instead names the ambient
+`CLOUDSDK_CORE_PROJECT` or gcloud's configured project, unset the override or run
+`gcloud config set project <project>`; your local `gcloud` pointing somewhere else is fine
+as long as nothing exports it into this shell. A `mode=local` context prints
+`context guard: local mode; no GCP project to confine` and proceeds.
+
+See [Target contexts](contexts.md) for the full command reference, and
+[GCP prerequisites](gcp-prerequisites.md) for everything else that keeps Nagare inside your
+project.
 
 On a clean checkout the first `pulumi up` creates everything **except the VM**,
 because `nagareImageSelfLink` isn't set yet. That's expected and correct — the

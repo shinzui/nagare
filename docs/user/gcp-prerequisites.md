@@ -145,6 +145,53 @@ gcloud dns managed-zones describe "$(pulumi -C infra/pulumi stack output dnsZone
 The [onboarding runbook](onboarding-bring-your-own-project.md) places this step in the
 correct order (after the zone exists, before HTTPS is expected to work).
 
+## What keeps Nagare inside your project
+
+If your organization also holds production projects, this is the part to read. Nagare
+enforces project confinement at **every place it writes to the cloud**, not only when a
+command starts, and every check fails closed — it refuses rather than guessing.
+
+**The project comes only from the active context.** No Nagare command derives its target
+from `gcloud config get-value project`. Your local `gcloud` can stay pointed at a
+production project; Nagare will not use it. Where a command does consult `gcloud`'s
+configured project — the cross-check that runs when no context declares one — it reads it
+with `CLOUDSDK_CORE_PROJECT` stripped from the environment, because `gcloud` lets that
+variable shadow its own configuration and the comparison would otherwise be a tautology.
+
+**Bucket operations compare owning project numbers.** Cloud Storage bucket names are unique
+across all of Google Cloud, so a bucket named `<your-project>-nagare-images` may already
+exist in someone else's project. "The bucket exists" is therefore not evidence that it is
+yours. Before creating, reconfiguring, granting IAM on, or uploading to a bucket, Nagare
+reads the bucket's owning project number and your project's, and proceeds only when both
+are present and equal. A number it cannot read — missing permission, missing tool, network
+failure — counts as a mismatch:
+
+```text
+refusing: gs://acme-prod-nagare-images is owned by project number '111111111111', not the
+target project 'acme-prod' (number '999999999999').
+  GCS bucket names are global; set a unique nagare:imageBucket with 'pulumi --cwd
+  infra/pulumi config set imageBucket <unique-name>'.
+```
+
+**`just infra-up` and `just infra-preview` refuse before Pulumi runs** when the selected
+Pulumi stack's `gcp:project`, the ambient `CLOUDSDK_CORE_PROJECT`, or `gcloud`'s configured
+project disagrees with your context. See
+[Provisioning with Pulumi](provisioning-with-pulumi.md) for that preflight and what to do
+when it stops you, and [Target contexts](contexts.md) for the
+`nagarectl context guard` command behind it.
+
+**Two mechanisms keep the APIs and resources project-scoped**, both wired up by
+`nagarectl init`: `scripts/enable-apis.sh`, which asserts the target before enabling
+anything, and the `gcp.projects.Service` resources in `infra/pulumi/index.ts`. Every
+resource the Pulumi program creates is project-scoped — there are no organization, folder,
+billing, shared-VPC or peering resources, no provider override, and no `import:` option
+that could adopt something you already own.
+
+**A local context is exempt, and calls no cloud tool at all.** A context with `mode=local`
+points everything at loopback substitutes, so there is no project to protect; the guards
+return immediately without invoking `gcloud`, after asserting that the local target really
+is loopback.
+
 ---
 
 ## Where to next
@@ -152,5 +199,7 @@ correct order (after the zone exists, before HTTPS is expected to work).
 - **[Bring-your-own-project onboarding](onboarding-bring-your-own-project.md)** — the
   single ordered zero-to-running runbook that uses these prerequisites.
 - [`CLAUDE.md`](../../CLAUDE.md) — the configurable project-isolation policy.
+- [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) —
+  the decision behind the confinement checks described above.
 - [MasterPlan 12](../masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md) —
   the architectural decision behind bring-your-own-project.

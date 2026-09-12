@@ -65,12 +65,70 @@ The core fields are:
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; without `NAME`, show the active context. |
 | `nagarectl context create NAME [flags]` | Write a context. Add `--use` to make it current. |
 | `nagarectl context delete NAME --yes` | Delete a context file; deleting the current context clears the pointer. |
+| `nagarectl context guard [--json]` | Refuse unless the Pulumi stack, the environment and `gcloud` all agree with the active context's project. |
+| `nagarectl context env` | Print the active context's full shell environment as `export` lines, safe to `eval`. |
 
 `nagarectl init NAME --project ... --base-domain ...` is the full onboarding
 path for a new cloud context: it writes the named context, marks it current,
 runs preflight/API enablement unless skipped, and seeds that context's Pulumi
 projection. `nagarectl init` without `NAME` keeps the legacy behavior and writes
 `./nagare.target.env`.
+
+### `nagarectl context guard`
+
+The project-confinement preflight. `just infra-up` and `just infra-preview` run it before
+Pulumi, so that a disagreement about the target project stops the run rather than reaching
+Google Cloud. Unlike `nagarectl platform guard` — which answers the separate
+release-compatibility question and can be skipped during an upgrade with
+`NAGARE_UPGRADE_APPLY` — this guard has no escape hatch: there is no situation in which
+writing to the wrong project is correct.
+
+It compares the project the active context declares against three sources and fails closed
+on any disagreement. When it accepts, it prints one line:
+
+```text
+context guard: labs confined to project acme-prod (stack labs)
+```
+
+When it refuses, it exits non-zero and names both compared values. Search for these:
+
+```text
+refusing to run: Pulumi stack 'labs' targets project 'some-other-project', not the active context's project 'acme-prod'.
+refusing to run: Pulumi stack 'labs' declares no gcp:project, so the next Pulumi operation's target project is unknown.
+refusing to run: the ambient CLOUDSDK_CORE_PROJECT is 'some-production-project', not the active context's project 'acme-prod' (context: labs).
+refusing to run: gcloud's configured project is 'some-production-project', not the active context's project 'acme-prod' (context: labs).
+```
+
+The first two are fixed by re-projecting the stack config with
+`nagarectl context use <name>`, or by selecting the context that owns the project the stack
+names. The third is fixed by unsetting the ambient override. The fourth by
+`gcloud config set project <project>` — or, again, by selecting the right context. A
+`mode=local` context has no project to confine, so the guard prints
+`context guard: local mode; no GCP project to confine` and exits 0 without calling `gcloud`.
+
+`--json` emits the same verdict with every compared value under `observations`, so a failing
+recipe can be diagnosed from its output alone.
+
+### `nagarectl context env`
+
+Prints the active context's whole shell environment — the `CLOUDSDK_*` / `NAGARE_*` contract
+plus `PULUMI_HOME`, `PULUMI_BACKEND_URL`, the passphrase file and `NAGARE_PULUMI_STACK` — as
+single-quoted `export` lines and nothing else. It is safe to `eval`.
+
+You will not normally run it yourself. The packaged `nagare` launcher evaluates it, which is
+how an installed operator with no source checkout and no `.envrc` gets the same Pulumi
+backend and stack that a `direnv`-loaded checkout has. Run it by hand when you want to see
+exactly what a recipe will inherit:
+
+```bash
+nagarectl context env
+eval "$(nagarectl context env)"   # apply it to the current shell
+```
+
+Note that it reflects the resolved profile, and the documented per-field precedence is
+environment over context file. So an ambient `CLOUDSDK_CORE_PROJECT` shows up here rather
+than being overridden — and `nagarectl context guard` is what refuses when such an override
+disagrees with the context.
 
 ## Selecting a context
 
