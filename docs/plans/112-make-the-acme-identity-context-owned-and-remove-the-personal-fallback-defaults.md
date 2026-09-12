@@ -152,11 +152,14 @@ This section must always reflect the actual current state of the work.
   - [x] `cluster/bootstrap/cert-manager/README.md`: the rendered fields and the staging switch.
   - [x] `docs/user/log.md` entry and a green `just user-documentation-validate`
         (36 + 2 concepts, no findings).
-- [ ] M5: Durable context recorded and the improvement request closed.
-  - [ ] Write the ADR for the context-owned ACME identity under `docs/adr/`.
-  - [ ] Move `docs/improvement-requests/context-owned-acme-identity.md` to `completed` with
-        `completedAt` and `resolution`, and log it.
-  - [ ] Fill in Outcomes & Retrospective.
+- [x] M5: Durable context recorded and the improvement request closed. (2026-09-12)
+  - [x] Write the ADR for the context-owned ACME identity under `docs/adr/`:
+        `docs/adr/0010-the-active-context-owns-the-acme-identity.md` (0009 was taken by EP-113).
+  - [x] Set `docs/improvement-requests/context-owned-acme-identity.md` to `status: completed`
+        with `completedAt` and `resolution`, and log it. (In place, per the Plan of Work: the
+        bundle has no `completed/` directory and the shared profile tracks the terminal state
+        in frontmatter — see the Decision Log.)
+  - [x] Fill in Outcomes & Retrospective.
 
 
 ## Surprises & Discoveries
@@ -289,6 +292,44 @@ Record every decision made while working on the plan.
   Date: 2026-09-12.
 
 
+- Decision: RFC 2606 / RFC 6761 reserved example domains are **erased from each line** before
+  the `cluster-bootstrap-defaults` guard matches, rather than the guard skipping the whole line.
+  Rationale: the plan assumed illustrative addresses would live in comments, which the guard
+  already skips. They do not — the renderer's refusal must *print*
+  `--acme-email you@example.com` from an `echo` to tell an operator what a contact looks like.
+  `example.com`/`.org`/`.net` and `*.example` are reserved in perpetuity and can never be a real
+  mailbox, so exempting them costs nothing; erasing the address instead of the line keeps a real
+  address appearing on the same line detectable. `flake.nix` itself is exempt from the URL drift
+  half of the guard, because it has to name both URLs in order to check them.
+  Date: 2026-09-12.
+
+- Decision: `renderContextShellEnv` (the `nagarectl context env` contract the packaged `nagare`
+  launcher evaluates) does **not** gain the two ACME variables.
+  Rationale: the launcher exports `NAGARE_CONTEXT`, and the renderer sources
+  `scripts/lib/target.sh`, which resolves the ACME fields from that context's own file. Adding
+  them would buy nothing and would widen a contract whose values are re-applied over the
+  context file by the snapshot-restore step in `_nagare_resolve_context`. The strip list in
+  `scripts/rehearse-clone-free-release.sh` was still extended with both names so the "clean
+  contract" invocation keeps describing the context under test rather than the developer's
+  machine. Date: 2026-09-12.
+
+- Decision: IR-3 is closed **in place** by setting `status: completed` in its frontmatter, not by
+  moving the file into a `completed/` directory as the Progress checklist worded it.
+  Rationale: the plan's own Plan of Work specifies the in-place form, and it is the one that
+  matches reality — `docs/improvement-requests/` has no `completed/` directory, and the shared
+  `okf-profiles` improvement-request profile models the terminal state as the `status`,
+  `completedAt` and `resolution` frontmatter fields
+  (`mori://shinzui/okf-profiles` + `profiles/coordination/improvement-requests.dhall:70-125`).
+  Date: 2026-09-12.
+
+- Decision: The four improvement requests' pre-existing "missing profile-recommended field:
+  reviews" findings are reported, not silenced.
+  Rationale: `okf validate --strict` emits the same four findings on the unmodified tree
+  (verified by stashing only `docs/improvement-requests/` and re-running), including for two
+  requests this plan never touches. Review provenance records who actually reviewed a document;
+  inventing entries to turn the command green would make the corpus lie. Closing IR-3 introduced
+  no new finding. Date: 2026-09-12.
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -296,7 +337,65 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+All five milestones are complete, and every acceptance criterion in
+**Validation and Acceptance** holds except the last, which needs a live cluster.
+
+**What the operator can now do that they could not before.** `nagarectl init <name>
+--acme-email you@example.com` records the Let's Encrypt contact in the context;
+`nagarectl context show <name> | grep ACME` prints it back; and the rendered `letsencrypt-dns`
+`ClusterIssuer` carries that address, the context's chosen ACME endpoint, and the context's
+own project. `nagarectl context create <name> --acme-directory staging` selects Let's
+Encrypt's staging service without editing anything inside the read-only Nix payload. With no
+contact configured, `nagare cluster-bootstrap` stops before `kubectl apply` and names the
+field, so no cluster can register an account under an address its operator did not choose.
+
+**Measured against the purpose.** The two personal literals are gone —
+`grep -rn 'nadeem@\|tan-nb-exp' cluster/bootstrap/` is empty — and the
+`cluster-bootstrap-defaults` guard was proven non-vacuous by running it against the pre-change
+tree, where it reports exactly `render-context-template.sh:23` and `:26` and nothing else.
+IR-3's acceptance sentence is satisfied in both halves, and all four of its "Required
+verification" items are CI checks rather than prose.
+
+**Evidence.** `nix flake check --print-build-logs` is green on `aarch64-darwin`: 14 built
+checks including the new `render-context-template` (five hermetic scenarios) and
+`cluster-bootstrap-defaults`, the extended `nagare-clone-free-platform` (which now asserts
+`init` *refuses* a missing contact before asserting it accepts one) and `shellcheck-scripts`
+(which now lints the renderer), plus `nagarectl-build-test` carrying seven new ACME unit
+tests. `just user-documentation-validate` reports no findings (36 + 2 concepts).
+
+**Gaps, stated plainly.**
+
+- **Live acceptance is unrun.** The `kubectl get clusterissuer letsencrypt-dns` assertions in
+  Validation and Acceptance need a real cluster and a delegated domain; this work was done
+  without either. Everything below that line is proven hermetically. The first operator to run
+  `nagare cluster-bootstrap` after this change closes that gap.
+- **`okf validate docs/improvement-requests --strict` still exits non-zero**, with four
+  pre-existing `missing profile-recommended field: reviews` findings — the same four, verbatim,
+  on the unmodified tree. Two of them belong to requests this plan never touches. They were
+  left alone rather than papered over; see the Decision Log.
+- **`cabal run test:nagarectl-test` on a developer's machine has 8 unrelated failures** from a
+  stale `.ghc.environment.*` registering two `nagare-dsl` versions. See Surprises & Discoveries.
+
+**Lessons worth carrying.**
+
+- *A guard written against imagined code finds real code.* The `cluster-bootstrap-defaults`
+  regex was designed assuming illustrative addresses live in comments. Its first run failed on
+  the renderer's own refusal message — which has to print an example address from an `echo` —
+  and its second failed on `flake.nix`, which has to name both Let's Encrypt URLs to check
+  them. Both were the guard doing its job on code the plan had not yet written.
+- *Adding a strict field to a shared record is never a one-file change.* Two strict fields on
+  `TargetProfile` broke three construction sites the plan did not name. The compiler found all
+  of them, which is the argument for the fields being strict and positional rather than
+  defaulted.
+- *`nix flake check` sees the git tree, not the working tree.* A new test script that is
+  written but not `git add`ed fails its check with a bare "No such file or directory".
+- *Duplication is acceptable when drift is detectable.* The two ACME directory URLs live in
+  both resolvers because the renderer cannot call back into `nagarectl` without a circular
+  runtime dependency. Pinning them with a CI check turns an invisible risk into a build
+  failure, which is the trade this repository already makes for the bucket-ownership guard.
+
+**Durable context distilled to**
+[ADR 10 — The active context owns the ACME identity](../adr/0010-the-active-context-owns-the-acme-identity.md).
 
 
 ## Context and Orientation
