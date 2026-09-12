@@ -1,10 +1,11 @@
-{ pkgs, ... }:
+{ pkgs, utils, ... }:
 
 let
   # The device name EP-2 assigns to the attached data disk. GCP surfaces it at
   # /dev/disk/by-id/google-<deviceName>. EP-2's NagareInstance.ts attaches the
   # disk with deviceName "nagare-data", confirmed against that component.
   dataDiskDevice = "/dev/disk/by-id/google-nagare-data";
+  dataDiskDeviceUnit = "${utils.escapeSystemdPath dataDiskDevice}.device";
 in
 {
   # EP-2 attaches a BLANK persistent disk (no filesystem). Format it ext4 on
@@ -18,12 +19,32 @@ in
     description = "Format the Nagare data disk on first boot if it is blank";
     wantedBy = [ "var-lib-nagare.mount" ];
     before = [ "var-lib-nagare.mount" ];
-    # The attached disk's by-id device node exists early in boot (udev), well
-    # before the local-fs mount is processed, so ConditionPathExists is a
-    # sufficient and robust guard without naming the (awkwardly-escaped)
-    # systemd .device unit. If the disk is somehow absent, the condition skips
-    # the service and the nofail mount simply does not mount.
-    unitConfig.ConditionPathExists = dataDiskDevice;
+    # ConditionPathExists guards against an absent disk: the service skips and
+    # the nofail mount simply does not mount.
+    #
+    # DefaultDependencies must be OFF. With them on, systemd gives this service
+    # an implicit After=basic.target, and once the mount below carries
+    # autoResize (x-systemd.growfs) that closes an ordering cycle:
+    #   local-fs.target -> systemd-growfs@var-lib-nagare -> var-lib-nagare.mount
+    #   -> format-nagare-data -> basic.target -> sysinit.target -> local-fs.target
+    # systemd breaks such a cycle by DELETING a job, and the job it drops is the
+    # grow — so the filesystem silently never grows. Observed in the
+    # data-disk-online-grow VM test (EP-111 Surprises). Turning default
+    # dependencies off and ordering explicitly against local-fs-pre.target is
+    # the standard shape for a unit that must run before a local mount.
+    #
+    # Without basic.target the service runs so early that udev has not yet
+    # created the by-id link, the condition is unmet, the format is skipped,
+    # and a blank disk fails to mount on first boot (EP-114 Surprises). So it
+    # must also wait for the device unit. Wants (not Requires) keeps an absent
+    # disk non-fatal: the device job times out and the condition skips.
+    unitConfig = {
+      ConditionPathExists = dataDiskDevice;
+      DefaultDependencies = false;
+    };
+    wants = [ dataDiskDeviceUnit ];
+    after = [ "local-fs-pre.target" dataDiskDeviceUnit ];
+    conflicts = [ "shutdown.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;

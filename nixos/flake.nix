@@ -228,9 +228,102 @@
           assert rootFs.autoResize;
           assert builtins.elem "x-systemd.growfs" rootFs.options;
           assert compatibilitySystem.config.boot.growPartition;
+          # Default dependencies on format-nagare-data close an ordering cycle
+          # through local-fs.target that systemd breaks by dropping the grow.
+          assert compatibilitySystem.config.systemd.services.format-nagare-data.unitConfig.DefaultDependencies == false;
+          # ...but then it must wait for the disk's device unit, or it runs before
+          # udev creates the by-id link and skips formatting a blank disk.
+          assert builtins.elem "dev-disk-by\\x2did-google\\x2dnagare\\x2ddata.device"
+            compatibilitySystem.config.systemd.services.format-nagare-data.after;
           nixpkgs.legacyPackages.${system}.runCommand "nagare-data-disk-auto-grow-check" { } ''
             touch "$out"
           '';
+
+        # Prove the online grow, not merely that the option is set. The trick
+        # is to invert the setup: put a deliberately UNDERSIZED ext4
+        # filesystem on an oversized disk, which is bit-for-bit the state a
+        # host is in right after dataDiskSizeGb is increased.
+        data-disk-online-grow =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            # The SHIPPED mount definition, taken from the real evaluated host
+            # configuration rather than retyped here, so the test proves what
+            # operators actually run.
+            dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";
+          in
+          pkgs.testers.runNixOSTest {
+            name = "nagare-data-disk-online-grow";
+            nodes.machine = { ... }: {
+              # Import the REAL platform module under test, not a copy of it.
+              imports = [ ./hosts/nagare-01/storage.nix ];
+              # storage.nix looks for the GCP by-id node, which QEMU has no
+              # notion of. A udev SYMLINK+= is the right tool rather than a
+              # hand-made ln: systemd derives the .device unit the mount
+              # implicitly requires from udev, so a bare symlink leaves
+              # dev-disk-by\x2did-google\x2dnagare\x2ddata.device hanging until
+              # it times out.
+              services.udev.extraRules = ''
+                SUBSYSTEM=="block", KERNEL=="vdb", SYMLINK+="disk/by-id/google-nagare-data"
+              '';
+              # A 2 GiB scratch disk, attached as /dev/vdb.
+              virtualisation.emptyDiskImages = [ 2048 ];
+              # qemu-vm.nix REPLACES `fileSystems` wholesale with
+              # `mkVMOverride virtualisation.fileSystems`, so importing
+              # storage.nix alone leaves the data-disk mount silently dropped
+              # and nothing ever mounts. Mirror the shipped definition across
+              # so the mount under test is the platform's own, options and all.
+              virtualisation.fileSystems."/var/lib/nagare" = {
+                inherit (dataFs) device fsType options autoResize;
+              };
+              environment.systemPackages = [ pkgs.e2fsprogs ];
+            };
+            testScript = ''
+              GIB = 1024 ** 3
+
+              def data_disk_bytes():
+                  out = machine.succeed("df --output=size -B1 /var/lib/nagare | tail -n1")
+                  return int(out.strip())
+
+              # Diagnostics first, so a missing by-id link explains itself.
+              print("BY-ID " + machine.execute("ls -l /dev/disk/by-id/")[1])
+              print("UDEV RULES " + machine.execute("cat /etc/udev/rules.d/99-local.rules")[1])
+              print("VDB SYMLINKS " + machine.execute("udevadm info --query=symlink --name=/dev/vdb")[1])
+              machine.wait_until_succeeds("test -e /dev/disk/by-id/google-nagare-data", timeout=120)
+
+              # Phase 0: a blank disk is formatted and mounted by the module, and
+              # the subdirectory layout lands on the data disk (not underneath it).
+              machine.wait_for_unit("multi-user.target")
+              machine.fail("journalctl -b --no-pager | grep -q 'ordering cycle'")
+              machine.wait_for_unit("var-lib-nagare.mount")
+              machine.succeed("mountpoint /var/lib/nagare")
+              machine.succeed("test -d /var/lib/nagare/local-path")
+              print("MOUNT OPTIONS " + machine.succeed("findmnt -no OPTIONS /var/lib/nagare"))
+              print("PHASE 0 " + machine.succeed("df -h /var/lib/nagare"))
+
+              # Phase 1, the reboot path. Put a 1 GiB filesystem on the 2 GiB
+              # device: exactly the state after `dataDiskSizeGb` is increased.
+              machine.succeed("systemctl stop var-lib-nagare.mount")
+              machine.succeed("mkfs.ext4 -F -L nagare-data -b 4096 /dev/vdb 262144")
+              machine.shutdown()
+              machine.start()
+              machine.wait_for_unit("multi-user.target")
+              machine.fail("journalctl -b --no-pager | grep -q 'ordering cycle'")
+              machine.wait_for_unit("var-lib-nagare.mount")
+              machine.succeed("mountpoint /var/lib/nagare")
+              grown = data_disk_bytes()
+              print("PHASE 1 " + machine.succeed("df -h /var/lib/nagare"))
+              assert grown > 1.5 * GIB, f"filesystem did not grow on boot: {grown} bytes"
+
+              # Phase 2, the no-reboot path an operator uses on a live cluster.
+              machine.succeed("systemctl stop var-lib-nagare.mount")
+              machine.succeed("mkfs.ext4 -F -L nagare-data -b 4096 /dev/vdb 262144")
+              machine.succeed("systemctl start var-lib-nagare.mount")
+              machine.succeed("systemctl start systemd-growfs@var-lib-nagare.service")
+              grown = data_disk_bytes()
+              print("PHASE 2 " + machine.succeed("df -h /var/lib/nagare"))
+              assert grown > 1.5 * GIB, f"online grow did not take effect: {grown} bytes"
+            '';
+          };
 
         forge-credentials-module =
           assert compatibilitySystem.config.nagare.host.forgeCredentials.enable == false;
