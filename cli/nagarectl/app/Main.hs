@@ -257,6 +257,7 @@ import Nagare.Target
   , ContextName
   , Mode (..)
   , PulumiBackendKind (..)
+  , AcmeDirectory (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , clearCurrentContext
@@ -268,8 +269,11 @@ import Nagare.Target
   , listContexts
   , mkContextName
   , nagareStateDir
+  , acmeDirectoryToken
+  , parseAcmeDirectory
   , parsePulumiBackendKind
   , profileFromContextMap
+  , validateAcmeEmail
   , pulumiEnvFor
   , renderContextShellEnv
   , readContextProfile
@@ -588,6 +592,8 @@ data ContextCreateOpts = ContextCreateOpts
   , ccoPulumiBackend :: !(Maybe String)
   , ccoPulumiBackendUrl :: !(Maybe String)
   , ccoPulumiBackendMember :: !(Maybe String)
+  , ccoAcmeEmail :: !(Maybe String)
+  , ccoAcmeDirectory :: !(Maybe String)
   , ccoForce :: !Bool
   , ccoUse :: !Bool
   }
@@ -862,6 +868,8 @@ initOptsParser =
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
+    <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address for this context (REQUIRED; prompted if absent on a TTY)"))
+    <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
     <*> switch (long "force" <> help "Overwrite an existing nagare.target.env")
     <*> switch (long "skip-preflight" <> help "Skip the gcloud auth + operator-IAM checks")
     <*> switch (long "skip-enable" <> help "Skip running scripts/enable-apis.sh")
@@ -889,6 +897,8 @@ contextCreateOptsParser =
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during --use bootstrap (not persisted)"))
+    <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address (no default; required to render the cluster issuer)"))
+    <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
     <*> switch (long "force" <> help "Overwrite an existing context of this name")
     <*> switch (long "use" <> help "Also set this context as the current context")
 
@@ -2768,6 +2778,15 @@ runInit mctx o = do
   zone <- resolveField False "Compute zone" "zone" (o ^. #ioZone) (tpZone defs)
   baseDomain <- resolveField False "Apps base domain" "base-domain" (o ^. #ioBaseDomain) (tpBaseDomain defs)
 
+  -- EP-112: the ACME contact is mandatory, exactly like the project. There is no
+  -- safe default for "your mailbox", and a Let's Encrypt account registered under
+  -- the wrong address cannot be re-pointed without deleting its account key — so
+  -- the cheapest possible failure is here, before a context file exists.
+  acmeEmailRaw <- resolveField True "Let's Encrypt contact address" "acme-email" (o ^. #ioAcmeEmail) (tpAcmeEmail defs)
+  acmeEmail <- either dieT pure (validateAcmeEmail acmeEmailRaw)
+  let acmeDirectoryRaw = maybe (tpAcmeDirectory defs) T.pack (o ^. #ioAcmeDirectory)
+  acmeDirectory <- either dieT (pure . acmeDirectoryToken) (parseAcmeDirectory acmeDirectoryRaw)
+
   -- Preflight (unless skipped). Runs AFTER we know the project but BEFORE any
   -- write/enable/seed, so a failure leaves nothing changed.
   unless (o ^. #ioSkipPreflight) $ do
@@ -2780,7 +2799,7 @@ runInit mctx o = do
   -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver,
   -- then apply the EP-93 Pulumi backend choice (default local; gcs is cloud-only and
   -- downgraded in local mode by effectivePulumiBackend).
-  tpBase <- profileFromOpts project region zone baseDomain
+  tpBase <- profileFromOpts project region zone baseDomain acmeEmail acmeDirectory
   let baseProfile =
         tpBase
           { tpPulumiBackend = parsePulumiBackendKind (o ^. #ioPulumiBackend)
@@ -2893,6 +2912,13 @@ runContext mctx = \case
     exists <- contextExists name
     when (exists && not (ccoForce o)) $
       dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite")
+    -- EP-112: validate the ACME identity BEFORE a context file exists, so a typo
+    -- is reported here rather than at `nagare cluster-bootstrap`. The contact is
+    -- OPTIONAL here (unlike `init`): this is the low-level writer that also
+    -- creates local contexts, where no ACME account is ever registered. The
+    -- renderer's refusal is the backstop for a context written without one.
+    mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (ccoAcmeEmail o)
+    mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (ccoAcmeDirectory o)
     (_, workspace) <- resolvePlatformWorkspace name
     let contextMap = Map.insert "NAGARE_PLATFORM_VERSION" (pwPlatformVersion workspace) (Map.fromList (contextEnvPairs o))
         tp = profileFromContextMap contextMap
@@ -3065,6 +3091,8 @@ contextEnvPairs o =
     , pair "NAGARE_LOCAL_OBJECT_STORE" (ccoLocalObjectStore o)
     , pair "NAGARE_PULUMI_BACKEND" (ccoPulumiBackend o)
     , pair "NAGARE_PULUMI_BACKEND_URL" (ccoPulumiBackendUrl o)
+    , pair "NAGARE_ACME_EMAIL" (ccoAcmeEmail o)
+    , pair "NAGARE_ACME_DIRECTORY" (ccoAcmeDirectory o)
     ]
   where
     pair k mv = fmap (\v -> (k, T.pack v)) mv

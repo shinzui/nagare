@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T13:26:36Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T15:38:34Z
+      mode: "implement"
+      note: "Implementing milestones 1-5: context-owned ACME identity"
 ---
 
 # Make the ACME identity context-owned and remove the personal fallback defaults
@@ -92,23 +98,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: The ACME identity is a first-class context field.
-  - [ ] Add `NAGARE_ACME_EMAIL` and `NAGARE_ACME_DIRECTORY` to `_NAGARE_CONTEXT_VARS` and the
+- [x] M1: The ACME identity is a first-class context field. (2026-09-12)
+  - [x] Add `NAGARE_ACME_EMAIL` and `NAGARE_ACME_DIRECTORY` to `_NAGARE_CONTEXT_VARS` and the
         export block in `scripts/lib/target.sh`, with no built-in contact default.
-  - [ ] Add `nagare_acme_directory_url` to `scripts/lib/target.sh` and export the derived
+  - [x] Add `nagare_acme_directory_url` to `scripts/lib/target.sh` and export the derived
         `NAGARE_ACME_DIRECTORY_URL`.
-  - [ ] Add `nagare_acme_email_valid` to `scripts/lib/target.sh`.
-  - [ ] Add `tpAcmeEmail` / `tpAcmeDirectory` to `TargetProfile` in
+  - [x] Add `nagare_acme_email_valid` to `scripts/lib/target.sh`.
+  - [x] Add `tpAcmeEmail` / `tpAcmeDirectory` to `TargetProfile` in
         `cli/nagarectl/src/Nagare/Target.hs`, resolved by both `profileFromContextMap` and
         `resolveProfileFrom`.
-  - [ ] Add `AcmeDirectory`, `parseAcmeDirectory`, `acmeDirectoryUrl`, `validateAcmeEmail` to
-        `cli/nagarectl/src/Nagare/Target.hs` and export them.
-  - [ ] Emit both fields from `renderTargetEnv` in `cli/nagarectl/src/Nagare/Init.hs`.
-  - [ ] Extend `profileFromOpts` and `InitOpts` for the two new values.
-  - [ ] Add `--acme-email` / `--acme-directory` to `nagarectl init` and `nagarectl context create`
+  - [x] Add `AcmeDirectory`, `parseAcmeDirectory`, `acmeDirectoryUrl`, `validateAcmeEmail` to
+        `cli/nagarectl/src/Nagare/Target.hs` and export them. Also added `acmeDirectoryToken`
+        (the inverse, mirroring `pulumiBackendToken`) so `init` stores a normalized token.
+  - [x] Emit both fields from `renderTargetEnv` in `cli/nagarectl/src/Nagare/Init.hs`.
+  - [x] Extend `profileFromOpts` and `InitOpts` for the two new values.
+  - [x] Add `--acme-email` / `--acme-directory` to `nagarectl init` and `nagarectl context create`
         in `cli/nagarectl/app/Main.hs`, with a TTY prompt and a non-interactive error for the
         contact in `init`.
-  - [ ] Document both variables in `nagare.target.env.example`; note their absence in
+  - [x] Document both variables in `nagare.target.env.example`; note their absence in
         `nagare.local.env.example`.
 - [ ] M2: The issuer renders from the context and refuses to invent an identity.
   - [ ] Rewrite the resolution block of `cluster/bootstrap/render-context-template.sh` to source
@@ -150,7 +157,21 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **Four `TargetProfile` record literals exist outside `Nagare/Target.hs`, not one.** The plan
+  named only `initProfile` in `cli/nagarectl/test/Spec.hs`. Adding two strict fields broke three
+  more construction sites, each with `[GHC-95909] Constructor 'TargetProfile' does not have the
+  required strict field(s)`: a second literal in `cli/nagarectl/test/Spec.hs:798` (`tnbProfile`)
+  and one in `cli/nagarectl/test/AppDeploySpec.hs:60` (`testProfile`). All were updated.
+  `cli/nagarectl/app/Main.hs:2806` uses record *update* syntax and needed no change.
+  Date: 2026-09-12.
+
+- **The local `cabal run test:nagarectl-test` has 8 pre-existing failures unrelated to this
+  work.** Every one is `Ambiguous module name 'Nagare.Dsl.*' ... found in multiple packages:
+  nagare-dsl-0.1.0 nagare-dsl-0.1.0.0` from `AppDeploySpec`, caused by a stale
+  `.ghc.environment.*` in the developer's `cli/nagarectl` checkout holding two registered
+  `nagare-dsl` versions. It is an environment artifact, not a regression: the authoritative
+  gate is the hermetic `nix build .#checks.<system>.nagarectl-build-test`, which builds the
+  suite from a clean package set. Date: 2026-09-12.
 
 
 ## Decision Log

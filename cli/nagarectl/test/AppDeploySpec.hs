@@ -72,6 +72,8 @@ testProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpAcmeEmail = "ops@example.com"
+    , tpAcmeDirectory = "production"
     , tpPlatformVersion = Nothing
     }
 

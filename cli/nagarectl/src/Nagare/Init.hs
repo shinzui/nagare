@@ -58,6 +58,8 @@ data InitOpts = InitOpts
   , ioPulumiBackend :: !(Maybe String)
   , ioPulumiBackendUrl :: !(Maybe String)
   , ioPulumiBackendMember :: !(Maybe String)
+  , ioAcmeEmail :: !(Maybe String)
+  , ioAcmeDirectory :: !(Maybe String)
   , ioForce :: !Bool
   , ioSkipPreflight :: !Bool
   , ioSkipEnable :: !Bool
@@ -95,12 +97,18 @@ requiredApis =
 -- environment, so the derived fields (registry host, buckets) follow EP-60's
 -- derivations exactly. The derived overrides are cleared so the derivation, not a
 -- stale env value, wins.
-profileFromOpts :: Text -> Text -> Text -> Text -> IO TargetProfile
-profileFromOpts project region zone baseDomain = do
+profileFromOpts :: Text -> Text -> Text -> Text -> Text -> Text -> IO TargetProfile
+profileFromOpts project region zone baseDomain acmeEmail acmeDirectory = do
   setEnv "CLOUDSDK_CORE_PROJECT" (T.unpack project)
   setEnv "CLOUDSDK_COMPUTE_REGION" (T.unpack region)
   setEnv "CLOUDSDK_COMPUTE_ZONE" (T.unpack zone)
   setEnv "NAGARE_BASE_DOMAIN" (T.unpack baseDomain)
+  -- EP-112: an EMPTY value means "no explicit choice", which must not leave a
+  -- stale ambient value in place for the resolver to pick up. `setEnv` with an
+  -- empty string happens to remove the variable on this toolchain, but write the
+  -- case split explicitly so the behavior does not depend on that detail.
+  setOrUnset "NAGARE_ACME_EMAIL" acmeEmail
+  setOrUnset "NAGARE_ACME_DIRECTORY" acmeDirectory
   mapM_
     unsetEnv
     [ "NAGARE_REGISTRY_HOST"
@@ -110,6 +118,10 @@ profileFromOpts project region zone baseDomain = do
     , "NAGARE_INSTANCE_NAME"
     ]
   resolveTargetProfile
+  where
+    setOrUnset name value
+      | T.null value = unsetEnv name
+      | otherwise = setEnv name (T.unpack value)
 
 -- | Render the profile as @export VAR=value@ lines, matching the target/context
 -- schema so a profile can round-trip through the context store.
@@ -126,6 +138,8 @@ renderTargetEnv tp =
     , "export NAGARE_IMAGE_BUCKET=" <> tpImageBucket tp
     , "export NAGARE_BACKUP_BUCKET=" <> tpBackupBucket tp
     , "export NAGARE_BASE_DOMAIN=" <> tpBaseDomain tp
+    , "export NAGARE_ACME_EMAIL=" <> tpAcmeEmail tp
+    , "export NAGARE_ACME_DIRECTORY=" <> tpAcmeDirectory tp
     , "export NAGARE_INSTANCE_NAME=" <> tpInstanceName tp
     , "export NAGARE_TARGET_PLATFORM=" <> tpTargetPlatform tp
     , "export NAGARE_MODE=" <> modeToken (tpMode tp)
