@@ -7,6 +7,20 @@
 
 set -euo pipefail
 
+# --- KVM for sandboxed builds (every boot, idempotent) ------------------------
+# Ubuntu's 50-udev-default.rules makes /dev/kvm root:kvm 0660. The Nix build
+# sandbox does not map the kvm group, so NixOS VM tests (`kvm` system feature)
+# silently fall back to TCG emulation and run 10-50x slower. NixOS itself makes
+# /dev/kvm 0666; do the same. Runs before the first-boot sentinel so existing
+# builders keep it too. (ExecPlan 115, Surprises & Discoveries.)
+cat >/etc/udev/rules.d/99-kvm-nix-builds.rules <<'UDEV'
+KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"
+UDEV
+udevadm control --reload-rules || true
+if [ -e /dev/kvm ]; then
+  chmod 0666 /dev/kvm
+fi
+
 if [ -f /var/lib/nix-builder.provisioned ]; then
   exit 0
 fi
