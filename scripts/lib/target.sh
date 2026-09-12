@@ -406,7 +406,9 @@ _require_bucket_in_target_project() {
   local hint="${2:-}"
   [ "${NAGARE_MODE:-}" = "local" ] && return 0
   local bucket_pn target_pn
-  bucket_pn="$(gcloud storage buckets describe "gs://${bucket}" --format='value(projectNumber)' 2>/dev/null || true)"
+  # --raw: current gcloud (570+) omits projectNumber from the formatted bucket
+  # resource, which left bucket_pn empty and refused every bucket (EP-116).
+  bucket_pn="$(gcloud storage buckets describe "gs://${bucket}" --raw --format='value(projectNumber)' 2>/dev/null || true)"
   target_pn="$(gcloud projects describe "${TARGET_PROJECT}" --format='value(projectNumber)' 2>/dev/null || true)"
   if [ -z "${bucket_pn}" ] || [ -z "${target_pn}" ] || [ "${bucket_pn}" != "${target_pn}" ]; then
     echo "refusing: gs://${bucket} is owned by project number '${bucket_pn:-<unknown>}', not the target project '${TARGET_PROJECT}' (number '${target_pn:-<unknown>}')." >&2
