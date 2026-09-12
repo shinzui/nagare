@@ -287,10 +287,20 @@ Each context has its own Pulumi stack and file backend:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/
-  state/
-  home/
-  passphrase
+  state/          # file backend (absent once the context uses GCS)
+  home/           # PULUMI_HOME
+    passphrase    # PULUMI_CONFIG_PASSPHRASE_FILE
 ```
+
+**Stack passphrase.** Pulumi's passphrase secrets provider reads the context's
+`home/passphrase` file. An empty file means an empty passphrase, which is how
+contexts are initialised. To protect stack secrets, run
+`pulumi stack change-secrets-provider passphrase` and write the new passphrase to
+that file (mode `0600`), keeping a copy in your password manager. Nagare creates the
+file only when it is absent and never truncates it. A non-empty
+`PULUMI_CONFIG_PASSPHRASE` in your environment takes precedence over the file; an
+empty one is unset, because Pulumi would otherwise prefer the empty variable over
+the file.
 
 The Pulumi stack name is the context name, and the generated stack config is
 `infra/pulumi/Pulumi.<context>.yaml`. Those files are git-ignored projections
@@ -354,6 +364,16 @@ scripts/migrate-pulumi-backend.sh --rollback --context prod
 The local backend under `…/nagare/<context>/state` is kept as a rollback source;
 remove it only after a successful `pulumi preview` on GCS.
 
+**Reload every shell after migrating.** A shell that resolved the context before the
+migration still exports `NAGARE_PULUMI_BACKEND=local` and a `file://`
+`PULUMI_BACKEND_URL`. The environment overrides the context file, so that shell keeps
+reading and writing the old local state. Run `direnv reload` (or open a new shell) and
+confirm `echo "$PULUMI_BACKEND_URL"` prints the `gs://` URL before running Pulumi.
+
+The bucket-ownership check reads the bucket's owning project number with
+`gcloud storage buckets describe --raw`; current gcloud releases omit that field from
+the formatted output.
+
 ## Cluster and host rendering
 
 The active context also feeds bootstrap rendering:
@@ -365,6 +385,30 @@ The active context also feeds bootstrap rendering:
 - `nagarectl host init` writes the registry and host identity into a context-owned flake under the
   XDG configuration root. `nagare host-image` and `nagare host-switch` resolve that flake without
   writing into Nagare's source or another context.
+
+## Keeping contexts in a private repository
+
+Contexts, host flakes, and encrypted cluster secrets are operator material, not part
+of Nagare. To version and back them up, keep them in your own **private** git
+repository and link it into the paths Nagare already reads:
+
+```bash
+OPS=~/src/my-nagare-ops          # your private repository
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare"
+mkdir -p "$CFG/contexts" "$CFG/hosts" "$CFG/cluster-secrets"
+ln -sfn "$OPS/contexts/prod.env"       "$CFG/contexts/prod.env"
+ln -sfn "$OPS/hosts/prod"              "$CFG/hosts/prod"
+ln -sfn "$OPS/cluster-secrets/prod"    "$CFG/cluster-secrets/prod"
+ln -sfn "$OPS/pulumi/Pulumi.prod.yaml" infra/pulumi/Pulumi.prod.yaml   # from a Nagare checkout
+```
+
+Nagare's own writes to these files (backend migration, platform-version updates,
+Pulumi config changes) go through the links and keep them intact. Keep Pulumi
+**state** out of git by using the [GCS backend](#remote-gcs-pulumi-state-opt-in-cloud-contexts-only);
+the context file then records where the state lives. Never commit age private keys
+or the Pulumi passphrase file. Because a host flake inside a git repository is
+evaluated as a git flake, `git add` new files under `hosts/<context>/` before
+running `nagare host-switch`.
 
 ## Migrating from profile files
 
