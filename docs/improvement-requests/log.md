@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-12
+* **Update**: Accept IR-2 and record its target plan: docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md.
 * **Update**: Accept IR-3 and record its target plan: docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md.
 * **Update**: Accept IR-5 and target it at docs/plans/111-automate-and-document-growing-the-data-disk.md.
 * **Update**: Accept IR-4 and record its target plan: docs/plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md.
