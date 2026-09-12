@@ -45,6 +45,16 @@ in
     # nofail so a transient disk problem never wedges the whole boot; the
     # format-nagare-data oneshot above ensures the disk is formatted first.
     options = [ "defaults" "nofail" ];
+    # Absorb a `dataDiskSizeGb` increase with no operator action. NixOS turns
+    # autoResize into the `x-systemd.growfs` mount option, so systemd runs
+    # systemd-growfs@var-lib-nagare.service right after the mount and grows the
+    # ext4 filesystem to fill the device. ext4 grows ONLINE, so this is safe on
+    # a running cluster and a no-op when the filesystem already fills the disk.
+    # No partition grow is needed: format-nagare-data writes the filesystem
+    # directly onto the whole block device, so there is no partition table.
+    # The boot disk needs growpart as well, which google-compute-image.nix
+    # already provides via boot.growPartition.
+    autoResize = true;
   };
 
   # Create the IP-3 subdirectory layout AFTER the disk is mounted. This must

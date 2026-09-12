@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T13:02:02Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T17:19:10Z
+      mode: "implement"
+      note: "Implementing milestones 1-5: data-disk autoResize, VM test, Pulumi previews, live rehearsal, documentation."
 ---
 
 # Automate and document growing the data disk
@@ -74,11 +80,11 @@ This section must always reflect the actual current state of the work.
 
 Milestone 1 — the data disk grows itself:
 
-- [ ] Add `autoResize = true` to the `/var/lib/nagare` entry in `nixos/hosts/nagare-01/storage.nix`, with a comment explaining what NixOS does with it.
-- [ ] Add a `data-disk-auto-grow` evaluation check to `nixos/flake.nix` asserting the mount carries `x-systemd.growfs`, and that the boot disk's existing auto-grow is still in place.
-- [ ] Run the check and record its output.
-- [ ] Move IR-5 from `accepted` to `in-progress` (its `targetPlan` already names this plan), then revalidate the improvement-request bundle.
-- [ ] Commit.
+- [x] Add `autoResize = true` to the `/var/lib/nagare` entry in `nixos/hosts/nagare-01/storage.nix`, with a comment explaining what NixOS does with it. (2026-09-12)
+- [x] Add a `data-disk-auto-grow` evaluation check to `nixos/flake.nix` asserting the mount carries `x-systemd.growfs`, and that the boot disk's existing auto-grow is still in place. (2026-09-12) — required restructuring `checks.${system}` into one attribute set; see Surprises.
+- [x] Run the check and record its output. (2026-09-12) — passes; proven to have teeth by temporarily commenting out `autoResize`.
+- [x] Move IR-5 from `accepted` to `in-progress` (its `targetPlan` already names this plan), then revalidate the improvement-request bundle. (2026-09-12)
+- [x] Commit. (2026-09-12)
 
 Milestone 2 — prove the online grow without touching GCP:
 
@@ -127,7 +133,48 @@ Milestone 5 — make the documentation and the alert tell the truth:
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+### Nix does not merge two *dynamic* `checks.${system}.<name>` attribute paths
+
+Plan of Work said "Nix merges the two attribute paths into one `checks.${system}` set, so no
+restructuring is needed". That is true for static attribute paths but **false** when the middle
+component is a dynamic attribute (`${system}`). Adding the new check beside the existing one as a
+second `checks.${system}.<name>` path failed at evaluation:
+
+```text
+error: dynamic attribute 'x86_64-linux' already defined at .../nixos/flake.nix:71:7
+       at /Users/shinzui/Keikaku/bokuno/nagare/nixos/flake.nix:90:7:
+           90|       checks.${system}.forge-credentials-module =
+```
+
+The fix, applied in Milestone 1, is to collapse both checks into a single
+`checks.${system} = { data-disk-auto-grow = ...; forge-credentials-module = ...; };` set. This is
+worth knowing for anyone adding a third check to `nixos/flake.nix`: put it inside that set, not on
+a new `checks.${system}.` path.
+
+### The data-disk evaluation flipped exactly as predicted
+
+After the edit, from `nixos/`:
+
+```json
+{"dataAutoResize":true,"dataOptions":["x-systemd.growfs","defaults","nofail"]}
+```
+
+Contrast the `false` / `["defaults","nofail"]` recorded in Context and Orientation at commit
+`c87544c`.
+
+### The check has teeth
+
+Commenting out `autoResize = true;` and rebuilding the check fails loudly, which is the property
+Validation and Acceptance asks for:
+
+```text
+error: assertion '(dataFs).autoResize' failed
+       at /Users/shinzui/Keikaku/bokuno/nagare/nixos/flake.nix:78:11:
+           78|           assert dataFs.autoResize;
+```
+
+The line was restored immediately afterwards. The pre-existing `forge-credentials-module` check
+still builds after the restructuring.
 
 
 ## Decision Log
