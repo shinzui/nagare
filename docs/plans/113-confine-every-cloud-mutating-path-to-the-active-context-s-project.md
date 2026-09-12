@@ -94,9 +94,14 @@ test that fails before the change and passes after it.
       `shellcheck-scripts` now lints both; `scripts/test-image-build-guard.sh` is added
       and registered as the `image-build-guard` check. All three cases pass, and case one
       fails when the change is stashed.
-- [ ] M4: add `nagarectl context guard`; call it from the `infra-up` and `infra-preview`
-      recipes in `justfile`; unit-test the pure comparison and add a clone-free fixture that
-      proves the refusal.
+- [x] M4 (2026-09-12): new module `cli/nagarectl/src/Nagare/Ops/ContextGuard.hs` holds
+      `ProjectGuardInputs`, `projectGuardVerdict` and `renderProjectGuard`;
+      `nagarectl context guard [--json]` is wired into the context subparser and
+      `runContextGuard` in `cli/nagarectl/app/Main.hs`; `infra-up` and `infra-preview` in
+      `justfile` run it before Pulumi. Eight unit cases in the
+      `Nagare.Ops.ContextGuard (EP-113)` group pass, and the
+      `nagare-clone-free-platform` check now drives the guard twice through a fake
+      `pulumi config get gcp:project`, expecting acceptance then refusal.
 - [ ] M5: add `nagarectl context env --export`; have the `nagare` launcher in
       `nix/haskell-packages.nix` evaluate it; extend
       `scripts/rehearse-clone-free-release.sh` to run a recipe with no `.envrc` present and

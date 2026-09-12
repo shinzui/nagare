@@ -49,15 +49,21 @@ user-documentation-validate:
 # EP-2 (docs/plans/2-pulumi-gcp-infrastructure.md): create/update the GCP
 # resources (VM, static IP, Cloud DNS, disks, service account, Artifact
 # Registry, backup bucket).
+# EP-113: `platform guard` keeps its NAGARE_UPGRADE_APPLY escape hatch (an
+# in-progress platform upgrade legitimately runs with skewed versions);
+# `context guard` has none, because there is no situation in which writing to
+# the wrong GCP project is correct.
 # Create/update GCP infrastructure (pulumi up).
 [group('infra')]
 infra-up:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl context guard
     cd infra/pulumi && pulumi up
 
 # EP-2: preview the Pulumi changes without applying them.
 [group('infra')]
 infra-preview:
+    nagarectl context guard
     cd infra/pulumi && pulumi preview
 
 # Cheapest reversible "off": halts compute charges; the boot/data disks and the

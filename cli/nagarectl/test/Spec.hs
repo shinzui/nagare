@@ -199,6 +199,11 @@ import Nagare.Ops.Probe
   , renderInventory
   , statusLabel
   )
+import Nagare.Ops.ContextGuard
+  ( ProjectGuardInputs (..)
+  , projectGuardVerdict
+  , renderProjectGuard
+  )
 import Nagare.Ops.PulumiBackend
   ( GcloudOps (..)
   , bootstrapCommands
@@ -346,6 +351,7 @@ main = do
         , dockerAuthPlanTests
         , initTests
         , pulumiBackendBootstrapTests
+        , contextGuardTests
         , accessGrantsTests
         , accessResolveTests
         , appDeployTests
@@ -508,6 +514,58 @@ initTests =
 -- ---------------------------------------------------------------------------
 -- EP-93: the GCS Pulumi state-bucket bootstrap. Pure bucket derivation + the
 -- exact `gcloud storage` argv the idempotent runner (and its dry-run) emit.
+
+-- EP-113: the pure project-confinement comparison behind `nagarectl context
+-- guard`. It fails closed on ANY disagreement about which project the next
+-- Pulumi operation would write to.
+contextGuardTests :: TestTree
+contextGuardTests =
+  testGroup
+    "Nagare.Ops.ContextGuard (EP-113)"
+    [ testCase "all three sources agreeing is accepted" $
+        projectGuardVerdict (guardInputs (Just "acme-prod") (Just "acme-prod") (Just "acme-prod"))
+          @?= Right ()
+    , testCase "an unset stack gcp:project refuses" $
+        assertRefusal
+          "gcp:project"
+          (guardInputs Nothing (Just "acme-prod") (Just "acme-prod"))
+    , testCase "a stack targeting another project refuses, naming both" $ do
+        let pgi = guardInputs (Just "some-other-project") (Just "acme-prod") (Just "acme-prod")
+        assertRefusal "some-other-project" pgi
+        assertRefusal "acme-prod" pgi
+    , testCase "an ambient CLOUDSDK_CORE_PROJECT override refuses" $
+        assertRefusal
+          "CLOUDSDK_CORE_PROJECT"
+          (guardInputs (Just "acme-prod") (Just "some-production-project") (Just "acme-prod"))
+    , testCase "with no ambient override, a disagreeing gcloud config refuses" $
+        assertRefusal
+          "gcloud's configured project"
+          (guardInputs (Just "acme-prod") Nothing (Just "some-production-project"))
+    , testCase "with no ambient override and no gcloud, the stack alone decides" $
+        projectGuardVerdict (guardInputs (Just "acme-prod") Nothing Nothing) @?= Right ()
+    , testCase "a missing gcloud alongside a correct ambient value is not a refusal" $
+        -- gcloud need not be installed on a machine that only previews.
+        projectGuardVerdict (guardInputs (Just "acme-prod") (Just "acme-prod") Nothing) @?= Right ()
+    , testCase "the success line names the context, project and stack" $
+        renderProjectGuard (guardInputs (Just "acme-prod") (Just "acme-prod") (Just "acme-prod"))
+          @?= "context guard: labs confined to project acme-prod (stack labs)"
+    ]
+  where
+    guardInputs stackProject ambient configured =
+      ProjectGuardInputs
+        { pgiContext = "labs"
+        , pgiDeclared = "acme-prod"
+        , pgiStack = "labs"
+        , pgiStackProject = stackProject
+        , pgiAmbient = ambient
+        , pgiConfigured = configured
+        }
+    assertRefusal needle pgi = case projectGuardVerdict pgi of
+      Right () -> assertFailure ("expected a refusal mentioning " <> T.unpack needle)
+      Left msg ->
+        assertBool
+          ("refusal should mention " <> T.unpack needle <> "; got: " <> T.unpack msg)
+          (needle `T.isInfixOf` msg)
 
 pulumiBackendBootstrapTests :: TestTree
 pulumiBackendBootstrapTests =
