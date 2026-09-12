@@ -77,7 +77,10 @@ if [ "${BUILD_ON_HOST}" -eq 1 ]; then
   NEW="$(nix build --no-link --print-out-paths --eval-store auto --store "ssh-ng://${TARGET_HOST}" "${TOPLEVEL_REF}")"
 else
   NEW="$(nix build --no-link --print-out-paths "${TOPLEVEL_REF}")"
-  nix copy --to "ssh-ng://${TARGET_HOST}" "${NEW}"
+  # --no-check-sigs: paths built on a remote builder carry no signature, and nix copy
+  # checks signatures on the client even when the host trusts the deploy user
+  # (ExecPlan 114). The host already requires that user to be trusted to accept the copy.
+  nix copy --no-check-sigs --to "ssh-ng://${TARGET_HOST}" "${NEW}"
 fi
 echo "host-switch: built ${NEW}"
 
