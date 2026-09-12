@@ -1,0 +1,1461 @@
+---
+id: 117
+slug: let-operators-deploy-their-own-authentication-portal-for-protected-sites
+title: "Let operators deploy their own authentication portal for protected sites"
+kind: exec-plan
+created_at: 2026-09-12T21:38:15Z
+intention: "intention_01m2brkd4geymrhxas4me86gwd"
+provenance:
+  created_by:
+    model: "claude-opus-5"
+    harness: "claude-code"
+    at: 2026-09-12T21:38:15Z
+---
+
+# Let operators deploy their own authentication portal for protected sites
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+
+
+## Purpose / Big Picture
+
+Today every protected Nagare site shows the same unstyled sign-in form, a passkey page
+built from inline JavaScript, and one-word error pages ("Forbidden", "authorization
+service unavailable"). All of them are hard-coded Haskell strings inside the shared
+enforcer, `nagare-access`. Users cannot sign up, change their password, reset a
+forgotten password, verify their email, or add a passkey anywhere. Those features exist
+in the identity service (Shomei), but nothing exposes them to people.
+
+After this change an operator can deploy an **authentication portal**. The portal is an
+ordinary Nagare app, written in any language, that owns every page a person sees while
+signing in or managing their account: sign-in, the passkey step, sign-up, forgot and
+reset password, email verification, change password, passkey management, sign-out, and
+the branded "you do not have access" (403) and "temporarily unavailable" (503) pages. The
+operator opts in by setting `access = Just authPortal` in the portal's `Config.hs` and
+running `nagarectl deploy`. From then on, `nagare-access` sends unauthenticated visitors of
+every protected site to the portal. When the portal finishes a sign-in, `nagare-access`
+turns the result into its usual single-sign-on cookie and sends the person back to where
+they started. Its 403 and 503 responses carry the portal's HTML.
+
+**The built-in pages remain the default.** A cluster with no portal behaves exactly as
+it does today, byte for byte on the login, passkey and error responses. Removing the
+portal, by deleting the app or dropping `authPortal` from its config, returns every
+protected site to the built-in pages. The built-in sign-in form also stays reachable as
+a break-glass path at `/_nagare/login?builtin=1` on every protected host, so a broken
+portal can never lock operators out.
+
+To see it working (Milestone 6, on a local k3d cluster):
+
+- **Before signing in:** `curl` a protected site and get a `302` to
+  `https://auth.127-0-0-1.sslip.io/login?return_to=…`.
+- **Sign in:** submit the portal's form and get a `303` back to the protected site,
+  along with a `nagare_session` cookie scoped to the parent domain.
+- **Signed in, not granted:** the `403` body is the portal's branded page.
+- **After `nagarectl access grant`:** the site returns `200`.
+- **Account page:** the portal's account page shows the signed-in login name, and
+  changing the password there works.
+- **Portal deleted:** the protected site challenges with the built-in
+  `/_nagare/login` again.
+
+This plan also ships a small reference portal in `cluster/examples/auth-portal`. Operators
+can deploy it as is, restyle it, or replace it with their own implementation of the same
+contract, which is documented in `docs/user/auth-portal.md`.
+
+
+## Progress
+
+- [ ] Milestone 1: backend-map roles and auth-cookie stripping in `nagare-access`.
+  - [ ] Extend `Nagare.Access.BackendMap` so a value may be a string (protected site) or an
+    object with `upstream` and `role`; reject more than one `portal` entry.
+  - [ ] Strip `nagare_session`, `nagare_refresh`, and `__Host-nagare_csrf` from the
+    `Cookie` header before proxying to any backend.
+  - [ ] Tests in `cli/nagare-access/test/Spec.hs` for both, all existing tests still green.
+- [ ] Milestone 2: portal routing mode in `nagare-access`.
+  - [ ] Optional authentication and identity forwarding (with `Authorization: Bearer`) for
+    the portal host.
+  - [ ] Session hand-off: intercept `Nagare-Session-Establish` / `Nagare-Session-Clear`
+    response headers from the portal upstream only; rotate the refresh token; validate the
+    return URL.
+  - [ ] Revoke the Shomei session on `/_nagare/logout` (both default and portal modes).
+  - [ ] Tests with stub upstreams.
+- [ ] Milestone 3: portal-driven challenges and branded error pages.
+  - [ ] Document challenges redirect to the portal when one is configured; JSON challenges
+    carry the absolute portal login URL.
+  - [ ] `GET /_nagare/login` redirects to the portal unless `builtin=1`.
+  - [ ] 403 and 503 document responses embed the portal's `/errors/403` and `/errors/503`
+    HTML with a timeout and built-in fallback.
+  - [ ] Tests proving the no-portal responses are unchanged.
+- [ ] Milestone 4: DSL and `nagarectl` wiring.
+  - [ ] `authPortal` in `Nagare.Dsl.Access` with a `role` field, JSON round trip in the
+    loader.
+  - [ ] `Nagare.Access.Resolve` writes a `portal` entry, refuses a second portal or a host
+    outside the base domain, and configures Shomei for the portal origin.
+  - [ ] `nagarectl app delete` removes the app's access wiring.
+  - [ ] `nagarectl access portal show` and `nagarectl access portal sync`.
+  - [ ] Tests in `cli/nagare-dsl` and `cli/nagarectl`.
+- [ ] Milestone 5: reference portal example.
+  - [ ] `cluster/examples/auth-portal` Node app, Dockerfile, `nagare/Config.hs`, README.
+  - [ ] Offline contract test script for the example.
+- [ ] Milestone 6: documentation and local end-to-end validation.
+  - [ ] `docs/user/auth-portal.md` (contract), updates to `docs/user/access.md` and
+    `cluster/bootstrap/nagare-access/README.md`.
+  - [ ] Local k3d run of the full scenario in Validation and Acceptance, transcript
+    captured here.
+  - [ ] ADR distillation (portal contract and cookie ownership).
+
+
+## Surprises & Discoveries
+
+These were found while researching the plan (2026-09-12), before any implementation.
+
+- **Every backend receives the enforcer's session tokens today.**
+  `cli/nagare-access/src/Nagare/Access/Proxy.hs` (`shouldStripRequestHeader`) strips hop
+  headers and `X-Forwarded-*`, but not `Cookie`. Every protected app therefore receives
+  the user's `nagare_session` access token and the signed `nagare_refresh` cookie on each
+  request. This matters for the portal design, which gives a token only to the portal and
+  only on purpose, so Milestone 1 closes the leak.
+- **Cloud Shomei has no WebAuthn configuration.** `cluster/bootstrap/shomei/service.yaml`
+  sets only `SHOMEI_PORT`, `SHOMEI_ISSUER`, `SHOMEI_AUDIENCE`, and the key-encryption key.
+  Only `cluster/bootstrap/local-auth/install.sh` sets `SHOMEI_WEBAUTHN_RP_ID` and
+  `SHOMEI_WEBAUTHN_ORIGINS`, and only for `protected-hello`. With the built-in pages, a
+  passkey ceremony happens on each protected host's own origin, so every protected host
+  would have to be listed as an allowed origin. A portal gives Shomei exactly one origin
+  to allow, and Milestone 4 configures it.
+- **Shomei's email links point at its JSON API, not at a page.**
+  `mori://shinzui/shomei` `shomei-server/src/Shomei/Notify.hs:463-490` builds
+  `SHOMEI_PUBLIC_BASE_URL + "/v1/auth/password-reset/confirm?token=…"` and the same for
+  `/v1/auth/verify-email/confirm`. Both are POST-only JSON routes (the artifact-level URI
+  for this file is pending; the project URI plus path is the reference). The portal
+  therefore serves `GET` pages at exactly those two paths, and Shomei's public base URL
+  must be the portal origin.
+- **Shomei has no CORS support and no switch to disable sign-up.** A browser page cannot
+  call Shomei directly from another origin, so the reference portal calls Shomei from
+  its server side. `POST /v1/auth/signup` is always open on Shomei itself. The portal
+  decides whether to offer sign-up, but anyone who can reach Shomei's API could still
+  sign up. Shomei is cluster-internal (`http://shomei.nagare-system.svc.cluster.local`)
+  and not publicly routed, so this is acceptable.
+- **Refresh tokens rotate with reuse detection.** Presenting an already-used refresh
+  token revokes the whole Shomei session (`token_reuse`, `mori://shinzui/shomei`
+  `shomei-core/src/Shomei/Session/Authentication/Workflow.hs:360-441`). Two parties must
+  never both hold and use the same refresh token, which is why the hand-off in Milestone
+  2 rotates the token immediately and the portal keeps no tokens.
+- **`nagare-access` reads its backend map only at startup.** `cli/nagare-access/app/Main.hs`
+  (`loadBackends`) reads it once, and `nagarectl` forces a new revision by patching the
+  annotation `nagare.dev/backend-map-reload`
+  (`cli/nagarectl/src/Nagare/Access/Resolve.hs`). The portal entry rides the same
+  mechanism and needs no new reload path.
+- **`nagarectl app delete` leaves access wiring behind.** `deleteApp` in
+  `cli/nagarectl/src/Nagare/App.hs` removes the Knative Service and the app-namespace
+  DomainMappings. It leaves the host in `nagare-access-backends` and the
+  `nagare-system` DomainMapping. For a portal this would send every login to a dead
+  host, so Milestone 4 fixes the cleanup.
+- **All logins reach Shomei from a single pod IP.** Shomei limits failed logins per IP
+  (20) and requests per minute per IP (60) (`mori://shinzui/shomei`
+  `shomei-server/src/Shomei/Server/Config.hs:706-712`). Both the built-in pages and a
+  portal call Shomei from one pod, so one attacker's failures count against everyone.
+  This is not introduced by this plan; see the Decision Log.
+
+
+## Decision Log
+
+- Decision: The portal is an ordinary Nagare app that opts in with a new DSL value,
+  `authPortal`. It is not a new platform service installed by `auth-install.sh`.
+  Rationale: The user asked for a separately deployable app that operators build and
+  brand themselves. Reusing the app deploy path gives builds, domains, env and secrets,
+  and rollbacks for free. The source of truth for which host is the portal is the
+  portal's own config, so no context variable has to be kept in sync with it.
+  Date: 2026-09-12
+
+- Decision: The built-in login, passkey, and error pages remain the default and stay
+  byte-for-byte unchanged when no portal is configured. `/_nagare/login?builtin=1` keeps
+  the built-in form reachable even when a portal exists.
+  Rationale: The user asked to keep the current defaults. The break-glass path means a
+  broken or misdeployed portal cannot lock operators out of every protected site.
+  Date: 2026-09-12
+
+- Decision: `nagare-access` remains the only component that sets the `nagare_session` and
+  `nagare_refresh` cookies and the only holder of the cookie-signing key. The portal
+  hands a completed sign-in to `nagare-access` through response headers
+  (`Nagare-Session-Establish`), and `nagare-access` honors them only on responses from
+  the configured portal upstream.
+  Rationale: The alternatives are worse. Sharing the cookie key with the portal would
+  couple an operator-written app to the enforcer's cookie format and let any bug in it
+  forge sessions. Handing tokens through the browser (redirect URLs, auto-posted forms)
+  exposes them to logs and needs extra anti-forgery state. Response-header interception
+  never exposes tokens to the browser, needs no shared secret (trust comes from the
+  cluster-internal hop to a known upstream), and keeps the existing security model in
+  `docs/user/access.md`: "`nagare-access` owns the browser-facing session cookies".
+  Date: 2026-09-12
+
+- Decision: On a hand-off, `nagare-access` immediately refreshes the portal-provided
+  refresh token with Shomei and stores only the new pair.
+  Rationale: Shomei revokes a whole session when a used refresh token is presented
+  again. Rotating at hand-off makes the portal's copy worthless, so a portal bug that
+  logs or reuses it cannot hijack or kill the session. It also proves the token is live
+  before a cookie is set.
+  Date: 2026-09-12
+
+- Decision: The portal host is routed through `nagare-access` like a protected site, but
+  in a portal mode that does not require login and never consults En.
+  `nagare-access` forwards anonymous requests with identity headers stripped, and
+  authenticated requests with `X-Forwarded-User` plus `Authorization: Bearer <access
+  token>`.
+  Rationale: The portal's account pages (change password, passkeys) must call Shomei
+  as the user, which needs the user's access token. Forwarding the token explicitly,
+  and only to the portal, is safer than the current accidental cookie forwarding that
+  Milestone 1 removes. Routing the portal through the enforcer is also what lets the
+  hand-off response set cookies on the parent domain.
+  Date: 2026-09-12
+
+- Decision: The portal contract uses fixed paths: `/login`, `/errors/403`, `/errors/503`,
+  and Shomei's two email-link paths. Everything under `/_nagare/` stays reserved for
+  `nagare-access`.
+  Rationale: Fixed paths keep the enforcer configuration-free (its only input is which
+  host is the portal) and make the contract easy to document and test. Operators who
+  want other URLs can redirect inside their portal.
+  Date: 2026-09-12
+
+- Decision: Branded 403 and 503 pages are fetched server-side by `nagare-access` from the
+  portal upstream (two-second timeout, 256 KiB cap), and served with the original
+  status on the original URL. Any failure falls back to the built-in body.
+  Rationale: A redirect would turn a 403 into a 302 and change the URL, which breaks
+  "reload after being granted". A 503 happens exactly when part of the auth plane is
+  down, so a fallback is mandatory.
+  Date: 2026-09-12
+
+- Decision: `nagarectl` configures Shomei for the portal when it registers the portal. It
+  patches the `shomei` Deployment's `SHOMEI_WEBAUTHN_RP_ID`, `SHOMEI_WEBAUTHN_ORIGINS`
+  (added to, never replaced), and `SHOMEI_PUBLIC_BASE_URL`. `nagarectl access portal
+  sync` re-applies the same values on demand.
+  Rationale: The portal host is only known when the portal is deployed, and the deploy
+  resolver is already the component that writes access wiring into `nagare-system`. A
+  separate operator step would be forgotten, and passkeys and email links would then
+  silently fail.
+  Date: 2026-09-12
+
+- Decision: `/_nagare/logout` also revokes the Shomei session, in both default and portal
+  modes.
+  Rationale: Logout currently only clears cookies, so a copied refresh token stays valid
+  for 30 days. Revocation has no visible effect on the built-in pages, so it respects
+  the "keep the defaults" requirement while fixing a real gap.
+  Date: 2026-09-12
+
+- Decision: The reference portal is a dependency-free Node.js server
+  (`node:http`, global `fetch`), built with a Dockerfile.
+  Rationale: It matches the existing `cluster/examples/env-and-secrets` pattern, builds
+  quickly, and is easy for operators to restyle or port. A Haskell portal would pull the
+  forked WebAuthn dependency closure (see
+  [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md)) into an
+  example that operators are meant to copy.
+  Date: 2026-09-12
+
+- Decision: Per-IP rate limiting in Shomei (all logins arrive from one pod IP) is out of
+  scope and recorded as follow-up work.
+  Rationale: The problem predates the portal and affects the built-in pages equally.
+  Fixing it means trusting forwarded client addresses from cluster pods
+  (`SHOMEI_TRUSTED_PROXIES`), which is a separate security decision.
+  Date: 2026-09-12
+
+
+## Outcomes & Retrospective
+
+(To be filled during and after implementation.)
+
+
+## Context and Orientation
+
+This section explains the pieces involved as if you have never seen this repository.
+
+**Protected site.** A Nagare app whose `Config.hs` sets `access = Just requireLogin`. Its
+public traffic is routed through a shared reverse proxy instead of straight to the app,
+and the proxy only lets through people who are signed in and have been granted access.
+The user-facing runbook is `docs/user/access.md`.
+
+**The auth plane.** Three services in the Kubernetes namespace `nagare-system`, installed
+by `cluster/bootstrap/auth-install.sh` (cloud) or `cluster/bootstrap/local-auth/install.sh`
+(local k3d):
+
+- **Shomei** (`mori://shinzui/shomei`) is the identity service. It stores users and
+  passwords, runs passkey (WebAuthn) ceremonies, and issues tokens: a short-lived
+  *access token*, which is a signed JWT valid for 15 minutes by default, and a
+  long-lived *refresh token*, an opaque string valid for 30 days that can be exchanged
+  once for a new pair. Its manifest is `cluster/bootstrap/shomei/service.yaml` (a
+  Deployment), and it is reachable in-cluster at
+  `http://shomei.nagare-system.svc.cluster.local`.
+- **En** (`mori://shinzui/en`) is the authorization service. It stores relationships such
+  as "user X is a viewer of app:host" and answers "may X access host?". Its schema is in
+  `cluster/bootstrap/en/configmap.yaml`.
+- **`nagare-access`** is the enforcer: a Haskell WAI (web application interface) server
+  in `cli/nagare-access`. It runs as the Knative Service
+  `cluster/bootstrap/nagare-access/service.yaml` (exactly one replica). Its code is
+  organized as follows:
+  - `app/Main.hs` reads configuration from environment variables and builds a record
+    of effectful functions, `AccessServices`, defined in `src/Nagare/Access/Auth.hs`.
+  - `src/Nagare/Access/App.hs` (`appWithRuntime`) routes each request. The paths
+    `/_nagare/healthz`, `/_nagare/userinfo`, `/_nagare/logout`, `GET`/`POST
+    /_nagare/login`, and `POST /_nagare/mfa/complete` are handled on every host.
+  - Any other request looks up its `Host` header in the backend map. Unknown hosts get
+    `502`. Known hosts go through `handleProtected`, which authenticates with the
+    `nagare_session` cookie or a bearer token, refreshing through the signed
+    `nagare_refresh` cookie when the access token has expired. It then asks En (the
+    answer is cached for 30 seconds) and either proxies the request, returns `403`, or
+    returns `503`.
+  - `src/Nagare/Access/Challenge.hs` decides whether an unauthenticated request is a
+    browser document, which gets a 302 to `/_nagare/login?rd=<path>`, or an API call,
+    which gets a JSON 401. It also contains `safeReturnDestination`, which only accepts
+    same-host absolute paths.
+  - `src/Nagare/Access/Response.hs` builds the 302, 401, and 403 responses.
+  - The login form and passkey page are inline strings in `App.hs` (`loginFormHtml`,
+    `mfaFormHtml`).
+  - `src/Nagare/Access/Cookie.hs` builds the cookies: `nagare_session` (the access
+    token), `nagare_refresh` (the refresh token plus an HMAC-SHA256 signature made with
+    `NAGARE_ACCESS_COOKIE_KEY`), and `__Host-nagare_csrf` (double-submit CSRF token for
+    the built-in form). The session and refresh cookies use
+    `Domain=NAGARE_ACCESS_COOKIE_DOMAIN`, which is the parent of all protected hosts
+    (for example `.labs.example.net`), so one sign-in works on every protected
+    subdomain.
+  - `src/Nagare/Access/ShomeiClient.hs` calls Shomei's login, MFA-complete, and refresh
+    endpoints through Shomei's generated Servant client (`Shomei.Client`).
+  - `src/Nagare/Access/Shomei.hs` verifies access-token JWTs against Shomei's published
+    keys (issuer `nagare-shomei`, audience `nagare-access`).
+  - `src/Nagare/Access/Proxy.hs` (`proxyForwarder`) streams the request to the upstream
+    with `http-client`, strips hop-by-hop headers, and adds `X-Forwarded-User` (the
+    Shomei user id, a TypeID string such as `user_01h…`), `X-Forwarded-Host`, and
+    `X-Forwarded-Proto: https`.
+
+**Backend map.** A JSON object, host to upstream URL, stored under the key `backends.json`
+in the ConfigMap `nagare-access-backends` (namespace `nagare-system`). It is mounted into
+`nagare-access` at `/etc/nagare-access/backends/backends.json`. For example:
+
+```json
+{"protected-hello.apps.example.com":"http://protected-hello.personal.svc.cluster.local"}
+```
+
+It is parsed by `cli/nagare-access/src/Nagare/Access/BackendMap.hs` (`decodeBackendMap`,
+`canonicalHost`, `lookupBackendWithHost`) and read once at startup.
+
+**Deploy-time wiring.** `nagarectl` is the operator CLI in `cli/nagarectl`. When an app is
+deployed (`nagarectl deploy`, `cli/nagarectl/app/Main.hs`, or the app deploy path in
+`cli/nagarectl/src/Nagare/App/Deploy.hs`), `resolveDeploymentAccess` in
+`cli/nagarectl/src/Nagare/Access/Resolve.hs` runs after the app is ready.
+
+- It computes the app's public hosts (`deploymentAccessRoutes`): each custom domain,
+  or `<service>.<namespace>.<baseDomain>` when there are none.
+- If `access` is `Just _`, it checks that `nagare-access` exists, inserts
+  `host -> http://<service>.<namespace>.svc.cluster.local` into the backend map, writes
+  the ConfigMap, patches the reload annotation, and points the host's Knative
+  DomainMapping (the object that binds a public hostname to a Knative Service) at
+  `nagare-access` in `nagare-system`.
+- If `access` is `Nothing`, it removes the host and restores the direct route.
+- All side effects go through the record `AccessOps`, so
+  `cli/nagarectl/test/AccessResolveSpec.hs` can test the logic with a fake
+  (`fakeOps`).
+- Only whether `access` is `Just` or `Nothing` matters today. The policy's `audience`
+  and `permission` fields are ignored.
+
+**DSL.** Apps are configured in Haskell with the `nagare-dsl` package (`cli/nagare-dsl`).
+
+- `cli/nagare-dsl/src/Nagare/Dsl/Access.hs` defines `AccessPolicy { audience,
+  permission }` and `requireLogin`.
+- The `Deployment` record in `cli/nagare-dsl/src/Nagare/Dsl/Types.hs` has
+  `access :: Maybe AccessPolicy`, and so does `Application` in
+  `cli/nagare-dsl/src/Nagare/Dsl/Application.hs`.
+- A `Config.hs` is run with `runghc` and prints JSON (`emitDeployment`; the access
+  object is serialized by `accessPolicyJSON` in `cli/nagare-dsl/src/Nagare/Dsl/Config.hs`).
+- `nagarectl` reads that JSON back with `JsonAccessPolicy` / `toAccessPolicy` in
+  `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`.
+
+**Grants.** `nagarectl access grant|revoke|list` (`cli/nagarectl/src/Nagare/Access/Grants.hs`)
+writes `app:<host>#viewer@user:<shomei-user-id>` tuples to En.
+
+**Shomei's public API** (everything the portal needs; all JSON, all under
+`http://shomei.nagare-system.svc.cluster.local`, errors as `application/problem+json`):
+
+- **Sign-in and sessions:**
+  - `POST /v1/auth/login` takes `{loginId, password}`. It returns either
+    `{"status":"complete","user":…,"token":{accessToken,refreshToken,expiresIn}}` or
+    `{"status":"mfa_required","ceremonyId":…,"options":{…WebAuthn request options…},"methods":[…]}`.
+  - `POST /v1/auth/mfa/complete` takes `{ceremonyId, proof:{type:"passkey", assertion}}`
+    and returns a bare token pair.
+  - `POST /v1/auth/login/passkey/begin` and `…/complete` perform passwordless passkey
+    sign-in.
+  - `POST /v1/auth/refresh` takes `{refreshToken}`.
+  - `POST /v1/auth/logout` (bearer) revokes the session.
+- **Account:**
+  - `POST /v1/auth/signup` takes `{loginId, email?, password, displayName}` and returns
+    201 `{user, token}`.
+  - `GET /v1/auth/me` (bearer) returns `{userId, loginId, email?, displayName, status}`.
+  - `POST /v1/auth/password/change` (bearer) takes `{currentPassword, newPassword}` and
+    returns 204.
+  - `POST /v1/auth/password-reset/request` takes `{email}` (202), and `…/confirm` takes
+    `{token, newPassword}`.
+  - `POST /v1/auth/verify-email/request` takes `{email}`, and `…/confirm` takes
+    `{token}`.
+- **Passkeys** (all bearer): `POST /v1/auth/passkeys/register/begin` returns
+  `{ceremonyId, options}`, `…/register/complete` takes `{ceremonyId, credential,
+  label?}`, `GET /v1/auth/passkeys` lists them, and `DELETE /v1/auth/passkeys/{id}`
+  removes one.
+- **Configuration:** Shomei reads `SHOMEI_WEBAUTHN_RP_ID` (the "relying party" domain a
+  passkey is bound to; a parent domain covers all its subdomains),
+  `SHOMEI_WEBAUTHN_ORIGINS` (a comma-separated list of exact `https://host` origins
+  allowed to run ceremonies), and `SHOMEI_PUBLIC_BASE_URL` (the origin placed in email
+  links) from `mori://shinzui/shomei` `shomei-server/src/Shomei/Server/Config.hs`.
+
+Before relying on a field name, check it against the pinned Shomei revision used by
+`cli/nagare-access/cabal.project`. Use `mori registry show shinzui/shomei --full` to find
+the source checkout.
+
+**Relevant ADRs.**
+[ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md) says the
+`nagare-access` image mirrors Shomei's and En's pinned dependency plans; this plan adds
+no new Haskell dependencies to `nagare-access`, so its build stays as it is.
+[ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md) says
+Shomei and En own their schemas; this plan changes no schema.
+[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)
+requires every cloud-mutating path to assert the active context's project, and
+`nagarectl`'s existing deploy path already does that for the Shomei patch added here.
+No existing ADR covers login UI or session hand-off; Milestone 6 creates one.
+
+**Tests and builds.**
+
+- `nagare-access` has its own Cabal project. Run
+  `cd cli/nagare-access && cabal test nagare-access-test --test-show-details=streaming`.
+  - The suite is `cli/nagare-access/test/Spec.hs` (tasty). Application tests call
+    `runSession` from `Network.Wai.Test` against `appWithRuntime backends testServices`.
+    `testServices` is a fake `AccessServices` near the end of the file, and real-socket
+    stubs use `testWithApplication` (see `identityUpstreamApp`).
+  - CI builds it with `nix build .#hydraJobs.x86_64-linux.nagare-access-build-test`.
+- `nagarectl`: `cd cli/nagarectl && cabal test nagarectl-test`.
+- `nagare-dsl`: `cd cli/nagare-dsl && cabal test nagare-dsl-test`.
+
+
+## Plan of Work
+
+The work is six milestones. Milestones 1–3 change only `nagare-access` and are fully
+testable offline. Milestone 4 teaches the DSL and `nagarectl` to register a portal.
+Milestone 5 builds the reference portal. Milestone 6 documents the contract and proves
+the whole flow on a local cluster.
+
+### The portal contract (read this first)
+
+Everything below implements this contract, which `docs/user/auth-portal.md` will state
+for operators. In this contract `P` is the portal's public host (for example
+`auth.labs.example.net`), and `H` is any protected host.
+
+1. **Where the portal lives.** `P` must be a subdomain of the cluster's cookie domain,
+   so that cookies set on `P` reach every `H`. `nagarectl` enforces this by requiring
+   `P` to end in `.<NAGARE_BASE_DOMAIN>`. There is at most one portal per cluster.
+
+2. **Sign-in redirect.** When a browser without a valid session opens
+   `https://H/some/path?x=1`, `nagare-access` answers
+   `302 Location: https://P/login?return_to=https%3A%2F%2FH%2Fsome%2Fpath%3Fx%3D1`. An API
+   request (detected exactly as today) gets
+   `401 {"error":"unauthenticated","login":"https://P/login?return_to=…"}`.
+
+3. **What the portal receives.** Every request to `P` except `/_nagare/*` is proxied to
+   the portal's upstream.
+   - If the browser has a valid session (after a silent refresh if needed), the request
+     carries `X-Forwarded-User: <shomei user id>` and
+     `Authorization: Bearer <access token>`.
+   - Otherwise both headers are absent. Any client-sent values are always stripped
+     first.
+   - `X-Forwarded-Host: P` and `X-Forwarded-Proto: https` are always set.
+   - The portal must not trust `X-Forwarded-User` on its own. To learn who the user is,
+     it calls Shomei `GET /v1/auth/me` with the bearer token.
+
+4. **Completing a sign-in.** After the portal obtains a token pair from Shomei (password
+   login, MFA completion, passkey login, or sign-up), it responds with the header
+   `Nagare-Session-Establish: <base64url of JSON {"accessToken":…,"refreshToken":…,"returnTo":…}>`.
+   The status and body of that response are ignored. `nagare-access` removes the header,
+   verifies the access token, exchanges the refresh token with Shomei for a fresh pair,
+   and sets `nagare_session` and `nagare_refresh`. It then answers `303 See Other` to
+   `returnTo` for a document request, or `200 {"redirect": returnTo}` when the request
+   was an API request (for the portal's `fetch`-driven passkey page).
+   - `returnTo` is accepted only if it is an `https://` URL whose host is `P` or a
+     host in the backend map, and whose path passes `safeReturnDestination`.
+     Otherwise `https://P/` is used.
+   - If verification or refresh fails, `nagare-access` answers `303` to
+     `https://P/login?error=session` and sets no cookie.
+
+5. **Ending a session from the portal.** A portal response carrying
+   `Nagare-Session-Clear: 1` makes `nagare-access` revoke the Shomei session (using the
+   request's access token, when it has one), clear both cookies, and pass the rest of
+   the portal response through unchanged. The portal's sign-out link should simply
+   point at `https://P/_nagare/logout`, which does the same and then redirects to
+   `https://P/login?logged_out=1`.
+
+6. **Branded errors.** When `nagare-access` would answer a document request on `H` with
+   403 (signed in, no grant) or 503 (En unreachable), it first requests
+   `GET <portal upstream>/errors/403` or `/errors/503` with `Accept: text/html` and these
+   headers:
+   - `X-Nagare-Error-Host: H`
+   - `X-Nagare-Error-Path: <original path and query>`
+   - `X-Nagare-Return-To: https://H<path>`
+   - `X-Forwarded-User` when known
+
+   A `200` HTML answer received within two seconds and no larger than 256 KiB becomes
+   the body of the original 403 or 503, sent with `Content-Type: text/html;
+   charset=utf-8` and `Cache-Control: no-store`. Anything else yields today's built-in
+   body. API requests keep their JSON bodies.
+
+7. **Email links.** Shomei's password-reset and verification emails link to
+   `https://P/v1/auth/password-reset/confirm?token=…` and
+   `https://P/v1/auth/verify-email/confirm?token=…`. The portal must serve `GET` pages at
+   those paths.
+
+8. **Break-glass.** `https://H/_nagare/login?builtin=1` always shows the built-in form.
+
+9. **Reserved paths.** Every path under `/_nagare/` on every host is handled by
+   `nagare-access` and never reaches an app or the portal.
+
+`nagare-access` removes `Nagare-Session-Establish` and `Nagare-Session-Clear` from every
+upstream response, not just the portal's. It honors them only when the upstream is the
+portal, so a compromised protected app cannot mint sessions.
+
+### Milestone 1: backend-map roles and auth-cookie stripping
+
+This milestone lets the enforcer know which backend is the portal, and stops leaking the
+enforcer's own cookies to apps. No routing behavior changes yet. At the end, the backend
+map accepts both the old format and the new object format, and upstreams no longer see
+`nagare_session`, `nagare_refresh`, or `__Host-nagare_csrf`.
+
+**Backend map.** In `cli/nagare-access/src/Nagare/Access/BackendMap.hs`:
+
+- Add a role to `BackendTarget`:
+
+  ```haskell
+  data BackendRole = ProtectedBackend | PortalBackend
+    deriving stock (Eq, Show)
+
+  data BackendTarget = BackendTarget
+    { upstreamUrl :: !Text
+    , backendRole :: !BackendRole
+    }
+  ```
+
+- `decodeBackendMap` accepts, for each host, either:
+  - a JSON string, which means `ProtectedBackend` (today's format, so existing
+    ConfigMaps keep working), or
+  - an object `{"upstream": "<url>", "role": "protected" | "portal"}`.
+
+  Any other shape, an unknown role, or more than one `portal` entry is a decode error
+  whose message names the offending host.
+- Add `portalBackend :: BackendMap -> Maybe (Text, BackendTarget)` (the canonical portal
+  host and its target) and `backendHosts :: BackendMap -> [Text]`.
+- Keep `backendMapFromList :: [(Text, Text)] -> Either Text BackendMap` for existing
+  callers (all entries protected) and add
+  `backendMapFromEntries :: [(Text, Text, BackendRole)] -> Either Text BackendMap`.
+- Update every construction of `BackendTarget` in `cli/nagare-access/src` and
+  `cli/nagare-access/test/Spec.hs`.
+
+**Cookie stripping.** In `cli/nagare-access/src/Nagare/Access/Proxy.hs`, add
+`stripEnforcerCookies :: [Header] -> [Header]`.
+
+- It rewrites every `Cookie` header, dropping the pairs named `nagare_session`,
+  `nagare_refresh`, and `__Host-nagare_csrf`, and drops the header entirely if nothing
+  remains.
+- Apply it in both `hardenRequestHeaders` and `hardenWebSocketRequestHeaders`, before
+  the forwarded headers are appended.
+- Parse cookie pairs the same way `parseCookieHeader` in `App.hs` does (split on `;`,
+  trim spaces, split at the first `=`). Rebuild the kept pairs joined with `"; "`.
+
+**Tests.** Add to `cli/nagare-access/test/Spec.hs`:
+
+- In `backendMapTests`:
+  - the old string format decodes as protected;
+  - the object format decodes both roles;
+  - two portals are rejected, with the error naming a host;
+  - an unknown role is rejected;
+  - `portalBackend` finds the portal.
+- In `proxyTests`, a `hardenRequestHeaders` case with
+  `Cookie: theme=dark; nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z; lang=en`
+  yields exactly `Cookie: theme=dark; lang=en`, and a header containing only enforcer
+  cookies is removed.
+
+Acceptance: `cabal test nagare-access-test` passes, including the new cases. The
+existing test that forwards to `identityUpstreamApp` still passes.
+
+### Milestone 2: portal routing mode and session hand-off
+
+At the end of this milestone, a request to the portal host is proxied with optional
+identity. A portal response can create or clear a session, and logout revokes the Shomei
+session. Protected-host behavior is unchanged except for the logout revocation.
+
+**New service functions.** Extend `AccessServices` in
+`cli/nagare-access/src/Nagare/Access/Auth.hs`:
+
+- `revokeSession :: !(Text -> IO ())`: revoke the Shomei session that owns this access
+  token, best effort. Log failures and never throw.
+- `forwardPortal :: !(PortalIdentity -> Text -> BackendTarget -> Request -> IO PortalUpstreamResult)`:
+  proxy to the portal and report whether the response asked for a session change.
+- `fetchPortalPage :: !(BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString))`:
+  used in Milestone 3. Add it now with a stub that returns `Nothing`, so the record
+  changes once.
+
+`PortalIdentity`, `PortalUpstreamResult`, and `PortalPageRequest` are defined in
+Interfaces and Dependencies.
+
+**Real implementations.**
+
+- `revokeSession`: add `logoutWithShomei :: Shomei.ClientEnv -> Text -> IO ()` to
+  `cli/nagare-access/src/Nagare/Access/ShomeiClient.hs`. It calls Shomei's
+  `POST /v1/auth/logout` with `Authorization: Bearer`. Use the generated `Shomei.Client`
+  function if it exposes one; otherwise issue the request with the existing
+  `http-client` manager. Record which you used in the Decision Log.
+- `forwardPortal`: add `portalForwarder` to `Proxy.hs`.
+  - It builds the upstream request like `buildProxyRequest`. It first strips any
+    client `Authorization`, `X-Forwarded-User`, `Nagare-Session-Establish`, and
+    `Nagare-Session-Clear`, and then adds `X-Forwarded-User` and
+    `Authorization: Bearer` only for `PortalAuthenticated`.
+  - It opens the response. If the response headers contain `Nagare-Session-Establish`
+    or `Nagare-Session-Clear`, it reads at most 64 KiB of the body, closes the response,
+    and returns `PortalSessionEstablish payload` or `PortalSessionClear response`.
+    Otherwise it returns `PortalPassThrough response`, the same streaming response
+    `proxyResponseToWai` builds.
+  - Closing the upstream response before returning is required on the interception
+    path. Otherwise the connection leaks, because `proxyResponseToWai` only closes it
+    inside the streaming body.
+  - WebSocket upgrades to the portal pass through with `hardenWebSocketRequestHeaders`
+    and no interception.
+- Also add `Nagare-Session-Establish` and `Nagare-Session-Clear` to
+  `shouldStripResponseHeader`, so a protected app's response can never carry them to a
+  browser.
+- Wire all three functions in `cli/nagare-access/app/Main.hs` (`buildAccessServices`).
+
+**Routing.** In `cli/nagare-access/src/Nagare/Access/App.hs`, change the fall-through
+branch of `appWithRuntime`: when the looked-up target has `backendRole == PortalBackend`,
+call a new `handlePortal`; otherwise call `handleProtected` as today. `handlePortal`
+works like this:
+
+1. Authenticate exactly like `authenticateRequest`, except that failure is not a
+   challenge.
+   - With no credential, or an invalid credential and no usable refresh cookie, the
+     identity is `PortalAnonymous`.
+   - With a verified credential it is `PortalAuthenticated user token`. The token is
+     the raw access token from the cookie or bearer header, or the refreshed token.
+   - Refresh-cookie headers produced during authentication are added to whatever
+     response is finally returned.
+   - A failed refresh clears the auth cookies, just as `refreshOrChallenge` does.
+2. Call `forwardPortal`.
+3. For `PortalPassThrough`, return the response with the refresh headers added.
+4. For `PortalSessionEstablish raw`:
+   - Base64url-decode and JSON-decode `raw` into
+     `{accessToken :: Text, refreshToken :: Text, returnTo :: Maybe Text}`.
+   - Verify the access token with `verifyCredential (BearerToken accessToken)`.
+   - Call `refreshUserSession refreshToken`. It must return `LoginSucceeded` with a new
+     refresh token. Verify that new access token too.
+   - Compute the return URL with `validatePortalReturnTo backends portalHost returnTo`
+     (below).
+   - Build `sessionHeaders` from the refreshed tokens. Answer `303` with `Location`, or
+     `200 {"redirect": url}` when `classifyChallenge` says the request is a JSON API
+     call.
+   - On any failure, answer `303` to `https://<portalHost>/login?error=session`, set no
+     cookies, and log one line naming the failing step, never token values.
+5. For `PortalSessionClear response`:
+   - If the identity is authenticated, call `revokeSession token`.
+   - Return the captured portal response (status, filtered headers, and the at most
+     64 KiB body) with the clear-cookie headers added.
+
+**Return URL validation.** Add
+`validatePortalReturnTo :: BackendMap -> Text -> Maybe Text -> Text` to
+`cli/nagare-access/src/Nagare/Access/Challenge.hs`. The candidate is accepted only if all
+of the following hold; otherwise the result is `"https://" <> portalHost <> "/"`:
+
+- it starts with `https://`;
+- the authority (up to the first `/`, `?`, or `#`) contains no `@` or `\`;
+- the authority's canonical host (via `BackendMap`'s `canonicalHost`, which must be
+  exported for this) equals the portal host or is in `backendHosts`;
+- the remainder (defaulting to `/`) passes `safeReturnDestination`.
+
+**Logout.** In `logoutResponse`, change the signature to `IO Response`.
+
+- It calls `revokeSession` when the request carries a verifiable credential.
+- It keeps clearing the cookies.
+- The redirect target is `/_nagare/login` when there is no portal (unchanged). When a
+  portal exists, it is `https://<portalHost>/login?logged_out=1`.
+- `appWithRuntime` needs the backend map to know this, and it already has it.
+
+**Tests.** Add to `cli/nagare-access/test/Spec.hs`, with a `portalBackends` fixture
+(one protected host `app.example.test`, and portal `auth.example.test`) and a
+`portalServices` fake that records calls in an `IORef`:
+
+- **Anonymous request:** a request to `auth.example.test` with no cookie is forwarded
+  with identity `PortalAnonymous` and no challenge. A client-supplied
+  `X-Forwarded-User` and `Authorization` do not reach the portal; prove this with a
+  real `testWithApplication` stub portal that echoes the headers it received.
+- **Signed-in request:** a request with a valid session cookie is forwarded with
+  `Authorization: Bearer <that token>`.
+- **Establish, document request:** an establish response with a valid payload and
+  `returnTo = https://app.example.test/x?y=1` yields `303` to that URL, `Set-Cookie`
+  `nagare_session` carrying the refreshed token (not the portal's), and a refresh
+  cookie. The fake must record that `refreshUserSession` received the portal's
+  refresh token.
+- **Establish, API request:** the same with `Accept: application/json` yields `200`
+  and `{"redirect":"https://app.example.test/x?y=1"}`.
+- **Return URL validation:** `returnTo = https://evil.example/`,
+  `https://app.example.test@evil.example/`, `http://app.example.test/`, and
+  `https://app.example.test//evil` each fall back to `https://auth.example.test/`.
+- **Establish failure:** an establish payload whose access token fails verification
+  yields `303` to `/login?error=session` with no `Set-Cookie`.
+- **Clear:** a clear response calls `revokeSession` and clears both cookies.
+- **Forged headers from a protected app:** a protected-host upstream that returns
+  `Nagare-Session-Establish` passes through with the header removed and no cookie set.
+- **Logout:** `/_nagare/logout` without a portal still redirects to `/_nagare/login`
+  and now calls `revokeSession`. With a portal it redirects to
+  `https://auth.example.test/login?logged_out=1`.
+
+Acceptance: all tests pass, and every existing app test passes unmodified except those
+whose fixtures had to construct `BackendTarget` or `AccessServices`.
+
+### Milestone 3: portal-driven challenges and branded error pages
+
+At the end of this milestone, when a portal is registered, protected hosts send people
+to the portal to sign in and show the portal's 403 and 503 pages. When no portal is
+registered, every response is identical to today.
+
+**Challenges.** In `cli/nagare-access/src/Nagare/Access/Challenge.hs`, add
+`portalLoginUrl :: Text -> Text -> Text -> Text`. It takes the portal host, the protected
+host, and the raw request path with its query, and returns
+`https://P/login?return_to=<urlencoded https://H<safe path>>`. The path goes through
+`safeReturnDestination`, defaulting to `/`. Encode with `urlEncode True`, as
+`loginPathFor` does.
+
+Change `classifyChallenge`'s callers, not `classifyChallenge` itself:
+
+- In `handleProtected` and `refreshOrChallenge` (`App.hs`), compute the login location
+  as `loginPathFor path` when there is no portal (today's behavior), or as
+  `portalLoginUrl portalHost host path` when there is one.
+- Thread the backend map (or the `Maybe` portal host) into those functions. The
+  cleanest way is a small `ChallengeTarget` value:
+  `BuiltinLogin | PortalLogin portalHost protectedHost`.
+- `Response.challengeResponse` keeps its type. `ChallengeMode` already carries the
+  location text, so only the text changes.
+
+**The built-in login route.** In `appWithRuntime`, the `GET /_nagare/login` branch works
+as follows when a portal exists:
+
+- If the query has `builtin=1`, serve today's form. The form's hidden `rd` field
+  already posts back to `/_nagare/login`, and that POST path is unchanged.
+- Otherwise answer `302` to
+  `portalLoginUrl portalHost requestHost (rd or "/")`.
+
+With no portal, it behaves as today.
+
+**Branded errors.**
+
+- In `handleProtected`, for `AuthorizationDecision _` (403) and
+  `AuthorizationUnavailable _` (503), when the challenge mode is `RedirectDocument` and
+  a portal exists, call `fetchPortalPage portalTarget PortalPageRequest{…}`.
+  - `Just html` becomes
+    `responseLBS status [("Content-Type","text/html; charset=utf-8"),("Cache-Control","no-store")] html`.
+  - `Nothing` keeps today's response.
+  - JSON requests and the no-portal case keep today's responses exactly.
+- Implement `portalPageFetcher :: HC.Manager -> BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString)`
+  in `Proxy.hs`:
+  - It sends `GET upstream + "/errors/403"` or `"/errors/503"` with the contract
+    headers, and uses `HC.responseTimeout = HC.responseTimeoutMicro 2000000`.
+  - It requires status 200 and a `Content-Type` starting with `text/html`.
+  - It reads with a 256 KiB cap (stop and return `Nothing` if exceeded), and catches
+    every `HttpException` as `Nothing`.
+  - Wire it in `Main.hs`.
+
+**Tests.**
+
+- With no portal, the existing 302 (`/_nagare/login?rd=%2F`), JSON 401, 403, and 503
+  tests are unchanged and pass.
+- With `portalBackends`:
+  - A document request to `app.example.test/x?y=1` with no session yields `302` to
+    `https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2Fx%3Fy%3D1`.
+  - The JSON variant's body has that absolute URL in `login`.
+  - `GET /_nagare/login` on `app.example.test` yields `302` to the portal.
+  - `GET /_nagare/login?builtin=1` yields the built-in form (body contains
+    `<h1>Sign in</h1>`).
+  - A denied document request whose `fetchPortalPage` returns `Just "<p>portal 403</p>"`
+    yields `403` with that body.
+  - When it returns `Nothing`, the body is `Forbidden`.
+  - The same pair of checks holds for 503.
+- A real-socket test of `portalPageFetcher`:
+  - a stub that sleeps three seconds yields `Nothing`;
+  - a stub returning `text/plain` yields `Nothing`;
+  - a stub returning 300 KiB yields `Nothing`;
+  - a stub returning a small HTML page yields `Just`, and the stub received
+    `X-Nagare-Error-Host`.
+
+Acceptance: `cabal test nagare-access-test` passes.
+
+### Milestone 4: DSL and nagarectl wiring
+
+At the end of this milestone an operator can mark an app as the portal in `Config.hs`.
+`nagarectl deploy` then registers it, configures Shomei for it, and refuses unsafe
+setups, and deleting the app unregisters it.
+
+**DSL.** In `cli/nagare-dsl/src/Nagare/Dsl/Access.hs`:
+
+- Add `data AccessRole = ProtectedSite | AuthPortal deriving stock (Generic, Eq, Show)`
+  and a field `role :: !AccessRole` on `AccessPolicy`.
+- `requireLogin` gets `role = ProtectedSite`.
+- Add `authPortal :: AccessPolicy` with `role = AuthPortal`, `audience = Nothing`,
+  `permission = AccessPermission "access"`. The permission is unused for portals.
+- Export `AccessRole (..)` and `authPortal`.
+- In `accessPolicyJSON` (`cli/nagare-dsl/src/Nagare/Dsl/Config.hs`), add
+  `"role" .= ("protected" | "portal")`.
+- In `JsonAccessPolicy` (`cli/nagare-dsl/src/Nagare/Dsl/Load.hs`), read
+  `o .:? "role" .!= "protected"`. `toAccessPolicy` maps the two strings and fails with
+  `MarshalError "access.role"` otherwise.
+- Existing configs that construct `AccessPolicy` with record syntax would break. Search
+  `cluster/examples` and the test suites for `AccessPolicy {` and update any hits.
+  `requireLogin` users are unaffected.
+
+**Resolver.** In `cli/nagarectl/src/Nagare/Access/Resolve.hs`:
+
+- **Backend map type.** Change the in-memory map from `Map Text Text` to
+  `Map Text BackendEntry`, where `BackendEntry = BackendEntry { beUpstream :: Text,
+  beRole :: EntryRole }` and `EntryRole = ProtectedEntry | PortalEntry`.
+  - Loading accepts both JSON shapes, mirroring Milestone 1.
+  - Rendering writes a plain string for protected entries, so existing ConfigMaps do
+    not churn, and `{"upstream":…,"role":"portal"}` for the portal.
+  - Update `AccessOps.loadBackendMap` and `writeBackendMap` to the new type.
+- **Registering with `Just policy`:** the entry's role follows `policy ^. #role`.
+- **Refusal: portal outside the base domain.** Before writing a portal entry, refuse
+  (with `dieT`) if the host does not end in `"." <> baseDomain`:
+
+  ```text
+  the auth portal host auth.other.example is not under the base domain labs.example.net.
+         Session cookies are scoped to .labs.example.net, so a portal elsewhere could not sign anyone in.
+  ```
+
+  `resolveAccessRouteWithOps` does not currently receive `baseDomain`, so pass it
+  through from `resolveDeploymentAccessWithOps`.
+- **Refusal: a second portal.** Refuse if a different host already has `PortalEntry`:
+
+  ```text
+  auth.labs.example.net is already the auth portal (service auth-portal).
+         Remove `access = Just authPortal` from that app (or delete it) before registering another portal.
+  ```
+
+  Name the service from the existing entry's upstream URL.
+- **Portal with several domains.** A portal app with more than one domain is refused
+  ("an auth portal must have exactly one public host").
+- **Configuring Shomei.** After writing a portal entry and reloading, call a new
+  `AccessOps` operation, `configureShomeiPortal :: Text -> Text -> IO ()` (portal host,
+  base domain). It is idempotent. The real implementation (`kubectlAccessOps`):
+  1. Reads the current `SHOMEI_WEBAUTHN_ORIGINS` from
+     `kubectl -n nagare-system get deployment shomei -o json`
+     (`.spec.template.spec.containers[0].env`).
+  2. Computes the union with `https://<portal host>`, keeping order and removing
+     duplicates.
+  3. If anything differs, runs:
+
+     ```bash
+     kubectl -n nagare-system set env deployment/shomei \
+       SHOMEI_WEBAUTHN_RP_ID=<base domain> \
+       SHOMEI_WEBAUTHN_ORIGINS=<union> \
+       SHOMEI_PUBLIC_BASE_URL=https://<portal host>
+     ```
+
+     Changing env rolls the Deployment. If nothing differs, it runs nothing.
+- **When a portal entry is removed** (policy `Nothing`, or role switched to protected),
+  call `unconfigureShomeiPortal :: Text -> IO ()`. It removes that origin from
+  `SHOMEI_WEBAUTHN_ORIGINS` and unsets `SHOMEI_PUBLIC_BASE_URL` with
+  `kubectl set env deployment/shomei SHOMEI_PUBLIC_BASE_URL-`. It leaves
+  `SHOMEI_WEBAUTHN_RP_ID` in place, because local mode sets it for `protected-hello`
+  too.
+
+**Cleanup on delete.** In `cli/nagarectl/src/Nagare/App.hs` (`deleteApp`), before deleting
+the Knative Service:
+
+- Load the backend map.
+- Remove every entry whose upstream is `http://<name>.<ns>.svc.cluster.local`.
+- If any were removed, write the map and reload the enforcer, delete the
+  `nagare-system` DomainMapping for each removed host
+  (`kubectl -n nagare-system delete domainmapping <host> --ignore-not-found`), and, if
+  one of them was the portal, call `unconfigureShomeiPortal`.
+- Put this logic in `Nagare.Access.Resolve` as
+  `removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [Text]`,
+  so it is testable with `fakeOps`. `deleteApp` calls the `kubectlAccessOps` version.
+- A missing ConfigMap or a missing `nagare-access` is a no-op, so deleting apps on
+  clusters without the auth plane keeps working.
+
+**CLI.** In `cli/nagarectl/app/Main.hs`, extend `accessSubparser` with a `portal` group:
+
+- `nagarectl access portal show` prints `portal: <host> -> <upstream>` or
+  `portal: (none; protected sites use the built-in sign-in pages)`.
+- `nagarectl access portal sync` re-runs `configureShomeiPortal` for the registered
+  portal, and prints `no portal registered` and exits 0 when there is none.
+
+`sync` exists for the case where `cluster/bootstrap/auth-install.sh` is re-run and
+replaces Shomei's env. Milestone 6 checks whether that happens and documents the answer.
+
+**Tests.**
+
+- In `cli/nagare-dsl/test`: `authPortal` round-trips through `accessPolicyJSON` and
+  `toAccessPolicy`, and JSON without `role` loads as `ProtectedSite`.
+- In `cli/nagarectl/test/AccessResolveSpec.hs`, extending `fakeOps` with recorded
+  `ConfiguredShomei` and `UnconfiguredShomei` events:
+  - a portal deploy writes `{"upstream":…,"role":"portal"}`, reloads, routes to
+    `nagare-access`, and configures Shomei with the host and base domain;
+  - a second portal host is refused, with nothing written;
+  - a portal outside the base domain is refused;
+  - redeploying the same portal is idempotent (same map written);
+  - switching the portal app to `access = Nothing` removes the entry and unconfigures
+    Shomei;
+  - `removeServiceAccessWithOps` removes only that service's hosts and returns them;
+  - loading an old all-string ConfigMap still works, and re-rendering it produces
+    identical JSON.
+- A pure test for the origins union and removal helper
+  (`mergeOrigins`/`removeOrigin`).
+
+Acceptance: `cabal test nagare-dsl-test` and `cabal test nagarectl-test` pass. In addition,
+`nagarectl deploy --dry-run` on the reference portal config (Milestone 5) shows no
+access YAML, as today.
+
+### Milestone 5: the reference portal
+
+At the end of this milestone `cluster/examples/auth-portal` is a deployable portal that
+implements the whole contract with only Node's standard library. An offline script
+proves its contract behavior against a fake Shomei.
+
+**Files.**
+
+- `cluster/examples/auth-portal/server.mjs`: the portal.
+- `cluster/examples/auth-portal/views.mjs`: HTML templates as functions. Every
+  interpolated value goes through one `escapeHtml` function.
+- `cluster/examples/auth-portal/public/portal.css` and `public/passkey.js`.
+- `cluster/examples/auth-portal/Dockerfile`: `node:22-alpine`, non-root user, `EXPOSE 8080`.
+- `cluster/examples/auth-portal/nagare/Config.hs`: modeled on
+  `cluster/examples/protected-hello/nagare/Config.hs` and the Dockerfile build in
+  `cluster/examples/dockerfile-app`.
+  - Service `auth-portal`, namespace `personal`, `DockerfileBuild`.
+  - Domain `auth.<NAGARE_BASE_DOMAIN>` (defaulting to `apps.example.com`), port 8080.
+  - Env `SHOMEI_URL=http://shomei.nagare-system.svc.cluster.local`,
+    `PORTAL_TITLE=Nagare`, `PORTAL_ALLOW_SIGNUP=false`.
+  - `access = Just authPortal`.
+- `cluster/examples/auth-portal/README.md`.
+- `cluster/examples/auth-portal/test/contract-test.mjs`: the offline test.
+
+**Behavior of `server.mjs`** (all Shomei calls are server-side `fetch` to `SHOMEI_URL`):
+
+- **CSRF.** Every form page sets a `portal_csrf` cookie (random, `HttpOnly; Secure;
+  SameSite=Lax; Path=/`) and embeds the same value, and every POST compares them. The
+  portal's cookies are its own, so they never collide with `nagare_*`.
+- **`GET /login`.** Renders the sign-in form. It carries `return_to` through a hidden
+  field, and shows notices for `error=session`, `logged_out=1`, and `reset=1`. It also
+  offers a "Sign in with a passkey" button (passwordless) and links to
+  `/password/forgot` and, if sign-up is allowed, `/signup`.
+- **`POST /login`.** Calls `POST /v1/auth/login`.
+  - On `complete`, it responds `204` with `Nagare-Session-Establish` built from the
+    token and `returnTo`.
+  - On `mfa_required`, it renders the passkey page with `ceremonyId`, `options`, and
+    `return_to` embedded as JSON in a `<script type="application/json">` block (never
+    in inline JS).
+  - On a problem response, it re-renders the form with a generic "Sign-in failed"
+    message.
+- **`POST /login/mfa`** (JSON, called by `public/passkey.js`). Calls
+  `POST /v1/auth/mfa/complete` with `{ceremonyId, proof:{type:"passkey", assertion}}` and
+  answers with `Nagare-Session-Establish`. Because the browser request has
+  `Accept: application/json`, `nagare-access` turns this into
+  `200 {"redirect": …}`, and the script navigates there.
+- **`POST /login/passkey/begin`** and **`POST /login/passkey/complete`**. Proxy
+  passwordless sign-in to Shomei. The complete step answers with
+  `Nagare-Session-Establish`.
+- **`GET/POST /signup`.** Returns 404 unless `PORTAL_ALLOW_SIGNUP=true`. Calls
+  `POST /v1/auth/signup` and then establishes a session.
+- **`GET/POST /password/forgot`.** Calls `POST /v1/auth/password-reset/request` and
+  always shows "If that address exists, we sent a link", so it does not reveal whether
+  an account exists.
+- **`GET /v1/auth/password-reset/confirm?token=…`** and its POST. The GET renders a
+  new-password form, and the POST calls Shomei's confirm and redirects to
+  `/login?reset=1`.
+- **`GET /v1/auth/verify-email/confirm?token=…`.** Calls Shomei's confirm and renders the
+  result.
+- **`GET /account`.** Requires `Authorization`; without it, it redirects to
+  `/login?return_to=https://<X-Forwarded-Host>/account`. It calls `GET /v1/auth/me` and
+  renders the login name, display name, and email, a change-password form, the
+  passkey list (`GET /v1/auth/passkeys`) with delete buttons, an "Add a passkey"
+  button, and a sign-out link to `/_nagare/logout`.
+- **`POST /account/password`.** Calls `POST /v1/auth/password/change` with the bearer
+  token.
+- **`POST /account/passkeys/begin`**, **`/complete`**, and
+  **`/account/passkeys/<id>/delete`.** Call the Shomei passkey endpoints with the
+  bearer token.
+- **`GET /errors/403`.** Renders "You don't have access to <X-Nagare-Error-Host>". It
+  shows who is signed in (from `X-Forwarded-User`, display only), a link to
+  `/_nagare/logout` ("Switch account"), and a link back to `X-Nagare-Return-To`.
+- **`GET /errors/503`.** Renders "Sign-in is temporarily unavailable" with a retry
+  link.
+- **Other paths.** `GET /` redirects to `/account`, `GET /healthz` returns `ok`, and
+  `/public/*` serves the static files.
+
+Branding is controlled by `PORTAL_TITLE`, an optional `PORTAL_LOGO_URL`, and
+`public/portal.css`.
+
+**Contract test.** `cluster/examples/auth-portal/test/contract-test.mjs` starts a fake
+Shomei (a `node:http` server with canned responses) and the portal on ephemeral ports,
+then checks:
+
+1. `POST /login` with a correct CSRF token and a fake "complete" login answers with a
+   decodable `Nagare-Session-Establish` whose `returnTo` equals the posted `return_to`.
+2. `mfa_required` renders the passkey page.
+3. A missing or mismatched CSRF token answers 403 without calling the fake Shomei.
+4. `GET /account` without `Authorization` redirects to `/login`.
+5. `GET /account` with a bearer token calls `/v1/auth/me` with that bearer token and
+   renders the login name HTML-escaped (use the login id `<b>eve</b>`).
+6. `GET /errors/403` escapes `X-Nagare-Error-Host`.
+7. `/signup` is 404 by default.
+
+Run it with `node --test cluster/examples/auth-portal/test/contract-test.mjs`.
+
+Acceptance: the contract test passes with Node 22, and
+`docker build --platform linux/amd64 cluster/examples/auth-portal` succeeds.
+
+### Milestone 6: documentation and local end-to-end validation
+
+At the end of this milestone the contract is documented for operators, and the whole
+scenario has been observed on a local k3d cluster, with the transcript recorded in this
+plan.
+
+**Documentation.**
+
+- Write `docs/user/auth-portal.md`, a Runbook with the same frontmatter shape as
+  `docs/user/access.md` (with its own `docId`; check `docs/user/index.md` for the next
+  free one). It restates the portal contract from this plan in operator language,
+  covers deploy and removal of the reference portal, explains the break-glass URL,
+  and describes the security model: the portal is trusted with users' passwords and
+  access tokens; it never sees the cookie key; tokens handed to `nagare-access` are
+  rotated.
+- Link it from `docs/user/access.md` (a new "Customize sign-in with an auth portal"
+  section) and from `docs/user/index.md`.
+- In `cluster/bootstrap/nagare-access/README.md`, note that the backend map may now hold a
+  portal entry.
+- Create an ADR: a new file under `docs/adr/`, with the next number after the highest
+  existing one, following the format of
+  `docs/adr/0011-host-activation-is-guarded-and-self-reverting.md`. Title: "The auth
+  portal hands sessions to nagare-access through response headers". It records the
+  cookie-ownership and hand-off decisions from the Decision Log.
+
+**Local validation.** Run the scenario in Validation and Acceptance on the local k3d
+path, record the transcript in Surprises & Discoveries or Outcomes, and fix anything it
+exposes. Specifically confirm and record:
+
+1. whether re-running `cluster/bootstrap/local-auth/install.sh` keeps the Shomei env
+   set by `nagarectl` (if not, the docs tell operators to run `nagarectl access portal
+   sync` after re-installing);
+2. whether Shomei's password change revokes the current session;
+3. where the log notifier prints reset links, for the forgot-password check.
+
+
+## Concrete Steps
+
+All commands run from the repository root, `/Users/shinzui/Keikaku/bokuno/nagare`, unless a
+`cd` is shown. Do not `git add -A`; stage explicit paths.
+
+**Milestones 1–3** (repeat after each change):
+
+```bash
+cd cli/nagare-access
+cabal build all
+cabal test nagare-access-test --test-show-details=streaming
+```
+
+Expected tail:
+
+```text
+All N tests passed (…s)
+```
+
+**Milestone 4:**
+
+```bash
+cd cli/nagare-dsl && cabal test nagare-dsl-test
+cd ../nagarectl && cabal test nagarectl-test
+```
+
+**Milestone 5:**
+
+```bash
+node --test cluster/examples/auth-portal/test/contract-test.mjs
+docker build --platform linux/amd64 -t auth-portal:dev cluster/examples/auth-portal
+```
+
+Expected test output ends with:
+
+```text
+# pass 7
+# fail 0
+```
+
+**Milestone 6** (local cluster; follow `docs/user/local-development.md` first so the
+active context has `mode=local` and `NAGARE_BASE_DOMAIN=127-0-0-1.sslip.io`). Build and
+install the auth plane from this working tree:
+
+```bash
+nagarectl context show            # confirm mode=local before anything else
+for service in shomei en nagare-access; do
+  cluster/bootstrap/auth-images/build-local-image.sh "$service"
+done
+cluster/bootstrap/local-auth/install.sh
+kubectl -n cert-manager get secret nagare-local-ca \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/nagare-local-ca.pem
+```
+
+The local image build and push flow is described in `docs/user/local-development.md`
+("Optional: the auth plane"); follow that if the command above differs for your setup.
+
+Deploy the protected example and the portal, then check the registration:
+
+```bash
+nagarectl deploy -f cluster/examples/protected-hello/nagare/Config.hs
+nagarectl deploy -f cluster/examples/auth-portal/nagare/Config.hs
+nagarectl access portal show
+```
+
+Expected:
+
+```text
+portal: auth.127-0-0-1.sslip.io -> http://auth-portal.personal.svc.cluster.local
+```
+
+Create a test user. Shomei 0.2 reads the password from stdin:
+
+```bash
+printf '%s\n' 'correct horse battery staple' | \
+  kubectl -n nagare-system exec -i deploy/shomei -- \
+  shomei-admin users create --email dev@example.test --email-verified
+```
+
+Note the printed user id (`user_01…`); the steps below call it `$USER_ID`.
+
+
+## Validation and Acceptance
+
+**Offline acceptance** is the three test commands above, all passing. The critical new
+tests are:
+
+- the backend-map role decoding;
+- cookie stripping;
+- portal forwarding with and without identity;
+- hand-off with refresh rotation and return-URL rejection;
+- forged hand-off headers from protected apps being dropped;
+- portal challenge URLs;
+- branded error bodies with fallback;
+- the unchanged no-portal responses;
+- resolver refusals and delete cleanup;
+- the portal contract test.
+
+**End-to-end acceptance** runs on the local cluster after the Concrete Steps. Let
+`CA=/tmp/nagare-local-ca.pem`, `APP=https://protected-hello.127-0-0-1.sslip.io`,
+`P=https://auth.127-0-0-1.sslip.io`, and `JAR=$(mktemp)`.
+
+1. **Unauthenticated visitors go to the portal.**
+
+   ```bash
+   curl -sS --cacert $CA -o /dev/null -w '%{http_code} %{redirect_url}\n' "$APP/hello?x=1"
+   ```
+
+   ```text
+   302 https://auth.127-0-0-1.sslip.io/login?return_to=https%3A%2F%2Fprotected-hello.127-0-0-1.sslip.io%2Fhello%3Fx%3D1
+   ```
+
+2. **Password sign-in through the portal sets the parent-domain session.** Fetch the
+   form (this stores `portal_csrf`), extract the token, and post:
+
+   ```bash
+   CSRF=$(curl -sS --cacert $CA -c $JAR "$P/login?return_to=$APP/" | sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p')
+   curl -sS --cacert $CA -b $JAR -c $JAR -o /dev/null -D - \
+     --data-urlencode "csrf=$CSRF" --data-urlencode "return_to=$APP/" \
+     --data-urlencode loginId=dev@example.test \
+     --data-urlencode 'password=correct horse battery staple' "$P/login" | grep -Ei '^(HTTP|location|set-cookie)'
+   ```
+
+   Expect `HTTP/2 303`, `location: https://protected-hello.127-0-0-1.sslip.io/`, and a
+   `set-cookie: nagare_session=…; Domain=.127-0-0-1.sslip.io` line. The response must not
+   contain any `nagare-session-establish` header.
+
+3. **Signed in but not granted: the portal's branded 403.**
+
+   ```bash
+   curl -sS --cacert $CA -b $JAR -o /tmp/body -w '%{http_code}\n' "$APP/" && grep -c "have access" /tmp/body
+   ```
+
+   ```text
+   403
+   1
+   ```
+
+4. **Grant, then 200.** Port-forward En as described in `docs/user/access.md`
+   ("Manage grants"), then:
+
+   ```bash
+   nagarectl access grant --host protected-hello.127-0-0-1.sslip.io --user "$USER_ID"
+   ```
+
+   Poll for up to 40 seconds (En publishes revisions with a delay, and the decision cache
+   holds for 30 seconds):
+
+   ```bash
+   curl -sS --cacert $CA -b $JAR -o /dev/null -w '%{http_code}\n' "$APP/"
+   ```
+
+   ```text
+   200
+   ```
+
+5. **The portal sees the user.**
+
+   ```bash
+   curl -sS --cacert $CA -b $JAR "$P/account" | grep -c dev@example.test
+   ```
+
+   ```text
+   1
+   ```
+
+6. **Change password.** Post the change-password form on `/account` (fetch CSRF the
+   same way as in step 2), then repeat step 2 with the new password. Expect `303` and a
+   new session. Record whether the old `JAR` session still works (Milestone 6 item 2).
+
+7. **Branded 503 with fallback.**
+
+   ```bash
+   kubectl -n nagare-system scale deploy/en --replicas=0
+   ```
+
+   After the decision cache expires (30 seconds), a request with the session returns
+   `503` whose body contains "temporarily unavailable". Then scale the portal to zero
+   as well:
+
+   ```bash
+   kubectl -n personal patch ksvc auth-portal --type=merge \
+     -p '{"spec":{"template":{"metadata":{"annotations":{"autoscaling.knative.dev/min-scale":"0","autoscaling.knative.dev/max-scale":"0"}}}}}'
+   ```
+
+   If the platform refuses a max-scale of zero, delete the portal's pods instead and
+   note it. The same request must still return `503` with the built-in body
+   `authorization service unavailable`. Restore both:
+
+   ```bash
+   kubectl -n nagare-system scale deploy/en --replicas=1
+   nagarectl deploy -f cluster/examples/auth-portal/nagare/Config.hs
+   ```
+
+8. **Break-glass.**
+
+   ```bash
+   curl -sS --cacert $CA "$APP/_nagare/login?builtin=1" | grep -c '<h1>Sign in</h1>'
+   ```
+
+   ```text
+   1
+   ```
+
+9. **Logout revokes the session.**
+
+   ```bash
+   curl -sS --cacert $CA -b $JAR -c $JAR -o /dev/null -w '%{http_code} %{redirect_url}\n' "$P/_nagare/logout"
+   ```
+
+   ```text
+   302 https://auth.127-0-0-1.sslip.io/login?logged_out=1
+   ```
+
+   Replaying the old `nagare_refresh` value against Shomei's refresh endpoint must fail
+   with 401. Check it from inside the cluster with a throwaway `curlimages/curl` pod
+   posting `{"refreshToken": …}` to `http://shomei.nagare-system.svc.cluster.local/v1/auth/refresh`.
+   Take the token from the cookie jar before logging out, decoding the `v1.<b64>.<mac>`
+   middle part.
+
+10. **Passkeys (manual, real browser).** Trust the CA as described in
+    `cluster/bootstrap/local-tls/README.md`.
+    - Open `$P/account`, sign in, choose "Add a passkey", and complete the browser
+      prompt.
+    - Sign out, open `$APP/`, and sign in with the password. The portal must show the
+      passkey step, and completing it lands on the app.
+    - Also try "Sign in with a passkey" on the login page.
+
+11. **Removing the portal restores the defaults.**
+
+    ```bash
+    nagarectl app delete auth-portal --namespace personal   # use the exact delete syntax from `nagarectl app delete --help`
+    nagarectl access portal show
+    curl -sS --cacert $CA -o /dev/null -w '%{http_code} %{redirect_url}\n' "$APP/"
+    ```
+
+    ```text
+    portal: (none; protected sites use the built-in sign-in pages)
+    302 https://protected-hello.127-0-0-1.sslip.io/_nagare/login?rd=%2F
+    ```
+
+    `kubectl -n nagare-system get deploy shomei -o yaml` no longer lists
+    `https://auth.127-0-0-1.sslip.io` in `SHOMEI_WEBAUTHN_ORIGINS`.
+
+The plan is complete when all eleven checks pass on the local cluster and the offline
+suites pass. Cloud validation is not required by this plan. It needs human approval for
+each cloud-mutating command under the repository rules, so it is left to the operator
+using `docs/user/auth-portal.md`.
+
+
+## Idempotence and Recovery
+
+Code milestones are additive and can be retried freely. Every test command is safe to
+re-run.
+
+**Deploy-time registration is idempotent.**
+
+- Deploying the portal twice writes the same backend map.
+- `configureShomeiPortal` changes nothing when the origins union and base URL are
+  already present, so it does not roll Shomei needlessly.
+- `nagarectl access portal sync` can be run any number of times.
+
+**Recovery when a portal breaks sign-in on a live cluster.** Use these in order:
+
+1. Sign in with the built-in form at `https://<protected host>/_nagare/login?builtin=1`.
+2. Remove the portal's registration by deploying the portal app with
+   `access = Nothing`, or by deleting it. Every protected host then falls back to the
+   built-in pages as soon as `nagare-access` rolls to the new revision.
+3. As a last resort, edit the ConfigMap by hand. Remove the entry whose value has
+   `"role":"portal"` from `backends.json` in `nagare-access-backends`, then patch the
+   annotation `nagare.dev/backend-map-reload` on `ksvc/nagare-access` to a new value.
+   This is exactly what `nagarectl` does.
+
+On a cloud context, any of these kubectl mutations requires the operator's approval
+under the repository rules.
+
+**Rolling back the code.** An old `nagare-access` image cannot parse a backend map that
+contains an object entry. Remove the portal registration (recovery step 2) before
+deploying an older `nagare-access` image. Protected-only maps keep the old string format
+and stay compatible in both directions.
+
+**Local end-to-end checks.** Step 7 scales En and the portal down; its own last command
+restores them. If a check is interrupted, run `kubectl -n nagare-system scale deploy/en
+--replicas=1` and redeploy the portal.
+
+
+## Interfaces and Dependencies
+
+No new Haskell or npm dependencies are added.
+
+- `nagare-access` keeps using `wai`, `http-client`, `http-types`, `aeson`, `base64`
+  handling from `memory`/`crypton` (`Data.ByteArray.Encoding`, already used in
+  `Cookie.hs`), and the Shomei client already pinned in
+  `cli/nagare-access/cabal.project`.
+- The reference portal uses Node 22's standard library only.
+
+At the end of Milestone 1, in `cli/nagare-access/src/Nagare/Access/BackendMap.hs`:
+
+```haskell
+data BackendRole = ProtectedBackend | PortalBackend
+  deriving stock (Eq, Show)
+
+data BackendTarget = BackendTarget
+  { upstreamUrl :: !Text
+  , backendRole :: !BackendRole
+  }
+  deriving stock (Eq, Show)
+
+canonicalHost :: Text -> Either Text Text          -- now exported
+backendMapFromEntries :: [(Text, Text, BackendRole)] -> Either Text BackendMap
+portalBackend :: BackendMap -> Maybe (Text, BackendTarget)
+backendHosts :: BackendMap -> [Text]
+```
+
+and in `cli/nagare-access/src/Nagare/Access/Proxy.hs`:
+
+```haskell
+stripEnforcerCookies :: [Header] -> [Header]
+```
+
+At the end of Milestone 2, in `cli/nagare-access/src/Nagare/Access/Auth.hs`:
+
+```haskell
+data PortalIdentity
+  = PortalAnonymous
+  | PortalAuthenticated !AuthenticatedUser !Text   -- user, raw access token
+  deriving stock (Eq, Show)
+
+data PortalUpstreamResult
+  = PortalPassThrough !Response
+  | PortalSessionEstablish !BS.ByteString          -- raw header value
+  | PortalSessionClear !Status ![Header] !LBS.ByteString
+
+data PortalPageKind = PortalForbiddenPage | PortalUnavailablePage
+  deriving stock (Eq, Show)
+
+data PortalPageRequest = PortalPageRequest
+  { pageKind :: !PortalPageKind
+  , pageHost :: !Text
+  , pagePath :: !Text
+  , pageUser :: !(Maybe AuthenticatedUser)
+  }
+
+-- new AccessServices fields
+revokeSession :: !(Text -> IO ())
+forwardPortal :: !(PortalIdentity -> Text -> BackendTarget -> Request -> IO PortalUpstreamResult)
+fetchPortalPage :: !(BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString))
+```
+
+together with:
+
+```haskell
+-- Nagare.Access.ShomeiClient
+logoutWithShomei :: Shomei.ClientEnv -> Text -> IO ()
+-- Nagare.Access.Proxy
+portalForwarder :: HC.Manager -> PortalIdentity -> Text -> BackendTarget -> Wai.Request -> IO PortalUpstreamResult
+-- Nagare.Access.Challenge
+validatePortalReturnTo :: BackendMap -> Text -> Maybe Text -> Text
+```
+
+At the end of Milestone 3:
+
+```haskell
+-- Nagare.Access.Challenge
+portalLoginUrl :: Text -> Text -> Text -> Text     -- portal host, protected host, raw path+query
+-- Nagare.Access.Proxy
+portalPageFetcher :: HC.Manager -> BackendTarget -> PortalPageRequest -> IO (Maybe LBS.ByteString)
+```
+
+At the end of Milestone 4, in `cli/nagare-dsl/src/Nagare/Dsl/Access.hs`:
+
+```haskell
+data AccessRole = ProtectedSite | AuthPortal
+  deriving stock (Generic, Eq, Show)
+
+data AccessPolicy = AccessPolicy
+  { audience :: !(Maybe Audience)
+  , permission :: !AccessPermission
+  , role :: !AccessRole
+  }
+
+authPortal :: AccessPolicy
+```
+
+and in `cli/nagarectl/src/Nagare/Access/Resolve.hs`:
+
+```haskell
+data EntryRole = ProtectedEntry | PortalEntry
+data BackendEntry = BackendEntry { beUpstream :: !Text, beRole :: !EntryRole }
+
+data AccessOps = AccessOps
+  { checkEnforcerPresent :: !(IO Bool)
+  , loadBackendMap :: !(IO (Either Text (Maybe (Map Text BackendEntry))))
+  , writeBackendMap :: !(Map Text BackendEntry -> IO ())
+  , reloadBackendMap :: !(IO ())
+  , applyRouteOp :: !(Text -> Text -> RouteOp -> IO ())
+  , configureShomeiPortal :: !(Text -> Text -> IO ())   -- portal host, base domain
+  , unconfigureShomeiPortal :: !(Text -> IO ())         -- portal host
+  , deleteSystemDomainMapping :: !(Text -> IO ())       -- host
+  }
+
+removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [Text]
+mergeOrigins :: Text -> [Text] -> [Text]
+removeOrigin :: Text -> [Text] -> [Text]
+```
+
+The wire contract between `nagare-access` and a portal (headers `X-Forwarded-User`,
+`Authorization`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Nagare-Session-Establish`,
+`Nagare-Session-Clear`, `X-Nagare-Error-Host`, `X-Nagare-Error-Path`,
+`X-Nagare-Return-To`, and the paths `/login`, `/errors/403`, `/errors/503`,
+`/v1/auth/password-reset/confirm`, `/v1/auth/verify-email/confirm`) is the public
+interface of this plan. Any change to it after Milestone 6 must update
+`docs/user/auth-portal.md`, the reference portal, and the ADR together.
