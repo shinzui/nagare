@@ -114,9 +114,19 @@ test that fails before the change and passes after it.
       Progress that its own Milestone 5 body and Interfaces section never define, and the
       subcommand prints nothing but `export` lines, so a flag would have no other mode to
       select against.
-- [ ] M6: update `docs/user/gcp-prerequisites.md`, `docs/user/contexts.md` and
-      `docs/user/provisioning-with-pulumi.md` with the enforced promise; write the ADR;
-      accept IR-2 and register EP-113 in `docs/plan-registry.md`.
+- [x] M6 (2026-09-12): `docs/user/gcp-prerequisites.md` gained a "What keeps Nagare inside
+      your project" section; `docs/user/contexts.md` documents `context guard` and
+      `context env` with their exact refusal messages; `docs/user/provisioning-with-pulumi.md`
+      documents the `infra-up` / `infra-preview` preflight and what to do when it refuses;
+      `docs/user/log.md` has the `okf log add` entry and `just docs-validate` passes;
+      `docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md` is
+      written; `docs/plan-registry.md` has the EP-113 row. IR-2 was already accepted and
+      linked to this plan in commit `2cc6f12`, before implementation began, so that step
+      needed no change.
+- [ ] Follow-up, outside EP-113: the `docs/improvement-requests` bundle fails strict
+      profile validation for all four September-2026 IRs (missing the recommended `reviews`
+      field). See Surprises & Discoveries; it predates this plan and must not be closed by
+      writing review records that did not happen.
 
 
 ## Surprises & Discoveries
@@ -141,6 +151,35 @@ build against a pinned package set and are unaffected. Verify this plan's Haskel
 for the other groups) rather than reading the whole-suite tally, and do not attempt to
 "fix" those eight as part of EP-113 — the remedy is a store cleanup outside this plan's
 scope. (2026-09-12)
+
+**The `docs/improvement-requests` bundle does not pass strict profile validation, and that
+predates this plan.** The plan's Milestone 6 acceptance names this command:
+
+```bash
+okf validate docs/improvement-requests --strict \
+  --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
+```
+
+It exits 1, identically before and after every change here:
+
+```text
+profile: confine-cloud-mutations-to-context-project: missing profile-recommended field: reviews (Chronological human or model review provenance for this document revision.)
+profile: context-owned-acme-identity: missing profile-recommended field: reviews (...)
+profile: data-disk-grow-procedure: missing profile-recommended field: reviews (...)
+profile: seed-vm-shape-keys-at-init: missing profile-recommended field: reviews (...)
+```
+
+All four September-2026 improvement requests are affected equally, including the three
+(IR-3, IR-4, IR-5) accepted before this plan started. Verified by stashing every change in
+this working tree and re-running the same command, which produces byte-identical output.
+The repository's own gate, `just docs-validate`, covers `docs/reviews`, `docs/user` and
+`docs/guides` and does **not** include this bundle, so nothing in CI was failing; the plan
+simply cited a command stricter than the gate.
+
+This is deliberately left open rather than made to pass. `reviews` records who reviewed a
+document and when; satisfying the validator would mean writing review provenance for
+reviews that did not happen. Adding the field honestly is separate work covering all four
+requests at once. (2026-09-12)
 
 
 ## Decision Log
