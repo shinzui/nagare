@@ -6,7 +6,7 @@ docId: DOC-30
 tags: [gcp, vm, scaling, maintenance, rollback]
 generated:
   by: human:nadeem
-  at: 2026-06-10T19:02:50Z
+  at: 2026-09-12T21:26:55Z
 ---
 
 # Resizing the VM (vertical scale)
@@ -92,9 +92,10 @@ is the cost-optimized family; `n2`/`n2d` cost more but perform more predictably.
 
 ## Resize, step by step
 
-1. **Confirm you're targeting `tan-nb-exp`.** Every cloud call in this repo must
-   hit that project (see [Getting started](getting-started.md)). The dev shell's
-   `.envrc` sets this; `pulumi` reads it from stack config.
+1. **Confirm you're targeting the intended context.** Every cloud call acts only
+   on the active context's project (see [Contexts](contexts.md)). Check it with
+   `nagarectl context current`; the dev shell's `.envrc` exports that context's
+   project, and the Pulumi stack name is the context name.
 
 2. **Preview the change.** Set the new type and see exactly what Pulumi will do:
 
@@ -170,5 +171,128 @@ Same stop/start window, same preserved disks and IP.
   needs a cluster reconcile — see
   [Backups and disaster recovery](backups-and-disaster-recovery.md), not this
   page.
-- **Resizing the disks.** Growing `/var/lib/nagare` is a `dataDiskSizeGb` change
-  plus an online filesystem grow — a separate operation from the machine type.
+- **Resizing the disks.** Growing `/var/lib/nagare` is covered below in
+  [Growing the data disk](#growing-the-data-disk). Growing the **boot** disk is
+  not an in-place operation: `bootDiskSizeGb` is a create-time setting, so
+  raising it plans a replacement of the whole instance, which deletion
+  protection refuses, and which would lose k3s's on-disk state if forced.
+
+---
+
+## Growing the data disk
+
+`/var/lib/nagare` is a separate Persistent Disk (`nagare-data`) holding every
+app volume, the observability stores, database data, and local backups. Growing
+it has two parts: make the **disk** bigger, then make the **filesystem** on it
+fill the new space. The first is a Pulumi config change. The second happens by
+itself on every boot, because the mount carries `x-systemd.growfs`, and takes
+one command on a host you do not want to reboot.
+
+**Before growing, find the consumer.** The observability stores are capped
+(logs 15 GiB and 7 days, traces 8 GiB and 3 days, metrics 30 days), so steady
+growth is app volumes, database data, or backups:
+
+```bash
+scripts/iap-ssh.sh ssh nagare-01 -- 'df -h /var/lib/nagare; sudo du -sh /var/lib/nagare/* | sort -h'
+```
+
+**A grow is permanent.** A Persistent Disk can never be shrunk (see
+[Shrinking is impossible](#shrinking-is-impossible)).
+
+1. **Confirm the context, and that the host runs a configuration with
+   auto-grow.** `nagarectl context current` must name the intended context. The
+   host's `/etc/fstab` must carry `x-systemd.growfs` for `/var/lib/nagare`:
+
+   ```bash
+   scripts/iap-ssh.sh ssh nagare-01 -- 'grep nagare /etc/fstab'
+   ```
+
+   ```text
+   /dev/disk/by-id/google-nagare-data /var/lib/nagare ext4 x-systemd.growfs,defaults,nofail 0 2
+   ```
+
+   If it does not, apply the current platform configuration first with
+   `just host-switch` (see [Day-2 host changes](day-2-host-changes.md)). Never
+   switch a host with the in-repo `nixos/` flake: it is an evaluation fixture and
+   refuses activation.
+
+2. **Set the new size and preview.** Sizes are in GiB:
+
+   ```bash
+   STACK="$(nagarectl context current)"
+   pulumi -C infra/pulumi config set nagare:dataDiskSizeGb 110 --stack "$STACK"
+   just infra-preview
+   ```
+
+   The plan must be exactly one in-place **update** (`~`) of the data disk. This
+   is the recorded output of a 100 → 110 GiB change:
+
+   ```text
+       ~ gcp:compute/disk:Disk: (update) 🔒
+           [id=projects/<project>/zones/<zone>/disks/nagare-data-8183a3e]
+           [urn=urn:pulumi:<context>::nagare::nagare:env:NagarePerimeter$gcp:compute/disk:Disk::nagare-data]
+         ~ size: 100 => 110
+   Resources:
+       ~ 1 to update
+       30 unchanged
+   ```
+
+   If you see `+-` (replace) or `-` (delete) anywhere, **stop**, run
+   `pulumi -C infra/pulumi config rm nagare:dataDiskSizeGb --stack "$STACK"`, and
+   investigate.
+
+3. **Apply.** `just infra-up`. The disk resizes online in seconds with no
+   restart. The filesystem does **not** grow yet. `lsblk` shows the bigger device
+   while `df` still shows the old size:
+
+   ```text
+   Filesystem      Size  Used Avail Use% Mounted on
+   /dev/sdb         98G  212M   93G   1% /var/lib/nagare
+   sdb  110G
+   ```
+
+   The grow only runs when the filesystem is mounted, and `/var/lib/nagare` has
+   been mounted since boot.
+
+4. **Grow the filesystem now** (or simply reboot later). ext4 grows online, with
+   no unmount and no downtime:
+
+   ```bash
+   scripts/iap-ssh.sh ssh nagare-01 -- 'sudo systemctl restart systemd-growfs@var-lib-nagare.service; df -h /var/lib/nagare'
+   ```
+
+   ```text
+   Filesystem      Size  Used Avail Use% Mounted on
+   /dev/sdb        108G  212M  103G   1% /var/lib/nagare
+   ```
+
+   Use **`restart`**, not `start`. The unit already ran at boot and stays
+   `active (exited)`, so `systemctl start` silently does nothing and exits 0.
+   `df` reports a little less than the disk size because of ext4 metadata.
+
+5. **Confirm the cluster is healthy.**
+
+   ```bash
+   scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s kubectl get nodes; sudo k3s kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded'
+   ```
+
+   Expect the node `Ready` and no pod failing that was not failing before.
+
+### Shrinking is impossible
+
+Google Persistent Disks cannot shrink, so a smaller `dataDiskSizeGb` can only be
+satisfied by deleting the disk and creating a new one, which would destroy every
+byte on it. The data disk is declared with `protect: true`, and Pulumi refuses:
+
+```text
+error: unable to replace resource "urn:pulumi:<context>::nagare::nagare:env:NagarePerimeter$gcp:compute/disk:Disk::nagare-data"
+as it is currently marked for protection. To unprotect the resource, remove the `protect` flag from the resource in your Pulumi program and run `pulumi up`
+error: preview failed
+```
+
+`protect: true` protects a resource only once a `pulumi up` has written the flag
+into the stack's **state**. A stack created before the flag existed previews a
+decrease as a plain `+-` replace, with no error, until its next `pulumi up`. If
+you ever set a smaller size by mistake, run
+`pulumi -C infra/pulumi config set nagare:dataDiskSizeGb <current size> --stack "$STACK"`
+and preview again.

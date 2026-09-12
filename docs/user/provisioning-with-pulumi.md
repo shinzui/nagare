@@ -6,7 +6,7 @@ docId: DOC-28
 tags: [pulumi, provisioning, gcp, infrastructure]
 generated:
   by: human:nadeem
-  at: 2026-08-23T20:57:05Z
+  at: 2026-09-12T21:26:55Z
 ---
 
 # Provisioning with Pulumi
@@ -78,8 +78,8 @@ profile files.
 | `nagare:nagareImageSelfLink` | no | — | Set by `scripts/upload-images.sh`. Gates the VM. |
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | `e2-standard-4` for more headroom. |
-| `nagare:dataDiskSizeGb` | no | `100` | |
-| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size. Increasing is supported; shrinking is not. |
+| `nagare:dataDiskSizeGb` | no | `100` | Data-disk (`/var/lib/nagare`) size in GiB. An increase is an in-place update and the filesystem grows online; shrinking is refused (`protect: true`). See [Growing the data disk](resizing-the-vm.md#growing-the-data-disk). |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB, applied only when the instance is created. Changing it later plans a replacement of the whole instance (refused by deletion protection), not an in-place grow. |
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's type forces instance replacement; pin its existing type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE blocks deletion and replacement while true. Temporarily disable only during an intentional VM rebuild. |
 | `nagare:artifactRegistryId` | no | `nagare` | |

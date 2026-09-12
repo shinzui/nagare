@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-12
+* **Update**: Deliver IR-5: the data disk grows itself (ordering-cycle fix proven by a VM test), the procedure is documented with recorded previews and a live grow on nagare-01, and the DiskUsageHigh alert points at it.
 * **Update**: IR-5 is in progress: docs/plans/111-automate-and-document-growing-the-data-disk.md implements the data-disk grow.
 * **Update**: Complete IR-3. The ACME contact and directory endpoint are now context fields with no built-in default, the issuer renderer fails closed instead of inventing an identity, and a CI guard keeps personal defaults out of cluster/bootstrap/. Decision recorded as ADR 10.
 * **Update**: Accept IR-2 and record its target plan: docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md.
