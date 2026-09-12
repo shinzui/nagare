@@ -72,7 +72,7 @@ inherit a stale assertion.
 Because bucket names are global, existence is not evidence of ownership. The only reliable
 identity is the owning project number, which a name collision cannot forge. Both
 implementations read
-`gcloud storage buckets describe gs://<bucket> --format='value(projectNumber)'` and
+`gcloud storage buckets describe gs://<bucket> --raw --format='value(projectNumber)'` and
 `gcloud projects describe <project> --format='value(projectNumber)'` and proceed only when
 both values are present, non-empty and equal. An absent value — missing tool, missing
 permission, network failure — is treated as a mismatch. Fail-closed means the *absence* of
@@ -152,3 +152,11 @@ The per-field precedence of the context contract is unchanged: environment beats
 file. `nagarectl context env` therefore echoes an ambient override rather than overriding it,
 and `context guard` is what refuses when such an override disagrees with the context. The two
 are complementary, and neither is a substitute for the other.
+
+## Amendment — 2026-09-12
+
+gcloud 570 omits `projectNumber` from the formatted `gcloud storage buckets describe` resource, so
+the assertion read an empty value and refused every bucket, including one just created in the
+target project. Both implementations now pass `--raw` to read the API field
+([ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md)).
+The comparison is unchanged and still refuses a foreign bucket.

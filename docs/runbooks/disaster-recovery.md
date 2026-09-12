@@ -35,7 +35,11 @@ decrypted** and the recovery cannot complete. Restore it first, before step 7.
 ```text
 NixOS config .............. Git (nixos/)                              -> git clone
 Pulumi infra (TypeScript) . Git (infra/pulumi/src/)                  -> git clone
-Pulumi state .............. ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state -> restore active context state
+Pulumi state .............. GCS backend named in the context (gs://<project>-nagare-pulumi-state/nagare/<context>,
+                            versioned) or the local file backend
+                            ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state -> restore active context state
+Context, host flake,
+cluster secrets ........... operator's private repository, linked into ${XDG_CONFIG_HOME:-$HOME/.config}/nagare/ -> git clone + symlink
 Kubernetes manifests ...... Git (cluster/)                           -> git clone
 Secrets ................... sops-encrypted in the operator's private repo
                             (cluster-secrets/<context>/,

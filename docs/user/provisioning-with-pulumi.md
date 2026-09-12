@@ -116,7 +116,9 @@ bucket (distinct from the backup bucket), points `PULUMI_BACKEND_URL` at
 `gs://<project>-nagare-pulumi-state/nagare/<context>`, and keeps `PULUMI_HOME`
 local. Local file state remains the default and the only local-mode option. See
 [Remote GCS Pulumi state](contexts.md#remote-gcs-pulumi-state-opt-in-cloud-contexts-only)
-for the bucket naming, required IAM, and migration/rollback details.
+for the bucket naming, required IAM, and migration/rollback details. After a
+migration, reload every shell (`direnv reload`) so no stale environment keeps
+pointing Pulumi at the old local state.
 
 ## Preview and apply
 
