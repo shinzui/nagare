@@ -1,7 +1,14 @@
+# sops policy for the in-repo NixOS evaluation fixture.
+#
+# The recipient below is an EXAMPLE: its private key was generated once to encrypt
+# hosts/nagare-01/secrets/example.yaml and then discarded, so nobody can decrypt
+# that file. Real operators keep their host's encrypted secrets and recipients in
+# their own context-owned host flake (`nagarectl host init --sops-file`), outside
+# this public repository.
 keys:
-  - &host_nagare01 age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99
+  - &example_host age13dryrvm279xsxwtuun8xuy6u9eehjthz78e0823excrf6yrn6u0s5ssw63
 creation_rules:
   - path_regex: hosts/nagare-01/secrets/.*\.yaml$
     key_groups:
       - age:
-          - *host_nagare01
+          - *example_host

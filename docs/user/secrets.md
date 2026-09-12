@@ -54,7 +54,7 @@ release. A rule has the same shape as:
 
 ```yaml
 keys:
-  - &host_nagare01 age1rc26869fukux3k5rqjwf0e9gs3j7p98ekp47pxrtge6m5sc9zerssk9r99
+  - &host_nagare01 age1REPLACE_WITH_HOST_PUBLIC_RECIPIENT
 creation_rules:
   - path_regex: secrets\.yaml$
     key_groups:
@@ -113,8 +113,9 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/
 ```
 
 Set `NAGARE_CLUSTER_SECRETS_DIR` to use an explicitly managed directory instead.
-A source checkout also accepts its tracked `cluster/secrets/` as a compatibility
-fallback when the context-owned directory does not exist. Encrypt manifests in
+A source checkout also accepts a `cluster/secrets/` directory as a compatibility
+fallback when the context-owned directory does not exist; the public repository no
+longer ships one. Encrypt manifests in
 place with `sops -e -i`; put an operator-owned `.sops.yaml` in that directory
 with a rule like the following (replace the recipient with the public key for
 your workstation/recovery policy):
@@ -126,9 +127,10 @@ creation_rules:
     age: age1REPLACE_WITH_OPERATOR_PUBLIC_RECIPIENT
 ```
 
-This leaves kind, name, namespace, and keys readable.
-The checkout's `cluster/secrets/notes-db-url.yaml` remains a worked example, not
-part of the released payload.
+This leaves kind, name, namespace, and keys readable. Keep the encrypted manifests
+and that `.sops.yaml` in your own (private) operator repository and link or clone it
+into the context-owned directory; the public Nagare repository carries no
+operator's secrets or recipients.
 
 Apply every encrypted manifest idempotently:
 

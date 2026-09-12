@@ -13,7 +13,7 @@
     authorizedKeys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly nagare-evaluation-fixture"
     ];
-    sopsDefaultFile = ./secrets/nagare-01.yaml;
+    sopsDefaultFile = ./secrets/example.yaml; # example encrypted to a discarded key (EP-116)
     ageKeyFile = "/var/lib/sops-nix/age-key.txt";
   };
 }

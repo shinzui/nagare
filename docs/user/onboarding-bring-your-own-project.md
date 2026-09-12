@@ -136,7 +136,8 @@ It writes nothing and does not require the host secrets file yet.
 `init` does not do this either. Both parts are required before the host boots cleanly:
 
 - **(a) Host age key.** Generate the host's age keypair, record the **public** key in
-  `nixos/.sops.yaml`, and place the **private** key on the VM at
+  the `.sops.yaml` beside your context's host secrets (in your own private operator repository,
+  not `nixos/.sops.yaml`, which holds only an example), and place the **private** key on the VM at
   `/var/lib/sops-nix/age-key.txt` (mode `0400`, owned by root) before first boot. At NixOS
   activation, `sops-nix` decrypts the secrets file with this key.
 - **(b) Tailscale pre-auth key.** Put a Tailscale pre-auth key (a token that lets

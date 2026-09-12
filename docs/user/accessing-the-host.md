@@ -58,7 +58,7 @@ Pulumi even prints a ready command:
 
 ```bash
 pulumi -C infra/pulumi stack output sshCommand
-# gcloud compute ssh nagare-01 --project=tan-nb-exp --zone=us-west1-a --tunnel-through-iap
+# gcloud compute ssh nagare-01 --project=<your-project> --zone=<your-zone> --tunnel-through-iap
 ```
 
 ### The macOS caveat — use `scripts/iap-ssh.sh`

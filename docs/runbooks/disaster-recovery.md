@@ -27,7 +27,7 @@ historic default context is project **`tan-nb-exp`**, region **`us-west1`**, zon
 The **age private key** (`~/.config/sops/age/keys.txt`; on the host
 `/var/lib/sops-nix/age-key.txt`). It is the root of trust for every encrypted
 secret. Store a copy offline (password manager / hardware token). **Without it,
-nothing under `cluster/secrets/` or `nixos/hosts/nagare-01/secrets/` can be
+none of the context's encrypted cluster secrets or host `secrets.yaml` can be
 decrypted** and the recovery cannot complete. Restore it first, before step 7.
 
 ## Backup inventory — what is backed up, where, and how it is restored
@@ -37,9 +37,9 @@ NixOS config .............. Git (nixos/)                              -> git clo
 Pulumi infra (TypeScript) . Git (infra/pulumi/src/)                  -> git clone
 Pulumi state .............. ${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state -> restore active context state
 Kubernetes manifests ...... Git (cluster/)                           -> git clone
-Secrets ................... sops-encrypted in Git (.sops.yaml,
-                            cluster/secrets/,
-                            nixos/hosts/nagare-01/secrets/)           -> sops -d | kubectl apply
+Secrets ................... sops-encrypted in the operator's private repo
+                            (cluster-secrets/<context>/,
+                            hosts/<context>/secrets.yaml)             -> sops -d | kubectl apply
 SQLite app data ........... Litestream replica in
                             gcs://<backupBucket>/litestream/          -> litestream restore (scratch)
 App volume data ........... tar.gz snapshots in
@@ -172,7 +172,8 @@ uses the stream selector `{kubernetes.pod_namespace="<ns>"}`.)
 ```bash
 # Ensure the age private key is in place first (see "the one thing not in Git").
 kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
-for f in cluster/secrets/*.yaml; do sops -d "$f" | kubectl apply -f -; done
+secrets_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>}"
+for f in "$secrets_dir"/*.yaml; do sops -d "$f" | kubectl apply -f -; done
 kubectl get secrets -n personal
 ```
 

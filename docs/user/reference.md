@@ -76,7 +76,8 @@ directory does not need to be a Nagare checkout.
 Encrypted cluster bootstrap credentials are not workspace assets. They default
 to `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`; set
 `NAGARE_CLUSTER_SECRETS_DIR` for an explicit operator-owned location. Source
-checkouts retain `cluster/secrets/` only as a compatibility fallback.
+checkouts still read a `cluster/secrets/` directory as a compatibility fallback,
+but the public repository ships none.
 
 | Platform command | Does |
 | --- | --- |
