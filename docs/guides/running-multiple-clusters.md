@@ -336,7 +336,11 @@ Before every mutating session:
 
 Operate backups and recovery independently. A healthy multi-cluster setup has:
 
-- a recoverable Pulumi backend for every cloud context;
+- a recoverable Pulumi backend for every cloud context (the GCS backend keeps it off
+  any one laptop);
+- each context, host flake, and encrypted cluster-secret directory versioned in a
+  private operator repository, as described in
+  [Keeping contexts in a private repository](../user/contexts.md#keeping-contexts-in-a-private-repository);
 - a distinct versioned backup bucket for every cloud cluster;
 - the age private key and repository available off each VM;
 - a tested application/database restore path per cluster; and
@@ -359,7 +363,8 @@ cloud resources and retained state have the intended final disposition.
 ## Related documentation
 
 - [Target contexts](../user/contexts.md) — context schema, selection precedence,
-  Pulumi state, and migration from profile files.
+  Pulumi state and passphrases, private operator repositories, and migration from
+  profile files.
 - [Bring-your-own-project onboarding](../user/onboarding-bring-your-own-project.md)
   — the complete zero-to-running sequence for each cloud cluster.
 - [Provisioning with Pulumi](../user/provisioning-with-pulumi.md) — resources,
