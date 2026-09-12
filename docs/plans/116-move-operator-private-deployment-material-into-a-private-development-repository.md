@@ -54,7 +54,11 @@ repository holds operator development material from now on, including the Pulumi
 ## Progress
 
 - [x] Milestone 0: confirm the inventory below against the working tree, and get the operator's explicit answers to the three confirmation questions (repository name and visibility, backend choice, which tracked files leave the public repository). (2026-09-12T21:42Z — inventory matched; all answers recorded in the Decision Log, plus the secrets-provider choice.)
-- [ ] Milestone 1: create the private repository (only after confirmation) and populate it with the context, host flake, stack config, and sops material; point Nagare at it through the existing XDG paths.
+- [x] Milestone 1 (partial, 2026-09-12T21:50Z): created private `shinzui/nagare-ops`, populated and staged it locally (not committed or pushed), replaced the context, host flake, cluster-secrets, and stack-config paths with symlinks (backups in `~/.local/state/nagare/tan-nb-exp/pre-private-repo-20260912T214459Z`). Gates passed: context `tan-nb-exp`, host-switch dry run resolves into the clone, flake evaluates, `pulumi preview` 31 unchanged.
+- [x] Milestone 1 complete (2026-09-12T22:20Z): operator confirmed the staged list; committed and pushed `shinzui/nagare-ops@79b7af5` on `main` (visibility PRIVATE).
+- [x] Milestone 2 prerequisite (2026-09-12T22:40Z): fixed passphrase shadowing/truncation in `.envrc`, `scripts/lib/target.sh`, `scripts/migrate-pulumi-backend.sh`, and `nagarectl`, and symlink-clobbering context writes; commit `9cc4764`. Verified the real stack still decrypts through the empty file with an inherited empty variable.
+- [x] Milestone 2 backup (2026-09-12T22:44Z): `~/.local/state/nagare/tan-nb-exp/pre-passphrase-rotation-20260912T224445Z` holds the encrypted export (32 resources), the pre-rotation stack config with its salt, and a copy of `state/`.
+- [ ] Milestone 2 remaining: rebuild `result/bin/nagarectl`; operator saves a new passphrase in the password manager, runs `stack change-secrets-provider` interactively, writes the passphrase file; verify decrypt with the file and failure with an empty passphrase; commit the new salt to `nagare-ops`.
 - [ ] Milestone 2: migrate Pulumi state to the chosen backend with `scripts/migrate-pulumi-backend.sh`; gate on a clean `pulumi preview --refresh`.
 - [ ] Milestone 3: remove operator-private tracked files from the public repository, replacing them with examples; update documentation.
 - [ ] Milestone 4: prove the setup from a clean second checkout; write Outcomes and ADR.
@@ -91,6 +95,29 @@ were not printed):
   reads them through `nagare_require_cluster_secret` from a secrets directory that honors
   `NAGARE_CLUSTER_SECRETS_DIR`, and `flake.nix` checks that packaged payloads carry no
   `cluster/secrets`. Tracked `cluster/secrets/` is only a source-checkout fallback (ADR 4).
+- Scratch-stack experiments (throwaway stacks in the session scratchpad, never the real stack):
+  Pulumi prefers `PULUMI_CONFIG_PASSPHRASE` whenever it is **set, even empty**, over
+  `PULUMI_CONFIG_PASSPHRASE_FILE`. `scripts/lib/target.sh` always exports it, so a passphrase written
+  to the context's `home/passphrase` file is never read. `stack change-secrets-provider passphrase`
+  reads the old passphrase from the environment and prompts on a TTY for the new one. Pulumi config
+  writes follow a symlinked `Pulumi.<stack>.yaml`. The real stack holds 18 secret-marked values.
+- `nagarectl`'s Pulumi setup (`cli/nagarectl/app/Main.hs`, `ensurePulumiInWorkspace`) ran
+  `writeFile (peHome </> "passphrase") ""` on every invocation, so a real passphrase kept in that
+  file would have been silently erased by the next `nagarectl` Pulumi operation. `.envrc`,
+  `renderContextShellEnv`, and the migration script also forced `PULUMI_CONFIG_PASSPHRASE=""`.
+  Rotating the stack before fixing these would have broken every tool path. Fixed in `9cc4764`.
+- `writeContextPlatformVersion` and the migration script's `set_context_var` replaced the context
+  file by rename, which would detach a symlinked context from `nagare-ops`. Fixed in `9cc4764` with
+  a regression test.
+- `cabal test nagarectl-test` reports 8/419 failures, all in `AppDeploySpec` with "Ambiguous module
+  name … nagare-dsl-0.1.0 nagare-dsl-0.1.0.0" while compiling the `kizashi` fixture: a duplicate
+  `nagare-dsl` registration in the local package environment, unrelated to this plan. The new and
+  updated tests pass.
+- Removing `.claude/hooks/guard_host_mutation.py` at the operator's request was refused by Claude
+  Code's auto-mode classifier as a security weakening; it was left in place. Writing a plaintext
+  `stack export --show-secrets` backup was also refused, so the rotation backup is the encrypted
+  export plus the old salt and a state copy (equivalent, because the old passphrase is empty).
+- Editing `.envrc` blocks direnv until the operator runs `direnv allow`.
 
 
 ## Decision Log
@@ -132,6 +159,22 @@ were not printed):
   **non-empty passphrase** the operator keeps in a password manager and exports as
   `PULUMI_CONFIG_PASSPHRASE` (no KMS resource).
   Rationale: operator's explicit selections in this session.
+  Date: 2026-09-12
+
+- Decision: The stack passphrase lives in the per-context file
+  `~/.local/state/nagare/<context>/home/passphrase` (mode 600, outside every repository) with the
+  authoritative copy in the operator's password manager. Tooling never truncates the file and never
+  shadows it with an empty `PULUMI_CONFIG_PASSPHRASE`; a non-empty export still wins.
+  Rationale: every tool path already names that file, an empty file keeps today's contexts working,
+  and the operator required that the passphrase cannot be lost. The rotation is typed by the
+  operator into Pulumi's TTY prompt so the agent never sees or invents the value.
+  Date: 2026-09-12
+
+- Decision: The private repository keeps `.sops.yaml` at its root rather than `sops/.sops.yaml`, and
+  cluster secrets under `cluster-secrets/tan-nb-exp/`, wired to
+  `~/.config/nagare/cluster-secrets/tan-nb-exp` (already honored by `scripts/lib/cluster-secrets.sh`).
+  Rationale: sops finds the nearest `.sops.yaml` above the working directory; the per-context
+  cluster secrets path needs no code change.
   Date: 2026-09-12
 
 
