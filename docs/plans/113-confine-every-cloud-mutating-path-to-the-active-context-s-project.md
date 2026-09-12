@@ -78,9 +78,13 @@ test that fails before the change and passes after it.
       `upload_if_missing`; `scripts/test-bucket-ownership-guard.sh` added and registered in
       `flake.nix` as the `bucket-ownership-guard` check. All four cases pass and
       `nix build .#checks.aarch64-darwin.bucket-ownership-guard` succeeds.
-- [ ] M2: give `Nagare.Ops.PulumiBackend` the same assertion behind an injectable gcloud
-      seam; unit-test refusal and acceptance; make the bootstrap failure fatal to
-      `nagarectl init` and `nagarectl context create --use`.
+- [x] M2 (2026-09-12): `Nagare.Ops.PulumiBackend` gained `bucketProjectNumberArgs`,
+      `projectNumberArgs`, `bucketOwnershipVerdict`, the injectable `GcloudOps` seam,
+      `realGcloudOps` and `bootstrapPulumiStateBucketWith`; `runBootstrap` asserts
+      ownership between create-if-missing and update; `bootstrapCommands` shows the two
+      reads in the dry run; `bootstrapGcsIfNeeded` in `cli/nagarectl/app/Main.hs` is now
+      fatal. Fourteen cases in the `Nagare.Ops.PulumiBackend (EP-93, EP-113)` group pass,
+      including the three behavioral cases that assert on the recorded `gcloud` argv.
 - [ ] M3: bring `cluster/bootstrap/auth-images/build-local-image.sh` and
       `cluster/bootstrap/nagare-access/build-image.sh` under `_require_target_project`,
       delete the `gcloud config get-value project` fallback, extend the shellcheck check,
@@ -99,7 +103,26 @@ test that fails before the change and passes after it.
 
 ## Surprises & Discoveries
 
-(None yet.)
+**The `nagarectl-test` suite has eight pre-existing failures in this working tree, all in
+`AppDeploySpec`, and they are unrelated to this plan.** They come from the fixture compile
+in `cli/nagarectl/test/AppDeploySpec.hs`, which invokes GHC over
+`test/fixtures/app/kizashi/Config.hs` and finds two versions of the `nagare-dsl` package in
+the local Cabal store:
+
+```text
+test/fixtures/app/kizashi/Config.hs:18:1: error: [GHC-45102]
+    Ambiguous module name 'Nagare.Dsl.Application'.
+    it was found in multiple packages:
+    nagare-dsl-0.1.0 nagare-dsl-0.1.0.0
+```
+
+Confirmed pre-existing by stashing every change this plan makes to `cli/nagarectl` and
+re-running the same case, which still fails. The sandboxed `nix flake check` derivations
+build against a pinned package set and are unaffected. Verify this plan's Haskell work with
+`cabal test nagarectl-test --test-options='-p "PulumiBackend"'` (and the equivalent filter
+for the other groups) rather than reading the whole-suite tally, and do not attempt to
+"fix" those eight as part of EP-113 — the remedy is a store cleanup outside this plan's
+scope. (2026-09-12)
 
 
 ## Decision Log

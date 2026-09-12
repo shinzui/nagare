@@ -8,8 +8,19 @@
 -- Pulumi program (@infra/pulumi/index.ts@).
 --
 -- The argv builders are pure and unit-tested; 'bootstrapPulumiStateBucket' is the
--- idempotent IO runner (describe → create-if-missing → update → optional IAM grant),
--- with a dry-run mode that prints the exact @gcloud storage@ commands.
+-- idempotent IO runner (describe → create-if-missing → assert ownership → update →
+-- optional IAM grant), with a dry-run mode that prints the exact @gcloud storage@
+-- commands.
+--
+-- EP-113: GCS bucket names are GLOBAL, so a same-named bucket may already exist in a
+-- FOREIGN project that the operator can describe. The existence probe alone is
+-- therefore not evidence that the bucket is ours, and @buckets update@ /
+-- @add-iam-policy-binding@ address the bucket only by its global @gs:\/\/@ name. Before
+-- either of those steps this module compares the bucket's OWNING PROJECT NUMBER with
+-- the target project's, and fails closed when either number is unreadable. This is the
+-- Haskell half of a contract shared with @_require_bucket_in_target_project@ in
+-- @scripts\/lib\/target.sh@; see
+-- @docs\/adr\/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md@.
 module Nagare.Ops.PulumiBackend
   ( gcsBucketOfUrl
   , pulumiStateBackendUrl
@@ -18,11 +29,18 @@ module Nagare.Ops.PulumiBackend
   , bucketCreateArgs
   , bucketUpdateArgs
   , bucketIamArgs
+  , bucketProjectNumberArgs
+  , projectNumberArgs
+  , bucketOwnershipVerdict
   , bootstrapCommands
   , bootstrapPulumiStateBucket
+  , GcloudOps (..)
+  , realGcloudOps
+  , bootstrapPulumiStateBucketWith
   ) where
 
 import Data.Function ((&))
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -102,13 +120,59 @@ bucketIamArgs bucket member =
   , "--role=roles/storage.objectAdmin"
   ]
 
--- | The ordered @gcloud storage@ commands a bootstrap runs (create, update, and an
--- optional IAM grant). Pure, for the dry-run print and for unit tests. The
--- create is conditional on the bucket being absent at runtime, but it is listed here
--- so the dry-run shows the full intended sequence.
+-- | @gcloud storage buckets describe gs:\/\/\<bucket> --format=value(projectNumber)@ —
+-- reads the bucket's OWNING project number. GCS bucket names are global, so a
+-- successful describe is not evidence that the bucket is ours; only the owning
+-- project number is, because a name collision cannot forge it.
+bucketProjectNumberArgs :: Text -> [String]
+bucketProjectNumberArgs bucket =
+  ["storage", "buckets", "describe", "gs://" <> T.unpack bucket, "--format=value(projectNumber)"]
+
+-- | @gcloud projects describe \<project> --format=value(projectNumber)@ — the target
+-- project's own number, the value the bucket's must equal.
+projectNumberArgs :: Text -> [String]
+projectNumberArgs project =
+  ["projects", "describe", T.unpack project, "--format=value(projectNumber)"]
+
+-- | Fail closed: refuse unless BOTH numbers are present, non-empty and equal. An
+-- absent number (missing gcloud, missing permission, network failure) is a mismatch,
+-- never permission to continue. The message mirrors the Bash helper
+-- @_require_bucket_in_target_project@ in @scripts\/lib\/target.sh@.
+bucketOwnershipVerdict :: Text -> Text -> Maybe Text -> Maybe Text -> Either Text ()
+bucketOwnershipVerdict bucket project mBucketNumber mTargetNumber
+  | Just b <- nonEmpty mBucketNumber
+  , Just t <- nonEmpty mTargetNumber
+  , b == t =
+      Right ()
+  | otherwise = Left refusal
+  where
+    nonEmpty mv = case fmap T.strip mv of
+      Just v | not (T.null v) -> Just v
+      _ -> Nothing
+    shown = maybe "<unknown>" id . nonEmpty
+    refusal =
+      "refusing: gs://"
+        <> bucket
+        <> " is owned by project number '"
+        <> shown mBucketNumber
+        <> "', not the target project '"
+        <> project
+        <> "' (number '"
+        <> shown mTargetNumber
+        <> "'). GCS bucket names are global; choose a state bucket name that is unique"
+        <> " across all of Google Cloud, or set NAGARE_PULUMI_BACKEND_URL to"
+        <> " gs://<unique-name>/nagare/<context>."
+
+-- | The ordered @gcloud@ commands a bootstrap runs: the create, the two
+-- project-number reads that assert the bucket is ours (EP-113), the update, and an
+-- optional IAM grant. Pure, for the dry-run print and for unit tests. The create is
+-- conditional on the bucket being absent at runtime, but it is listed here so the
+-- dry-run shows the full intended sequence including the assertion.
 bootstrapCommands :: Text -> Text -> Text -> Maybe Text -> [[String]]
 bootstrapCommands bucket project location mMember =
   [ bucketCreateArgs bucket project location
+  , bucketProjectNumberArgs bucket
+  , projectNumberArgs project
   , bucketUpdateArgs bucket
   ]
     <> maybe [] (\m -> [bucketIamArgs bucket m]) mMember
@@ -120,7 +184,27 @@ bootstrapCommands bucket project location mMember =
 -- and, when a member is supplied, add the bucket-scoped IAM binding. Returns the first
 -- failure with a precise message so the caller can surface it.
 bootstrapPulumiStateBucket :: Bool -> Text -> TargetProfile -> Maybe Text -> IO (Either Text ())
-bootstrapPulumiStateBucket dryRun ctx tp mMember =
+bootstrapPulumiStateBucket = bootstrapPulumiStateBucketWith realGcloudOps
+
+-- | The external @gcloud@ effects this module needs, injectable so the bootstrap
+-- sequence itself (not just its argv) can be unit-tested. 'realGcloudOps' is the
+-- production implementation; tests supply a recording fake, which is what lets a test
+-- prove that a refusal ran NO update and NO IAM change rather than merely returning an
+-- error.
+data GcloudOps = GcloudOps
+  { gcloudCapture :: [String] -> IO (Maybe Text)
+  -- ^ Run and capture trimmed stdout; 'Nothing' on any failure.
+  , gcloudExec :: Text -> [String] -> IO (Either Text ())
+  -- ^ Run for effect, streaming output; 'Left' names the failed step.
+  }
+
+-- | The production 'GcloudOps': a real @gcloud@ on @PATH@.
+realGcloudOps :: GcloudOps
+realGcloudOps = GcloudOps {gcloudCapture = captureGcloud, gcloudExec = runGcloud}
+
+-- | 'bootstrapPulumiStateBucket' with the @gcloud@ effects supplied by the caller.
+bootstrapPulumiStateBucketWith :: GcloudOps -> Bool -> Text -> TargetProfile -> Maybe Text -> IO (Either Text ())
+bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember =
   case effectivePulumiBackend tp of
     PulumiBackendLocal -> pure (Right ())
     PulumiBackendGcs -> case pulumiStateBucket ctx tp of
@@ -133,21 +217,30 @@ bootstrapPulumiStateBucket dryRun ctx tp mMember =
               (\a -> TIO.putStrLn ("  gcloud " <> T.pack (unwords a)))
               (bootstrapCommands bucket (tpProject tp) (tpRegion tp) mMember)
             pure (Right ())
-        | otherwise -> runBootstrap bucket (tpProject tp) (tpRegion tp) mMember
+        | otherwise -> runBootstrap ops bucket (tpProject tp) (tpRegion tp) mMember
 
-runBootstrap :: Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
-runBootstrap bucket project location mMember = do
-  exists <- gcloudDescribeOk (bucketDescribeArgs bucket)
+-- | The bootstrap sequence. The ownership assertion sits between the
+-- create-if-missing step and the update, exactly where its Bash twin
+-- @ensure_bucket@ in @scripts\/migrate-pulumi-backend.sh@ puts it: a refusal must
+-- happen before ANY mutation that addresses the bucket by its global name.
+runBootstrap :: GcloudOps -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
+runBootstrap ops bucket project location mMember = do
+  exists <- isJust <$> gcloudCapture ops (bucketDescribeArgs bucket)
   createStep <-
     if exists
       then pure (Right ())
-      else runGcloud ("create bucket gs://" <> bucket) (bucketCreateArgs bucket project location)
+      else gcloudExec ops ("create bucket gs://" <> bucket) (bucketCreateArgs bucket project location)
   chain createStep $
-    chainIO (runGcloud ("update bucket gs://" <> bucket) (bucketUpdateArgs bucket)) $
-      case mMember of
-        Nothing -> pure (Right ())
-        Just m -> runGcloud ("grant " <> m <> " on gs://" <> bucket) (bucketIamArgs bucket m)
+    chainIO assertOwnership $
+      chainIO (gcloudExec ops ("update bucket gs://" <> bucket) (bucketUpdateArgs bucket)) $
+        case mMember of
+          Nothing -> pure (Right ())
+          Just m -> gcloudExec ops ("grant " <> m <> " on gs://" <> bucket) (bucketIamArgs bucket m)
   where
+    assertOwnership = do
+      mBucketNumber <- gcloudCapture ops (bucketProjectNumberArgs bucket)
+      mTargetNumber <- gcloudCapture ops (projectNumberArgs project)
+      pure (bucketOwnershipVerdict bucket project mBucketNumber mTargetNumber)
     chain (Left e) _ = pure (Left e)
     chain (Right ()) next = next
     chainIO act next = do
@@ -166,10 +259,18 @@ runGcloud step args = do
     ExitFailure 127 -> Left ("gcloud not found on PATH while trying to " <> step)
     ExitFailure n -> Left ("gcloud failed (exit " <> T.pack (show n) <> ") while trying to " <> step)
 
--- | @gcloud storage buckets describe@ as a boolean existence probe (exit 0 == exists),
--- swallowing output. A missing @gcloud@ reads as \"does not exist\" so the caller then
--- attempts the create, which surfaces the missing-tool error through 'runGcloud'.
-gcloudDescribeOk :: [String] -> IO Bool
-gcloudDescribeOk args = do
-  (code, _, _) <- readProcessWithExitCode "gcloud" args ""
-  pure (code == ExitSuccess)
+-- | Run a @gcloud@ command and capture its trimmed stdout, or 'Nothing' on any
+-- failure — a non-zero exit, a missing @gcloud@, or empty output. Used both as the
+-- boolean existence probe (a 'Nothing' reads as \"does not exist\", so the caller
+-- attempts the create, which surfaces the missing-tool error through 'runGcloud')
+-- and to read the two project numbers, where 'Nothing' is a REFUSAL.
+--
+-- @Nagare.Ops.Probe.captureTool@ is not reused here: it yields a 'ByteString' and
+-- collapses the empty-output case this code must distinguish.
+captureGcloud :: [String] -> IO (Maybe Text)
+captureGcloud args = do
+  (code, out, _) <- readProcessWithExitCode "gcloud" args ""
+  let trimmed = T.strip (T.pack out)
+  pure $ case code of
+    ExitSuccess | not (T.null trimmed) -> Just trimmed
+    _ -> Nothing

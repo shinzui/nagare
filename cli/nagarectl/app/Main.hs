@@ -2677,17 +2677,17 @@ ensurePulumiInWorkspace name tp workspace = do
       void (pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack])
 
 -- | Bootstrap the GCS Pulumi state bucket for a context that opts into it. A
--- local/local-mode context is a no-op. A bootstrap failure (e.g. missing gcloud
--- credentials) is a warning, not fatal: the context is still written/selected, and
--- the bucket can be bootstrapped later — the fail-closed guardrail still prevents any
--- real Pulumi operation from touching the wrong project.
+-- local/local-mode context is a no-op. A bootstrap failure is FATAL (EP-113): a
+-- partially-applied bootstrap that lets @init@ report success is exactly the state
+-- that hides a foreign-bucket refusal from the operator. The blast radius is small,
+-- because the bootstrap is a no-op for every context whose Pulumi backend is @local@
+-- (the default) — only a context that explicitly opted into
+-- @NAGARE_PULUMI_BACKEND=gcs@ can reach the failure at all. Recovery is to fix the
+-- cause the message names and re-run, both call sites being idempotent.
 bootstrapGcsIfNeeded :: Bool -> Text -> TargetProfile -> Maybe Text -> IO ()
-bootstrapGcsIfNeeded dryRun ctx tp mMember = do
-  r <- bootstrapPulumiStateBucket dryRun ctx tp mMember
-  case r of
-    Right () -> pure ()
-    Left msg ->
-      TIO.hPutStrLn stderr ("warning: GCS state-bucket bootstrap did not complete: " <> msg)
+bootstrapGcsIfNeeded dryRun ctx tp mMember =
+  bootstrapPulumiStateBucket dryRun ctx tp mMember
+    >>= either (\msg -> dieT ("GCS state-bucket bootstrap failed: " <> msg)) pure
 
 pulumiQuiet :: [String] -> IO ExitCode
 pulumiQuiet args =
