@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Confine every cloud-mutating path to the active context's project
 description: Close four paths where a globally-unique name or an ambient gcloud default can direct a write outside the selected context's GCP project.
-timestamp: "2026-09-12T12:35:03Z"
+timestamp: "2026-09-12T14:18:58Z"
 generated:
   by: process:claude-code
   at: "2026-09-12T12:35:03Z"
 requestId: IR-2
-status: proposed
+status: accepted
+targetPlan: docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
 origin: mori://shinzui/nagare
 ---
 
@@ -16,7 +17,8 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight isolation audit of `v0.1.0` (HEAD `da24748`) performed before
 onboarding a new cloud context into a GCP organization that also contains production projects.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed; the operator is proceeding with manual compensating checks in the meantime.
+**Status:** accepted; planned as [ExecPlan 113](../plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md).
+The operator is proceeding with manual compensating checks until it lands.
 **Created:** 2026-09-12.
 
 
