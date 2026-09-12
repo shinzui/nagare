@@ -63,4 +63,7 @@ kubectl apply -f "${bootstrap_dir}/en/configmap.yaml"
 render_service shomei | kubectl apply -f -
 render_service en | kubectl apply -f -
 kubectl apply -f "${bootstrap_dir}/nagare-access/configmap.yaml"
+# The renderer sets NAGARE_ACCESS_COOKIE_DOMAIN to ".${NAGARE_BASE_DOMAIN}" so one
+# sign-in covers every protected host under the active context's base domain.
+echo "==> nagare-access cookie domain: .${NAGARE_BASE_DOMAIN}"
 render_service nagare-access | kubectl apply -f -

@@ -129,3 +129,32 @@ grep -q '^          image: k3d-registry.localhost:5000/shomei:testtag$' "$out" |
   exit 1
 }
 echo "ok: non-ACME template renders with no contact and honors the caller's registry prefix"
+
+# 6. The nagare-access cookie domain is the parent of the context's base domain,
+#    so one sign-in covers every protected host — never the example placeholder.
+access_tmpl="$repo_root/cluster/bootstrap/nagare-access/service.yaml"
+write_cloud_context acme
+render acme "$access_tmpl" NAGARE_AUTH_TAG=testtag > "$out" 2> "$err"
+grep -A1 'name: NAGARE_ACCESS_COOKIE_DOMAIN$' "$out" | grep -q 'value: "\.apps\.acme\.example"$' || {
+  echo "FAIL: the cookie domain was not rendered from NAGARE_BASE_DOMAIN:" >&2
+  grep -A1 'NAGARE_ACCESS_COOKIE_DOMAIN' "$out" >&2
+  exit 1
+}
+if grep -q '\${' "$out"; then
+  echo "FAIL: unrendered placeholder left in nagare-access/service.yaml:" >&2
+  grep '\${' "$out" >&2
+  exit 1
+fi
+echo "ok: nagare-access cookie domain renders as the base domain's parent"
+
+# 7. A malformed base domain refuses with empty stdout instead of writing a
+#    cookie domain browsers would reject.
+write_cloud_context bad
+sed -i.bak 's|^export NAGARE_BASE_DOMAIN=.*|export NAGARE_BASE_DOMAIN=".apps bad"|' "$ctx_dir/bad.env"
+if render bad "$access_tmpl" NAGARE_AUTH_TAG=testtag > "$out" 2> "$err"; then
+  echo "FAIL: a malformed base domain was accepted" >&2
+  exit 1
+fi
+[ ! -s "$out" ] || { echo "FAIL: the refusal still wrote output" >&2; exit 1; }
+grep -q 'NAGARE_BASE_DOMAIN' "$err"
+echo "ok: malformed base domain refuses"
