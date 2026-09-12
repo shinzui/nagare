@@ -4,11 +4,13 @@ metadata:
   name: letsencrypt-dns
 spec:
   acme:
-    # Let's Encrypt production endpoint. While iterating on DNS-01 you may
-    # switch to the staging endpoint
-    # https://acme-staging-v02.api.letsencrypt.org/directory to avoid
-    # production rate limits; staging certs are NOT browser-trusted.
-    server: https://acme-v02.api.letsencrypt.org/directory
+    # The ACME directory endpoint and contact come from the active target
+    # context (NAGARE_ACME_DIRECTORY / NAGARE_ACME_EMAIL); there is no default
+    # contact, and rendering this file refuses without one. Select Let's
+    # Encrypt's staging service — untrusted certificates, much looser rate
+    # limits — for a context with:
+    #   nagarectl context create <name> --acme-directory staging
+    server: ${NAGARE_ACME_DIRECTORY_URL}
     email: ${NAGARE_ACME_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-dns-account-key

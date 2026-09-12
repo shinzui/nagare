@@ -117,16 +117,16 @@ This section must always reflect the actual current state of the work.
         contact in `init`.
   - [x] Document both variables in `nagare.target.env.example`; note their absence in
         `nagare.local.env.example`.
-- [ ] M2: The issuer renders from the context and refuses to invent an identity.
-  - [ ] Rewrite the resolution block of `cluster/bootstrap/render-context-template.sh` to source
+- [x] M2: The issuer renders from the context and refuses to invent an identity. (2026-09-12)
+  - [x] Rewrite the resolution block of `cluster/bootstrap/render-context-template.sh` to source
         `scripts/lib/target.sh`, preserving the caller's `NAGARE_REGISTRY_PREFIX` override.
-  - [ ] Delete the `tan-nb-exp` and `nadeem@gmail.com` fallbacks.
-  - [ ] Fail closed, with a message naming the field, when a template needs a contact and none is
+  - [x] Delete the `tan-nb-exp` and `nadeem@gmail.com` fallbacks.
+  - [x] Fail closed, with a message naming the field, when a template needs a contact and none is
         configured; validate the address shape and the directory token.
-  - [ ] Call `_require_target_project` when the template bakes in `${CLOUDSDK_CORE_PROJECT}`.
-  - [ ] Substitute `${NAGARE_ACME_DIRECTORY_URL}` and use it in
+  - [x] Call `_require_target_project` when the template bakes in `${CLOUDSDK_CORE_PROJECT}`.
+  - [x] Substitute `${NAGARE_ACME_DIRECTORY_URL}` and use it in
         `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl`.
-  - [ ] Make the `cluster-bootstrap` recipe in `justfile` render-then-apply so a refusal cannot
+  - [x] Make the `cluster-bootstrap` recipe in `justfile` render-then-apply so a refusal cannot
         reach `kubectl apply`.
 - [ ] M3: Automated proof.
   - [ ] Add `scripts/test-render-context-template.sh` with the five scenarios.
