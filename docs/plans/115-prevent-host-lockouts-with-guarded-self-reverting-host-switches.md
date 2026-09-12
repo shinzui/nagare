@@ -128,7 +128,7 @@ Milestone 5 — Documentation, ADR, and hand-off:
 
 Open acceptance items (outside this session's reach):
 
-- [ ] First live use: ExecPlan 114 Milestone 5's `just host-switch` ends with `COMMITTED`, and the host's `/boot/grub/grub.cfg` shows `terminal_input serial` and a 10-second timeout.
+- [x] (2026-09-12T22:05Z) First live use: ExecPlan 114 Milestone 5's `just host-switch` ends with `COMMITTED`, and the host's `/boot/grub/grub.cfg` shows `terminal_input serial` and a 10-second timeout. The second run printed `host-switch: fresh login and sudo verified (attempt 1)` and `COMMITTED new=/nix/store/8fgipxvf...-nixos-system-nagare-01-...` (`system-5-link`); `grub.cfg` has `terminal_input serial console` and `set timeout=10`. The first run failed before arming: `nix copy` refused an unsigned, remote-built path (`manifest.json`) even though `deploy` is trusted. A `nix copy --no-check-sigs` pre-seed fixed it. Follow-up: `scripts/host-switch.sh` needs `--no-check-sigs` (or signing) on its copy. Evidence: ExecPlan 114 Surprises.
 
 
 ## Surprises & Discoveries

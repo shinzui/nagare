@@ -120,16 +120,19 @@ Milestone 4 — Prove and commit the ordering-cycle fix:
 
 Milestone 5 — Live grow on nagare-01:
 
-- [ ] Gate: the generated host flake evaluates `x-systemd.growfs` and `DefaultDependencies = false`.
-- [ ] Open the IAP tunnel on port 2222 and add the temporary `~/.ssh/config` block.
-- [ ] `just host-switch` (ExecPlan 115's self-reverting switch); gates: output ends with `COMMITTED`, no new failed units, no ordering cycle, fstab carries `x-systemd.growfs`, `/boot/grub/grub.cfg` has `terminal_input serial` and a 10-second timeout.
-- [ ] Record `df -h` and `lsblk` before.
-- [ ] Set `dataDiskSizeGb` to 110; gate: preview shows exactly one change (the disk `size`).
-- [ ] `pulumi up`; record `df -h` (gap) and `lsblk`.
-- [ ] Run `systemd-growfs`; record `df -h` after.
-- [ ] Gate: node Ready, no newly failing pods.
-- [ ] Tear down the tunnel and the SSH config block; delete snapshot `nagare-01-pre-rescue-20260912` if Path B created it.
-- [ ] Report back.
+- [x] (2026-09-12T21:50Z) Regenerated the host flake from commit `5bcf428`: rebuilt `nagarectl`; `host init --force` printed `Replaced host configuration`. New input `path:/nix/store/66np2i3vm8zk1ldzbasp6vpacyzwi068-nagare-platform-0.1.0/share/nagare/nixos` (revision `5bcf428...-dirty`, where "dirty" is only the uncommitted ExecPlan 111 doc). Its `storage.nix` matches the committed file (`STORAGE_DIFF_EXIT=0`).
+- [x] (2026-09-12T21:51Z) Gate PASS: the generated host flake evaluates keys = real key only; options `["x-systemd.growfs","defaults","nofail"]`; `DefaultDependencies` `false`; `after` includes the by-id device unit; `boot.loader.timeout` `10`; `evaluationFixture` `false`. `host-switch.sh --dry-run` exits 0. `nagarectl platform guard`: `platform mutation allowed (legacy-unknown)`. Host `trusted-users` = `root root @wheel`, and `deploy` is in `wheel`.
+- [x] (2026-09-12T21:55Z) Open the IAP tunnel on port 2222 (PID 1844). The `~/.ssh/config` append was denied by the sandbox, so `NIX_SSHOPTS` is used instead (Decision Log). A fresh login through it printed `ALIAS_OK`. `pods-before.txt` holds the same six baseline pods; switch start `2026-09-12 20:58:21` UTC.
+- [x] (2026-09-12T22:00Z) STOP: `just host-switch` exited 1 during `nix copy`, **before arming**: `error: cannot add path '/nix/store/2al3m9wsahzhlbybq1652zj9f9812z0b-manifest.json' because it lacks a signature by a trusted key`. The host was verified unchanged (SSH OK, `system-4-link`, no rollback timer). Resolved by operator decision: pre-copy with `--no-check-sigs` (Decision Log).
+- [x] (2026-09-12T22:03Z) Pre-copy: the rebuilt toplevel equals the switch's (`...8fgipxvf...`); `nix copy --no-check-sigs --to ssh-ng://deploy@nagare-01` `COPY_EXIT=0`; `NEW_VALID_ON_HOST`.
+- [x] (2026-09-12T22:05Z) `just host-switch` (ExecPlan 115's self-reverting switch), second run: `SWITCH_EXIT=0`, `ACTIVATE_RC=4` (informational: `tailscaled-autoconnect` timed out on the missing sops authkey), `host-switch: fresh login and sudo verified (attempt 1)`, `COMMITTED new=/nix/store/8fgipxvf2qwyi9z1ngxsg2cfly5pnk13-nixos-system-nagare-01-google-compute-26.11.20260531.331800d`. Gates PASS: fresh SSH `STILL_OK`; profile `system-5-link`; fstab `x-systemd.growfs,defaults,nofail`; `NO_CYCLE` since the switch start; `grub.cfg` has `terminal_input serial console` and `set timeout=10`; `format-nagare-data` `After=` includes the by-id device. Failed units: `resolvconf.service` and `tailscaled-autoconnect.service`. Both are named in Context as the known pre-existing failures (the latter is the missing sops age key). `network-local-commands.service` is no longer failed.
+- [x] (2026-09-12T22:06Z) Record `df -h` and `lsblk` before: `/dev/sdb 98G 209M 93G 1% /var/lib/nagare`; `sdb 100G`.
+- [x] (2026-09-12T22:07Z) Set `dataDiskSizeGb` to 110. Gate PASS: the preview shows only `~ gcp:compute/disk:Disk: (update) 🔒` with `~ size: 100 => 110`; `~ 1 to update`, `30 unchanged`.
+- [x] (2026-09-12T22:08Z) `pulumi up`: `UP_EXIT=0`, `~ 1 updated`, `30 unchanged`, 15 s. Gap: `/dev/sdb 98G 212M 93G 1%` on `sdb 110G`.
+- [x] (2026-09-12T22:12Z) Grow. `sudo systemctl start systemd-growfs@var-lib-nagare.service` was a **no-op** (df still 98G; see Surprises). With operator approval, `sudo systemctl restart ...` logged `Successfully resized "/var/lib/nagare" to 110G bytes`. After: `/dev/sdb 108G 212M 103G 1% /var/lib/nagare`.
+- [x] (2026-09-12T22:12Z) Gate PASS: `nagare-01 Ready`; the pods not Running/Succeeded are the same six as `pods-before.txt`.
+- [x] (2026-09-12T22:14Z) Tear down: tunnel PID 1844 killed (`TUNNEL_KILLED`); no SSH config block was ever written (0 `EP-114` lines in `~/.ssh/config`); snapshot `nagare-01-pre-rescue-20260912` deleted (`SNAPSHOTS=[]`). Final checks: `pulumi preview --refresh` `31 unchanged`; metadata `KEYS=[]`; no `nagare-rescue`; `DISKS_MATCH`. (`nix-builder-x86` was `RUNNING`, started on demand by the VM builds; left alone.)
+- [x] (2026-09-12T22:15Z) Report back.
 
 Milestone 6 — Hand back to ExecPlan 111 and author the private-repo plan:
 
@@ -207,6 +210,25 @@ implementation began. It ran only `describe`/`list`/serial-output reads against 
   as a cloud mutation that should "ask". This matches ExecPlan 115's open item: under the operator's
   `defaultMode: "auto"`, the hook's "ask" decision does not surface a prompt. The later Path B
   mutations (stop, detach, create a VM, attach) would therefore also run unprompted in this session.
+
+- (Implementation session, 2026-09-12T22:00Z) `nix copy` to the host refused an unsigned path even
+  though the host daemon reports `Trusted: 1` for `deploy` (`trusted-users = root root @wheel`, and
+  `deploy` is in `wheel`). The refused path, `manifest.json`, was built on the remote builder, so it
+  has `signatures: []` and `ultimate: false`. `nix copy` checks signatures on the client unless it
+  gets `--no-check-sigs`, so trust on the receiving side does not help. `scripts/host-switch.sh`
+  therefore cannot copy remote-built closures as written. It needs `--no-check-sigs` on its
+  `nix copy`, a signing key, or `--build-on-host`.
+
+- (Implementation session, 2026-09-12T22:10Z) **`systemctl start systemd-growfs@var-lib-nagare.service`
+  does not grow a filesystem that has already been grown once in this boot.** The unit is
+  `Type=oneshot` with `RemainAfterExit=yes`. After its boot-time run
+  (`Successfully resized "/var/lib/nagare" to 100G bytes` at 20:38) it stays `active (exited)`, so
+  `start` is a no-op that exits 0. `restart` runs it again:
+  `Successfully resized "/var/lib/nagare" to 110G bytes`. The VM test's Phase 2 missed this because
+  it stopped the mount first, which also stops the growfs unit. The manual grow command in the docs
+  must be `sudo systemctl restart systemd-growfs@var-lib-nagare.service`. The same boot log also
+  proves the original bug live: `Job systemd-growfs@var-lib-nagare.service/start deleted to break
+  ordering cycle` at 20:38:39 on the old generation.
 
 - (Implementation session, 2026-09-12T21:20Z) **Milestone 4 attempt 1 STOP: the working-tree
   ordering fix introduces a first-boot race.** The by-id udev link works (so the fallback is not
@@ -378,6 +400,33 @@ Record every decision made while working on the plan.
   Rationale: `nagareInput` is not a `path:` to this checkout but a `/nix/store` payload embedded in
   the `nagarectl` build, so `nix flake update` cannot pick up the new `storage.nix`. The payload
   generated in Milestone 3 predates the attempt-1 fix.
+  Date: 2026-09-12
+
+- Decision: After the first `just host-switch` failed at `nix copy`, pre-seed the host's store with
+  `nix copy --no-check-sigs --to ssh-ng://deploy@nagare-01 <toplevel>`, then re-run
+  `just host-switch` unchanged. Operator approved at 2026-09-12T22:02Z.
+  Rationale: The failure happened before arming, so the host was untouched. `deploy` is trusted
+  on the host, so skipping the client-side signature check is safe for closures this workstation
+  built. The re-run's own copy is then a no-op, and every self-reverting step (arm, activate,
+  fresh-login verify, commit) still runs. `--build-on-host` would have loaded the single production
+  node with a system build.
+  Date: 2026-09-12
+
+- Decision: Grow the filesystem with `systemctl restart` instead of `start` after `start` was a
+  no-op. Operator approved at 2026-09-12T22:11Z.
+  Rationale: Unit state `ActiveState=active SubState=exited RemainAfterExit=yes` proved the cause.
+  `restart` runs the same idempotent online ext4 grow that Phases 1 and 2 of the VM test proved.
+  Date: 2026-09-12
+
+- Decision: Route Milestone 5's SSH through the tunnel with
+  `NIX_SSHOPTS="-o HostName=127.0.0.1 -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentityFile=$HOME/.ssh/id_ed25519 -o LogLevel=ERROR"`
+  instead of the temporary `~/.ssh/config` block.
+  Rationale: The agent sandbox denied the append to `~/.ssh/config` (`permission denied`), and that
+  denial was not overridden. `nagare_safe_switch` applies `NIX_SSHOPTS` to every SSH call, including
+  the fresh-login verification, and `nix copy --to ssh-ng://` honors it, so the routing is
+  equivalent with nothing to tear down. ExecPlan 115's author named it as the alternative.
+  Verified before the switch: a fresh bash `ssh` printed `ALIAS_OK` and the current system path,
+  and `nix store info --store ssh-ng://deploy@nagare-01` reported `Trusted: 1`.
   Date: 2026-09-12
 
 - Decision: Replace Milestone 4's builder probe with a daemon-routed build of the VM test's
