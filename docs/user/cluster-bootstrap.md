@@ -47,6 +47,10 @@ kept enabled (only Traefik is disabled).
   discovery.
 - Your `baseDomain` zone **delegated** from your registrar to the Cloud DNS
   nameservers (so Let's Encrypt and real traffic resolve).
+- An **ACME contact** in the active context (`NAGARE_ACME_EMAIL`). There is no
+  default: bootstrap refuses to create the `letsencrypt-dns` issuer without one.
+  Check with `nagarectl context show | grep ACME`, and see
+  [ACME identity](contexts.md#acme-identity).
 
 ## Run it
 
@@ -102,6 +106,54 @@ Knative via `net-certmanager` with `external-domain-tls: Enabled`.
 > This is a deliberate override of the spec's "start with host-level Caddy"
 > suggestion: Nagare chose the Kubernetes-native cert-manager + Kourier path.
 > See the [spec corrections](../initial-spec.md#spec-accuracy-corrections-2026-06-02).
+
+### Where the issuer's identity comes from
+
+The `letsencrypt-dns` `ClusterIssuer` is **rendered from the active target
+context** — not from a packaged file you edit. Its `email:` is the context's
+`NAGARE_ACME_EMAIL`, its `server:` comes from `NAGARE_ACME_DIRECTORY`, and the
+project its DNS-01 solver writes into is the context's own project, checked by
+the same fail-closed project guardrail every cloud-touching script uses.
+
+With no contact configured, `nagare cluster-bootstrap` stops before `kubectl
+apply` runs and prints:
+
+```text
+nagare: no ACME contact is configured for context 'prod'.
+  Set NAGARE_ACME_EMAIL in the active context:
+    nagarectl init <name> --acme-email you@example.com
+    nagarectl context create <name> --acme-email you@example.com
+```
+
+Nothing is applied, so no cluster ends up with an account under an address its
+operator did not choose. Confirm what landed:
+
+```bash
+kubectl get clusterissuer letsencrypt-dns \
+  -o jsonpath='{.spec.acme.email}{"\n"}{.spec.acme.server}{"\n"}{.spec.acme.solvers[0].dns01.cloudDNS.project}{"\n"}'
+```
+
+### Rehearsing with Let's Encrypt staging
+
+Let's Encrypt's production service applies per-domain issuance rate limits.
+While iterating on DNS-01 for a **new** domain, point the context at staging —
+certificates it issues are not browser-trusted, but the limits are far looser:
+
+```bash
+nagarectl context create prod --force --project YOUR_PROJECT_ID \
+  --acme-email you@yourdomain.com --acme-directory staging
+nagare cluster-bootstrap
+```
+
+Switch back to `--acme-directory production` once issuance works end to end.
+Because an ACME account is keyed by its stored private key rather than by the
+`email:` field, moving between services (or correcting a wrong address) also
+means deleting the account key so cert-manager registers afresh:
+
+```bash
+kubectl -n cert-manager delete secret letsencrypt-dns-account-key
+nagare cluster-bootstrap
+```
 
 `DomainMapping` (`serving.knative.dev/v1beta1`) is enabled by default — no
 feature flag — and maps a custom hostname onto a Knative service. Local mode is

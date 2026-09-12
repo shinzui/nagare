@@ -59,8 +59,9 @@ and drives that context's Pulumi config projection — you do not hand-edit eith
 for onboarding.
 
 ```bash
-nagarectl init prod --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com
-# On a TTY it prompts for project / region / zone / base domain with sensible defaults.
+nagarectl init prod --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com \
+  --acme-email you@yourdomain.com
+# On a TTY it prompts for project / region / zone / base domain / ACME contact.
 ```
 
 Flags (exactly as shipped):
@@ -71,14 +72,18 @@ Flags (exactly as shipped):
 | `--region` | Compute region (default `us-west1`). |
 | `--zone` | Compute zone (default `us-west1-a`). |
 | `--base-domain` | Apps base domain (default `apps.example.com`). |
+| `--acme-email` | **Required.** The Let's Encrypt contact address for this context's cluster. There is no default — any default would be somebody's real mailbox. On a TTY you are prompted; without a TTY and without the flag the run exits non-zero naming it. See [ACME identity](contexts.md#acme-identity). |
+| `--acme-directory` | ACME service: `production` (default), `staging` (untrusted certificates, far looser rate limits — use it to rehearse issuance on a new domain), or an absolute `https://` directory URL. |
 | `--force` | Overwrite an existing named context, or an existing `nagare.target.env` in legacy mode. |
 | `--skip-preflight` | Skip the gcloud-auth + operator-IAM checks. |
 | `--skip-enable` | Skip running `scripts/enable-apis.sh`. |
 | `--skip-seed` | Skip seeding the Pulumi stack config. |
 | `--dry-run` | Show what would be written/enabled/seeded, doing none of it. |
 
-There is **no** `--yes` / `--non-interactive` flag — supplying `--project` is what makes
-the run non-interactive.
+There is **no** `--yes` / `--non-interactive` flag — supplying `--project` **and**
+`--acme-email` is what makes the run non-interactive. Those are the two fields
+with no safe default; supply either alone on a TTY and you are still prompted for
+the other.
 
 Ordered effect: resolve defaults → **preflight** (gcloud active account + the six operator
 IAM roles) → write the named context (the same `export` lines shown below) and make it
@@ -99,6 +104,8 @@ export NAGARE_ARTIFACT_REGISTRY_ID=nagare
 export NAGARE_IMAGE_BUCKET=tan-nb-exp-nagare-images       # derived as <project>-nagare-images
 export NAGARE_BACKUP_BUCKET=tan-nb-exp-nagare-backups     # derived as <project>-nagare-backups
 export NAGARE_BASE_DOMAIN=apps.example.com
+export NAGARE_ACME_EMAIL=you@yourdomain.com               # YOUR Let's Encrypt contact; no default
+export NAGARE_ACME_DIRECTORY=production                   # or `staging` while rehearsing issuance
 export NAGARE_INSTANCE_NAME=nagare-01
 ```
 
@@ -222,6 +229,14 @@ kubectl get nodes      # nagare-01 should be Ready
 nagare cluster-bootstrap   # cert-manager + letsencrypt-dns issuer, Knative Serving, Kourier
 nagare observability       # VictoriaMetrics/Logs/Traces + OTel Collector + Grafana
 ```
+
+The `letsencrypt-dns` issuer is rendered from the **active context**: its
+contact, its ACME endpoint and the project its DNS-01 solver writes into are the
+context's own. If the active context has no `NAGARE_ACME_EMAIL`, bootstrap
+**refuses** — it stops before `kubectl apply` and names the field — so no cluster
+registers a Let's Encrypt account under an address you did not choose. Set it
+with `nagarectl context create <name> --force --acme-email you@yourdomain.com`
+and re-run.
 
 See [cluster bootstrap](cluster-bootstrap.md) and [observability](observability.md).
 The HTTPS smoke test (a hello service answering over a valid Let's Encrypt cert

@@ -141,15 +141,17 @@ This section must always reflect the actual current state of the work.
   - [x] Add `cluster/bootstrap/render-context-template.sh` to the `shellcheck-scripts` file list
         (not in the plan; the renderer was never linted).
   - [x] `nix flake check` green (18 checks, aarch64-darwin).
-- [ ] M4: Documentation tells an operator the field exists before they need it.
-  - [ ] `docs/user/contexts.md`: the two fields in the core table plus an ACME identity section.
-  - [ ] `docs/user/reference.md`: the context-variable table, the `init` flags, the
-        `context create` flag list.
-  - [ ] `docs/user/onboarding-bring-your-own-project.md`: Step 2's flag table and generated
+- [x] M4: Documentation tells an operator the field exists before they need it. (2026-09-12)
+  - [x] `docs/user/contexts.md`: the two fields in the core table plus an ACME identity section
+        (no default, the refusal, the account-key recovery, the staging rehearsal).
+  - [x] `docs/user/reference.md`: the context-variable table, the `init` flags, the
+        `context create` flag list, and the local-mode note.
+  - [x] `docs/user/onboarding-bring-your-own-project.md`: Step 2's flag table and generated
         context; Step 10's issuer note.
-  - [ ] `docs/user/cluster-bootstrap.md`: prerequisites, the staging rehearsal, the refusal.
-  - [ ] `cluster/bootstrap/cert-manager/README.md`: the rendered fields and the staging switch.
-  - [ ] `docs/user/log.md` entry and a green `just user-documentation-validate`.
+  - [x] `docs/user/cluster-bootstrap.md`: prerequisites, the staging rehearsal, the refusal.
+  - [x] `cluster/bootstrap/cert-manager/README.md`: the rendered fields and the staging switch.
+  - [x] `docs/user/log.md` entry and a green `just user-documentation-validate`
+        (36 + 2 concepts, no findings).
 - [ ] M5: Durable context recorded and the improvement request closed.
   - [ ] Write the ADR for the context-owned ACME identity under `docs/adr/`.
   - [ ] Move `docs/improvement-requests/context-owned-acme-identity.md` to `completed` with

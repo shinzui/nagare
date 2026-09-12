@@ -50,6 +50,8 @@ The core fields are:
 | Registry | `NAGARE_REGISTRY_HOST`, `NAGARE_ARTIFACT_REGISTRY_ID` |
 | Buckets | `NAGARE_IMAGE_BUCKET`, `NAGARE_BACKUP_BUCKET` |
 | Apps domain | `NAGARE_BASE_DOMAIN` |
+| ACME contact | `NAGARE_ACME_EMAIL` (no default — see [ACME identity](#acme-identity)) |
+| ACME endpoint | `NAGARE_ACME_DIRECTORY` (`production`, `staging`, or an `https://` URL) |
 | VM name | `NAGARE_INSTANCE_NAME` |
 | Build platform | `NAGARE_TARGET_PLATFORM` |
 | Mode | `NAGARE_MODE` (`cloud` or `local`) |
@@ -168,6 +170,86 @@ k3d, the local registry, loopback domains, and MinIO. In that mode the guardrail
 steps aside after checking the local target is genuinely loopback. See
 [Local development](local-development.md) for the local cluster runbook.
 
+## ACME identity
+
+A cloud cluster serves apps over HTTPS using certificates from **Let's
+Encrypt**. To obtain them the cluster registers an **ACME account**, which is
+identified by a contact email address. Let's Encrypt sends certificate-expiry
+and policy notices to that address. The account lives in one cluster object, the
+`letsencrypt-dns` `ClusterIssuer`, created during `nagare cluster-bootstrap`.
+
+**The contact belongs to the context, and there is no default.** Every other
+context field has a safe generic default — `apps.example.com` is deliberately
+non-routable, `nagare-01` is a local name — but an email address cannot have
+one, because any value is somebody's real mailbox. So `NAGARE_ACME_EMAIL` is
+empty until you set it:
+
+```bash
+nagarectl init labs --project your-labs-project --acme-email you@example.com
+# or, for the low-level writer:
+nagarectl context create labs --project your-labs-project --acme-email you@example.com
+```
+
+`nagarectl init` requires it: on a terminal it prompts, and without one it stops
+and names the flag. `nagarectl context create` leaves it optional, because it
+also writes local contexts, where no ACME account is ever registered.
+
+Confirm what a context carries:
+
+```bash
+nagarectl context show labs | grep ACME
+# export NAGARE_ACME_EMAIL=you@example.com
+# export NAGARE_ACME_DIRECTORY=production
+```
+
+With no contact configured, rendering the issuer **refuses** — it writes nothing
+to standard output and `nagare cluster-bootstrap` stops before `kubectl apply`
+runs, so no `ClusterIssuer` is created under an address you did not choose:
+
+```text
+nagare: no ACME contact is configured for context 'labs'.
+  Set NAGARE_ACME_EMAIL in the active context:
+    nagarectl init <name> --acme-email you@example.com
+    nagarectl context create <name> --acme-email you@example.com
+```
+
+### Why a wrong address is expensive
+
+Changing `email:` on the issuer afterwards does **not** move the account. The
+account is keyed by the private key in the Secret named by
+`privateKeySecretRef` — `letsencrypt-dns-account-key` in the `cert-manager`
+namespace. Recovering means deleting that Secret so cert-manager registers a
+fresh account on its next reconcile:
+
+```bash
+kubectl -n cert-manager delete secret letsencrypt-dns-account-key
+nagare cluster-bootstrap          # re-apply, now rendered from the right contact
+kubectl get clusterissuer letsencrypt-dns -o wide   # READY=True again
+```
+
+Certificates already issued stay valid and keep serving; they are re-issued
+under the new account at their next renewal.
+
+### Rehearsing against Let's Encrypt staging
+
+Let's Encrypt's staging service issues certificates that browsers do **not**
+trust, but its rate limits are far looser. It is the standard way to rehearse
+issuance on a new domain without burning the production quota:
+
+```bash
+nagarectl context create labs --force --project your-labs-project   --acme-email you@example.com --acme-directory staging
+```
+
+`NAGARE_ACME_DIRECTORY` accepts `production` (the default), `staging`, or an
+absolute `https://` ACME directory URL. An unrecognized value is an **error**,
+not a silent fallback: choosing production for you would burn a real rate limit,
+and choosing staging for you would install untrusted certificates. Switch back
+to `production` once issuance works end to end, and delete the account key
+Secret as above so the production account is registered fresh.
+
+Local contexts (`--mode local`) never contact Let's Encrypt and need neither
+variable.
+
 ## Worked example: labs plus local
 
 Create a second cloud context for a labs project, plus a laptop-only local
@@ -176,7 +258,8 @@ context:
 ```bash
 nagarectl context create labs --project your-labs-project \
   --region us-west1 --zone us-west1-a \
-  --base-domain labs.topagentnetwork.net --use
+  --base-domain labs.topagentnetwork.net \
+  --acme-email you@example.com --use
 
 nagarectl context create local --mode local \
   --registry-host k3d-registry.localhost:5000 \
@@ -193,7 +276,8 @@ NAGARE_CONTEXT=local nagare local-smoke
 ```
 
 For a brand-new cloud project, prefer `nagarectl init labs --project
-your-labs-project --base-domain labs.topagentnetwork.net`; it performs the
+your-labs-project --base-domain labs.topagentnetwork.net --acme-email
+you@example.com`; it performs the
 onboarding checks and API/config seeding described in
 [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md).
 

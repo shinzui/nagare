@@ -23,13 +23,34 @@ kubectl -n cert-manager rollout status deploy/cert-manager-cainjector
 
 - `letsencrypt-dns.yaml.tmpl` — the cluster-wide DNS-01 `ClusterIssuer`
   (`letsencrypt-dns`). Uses ambient Application Default Credentials (no
-  `serviceAccountSecretRef`). Apply it and confirm it becomes Ready (this only
-  registers/validates the ACME account; it does not require DNS access):
+  `serviceAccountSecretRef`). It is a **template**: three fields come from the
+  active target context and nothing here has a built-in default.
+
+  | Rendered field | Context variable |
+  | --- | --- |
+  | `spec.acme.email` | `NAGARE_ACME_EMAIL` — **no default**; rendering refuses without it |
+  | `spec.acme.server` | `NAGARE_ACME_DIRECTORY` (`production`, `staging`, or an `https://` URL) |
+  | `spec.acme.solvers[0].dns01.cloudDNS.project` | `CLOUDSDK_CORE_PROJECT`, asserted by the project guardrail |
+
+  `just cluster-bootstrap` renders it to a temporary file and applies it only on
+  success, so a refusal never reaches `kubectl`. To do the same by hand:
 
   ```bash
-  cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl | kubectl apply -f -
+  issuer="$(mktemp)"
+  cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer"
+  kubectl apply -f "$issuer"
   kubectl get clusterissuer letsencrypt-dns -o wide   # READY=True within a minute
+  rm -f "$issuer"
   ```
+
+  Rendering with no contact configured exits non-zero, writes nothing to
+  standard output, and names `NAGARE_ACME_EMAIL`. Select Let's Encrypt's staging
+  service — untrusted certificates, far looser rate limits — for a context with
+  `nagarectl context create <name> --force --acme-directory staging`. Note that
+  an ACME account is keyed by the private key in
+  `privateKeySecretRef` (`letsencrypt-dns-account-key` in `cert-manager`), not by
+  the `email:` field: changing the contact or the endpoint on an already-Ready
+  issuer requires deleting that Secret so a fresh account is registered.
 
 - `test-wildcard-cert.yaml` — a throwaway proof-of-issuance `Certificate`.
   **Deferred** until a real `baseDomain` is delegated (see the file header and
