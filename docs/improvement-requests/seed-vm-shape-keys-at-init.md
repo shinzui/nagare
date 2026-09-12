@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Seed and pin the VM shape keys at init so a routine apply cannot replace the instance
 description: Have nagarectl init seed machineType and bootDiskType, and warn before any plan that would destroy the boot disk holding k3s state and TLS material.
-timestamp: "2026-09-12T12:35:03Z"
+timestamp: "2026-09-12T13:08:46Z"
 generated:
   by: process:claude-code
-  at: "2026-09-12T12:35:03Z"
+  at: "2026-09-12T13:08:46Z"
 requestId: IR-4
-status: proposed
+status: accepted
+targetPlan: docs/plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md
 origin: mori://shinzui/nagare
 ---
 
@@ -16,7 +17,7 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight review of `v0.1.0` (HEAD `da24748`) performed while sizing a new
 cluster intended to validate the platform before it carries real work.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted; planned as [ExecPlan 110](../plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md).
 **Created:** 2026-09-12.
 
 
@@ -111,3 +112,34 @@ will be destroyed before it happens.
 This request does not ask for autoscaling, multi-node clusters, moving k3s state onto the data disk
 (worthwhile, but a much larger change), or a different default machine type by itself. It does not
 cover the data-disk filesystem grow, which is IR-5.
+
+
+## Planning outcome (2026-09-12)
+
+Accepted. Every claim above was checked against the working tree at `da24748` and holds: the
+eight seeded keys at `cli/nagarectl/src/Nagare/Init.hs:146-156`, the four program defaults at
+`infra/pulumi/index.ts:19,20,52,53`, the boot-disk replacement caution at
+`infra/pulumi/index.ts:48-51`, the deletion-protection backstop at `infra/pulumi/index.ts:44`,
+the k3s-on-the-boot-disk record at `docs/user/resizing-the-vm.md:42`, and the
+`Insufficient cpu` scheduling evidence with its ~600m remedy in
+`docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md`.
+
+The work is planned as
+[ExecPlan 110](../plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md),
+which covers every requested change and every required verification. Three scoping decisions
+were made while planning and are recorded in that plan's Decision Log:
+
+The guard is a blocking preflight (`nagarectl infra guard`) wired into the `infra-up` recipe
+rather than a `nagarectl doctor` check, because a routine `infra-up` is the path this request is
+about and an advisory check only helps an operator who thinks to run it.
+
+The required fixture proving that a change to a program default does not alter the plan for a
+seeded stack is realized as a unit test over an extracted pure `resolveVmShape` resolver, not as
+a live `pulumi preview` diff: this repository's CI is `nix flake check`, which is sandboxed and
+has no Google Cloud credentials, so a cloud-level plan diff cannot run there. A companion check
+fails the build if the CLI's seeded defaults and the Pulumi program's fallbacks ever diverge.
+
+Planning also found that `nagarectl context use` re-seeds the Pulumi stack config for a cloud
+context, so extending the seed list pins the four keys on an already-created stack at the next
+context selection; no separate migration is needed, provided the seeded defaults stay equal to
+the literals the program uses today.
