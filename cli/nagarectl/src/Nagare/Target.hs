@@ -13,6 +13,7 @@ module Nagare.Target
   ( ActiveTarget (..)
   , TargetProfile (..)
   , Mode (..)
+  , AcmeDirectory (..)
   , PulumiEnv (..)
   , PulumiBackendKind (..)
   , ContextName
@@ -32,6 +33,10 @@ module Nagare.Target
   , deleteContext
   , writeContextPlatformVersion
   , parseMode
+  , parseAcmeDirectory
+  , acmeDirectoryToken
+  , acmeDirectoryUrl
+  , validateAcmeEmail
   , parseContextEnv
   , readContextMap
   , readCurrentContext
@@ -52,7 +57,7 @@ module Nagare.Target
 where
 
 import Control.Exception (IOException, try)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -110,6 +115,78 @@ parsePulumiBackendKind m = case fmap (map toLower) m of
 pulumiBackendToken :: PulumiBackendKind -> Text
 pulumiBackendToken PulumiBackendLocal = "local"
 pulumiBackendToken PulumiBackendGcs = "gcs"
+
+-- | Which ACME service a context's issuer talks to (EP-112). 'AcmeProduction' is
+-- Let's Encrypt's real service; 'AcmeStaging' issues certificates that are NOT
+-- browser-trusted but has far looser rate limits, for rehearsing issuance on a
+-- new domain; 'AcmeCustom' is any other ACME directory URL.
+data AcmeDirectory = AcmeProduction | AcmeStaging | AcmeCustom Text
+  deriving stock (Eq, Show)
+
+-- | Parse the @NAGARE_ACME_DIRECTORY@ token. Empty (or unset) means
+-- 'AcmeProduction'. Unlike 'parseMode' and 'parsePulumiBackendKind', an
+-- unrecognized value is an ERROR, not a fallback: silently choosing production
+-- burns a real rate limit against a real domain and silently choosing staging
+-- installs certificates no browser trusts, so neither is a safe landing place
+-- for a typo.
+parseAcmeDirectory :: Text -> Either Text AcmeDirectory
+parseAcmeDirectory raw
+  | T.null token = Right AcmeProduction
+  | lowered == "production" = Right AcmeProduction
+  | lowered == "staging" = Right AcmeStaging
+  | "https://" `T.isPrefixOf` token = Right (AcmeCustom token)
+  | otherwise =
+      Left
+        ( "NAGARE_ACME_DIRECTORY='"
+            <> token
+            <> "' is not recognized (expected 'production', 'staging', or an absolute https:// ACME directory URL)."
+        )
+  where
+    token = T.strip raw
+    lowered = T.toLower token
+
+-- | The @NAGARE_ACME_DIRECTORY@ token for a parsed endpoint (the inverse of
+-- 'parseAcmeDirectory'), used by the context-file renderer. Round-tripping
+-- through this normalizes case, so @--acme-directory STAGING@ is stored as
+-- @staging@.
+acmeDirectoryToken :: AcmeDirectory -> Text
+acmeDirectoryToken AcmeProduction = "production"
+acmeDirectoryToken AcmeStaging = "staging"
+acmeDirectoryToken (AcmeCustom url) = url
+
+-- | The directory URL for a parsed endpoint. Keep the two literals in sync with
+-- @nagare_acme_directory_url@ in @scripts\/lib\/target.sh@; the
+-- @cluster-bootstrap-defaults@ flake check fails the build if they drift.
+acmeDirectoryUrl :: AcmeDirectory -> Text
+acmeDirectoryUrl AcmeProduction = "https://acme-v02.api.letsencrypt.org/directory"
+acmeDirectoryUrl AcmeStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+acmeDirectoryUrl (AcmeCustom url) = url
+
+-- | Accept a single usable ACME contact address, or explain why not. This is a
+-- SANITY CHECK (exactly one \'@\', a dotted domain, no whitespace or comma), not
+-- an RFC 5322 validator: its job is to reject empty, placeholder and
+-- multi-address values before they reach Let\'s Encrypt, where an account
+-- registered under the wrong address cannot be re-pointed.
+validateAcmeEmail :: Text -> Either Text Text
+validateAcmeEmail raw
+  | T.null addr = Left "an ACME contact address is required (there is no default)"
+  | T.any (\c -> isSpace c || c == ',') addr = bad
+  | otherwise = case T.splitOn "@" addr of
+      [localPart, domain]
+        | not (T.null localPart)
+        , T.isInfixOf "." domain
+        , not ("." `T.isPrefixOf` domain)
+        , not ("." `T.isSuffixOf` domain) ->
+            Right addr
+      _ -> bad
+  where
+    addr = T.strip raw
+    bad =
+      Left
+        ( "NAGARE_ACME_EMAIL='"
+            <> addr
+            <> "' is not a usable ACME contact address (expected one address of the form you@example.com)."
+        )
 
 -- | The name of a stored context. It is used verbatim as a filename
 -- (@<name>.env@) and as the value of the @current-context@ pointer, so it is
@@ -295,6 +372,17 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
   -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
   -- 'defaultGcsPulumiBackendUrl'.
+  , tpAcmeEmail :: !Text
+  -- ^ NAGARE_ACME_EMAIL (EP-112), the contact address the cluster's Let's
+  -- Encrypt account is registered under. Default @""@, which means NOT
+  -- CONFIGURED — there is deliberately no default, because any default would be
+  -- somebody's real mailbox and an ACME account cannot be re-pointed at another
+  -- address once registered. Rendering the cert-manager ClusterIssuer refuses
+  -- rather than substituting.
+  , tpAcmeDirectory :: !Text
+  -- ^ NAGARE_ACME_DIRECTORY (EP-112): @"production"@ (the default),
+  -- @"staging"@, or an absolute @https:\/\/@ ACME directory URL. Parsed by
+  -- 'parseAcmeDirectory'.
   , tpPlatformVersion :: !(Maybe Text)
   -- ^ Optional NAGARE_PLATFORM_VERSION. 'Nothing' identifies a legacy
   -- source-managed context whose release has not been explicitly adopted.
@@ -571,6 +659,8 @@ profileFromContextMap ctx =
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
       pulumiBackend = parsePulumiBackendKind (mapRaw ctx "NAGARE_PULUMI_BACKEND")
       pulumiBackendUrl = mapOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+      acmeEmail = mapOr ctx "NAGARE_ACME_EMAIL" ""
+      acmeDirectory = mapOr ctx "NAGARE_ACME_DIRECTORY" "production"
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
    in TargetProfile
         { tpProject = project
@@ -587,6 +677,8 @@ profileFromContextMap ctx =
         , tpLocalObjectStore = localObjectStore
         , tpPulumiBackend = pulumiBackend
         , tpPulumiBackendUrl = pulumiBackendUrl
+        , tpAcmeEmail = acmeEmail
+        , tpAcmeDirectory = acmeDirectory
         , tpPlatformVersion = platformVersion
         }
 
@@ -606,6 +698,8 @@ resolveProfileFrom ctx = do
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
   pulumiBackend <- parsePulumiBackendKind <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND"
   pulumiBackendUrl <- ctxOr ctx "NAGARE_PULUMI_BACKEND_URL" ""
+  acmeEmail <- ctxOr ctx "NAGARE_ACME_EMAIL" ""
+  acmeDirectory <- ctxOr ctx "NAGARE_ACME_DIRECTORY" "production"
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
   pure
     TargetProfile
@@ -623,6 +717,8 @@ resolveProfileFrom ctx = do
       , tpLocalObjectStore = localObjectStore
       , tpPulumiBackend = pulumiBackend
       , tpPulumiBackendUrl = pulumiBackendUrl
+      , tpAcmeEmail = acmeEmail
+      , tpAcmeDirectory = acmeDirectory
       , tpPlatformVersion = platformVersion
       }
 

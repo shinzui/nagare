@@ -39,7 +39,54 @@ _NAGARE_CONTEXT_VARS=(
   NAGARE_MODE NAGARE_LOCAL_OBJECT_STORE
   NAGARE_PULUMI_BACKEND NAGARE_PULUMI_BACKEND_URL
   NAGARE_PLATFORM_VERSION
+  NAGARE_ACME_EMAIL NAGARE_ACME_DIRECTORY
 )
+
+# The Let's Encrypt (or other ACME) directory endpoint for a context token. The
+# tokens are deliberately few: 'production' and 'staging' are the two Let's
+# Encrypt services, and an absolute https:// URL covers any other ACME CA. An
+# unrecognized token yields an EMPTY url; the renderer that needs it fails with a
+# precise message rather than silently choosing an endpoint. Keep these two
+# literals in sync with acmeDirectoryUrl in cli/nagarectl/src/Nagare/Target.hs;
+# the flake check `cluster-bootstrap-defaults` fails the build if they drift.
+nagare_acme_directory_url() {
+  case "${1:-production}" in
+    production|"") printf '%s\n' "https://acme-v02.api.letsencrypt.org/directory" ;;
+    staging) printf '%s\n' "https://acme-staging-v02.api.letsencrypt.org/directory" ;;
+    https://*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+# Is this value usable as the single contact address of an ACME account? This is
+# a SANITY CHECK, not an RFC 5322 validator: its job is to reject empty,
+# placeholder and multi-address values before they reach Let's Encrypt, where a
+# registered account cannot be re-pointed at another address. Accepts exactly one
+# '@' with at least one character before it, a dotted domain after it, and no
+# whitespace or comma anywhere.
+nagare_acme_email_valid() {
+  local addr="${1:-}"
+  [ -n "${addr}" ] || return 1
+  case "${addr}" in
+    *[[:space:],]*) return 1 ;;
+  esac
+  case "${addr}" in
+    *@*) ;;
+    *) return 1 ;;
+  esac
+  local local_part="${addr%%@*}" domain="${addr#*@}"
+  [ -n "${local_part}" ] || return 1
+  # Exactly one '@': nothing after the first one may carry another.
+  case "${domain}" in
+    *@*) return 1 ;;
+  esac
+  case "${domain}" in
+    .*|*.) return 1 ;;
+    *.*) ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
 
 _nagare_config_dir() {
   if [ -n "${XDG_CONFIG_HOME:-}" ]; then
@@ -189,6 +236,14 @@ _nagare_resolve_context() {
   export NAGARE_LOCAL_OBJECT_STORE="${NAGARE_LOCAL_OBJECT_STORE:-}"
   export NAGARE_SSH_USER="${NAGARE_SSH_USER:-deploy}"
 
+  # EP-112: the ACME identity the cluster's cert-manager ClusterIssuer registers
+  # under. NAGARE_ACME_EMAIL has NO default, deliberately: any default would be
+  # somebody's real mailbox, and a Let's Encrypt account cannot be re-pointed at
+  # another address once registered. Empty means "not configured"; the renderer
+  # refuses rather than substituting.
+  export NAGARE_ACME_EMAIL="${NAGARE_ACME_EMAIL:-}"
+  export NAGARE_ACME_DIRECTORY="${NAGARE_ACME_DIRECTORY:-production}"
+
   # EP-93: Pulumi backend selection. Default to EP-90's per-context local file
   # backend; `gcs` opts a cloud context into a remote GCS backend. A local-mode
   # context can never use GCS (the guardrail steps aside in local mode, so there
@@ -209,6 +264,10 @@ _nagare_resolve_context() {
   else
     export NAGARE_REGISTRY_PREFIX="${NAGARE_REGISTRY_HOST}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}"
   fi
+
+  # Derived, NOT a context field: recomputed on every source of this file exactly
+  # like NAGARE_REGISTRY_PREFIX. Empty when the token is unrecognized.
+  export NAGARE_ACME_DIRECTORY_URL="$(nagare_acme_directory_url "${NAGARE_ACME_DIRECTORY}")"
 
   export NAGARE_RESOLVED_CONTEXT="${selkey}"
   export NAGARE_CONTEXT="${name}"

@@ -405,6 +405,8 @@ initProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpAcmeEmail = "ops@acme.example"
+    , tpAcmeDirectory = "production"
     , tpPlatformVersion = Just "0.1.0"
     }
 
@@ -808,6 +810,8 @@ tnbProfile =
     , tpLocalObjectStore = ""
     , tpPulumiBackend = PulumiBackendLocal
     , tpPulumiBackendUrl = ""
+    , tpAcmeEmail = ""
+    , tpAcmeDirectory = "production"
     , tpPlatformVersion = Nothing
     }
 
