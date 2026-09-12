@@ -142,7 +142,7 @@ Cache: (default) -> 3600s
 ```
 
 For the Google Cloud CDN TanStack example, the plan is the exact `gcloud`
-commands the deploy would run (each pinned to `--project=tan-nb-exp`):
+commands the deploy would run (each pinned to the active context's project; the default example `tan-nb-exp` is shown):
 
 ```text
 --- CDN plan (GcpCloudCdn) ---

@@ -191,8 +191,8 @@ Release: 20260609-225143
 
 ### Live deploy
 
-On a machine with Docker, `gcloud`, and cluster access (and the `tan-nb-exp` GCP
-context), drop `--dry-run`. For a `NoBuild` site, add `--skip-build` (there is no
+On a machine with Docker, `gcloud`, and cluster access (and your cloud target
+context active), drop `--dry-run`. For a `NoBuild` site, add `--skip-build` (there is no
 build command to run):
 
 ```bash
