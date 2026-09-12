@@ -2,12 +2,12 @@
 type: Improvement Request
 title: Document and automate growing the data disk
 description: Make the data-disk grow a real, tested procedure instead of a one-sentence reference that an operational alert already links to.
-timestamp: "2026-09-12T13:15:44Z"
+timestamp: "2026-09-12T17:19:01Z"
 generated:
   by: process:claude-code
-  at: "2026-09-12T13:15:44Z"
+  at: "2026-09-12T17:19:01Z"
 requestId: IR-5
-status: accepted
+status: in-progress
 targetPlan: docs/plans/111-automate-and-document-growing-the-data-disk.md
 origin: mori://shinzui/nagare
 ---
@@ -17,7 +17,7 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight review of `v0.1.0` (HEAD `da24748`) performed while planning the
 validation sweep for a new cluster.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; planned as [ExecPlan 111](../plans/111-automate-and-document-growing-the-data-disk.md).
+**Status:** in progress; implemented by [ExecPlan 111](../plans/111-automate-and-document-growing-the-data-disk.md).
 **Created:** 2026-09-12.
 
 

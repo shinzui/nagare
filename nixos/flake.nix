@@ -68,17 +68,38 @@
 
       nixosConfigurations.nagare-01 = compatibilitySystem;
 
-      checks.${system}.forge-credentials-module =
-        assert compatibilitySystem.config.nagare.host.forgeCredentials.enable == false;
-        assert !(builtins.hasAttr "nagare-forge-read-refresh" compatibilitySystem.config.systemd.services);
-        assert !(builtins.hasAttr "github-app/read/app-id" compatibilitySystem.config.sops.secrets);
-        assert forgeCredentialsSystem.config.nagare.host.forgeCredentials.namespace == "forge-test";
-        assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-read-refresh.timerConfig.OnUnitActiveSec == "30min";
-        assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-write-refresh.timerConfig.OnUnitActiveSec == "30min";
-        assert builtins.length forgeSecretNames == 6;
-        assert forgeCredentialsSystem.config.sops.secrets."github-app/read/private-key".mode == "0400";
-        nixpkgs.legacyPackages.${system}.runCommand "nagare-forge-credentials-module-check" { } ''
-          touch "$out"
-        '';
+      checks.${system} = {
+        data-disk-auto-grow =
+          let
+            dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";
+            rootFs = compatibilitySystem.config.fileSystems."/";
+          in
+          # The data disk must grow itself when dataDiskSizeGb increases.
+          assert dataFs.autoResize;
+          assert builtins.elem "x-systemd.growfs" dataFs.options;
+          # nofail must survive: a transient disk fault must not wedge the boot.
+          assert builtins.elem "nofail" dataFs.options;
+          assert dataFs.fsType == "ext4";
+          # The boot disk's pre-existing auto-grow must not regress either.
+          assert rootFs.autoResize;
+          assert builtins.elem "x-systemd.growfs" rootFs.options;
+          assert compatibilitySystem.config.boot.growPartition;
+          nixpkgs.legacyPackages.${system}.runCommand "nagare-data-disk-auto-grow-check" { } ''
+            touch "$out"
+          '';
+
+        forge-credentials-module =
+          assert compatibilitySystem.config.nagare.host.forgeCredentials.enable == false;
+          assert !(builtins.hasAttr "nagare-forge-read-refresh" compatibilitySystem.config.systemd.services);
+          assert !(builtins.hasAttr "github-app/read/app-id" compatibilitySystem.config.sops.secrets);
+          assert forgeCredentialsSystem.config.nagare.host.forgeCredentials.namespace == "forge-test";
+          assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-read-refresh.timerConfig.OnUnitActiveSec == "30min";
+          assert forgeCredentialsSystem.config.systemd.timers.nagare-forge-write-refresh.timerConfig.OnUnitActiveSec == "30min";
+          assert builtins.length forgeSecretNames == 6;
+          assert forgeCredentialsSystem.config.sops.secrets."github-app/read/private-key".mode == "0400";
+          nixpkgs.legacyPackages.${system}.runCommand "nagare-forge-credentials-module-check" { } ''
+            touch "$out"
+          '';
+      };
     };
 }
