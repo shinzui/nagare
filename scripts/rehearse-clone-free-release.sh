@@ -119,9 +119,29 @@ run_cli init cloud-onboarding \
 run_cli host init --context rehearsal-cloud \
   --ssh-public-key-file "$test_root/work/operator.pub" --dry-run > host-init.out
 # EP-113: a clone-free recipe run must carry the ACTIVE CONTEXT's Pulumi backend
-# and stack, exactly as a direnv-loaded checkout does. There is no .envrc here, so
-# `nagare` exports them itself by evaluating `nagarectl context env`.
-run_cli context env > context-env.sh
+# and stack, exactly as a direnv-loaded checkout does. There is no .envrc in an
+# installed operator's shell, so `nagare` exports them itself by evaluating
+# `nagarectl context env`.
+#
+# Strip the CLOUDSDK_* / NAGARE_* contract from this one invocation. A DEVELOPER
+# runs the rehearsal from a direnv-loaded checkout, and that profile would
+# otherwise win the documented per-field precedence (environment > context) and
+# make the assertion below describe the developer's machine rather than the
+# context under test. NAGARE_CONTEXT is deliberately kept: selecting the context
+# is the point. This is not papering over a defect — an ambient override reaching
+# a real operation is exactly what `nagarectl context guard` refuses.
+run_cli_clean_context() {
+  env \
+    -u CLOUDSDK_CORE_PROJECT -u CLOUDSDK_COMPUTE_REGION -u CLOUDSDK_COMPUTE_ZONE \
+    -u NAGARE_REGISTRY_HOST -u NAGARE_ARTIFACT_REGISTRY_ID \
+    -u NAGARE_IMAGE_BUCKET -u NAGARE_BACKUP_BUCKET -u NAGARE_BASE_DOMAIN \
+    -u NAGARE_INSTANCE_NAME -u NAGARE_TARGET_PLATFORM -u NAGARE_SSH_USER \
+    -u NAGARE_MODE -u NAGARE_LOCAL_OBJECT_STORE \
+    -u NAGARE_PULUMI_BACKEND -u NAGARE_PULUMI_BACKEND_URL \
+    -u NAGARE_PLATFORM_VERSION \
+    nix run "${flake_ref}#nagarectl" -- "$@"
+}
+run_cli_clean_context context env > context-env.sh
 grep -q "^export NAGARE_PULUMI_STACK='rehearsal-cloud'$" context-env.sh
 grep -q "^export PULUMI_BACKEND_URL='file://${test_root}/state/nagare/rehearsal-cloud/state'$" context-env.sh
 grep -q "^export CLOUDSDK_CORE_PROJECT='nagare-release-rehearsal'$" context-env.sh
