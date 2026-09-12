@@ -28,7 +28,9 @@ DENY = [
      "Editing the NixOS system profile directly is forbidden. Use `just host-switch`."),
     (r"\bln\s+-[^;&|\n]*profiles/system\b",
      "Repointing the NixOS system profile is forbidden. Use `just host-switch`."),
-    (r"\bgcloud\b[^;&|\n]*(?:startup-script|shutdown-script)",
+    # Only planting a script is denied; removing leftover script metadata is a cleanup that
+    # falls through to the instance-mutation ask rule.
+    (r"\bgcloud\b(?=[^;&|\n]*\b(?:add-metadata|create)\b)[^;&|\n]*(?:startup-script|shutdown-script)",
      "Startup/shutdown-script metadata is forbidden: it does not run on Nagare's NixOS image and is not an observable recovery tool. STOP and report; recovery uses the documented runbook."),
 ]
 

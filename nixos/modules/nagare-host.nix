@@ -14,6 +14,7 @@ in
     ../hosts/nagare-01/tailscale.nix
     ../hosts/nagare-01/registries.nix
     ../hosts/nagare-01/forge-credentials.nix
+    ../hosts/nagare-01/boot-recovery.nix
   ];
 
   options.nagare.host = {

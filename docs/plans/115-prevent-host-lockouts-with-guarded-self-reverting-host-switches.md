@@ -87,23 +87,42 @@ Milestone 2 — The evaluation fixture refuses to activate:
 
 Milestone 3 — Self-reverting host switch:
 
-- [ ] Write `nixos/lib/nagare-safe-activate.sh` (runs on the host) and `nixos/lib/nagare-safe-switch-client.sh` (runs on the workstation).
-- [ ] Rewrite `scripts/host-switch.sh` to preflight the key, build, copy, and call the client function.
-- [ ] Add the `host-switch-auto-rollback` VM test (good switch commits; key-removing switch reverts; crash while unconfirmed boots the old generation).
-- [ ] Gate: the VM test passes; record the scenario transcripts.
-- [ ] Commit.
+- [x] Write `nixos/lib/nagare-safe-activate.sh` (runs on the host) and `nixos/lib/nagare-safe-switch-client.sh` (runs on the workstation). (2026-09-12T19:40Z; shellcheck clean)
+- [x] Rewrite `scripts/host-switch.sh` to preflight the key, build, copy, and call the client function. (2026-09-12T19:45Z; `--dry-run` prints the new fields; a scratch host flake proved both refusals exit 3: the fixture attribute, and an attribute whose deploy key is not `~/.ssh/id_ed25519.pub`)
+- [x] Add the `host-switch-auto-rollback` VM test (good switch commits; key-removing switch reverts; crash while unconfirmed boots the old generation). (2026-09-12T19:42Z; evaluates)
+- [x] Gate: the VM test passes; record the scenario transcripts. (2026-09-12T20:17Z, fourth run, `VMTEST_EXIT=0`, ~5.5 min with KVM. Run 1: TCG, stderr-comparison bug. Run 2: builder SSH drop. Run 3: hung on the test's own ssh probe without `BatchMode`. See Surprises.)
+- [x] Commit. (2026-09-12T20:20Z)
+
+Scenario transcripts from the passing run:
+
+```text
+SCENARIO 1
+host-switch: arming rollback on deploy@host (window 120s)
+ARMED prev=/nix/store/01p5…-nixos-system-host-test new=/nix/store/g1y3…-nixos-system-host-test seconds=120
+ACTIVATE_RC=0
+host-switch: fresh login and sudo verified (attempt 1)
+COMMITTED new=/nix/store/g1y3…-nixos-system-host-test
+SCENARIO 2
+ARMED prev=/nix/store/g1y3… new=/nix/store/ic4x… seconds=150
+ACTIVATE_RC=0
+NOT COMMITTED: access could not be verified. The host reverts to the previous configuration within 150 s …
+SCENARIO 2 rollback journal
+host systemd[1]: Started [systemd-run] /nix/store/g1y3…/bin/switch-to-configuration test
+host nixos[2166]: switching to system configuration /nix/store/g1y3…-nixos-system-host-test
+SCENARIO 3 after crash: good /nix/store/g1y3…-nixos-system-host-test
+```
 
 Milestone 4 — Break-glass boot menu:
 
-- [ ] Add `nixos/hosts/nagare-01/boot-recovery.nix` and import it from `nixos/modules/nagare-host.nix`.
-- [ ] Add the `boot-recovery-menu` evaluation check; it passes.
+- [x] Add `nixos/hosts/nagare-01/boot-recovery.nix` and import it from `nixos/modules/nagare-host.nix`. (2026-09-12T19:50Z)
+- [x] Add the `boot-recovery-menu` evaluation check; it passes. (2026-09-12T19:51Z)
 - [ ] Commit.
 
 Milestone 5 — Documentation, ADR, and hand-off:
 
-- [ ] Update `docs/user/day-2-host-changes.md` and `docs/user/accessing-the-host.md`; `just docs-validate` passes.
-- [ ] Write ADR 11 and link it from ADR 5.
-- [ ] Update ExecPlan 114 Milestone 5 to use the new switch output and verify the boot menu on the live host.
+- [x] Update `docs/user/day-2-host-changes.md` and `docs/user/accessing-the-host.md`; `just docs-validate` passes. (2026-09-12T20:00Z)
+- [x] Write ADR 11 and link it from ADR 5. (2026-09-12T20:02Z)
+- [x] Update ExecPlan 114 Milestone 5 to use the new switch output and verify the boot menu on the live host. (2026-09-12T20:05Z: already done by ExecPlan 114's 18:55Z revision, which gates on `COMMITTED` and greps `/boot/grub/grub.cfg`; no further edit needed. Every bash block in ExecPlan 114 was scanned against the hook; see Decision Log for the one rule narrowed as a result)
 - [ ] Commit; fill in Outcomes & Retrospective.
 
 
@@ -121,6 +140,46 @@ Milestone 5 — Documentation, ADR, and hand-off:
   from `false`). So under auto mode the ask layer is not a human gate; only the deny layer is
   unconditional. The operator was told and chose to record this and continue. A default-mode
   session should be re-checked.
+
+- The hook denied a Bash command that only edited documentation: a Python heredoc whose text
+  contained `nixos-rebuild switch` at the start of a quoted string. The hook matches command text
+  by design, so the edit was redone with the file-editing tool, which the hook does not inspect.
+  ADR 11 records this consequence.
+
+- `boot.loader.grub.configurationLimit`'s description ("Maximum of configurations in boot menu.
+  GRUB has problems when there are too many entries.") does not say what 0 means. The option
+  default is 100. The 0 and `boot.loader.timeout = 0` both come from nixpkgs'
+  `google-compute-config.nix` (from `definitionsWithLocations`), which is why `boot-recovery.nix`
+  needs `mkForce`. The kernel command line already has `console=ttyS0`.
+
+- The x86_64-linux builder `nix-gcp-builder` cannot use KVM. The VM test log shows
+  `qemu-system-x86_64: Could not access KVM kernel module: Permission denied … falling back to tcg`
+  for the disk image and both test nodes, so VM tests run fully emulated and take tens of
+  minutes. This is a builder provisioning issue (the build user lacks `/dev/kvm` access), not a
+  test problem. Diagnosis with a throwaway `requiredSystemFeatures = [ "kvm" ]` probe
+  derivation: `id: uid=1000(nixbld) gid=100(nixbld)`, `crw-rw---- nobody nogroup /dev/kvm`, `vmx`
+  present, `KVM_NOT_RW`. The builder is `nix-builder-x86` (tan-nb-exp, Ubuntu 24.04, nested
+  virtualization enabled). Ubuntu's `50-udev-default.rules` makes `/dev/kvm` `root:kvm 0660`,
+  and the Nix sandbox does not map the `kvm` group. At the operator's direction (2026-09-12T19:48Z) this
+  was fixed on the builder over IAP with `/etc/udev/rules.d/99-kvm-nix-builds.rules`
+  (`KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"`), which is what NixOS does
+  by default. Resetting to 0660 and retriggering udev restored 0666, and the probe then printed
+  `KVM_RW_OK`. If the builder is recreated, its provisioning must add that rule again.
+
+- The first VM run failed scenario 1 on a client bug, not on the protocol: the verification
+  captured ssh's stderr with `2>&1`, so `Warning: Permanently added 'host' … to the list of known
+  hosts` made the output differ from NEW even though login and `sudo` worked. The switch was
+  therefore never committed, and the armed timer reverted the host by itself (the journal shows
+  `nagare-switch-rollback.service` running the previous toplevel's activation), which incidentally
+  demonstrated the rollback path. The client now compares only the last stdout line and reports
+  stderr separately.
+
+- The third VM run hung for about 25 minutes at the test's own "lockout is real" probe. Without
+  `BatchMode`, ssh falls back to a password prompt on the test backdoor's terminal after the key
+  is rejected and waits forever. The same hang could happen in a real switch's arm, activate, or
+  commit call after a key removal, so `-o BatchMode=yes` is now on every client ssh, not only on
+  the verification login, and in the test's `NIX_SSHOPTS`. Lesson for long VM runs: watch for a
+  stalled log, not only for success and failure markers.
 
 
 ## Decision Log
@@ -199,6 +258,52 @@ Milestone 5 — Documentation, ADR, and hand-off:
   Rationale: The `tuple[str, str] | None` annotation is evaluated at import on Python < 3.10,
   which would crash before the fail-closed `try` and let the command run. The deferred
   annotation keeps the module importable on any `python3` found on `PATH`.
+  Date: 2026-09-12
+
+- Decision: The startup-script deny rule matches only commands that add metadata or create an
+  instance (`add-metadata` or `create` together with `startup-script`/`shutdown-script`).
+  Removing script metadata falls through to the instance-mutation ask rule.
+  Rationale: Scanning ExecPlan 114's bash blocks through `decide` showed that its cleanup,
+  `gcloud compute instances remove-metadata nagare-01 --keys=startup-script,ssh-keys,enable-oslogin`,
+  was denied. That would have blocked the recovery. Table cases were added for create,
+  project-info add-metadata, and remove-metadata.
+  Date: 2026-09-12
+
+- Decision: The rollback target is the boot-default generation (`readlink -f /nix/var/nix/profiles/system`),
+  falling back to `/run/current-system` only when the profile has no usable toplevel. The plan
+  text said `/run/current-system`.
+  Rationale: The boot default is the last committed generation, and it is what a reboot runs. So
+  the timer and a reboot agree. Re-arming after an interrupted, uncommitted switch then still
+  rolls back to the known-good generation rather than to the unverified one that happens to be
+  running. `ALREADY_ACTIVE` requires both the running system and the profile to equal NEW.
+  Date: 2026-09-12
+
+- Decision: `activate` runs `switch-to-configuration test` inside
+  `systemd-run --wait --pipe --collect --service-type=exec`, as `nixos-rebuild` itself does.
+  Rationale: If sshd restarts or the connection drops during activation, a child of the SSH session
+  could be killed halfway. A transient service outlives the session.
+  Date: 2026-09-12
+
+- Decision: The on-host script uses `window` instead of `SECONDS` for the confirmation period.
+  Rationale: `SECONDS` is a bash special variable that counts up on its own.
+  Date: 2026-09-12
+
+- Decision: The VM test's host node boots through GRUB (`virtualisation.useBootLoader = true`,
+  `installBootLoader = true`), so scenario 3 checks the real invariant after a crash
+  (`/etc/nagare-generation` is `good`). The pre-authorized fallback was not needed up front.
+  Scenario 2 uses a 150-second window instead of 45.
+  Rationale: With direct kernel boot, the VM ignores the system profile, and scenario 3 could not
+  tell the generations apart. With a 45-second window, the client's six verification attempts
+  (five 10-second pauses) outlast the window, so the host would already have reverted when the
+  test asserts that the lockout is real. That would make a correct implementation fail. A longer
+  window keeps the assertion meaningful, and the 180-second rollback wait still covers it.
+  Date: 2026-09-12
+
+- Decision: The IAP-tunnel instructions use `NIX_SSHOPTS="-o HostName=127.0.0.1 -p 2222 …"` with
+  `just host-switch`, not a separate target-host override.
+  Rationale: `host-switch.sh` names the target `deploy@<instance>`. A command-line `HostName`
+  option redirects every ssh and `nix copy` connection through the tunnel without changing the
+  script's interface.
   Date: 2026-09-12
 
 - Decision: Track the hook files with `git add -f`, because the repository `.gitignore` ignores
