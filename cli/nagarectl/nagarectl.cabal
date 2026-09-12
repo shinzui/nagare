@@ -194,6 +194,7 @@ test-suite nagarectl-test
     filepath,
     nagare-dsl,
     nagarectl,
+    process,
     tasty >=1.4,
     tasty-golden >=2.3,
     tasty-hunit >=0.10,

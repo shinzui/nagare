@@ -118,7 +118,16 @@ run_cli init cloud-onboarding \
   --skip-preflight --skip-enable --skip-seed --dry-run > cloud-init.out
 run_cli host init --context rehearsal-cloud \
   --ssh-public-key-file "$test_root/work/operator.pub" --dry-run > host-init.out
+# EP-113: a clone-free recipe run must carry the ACTIVE CONTEXT's Pulumi backend
+# and stack, exactly as a direnv-loaded checkout does. There is no .envrc here, so
+# `nagare` exports them itself by evaluating `nagarectl context env`.
+run_cli context env > context-env.sh
+grep -q "^export NAGARE_PULUMI_STACK='rehearsal-cloud'$" context-env.sh
+grep -q "^export PULUMI_BACKEND_URL='file://${test_root}/state/nagare/rehearsal-cloud/state'$" context-env.sh
+grep -q "^export CLOUDSDK_CORE_PROJECT='nagare-release-rehearsal'$" context-env.sh
 run_operator --dry-run infra-preview > infra-preview.out 2>&1
+# The recipe's project preflight must be part of the printed plan, ahead of Pulumi.
+grep -q 'nagarectl context guard' infra-preview.out
 
 current_system="$(nix eval --raw --impure --expr builtins.currentSystem)"
 supported_systems="$(nix eval "${flake_ref}#lib.release.supportedSystems" --json)"
@@ -133,7 +142,7 @@ result="$(jq -n -S \
   --argjson supportedSystems "$supported_systems" \
   '{version: $version, revision: $revision, flakeRef: $flakeRef, system: $system,
     supportedSystems: $supportedSystems, cloneFree: true,
-    checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe"]}')"
+    checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "context-env", "operator-recipe"]}')"
 
 if [[ -n "$output" ]]; then
   mkdir -p "$(dirname "$output")"
