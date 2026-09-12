@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Make the ACME identity context-owned and remove the personal fallback defaults
 description: Add the ACME contact and directory endpoint to the context schema and fail closed instead of registering Let's Encrypt accounts under a hardcoded personal address.
-timestamp: "2026-09-12T12:35:03Z"
+timestamp: "2026-09-12T13:34:52Z"
 generated:
   by: process:claude-code
   at: "2026-09-12T12:35:03Z"
 requestId: IR-3
-status: proposed
+status: accepted
+targetPlan: docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md
 origin: mori://shinzui/nagare
 ---
 
@@ -16,7 +17,7 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight audit of `v0.1.0` (HEAD `da24748`) performed while onboarding a second
 cloud context whose operator identity differs from the one baked into the defaults.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted; planned as [ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md).
 **Created:** 2026-09-12.
 
 
