@@ -145,7 +145,9 @@ cluster-bootstrap:
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook
-    cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl | kubectl apply -f -
+    issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
+      cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer" && \
+      kubectl apply -f "$issuer"
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
