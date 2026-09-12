@@ -61,6 +61,11 @@ if ! gsutil ls -b "gs://${BUCKET}/" >/dev/null 2>&1; then
   log "Creating bucket gs://${BUCKET}/ in ${REGION}"
   gsutil mb -p "${PROJECT}" -l "${REGION}" -b on "gs://${BUCKET}/"
 fi
+# GCS bucket names are GLOBAL, so a pre-existing same-named bucket in a FOREIGN
+# project would answer "yes, it exists" and then receive the multi-gigabyte host
+# image. Assert ownership by project number before anything else (EP-113).
+_require_bucket_in_target_project "${BUCKET}" \
+  "set a unique nagare:imageBucket with 'pulumi --cwd infra/pulumi config set imageBucket <unique-name>'."
 
 # Build the image by FULL attribute path so aarch64-darwin offloads to the
 # x86_64-linux remote builder. If the local copy-back over IAP-SSH drops on a
@@ -98,6 +103,11 @@ locate_tarball() {
 upload_if_missing() {
   local src="$1" uri="$2"
   if gsutil -q stat "${uri}"; then log "Already in GCS: ${uri}"; return 0; fi
+  # Re-assert immediately before the write (EP-113). Not redundant with the
+  # call above: the builder-side arm below uploads over SSH, and keeping the
+  # guarantee local to the mutation removes any dependence on caller ordering.
+  _require_bucket_in_target_project "${BUCKET}" \
+    "set a unique nagare:imageBucket with 'pulumi --cwd infra/pulumi config set imageBucket <unique-name>'."
   if [ -f "${src}" ]; then
     log "Uploading ${src} -> ${uri}"; gsutil cp "${src}" "${uri}"
   else

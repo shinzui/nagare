@@ -112,17 +112,11 @@ ensure_bucket() {
       --public-access-prevention
   fi
   # GCS bucket names are GLOBAL: a same-named bucket may exist in a FOREIGN
-  # project, and describe/update/IAM would mutate someone else's bucket. Assert
-  # the bucket's owning project number equals the target project's before any
-  # update, IAM change, or state import.
-  local bucket_pn target_pn
-  bucket_pn="$(gcloud storage buckets describe "gs://${bucket}" --format='value(projectNumber)' 2>/dev/null || true)"
-  target_pn="$(gcloud projects describe "${CLOUDSDK_CORE_PROJECT}" --format='value(projectNumber)' 2>/dev/null || true)"
-  if [ -z "${bucket_pn}" ] || [ -z "${target_pn}" ] || [ "${bucket_pn}" != "${target_pn}" ]; then
-    echo "refusing: gs://${bucket} is owned by project number '${bucket_pn:-<unknown>}', not the target project '${CLOUDSDK_CORE_PROJECT}' (number '${target_pn:-<unknown>}')." >&2
-    echo "  GCS bucket names are global; pick a different state bucket with --url gs://<unique-name>/nagare/${CTX}." >&2
-    return 1
-  fi
+  # project, and describe/update/IAM would mutate someone else's bucket. The
+  # shared, fail-closed assertion in scripts/lib/target.sh compares owning
+  # project numbers before any update, IAM change, or state import (EP-113).
+  _require_bucket_in_target_project "${bucket}" \
+    "pick a different state bucket with --url gs://<unique-name>/nagare/${CTX}." || return 1
 
   gcloud storage buckets update "gs://${bucket}" \
     --versioning --uniform-bucket-level-access --public-access-prevention
