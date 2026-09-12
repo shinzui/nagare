@@ -2692,11 +2692,18 @@ ensurePulumiInWorkspace name tp workspace = do
     PulumiBackendLocal ->
       createDirectoryIfMissing True (T.unpack (T.drop (T.length ("file://" :: Text)) (peBackendUrl penv)))
     PulumiBackendGcs -> pure ()
-  writeFile (peHome penv </> "passphrase") ""
+  -- EP-116: the passphrase file may hold the operator's real stack passphrase,
+  -- so create it only when absent and never truncate it.
+  let passphraseFile = peHome penv </> "passphrase"
+  passphraseExists <- doesFileExist passphraseFile
+  unless passphraseExists (writeFile passphraseFile "")
   setEnv "PULUMI_HOME" (peHome penv)
   setEnv "PULUMI_BACKEND_URL" (T.unpack (peBackendUrl penv))
-  setEnv "PULUMI_CONFIG_PASSPHRASE" ""
-  setEnv "PULUMI_CONFIG_PASSPHRASE_FILE" (peHome penv </> "passphrase")
+  -- Pulumi prefers PULUMI_CONFIG_PASSPHRASE over the file whenever it is set,
+  -- even to "", so drop an empty one and let the file decide.
+  inheritedPassphrase <- lookupEnv "PULUMI_CONFIG_PASSPHRASE"
+  when (maybe True null inheritedPassphrase) (unsetEnv "PULUMI_CONFIG_PASSPHRASE")
+  setEnv "PULUMI_CONFIG_PASSPHRASE_FILE" passphraseFile
   setEnv "NAGARE_PULUMI_STACK" (T.unpack stack)
   selected <- pulumiQuiet ["-C", pulumiDir, "stack", "select", T.unpack stack]
   case selected of

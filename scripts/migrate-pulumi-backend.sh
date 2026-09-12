@@ -86,13 +86,16 @@ set_context_var() {
   # so position carries no meaning.
   grep -v "^export ${key}=" "${file}" > "${tmp}" || true
   printf 'export %s=%s\n' "${key}" "${value}" >> "${tmp}"
-  mv "${tmp}" "${file}"
+  # Write through the path rather than renaming over it: the context file may be
+  # a symlink into a private operator repository (EP-116), and `mv` would replace
+  # the link with a regular file. This also keeps the file's mode.
+  cat "${tmp}" > "${file}"
+  rm -f "${tmp}"
 }
 
 pulumi_output() {
   # $1 backend url, $2 output name. Empty string if unavailable.
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="$1" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="$1" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack output "$2" --stack "${STACK}" 2>/dev/null || true
 }
 
@@ -143,8 +146,7 @@ do_forward() {
   local artifact="${MIGRATIONS_DIR}/pre-gcs-${stamp}.json"
 
   log "exporting local stack '${STACK}' -> ${artifact}"
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack export --show-secrets --stack "${STACK}" --file "${artifact}"
 
   local pre_domain pre_bucket
@@ -155,11 +157,9 @@ do_forward() {
   ensure_bucket "${url}"
 
   log "importing into GCS backend ${url}"
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${url}" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${url}" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack init "${STACK}" >/dev/null 2>&1 || true
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${url}" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${url}" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack import --stack "${STACK}" --file "${artifact}"
 
   local post_domain post_bucket
@@ -192,11 +192,9 @@ do_rollback() {
   # here would lose access to the stack's secrets (same bug class as the
   # unconditional truncation removed from scripts/lib/target.sh).
   [ -f "${LOCAL_HOME}/passphrase" ] || : > "${LOCAL_HOME}/passphrase"
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack init "${STACK}" >/dev/null 2>&1 || true
-  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE="" \
-    PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
+  PULUMI_HOME="${LOCAL_HOME}" PULUMI_BACKEND_URL="${LOCAL_URL}" PULUMI_CONFIG_PASSPHRASE_FILE="${LOCAL_HOME}/passphrase" \
     pulumi -C "${PULUMI_DIR}" stack import --stack "${STACK}" --file "${artifact}"
   set_context_var NAGARE_PULUMI_BACKEND local
   set_context_var NAGARE_PULUMI_BACKEND_URL ""

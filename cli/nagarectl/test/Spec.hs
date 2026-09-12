@@ -32,6 +32,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Nagare.App
   ( AppSummary (..)
@@ -271,6 +272,7 @@ import Nagare.Target
   , resolveTargetProfile
   , setCurrentContext
   , storeBackendFor
+  , writeContextPlatformVersion
   )
 import Nagare.Task.Discover
   ( AppScope (..)
@@ -293,7 +295,7 @@ import Nagare.Version
   , renderPlatformVersion
   )
 import PlatformSpec (platformTests)
-import System.Directory (createDirectoryIfMissing, getCurrentDirectory, setCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -525,7 +527,13 @@ initTests =
           (T.isInfixOf "export PULUMI_BACKEND_URL='file:///tmp/nagare-state/labs/state'\n" out)
         assertBool "pulumi home" (T.isInfixOf "export PULUMI_HOME='/tmp/nagare-state/labs/home'\n" out)
         assertBool "stack" (T.isInfixOf "export NAGARE_PULUMI_STACK='labs'\n" out)
-        assertBool "empty passphrase" (T.isInfixOf "export PULUMI_CONFIG_PASSPHRASE=''\n" out)
+        assertBool "no empty passphrase export" (not (T.isInfixOf "export PULUMI_CONFIG_PASSPHRASE=" out))
+        assertBool
+          "empty passphrase unset"
+          (T.isInfixOf "[ -n \"${PULUMI_CONFIG_PASSPHRASE:-}\" ] || unset PULUMI_CONFIG_PASSPHRASE\n" out)
+        assertBool
+          "passphrase file"
+          (T.isInfixOf "export PULUMI_CONFIG_PASSPHRASE_FILE='/tmp/nagare-state/labs/home/passphrase'\n" out)
     , testCase "renderContextShellEnv emits the gcs backend's remote URL" $ do
         let name = either (error . T.unpack) id (mkContextName "labs")
             gcsProfile = initProfile {tpPulumiBackend = PulumiBackendGcs}
@@ -940,7 +948,27 @@ contextResolutionTests :: TestTree
 contextResolutionTests =
   testGroup
     "Nagare.Target contexts (EP-87)"
-    [ testCase "resolveActiveContext honors store, pointer, env overrides, local mode, and back-compat" $ do
+    [ testCase "writeContextPlatformVersion keeps a symlinked context file a symlink (EP-116)" $ do
+        saved <- lookupEnv "XDG_CONFIG_HOME"
+        withSystemTempDirectory "nagare-context-link" $ \root ->
+          flip finally (maybe (unsetEnv "XDG_CONFIG_HOME") (setEnv "XDG_CONFIG_HOME") saved) $ do
+            let xdg = root </> "config"
+                ops = root </> "ops"
+                name = either (error . T.unpack) id (mkContextName "labs")
+            createDirectoryIfMissing True (xdg </> "nagare" </> "contexts")
+            createDirectoryIfMissing True ops
+            writeFile (ops </> "labs.env") "export CLOUDSDK_CORE_PROJECT=labs-proj\n"
+            setEnv "XDG_CONFIG_HOME" xdg
+            link <- contextFilePath name
+            createFileLink (ops </> "labs.env") link
+            result <- writeContextPlatformVersion name "9.9.9"
+            result @?= Right ()
+            stillLink <- pathIsSymbolicLink link
+            assertBool "context file is still a symlink" stillLink
+            target <- TIO.readFile (ops </> "labs.env")
+            assertBool "target keeps project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT=labs-proj\n" target)
+            assertBool "target gains version" (T.isInfixOf "export NAGARE_PLATFORM_VERSION=9.9.9\n" target)
+    , testCase "resolveActiveContext honors store, pointer, env overrides, local mode, and back-compat" $ do
         saved <- traverse (\v -> (,) v <$> lookupEnv v) savedVars
         originalCwd <- getCurrentDirectory
         let restore = do

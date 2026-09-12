@@ -70,7 +70,7 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , parseLocalObjectStore
   )
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
 
@@ -313,12 +313,15 @@ writeContextPlatformVersion name version = do
     then pure (Left ("context '" <> contextNameText name <> "' does not exist"))
     else do
       result <- try $ do
-        contents <- TIO.readFile path
+        -- EP-116: the context file may be a symlink into a private operator
+        -- repository; rename over its target, never over the link itself.
+        realPath <- canonicalizePath path
+        contents <- TIO.readFile realPath
         let retained = filter (not . isVersionLine) (T.lines contents)
             rendered = T.unlines (retained <> ["export NAGARE_PLATFORM_VERSION=" <> version])
-            temporary = path <> ".upgrade"
+            temporary = realPath <> ".upgrade"
         TIO.writeFile temporary rendered
-        renameFile temporary path
+        renameFile temporary realPath
       pure $ case result of
         Left (err :: IOException) -> Left ("could not update platform version in " <> T.pack path <> ": " <> T.pack (show err))
         Right () -> Right ()
@@ -481,7 +484,9 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
     , line "PULUMI_HOME" (T.pack (peHome penv))
     , line "PULUMI_BACKEND_URL" (peBackendUrl penv)
-    , line "PULUMI_CONFIG_PASSPHRASE" ""
+    , -- EP-116: an empty PULUMI_CONFIG_PASSPHRASE would shadow the passphrase
+      -- file; keep an operator's non-empty export, otherwise let the file decide.
+      "[ -n \"${PULUMI_CONFIG_PASSPHRASE:-}\" ] || unset PULUMI_CONFIG_PASSPHRASE"
     , line "PULUMI_CONFIG_PASSPHRASE_FILE" (T.pack (peHome penv </> "passphrase"))
     , line "NAGARE_PULUMI_STACK" (peStack penv)
     ]

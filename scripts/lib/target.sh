@@ -301,7 +301,10 @@ _nagare_export_pulumi_env() {
   # passphrase an operator had written here (losing access to stack secrets).
   [ -f "${root}/home/passphrase" ] || : > "${root}/home/passphrase"
   export PULUMI_HOME="${root}/home"
-  export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-}"
+  # EP-116: Pulumi prefers PULUMI_CONFIG_PASSPHRASE over the file whenever it is
+  # set, even to "". Keep an operator's non-empty export; otherwise unset it so
+  # the per-context passphrase file decides (an empty file means no passphrase).
+  [ -n "${PULUMI_CONFIG_PASSPHRASE:-}" ] || unset PULUMI_CONFIG_PASSPHRASE
   export PULUMI_CONFIG_PASSPHRASE_FILE="${root}/home/passphrase"
   export NAGARE_PULUMI_STACK="${ctx}"
   if [ "${backend}" = "gcs" ]; then
