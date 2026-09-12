@@ -711,6 +711,7 @@ pulumiBackendBootstrapTests =
               , "buckets"
               , "describe"
               , "gs://acme-prod-nagare-pulumi-state"
+              , "--raw"
               , "--format=value(projectNumber)"
               ]
     , testCase "projectNumberArgs reads the target project's number" $
@@ -780,7 +781,7 @@ pulumiBackendBootstrapTests =
           capture args = do
             record args
             pure $ case args of
-              ("storage" : "buckets" : "describe" : _ : "--format=value(projectNumber)" : _) -> mBucketNumber
+              ("storage" : "buckets" : "describe" : _ : "--raw" : "--format=value(projectNumber)" : _) -> mBucketNumber
               ("storage" : "buckets" : "describe" : _) -> Just "acme-prod-nagare-pulumi-state"
               ("projects" : "describe" : _) -> mTargetNumber
               _ -> Nothing

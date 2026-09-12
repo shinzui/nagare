@@ -120,13 +120,14 @@ bucketIamArgs bucket member =
   , "--role=roles/storage.objectAdmin"
   ]
 
--- | @gcloud storage buckets describe gs:\/\/\<bucket> --format=value(projectNumber)@ —
+-- | @gcloud storage buckets describe gs:\/\/\<bucket> --raw --format=value(projectNumber)@ —
 -- reads the bucket's OWNING project number. GCS bucket names are global, so a
 -- successful describe is not evidence that the bucket is ours; only the owning
--- project number is, because a name collision cannot forge it.
+-- project number is, because a name collision cannot forge it. @--raw@ is required:
+-- current gcloud omits @projectNumber@ from the formatted bucket resource (EP-116).
 bucketProjectNumberArgs :: Text -> [String]
 bucketProjectNumberArgs bucket =
-  ["storage", "buckets", "describe", "gs://" <> T.unpack bucket, "--format=value(projectNumber)"]
+  ["storage", "buckets", "describe", "gs://" <> T.unpack bucket, "--raw", "--format=value(projectNumber)"]
 
 -- | @gcloud projects describe \<project> --format=value(projectNumber)@ — the target
 -- project's own number, the value the bucket's must equal.
