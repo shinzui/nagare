@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Make the ACME identity context-owned and remove the personal fallback defaults
 description: Add the ACME contact and directory endpoint to the context schema and fail closed instead of registering Let's Encrypt accounts under a hardcoded personal address.
-timestamp: "2026-09-12T13:34:52Z"
+timestamp: "2026-09-12T15:54:05Z"
 generated:
   by: process:claude-code
   at: "2026-09-12T12:35:03Z"
 requestId: IR-3
-status: accepted
+status: completed
+completedAt: "2026-09-12T15:54:05Z"
+resolution: "EP-112 made NAGARE_ACME_EMAIL and NAGARE_ACME_DIRECTORY first-class context fields with no built-in contact default, made cluster/bootstrap/render-context-template.sh resolve through scripts/lib/target.sh and refuse with empty stdout when a template needs a contact the context does not carry, applied _require_target_project to project-bearing templates, and locked all four of the requested verifications into nix flake check (render-context-template, cluster-bootstrap-defaults, the extended nagare-clone-free-platform, and the Nagare.Init ACME unit tests). Recorded as ADR 10."
 targetPlan: docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md
 origin: mori://shinzui/nagare
 ---
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight audit of `v0.1.0` (HEAD `da24748`) performed while onboarding a second
 cloud context whose operator identity differs from the one baked into the defaults.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; planned as [ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md).
+**Status:** completed by [ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md);
+the durable decision is recorded as [ADR 10](../adr/0010-the-active-context-owns-the-acme-identity.md).
 **Created:** 2026-09-12.
 
 
