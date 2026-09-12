@@ -112,6 +112,14 @@
             let
               fakePulumi = pkgs.writeShellScriptBin "pulumi" ''
                 printf '%s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+                case " $* " in
+                  *" config get gcp:project "*)
+                    # EP-113: the `nagarectl context guard` fixture drives the
+                    # stack's declared project from the environment, so the check
+                    # can exercise both the agreeing and the disagreeing verdict.
+                    printf '%s\n' "''${NAGARE_FAKE_STACK_PROJECT:-}"
+                    ;;
+                esac
                 exit 0
               '';
               fakeJsonTool = name: pkgs.writeShellScriptBin name ''
@@ -216,6 +224,35 @@
                 nagarectl platform upgrade --to 0.1.0 --payload-root "$payload_root" --dry-run --json > upgrade.json
                 jq -e '.state == "planned" and .previousVersion == "0.0.0" and .targetVersion == "0.1.0" and ([.phases[] | select(.state == "succeeded")] | length) == 3' upgrade.json >/dev/null
                 grep -q 'NAGARE_PLATFORM_VERSION=0.0.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+
+                # EP-113: `nagarectl context guard` refuses when the selected Pulumi
+                # stack's gcp:project disagrees with the active context. This is the
+                # preflight `just infra-up` / `just infra-preview` now run before
+                # Pulumi is invoked at all. The ambient CLOUDSDK_CORE_PROJECT is set
+                # to the context's own project so the guard's third source (gcloud's
+                # configured project, which the fake gcloud answers with JSON) is not
+                # consulted; the stack alone varies between the two runs.
+                nagarectl context create guardcloud \
+                  --project acme-prod \
+                  --region us-west1 \
+                  --zone us-west1-a \
+                  --base-domain apps.acme.example
+                export CLOUDSDK_CORE_PROJECT=acme-prod
+
+                NAGARE_FAKE_STACK_PROJECT=acme-prod \
+                  nagarectl --context guardcloud context guard > guard-ok.out 2> guard-ok.err
+                grep -q 'context guard: guardcloud confined to project acme-prod (stack guardcloud)' guard-ok.out
+
+                if NAGARE_FAKE_STACK_PROJECT=some-other-project \
+                  nagarectl --context guardcloud context guard > guard-bad.out 2> guard-bad.err; then
+                  echo "context guard accepted a stack targeting a foreign project" >&2
+                  cat guard-bad.out guard-bad.err >&2
+                  exit 1
+                fi
+                grep -q 'some-other-project' guard-bad.err
+                grep -q 'acme-prod' guard-bad.err
+                unset CLOUDSDK_CORE_PROJECT
+
                 touch "$out"
               '';
 

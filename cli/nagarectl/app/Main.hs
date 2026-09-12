@@ -175,6 +175,11 @@ import Nagare.Ops.Domains
   )
 import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Ops.ContextGuard
+  ( ProjectGuardInputs (..)
+  , projectGuardVerdict
+  , renderProjectGuard
+  )
 import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
 import Nagare.Platform.Paths
@@ -293,11 +298,16 @@ import Nagare.Version
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, makeAbsolute)
-import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
-import System.Process (readProcessWithExitCode)
+import System.Process
+  ( CreateProcess (env)
+  , proc
+  , readCreateProcessWithExitCode
+  , readProcessWithExitCode
+  )
 import "generic-lens" Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
@@ -553,6 +563,9 @@ data ContextCommand
   | ContextShow (Maybe String)
   | ContextCreate String ContextCreateOpts
   | ContextDelete String Bool
+  | -- | EP-113: refuse when anything disagrees about which project the next
+    -- Pulumi operation would write to. The 'Bool' is @--json@.
+    ContextGuard Bool
   deriving stock (Generic, Show)
 
 data ContextCreateOpts = ContextCreateOpts
@@ -1616,6 +1629,7 @@ opts =
             <> command "show" (info (ContextShow <$> optional contextNameArg <**> helper) (progDesc "Print a context bundle (default: active context)"))
             <> command "create" (info (ContextCreate <$> contextNameArg <*> contextCreateOptsParser <**> helper) (progDesc "Write a new context into the store"))
             <> command "delete" (info (ContextDelete <$> contextNameArg <*> switch (long "yes" <> help "Confirm deletion") <**> helper) (progDesc "Delete a context from the store"))
+            <> command "guard" (info (ContextGuard <$> switch (long "json" <> help "Emit the compared values as JSON") <**> helper) (progDesc "Refuse unless the Pulumi stack, the environment and gcloud all agree with the active context's project"))
         )
     initCmd =
       info
@@ -2890,6 +2904,7 @@ runContext mctx = \case
           Right () -> pure ()
           Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
+  ContextGuard asJson -> runContextGuard mctx asJson
   ContextDelete rawName yes -> do
     name <- parseContextNameOrDie rawName
     ok <- contextExists name
@@ -2903,6 +2918,92 @@ runContext mctx = \case
             cur <- readCurrentContext
             when (cur == Just name) clearCurrentContext
             TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
+
+-- | @nagarectl context guard@ (EP-113). The project-confinement preflight for
+-- @just infra-up@ / @just infra-preview@, which before this had no project check at
+-- all: the selected Pulumi stack's own config was the only thing standing between
+-- @pulumi up@ and someone else's project.
+--
+-- Deliberately separate from @nagarectl platform guard@, which answers the orthogonal
+-- release-compatibility question. The @justfile@ composes both, which is where a
+-- recipe's full preflight belongs.
+runContextGuard :: Maybe String -> Bool -> IO ()
+runContextGuard mctx asJson = do
+  active <- activeTarget mctx
+  let name = atContextName active
+      tp = atProfile active
+      ctx = contextNameText name
+  case tpMode tp of
+    -- A local context has no GCP project, exactly as `_require_target_project` in
+    -- scripts/lib/target.sh has no project to check there.
+    Local ->
+      if asJson
+        then LBC.putStrLn (Aeson.encode (Aeson.object ["context" Aeson..= ctx, "mode" Aeson..= ("local" :: Text), "confined" Aeson..= True]))
+        else TIO.putStrLn "context guard: local mode; no GCP project to confine"
+    Cloud -> do
+      -- Ensure the per-context PULUMI_HOME, backend URL and stack exist and are
+      -- selected, so the guard is usable as the ONLY preflight a clone-free recipe
+      -- needs. These operations are idempotent and `.envrc` performs them on every
+      -- shell entry already.
+      workspace <- ensurePulumiForContext name tp
+      stateRoot <- nagareStateDir
+      let penv = pulumiEnvFor stateRoot ctx tp
+          stack = peStack penv
+      stackProject <-
+        captureTrimmed
+          "pulumi"
+          ["-C", pwPulumiDir workspace, "config", "get", "gcp:project", "--stack", T.unpack stack]
+      ambient <- fmap T.pack <$> lookupEnv "CLOUDSDK_CORE_PROJECT"
+      configured <- gcloudConfiguredProject
+      let pgi =
+            ProjectGuardInputs
+              { pgiContext = ctx
+              , pgiDeclared = tpProject tp
+              , pgiStack = stack
+              , pgiStackProject = stackProject
+              , pgiAmbient = nonBlank =<< ambient
+              , pgiConfigured = configured
+              }
+          value =
+            Aeson.object
+              [ "context" Aeson..= pgiContext pgi
+              , "declaredProject" Aeson..= pgiDeclared pgi
+              , "stack" Aeson..= pgiStack pgi
+              , "stackProject" Aeson..= pgiStackProject pgi
+              , "ambientProject" Aeson..= pgiAmbient pgi
+              , "configuredProject" Aeson..= pgiConfigured pgi
+              ]
+      case projectGuardVerdict pgi of
+        Left msg -> do
+          when asJson $
+            LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= value]))
+          dieT msg
+        Right () ->
+          if asJson
+            then LBC.putStrLn (Aeson.encode (Aeson.object ["confined" Aeson..= True, "observations" Aeson..= value]))
+            else TIO.putStrLn (renderProjectGuard pgi)
+  where
+    nonBlank t = if T.null (T.strip t) then Nothing else Just (T.strip t)
+    captureTrimmed exe args = (nonBlank . TE.decodeUtf8Lenient =<<) <$> captureTool exe args
+    -- gcloud lets CLOUDSDK_CORE_PROJECT shadow its own configuration, so read the
+    -- configured value with that variable stripped from the child's environment —
+    -- otherwise the comparison would be a tautology. Modify the inherited
+    -- environment rather than unsetting the variable in this process, which would
+    -- not be safe.
+    gcloudConfiguredProject = do
+      parentEnv <- getEnvironment
+      let childEnv = filter ((/= "CLOUDSDK_CORE_PROJECT") . fst) parentEnv
+      captured <-
+        (readCreateProcessResult childEnv) `catch` \(_ :: IOException) -> pure Nothing
+      pure (nonBlank =<< captured)
+    readCreateProcessResult childEnv = do
+      (code, out, _) <-
+        readCreateProcessWithExitCode
+          (proc "gcloud" ["config", "get-value", "project"]) {env = Just childEnv}
+          ""
+      pure $ case code of
+        ExitSuccess -> Just (T.pack out)
+        ExitFailure _ -> Nothing
 
 parseContextNameOrDie :: String -> IO ContextName
 parseContextNameOrDie raw =
