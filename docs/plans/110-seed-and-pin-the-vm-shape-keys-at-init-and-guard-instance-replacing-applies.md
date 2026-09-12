@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T12:53:17Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-12T13:09:52Z
+      mode: "update"
+      note: "Accept IR-4 with a targetPlan pointer and rewrite Milestone 5's closing steps from the pinned profile"
 ---
 
 # Seed and pin the VM shape keys at init and guard instance-replacing applies
@@ -105,7 +111,7 @@ This section must always reflect the actual current state of the work.
   - [ ] `okf log add docs/user` entry and a green `just user-documentation-validate`.
 - [ ] M5: Durable context recorded and the improvement request closed.
   - [ ] Write `docs/adr/0009-the-active-context-owns-the-vm-shape.md`.
-  - [ ] Flip `docs/improvement-requests/seed-vm-shape-keys-at-init.md` to its delivered status and log it.
+  - [ ] Move `docs/improvement-requests/seed-vm-shape-keys-at-init.md` from `accepted` to `completed`, with `completedAt` and `resolution`, and log it.
   - [ ] Fill in Outcomes & Retrospective.
 
 
@@ -194,6 +200,16 @@ Record every decision made while working on the plan.
   Rationale: IR-4 lists "a different default machine type by itself" as a non-goal, and changing
   the default would alter the plan for every unpinned stack — exactly the failure mode this work
   exists to prevent.
+  Date: 2026-09-12
+
+- Decision: Move IR-4 to `status: accepted` with a `targetPlan` pointer as soon as this plan
+  existed, rather than leaving it `proposed` until the work lands.
+  Rationale: the request's claims were all verified against the working tree during planning, so
+  the decision to take it up has genuinely been made, and `accepted` is the profile's value for
+  exactly that. `targetPlan` is the profile's optional field for "repository-relative path or
+  Mori URI of the implementation plan", so the request and the plan now point at each other and
+  a reader of either can find the other. `completed` is deliberately left for M5, when there is
+  evidence to put in `resolution`.
   Date: 2026-09-12
 
 - Decision: This plan is not a child of a MasterPlan.
@@ -596,20 +612,31 @@ the Pulumi program, owns the VM's shape; that the program's literals are a fallb
 pre-seeding stacks only; and that any apply whose plan would replace the instance is refused by
 default because the boot disk holds cluster state that the protected data disk does not.
 
-Then flip the improvement request. Set `status` in
-`docs/improvement-requests/seed-vm-shape-keys-at-init.md` to the value the profile uses for
-delivered work — read the accepted set from
-`https://raw.githubusercontent.com/shinzui/okf-profiles/v0.12.0/package.dhall` as pinned by
-`docs/improvement-requests/profile.dhall`, or infer it from a sibling bundle rather than
-guessing — update its `timestamp`, and add a log entry:
+Then close the improvement request. It was already moved to `status: accepted` when this plan
+was created, and it carries `targetPlan` pointing back here, so the remaining move is to the
+terminal state. The lifecycle values the profile allows are `proposed`, `accepted`,
+`in-progress`, `completed`, `rejected`, `withdrawn` and `superseded` — read from
+`profiles/coordination/improvement-requests.dhall` in the `shinzui/okf-profiles` project, which
+`docs/improvement-requests/profile.dhall` pins at `v0.12.0`. Two fields become due at that
+point: `completedAt`, which the profile *requires* once `status` is `completed` and which must be
+an RFC 3339 UTC timestamp, and `resolution`, which it recommends for any terminal state and which
+should name the evidence — the merged commits and the passing checks — rather than restating the
+request. Bump `timestamp` and `generated.at` to the same moment, then log and validate:
 
 ```bash
-okf log add docs/improvement-requests --kind Update -m "Deliver IR-4: init seeds the VM shape keys and infra-up refuses an instance-replacing plan."
+okf log add docs/improvement-requests --kind Update -m "Complete IR-4: init seeds the VM shape keys and infra-up refuses an instance-replacing plan."
 okf validate docs/improvement-requests --strict --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
 ```
 
-Do not add a `reviews` entry to satisfy the profile's recommendation — that field records real
-review provenance, and the bundle already validates with the warning present.
+Expect the command to exit 0 while still printing one `missing profile-recommended field: reviews`
+line per request in the bundle. That warning is pre-existing on all four of the September 2026
+requests and must be left alone: `reviews` records real human or model review provenance, and
+inventing an entry to silence `--strict` would make the field a lie.
+
+Optionally, while editing the request, promote its "Required verification" prose into the
+profile's structured `acceptanceCriteria` list (`id` as `AC-N`, `statement`, `verification`).
+Only do this if each criterion can be grounded in what was actually built; leave the prose in
+place either way.
 
 Finally fill in Outcomes & Retrospective in this plan.
 
@@ -791,3 +818,16 @@ The Pulumi type token the classifier matches, `gcp:compute/instance:Instance`, i
 `infra/pulumi/src/components/NagareInstance.ts`. If that component ever stops creating a
 `gcp.compute.Instance`, the guard goes blind, so the constant lives in one place in
 `Nagare.Infra.Plan` with a comment pointing at that file.
+
+
+## Revision note — 2026-09-12
+
+Reflected the plan back into the improvement request it implements, and corrected Milestone 5 to
+match what the request now says. `docs/improvement-requests/seed-vm-shape-keys-at-init.md` moved
+from `status: proposed` to `status: accepted`, gained a `targetPlan` pointer to this file, and
+gained a "Planning outcome" section recording that every claim in it was verified against the
+working tree and naming the three scoping decisions taken here. Milestone 5 previously told the
+implementer to discover the profile's delivered-work status value; that value set is now read
+from the `shinzui/okf-profiles` source and written down, along with the `completedAt` and
+`resolution` fields that become due at completion, so the closing step no longer requires
+research. The Progress checklist and Decision Log were updated to match.
