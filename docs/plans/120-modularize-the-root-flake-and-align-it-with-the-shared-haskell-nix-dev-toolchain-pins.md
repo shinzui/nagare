@@ -77,7 +77,9 @@ scope and must not change.
 - [x] (2026-09-13T17:07:03Z) Milestone 2: the derivation-equivalence gate printed
       `gate: aarch64-darwin identical` and `gate: x86_64-linux identical`; the committed split also
       passed `nix flake check --print-build-logs`, including all 438 CLI tests.
-- [ ] Milestone 3: convert the wiring to flake-parts modules with a rev-pinned `flake-parts` input.
+- [x] (2026-09-13T17:13:29Z) Milestone 3: convert the wiring to flake-parts modules with a
+      rev-pinned `flake-parts` input; `nix flake check --no-build --print-build-logs` passes and
+      `flake.lock` still contains exactly one nixpkgs node.
 - [ ] Milestone 3: pass the derivation-equivalence gate on both systems.
 - [ ] Milestone 4: record the current `nix-haskell-flake` pin in the Decision Log.
 - [ ] Milestone 4: follow `haskell-nix-dev` for nixpkgs and flake-parts; add the Cachix `nixConfig`.
@@ -115,6 +117,13 @@ scope and must not change.
   `8c05077ccb764b6010f1eb2dcd8630baf756f937`; `sourceRevision` is deliberately embedded in the
   package and therefore changes with the commit. The gate avoids this by evaluating exported
   `path:` flakes, where `sourceRevision` is null.
+
+- Observation: flake-parts publishes five additional standard output names even when Nagare does
+  not populate them: `formatter`, `legacyPackages`, `nixosConfigurations`, `nixosModules`, and
+  `overlays`.
+  Evidence: direct `nix eval --json ... --apply builtins.attrNames` probes returned empty attribute
+  sets for all five; `legacyPackages` has one empty set under each supported system. The existing
+  packages, apps, checks, development shells, Hydra jobs, and release metadata remain populated.
 
 
 ## Decision Log
@@ -162,6 +171,13 @@ scope and must not change.
   `inputs.nixpkgs-lib.follows = "nixpkgs"`.
   Rationale: This introduces no second nixpkgs and makes Milestone 4's switch to
   `flake-parts.follows = "haskell-nix-dev/flake-parts"` a no-op for flake-parts itself.
+  Date: 2026-09-13
+
+- Decision: Accept flake-parts' five empty standard outputs as the only output-name difference in
+  the Milestone 3 refactor gate.
+  Rationale: They are empty module-schema defaults rather than new build or release artifacts. The
+  plan explicitly permits empty flake-parts outputs, while still requiring every pre-existing
+  derivation and value to compare exactly.
   Date: 2026-09-13
 
 - Decision: In Milestone 5, use `haskell-nix-dev`'s `lib.<system>.mkDevShell` rather than reaching
