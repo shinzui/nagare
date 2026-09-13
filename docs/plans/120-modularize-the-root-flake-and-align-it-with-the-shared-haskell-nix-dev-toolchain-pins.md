@@ -96,10 +96,13 @@ scope and must not change.
       wrapper's underlying `nagarectl` package exposes no `doc` output.
 - [x] (2026-09-13T17:26:19Z) Milestone 4: drop the Pulumi override and its release-specific hashes;
       the shared nixpkgs supplies Pulumi 3.255.0.
-- [ ] Milestone 4: `nix flake check` passes on both systems; lock is immovable; `nixos/flake.lock`
-      unchanged.
-- [ ] Milestone 5 (optional): move large inline check scripts into `nix/checks/scripts/*.sh` and
-      shellcheck them.
+- [x] (2026-09-13T18:49:03Z) Milestone 4: all 21 flake checks pass on both supported systems,
+      including all 438 CLI tests; the three release packages build explicitly on both systems;
+      `nix flake update` is immovable; and `nixos/flake.lock` remains unchanged.
+- [x] (2026-09-13T18:05:32Z) Milestone 5: move the six large inline check scripts into
+      `nix/checks/scripts/*.sh`, pass their source and payload values as derivation attributes, and
+      include them in `shellcheck-scripts`; the committed tree passes all 21 native flake checks,
+      including all 438 CLI tests and the clone-free platform rehearsal.
 - [x] (2026-09-13T17:52:22Z) Milestone 5: build both developer shells with
       `haskell-nix-dev`'s `mkDevShell`; the default includes HLS and the Haskell-focused shell omits
       it. The Cachix path probe succeeded, HLS 2.13.0.0 reports GHC 9.12.4, and `ghc --version`
@@ -142,6 +145,43 @@ scope and must not change.
   Evidence: the first generated lock had `nixpkgs` at `d5dfd8e` and `nixpkgs_2` at `4533d92`, matching
   the current `nix-haskell-flake` template lock. Overriding
   `haskell-nix-dev/treefmt-nix/nixpkgs` to follow `haskell-nix-dev/nixpkgs` removes `nixpkgs_2`.
+
+- Observation: On this nixpkgs revision, `dontHaddock` removes actual documentation work and the
+  `doc` output, but the generic Haskell builder still logs entry into an empty `haddockPhase` hook.
+  Evidence: both checked packages expose only `["out"]`; the `nagarectl` wrapper's underlying
+  package exposes `[[]]`; and their logs report `phase-hook=1 actual-haddock=0` when separately
+  counting `Running phase: haddockPhase` and `Running Haddock on`. The plan's original expectation
+  that the phase-hook count itself would be zero was too strict.
+
+- Observation: Nagarectl's supported version interface is the `version` subcommand, not a global
+  `--version` option.
+  Evidence: `nix run .#nagarectl -- --version` reports `Invalid option`, while
+  `nix run .#nagarectl -- version --json` returns platform version `0.1.0`, revision
+  `fd69be61417fbba57faada46f594129c8a64ad27`, and CLI version `0.1.0`.
+
+- Observation: The first final Linux validation attempt reached the running GCP builder but the
+  managed ProxyCommand's ephemeral local port refused the SSH connection.
+  Evidence: Nix reported `socat ... localhost:21477: Connection refused`. The established fallback
+  — a direct local-port IAP tunnel with the scanned ED25519 host key passed through
+  `base64-ssh-public-host-key` — successfully dispatched the same derivations to
+  `ssh://builder@localhost:22477`; all 21 checks and the explicit `nagarectl`, `nagare-platform`,
+  and `nagare` package gate then passed, and the temporary tunnel was closed.
+
+- Observation: `haskell-style` was the only check that was accidentally Darwin-specific: its
+  derivation executed `scripts/check-haskell-style.sh` directly, whose `/usr/bin/env bash` shebang
+  is unavailable in the Linux Nix sandbox.
+  Evidence: the first Linux run stopped with `/usr/bin/env: bad interpreter`; changing the check to
+  `bash scripts/check-haskell-style.sh` passed independently on both systems and in the complete
+  Linux rerun (`641e690`).
+
+- Observation: the shared Cachix cache covers the `haskell-nix-dev` toolchain, but Nagare does not
+  currently publish its application dependency closure.
+  Evidence: the Linux run substituted GHC/HLS and 6.2 GiB of existing paths, then built uncached
+  dependencies such as `foundation`, `crypton`, `tls`, and `warp`. The registered
+  `mori://shinzui/haskell-nix-dev/repos/haskell-nix-dev` source uses
+  `cachix/cachix-action@v15` to push its toolchains, while Nagare's `.github/workflows/ci.yml` only
+  installs Nix. A follow-up should add the same authenticated Cachix push to Nagare's flake-check
+  job; migrating to the separate `haskell.nix` framework is not required for that cache win.
 
 
 ## Decision Log
@@ -244,7 +284,31 @@ scope and must not change.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The root flake is now a 66-line flake-parts entry point backed by single-purpose modules under
+`nix/` and domain check modules under `nix/checks/`. All checks, the platform payload, and the
+networked Hydra package use the filtered source from `nix/source.nix`, so edits to `flake.nix`,
+`flake.lock`, or `nix/` no longer invalidate content-only source inputs. Exact `drvPath` comparison
+proved the plain-module split and then the flake-parts conversion preserved every pre-existing
+output on both supported systems; flake-parts added only its documented empty standard outputs.
+
+The root lock now follows rev-pinned `haskell-nix-dev` revision `206ecd25bcb4a07581210bdae3e6f43c8fd179d8`
+for nixpkgs and flake-parts, contains one nixpkgs node at
+`d5dfd8e6716dde34398bc14bc87c10dece9c8c68`, and is immovable under `nix flake update`. Nagare uses
+GHC 9.12.4, nixpkgs Pulumi 3.255.0, and shared development-shell construction. Its own `cradle`,
+`nagare-dsl`, and `nagarectl` derivations have no `doc` output and perform no actual Haddock
+invocation. The HLS 2.13.0.0 path is substitutable from `shinzui.cachix.org` and reports GHC 9.12.4.
+
+All 21 checks passed on both `aarch64-darwin` and `x86_64-linux`, including the 438 Nagarectl tests,
+typed example compilation, external-config validation, shellcheck, and the clone-free platform
+rehearsal. `nagarectl`, `nagare-platform`, and `nagare` also passed explicit package builds on both
+systems; `nagarectl version` reports 0.1.0. The six largest check bodies are maintainable shell
+files covered by shellcheck, the documentation and `.envrc` describe the new layout, ADR 17 records
+the durable pin ownership, and `just docs-validate` passes. The private, relaxed-sandbox Hydra job
+remains delegated to CI as planned, and the independent `nixos/` host flake was not changed.
+
+The cold Linux run exposed the next worthwhile improvement: publish Nagare's realized flake-check
+closure to the existing Cachix cache. The current shared cache successfully avoids rebuilding the
+toolchain, but it cannot substitute application dependencies until a Nagare CI job pushes them.
 
 
 ## Context and Orientation
@@ -509,11 +573,11 @@ the first `ubuntu-latest` CI run will be slow.
 
 Acceptance: `nix flake check` passes on `aarch64-darwin`; every `checks.x86_64-linux.*` builds on the
 Linux builder; `.#nagarectl`, `.#nagare`, and `.#nagare-platform` build on both systems and
-`nagarectl --version` runs; the lock has a single `nixpkgs` node whose revision equals
+`nagarectl version` runs; the lock has a single `nixpkgs` node whose revision equals
 `haskell-nix-dev`'s; `nix flake update` leaves `flake.lock` unchanged; `git diff --exit-code nixos/`
 is clean; and `nix develop -c ghc --version` prints 9.12.4; and the `cradle`, `nagare-dsl`, and `nagarectl`
 derivations (including `checkedNagareDsl` and `checkedNagarectl`) list no `doc` output and their
-build logs contain no Haddock phase. The `hydraJobs` networked check is left
+build logs contain no actual Haddock invocation. The `hydraJobs` networked check is left
 to CI because it needs a private token and a relaxed sandbox.
 
 ### Milestone 5 (optional) — script files, cached HLS, docs, ADR
@@ -688,13 +752,14 @@ for check in nagare-dsl-build-test nagarectl-build-test; do
   nix eval --json ".#checks.aarch64-darwin.$check.outputs"
 done
 nix eval --json .#packages.aarch64-darwin.nagarectl --apply 'p: builtins.map (d: d.outputs or [ ]) p.paths'
-nix log .#checks.aarch64-darwin.nagarectl-build-test | grep -c 'haddockPhase' || true
+nix log .#checks.aarch64-darwin.nagarectl-build-test | grep -c 'Running Haddock on' || true
 ```
 
 Expected: both check `outputs` lists contain no `"doc"` (with Haddock enabled nixpkgs adds `"doc"`
 next to `"out"`), the `nagarectl` wrapper's underlying package likewise has no `"doc"`, and the log
-search prints `0`. `nix log` only works after the check has been built on this machine; run it after
-`nix flake check`.
+search prints `0`. The generic builder may still log entry into an empty `haddockPhase` hook; the
+meaningful assertion is that it never invokes Haddock. `nix log` only works after the check has been
+built on this machine; run it after `nix flake check`.
 
 Then validate:
 
@@ -704,7 +769,7 @@ nix eval --json .#checks.x86_64-linux --apply builtins.attrNames \
   | jq -r '.[] | ".#checks.x86_64-linux." + .' \
   | xargs nix build --no-link --print-build-logs
 nix build --no-link .#packages.x86_64-linux.nagarectl .#packages.x86_64-linux.nagare-platform .#packages.x86_64-linux.nagare
-nix run .#nagarectl -- --version
+nix run .#nagarectl -- version
 nix develop -c ghc --version
 nix flake update && git diff --exit-code flake.lock && echo "pins are immovable"
 git diff --exit-code -- nixos/ && echo "host flake untouched"
@@ -745,7 +810,7 @@ on the Linux builder; CI's `flake-check` and `nagare-access-check` jobs pass on 
 The Haskell suites (`nagare-dsl-build-test`, `nagarectl-build-test`), the typed-config runtime checks
 (`examples-compile`, `nagarectl-external-config`), and the clone-free install rehearsal
 (`nagare-clone-free-platform`) are the behavioural evidence that the CLI, payload, and `runghc`
-runtime still work on GHC 9.12.4. `nix run .#nagarectl -- --version` prints the version from
+runtime still work on GHC 9.12.4. `nix run .#nagarectl -- version` prints the version from
 `release.json`. `nix flake update` leaves `flake.lock` unchanged, `flake.lock` contains one nixpkgs
 node equal to `haskell-nix-dev`'s, and `nixos/` is unchanged.
 
