@@ -20,7 +20,7 @@
     }
     ''
       cd "$src"
-      scripts/check-haskell-style.sh
+      bash scripts/check-haskell-style.sh
       find cli -type f -name '*.hs' -print0 \
         | sort -z \
         | xargs -0 fourmolu --mode check --config cli/fourmolu.yaml \
