@@ -7,7 +7,7 @@
 --
 -- Flow (in @runInit@, app/Main.hs): preflight (gcloud auth + operator IAM) ->
 -- prompt/resolve the target -> write nagare.target.env (idempotent; --force to
--- clobber) -> run scripts/enable-apis.sh -> @pulumi config set@ the eight keys the
+-- clobber) -> run scripts/enable-apis.sh -> @pulumi config set@ the twelve keys the
 -- infra program reads -> print the ordered next-step commands.
 module Nagare.Init
   ( InitOpts (..)
@@ -38,6 +38,7 @@ import Nagare.Ops.Probe (captureTool)
 import Nagare.Target
   ( Mode (..)
   , TargetProfile (..)
+  , VmShape (..)
   , pulumiBackendToken
   , resolveTargetProfile
   )
@@ -45,7 +46,7 @@ import System.Directory (doesFileExist)
 import System.Environment (setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 
--- | Options for @nagarectl init@. The four target flags are 'Maybe' so an absent
+-- | Options for @nagarectl init@. Target fields are 'Maybe' so an absent
 -- flag triggers an interactive prompt (on a TTY) or an error (non-TTY). The skip
 -- flags exist for testing/CI and for partial recovery (e.g. re-seed without
 -- re-enabling). @--force@ permits overwriting an existing profile.
@@ -55,6 +56,10 @@ data InitOpts = InitOpts
   , ioRegion :: !(Maybe String)
   , ioZone :: !(Maybe String)
   , ioBaseDomain :: !(Maybe String)
+  , ioMachineType :: !(Maybe String)
+  , ioBootDiskType :: !(Maybe String)
+  , ioBootDiskSizeGb :: !(Maybe String)
+  , ioDataDiskSizeGb :: !(Maybe String)
   , ioPulumiBackend :: !(Maybe String)
   , ioPulumiBackendUrl :: !(Maybe String)
   , ioPulumiBackendMember :: !(Maybe String)
@@ -97,12 +102,16 @@ requiredApis =
 -- environment, so the derived fields (registry host, buckets) follow EP-60's
 -- derivations exactly. The derived overrides are cleared so the derivation, not a
 -- stale env value, wins.
-profileFromOpts :: Text -> Text -> Text -> Text -> Text -> Text -> IO TargetProfile
-profileFromOpts project region zone baseDomain acmeEmail acmeDirectory = do
+profileFromOpts :: Text -> Text -> Text -> Text -> VmShape -> Text -> Text -> IO TargetProfile
+profileFromOpts project region zone baseDomain shape acmeEmail acmeDirectory = do
   setEnv "CLOUDSDK_CORE_PROJECT" (T.unpack project)
   setEnv "CLOUDSDK_COMPUTE_REGION" (T.unpack region)
   setEnv "CLOUDSDK_COMPUTE_ZONE" (T.unpack zone)
   setEnv "NAGARE_BASE_DOMAIN" (T.unpack baseDomain)
+  setEnv "NAGARE_MACHINE_TYPE" (T.unpack (vsMachineType shape))
+  setEnv "NAGARE_BOOT_DISK_TYPE" (T.unpack (vsBootDiskType shape))
+  setEnv "NAGARE_BOOT_DISK_SIZE_GB" (T.unpack (vsBootDiskSizeGb shape))
+  setEnv "NAGARE_DATA_DISK_SIZE_GB" (T.unpack (vsDataDiskSizeGb shape))
   -- EP-112: an EMPTY value means "no explicit choice", which must not leave a
   -- stale ambient value in place for the resolver to pick up. `setEnv` with an
   -- empty string happens to remove the variable on this toolchain, but write the
@@ -141,6 +150,10 @@ renderTargetEnv tp =
     , "export NAGARE_ACME_EMAIL=" <> tpAcmeEmail tp
     , "export NAGARE_ACME_DIRECTORY=" <> tpAcmeDirectory tp
     , "export NAGARE_INSTANCE_NAME=" <> tpInstanceName tp
+    , "export NAGARE_MACHINE_TYPE=" <> tpMachineType tp
+    , "export NAGARE_BOOT_DISK_TYPE=" <> tpBootDiskType tp
+    , "export NAGARE_BOOT_DISK_SIZE_GB=" <> tpBootDiskSizeGb tp
+    , "export NAGARE_DATA_DISK_SIZE_GB=" <> tpDataDiskSizeGb tp
     , "export NAGARE_TARGET_PLATFORM=" <> tpTargetPlatform tp
     , "export NAGARE_MODE=" <> modeToken (tpMode tp)
     , "export NAGARE_LOCAL_OBJECT_STORE=" <> tpLocalObjectStore tp
@@ -152,9 +165,11 @@ renderTargetEnv tp =
     modeToken Cloud = "cloud"
     modeToken Local = "local"
 
--- | The eight Pulumi config (key, value) pairs to seed from the profile. Order is
+-- | The twelve Pulumi config (key, value) pairs to seed from the profile. Order is
 -- stable for deterministic output. @nagare:imageBucket@ is REQUIRED by the program
--- (no default), so it is always present here. NOTE: @NAGARE_TARGET_PLATFORM@ (EP-3)
+-- (no default), so it is always present here. The four VM-shape values are pinned
+-- so a later change to a program fallback cannot plan an instance replacement
+-- against a live VM. NOTE: @NAGARE_TARGET_PLATFORM@ (EP-3)
 -- is deliberately NOT seeded — it is a build-time client concern (the architecture
 -- nagarectl builds images for), not GCP infrastructure, so Pulumi has no use for it.
 seedKeys :: TargetProfile -> [(Text, Text)]
@@ -167,6 +182,10 @@ seedKeys tp =
   , ("nagare:backupBucket", tpBackupBucket tp)
   , ("nagare:artifactRegistryId", tpArtifactRegistryId tp)
   , ("nagare:instanceName", tpInstanceName tp)
+  , ("nagare:machineType", tpMachineType tp)
+  , ("nagare:bootDiskType", tpBootDiskType tp)
+  , ("nagare:bootDiskSizeGb", tpBootDiskSizeGb tp)
+  , ("nagare:dataDiskSizeGb", tpDataDiskSizeGb tp)
   ]
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.

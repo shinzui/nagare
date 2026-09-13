@@ -260,6 +260,7 @@ import Nagare.Target
   , AcmeDirectory (..)
   , PulumiEnv (..)
   , TargetProfile (..)
+  , VmShape (..)
   , clearCurrentContext
   , contextExists
   , contextFilePath
@@ -274,6 +275,8 @@ import Nagare.Target
   , parsePulumiBackendKind
   , profileFromContextMap
   , validateAcmeEmail
+  , validateVmShape
+  , vmShapeOf
   , pulumiEnvFor
   , renderContextShellEnv
   , readContextProfile
@@ -581,6 +584,10 @@ data ContextCreateOpts = ContextCreateOpts
   , ccoRegion :: !(Maybe String)
   , ccoZone :: !(Maybe String)
   , ccoBaseDomain :: !(Maybe String)
+  , ccoMachineType :: !(Maybe String)
+  , ccoBootDiskType :: !(Maybe String)
+  , ccoBootDiskSizeGb :: !(Maybe String)
+  , ccoDataDiskSizeGb :: !(Maybe String)
   , ccoRegistryHost :: !(Maybe String)
   , ccoArtifactRegistryId :: !(Maybe String)
   , ccoImageBucket :: !(Maybe String)
@@ -854,7 +861,7 @@ doctorOptsParser =
   DoctorOpts
     <$> switch (long "skip-vm" <> help "Skip the IAP-SSH disk probe (no SSH setup needed)")
 
--- | Options for @init@ (MasterPlan 12, EP-63). The four target flags are optional
+-- | Options for @init@ (MasterPlan 12, EP-63). Target flags are optional
 -- so an absent flag prompts on a TTY (or errors non-interactively); the skip/force
 -- flags exist for CI and partial recovery.
 initOptsParser :: Parser InitOpts
@@ -865,6 +872,10 @@ initOptsParser =
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (strOption (long "machine-type" <> metavar "TYPE" <> help "GCE machine type (default e2-standard-2)"))
+    <*> optional (strOption (long "boot-disk-type" <> metavar "TYPE" <> help "Boot disk type (default pd-balanced; changing a live VM replaces it)"))
+    <*> optional (strOption (long "boot-disk-size-gb" <> metavar "GB" <> help "Boot disk size in GB (default 100)"))
+    <*> optional (strOption (long "data-disk-size-gb" <> metavar "GB" <> help "Data disk size in GB (default 100)"))
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
@@ -886,6 +897,10 @@ contextCreateOptsParser =
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (strOption (long "machine-type" <> metavar "TYPE" <> help "GCE machine type (default e2-standard-2)"))
+    <*> optional (strOption (long "boot-disk-type" <> metavar "TYPE" <> help "Boot disk type (default pd-balanced; changing a live VM replaces it)"))
+    <*> optional (strOption (long "boot-disk-size-gb" <> metavar "GB" <> help "Boot disk size in GB (default 100)"))
+    <*> optional (strOption (long "data-disk-size-gb" <> metavar "GB" <> help "Data disk size in GB (default 100)"))
     <*> optional (strOption (long "registry-host" <> metavar "HOST" <> help "Artifact Registry host (default <region>-docker.pkg.dev)"))
     <*> optional (strOption (long "artifact-registry-id" <> metavar "ID" <> help "Artifact Registry repo id (default nagare)"))
     <*> optional (strOption (long "image-bucket" <> metavar "BUCKET" <> help "Image bucket (default <project>-nagare-images)"))
@@ -2777,13 +2792,26 @@ runInit mctx o = do
   -- shows the operator their existing values.
   defs <- activeProfile mctx
 
-  -- Resolve the four core target values from flags or interactive prompts. Only
+  -- Resolve the core target values from flags or interactive prompts. Only
   -- the project is mandatory in non-interactive mode (there is no safe default for
   -- "your project"); region/zone/base-domain fall back to their EP-60 defaults.
   project <- resolveField True "GCP project id" "project" (o ^. #ioProject) (tpProject defs)
   region <- resolveField False "Compute region" "region" (o ^. #ioRegion) (tpRegion defs)
   zone <- resolveField False "Compute zone" "zone" (o ^. #ioZone) (tpZone defs)
   baseDomain <- resolveField False "Apps base domain" "base-domain" (o ^. #ioBaseDomain) (tpBaseDomain defs)
+  machineType <- resolveField False "GCE machine type" "machine-type" (o ^. #ioMachineType) (tpMachineType defs)
+  bootDiskType <- resolveField False "Boot disk type" "boot-disk-type" (o ^. #ioBootDiskType) (tpBootDiskType defs)
+  bootDiskSizeGb <- resolveField False "Boot disk size (GB)" "boot-disk-size-gb" (o ^. #ioBootDiskSizeGb) (tpBootDiskSizeGb defs)
+  dataDiskSizeGb <- resolveField False "Data disk size (GB)" "data-disk-size-gb" (o ^. #ioDataDiskSizeGb) (tpDataDiskSizeGb defs)
+  shape <-
+    either dieT pure $
+      validateVmShape
+        VmShape
+          { vsMachineType = machineType
+          , vsBootDiskType = bootDiskType
+          , vsBootDiskSizeGb = bootDiskSizeGb
+          , vsDataDiskSizeGb = dataDiskSizeGb
+          }
 
   -- EP-112: the ACME contact is mandatory, exactly like the project. There is no
   -- safe default for "your mailbox", and a Let's Encrypt account registered under
@@ -2806,7 +2834,7 @@ runInit mctx o = do
   -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver,
   -- then apply the EP-93 Pulumi backend choice (default local; gcs is cloud-only and
   -- downgraded in local mode by effectivePulumiBackend).
-  tpBase <- profileFromOpts project region zone baseDomain acmeEmail acmeDirectory
+  tpBase <- profileFromOpts project region zone baseDomain shape acmeEmail acmeDirectory
   let baseProfile =
         tpBase
           { tpPulumiBackend = parsePulumiBackendKind (o ^. #ioPulumiBackend)
@@ -2929,6 +2957,7 @@ runContext mctx = \case
     (_, workspace) <- resolvePlatformWorkspace name
     let contextMap = Map.insert "NAGARE_PLATFORM_VERSION" (pwPlatformVersion workspace) (Map.fromList (contextEnvPairs o))
         tp = profileFromContextMap contextMap
+    void (either dieT pure (validateVmShape (vmShapeOf tp)))
     writeContextProfile name tp
     path <- contextFilePath name
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
@@ -3088,6 +3117,10 @@ contextEnvPairs o =
     , pair "CLOUDSDK_COMPUTE_REGION" (ccoRegion o)
     , pair "CLOUDSDK_COMPUTE_ZONE" (ccoZone o)
     , pair "NAGARE_BASE_DOMAIN" (ccoBaseDomain o)
+    , pair "NAGARE_MACHINE_TYPE" (ccoMachineType o)
+    , pair "NAGARE_BOOT_DISK_TYPE" (ccoBootDiskType o)
+    , pair "NAGARE_BOOT_DISK_SIZE_GB" (ccoBootDiskSizeGb o)
+    , pair "NAGARE_DATA_DISK_SIZE_GB" (ccoDataDiskSizeGb o)
     , pair "NAGARE_REGISTRY_HOST" (ccoRegistryHost o)
     , pair "NAGARE_ARTIFACT_REGISTRY_ID" (ccoArtifactRegistryId o)
     , pair "NAGARE_IMAGE_BUCKET" (ccoImageBucket o)

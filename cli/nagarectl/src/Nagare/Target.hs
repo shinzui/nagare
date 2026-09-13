@@ -12,6 +12,10 @@
 module Nagare.Target
   ( ActiveTarget (..)
   , TargetProfile (..)
+  , VmShape (..)
+  , defaultVmShape
+  , vmShapeOf
+  , validateVmShape
   , Mode (..)
   , AcmeDirectory (..)
   , PulumiEnv (..)
@@ -73,6 +77,7 @@ import Nagare.Cluster.GcsJob
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
+import Text.Read (readMaybe)
 
 -- | The deploy target's mode (MasterPlan 16, EP-83; this is Integration Point 2's
 -- public type — EP-84 and EP-85 import it and must not re-derive the mode from the
@@ -331,6 +336,82 @@ writeContextPlatformVersion name version = do
        in "export NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
             || "NAGARE_PLATFORM_VERSION=" `T.isPrefixOf` stripped
 
+-- | The four values that determine the GCE instance's compute and disk shape.
+-- They live in the target context so a later change to a Pulumi-program fallback
+-- cannot silently change an existing stack.
+data VmShape = VmShape
+  { vsMachineType :: !Text
+  , vsBootDiskType :: !Text
+  , vsBootDiskSizeGb :: !Text
+  , vsDataDiskSizeGb :: !Text
+  }
+  deriving stock (Eq, Show)
+
+-- | The shape used by a fresh context and by legacy contexts that predate the
+-- four explicit fields. Keep these literals in sync with
+-- @infra\/pulumi\/src\/vmShape.ts@; the @vm-shape-defaults-agree@ flake check
+-- enforces the contract.
+defaultVmShape :: VmShape
+defaultVmShape =
+  VmShape
+    { vsMachineType = "e2-standard-2"
+    , vsBootDiskType = "pd-balanced"
+    , vsBootDiskSizeGb = "100"
+    , vsDataDiskSizeGb = "100"
+    }
+
+-- | Project a target profile down to the shape values Pulumi consumes.
+vmShapeOf :: TargetProfile -> VmShape
+vmShapeOf tp =
+  VmShape
+    { vsMachineType = tpMachineType tp
+    , vsBootDiskType = tpBootDiskType tp
+    , vsBootDiskSizeGb = tpBootDiskSizeGb tp
+    , vsDataDiskSizeGb = tpDataDiskSizeGb tp
+    }
+
+-- | Validate a VM shape at context-write and apply-guard boundaries. This is a
+-- deliberately small syntax check, not a live GCE catalog lookup.
+validateVmShape :: VmShape -> Either Text VmShape
+validateVmShape shape
+  | T.null machine = Left "NAGARE_MACHINE_TYPE must not be empty"
+  | not (validMachineType machine) =
+      Left
+        ( "NAGARE_MACHINE_TYPE='"
+            <> machine
+            <> "' is invalid (expected <family>-<series> using lowercase letters/digits/hyphens, or custom-<cpus>-<mb>)"
+        )
+  | bootType `notElem` acceptedBootTypes =
+      Left
+        ( "NAGARE_BOOT_DISK_TYPE='"
+            <> bootType
+            <> "' is invalid (accepted: pd-standard, pd-balanced, pd-ssd, hyperdisk-balanced)"
+        )
+  | not (validSize bootSize) = Left "NAGARE_BOOT_DISK_SIZE_GB must be an integer of at least 10 GB"
+  | not (validSize dataSize) = Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
+  | otherwise = Right shape
+  where
+    machine = vsMachineType shape
+    bootType = vsBootDiskType shape
+    bootSize = vsBootDiskSizeGb shape
+    dataSize = vsDataDiskSizeGb shape
+    acceptedBootTypes = ["pd-standard", "pd-balanced", "pd-ssd", "hyperdisk-balanced"]
+    validSize value = maybe False (>= (10 :: Integer)) (readMaybe (T.unpack value))
+    validMachineType value
+      | "custom-" `T.isPrefixOf` value = validCustom value
+      | otherwise = validNamed value
+    validCustom value = case T.splitOn "-" value of
+      ["custom", cpus, mb] -> positiveDecimal cpus && positiveDecimal mb
+      _ -> False
+    validNamed value = case T.breakOn "-" value of
+      (family, suffix) ->
+        not (T.null family)
+          && T.all lowerAlphaNum family
+          && not (T.null suffix)
+          && T.all (\c -> lowerAlphaNum c || c == '-') (T.drop 1 suffix)
+    positiveDecimal value = not (T.null value) && T.all isDigit value && value /= "0"
+    lowerAlphaNum c = isAsciiLower c || isDigit c
+
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
 data TargetProfile = TargetProfile
@@ -352,6 +433,14 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
   , tpInstanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
+  , tpMachineType :: !Text
+  -- ^ NAGARE_MACHINE_TYPE, default @"e2-standard-2"@
+  , tpBootDiskType :: !Text
+  -- ^ NAGARE_BOOT_DISK_TYPE, default @"pd-balanced"@
+  , tpBootDiskSizeGb :: !Text
+  -- ^ NAGARE_BOOT_DISK_SIZE_GB, default @"100"@
+  , tpDataDiskSizeGb :: !Text
+  -- ^ NAGARE_DATA_DISK_SIZE_GB, default @"100"@
   , tpTargetPlatform :: !Text
   -- ^ NAGARE_TARGET_PLATFORM, the Docker platform string the cluster node runs,
   -- default @"linux/amd64"@. Passed verbatim to @docker build --platform@ and
@@ -476,6 +565,10 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_BACKUP_BUCKET" (tpBackupBucket tp)
     , line "NAGARE_BASE_DOMAIN" (tpBaseDomain tp)
     , line "NAGARE_INSTANCE_NAME" (tpInstanceName tp)
+    , line "NAGARE_MACHINE_TYPE" (tpMachineType tp)
+    , line "NAGARE_BOOT_DISK_TYPE" (tpBootDiskType tp)
+    , line "NAGARE_BOOT_DISK_SIZE_GB" (tpBootDiskSizeGb tp)
+    , line "NAGARE_DATA_DISK_SIZE_GB" (tpDataDiskSizeGb tp)
     , line "NAGARE_TARGET_PLATFORM" (tpTargetPlatform tp)
     , line "NAGARE_MODE" (modeToken (tpMode tp))
     , line "NAGARE_LOCAL_OBJECT_STORE" (tpLocalObjectStore tp)
@@ -659,6 +752,10 @@ profileFromContextMap ctx =
       backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+      machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (vsMachineType defaultVmShape)
+      bootDiskType = mapOr ctx "NAGARE_BOOT_DISK_TYPE" (vsBootDiskType defaultVmShape)
+      bootDiskSizeGb = mapOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (vsBootDiskSizeGb defaultVmShape)
+      dataDiskSizeGb = mapOr ctx "NAGARE_DATA_DISK_SIZE_GB" (vsDataDiskSizeGb defaultVmShape)
       targetPlatform = mapOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
       mode = parseMode (mapRaw ctx "NAGARE_MODE")
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
@@ -677,6 +774,10 @@ profileFromContextMap ctx =
         , tpBackupBucket = backupBucket
         , tpBaseDomain = baseDomain
         , tpInstanceName = instanceName
+        , tpMachineType = machineType
+        , tpBootDiskType = bootDiskType
+        , tpBootDiskSizeGb = bootDiskSizeGb
+        , tpDataDiskSizeGb = dataDiskSizeGb
         , tpTargetPlatform = targetPlatform
         , tpMode = mode
         , tpLocalObjectStore = localObjectStore
@@ -698,6 +799,10 @@ resolveProfileFrom ctx = do
   backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
+  machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (vsMachineType defaultVmShape)
+  bootDiskType <- ctxOr ctx "NAGARE_BOOT_DISK_TYPE" (vsBootDiskType defaultVmShape)
+  bootDiskSizeGb <- ctxOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (vsBootDiskSizeGb defaultVmShape)
+  dataDiskSizeGb <- ctxOr ctx "NAGARE_DATA_DISK_SIZE_GB" (vsDataDiskSizeGb defaultVmShape)
   targetPlatform <- ctxOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
   mode <- parseMode <$> ctxRaw ctx "NAGARE_MODE"
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
@@ -717,6 +822,10 @@ resolveProfileFrom ctx = do
       , tpBackupBucket = backupBucket
       , tpBaseDomain = baseDomain
       , tpInstanceName = instanceName
+      , tpMachineType = machineType
+      , tpBootDiskType = bootDiskType
+      , tpBootDiskSizeGb = bootDiskSizeGb
+      , tpDataDiskSizeGb = dataDiskSizeGb
       , tpTargetPlatform = targetPlatform
       , tpMode = mode
       , tpLocalObjectStore = localObjectStore

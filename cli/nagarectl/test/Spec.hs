@@ -248,11 +248,13 @@ import Nagare.Target
   , PulumiBackendKind (..)
   , PulumiEnv (..)
   , TargetProfile (..)
+  , VmShape (..)
   , clearCurrentContext
   , contextExists
   , contextFilePath
   , contextNameText
   , defaultGcsPulumiBackendUrl
+  , defaultVmShape
   , deleteContext
   , effectivePulumiBackend
   , listContexts
@@ -263,6 +265,7 @@ import Nagare.Target
   , parseContextEnv
   , parseMode
   , validateAcmeEmail
+  , validateVmShape
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
@@ -393,7 +396,7 @@ versionTests =
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Init (MasterPlan 12, EP-63): the pure pieces of `nagarectl init` — the
--- env-file rendering, the eight Pulumi seed keys, the config-set argv, the
+-- env-file rendering, the twelve Pulumi seed keys, the config-set argv, the
 -- operator-role list, and the next-steps text.
 
 initProfile :: TargetProfile
@@ -408,6 +411,10 @@ initProfile =
     , tpBackupBucket = "acme-prod-nagare-backups"
     , tpBaseDomain = "apps.acme.com"
     , tpInstanceName = "nagare-01"
+    , tpMachineType = "e2-standard-2"
+    , tpBootDiskType = "pd-balanced"
+    , tpBootDiskSizeGb = "100"
+    , tpDataDiskSizeGb = "100"
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
     , tpLocalObjectStore = ""
@@ -427,6 +434,8 @@ initTests =
         assertBool "project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT=acme-prod" out)
         assertBool "derived image bucket" (T.isInfixOf "export NAGARE_IMAGE_BUCKET=acme-prod-nagare-images" out)
         assertBool "base domain" (T.isInfixOf "export NAGARE_BASE_DOMAIN=apps.acme.com" out)
+        assertBool "machine type" (T.isInfixOf "export NAGARE_MACHINE_TYPE=e2-standard-2" out)
+        assertBool "boot disk type" (T.isInfixOf "export NAGARE_BOOT_DISK_TYPE=pd-balanced" out)
         assertBool "target platform (default)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/amd64" out)
         assertBool "mode (default cloud)" (T.isInfixOf "export NAGARE_MODE=cloud" out)
         assertBool "local object store (empty for cloud)" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=" out)
@@ -446,7 +455,7 @@ initTests =
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
-    , testCase "seedKeys covers the eight Pulumi keys incl. the required imageBucket" $
+    , testCase "seedKeys covers the twelve Pulumi keys incl. the pinned VM shape" $
         map fst (seedKeys initProfile)
           @?= [ "gcp:project"
               , "gcp:region"
@@ -456,7 +465,26 @@ initTests =
               , "nagare:backupBucket"
               , "nagare:artifactRegistryId"
               , "nagare:instanceName"
+              , "nagare:machineType"
+              , "nagare:bootDiskType"
+              , "nagare:bootDiskSizeGb"
+              , "nagare:dataDiskSizeGb"
               ]
+    , testCase "validateVmShape accepts named and custom machine types" $ do
+        validateVmShape defaultVmShape @?= Right defaultVmShape
+        let custom = defaultVmShape {vsMachineType = "custom-4-8192"}
+        validateVmShape custom @?= Right custom
+    , testCase "validateVmShape reports every rejected field precisely" $ do
+        validateVmShape defaultVmShape {vsMachineType = ""}
+          @?= Left "NAGARE_MACHINE_TYPE must not be empty"
+        validateVmShape defaultVmShape {vsMachineType = "E2-standard-2"}
+          @?= Left "NAGARE_MACHINE_TYPE='E2-standard-2' is invalid (expected <family>-<series> using lowercase letters/digits/hyphens, or custom-<cpus>-<mb>)"
+        validateVmShape defaultVmShape {vsBootDiskType = "pd-extreme"}
+          @?= Left "NAGARE_BOOT_DISK_TYPE='pd-extreme' is invalid (accepted: pd-standard, pd-balanced, pd-ssd, hyperdisk-balanced)"
+        validateVmShape defaultVmShape {vsBootDiskSizeGb = "9"}
+          @?= Left "NAGARE_BOOT_DISK_SIZE_GB must be an integer of at least 10 GB"
+        validateVmShape defaultVmShape {vsDataDiskSizeGb = "many"}
+          @?= Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
     , testCase "pulumiConfigSetArgs targets the active context stack" $
         pulumiConfigSetArgs "/payload/infra/pulumi" "labs" "gcp:project" "acme-prod"
           @?= ["-C", "/payload/infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
@@ -863,6 +891,10 @@ tnbProfile =
     , tpBackupBucket = "tan-nb-exp-nagare-backups"
     , tpBaseDomain = "apps.example.com"
     , tpInstanceName = "nagare-01"
+    , tpMachineType = "e2-standard-2"
+    , tpBootDiskType = "pd-balanced"
+    , tpBootDiskSizeGb = "100"
+    , tpDataDiskSizeGb = "100"
     , tpTargetPlatform = "linux/amd64"
     , tpMode = Cloud
     , tpLocalObjectStore = ""
@@ -900,6 +932,8 @@ targetProfileTests =
         registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
         tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
         tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
+        tpMachineType tp0 @?= "e2-standard-2"
+        tpBootDiskType tp0 @?= "pd-balanced"
         -- (2) project + region override; host derives from region, buckets from project.
         clearTargetEnv
         setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
@@ -943,6 +977,10 @@ targetProfileTests =
       , "NAGARE_BACKUP_BUCKET"
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"
+      , "NAGARE_MACHINE_TYPE"
+      , "NAGARE_BOOT_DISK_TYPE"
+      , "NAGARE_BOOT_DISK_SIZE_GB"
+      , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
       ]
@@ -1135,6 +1173,10 @@ contextResolutionTests =
       , "NAGARE_BACKUP_BUCKET"
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"
+      , "NAGARE_MACHINE_TYPE"
+      , "NAGARE_BOOT_DISK_TYPE"
+      , "NAGARE_BOOT_DISK_SIZE_GB"
+      , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
       ]
