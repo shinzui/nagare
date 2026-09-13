@@ -35,9 +35,10 @@ that the fixture is evaluation-only. Prose did not stop the mistake.
 
 `scripts/host-switch.sh` (reached through `just host-switch` and `nagarectl platform upgrade`) is
 the only supported way to activate a configuration on a Nagare host. Four independent layers
-enforce this. Each one alone would have prevented the incident.
+enforced this when adopted (layer 1 was later removed; see the amendment below). Each one alone
+would have prevented the incident.
 
-1. **Agent guard.** `.claude/hooks/guard_host_mutation.py`, a Claude Code PreToolUse hook, denies
+1. **Agent guard (removed 2026-09-13).** `.claude/hooks/guard_host_mutation.py`, a Claude Code PreToolUse hook, denies
    shell commands that activate a NixOS configuration directly, run `switch-to-configuration`,
    edit the system profile, set `NIXOS_NO_CHECK`, or plant startup or shutdown scripts. It asks
    for human approval on instance, disk, snapshot, image, and Pulumi mutations and on
@@ -88,3 +89,20 @@ The switch copies its closure with `nix copy --no-check-sigs`. Paths built on th
 carry no signature, and `nix copy` otherwise rejects them on the workstation side even though the
 host trusts `deploy`. The first live switch (ExecPlan 114) failed this way before arming and left
 the host untouched. The host still has to trust the deploy user for the copy to be accepted.
+
+## Amendment — 2026-09-13: agent guard removed
+
+The operator removed `.claude/hooks/guard_host_mutation.py` and `.claude/settings.json` (commit
+`60a5c47`). The hook's per-command approval prompts made live work impractical. Recovering
+`nagare-01` in ExecPlans 114, 116, and 118 involved many hook prompts on top of the harness's own
+permission prompts. Three layers remain, and each still stops the original incident on its own:
+
+- the fixture refuses activation;
+- every switch reverts itself unless a fresh login proves access;
+- the serial-console boot menu provides break-glass access.
+
+`CLAUDE.md` keeps the rules in prose: only `just host-switch` changes a host, and cloud mutations
+need the operator's go-ahead for a rehearsed, bounded sequence. Nothing mechanically blocks an
+agent from running `nixos-rebuild` or `switch-to-configuration` any more. Layers 2 and 3 are
+what make such a mistake recoverable. The Consequences above that describe the hook's prompts
+and text matching no longer apply.
