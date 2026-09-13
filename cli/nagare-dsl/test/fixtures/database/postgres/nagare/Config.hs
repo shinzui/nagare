@@ -20,7 +20,7 @@ database = do
   sz <- first show (mkQuantity "10Gi")
   Right
     Database
-      { dbName = n
+      { name = n
       , engine = Postgres
       , version = v
       , namespace = ns

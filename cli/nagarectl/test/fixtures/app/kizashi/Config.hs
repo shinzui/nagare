@@ -54,7 +54,7 @@ app = do
   dbSize <- mkQuantity "10Gi"
   let db =
         DB.Database
-          { DB.dbName = dbn
+          { DB.name = dbn
           , DB.engine = DB.Postgres
           , DB.version = ver
           , DB.namespace = ns
@@ -75,31 +75,31 @@ app = do
   migrate <-
     mkTask
       Task
-        { taskName = migrateNm
-        , taskNamespace = ns
-        , taskSchedule = sched
-        , taskImage = Nothing
-        , taskApp = Just appNm
-        , taskCommand = ["migrate"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Nothing
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = migrateNm
+        , namespace = ns
+        , schedule = sched
+        , image = Nothing
+        , app = Just appNm
+        , command = ["migrate"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Nothing
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
 
   mkApplication
     Application
-      { appName = appNm
+      { name = appNm
       , namespace = ns
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
-      , appDatabases = [db]
+      , databases = [db]
       , brokers = []
       , access = Nothing
       , service = Just svc

@@ -1,9 +1,12 @@
 module JobSpec (jobTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict)
 import Data.ByteString.Lazy (toStrict)
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -32,12 +35,12 @@ constructorTests :: [TestTree]
 constructorTests =
   [ testCase "oneShotJob supplies bounded hardened defaults" $ do
       let job = fixtureJob
-      jobNamespace job @?= defaultNamespace
-      jobBackoffLimit job @?= 0
-      jobActiveDeadlineSeconds job @?= Just 1800
-      jobTtlSecondsAfterFinished job @?= Just 3600
-      quantityText (jobScratchSize job) @?= "2Gi"
-      jobResources job @?= Nothing
+      job ^. #namespace @?= defaultNamespace
+      job ^. #backoffLimit @?= 0
+      job ^. #activeDeadlineSeconds @?= Just 1800
+      job ^. #ttlSecondsAfterFinished @?= Just 3600
+      quantityText (job ^. #scratchSize) @?= "2Gi"
+      job ^. #resources @?= Nothing
   , testCase "jobResourceName prefixes the logical name" $
       jobResourceName "agent-run" @?= "nagare-job-agent-run"
   , testCase "ConfigMapName round-trips its validated text" $
@@ -46,26 +49,23 @@ constructorTests =
   , testCase "ConfigMapName rejects uppercase" $
       assertLeft (mkConfigMapName "Nix-Cache")
   , testCase "mkJob rejects a negative backoff" $
-      assertLeft (mkJob fixtureJob {jobBackoffLimit = -1})
+      assertLeft (mkJob (fixtureJob & #backoffLimit .~ -1))
   , testCase "mkJob rejects a zero deadline" $
-      assertLeft (mkJob fixtureJob {jobActiveDeadlineSeconds = Just 0})
+      assertLeft (mkJob (fixtureJob & #activeDeadlineSeconds .~ Just 0))
   , testCase "mkJob rejects a zero finished TTL" $
-      assertLeft (mkJob fixtureJob {jobTtlSecondsAfterFinished = Just 0})
+      assertLeft (mkJob (fixtureJob & #ttlSecondsAfterFinished .~ Just 0))
   , testCase "mkJob accepts no deadline for a general Job" $
-      assertRight (mkJob fixtureJob {jobActiveDeadlineSeconds = Nothing})
+      assertRight (mkJob (fixtureJob & #activeDeadlineSeconds .~ Nothing))
   , testCase "mkJob rejects incomplete explicit resources" $
       assertLeft
         ( mkJob
-            fixtureJob
-              { jobResources =
-                  Just
-                    completeResources
-                      { memoryLimit = Nothing
-                      }
-              }
+            ( fixtureJob
+                & #resources
+                  .~ Just (completeResources & #memoryLimit .~ Nothing)
+            )
         )
   , testCase "mkJob accepts complete explicit resources" $
-      assertRight (mkJob fixtureJob {jobResources = Just completeResources})
+      assertRight (mkJob (fixtureJob & #resources .~ Just completeResources))
   ]
 
 roundTripTests :: [TestTree]
@@ -164,35 +164,32 @@ representativeJob =
     Left err -> error ("test fixture invalid: " <> err)
     Right job ->
       job
-        { jobCommand = Just (unsafe (mkCommand ["/app/agent-run"]))
-        , jobEnv =
-            Map.fromList
-              [ (unsafe (mkEnvName "NAGARE_RUN_ID"), runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
-              , ( unsafe (mkEnvName "REPO_REF")
-                , runtimeScoped
-                    (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
-                )
-              ]
-        }
+        & #command .~ Just (unsafe (mkCommand ["/app/agent-run"]))
+        & #env
+          .~ Map.fromList
+            [ (unsafe (mkEnvName "NAGARE_RUN_ID"), runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
+            , ( unsafe (mkEnvName "REPO_REF")
+              , runtimeScoped
+                  (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
+              )
+            ]
 
 nixJob :: Job
 nixJob =
   representativeJob
-    { jobNixConfigMap = Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
-    }
+    & #nixConfigMap .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
 
 richJob :: Job
 richJob =
   fixtureJob
-    { jobCommand = Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
-    , jobEnv =
-        Map.fromList
-          [ (unsafe (mkEnvName "REPO_REF"), runtimeScoped (EnvLiteral "repo_example@0123456789012345678901234567890123456789"))
-          , (unsafe (mkEnvName "FORGE_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "forge-token"))))
-          ]
-    , jobResources = Just completeResources
-    , jobNixConfigMap = Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
-    }
+    & #command .~ Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
+    & #env
+      .~ Map.fromList
+        [ (unsafe (mkEnvName "REPO_REF"), runtimeScoped (EnvLiteral "repo_example@0123456789012345678901234567890123456789"))
+        , (unsafe (mkEnvName "FORGE_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "forge-token"))))
+        ]
+    & #resources .~ Just completeResources
+    & #nixConfigMap .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
 
 completeResources :: Resources
 completeResources =

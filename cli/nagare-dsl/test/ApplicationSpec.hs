@@ -7,6 +7,8 @@
 -- are added to the groups below as those milestones land.
 module ApplicationSpec (applicationTests) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Lens ((&), (.~))
 import Data.ByteString.Lazy (toStrict)
 import Data.Generics.Labels ()
@@ -49,7 +51,7 @@ dbNameKizashi = unsafe (mkDatabaseName "kizashi-db")
 kizashiDb :: Database
 kizashiDb =
   Database
-    { dbName = dbNameKizashi
+    { name = dbNameKizashi
     , engine = Postgres
     , version = unsafe (mkEngineVersion Postgres "18")
     , namespace = unsafe (mkNamespace "personal")
@@ -62,33 +64,33 @@ kizashiServe :: Deployment
 kizashiServe = unsafe (webService "kizashi-serve" sharedImage)
 
 worker1, worker2 :: Worker
-worker1 = (unsafeStr (webWorker "kizashi-worker" sharedImage)) {databases = [dbNameKizashi]}
-worker2 = (unsafeStr (webWorker "kizashi-agent-worker" sharedImage)) {databases = [dbNameKizashi]}
+worker1 = unsafeStr (webWorker "kizashi-worker" sharedImage) & #databases .~ [dbNameKizashi]
+worker2 = unsafeStr (webWorker "kizashi-agent-worker" sharedImage) & #databases .~ [dbNameKizashi]
 
 -- | The migration task that EP-2 will run as a pre-deploy hook. It inherits the
--- app's image (taskImage = Nothing, taskApp = Just the app) and so is exempt
+-- app's image (image = Nothing, app = Just the app) and so is exempt
 -- from the image-agreement check.
 migrateTask :: Task
 migrateTask =
   unsafe $
     mkTask
       Task
-        { taskName = unsafe (mkServiceName "kizashi-migrate")
-        , taskNamespace = unsafe (mkNamespace "personal")
-        , taskSchedule = unsafe (mkSchedule "0 0 * * *")
-        , taskImage = Nothing
-        , taskApp = Just (unsafe (mkServiceName "kizashi"))
-        , taskCommand = ["python", "manage.py", "migrate"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Nothing
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = unsafe (mkServiceName "kizashi-migrate")
+        , namespace = unsafe (mkNamespace "personal")
+        , schedule = unsafe (mkSchedule "0 0 * * *")
+        , image = Nothing
+        , app = Just (unsafe (mkServiceName "kizashi"))
+        , command = ["python", "manage.py", "migrate"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Nothing
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
 
 -- | The raw (unvalidated) record for the valid multi-workload app. 'mkApplication'
@@ -96,11 +98,11 @@ migrateTask =
 multiAppRec :: Application
 multiAppRec =
   Application
-    { appName = unsafe (mkServiceName "kizashi")
+    { name = unsafe (mkServiceName "kizashi")
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.fromList [(unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))]
-    , appDatabases = [kizashiDb]
+    , databases = [kizashiDb]
     , brokers = []
     , access = Nothing
     , service = Just kizashiServe
@@ -122,11 +124,11 @@ plainWorker = unsafeStr (webWorker "kizashi-worker" sharedImage)
 serviceLessAppRec :: Application
 serviceLessAppRec =
   Application
-    { appName = unsafe (mkServiceName "kizashi")
+    { name = unsafe (mkServiceName "kizashi")
     , namespace = unsafe (mkNamespace "personal")
     , image = unsafe (mkImageRef sharedImage)
     , env = Map.empty
-    , appDatabases = []
+    , databases = []
     , brokers = []
     , access = Nothing
     , service = Nothing
@@ -147,23 +149,23 @@ mkApplicationTests =
   , testCase "rejects a worker disagreeing on the shared image" $
       assertLeftContains
         "shared image"
-        (mkApplication multiAppRec {workers = [worker1 & #image .~ unsafe (mkImageRef "gcr.io/other/img"), worker2]})
+        (mkApplication (multiAppRec & #workers .~ [worker1 & #image .~ unsafe (mkImageRef "gcr.io/other/img"), worker2]))
   , testCase "rejects a reference to an undeclared database" $
       assertLeftContains
         "not declared"
-        (mkApplication multiAppRec {appDatabases = []})
+        (mkApplication (multiAppRec & #databases .~ []))
   , testCase "rejects two workloads with the same name" $
       assertLeftContains
         "duplicate workload name"
-        (mkApplication multiAppRec {workers = [worker1, worker1]})
+        (mkApplication (multiAppRec & #workers .~ [worker1, worker1]))
   , testCase "rejects two databases with the same name" $
       assertLeftContains
         "duplicate database name"
-        (mkApplication multiAppRec {appDatabases = [kizashiDb, kizashiDb]})
+        (mkApplication (multiAppRec & #databases .~ [kizashiDb, kizashiDb]))
   , testCase "rejects a workload in a different namespace" $
       assertLeftContains
         "namespace"
-        (mkApplication multiAppRec {workers = [worker1 & #namespace .~ unsafe (mkNamespace "other"), worker2]})
+        (mkApplication (multiAppRec & #workers .~ [worker1 & #namespace .~ unsafe (mkNamespace "other"), worker2]))
   ]
 
 -- ---------------------------------------------------------------------------
@@ -193,21 +195,21 @@ roundTripTests =
   , testCase "undeclared database rejected as MarshalError application" $
       assertAppMarshal
         "not declared"
-        (decodeApplication (toStrict (encodeApplication multiAppRec {appDatabases = []})))
+        (decodeApplication (toStrict (encodeApplication (multiAppRec & #databases .~ []))))
   , testCase "image disagreement rejected as MarshalError application" $
       assertAppMarshal
         "shared image"
         ( decodeApplication
             ( toStrict
                 ( encodeApplication
-                    multiAppRec {workers = [worker1 & #image .~ unsafe (mkImageRef "gcr.io/other/img"), worker2]}
+                    (multiAppRec & #workers .~ [worker1 & #image .~ unsafe (mkImageRef "gcr.io/other/img"), worker2])
                 )
             )
         )
   , testCase "duplicate workload name rejected as MarshalError application" $
       assertAppMarshal
         "duplicate workload name"
-        (decodeApplication (toStrict (encodeApplication multiAppRec {workers = [worker1, worker1]})))
+        (decodeApplication (toStrict (encodeApplication (multiAppRec & #workers .~ [worker1, worker1]))))
   ]
 
 -- | Assert a decode result is a @MarshalError "application"@ whose message

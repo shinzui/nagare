@@ -169,7 +169,7 @@ formatStorageTable app vols rows
         <> pad 10 "STATUS"
         <> "NODE-PATH"
     line v =
-      let vol = volumeNameText (v ^. #volName)
+      let vol = volumeNameText (v ^. #name)
           sz = quantityText (v ^. #size)
           pn = pvcName app vol
           mrow = find (\r -> prVolume r == vol) rows

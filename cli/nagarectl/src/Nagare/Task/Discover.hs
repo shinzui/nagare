@@ -88,13 +88,13 @@ extractTaskRows bs =
 rowFromItem :: Aeson.Value -> Maybe TaskRow
 rowFromItem item = do
   objName <- textAt ["metadata", "name"] item
-  let taskName =
+  let name =
         fromMaybe
           (stripTaskPrefix objName)
           (labelAt "nagare.dev/task" item)
   pure
     TaskRow
-      { trName = taskName
+      { trName = name
       , trApp = fromMaybe "-" (labelAt "nagare.dev/app" item)
       , trSchedule = fromMaybe "?" (textAt ["spec", "schedule"] item)
       , trLastRun = fromMaybe "never" (textAt ["status", "lastScheduleTime"] item)

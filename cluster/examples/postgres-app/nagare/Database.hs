@@ -18,7 +18,7 @@ database = do
   size' <- first show (mkQuantity "10Gi")
   pure
     Database
-      { dbName = name'
+      { name = name'
       , engine = Postgres
       , version = ver'
       , namespace = defaultNamespace

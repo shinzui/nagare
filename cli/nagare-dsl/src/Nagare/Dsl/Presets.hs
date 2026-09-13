@@ -101,7 +101,7 @@ attachVolume nameText sizeText mountText dep = do
   mp <- mkMountPath mountText
   let v =
         Volume
-          { volName = vn
+          { name = vn
           , size = sz
           , mountPath = mp
           , accessMode = ReadWriteOnce

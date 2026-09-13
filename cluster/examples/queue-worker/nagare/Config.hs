@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The queue-worker example (EP-71): a long-running background worker, not a
 -- request-driven app. It renders to a plain @apps/v1@ Deployment (NOT a Knative
@@ -8,15 +9,15 @@
 -- turns it into a visible "worker" (it prints "working" every 5 seconds), so the
 -- @examples-compile@ flake check needs no private registry.
 --
--- Note: a config run by the loader's @runghc@ compiles under @-XGHC2024@, which
--- does not enable @OverloadedLabels@, so this uses plain record updates
--- (@base {replicas = ...}@) rather than @#replicas@ lenses.
+-- The worker updates follow the project-wide overloaded-label convention.
 --
 -- Provision it with:
 --   nagarectl worker deploy -f cluster/examples/queue-worker/nagare/Config.hs
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitWorker)
 import Nagare.Dsl.Worker (Worker (..), execProbe, mkCommand, mkReplicas, webWorker)
 
@@ -33,7 +34,7 @@ worker = do
   -- kubelet restarts the container. A headless worker has no HTTP port, so this
   -- is an exec probe, not httpGet.
   probe <- first show (execProbe ["sh", "-c", "test -f /tmp/heartbeat"])
-  Right base {command = Just cmd, replicas = reps, liveness = Just probe}
+  Right (base & #command .~ Just cmd & #replicas .~ reps & #liveness .~ Just probe)
 
 main :: IO ()
 main = case worker of

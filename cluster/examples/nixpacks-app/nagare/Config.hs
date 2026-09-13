@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | Nixpacks build mode (EP-21): build the image from source with **no
 -- Dockerfile** and push it to the deployment's registry path.
@@ -10,11 +11,13 @@
 -- @$PORT@ (Knative injects the container port).
 --
 -- Prerequisite: the @nixpacks@ CLI must be on @PATH@ (see
--- @docs/user/build-modes.md@). As with the other examples, a plain record update
--- is used because the loader's @runghc@ compiles under @-XGHC2024@.
+-- @docs/user/build-modes.md@). Like the other examples, it follows the
+-- project-wide overloaded-label update convention.
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -26,7 +29,7 @@ deployment :: Either String Deployment
 deployment = do
   base <- first show (webService "nixpacks-app" "nixpacks-app")
   ctx <- first show (mkFilePathText ".")
-  Right (base {build = NixpacksBuild {context = ctx, buildArgs = Map.empty}})
+  Right (base & #build .~ NixpacksBuild {context = ctx, buildArgs = Map.empty})
 
 main :: IO ()
 main = case deployment of

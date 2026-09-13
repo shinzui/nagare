@@ -7,10 +7,13 @@
 -- wrong @kind@ (or none) is reported as 'UnexpectedKind' rather than misread.
 module StaticSpec (staticTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy (fromStrict)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Cdn.Types
@@ -151,27 +154,27 @@ decodeFailureTests =
         Right _ -> pure ()
         other -> assertFailure ("expected Right, got: " <> show other)
   , testCase "bad site name returns MarshalError name" $
-      assertMarshal "name" (staticJSON validParts {pName = "Notes"})
+      assertMarshal "name" (staticJSON (validParts & #pName .~ "Notes"))
   , testCase "absolute output dir returns MarshalError build.outputDirectory" $
       assertMarshal
         "build.outputDirectory"
-        (staticJSON validParts {pBuild = "{\"kind\":\"BuildCommand\",\"command\":\"x\",\"outputDirectory\":\"/dist\"}"})
+        (staticJSON (validParts & #pBuild .~ "{\"kind\":\"BuildCommand\",\"command\":\"x\",\"outputDirectory\":\"/dist\"}"))
   , testCase "parent-dir segment in notFound returns MarshalError notFound" $
-      assertMarshal "notFound" (staticJSON validParts {pNotFound = "\"../secret\""})
+      assertMarshal "notFound" (staticJSON (validParts & #pNotFound .~ "\"../secret\""))
   , testCase "invalid redirect status returns MarshalError redirect" $
       assertMarshal
         "redirect"
-        (staticJSON validParts {pRedirects = "[{\"from\":\"/old\",\"to\":\"/new\",\"status\":418}]"})
+        (staticJSON (validParts & #pRedirects .~ "[{\"from\":\"/old\",\"to\":\"/new\",\"status\":418}]"))
   , testCase "invalid header name returns MarshalError header" $
       assertMarshal
         "header"
-        (staticJSON validParts {pHeaders = "[{\"path\":\"/x\",\"name\":\"X:Bad\",\"value\":\"v\"}]"})
+        (staticJSON (validParts & #pHeaders .~ "[{\"path\":\"/x\",\"name\":\"X:Bad\",\"value\":\"v\"}]"))
   , testCase "no kind (deployment-shaped) returns UnexpectedKind" $
       case decodeStaticSite (BC.pack deploymentJSON) of
         Left (UnexpectedKind "StaticSite" "<none>") -> pure ()
         other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
   , testCase "ServerSite kind returns UnexpectedKind" $
-      case decodeStaticSite (BC.pack (staticJSON validParts {pKind = "ServerSite"})) of
+      case decodeStaticSite (BC.pack (staticJSON (validParts & #pKind .~ "ServerSite"))) of
         Left (UnexpectedKind "StaticSite" "ServerSite") -> pure ()
         other -> assertFailure ("expected UnexpectedKind ServerSite, got: " <> show other)
   ]
@@ -191,13 +194,14 @@ deploymentJSON =
 -- JSON template for the decode tests
 
 data StaticParts = StaticParts
-  { pKind :: String
-  , pName :: String
-  , pBuild :: String
-  , pRedirects :: String
-  , pHeaders :: String
-  , pNotFound :: String
+  { pKind :: !String
+  , pName :: !String
+  , pBuild :: !String
+  , pRedirects :: !String
+  , pHeaders :: !String
+  , pNotFound :: !String
   }
+  deriving stock (Eq, Show, Generic)
 
 validParts :: StaticParts
 validParts =
@@ -213,17 +217,17 @@ validParts =
 staticJSON :: StaticParts -> String
 staticJSON p =
   "{\"kind\":\""
-    <> pKind p
+    <> p ^. #pKind
     <> "\",\"name\":\""
-    <> pName p
+    <> p ^. #pName
     <> "\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"build\":"
-    <> pBuild p
+    <> p ^. #pBuild
     <> ",\"domains\":[],\"redirects\":"
-    <> pRedirects p
+    <> p ^. #pRedirects
     <> ",\"headers\":"
-    <> pHeaders p
+    <> p ^. #pHeaders
     <> ",\"cache\":{\"immutableAssets\":false,\"defaultMaxAge\":null},\"notFound\":"
-    <> pNotFound p
+    <> p ^. #pNotFound
     <> "}"
 
 -- ---------------------------------------------------------------------------

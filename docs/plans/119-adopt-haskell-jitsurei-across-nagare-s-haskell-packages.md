@@ -47,7 +47,10 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 - [x] (2026-09-13T13:51:26Z) Milestone 1: recorded ADR 16, normalized Cabal defaults and
       dependency bounds, scoped `PackageImports` to Prelude modules, added
       `Nagare.Access.Prelude`, and compiled all three workspaces successfully.
-- [ ] Milestone 2: migrate `nagare-dsl`, its tests, fixtures, and shipped examples.
+- [x] (2026-09-13T14:12:45Z) Milestone 2: migrated `nagare-dsl`, its direct tests,
+      fixtures, CLI consumers, and shipped examples to semantic fields and label-based access;
+      all 387 DSL tests pass, the dependent `nagarectl` workspace builds, and the hermetic
+      `examples-compile` check accepts every shipped configuration.
 - [ ] Milestone 3: migrate the `nagarectl` library and focused tests.
 - [ ] Milestone 4: migrate the `nagarectl` and `nagared` entry points without changing their CLI.
 - [ ] Milestone 5: migrate `nagare-access`, its executable, and its test suite.
@@ -57,7 +60,11 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 
 ## Surprises & Discoveries
 
-(None yet.)
+- GHC rejects a strictness annotation on a record field of a `newtype`. Those fields are the sole
+  syntactic exception to the explicit-bang rule: a newtype constructor is representation-erased,
+  while every field of a project-owned `data` record remains explicitly strict.
+  Evidence: GHC 9.12.3 reports `A newtype constructor must not have a strictness annotation` for
+  `ConfigTimeout`, `PreparedServerOutput`, and analogous wire wrappers when a bang is added.
 
 
 ## Decision Log
@@ -109,6 +116,16 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   versions 2.3.0.0 and 5.3.6, both supporting GHC 9.12. The local lens corpus has an unreleased 5.4
   description, so it is not used. `nagarectl` currently resolves generic-lens 2.2.2.0 because its
   `^>=2.2` bound excludes 2.3.
+  Date: 2026-09-13
+
+- Decision: Override `generic-lens` and `generic-lens-core` to 2.3.0.0 in the root Nix Haskell
+  package set.
+  Rationale: The pinned nixpkgs revision provides 2.2.2, which cannot satisfy the standardized
+  direct bound. Hackage metadata and the source located through
+  `mori://ekmett/lens/packages/generic-lens` and
+  `mori://ekmett/lens/packages/generic-lens-core` confirm that the released 2.3.0.0 packages are a
+  matched pair and support the repository's GHC 9.12 toolchain. The hermetic examples check builds
+  both overrides before compiling every shipped configuration.
   Date: 2026-09-13
 
 

@@ -175,7 +175,7 @@ runStorageRestore dep volume backupId live backend dryRun = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
       vols = dep ^. #volumes
-      declared = map (volumeNameText . (^. #volName)) vols
+      declared = map (volumeNameText . (^. #name)) vols
   if volume `notElem` declared
     then die ("app " <> app <> " declares no volume named '" <> volume <> "'")
     else do
@@ -186,11 +186,11 @@ runStorageRestore dep volume backupId live backend dryRun = do
           claim = if live then livePvc else scratchPvc
           src = if isObjectUrl backupId then backupId else storeObjectUrl backend (snapshotObjectPath app volume backupId)
           size = scratchSize volume vols
-          jobName = T.take 63 (T.toLower ("nagare-volrestore-" <> app <> "-" <> volume <> "-" <> ts))
+          name = T.take 63 (T.toLower ("nagare-volrestore-" <> app <> "-" <> volume <> "-" <> ts))
           job =
             StorageRestoreJobInputs
               { sriNamespace = ns
-              , sriJobName = jobName
+              , sriJobName = name
               , sriClaimName = claim
               , sriSrcUrl = src
               , sriMountPath = "/restore"
@@ -211,9 +211,9 @@ runStorageRestore dep volume backupId live backend dryRun = do
             then pure ()
             else applyManifest "nagare-volrestore-pvc.yaml" (renderScratchPvc ns scratchPvc size)
           applyManifest "nagare-volrestore-job.yaml" (renderStorageRestoreJob job)
-          waitForJob ns jobName
-          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "60"]
-          run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
+          waitForJob ns name
+          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "60"]
+          run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
           if live
             then TIO.putStrLn ("Restored " <> app <> "/" <> volume <> " into the LIVE PVC '" <> livePvc <> "'.")
             else
@@ -231,7 +231,7 @@ runStorageRestore dep volume backupId live backend dryRun = do
 -- scratch claim can always hold the live volume's contents.
 scratchSize :: Text -> [Volume] -> Text
 scratchSize volume vols =
-  case [v | v <- vols, volumeNameText (v ^. #volName) == volume] of
+  case [v | v <- vols, volumeNameText (v ^. #name) == volume] of
     (v : _) -> quantityText (v ^. #size)
     [] -> "5Gi"
 
@@ -242,17 +242,17 @@ applyManifest tmpl manifest = withSystemTempFile tmpl $ \fp h -> do
   run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
 
 waitForJob :: Text -> Text -> IO ()
-waitForJob ns jobName = do
+waitForJob ns name = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack jobName, "-n", T.unpack ns]
+        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
         & silenceStderr
   case code of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: restore job " <> jobName <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+      TIO.hPutStrLn stderr ("nagarectl: restore job " <> name <> " did not complete; recent logs:")
+      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
       exitFailure
 
 die :: Text -> IO a

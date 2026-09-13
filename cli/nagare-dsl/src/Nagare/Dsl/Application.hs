@@ -61,7 +61,7 @@ import Nagare.Dsl.Worker (Worker (..))
 -- constructor; the safety guarantee comes from the field types plus the
 -- cross-workload invariants enforced by 'mkApplication'.
 data Application = Application
-  { appName :: !ServiceName
+  { name :: !ServiceName
   -- ^ the shared identity; the value of the 'nagare.dev/app' label.
   , namespace :: !Namespace
   -- ^ the shared namespace; every embedded workload must agree (re-checked).
@@ -72,9 +72,9 @@ data Application = Application
   -- ^ the shared env/secret set declared once on the app. EP-2 fans this down
   -- into every rendered object; the type carries it as the single source of
   -- truth and does not duplicate it into each embedded workload's JSON.
-  , appDatabases :: ![Database]
+  , databases :: ![Database]
   -- ^ the managed databases this app owns. A workload may only reference a
-  -- database whose 'dbName' appears here (the 'declared databases' invariant).
+  -- database whose 'name' appears here (the 'declared databases' invariant).
   , brokers :: ![BrokerBinding]
   -- ^ shared broker/topic bindings declared once on the app.
   , access :: !(Maybe AccessPolicy)
@@ -88,8 +88,8 @@ data Application = Application
   -- through automatically.
   , tasks :: ![Task]
   -- ^ co-located tasks (e.g. a migration task that EP-2 runs as a pre-deploy
-  -- hook). A task that inherits the app image has taskImage = Nothing and
-  -- taskApp = Just appName.
+  -- hook). A task that inherits the app image has image = Nothing and
+  -- app = Just name.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -101,9 +101,9 @@ appLabelKey :: Text
 appLabelKey = "nagare.dev/app"
 
 -- | The (key, value) shared-identity label for an 'Application':
--- @("nagare.dev/app", \<appName\>)@.
+-- @("nagare.dev/app", \<name\>)@.
 appLabel :: Application -> (Text, Text)
-appLabel app = (appLabelKey, serviceNameText (appName app))
+appLabel app = (appLabelKey, serviceNameText (app ^. #name))
 
 -- | Validate an assembled 'Application', enforcing the three cross-workload
 -- invariants a single workload's own constructor cannot see, plus a cheap
@@ -114,7 +114,7 @@ appLabel app = (appLabelKey, serviceNameText (appName app))
 --      'Application'\'s shared @image@ (an image-inheriting task, which pins no
 --      image of its own, is exempt).
 --   2. **Declared databases** — every 'DatabaseName' any workload references via
---      its @databases@ field must appear in 'appDatabases' (matched by 'dbName').
+--      its @databases@ field must appear in 'databases' (matched by 'name').
 --   3. **Unique names** — no two embedded workloads (service + workers + tasks)
 --      share a 'ServiceName', and no two managed databases share a
 --      'DatabaseName'. Workload names and database names live in separate
@@ -132,14 +132,14 @@ mkApplication app = do
 
 -- | The (workload-name, own-image) pair of every workload that pins an image:
 -- the service (when present), each worker, and each task that carries its own
--- 'taskImage' (an inheriting task pins no image and is omitted).
+-- 'image' (an inheriting task pins no image and is omitted).
 workloadImages :: Application -> [(Text, ImageRef)]
 workloadImages app =
   [(serviceNameText (svc ^. #name), svc ^. #image) | Just svc <- [app ^. #service]]
     <> [(serviceNameText (w ^. #name), w ^. #image) | w <- app ^. #workers]
-    <> [ (serviceNameText (t ^. #taskName), img)
+    <> [ (serviceNameText (t ^. #name), img)
        | t <- app ^. #tasks
-       , Just img <- [t ^. #taskImage]
+       , Just img <- [t ^. #image]
        ]
 
 checkImageAgreement :: Application -> Either Text ()
@@ -178,7 +178,7 @@ checkDeclaredDatabases app =
         )
   where
     declared =
-      Set.fromList (map (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases))
+      Set.fromList (map (\db -> databaseNameText (db ^. #name)) (app ^. #databases))
 
 checkUniqueNames :: Application -> Either Text ()
 checkUniqueNames app =
@@ -191,8 +191,8 @@ checkUniqueNames app =
     workloadNames =
       [serviceNameText (svc ^. #name) | Just svc <- [app ^. #service]]
         <> map (\w -> serviceNameText (w ^. #name)) (app ^. #workers)
-        <> map (\t -> serviceNameText (t ^. #taskName)) (app ^. #tasks)
-    dbNames = map (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases)
+        <> map (\t -> serviceNameText (t ^. #name)) (app ^. #tasks)
+    dbNames = map (\db -> databaseNameText (db ^. #name)) (app ^. #databases)
 
 checkNamespaceAgreement :: Application -> Either Text ()
 checkNamespaceAgreement app =
@@ -213,7 +213,7 @@ checkNamespaceAgreement app =
     workloadNamespaces =
       [(serviceNameText (svc ^. #name), svc ^. #namespace) | Just svc <- [app ^. #service]]
         <> map (\w -> (serviceNameText (w ^. #name), w ^. #namespace)) (app ^. #workers)
-        <> map (\t -> (serviceNameText (t ^. #taskName), t ^. #taskNamespace)) (app ^. #tasks)
+        <> map (\t -> (serviceNameText (t ^. #name), t ^. #namespace)) (app ^. #tasks)
 
 -- | The first element that appears more than once in the list, in order, or
 -- 'Nothing' when all elements are unique. (Mirrors the helper in

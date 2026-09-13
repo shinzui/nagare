@@ -188,7 +188,7 @@ engineVersionText (EngineVersion t) = t
 -- safety guarantee comes from the field types, not from hiding this record
 -- (mirrors 'Nagare.Dsl.Types.Deployment').
 data Database = Database
-  { dbName :: !DatabaseName
+  { name :: !DatabaseName
   , engine :: !Engine
   , version :: !EngineVersion
   , namespace :: !Namespace

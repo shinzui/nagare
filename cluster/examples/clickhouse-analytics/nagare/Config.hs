@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The clickhouse-analytics example app: references the managed ClickHouse
 -- database "events" and receives CLICKHOUSE_HOST/PORT/USER (literals) and
@@ -7,6 +8,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
@@ -15,7 +18,7 @@ deployment :: Either String Deployment
 deployment = do
   dep <- first show (webService "clickhouse-analytics" "clickhouse-analytics")
   db <- first show (mkDatabaseName "events")
-  pure dep {databases = [db]}
+  pure (dep & #databases .~ [db])
 
 main :: IO ()
 main = case deployment of

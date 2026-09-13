@@ -12,7 +12,8 @@ module Nagare.Dsl.Image
   ) where
 
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (ImageRef, mkImageRef)
 
 -- | Join a registry prefix and a short image name into a fully-qualified

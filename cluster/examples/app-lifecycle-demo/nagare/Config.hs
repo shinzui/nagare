@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | Example: an app that exercises the extended application model (EP-29) so the
 -- lifecycle walk-through in @docs/user/app-lifecycle.md@ has a real, committed
@@ -16,6 +17,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types
@@ -32,7 +35,7 @@ deployment = do
 
   -- A /healthz probe with defaults, promoted to also emit liveness + startup.
   baseHc <- first show (httpHealthCheck "/healthz")
-  let hc = baseHc {asLiveness = True, asStartup = True}
+  let hc = baseHc & #asLiveness .~ True & #asStartup .~ True
 
   -- The webService preset sets requests (250m / 128Mi); add matching limits.
   cpuReq <- first show (mkQuantity "250m")

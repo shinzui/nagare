@@ -103,7 +103,7 @@ snapshotsToPrune n names = drop (max 0 n) (sortBy (comparing Down) names)
 backupExcludedWarnings :: Text -> [Volume] -> [Text]
 backupExcludedWarnings app vols =
   [ "warning: volume '"
-      <> volumeNameText (v ^. #volName)
+      <> volumeNameText (v ^. #name)
       <> "' on app '"
       <> app
       <> "' is NOT backed up (backup excluded in config)"
@@ -210,7 +210,7 @@ runSnapshot :: Deployment -> Text -> StoreBackend -> Int -> IO ()
 runSnapshot dep volume backend keep = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
-      declared = map (volumeNameText . (^. #volName)) (dep ^. #volumes)
+      declared = map (volumeNameText . (^. #name)) (dep ^. #volumes)
   if volume `notElem` declared
     then die ("app " <> app <> " declares no volume named '" <> volume <> "'")
     else do
@@ -218,20 +218,20 @@ runSnapshot dep volume backend keep = do
       let ts = snapshotTimestamp now
           claim = pvcName app volume
           dest = storeObjectUrl backend (snapshotObjectPath app volume ts)
-          jobName = T.take 63 (T.toLower ("nagare-snapshot-" <> app <> "-" <> volume <> "-" <> ts))
+          name = T.take 63 (T.toLower ("nagare-snapshot-" <> app <> "-" <> volume <> "-" <> ts))
           job =
             SnapshotJobInputs
               { sjiNamespace = ns
-              , sjiJobName = jobName
+              , sjiJobName = name
               , sjiClaimName = claim
               , sjiDestUrl = dest
               , sjiMountPath = "/vol"
               , sjiBackend = backend
               }
       applyJob (renderSnapshotJob job)
-      waitForJob ns jobName
+      waitForJob ns name
       -- Best-effort cleanup of the completed Job; failure here is non-fatal.
-      run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
+      run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
       pruneSnapshots backend app volume keep
       TIO.putStrLn ("Snapshot written: " <> dest)
 
@@ -244,7 +244,7 @@ applyJob manifest = withSystemTempFile "nagare-snapshot-job.yaml" $ \fp h -> do
 
 -- | Block until the Job completes; on failure print its logs and exit non-zero.
 waitForJob :: Text -> Text -> IO ()
-waitForJob ns jobName = do
+waitForJob ns name = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
@@ -252,7 +252,7 @@ waitForJob ns jobName = do
           [ "wait"
           , "--for=condition=complete"
           , "--timeout=600s"
-          , "job/" <> T.unpack jobName
+          , "job/" <> T.unpack name
           , "-n"
           , T.unpack ns
           ]
@@ -260,10 +260,10 @@ waitForJob ns jobName = do
   case code of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: snapshot job " <> jobName <> " did not complete; recent logs:")
+      TIO.hPutStrLn stderr ("nagarectl: snapshot job " <> name <> " did not complete; recent logs:")
       run_ $
         cmd "kubectl"
-          & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+          & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
       exitFailure
 
 -- | List the volume's existing snapshots and delete all but the newest @keep@.

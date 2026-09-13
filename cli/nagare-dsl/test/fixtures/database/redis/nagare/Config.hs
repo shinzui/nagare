@@ -18,7 +18,7 @@ database = do
   sz <- first show (mkQuantity "2Gi")
   Right
     Database
-      { dbName = n
+      { name = n
       , engine = Redis
       , version = v
       , namespace = ns

@@ -131,13 +131,13 @@ pvcValue app ns v =
     , "kind" .= ("PersistentVolumeClaim" :: Text)
     , "metadata"
         .= object
-          [ "name" .= pvcName app (volumeNameText (v ^. #volName))
+          [ "name" .= pvcName app (volumeNameText (v ^. #name))
           , "namespace" .= ns
           , "labels"
               .= object
                 [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
                 , "nagare.dev/app" .= app
-                , "nagare.dev/volume" .= volumeNameText (v ^. #volName)
+                , "nagare.dev/volume" .= volumeNameText (v ^. #name)
                 ]
           ]
     , "spec"
@@ -156,7 +156,7 @@ volumeMountsField vs = ["volumeMounts" .= toJSON (map mountEntry vs)]
   where
     mountEntry v =
       object
-        [ "name" .= volumeNameText (v ^. #volName)
+        [ "name" .= volumeNameText (v ^. #name)
         , "mountPath" .= mountPathText (v ^. #mountPath)
         , "readOnly" .= (v ^. #readOnly)
         ]
@@ -169,9 +169,9 @@ volumesField app vs = ["volumes" .= toJSON (map volEntry vs)]
   where
     volEntry v =
       object
-        [ "name" .= volumeNameText (v ^. #volName)
+        [ "name" .= volumeNameText (v ^. #name)
         , "persistentVolumeClaim"
-            .= object ["claimName" .= pvcName app (volumeNameText (v ^. #volName))]
+            .= object ["claimName" .= pvcName app (volumeNameText (v ^. #name))]
         ]
 
 -- | The rollout-safety annotations EP-33 verified a single-node @ReadWriteOnce@

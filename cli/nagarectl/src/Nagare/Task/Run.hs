@@ -43,12 +43,12 @@ oneOffJobName task now =
     stamp = T.pack (formatTime defaultTimeLocale "%Y%m%d%H%M%S" now)
 
 -- | The @kubectl@ argument vector for the one-off run (pure, unit-testable):
--- @create job <jobName> --from=cronjob/nagare-task-<task> -n <ns>@.
+-- @create job <name> --from=cronjob/nagare-task-<task> -n <ns>@.
 runArgs :: Text -> Text -> Text -> [String]
-runArgs ns task jobName =
+runArgs ns task name =
   [ "create"
   , "job"
-  , T.unpack jobName
+  , T.unpack name
   , "--from=cronjob/nagare-task-" <> T.unpack task
   , "-n"
   , T.unpack ns
@@ -64,13 +64,13 @@ runTaskRun p
       now <- getCurrentTime
       let ns = trpNamespace p
           task = trpTask p
-          jobName = oneOffJobName task now
-          args = runArgs ns task jobName
+          name = oneOffJobName task now
+          args = runArgs ns task name
       TIO.putStrLn "--- task run (dry-run) ---"
       TIO.putStrLn ("kubectl " <> T.unwords (map T.pack args))
       TIO.putStrLn
         ( "Then: kubectl wait --for=condition=complete --timeout=600s job/"
-            <> jobName
+            <> name
             <> " -n "
             <> ns
         )
@@ -84,17 +84,17 @@ runTaskRun p
           now <- getCurrentTime
           let ns = trpNamespace p
               task = trpTask p
-              jobName = oneOffJobName task now
-              args = runArgs ns task jobName
-          TIO.putStrLn ("Starting one-off run " <> jobName <> " ...")
+              name = oneOffJobName task now
+              args = runArgs ns task name
+          TIO.putStrLn ("Starting one-off run " <> name <> " ...")
           run_ $ cmd "kubectl" & addArgs args
-          waitForTaskJob ns jobName task
-          TIO.putStrLn ("Task " <> task <> " completed (" <> jobName <> ").")
+          waitForTaskJob ns name task
+          TIO.putStrLn ("Task " <> task <> " completed (" <> name <> ").")
 
 -- | Wait for the one-off Job to reach @condition=complete@; on timeout/failure,
 -- tail its logs and exit non-zero. Mirrors 'Nagare.Database.Backup.waitForJob'.
 waitForTaskJob :: Text -> Text -> Text -> IO ()
-waitForTaskJob ns jobName task = do
+waitForTaskJob ns name task = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
@@ -102,7 +102,7 @@ waitForTaskJob ns jobName task = do
           [ "wait"
           , "--for=condition=complete"
           , "--timeout=600s"
-          , "job/" <> T.unpack jobName
+          , "job/" <> T.unpack name
           , "-n"
           , T.unpack ns
           ]
@@ -110,6 +110,6 @@ waitForTaskJob ns jobName task = do
   case code of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: task " <> task <> " run " <> jobName <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+      TIO.hPutStrLn stderr ("nagarectl: task " <> task <> " run " <> name <> " did not complete; recent logs:")
+      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
       exitFailure

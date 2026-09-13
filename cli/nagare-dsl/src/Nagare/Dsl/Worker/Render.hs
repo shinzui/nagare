@@ -178,7 +178,7 @@ timingPairs t =
   ]
 
 -- | The container @command:@ block, emitted only when the worker overrides the
--- image's entrypoint. Rendered as a YAML list of the @commandArgv@ strings.
+-- image's entrypoint. Rendered as a YAML list of the @argv@ strings.
 commandPairs :: Maybe Command -> [Pair]
 commandPairs Nothing = []
 commandPairs (Just c) = ["command" .= toJSON (commandArgvList c)]

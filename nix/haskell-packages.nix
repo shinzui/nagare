@@ -5,6 +5,9 @@ let
 
   haskellPackages = pkgs.haskell.packages.ghc912.override {
     overrides = hfinal: _hprev: {
+      generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
+      generic-lens-core = hfinal.callHackage "generic-lens-core" "2.3.0.0" { };
+
       cradle = pkgs.haskell.lib.dontCheck (
         hfinal.callCabal2nix "cradle" cradleSrc { }
       );

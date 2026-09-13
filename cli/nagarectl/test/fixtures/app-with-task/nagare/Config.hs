@@ -2,7 +2,7 @@
 
 -- | A `notes` app that co-locates an inheriting scheduled task (MasterPlan 10,
 -- EP-52): every 15 minutes run `python manage.py sync` in `notes`'s own image
--- (taskImage = Nothing), with `notes`'s runtime env/secret (envFrom) and the
+-- (image = Nothing), with `notes`'s runtime env/secret (envFrom) and the
 -- predefined NAGARE_* task vars. `nagarectl deploy` resolves the inherited image
 -- tag and applies the rendered CronJob alongside the app's Knative Service.
 module Main (main) where
@@ -28,7 +28,7 @@ import Nagare.Dsl.Types
 
 dep :: Either String Deployment
 dep = first show $ do
-  appName <- mkServiceName "notes"
+  name <- mkServiceName "notes"
   ns <- mkNamespace "personal"
   img <- mkImageRef "gcr.io/myproject/notes"
   prt <- mkPort 8080
@@ -38,26 +38,26 @@ dep = first show $ do
   syncTask <-
     mkTask
       Task
-        { taskName = taskN
-        , taskNamespace = ns
-        , taskSchedule = sched
-        , taskImage = Nothing
-        , taskApp = Just appName
-        , taskCommand = ["python", "manage.py", "sync"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Nothing
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 2
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = taskN
+        , namespace = ns
+        , schedule = sched
+        , image = Nothing
+        , app = Just name
+        , command = ["python", "manage.py", "sync"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Nothing
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 2
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
   pure
     Deployment
-      { name = appName
+      { name = name
       , namespace = ns
       , image = img
       , build = bld

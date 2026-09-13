@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The redis-cache example app: references the managed Redis database "cache"
 -- and receives REDIS_HOST/REDIS_PORT (literals) and REDIS_PASSWORD/REDIS_URL
@@ -6,6 +7,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
@@ -14,7 +17,7 @@ deployment :: Either String Deployment
 deployment = do
   dep <- first show (webService "redis-cache" "redis-cache")
   db <- first show (mkDatabaseName "cache")
-  pure dep {databases = [db]}
+  pure (dep & #databases .~ [db])
 
 main :: IO ()
 main = case deployment of

@@ -36,8 +36,8 @@ import Nagare.Dsl.Types (Domain, domainText, imageRefText, namespaceText)
 -- set, it replaces the site name as the Knative Service name so a preview deploy
 -- lands on a separate Service; production deploys leave it 'Nothing'.
 data StaticDeployContext = StaticDeployContext
-  { imageTag :: Text
-  , previewName :: Maybe Text
+  { imageTag :: !Text
+  , previewName :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 

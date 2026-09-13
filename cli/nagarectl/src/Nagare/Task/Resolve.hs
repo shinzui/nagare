@@ -31,10 +31,10 @@ import Data.Map qualified as Map
 import Data.Vector qualified as V
 import Nagare.Dsl.Task
   ( Task
-  , taskApp
-  , taskImage
-  , taskName
-  , taskNamespace
+  , app
+  , image
+  , name
+  , namespace
   )
 import Nagare.Dsl.Task.Render (cronJobValue, encodeCronJob)
 import Nagare.Dsl.Types
@@ -50,11 +50,11 @@ import Nagare.Dsl.Types
 
 -- | The fully resolved @image:tag@ string for a task's container at deploy time.
 --
---   * When the task carries its own image (@taskImage = Just ref@), the tag the
+--   * When the task carries its own image (@image = Just ref@), the tag the
 --     app is deploying this run is appended: @imageRefText ref <> ":" <> tag@.
 --     This pins an explicit-image task to the same release as the app (Decision
 --     Log), rather than deploying an untagged @:latest@.
---   * When the task inherits (@taskImage = Nothing@), the app's full resolved
+--   * When the task inherits (@image = Nothing@), the app's full resolved
 --     image reference is used verbatim — the SAME string the app's own container
 --     gets this run — so the task runs the app's current code.
 resolveTaskImage
@@ -63,7 +63,7 @@ resolveTaskImage
   -> Task
   -> Text
 resolveTaskImage appImageTagged deployTag t =
-  case taskImage t of
+  case image t of
     Just ref -> imageRefText ref <> ":" <> deployTag
     Nothing -> appImageTagged
 
@@ -80,10 +80,10 @@ predefinedTaskEnv t =
   where
     lit name v = (envName name, runtimeScoped (EnvLiteral v))
     fixed =
-      [ lit "NAGARE_TASK_NAME" (serviceNameText (taskName t))
-      , lit "NAGARE_NAMESPACE" (namespaceText (taskNamespace t))
+      [ lit "NAGARE_TASK_NAME" (serviceNameText (name t))
+      , lit "NAGARE_NAMESPACE" (namespaceText (namespace t))
       ]
-    appEntry = case taskApp t of
+    appEntry = case app t of
       Just a -> [lit "NAGARE_APP" (serviceNameText a)]
       Nothing -> []
 
@@ -100,13 +100,13 @@ runIdEnvEntry =
 -- inherited (or explicit-and-tagged) image substituted into the container, the
 -- predefined @NAGARE_*@ literals merged into the task's inline env (via the
 -- caller-supplied @withPredefEnv@ setter, which unions 'predefinedTaskEnv' into
--- the task's @taskEnv@), and the @NAGARE_RUN_ID@ Downward-API entry appended.
+-- the task's @env@), and the @NAGARE_RUN_ID@ Downward-API entry appended.
 renderResolvedTask
   :: Text -- ^ the app's resolved image reference, @repo:tag@
   -> Text -- ^ the bare deploy tag
   -> (Task -> Task)
   -- ^ how to augment the task's inline env with 'predefinedTaskEnv' (the caller
-  -- supplies a setter that unions @predefinedTaskEnv t@ into @taskEnv t@, so this
+  -- supplies a setter that unions @predefinedTaskEnv t@ into @env t@, so this
   -- module needs no record-update knowledge of the Task field shape)
   -> Task
   -> ByteString

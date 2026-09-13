@@ -70,7 +70,7 @@ import Nagare.Dsl.Database.Render (renderDatabase)
 import Nagare.Dsl.Load (loadApplication, renderLoadError)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
-import Nagare.Dsl.Task (Task, taskName)
+import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Types
   ( Deployment
   , EnvName
@@ -165,7 +165,7 @@ phaseTag (PhaseWorkers _) = "worker"
 -- no-ops at run time) so the order is total and easy to test.
 planPhases :: Application -> [Phase]
 planPhases app =
-  [PhaseHooks (app ^. #tasks), PhaseDatabases (app ^. #appDatabases)]
+  [PhaseHooks (app ^. #tasks), PhaseDatabases (app ^. #databases)]
     <> maybe [] (\svc -> [PhaseService svc]) (app ^. #service)
     <> [PhaseWorkers (app ^. #workers)]
 
@@ -257,8 +257,8 @@ renderTaskObjects env t0 =
     (stamp env "hook")
     [renderResolvedTask (reAppImageTagged env) (reEffTag env) withPredef t]
   where
-    t = t0 & #taskEnv %~ flowEnv env
-    withPredef tk = tk & #taskEnv %~ mergeGenerated (predefinedTaskEnv tk)
+    t = t0 & #env %~ flowEnv env
+    withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
 
 -- | Merge the app's shared env under a workload's own env (the workload's own
 -- entries win on a key collision; 'mergeGenerated' is left-biased).
@@ -277,7 +277,7 @@ stamp env ph bs = (\stamped -> (ph, stamped)) <$> stampAppLabel (reAppName env) 
 -- volume PVC) is left unchanged. Only the FIRST @managed-by@ (the object's own
 -- @metadata.labels@, not a nested pod-template) is matched.
 stampAppLabel :: Text -> ByteString -> Either Text ByteString
-stampAppLabel appName bs
+stampAppLabel name bs
   | "nagare.dev/app:" `T.isInfixOf` text = verify bs
   | not ("nagare.dev/managed-by:" `T.isInfixOf` text) =
       Left
@@ -290,11 +290,11 @@ stampAppLabel appName bs
     insertAfterFirst [] = []
     insertAfterFirst (l : ls)
       | "nagare.dev/managed-by:" `T.isInfixOf` l =
-          l : (T.takeWhile (== ' ') l <> "nagare.dev/app: " <> appName) : ls
+          l : (T.takeWhile (== ' ') l <> "nagare.dev/app: " <> name) : ls
       | otherwise = l : insertAfterFirst ls
 
     verify stamped
-      | topLevelAppLabel stamped == Just appName = Right stamped
+      | topLevelAppLabel stamped == Just name = Right stamped
       | otherwise =
           Left
             ( describe bs
@@ -429,7 +429,7 @@ runAppDeploy p = do
   let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
       env =
         RolloutEnv
-          { reAppName = serviceNameText (app ^. #appName)
+          { reAppName = serviceNameText (app ^. #name)
           , reQualImage = qImg
           , reImageTag = imageTag
           , reEffTag = effTag
@@ -524,21 +524,21 @@ runHooks env = go
       objects <- requireRendered (renderTaskObjects env t)
       applyManifests (map snd objects)
       now <- getCurrentTime
-      let task = serviceNameText (taskName t)
+      let task = serviceNameText (t ^. #name)
           ns = reNamespace env
-          jobName = oneOffJobName task now
-      TIO.putStrLn ("Running pre-deploy hook '" <> task <> "' (" <> jobName <> ") ...")
-      run_ $ cmd "kubectl" & addArgs (runArgs ns task jobName)
-      code <- waitForJobComplete ns jobName
+          name = oneOffJobName task now
+      TIO.putStrLn ("Running pre-deploy hook '" <> task <> "' (" <> name <> ") ...")
+      run_ $ cmd "kubectl" & addArgs (runArgs ns task name)
+      code <- waitForJobComplete ns name
       case code of
         ExitSuccess -> TIO.putStrLn ("Hook '" <> task <> "' completed.") >> go rest
         ExitFailure _ -> do
-          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
-          pure (PhaseFailed ("pre-deploy hook '" <> task <> "' did not complete (" <> jobName <> ")"))
+          run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
+          pure (PhaseFailed ("pre-deploy hook '" <> task <> "' did not complete (" <> name <> ")"))
 
 -- | Wait for a Job to reach @condition=complete@; returns its exit code.
 waitForJobComplete :: Text -> Text -> IO ExitCode
-waitForJobComplete ns jobName = do
+waitForJobComplete ns name = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
@@ -546,7 +546,7 @@ waitForJobComplete ns jobName = do
           [ "wait"
           , "--for=condition=complete"
           , "--timeout=600s"
-          , "job/" <> T.unpack jobName
+          , "job/" <> T.unpack name
           , "-n"
           , T.unpack ns
           ]
@@ -560,7 +560,7 @@ ensureDatabase :: RolloutEnv -> Database -> IO ()
 ensureDatabase env db =
   runDbCreate
     (db ^. #engine)
-    (databaseNameText (db ^. #dbName))
+    (databaseNameText (db ^. #name))
     DbCreateParams
       { dcpNamespace = namespaceText (db ^. #namespace)
       , dcpVersion = Just (engineVersionText (db ^. #version))
@@ -619,7 +619,7 @@ summaryLine app env =
     <> ", "
     <> count (length (app ^. #workers)) "worker"
     <> ", "
-    <> count (length (app ^. #appDatabases)) "database"
+    <> count (length (app ^. #databases)) "database"
     <> ", "
     <> count (length (app ^. #tasks)) "hook"
     <> ") to namespace "

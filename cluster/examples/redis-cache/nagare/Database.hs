@@ -16,7 +16,7 @@ database = do
   size' <- first show (mkQuantity "2Gi")
   pure
     Database
-      { dbName = name'
+      { name = name'
       , engine = Redis
       , version = ver'
       , namespace = defaultNamespace

@@ -29,22 +29,22 @@ task = first show $ do
   varName <- mkEnvName "DRY_RUN"
   mkTask
     Task
-      { taskName = n
-      , taskNamespace = ns
-      , taskSchedule = sched
-      , taskImage = Just img
-      , taskApp = Nothing
-      , taskCommand = ["python", "manage.py", "cleanup"]
-      , taskArgs = []
-      , taskEnv = Map.fromList [(varName, runtimeScoped (EnvLiteral "false"))]
-      , taskResources = Nothing
-      , taskTimeoutSeconds = Just 600
-      , taskConcurrencyPolicy = Forbid
-      , taskRestartPolicy = Never
-      , taskBackoffLimit = 0
-      , taskSuccessfulJobsHistoryLimit = 3
-      , taskFailedJobsHistoryLimit = 1
-      , taskStartingDeadlineSeconds = Nothing
+      { name = n
+      , namespace = ns
+      , schedule = sched
+      , image = Just img
+      , app = Nothing
+      , command = ["python", "manage.py", "cleanup"]
+      , args = []
+      , env = Map.fromList [(varName, runtimeScoped (EnvLiteral "false"))]
+      , resources = Nothing
+      , timeoutSeconds = Just 600
+      , concurrencyPolicy = Forbid
+      , restartPolicy = Never
+      , backoffLimit = 0
+      , successfulJobsHistoryLimit = 3
+      , failedJobsHistoryLimit = 1
+      , startingDeadlineSeconds = Nothing
       }
 
 main :: IO ()
