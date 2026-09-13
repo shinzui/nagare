@@ -157,6 +157,13 @@ import Nagare.Init
   , seedPulumiConfig
   , writeTargetEnv
   )
+import Nagare.Infra.Plan
+  ( PlanVerdict (..)
+  , classifyPlan
+  , gceInstanceType
+  , parsePreview
+  , renderVerdict
+  )
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
   , defaultKeepReleases
@@ -522,6 +529,7 @@ data Command
   | Doctor DoctorOpts
   | ContextCmdGroup ContextCommand
   | Init InitOpts
+  | Infra InfraCommand
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
@@ -604,6 +612,9 @@ data ContextCreateOpts = ContextCreateOpts
   , ccoForce :: !Bool
   , ccoUse :: !Bool
   }
+  deriving stock (Generic, Show)
+
+newtype InfraCommand = InfraGuard Bool
   deriving stock (Generic, Show)
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
@@ -1552,6 +1563,7 @@ opts =
             <> command "doctor" doctorCmd
             <> command "context" contextCmd
             <> command "init" initCmd
+            <> command "infra" infraCmd
             <> command "domains" domainsCmd
             <> command "cdn" cdnCmd
             <> command "cleanup" cleanupCmd
@@ -1665,6 +1677,19 @@ opts =
       info
         (Init <$> initOptsParser <**> helper)
         (fullDesc <> progDesc "Onboard a fresh GCP project: preflight, write the target profile, enable APIs, seed Pulumi config")
+    infraCmd =
+      info
+        ( subparser
+            ( command
+                "guard"
+                ( info
+                    (Infra . InfraGuard <$> switch (long "allow-replacement" <> help "Allow a deliberate GCE instance replacement for this run") <**> helper)
+                    (progDesc "Preview and refuse a plan that replaces the GCE instance")
+                )
+            )
+            <**> helper
+        )
+        (fullDesc <> progDesc "Guard infrastructure applies")
     domainsCmd =
       info
         (domainsSubparser <**> helper)
@@ -2247,6 +2272,7 @@ main =
     Doctor o -> runDoctor mctx o
     ContextCmdGroup ccmd -> runContext mctx ccmd
     Init o -> runInit mctx o
+    Infra (InfraGuard allowReplacement) -> runInfraGuard mctx allowReplacement
     Domains (DomainsList o) -> runDomainsList mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
@@ -2780,6 +2806,42 @@ runDoctor mctx o = do
   let checks = gradeChecksAt (pwRoot workspace) (pwPulumiDir workspace) (pwScriptsDir workspace </> "iap-ssh.sh") tp (probes <> [platformProbe versionStatus])
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
+
+runInfraGuard :: Maybe String -> Bool -> IO ()
+runInfraGuard mctx allowReplacementFlag = do
+  (_, workspace) <- ensurePulumiForActiveContext mctx
+  tp <- activeProfile mctx
+  case tpMode tp of
+    Local -> TIO.putStrLn "infra guard: local mode has no GCE instance to protect"
+    Cloud -> do
+      void (either dieT pure (validateVmShape (vmShapeOf tp)))
+      ctx <- maybe "default" id <$> lookupEnv "NAGARE_PULUMI_STACK"
+      previewResult <-
+        catch
+          (Right <$> readProcessWithExitCode "pulumi" ["-C", pwPulumiDir workspace, "preview", "--json", "--stack", ctx] "")
+          (pure . Left . (\(err :: IOException) -> err))
+      case previewResult of
+        Left err -> dieT ("infra guard could not run Pulumi preview; refusing to apply: " <> T.pack (show err))
+        Right (ExitFailure code, _, err) ->
+          dieT
+            ( "infra guard could not inspect the Pulumi plan (preview exited "
+                <> T.pack (show code)
+                <> "); refusing to apply:\n"
+                <> T.strip (T.pack err)
+            )
+        Right (ExitSuccess, out, _) -> do
+          steps <- either (dieT . ("infra guard could not parse Pulumi preview; refusing to apply: " <>)) pure (parsePreview (TE.encodeUtf8 (T.pack out)))
+          let verdict = classifyPlan gceInstanceType steps
+          case verdict of
+            PlanAllowed -> TIO.putStr (renderVerdict (tpInstanceName tp) verdict)
+            PlanReplacesInstance _ -> do
+              envAllowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+              let message = renderVerdict (tpInstanceName tp) verdict
+              if allowReplacementFlag || envAllowed
+                then do
+                  TIO.hPutStrLn stderr "VM replacement explicitly allowed for this run."
+                  TIO.hPutStr stderr message
+                else TIO.hPutStr stderr message >> exitFailure
 
 -- | @nagarectl init@: the guided onboarding flow (EP-63). Order: resolve target
 -- (flags or prompts) -> preflight (gcloud auth + operator IAM) -> write the profile
