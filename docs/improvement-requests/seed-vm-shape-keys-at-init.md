@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Seed and pin the VM shape keys at init so a routine apply cannot replace the instance
 description: Have nagarectl init seed machineType and bootDiskType, and warn before any plan that would destroy the boot disk holding k3s state and TLS material.
-timestamp: "2026-09-12T13:08:46Z"
+timestamp: "2026-09-13T04:43:01Z"
 generated:
   by: process:claude-code
-  at: "2026-09-12T13:08:46Z"
+  at: "2026-09-13T04:43:01Z"
 requestId: IR-4
-status: accepted
+status: completed
+completedAt: "2026-09-13T04:43:01Z"
+resolution: "EP-110 made machineType, bootDiskType, bootDiskSizeGb, and dataDiskSizeGb validated context-owned values seeded into every selected Pulumi stack; extracted and tested one TypeScript VM-shape resolver; added a cross-language default-agreement check; and made infra-up run a fail-closed Pulumi preview guard before apply. The guard distinguishes in-place changes from GCE instance replacement, names the boot-disk state at risk, and requires an invocation-scoped deliberate-rebuild override. Implementation commits 0be8f01, 76c537d, 33843d1, and 011666c pass nix flake check --print-build-logs, including the hermetic Haskell suite, TypeScript resolver tests, default-agreement check, and clone-free command scenario. Recorded as ADR 14."
 targetPlan: docs/plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md
 origin: mori://shinzui/nagare
 ---
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 **Authored by:** a pre-flight review of `v0.1.0` (HEAD `da24748`) performed while sizing a new
 cluster intended to validate the platform before it carries real work.
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; planned as [ExecPlan 110](../plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md).
+**Status:** completed by [ExecPlan 110](../plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md);
+the durable decision is recorded as [ADR 14](../adr/0014-the-active-context-owns-the-vm-shape.md).
 **Created:** 2026-09-12.
 
 
@@ -143,3 +146,16 @@ Planning also found that `nagarectl context use` re-seeds the Pulumi stack confi
 context, so extending the seed list pins the four keys on an already-created stack at the next
 context selection; no separate migration is needed, provided the seeded defaults stay equal to
 the literals the program uses today.
+
+
+## Completion outcome (2026-09-13)
+
+Completed by ExecPlan 110 in implementation commits `0be8f01`, `76c537d`, `33843d1`, and
+`011666c`. New and existing contexts now own all four VM-shape values; the Pulumi resolver gives
+recorded values precedence over fallbacks; and `infra-up` refuses an instance-replacing preview
+unless the operator supplies an invocation-scoped override after reviewing the state at risk.
+
+The required init-seeding, pinned-default, replacement, and in-place-update properties are covered
+by unit and hermetic command tests. `nix flake check --print-build-logs` passed with the complete
+Haskell suite, TypeScript resolver tests, default-agreement check, and clone-free platform scenario.
+The durable ownership and safety policy is [ADR 14](../adr/0014-the-active-context-owns-the-vm-shape.md).
