@@ -24,8 +24,8 @@ config = do
   repoRef <- textError (mkEnvName "REPO_REF")
   Right
     job
-      { jobCommand = Just command
-      , jobEnv =
+      { command = Just command
+      , env =
           Map.fromList
             [ (runId, runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
             , ( repoRef

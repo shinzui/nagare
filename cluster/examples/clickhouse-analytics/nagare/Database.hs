@@ -21,7 +21,7 @@ database = do
   memLim <- first show (mkQuantity "2Gi")
   pure
     Database
-      { dbName = name'
+      { name = name'
       , engine = ClickHouse
       , version = ver'
       , namespace = defaultNamespace

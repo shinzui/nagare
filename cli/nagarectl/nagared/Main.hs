@@ -96,7 +96,7 @@ optionsParser =
       positiveInt
       ( long "config-timeout"
           <> metavar "SECONDS"
-          <> value (configTimeoutSeconds defaultConfigTimeout)
+          <> value (seconds defaultConfigTimeout)
           <> showDefault
           <> help "Kill a pushed nagare/Config.hs that has not finished within this many seconds"
       )

@@ -3435,7 +3435,7 @@ runDeploy mctx dopts = do
       -- code. The predefined NAGARE_* vars are merged into each task's inline env
       -- (the task's own env wins on a non-NAGARE collision; left-biased merge).
       appImageTagged = imageRefText (dep' ^. #image) <> ":" <> effTag
-      withPredef tk = tk & #taskEnv %~ mergeGenerated (predefinedTaskEnv tk)
+      withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
       taskBytes =
         [ renderResolvedTask appImageTagged effTag withPredef tk
         | tk <- dep' ^. #tasks
@@ -3504,12 +3504,12 @@ reportPVCs :: Text -> Deployment -> IO ()
 reportPVCs ns dep = do
   let app = serviceNameText (dep ^. #name)
       vols = dep ^. #volumes
-      names = [pvcName app (volumeNameText (v ^. #volName)) | v <- vols]
+      names = [pvcName app (volumeNameText (v ^. #name)) | v <- vols]
   unless (null vols) $ do
     phases <- pvcPhases ns names
     forM_ (zip vols phases) $ \(v, (pn, phase)) ->
       TIO.putStrLn
-        ("Volume " <> volumeNameText (v ^. #volName) <> ": pvc " <> pn <> " is " <> phase)
+        ("Volume " <> volumeNameText (v ^. #name) <> ": pvc " <> pn <> " is " <> phase)
 
 -- | Deploy a site (EP-14/EP-15/EP-18). Dispatches on the config's @kind@: a
 -- @StaticSite@ runs the Nginx path, a @ServerSite@ runs the Node path. Both share

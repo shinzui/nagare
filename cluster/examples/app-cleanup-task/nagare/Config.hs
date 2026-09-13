@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The app-cleanup-task example: the postgres-app web service that co-locates an
 -- app-associated scheduled task (MasterPlan 10, IP5). The @cleanup@ task runs
--- nightly (03:00) in the app's deployed image (taskImage = Nothing => inherit) and
+-- nightly (03:00) in the app's deployed image (image = Nothing => inherit) and
 -- inherits the app's runtime env/secrets via @envFrom@ — including the
 -- @DATABASE_URL@ that EP-46 injects for the referenced @pg-main@ database — so the
 -- cleanup reaches the same database the app uses. Its CronJob carries the
@@ -17,6 +18,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -40,28 +43,28 @@ deployment = first show $ do
   cleanup <-
     mkTask
       Task
-        { taskName = taskN
-        , taskNamespace = ns
-        , taskSchedule = sched
-        , taskImage = Nothing -- inherit postgres-app's image
-        , taskApp = Just app
-        , taskCommand =
+        { name = taskN
+        , namespace = ns
+        , schedule = sched
+        , image = Nothing -- inherit postgres-app's image
+        , app = Just app
+        , command =
             [ "python"
             , "-c"
             , "import os; print('cleanup would run against', os.environ.get('DATABASE_URL', '<unset>'))"
             ]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Just 300
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Just 300
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
-  pure dep {databases = [db], tasks = [cleanup]}
+  pure (dep & #databases .~ [db] & #tasks .~ [cleanup])
 
 main :: IO ()
 main = case deployment of

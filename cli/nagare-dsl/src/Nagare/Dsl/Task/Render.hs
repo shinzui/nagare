@@ -7,7 +7,7 @@
 -- app — @nagare.dev/app@.
 --
 -- The bare Job @.spec@ is exposed as 'taskJobSpecValue' so EP-51's one-off run
--- and EP-52's env-injection reuse the exact same value. When 'taskApp' is set,
+-- and EP-52's env-injection reuse the exact same value. When 'app' is set,
 -- the template includes an @envFrom@ block referencing the app's managed runtime
 -- ConfigMap/Secret (@nagare-env-\<app\>-runtime@ / @nagare-secret-\<app\>-runtime@,
 -- @optional: true@); EP-52 owns resolving the inherited image tag at deploy time.
@@ -46,7 +46,7 @@ import Nagare.Dsl.Types
 
 -- | The CronJob (and one-off Job) name for a task: @nagare-task-\<name\>@.
 taskCronJobName :: Task -> Text
-taskCronJobName t = taskResourceName (serviceNameText (taskName t))
+taskCronJobName t = taskResourceName (serviceNameText (name t))
 
 -- ---------------------------------------------------------------------------
 -- Top-level: one CronJob document.
@@ -75,10 +75,10 @@ cronJobValue t =
     , "metadata" .= metadataValue (taskCronJobName t) t
     , "spec"
         .= object
-          ( [ "schedule" .= scheduleText (taskSchedule t)
-            , "concurrencyPolicy" .= concurrencyPolicyToken (taskConcurrencyPolicy t)
-            , "successfulJobsHistoryLimit" .= taskSuccessfulJobsHistoryLimit t
-            , "failedJobsHistoryLimit" .= taskFailedJobsHistoryLimit t
+          ( [ "schedule" .= scheduleText (schedule t)
+            , "concurrencyPolicy" .= concurrencyPolicyToken (concurrencyPolicy t)
+            , "successfulJobsHistoryLimit" .= successfulJobsHistoryLimit t
+            , "failedJobsHistoryLimit" .= failedJobsHistoryLimit t
             ]
               <> startingDeadlinePairs t
               <> ["jobTemplate" .= object ["spec" .= taskJobSpecValue t]]
@@ -86,7 +86,7 @@ cronJobValue t =
     ]
 
 startingDeadlinePairs :: Task -> [Pair]
-startingDeadlinePairs t = case taskStartingDeadlineSeconds t of
+startingDeadlinePairs t = case startingDeadlineSeconds t of
   Just n -> ["startingDeadlineSeconds" .= n]
   Nothing -> []
 
@@ -97,14 +97,14 @@ startingDeadlinePairs t = case taskStartingDeadlineSeconds t of
 taskJobSpecValue :: Task -> Value
 taskJobSpecValue t =
   object
-    ( ["backoffLimit" .= taskBackoffLimit t]
+    ( ["backoffLimit" .= backoffLimit t]
         <> activeDeadlinePairs t
         <> [ "template"
               .= object
                 [ "metadata" .= object ["labels" .= taskLabels t]
                 , "spec"
                     .= object
-                      [ "restartPolicy" .= restartPolicyToken (taskRestartPolicy t)
+                      [ "restartPolicy" .= restartPolicyToken (restartPolicy t)
                       , "containers" .= toJSON [containerValue t]
                       ]
                 ]
@@ -112,7 +112,7 @@ taskJobSpecValue t =
     )
 
 activeDeadlinePairs :: Task -> [Pair]
-activeDeadlinePairs t = case taskTimeoutSeconds t of
+activeDeadlinePairs t = case timeoutSeconds t of
   Just n -> ["activeDeadlineSeconds" .= n]
   Nothing -> []
 
@@ -122,13 +122,13 @@ activeDeadlinePairs t = case taskTimeoutSeconds t of
 containerValue :: Task -> Value
 containerValue t =
   object
-    ( ["name" .= serviceNameText (taskName t)]
+    ( ["name" .= serviceNameText (name t)]
         <> imagePairs t
         <> commandPairs t
         <> argsPairs t
         <> envFromPairs t
         <> envPairs t
-        <> resourcesPairs (taskResources t)
+        <> resourcesPairs (resources t)
     )
 
 -- | The container @image@. When the task carries its own image it renders
@@ -137,17 +137,17 @@ containerValue t =
 -- and EP-52/EP-51 append the tag). When the task inherits an app's image, the
 -- key is OMITTED here; EP-52 fills it at deploy time from the app's pushed tag.
 imagePairs :: Task -> [Pair]
-imagePairs t = case taskImage t of
+imagePairs t = case image t of
   Just img -> ["image" .= imageRefText img]
   Nothing -> []
 
 commandPairs :: Task -> [Pair]
-commandPairs = argvPairs . taskCommand
+commandPairs = argvPairs . command
 
 argsPairs :: Task -> [Pair]
 argsPairs t
-  | null (taskArgs t) = []
-  | otherwise = ["args" .= toJSON (taskArgs t)]
+  | null (args t) = []
+  | otherwise = ["args" .= toJSON (args t)]
 
 -- | The @envFrom@ block (IP5 shape). Present ONLY when the task references an
 -- app: it pulls the app's managed runtime ConfigMap and Secret, each
@@ -155,7 +155,7 @@ argsPairs t
 -- @Nagare.Dsl.Render.envFromField@ for app containers. EP-52 owns populating the
 -- referenced resources at deploy time.
 envFromPairs :: Task -> [Pair]
-envFromPairs t = case taskApp t of
+envFromPairs t = case app t of
   Nothing -> []
   Just app -> managedEnvFromPairs (serviceNameText app)
 
@@ -164,7 +164,7 @@ envFromPairs t = case taskApp t of
 -- 'Map.toAscList' for determinism. Omitted entirely when no Runtime entries
 -- remain.
 envPairs :: Task -> [Pair]
-envPairs = runtimeEnvPairs . taskEnv
+envPairs = runtimeEnvPairs . env
 
 -- ---------------------------------------------------------------------------
 -- Labels (IP3) and metadata.
@@ -175,9 +175,9 @@ taskLabels :: Task -> Value
 taskLabels t =
   object
     ( [ "nagare.dev/managed-by" .= txt "nagarectl"
-      , "nagare.dev/task" .= serviceNameText (taskName t)
+      , "nagare.dev/task" .= serviceNameText (name t)
       ]
-        <> case taskApp t of
+        <> case app t of
           Just app -> ["nagare.dev/app" .= serviceNameText app]
           Nothing -> []
     )
@@ -186,7 +186,7 @@ metadataValue :: Text -> Task -> Value
 metadataValue n t =
   object
     [ "name" .= n
-    , "namespace" .= namespaceText (taskNamespace t)
+    , "namespace" .= namespaceText (namespace t)
     , "labels" .= taskLabels t
     ]
 

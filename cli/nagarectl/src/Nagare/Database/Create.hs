@@ -92,7 +92,7 @@ buildDatabase eng nameT params = do
   res' <- buildResources (dcpCpu params) (dcpMemory params)
   Right
     Database
-      { dbName = name'
+      { name = name'
       , engine = eng
       , version = ver'
       , namespace = ns'
@@ -118,7 +118,7 @@ runDbCreate eng nameT params = do
         Left err -> dieT (renderLoadError err)
         Right d -> pure d
     Nothing -> orDie (buildDatabase eng nameT params)
-  let name = databaseNameText (db ^. #dbName)
+  let name = databaseNameText (db ^. #name)
       ns = namespaceText (db ^. #namespace)
       engine' = db ^. #engine
       host = dbHost name ns

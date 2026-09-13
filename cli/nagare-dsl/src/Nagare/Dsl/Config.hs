@@ -136,7 +136,7 @@ databaseJSON :: Database -> Value
 databaseJSON db =
   object
     [ "kind" .= ("Database" :: Text)
-    , "name" .= databaseNameText (db ^. #dbName)
+    , "name" .= databaseNameText (db ^. #name)
     , "engine" .= engineToken (db ^. #engine)
     , "version" .= engineVersionText (db ^. #version)
     , "namespace" .= namespaceText (db ^. #namespace)
@@ -169,28 +169,28 @@ taskJSON :: Task -> Value
 taskJSON t =
   object
     [ "kind" .= ("Task" :: Text)
-    , "name" .= serviceNameText (taskName t)
-    , "namespace" .= namespaceText (taskNamespace t)
-    , "schedule" .= scheduleText (taskSchedule t)
-    , "image" .= fmap imageRefText (taskImage t)
-    , "app" .= fmap serviceNameText (taskApp t)
-    , "command" .= taskCommand t
-    , "args" .= taskArgs t
-    , "env" .= map taskEnvJSON (Map.toAscList (taskEnv t))
+    , "name" .= serviceNameText (t ^. #name)
+    , "namespace" .= namespaceText (t ^. #namespace)
+    , "schedule" .= scheduleText (t ^. #schedule)
+    , "image" .= fmap imageRefText (t ^. #image)
+    , "app" .= fmap serviceNameText (t ^. #app)
+    , "command" .= (t ^. #command)
+    , "args" .= (t ^. #args)
+    , "env" .= map taskEnvJSON (Map.toAscList (t ^. #env))
     , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
     , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
     , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
     , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
-    , "timeoutSeconds" .= taskTimeoutSeconds t
-    , "concurrencyPolicy" .= concurrencyPolicyToken (taskConcurrencyPolicy t)
-    , "restartPolicy" .= restartPolicyToken (taskRestartPolicy t)
-    , "backoffLimit" .= taskBackoffLimit t
-    , "successfulJobsHistoryLimit" .= taskSuccessfulJobsHistoryLimit t
-    , "failedJobsHistoryLimit" .= taskFailedJobsHistoryLimit t
-    , "startingDeadlineSeconds" .= taskStartingDeadlineSeconds t
+    , "timeoutSeconds" .= (t ^. #timeoutSeconds)
+    , "concurrencyPolicy" .= concurrencyPolicyToken (t ^. #concurrencyPolicy)
+    , "restartPolicy" .= restartPolicyToken (t ^. #restartPolicy)
+    , "backoffLimit" .= (t ^. #backoffLimit)
+    , "successfulJobsHistoryLimit" .= (t ^. #successfulJobsHistoryLimit)
+    , "failedJobsHistoryLimit" .= (t ^. #failedJobsHistoryLimit)
+    , "startingDeadlineSeconds" .= (t ^. #startingDeadlineSeconds)
     ]
   where
-    res = taskResources t
+    res = t ^. #resources
     taskEnvJSON (n, sev) = case sev ^. #value of
       EnvLiteral lit ->
         object
@@ -222,24 +222,24 @@ jobJSON :: Job -> Value
 jobJSON job =
   object
     [ "kind" .= ("Job" :: Text)
-    , "name" .= serviceNameText (jobName job)
-    , "namespace" .= namespaceText (jobNamespace job)
-    , "image" .= imageRefText (jobImage job)
-    , "build" .= buildSpecJSON (jobBuild job)
-    , "command" .= fmap commandArgvList (jobCommand job)
-    , "env" .= map scopedEnvJSON (Map.toAscList (jobEnv job))
+    , "name" .= serviceNameText (job ^. #name)
+    , "namespace" .= namespaceText (job ^. #namespace)
+    , "image" .= imageRefText (job ^. #image)
+    , "build" .= buildSpecJSON (job ^. #build)
+    , "command" .= fmap commandArgvList (job ^. #command)
+    , "env" .= map scopedEnvJSON (Map.toAscList (job ^. #env))
     , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
     , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
     , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
     , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
-    , "backoffLimit" .= jobBackoffLimit job
-    , "activeDeadlineSeconds" .= jobActiveDeadlineSeconds job
-    , "ttlSecondsAfterFinished" .= jobTtlSecondsAfterFinished job
-    , "scratchSize" .= quantityText (jobScratchSize job)
-    , "nixConfigMap" .= fmap configMapNameText (jobNixConfigMap job)
+    , "backoffLimit" .= (job ^. #backoffLimit)
+    , "activeDeadlineSeconds" .= (job ^. #activeDeadlineSeconds)
+    , "ttlSecondsAfterFinished" .= (job ^. #ttlSecondsAfterFinished)
+    , "scratchSize" .= quantityText (job ^. #scratchSize)
+    , "nixConfigMap" .= fmap configMapNameText (job ^. #nixConfigMap)
     ]
   where
-    res = jobResources job
+    res = job ^. #resources
 
 -- | The JSON shape of one 'Volume', shared by 'Deployment' and 'ServerSite'
 -- emission. The loader reads it back in 'Nagare.Dsl.Load.toVolume'; @accessMode@
@@ -247,7 +247,7 @@ jobJSON job =
 volumeJSON :: Volume -> Value
 volumeJSON v =
   object
-    [ "name" .= volumeNameText (v ^. #volName)
+    [ "name" .= volumeNameText (v ^. #name)
     , "size" .= quantityText (v ^. #size)
     , "mountPath" .= mountPathText (v ^. #mountPath)
     , "accessMode" .= accessModeToken (v ^. #accessMode)
@@ -347,7 +347,7 @@ workerJSON w =
 -- emitted flat alongside. The loader reads it back in
 -- 'Nagare.Dsl.Load.toWorkerProbe'. A @Nothing@ probe is encoded as JSON @null@
 -- (the @"liveness"@ key above), matching how @deploymentJSON@ emits an absent
--- @healthCheck@, so a no-probe worker stays byte-identical to today.
+-- @healthCheck@, so a no-probe worker stays byte-identical today.
 workerProbeJSON :: WorkerProbe -> Value
 workerProbeJSON p = object (kindPairs <> timingPairs)
   where
@@ -422,7 +422,7 @@ deploymentJSON dep =
     , "databases" .= map databaseNameText (dep ^. #databases)
     , "brokers" .= map brokerBindingJSON (dep ^. #brokers)
     , "access" .= fmap accessPolicyJSON (dep ^. #access)
-    , "tasks" .= map taskJSON (sortOn taskName (dep ^. #tasks))
+    , "tasks" .= map taskJSON (sortOn (^. #name) (dep ^. #tasks))
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (dep ^. #cdn)
   where
@@ -526,8 +526,8 @@ staticSiteJSON site =
 
     cacheJSON cp =
       object
-        [ "immutableAssets" .= immutableAssets cp
-        , "defaultMaxAge" .= defaultMaxAge cp
+        [ "immutableAssets" .= (cp ^. #immutableAssets)
+        , "defaultMaxAge" .= (cp ^. #defaultMaxAge)
         ]
 
 -- | Serialize a 'ServerSite' to JSON and write it to stdout (EP-18). Call this
@@ -617,16 +617,16 @@ applicationJSON :: Application -> Value
 applicationJSON app =
   object
     [ "kind" .= ("Application" :: Text)
-    , "name" .= serviceNameText (app ^. #appName)
+    , "name" .= serviceNameText (app ^. #name)
     , "namespace" .= namespaceText (app ^. #namespace)
     , "image" .= imageRefText (app ^. #image)
     , "env" .= map scopedEnvJSON (Map.toAscList (app ^. #env))
     , "databases"
-        .= map databaseJSON (sortOn (\db -> databaseNameText (db ^. #dbName)) (app ^. #appDatabases))
+        .= map databaseJSON (sortOn (\db -> databaseNameText (db ^. #name)) (app ^. #databases))
     , "brokers" .= map brokerBindingJSON (app ^. #brokers)
     , "access" .= fmap accessPolicyJSON (app ^. #access)
     , "service" .= fmap deploymentJSON (app ^. #service)
     , "workers"
         .= map workerJSON (sortOn (\w -> serviceNameText (w ^. #name)) (app ^. #workers))
-    , "tasks" .= map taskJSON (sortOn taskName (app ^. #tasks))
+    , "tasks" .= map taskJSON (sortOn (^. #name) (app ^. #tasks))
     ]

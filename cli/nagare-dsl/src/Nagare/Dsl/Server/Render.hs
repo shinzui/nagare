@@ -62,8 +62,8 @@ import Nagare.Dsl.Types
 -- and an optional preview name (reserved for preview deploys; 'Nothing' for
 -- production).
 data ServerDeployContext = ServerDeployContext
-  { imageTag :: Text
-  , previewName :: Maybe Text
+  { imageTag :: !Text
+  , previewName :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 

@@ -2,9 +2,12 @@
 -- transport / loader round-trip.
 module CdnSpec (cdnTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy (toStrict)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
@@ -40,11 +43,11 @@ cacheRuleTests =
       assertLeftContains ">= 0" (mkCdnCacheRule "/x" (Just (-1)))
   , testCase "allows null TTL (never cache)" $
       case mkCdnCacheRule "/api/" Nothing of
-        Right r -> edgeTtlSeconds r @?= Nothing
+        Right r -> r ^. #edgeTtlSeconds @?= Nothing
         Left e -> assertFailure ("expected Right, got Left: " <> Text.unpack e)
   , testCase "mkCacheRules builds a validated list" $
       case mkCacheRules [("/assets/", Just 10), ("/api/", Nothing)] of
-        Right rs -> map pathPrefix rs @?= ["/assets/", "/api/"]
+        Right rs -> map (^. #pathPrefix) rs @?= ["/assets/", "/api/"]
         Left e -> assertFailure ("expected Right, got Left: " <> Text.unpack e)
   , testCase "mkCacheRules rejects a bad entry" $
       assertLeftContains "empty" (mkCacheRules [("/ok/", Just 1), ("", Just 1)])
@@ -53,24 +56,24 @@ cacheRuleTests =
 presetTests :: [TestTree]
 presetTests =
   [ testCase "cloudflareCdn defaults" $ do
-      provider cloudflareCdn @?= CloudflareCdn
-      cacheStaticAssets cloudflareCdn @?= True
-      defaultTtlSeconds cloudflareCdn @?= Nothing
-      cacheRules cloudflareCdn @?= []
+      cloudflareCdn ^. #provider @?= CloudflareCdn
+      cloudflareCdn ^. #cacheStaticAssets @?= True
+      cloudflareCdn ^. #defaultTtlSeconds @?= Nothing
+      cloudflareCdn ^. #cacheRules @?= []
   , testCase "gcpCloudCdn differs only in provider" $ do
-      provider gcpCloudCdn @?= GcpCloudCdn
-      gcpCloudCdn @?= cloudflareCdn {provider = GcpCloudCdn}
+      gcpCloudCdn ^. #provider @?= GcpCloudCdn
+      gcpCloudCdn @?= (cloudflareCdn & #provider .~ GcpCloudCdn)
   ]
 
 combinatorTests :: [TestTree]
 combinatorTests =
   [ testCase "withDefaultTtl sets the TTL" $
-      defaultTtlSeconds (withDefaultTtl 3600 cloudflareCdn) @?= Just 3600
+      withDefaultTtl 3600 cloudflareCdn ^. #defaultTtlSeconds @?= Just 3600
   , testCase "withoutStaticAssetCache clears the flag" $
-      cacheStaticAssets (withoutStaticAssetCache cloudflareCdn) @?= False
+      withoutStaticAssetCache cloudflareCdn ^. #cacheStaticAssets @?= False
   , testCase "withCacheRule appends a validated rule" $
       case withCacheRule "/api/" Nothing cloudflareCdn of
-        Right c -> map edgeTtlSeconds (cacheRules c) @?= [Nothing]
+        Right c -> map (^. #edgeTtlSeconds) (c ^. #cacheRules) @?= [Nothing]
         Left e -> assertFailure ("expected Right, got Left: " <> Text.unpack e)
   , testCase "withCacheRule rejects an invalid rule" $
       assertLeftContains "empty" (withCacheRule "" (Just 1) cloudflareCdn)
@@ -92,7 +95,7 @@ cloudflareWithRules =
 -- | A canonical deployment with the given CDN attached. 'cdn' is unambiguous
 -- here because only 'Deployment''s field is imported.
 depWithCdn :: Cdn -> Deployment
-depWithCdn c = (unsafe (webService "notes" "gcr.io/myproject/notes")) {cdn = Just c}
+depWithCdn c = unsafe (webService "notes" "gcr.io/myproject/notes") & #cdn .~ Just c
 
 depNoCdn :: Deployment
 depNoCdn = unsafe (webService "notes" "gcr.io/myproject/notes")

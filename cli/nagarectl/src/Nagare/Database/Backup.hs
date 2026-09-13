@@ -381,11 +381,11 @@ runDbBackup ns name backend keep dryRun = do
             secret = dbSecretName name
             dest = storeObjectUrl backend (dbBackupObjectPath name ts ext)
             prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-            jobName = T.take 63 (T.toLower ("nagare-dbbackup-" <> name <> "-" <> ts))
+            name = T.take 63 (T.toLower ("nagare-dbbackup-" <> name <> "-" <> ts))
             jobInputs =
               BackupJobInputs
                 { bjiNamespace = ns
-                , bjiJobName = jobName
+                , bjiJobName = name
                 , bjiEngine = eng
                 , bjiClientImage = image
                 , bjiSvcHost = name
@@ -416,8 +416,8 @@ runDbBackup ns name backend keep dryRun = do
             BS.putStr (renderBackupCronJob cronInputs)
           else do
             applyJob (renderBackupJob jobInputs)
-            waitForJob ns jobName
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
+            waitForJob ns name
+            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
             -- Laptop-side prune uses @gsutil@ and the cloud bucket; in local mode
             -- the MinIO Service is in-cluster (unreachable from the laptop), so the
             -- on-demand prune is skipped and retention is left to the in-pod
@@ -434,17 +434,17 @@ applyJob manifest = withSystemTempFile "nagare-dbbackup-job.yaml" $ \fp h -> do
   run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
 
 waitForJob :: Text -> Text -> IO ()
-waitForJob ns jobName = do
+waitForJob ns name = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack jobName, "-n", T.unpack ns]
+        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
         & silenceStderr
   case code of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: backup job " <> jobName <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+      TIO.hPutStrLn stderr ("nagarectl: backup job " <> name <> " did not complete; recent logs:")
+      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
       exitFailure
 
 -- | List the database's backups and delete all but the newest @keep@, reusing

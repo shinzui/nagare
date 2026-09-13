@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 -- | An optional container entrypoint override. @argv[0]@ is the executable.
 -- Construct with 'mkCommand' so the list is non-empty and NUL-free.
 data Command = Command
-  { commandArgv :: ![Text]
+  { argv :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -23,8 +23,8 @@ mkCommand [] = Left "command must not be empty (argv[0] is the executable)"
 mkCommand argv
   | any (Text.isInfixOf "\NUL") argv =
       Left "command arguments must not contain NUL characters"
-  | otherwise = Right (Command {commandArgv = argv})
+  | otherwise = Right (Command {argv = argv})
 
 -- | Recover the validated argument vector.
 commandArgvList :: Command -> [Text]
-commandArgvList = commandArgv
+commandArgvList = argv

@@ -5,6 +5,8 @@
 -- 'decodeDeployment' so it needs no @runghc@ invocation.
 module LoadSpec (loadTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.ByteString.Char8 qualified as BC
 import Data.Map qualified as Map
 import Data.Set (Set)
@@ -97,7 +99,7 @@ loadTests =
         assertContains "/app/Config.hs" (renderLoadError err)
         assertContains "timed out after 1s" (renderLoadError err)
     , testCase "defaultConfigTimeout is 120 seconds" $
-        configTimeoutSeconds defaultConfigTimeout @?= 120
+        seconds defaultConfigTimeout @?= 120
     ]
 
 -- | A minimal valid Deployment JSON with a single Literal env entry whose

@@ -573,7 +573,7 @@ data RetentionPolicy = Retain | Delete
 -- Uniqueness of names and mount paths /within an app/ is a cross-field
 -- invariant enforced at load time (see 'Nagare.Dsl.Load'), not here.
 data Volume = Volume
-  { volName :: !VolumeName
+  { name :: !VolumeName
   , size :: !Quantity
   , mountPath :: !MountPath
   , accessMode :: !AccessMode
@@ -628,7 +628,7 @@ data Deployment = Deployment
   , tasks :: ![Task]
   -- ^ Scheduled tasks co-located with this app (MasterPlan 10, IP5). Empty (the
   -- backward-compatible default) means the app declares no tasks. Each 'Task'
-  -- renders to a CronJob at deploy time; a task with @taskImage = Nothing@
+  -- renders to a CronJob at deploy time; a task with @image = Nothing@
   -- inherits this app's resolved image tag and its managed runtime env/secret.
   -- EP-52 resolves the inherited values in @cli/nagarectl@.
   , cdn :: !(Maybe Cdn)

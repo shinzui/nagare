@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | Dockerfile build mode (EP-19/EP-20): build the image from a hand-written
 -- @Dockerfile@ and push it to the deployment's registry path.
@@ -10,11 +11,13 @@
 --
 -- @webService@ already defaults @build@ to a Dockerfile build with no build
 -- args; here we set @build@ explicitly to add the @buildArgs@ entry. As with the
--- prebuilt example, a plain record update is used because the loader's @runghc@
--- compiles under @-XGHC2024@ (no @OverloadedLabels@).
+-- prebuilt example, the project-wide overloaded-label convention is used for
+-- the update.
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Build (BuildSpec (..))
 import Nagare.Dsl.Config (emitDeployment)
@@ -28,7 +31,7 @@ deployment = do
   df <- first show (mkFilePathText "Dockerfile")
   ctx <- first show (mkFilePathText ".")
   let buildArgs' = Map.fromList [("SITE_MESSAGE", "hello from a Dockerfile build with a build arg")]
-  Right (base {build = DockerfileBuild {dockerfile = df, context = ctx, buildArgs = buildArgs'}})
+  Right (base & #build .~ DockerfileBuild {dockerfile = df, context = ctx, buildArgs = buildArgs'})
 
 main :: IO ()
 main = case deployment of

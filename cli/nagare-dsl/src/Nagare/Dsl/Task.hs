@@ -186,7 +186,7 @@ parseConcurrencyPolicy "Replace" = Just Replace
 parseConcurrencyPolicy _ = Nothing
 
 -- | The pod's restart policy. A batch task uses 'Never' (the default; each
--- failed pod is replaced by the Job controller per 'taskBackoffLimit') or
+-- failed pod is replaced by the Job controller per 'backoffLimit') or
 -- 'OnFailure' (the kubelet restarts the container in place). Renders to
 -- @template.spec.restartPolicy@.
 data RestartPolicy = Never | OnFailure
@@ -210,66 +210,66 @@ parseRestartPolicy _ = Nothing
 -- one cross-field invariant a single field type cannot: a task must have either
 -- a command or an inheriting app+image).
 data Task = Task
-  { taskName :: !ServiceName
-  -- ^ DNS-1123 label; the CronJob is named @nagare-task-\<taskName\>@ (IP3).
-  , taskNamespace :: !Namespace
-  , taskSchedule :: !Schedule
+  { name :: !ServiceName
+  -- ^ DNS-1123 label; the CronJob is named @nagare-task-\<name\>@ (IP3).
+  , namespace :: !Namespace
+  , schedule :: !Schedule
   -- ^ Validated 5-field cron expression.
-  , taskImage :: !(Maybe ImageRef)
+  , image :: !(Maybe ImageRef)
   -- ^ The image to run in. 'Nothing' means "inherit the referenced app's
-  -- image", which is only valid when 'taskApp' is 'Just' (enforced in 'mkTask'
+  -- image", which is only valid when 'app' is 'Just' (enforced in 'mkTask'
   -- and re-checked at load). EP-52 resolves the inherited tag at deploy time.
-  , taskApp :: !(Maybe ServiceName)
+  , app :: !(Maybe ServiceName)
   -- ^ The app whose image/env this task may inherit (IP5 shape). When 'Just',
   -- the renderer stamps the @nagare.dev/app@ label and an @envFrom@ block; EP-52
   -- owns the deploy-time resolution of the inherited image and resource names.
-  , taskCommand :: ![Text]
+  , command :: ![Text]
   -- ^ The container @command@ (the entrypoint to override). May be empty only
   -- when the task inherits an app's image (then the image's own entrypoint runs).
-  , taskArgs :: ![Text]
+  , args :: ![Text]
   -- ^ The container @args@.
-  , taskEnv :: !(Map EnvName ScopedEnvVar)
+  , env :: !(Map EnvName ScopedEnvVar)
   -- ^ Inline env. Only 'Runtime'-scoped entries render into the container (the
   -- renderer filters, matching how the app renderer treats build-only vars).
-  , taskResources :: !(Maybe Resources)
-  , taskTimeoutSeconds :: !(Maybe Int)
+  , resources :: !(Maybe Resources)
+  , timeoutSeconds :: !(Maybe Int)
   -- ^ Hard wall-clock limit; renders as @jobTemplate.spec.activeDeadlineSeconds@.
   -- Must be @> 0@ when present.
-  , taskConcurrencyPolicy :: !ConcurrencyPolicy
+  , concurrencyPolicy :: !ConcurrencyPolicy
   -- ^ Default 'Forbid'.
-  , taskRestartPolicy :: !RestartPolicy
+  , restartPolicy :: !RestartPolicy
   -- ^ Default 'Never'.
-  , taskBackoffLimit :: !Int
+  , backoffLimit :: !Int
   -- ^ Retries before the Job is marked failed; @>= 0@; default 0.
-  , taskSuccessfulJobsHistoryLimit :: !Int
+  , successfulJobsHistoryLimit :: !Int
   -- ^ Default 3.
-  , taskFailedJobsHistoryLimit :: !Int
+  , failedJobsHistoryLimit :: !Int
   -- ^ Default 1.
-  , taskStartingDeadlineSeconds :: !(Maybe Int)
+  , startingDeadlineSeconds :: !(Maybe Int)
   -- ^ Optional; @> 0@ when present; renders as @spec.startingDeadlineSeconds@.
   }
   deriving stock (Generic, Eq, Show)
 
 -- | Validate an assembled 'Task'. Re-checks the numeric bounds the field types
--- cannot ('taskBackoffLimit' >= 0, positive timeouts/deadlines) and the one
--- cross-field invariant: a task must have a non-empty 'taskCommand' OR inherit
--- an app's image ('taskImage' == Nothing AND 'taskApp' == Just). Also rejects
+-- cannot ('backoffLimit' >= 0, positive timeouts/deadlines) and the one
+-- cross-field invariant: a task must have a non-empty 'command' OR inherit
+-- an app's image ('image' == Nothing AND 'app' == Just). Also rejects
 -- image inheritance with no app to inherit from.
 mkTask :: Task -> Either Text Task
 mkTask t
-  | taskBackoffLimit t < 0 =
-      Left ("backoffLimit must be >= 0, got: " <> tshow (taskBackoffLimit t))
-  | taskSuccessfulJobsHistoryLimit t < 0 =
+  | backoffLimit t < 0 =
+      Left ("backoffLimit must be >= 0, got: " <> tshow (backoffLimit t))
+  | successfulJobsHistoryLimit t < 0 =
       Left "successfulJobsHistoryLimit must be >= 0"
-  | taskFailedJobsHistoryLimit t < 0 =
+  | failedJobsHistoryLimit t < 0 =
       Left "failedJobsHistoryLimit must be >= 0"
-  | maybe False (<= 0) (taskTimeoutSeconds t) =
+  | maybe False (<= 0) (timeoutSeconds t) =
       Left "timeoutSeconds must be > 0 when set"
-  | maybe False (<= 0) (taskStartingDeadlineSeconds t) =
+  | maybe False (<= 0) (startingDeadlineSeconds t) =
       Left "startingDeadlineSeconds must be > 0 when set"
-  | isNothing (taskImage t) && isNothing (taskApp t) =
+  | isNothing (image t) && isNothing (app t) =
       Left "a task with no image must reference an app to inherit its image from"
-  | null (taskCommand t) && isNothing (taskApp t) =
+  | null (command t) && isNothing (app t) =
       Left "a task must have a command, or reference an app to inherit its entrypoint"
   | otherwise = Right t
 
@@ -281,7 +281,7 @@ mkTask t
 -- no app, no args, no env, no resources, 'Forbid'/'Never', backoff 0, history
 -- 3/1). Every constrained field goes through its smart constructor, and the
 -- result is validated by 'mkTask'. The @command@ is split on spaces into
--- 'taskCommand'.
+-- 'command'.
 scheduledTask :: Text -> Text -> Text -> Text -> Either Text Task
 scheduledTask nameT scheduleT imageT commandT = do
   n <- mkServiceName nameT
@@ -289,22 +289,22 @@ scheduledTask nameT scheduleT imageT commandT = do
   img <- mkImageRef imageT
   mkTask
     Task
-      { taskName = n
-      , taskNamespace = defaultNamespace
-      , taskSchedule = sched
-      , taskImage = Just img
-      , taskApp = Nothing
-      , taskCommand = Text.words commandT
-      , taskArgs = []
-      , taskEnv = Map.empty
-      , taskResources = Nothing
-      , taskTimeoutSeconds = Nothing
-      , taskConcurrencyPolicy = Forbid
-      , taskRestartPolicy = Never
-      , taskBackoffLimit = 0
-      , taskSuccessfulJobsHistoryLimit = 3
-      , taskFailedJobsHistoryLimit = 1
-      , taskStartingDeadlineSeconds = Nothing
+      { name = n
+      , namespace = defaultNamespace
+      , schedule = sched
+      , image = Just img
+      , app = Nothing
+      , command = Text.words commandT
+      , args = []
+      , env = Map.empty
+      , resources = Nothing
+      , timeoutSeconds = Nothing
+      , concurrencyPolicy = Forbid
+      , restartPolicy = Never
+      , backoffLimit = 0
+      , successfulJobsHistoryLimit = 3
+      , failedJobsHistoryLimit = 1
+      , startingDeadlineSeconds = Nothing
       }
 
 -- ---------------------------------------------------------------------------

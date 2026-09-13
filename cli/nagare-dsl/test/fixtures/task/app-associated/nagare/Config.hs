@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | A task associated with the @notes@ app. It inherits @notes@'s image
--- (@taskImage = Nothing@) and its runtime env/secret (rendered as an @envFrom@
+-- (@image = Nothing@) and its runtime env/secret (rendered as an @envFrom@
 -- block), and carries the @nagare.dev/app@ label. EP-52 resolves the inherited
 -- image tag and the managed env/secret resources at deploy time; this fixture
 -- proves the model and the rendered shape.
@@ -21,22 +21,22 @@ task = first show $ do
   app <- mkServiceName "notes"
   mkTask
     Task
-      { taskName = n
-      , taskNamespace = ns
-      , taskSchedule = sched
-      , taskImage = Nothing
-      , taskApp = Just app
-      , taskCommand = ["python", "manage.py", "sync"]
-      , taskArgs = []
-      , taskEnv = Map.empty
-      , taskResources = Nothing
-      , taskTimeoutSeconds = Nothing
-      , taskConcurrencyPolicy = Forbid
-      , taskRestartPolicy = Never
-      , taskBackoffLimit = 2
-      , taskSuccessfulJobsHistoryLimit = 3
-      , taskFailedJobsHistoryLimit = 1
-      , taskStartingDeadlineSeconds = Nothing
+      { name = n
+      , namespace = ns
+      , schedule = sched
+      , image = Nothing
+      , app = Just app
+      , command = ["python", "manage.py", "sync"]
+      , args = []
+      , env = Map.empty
+      , resources = Nothing
+      , timeoutSeconds = Nothing
+      , concurrencyPolicy = Forbid
+      , restartPolicy = Never
+      , backoffLimit = 2
+      , successfulJobsHistoryLimit = 3
+      , failedJobsHistoryLimit = 1
+      , startingDeadlineSeconds = Nothing
       }
 
 main :: IO ()

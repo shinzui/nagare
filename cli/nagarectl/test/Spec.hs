@@ -1401,7 +1401,7 @@ taskResolveTests =
   where
     appImg = "gcr.io/myproject/notes:20260602-120000"
     tag = "20260602-120000"
-    withPredef tk = tk {taskEnv = mergeGenerated (predefinedTaskEnv tk) (taskEnv tk)}
+    withPredef tk = tk {env = mergeGenerated (predefinedTaskEnv tk) (env tk)}
     assertInfix needle hay =
       assertBool
         ("expected " <> show needle <> " in:\n" <> T.unpack (TE.decodeUtf8 hay))
@@ -1410,29 +1410,29 @@ taskResolveTests =
       unsafe $
         mkTask
           Task
-            { taskName = unsafe (mkServiceName "sync")
-            , taskNamespace = unsafe (mkNamespace "personal")
-            , taskSchedule = unsafe (mkSchedule "*/15 * * * *")
-            , taskImage = Nothing
-            , taskApp = Just (unsafe (mkServiceName "notes"))
-            , taskCommand = ["python", "manage.py", "sync"]
-            , taskArgs = []
-            , taskEnv = Map.empty
-            , taskResources = Nothing
-            , taskTimeoutSeconds = Nothing
-            , taskConcurrencyPolicy = Forbid
-            , taskRestartPolicy = Never
-            , taskBackoffLimit = 2
-            , taskSuccessfulJobsHistoryLimit = 3
-            , taskFailedJobsHistoryLimit = 1
-            , taskStartingDeadlineSeconds = Nothing
+            { name = unsafe (mkServiceName "sync")
+            , namespace = unsafe (mkNamespace "personal")
+            , schedule = unsafe (mkSchedule "*/15 * * * *")
+            , image = Nothing
+            , app = Just (unsafe (mkServiceName "notes"))
+            , command = ["python", "manage.py", "sync"]
+            , args = []
+            , env = Map.empty
+            , resources = Nothing
+            , timeoutSeconds = Nothing
+            , concurrencyPolicy = Forbid
+            , restartPolicy = Never
+            , backoffLimit = 2
+            , successfulJobsHistoryLimit = 3
+            , failedJobsHistoryLimit = 1
+            , startingDeadlineSeconds = Nothing
             }
     ownImageTask =
       unsafe $
         mkTask
           inheritTask
-            { taskImage = Just (unsafe (mkImageRef "gcr.io/myproject/other"))
-            , taskApp = Nothing
+            { image = Just (unsafe (mkImageRef "gcr.io/myproject/other"))
+            , app = Nothing
             }
 
 -- ---------------------------------------------------------------------------
@@ -1798,7 +1798,7 @@ storageSnapshotTests =
 mkVolWith :: RetentionPolicy -> Text -> Text -> Volume
 mkVolWith ret n mp =
   Volume
-    { volName = orError (mkVolumeName n)
+    { name = orError (mkVolumeName n)
     , size = orError (mkQuantity "1Gi")
     , mountPath = orError (mkMountPath mp)
     , accessMode = ReadWriteOnce
@@ -1815,7 +1815,7 @@ mkVolWith ret n mp =
 mkVol :: Text -> Text -> Text -> Volume
 mkVol n sz mp =
   Volume
-    { volName = orError (mkVolumeName n)
+    { name = orError (mkVolumeName n)
     , size = orError (mkQuantity sz)
     , mountPath = orError (mkMountPath mp)
     , accessMode = ReadWriteOnce

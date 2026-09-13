@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The multi-workload Application example (MasterPlan 14, EP-1): ONE logical app
 -- described as ONE typed 'Application', fanned out into several Kubernetes objects
@@ -29,6 +30,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -61,8 +64,8 @@ import Nagare.Dsl.Worker (webWorker)
 sharedImage :: Text
 sharedImage = "gcr.io/knative-samples/helloworld-go"
 
-app :: Either Text Application
-app = do
+applicationConfig :: Either Text Application
+applicationConfig = do
   appNm <- mkServiceName "kizashi"
   ns <- mkNamespace "personal"
   img <- mkImageRef sharedImage
@@ -74,7 +77,7 @@ app = do
   dbSize <- mkQuantity "10Gi"
   let db =
         DB.Database
-          { DB.dbName = dbn
+          { DB.name = dbn
           , DB.engine = DB.Postgres
           , DB.version = ver
           , DB.namespace = ns
@@ -89,10 +92,10 @@ app = do
   -- Two background reactors, each binding the managed database.
   w1base <- first Text.pack (webWorker "kizashi-worker" sharedImage)
   w2base <- first Text.pack (webWorker "kizashi-agent-worker" sharedImage)
-  let w1 = w1base {W.databases = [dbn]}
-      w2 = w2base {W.databases = [dbn]}
+  let w1 = w1base & #databases .~ [dbn]
+      w2 = w2base & #databases .~ [dbn]
 
-  -- The migration task. It pins no image of its own (taskImage = Nothing) and so
+  -- The migration task. It pins no image of its own (image = Nothing) and so
   -- inherits the app's shared image; EP-2 runs it to completion before the
   -- Service and Workers are applied.
   migrateNm <- mkServiceName "kizashi-migrate"
@@ -100,31 +103,31 @@ app = do
   migrate <-
     mkTask
       Task
-        { taskName = migrateNm
-        , taskNamespace = ns
-        , taskSchedule = sched
-        , taskImage = Nothing
-        , taskApp = Just appNm
-        , taskCommand = ["python", "manage.py", "migrate"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Nothing
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = migrateNm
+        , namespace = ns
+        , schedule = sched
+        , image = Nothing
+        , app = Just appNm
+        , command = ["python", "manage.py", "migrate"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Nothing
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
 
   mkApplication
     Application
-      { appName = appNm
+      { name = appNm
       , namespace = ns
       , image = img
       , env = Map.fromList [(logLevel, runtimeScoped (EnvLiteral "info"))]
-      , appDatabases = [db]
+      , databases = [db]
       , brokers = []
       , access = Nothing
       , service = Just svc
@@ -133,4 +136,4 @@ app = do
       }
 
 main :: IO ()
-main = either (ioError . userError . Text.unpack) emitApplication app
+main = either (ioError . userError . Text.unpack) emitApplication applicationConfig

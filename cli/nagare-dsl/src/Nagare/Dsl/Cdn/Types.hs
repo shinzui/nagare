@@ -45,6 +45,7 @@ module Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Prelude
 
 import Data.Char (isSpace)
+import Data.Generics.Labels ()
 import Data.Text qualified as Text
 
 -- | The CDN backend fronting a site. @CloudflareCdn@ is the preferred default
@@ -107,24 +108,24 @@ cloudflareCdn =
 
 -- | A Google Cloud CDN with the same default settings as 'cloudflareCdn'.
 gcpCloudCdn :: Cdn
-gcpCloudCdn = cloudflareCdn {provider = GcpCloudCdn}
+gcpCloudCdn = cloudflareCdn & #provider .~ GcpCloudCdn
 
 -- | Set a default edge TTL (in seconds) for everything not matched by a per-path
 -- rule. Total: a caller-supplied negative value is still rejected on the
 -- load-time round-trip by 'Nagare.Dsl.Load.toCdn'.
 withDefaultTtl :: Int -> Cdn -> Cdn
-withDefaultTtl n c = c {defaultTtlSeconds = Just n}
+withDefaultTtl n c = c & #defaultTtlSeconds .~ Just n
 
 -- | Turn off the "cache fingerprinted static assets aggressively" behaviour.
 withoutStaticAssetCache :: Cdn -> Cdn
-withoutStaticAssetCache c = c {cacheStaticAssets = False}
+withoutStaticAssetCache c = c & #cacheStaticAssets .~ False
 
 -- | Append a validated per-path cache rule. Fails if the rule is invalid (empty
 -- prefix, negative TTL).
 withCacheRule :: Text -> Maybe Int -> Cdn -> Either Text Cdn
 withCacheRule prefix ttl c = do
   rule <- mkCdnCacheRule prefix ttl
-  Right c {cacheRules = cacheRules c <> [rule]}
+  Right (c & #cacheRules %~ (<> [rule]))
 
 -- Internal: show a value as Text for error messages.
 tshow :: (Show a) => a -> Text

@@ -26,7 +26,7 @@ runStorageInspect :: Deployment -> Text -> IO ()
 runStorageInspect dep volume = do
   let app = serviceNameText (dep ^. #name)
       ns = namespaceText (dep ^. #namespace)
-      declared = map (volumeNameText . (^. #volName)) (dep ^. #volumes)
+      declared = map (volumeNameText . (^. #name)) (dep ^. #volumes)
   if volume `notElem` declared
     then do
       TIO.hPutStrLn

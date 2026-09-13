@@ -18,7 +18,7 @@ database = do
   sz <- first show (mkQuantity "5Gi")
   Right
     Database
-      { dbName = n
+      { name = n
       , engine = ClickHouse
       , version = v
       , namespace = ns

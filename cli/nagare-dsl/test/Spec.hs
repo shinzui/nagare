@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Nagare.Dsl.Prelude hiding (elements)
+
 import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
 import Control.Lens ((&), (.~))
@@ -189,7 +191,7 @@ prop_invalidScaleOverlayRejected =
   where
     badScaleOverlay d = do
       sc <- mkScale 5 1 -- max=1 < min=5: must be rejected
-      pure (d {scale = Just sc})
+      pure (d & #scale .~ Just sc)
 
 isRight :: Either a b -> Bool
 isRight = either (const False) (const True)
@@ -285,11 +287,11 @@ unitTests =
       , testCase "rejects empty path" $
           assertLeftContains "empty" (httpHealthCheck "")
       , testCase "rejects period of 0" $
-          assertLeftContains "period" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {period = 0})
+          assertLeftContains "period" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #period .~ 0))
       , testCase "rejects timeout of 0" $
-          assertLeftContains "timeout" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {timeout = 0})
+          assertLeftContains "timeout" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #timeout .~ 0))
       , testCase "rejects out-of-range expectedStatus" $
-          assertLeftContains "expectedStatus" (mkHealthCheck (unsafe (httpHealthCheck "/h")) {expectedStatus = 99})
+          assertLeftContains "expectedStatus" (mkHealthCheck (unsafe (httpHealthCheck "/h") & #expectedStatus .~ 99))
       ]
   , testGroup
       "mkDomains / canonicalDomain"
@@ -593,7 +595,7 @@ accessTests =
 pgDb :: Database
 pgDb =
   Database
-    { dbName = unsafe (mkDatabaseName "pg-main")
+    { name = unsafe (mkDatabaseName "pg-main")
     , engine = Postgres
     , version = unsafe (mkEngineVersion Postgres "18")
     , namespace = unsafe (mkNamespace "personal")
@@ -605,7 +607,7 @@ pgDb =
 redisDb :: Database
 redisDb =
   Database
-    { dbName = unsafe (mkDatabaseName "redis-cache")
+    { name = unsafe (mkDatabaseName "redis-cache")
     , engine = Redis
     , version = unsafe (mkEngineVersion Redis "8")
     , namespace = unsafe (mkNamespace "personal")
@@ -617,7 +619,7 @@ redisDb =
 clickhouseDb :: Database
 clickhouseDb =
   Database
-    { dbName = unsafe (mkDatabaseName "analytics")
+    { name = unsafe (mkDatabaseName "analytics")
     , engine = ClickHouse
     , version = unsafe (mkEngineVersion ClickHouse "25.8")
     , namespace = unsafe (mkNamespace "personal")
@@ -676,7 +678,7 @@ databaseTests =
             Left (MarshalError "engine" _) -> pure ()
             other -> assertFailure ("expected MarshalError engine, got: " <> show other)
       , testCase "deployment with a database reference round-trips (IP5)" $ do
-          let dep = helloDep {databases = [unsafe (mkDatabaseName "pg-main")]}
+          let dep = helloDep & #databases .~ [unsafe (mkDatabaseName "pg-main")]
           decodeDeployment (toStrict (encodeDeployment dep)) @?= Right dep
       ]
   , testGroup
@@ -709,12 +711,11 @@ databaseTests =
 buildOnlyDep :: Deployment
 buildOnlyDep =
   helloDep
-    { env =
-        Map.fromList
-          [ (unsafe (mkEnvName "API_BASE"), runtimeScoped (EnvLiteral "https://api.example.com"))
-          , (unsafe (mkEnvName "BUILD_TOKEN"), unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "abc123")))
-          ]
-    }
+    & #env
+      .~ Map.fromList
+        [ (unsafe (mkEnvName "API_BASE"), runtimeScoped (EnvLiteral "https://api.example.com"))
+        , (unsafe (mkEnvName "BUILD_TOKEN"), unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "abc123")))
+        ]
 
 -- ---------------------------------------------------------------------------
 -- EP-34: typed volumes — attachVolume, JSON round-trip, load-time uniqueness,
@@ -787,8 +788,7 @@ scopedEnvTests =
       let bothScopes = unsafe (scopedEnv (Set.fromList [Build, Runtime]) (EnvLiteral "x"))
           dep =
             helloDep
-              { env = Map.fromList [(unsafe (mkEnvName "API_BASE"), bothScopes)]
-              }
+              & #env .~ Map.fromList [(unsafe (mkEnvName "API_BASE"), bothScopes)]
       decodeDeployment (toStrict (encodeDeployment dep)) @?= Right dep
   , testCase "default runtimeScoped env round-trips" $
       decodeDeployment (toStrict (encodeDeployment helloDep)) @?= Right helloDep
@@ -803,20 +803,21 @@ scopedEnvTests =
 richDep :: Deployment
 richDep =
   helloDep
-    { domains =
-        unsafe (mkDomains [("notes.example.com", True), ("www.example.com", False)])
-    , resources =
-        Just
-          Resources
-            { cpu = Just (unsafe (mkQuantity "250m"))
-            , memory = Just (unsafe (mkQuantity "128Mi"))
-            , cpuLimit = Just (unsafe (mkQuantity "500m"))
-            , memoryLimit = Just (unsafe (mkQuantity "512Mi"))
-            }
-    , healthCheck =
-        Just
-          (unsafe (httpHealthCheck "/healthz")) {asLiveness = True, asStartup = True}
-    }
+    & #domains .~ unsafe (mkDomains [("notes.example.com", True), ("www.example.com", False)])
+    & #resources
+      .~ Just
+        Resources
+          { cpu = Just (unsafe (mkQuantity "250m"))
+          , memory = Just (unsafe (mkQuantity "128Mi"))
+          , cpuLimit = Just (unsafe (mkQuantity "500m"))
+          , memoryLimit = Just (unsafe (mkQuantity "512Mi"))
+          }
+    & #healthCheck
+      .~ Just
+        ( unsafe (httpHealthCheck "/healthz")
+            & #asLiveness .~ True
+            & #asStartup .~ True
+        )
 
 extendedModelTests :: [TestTree]
 extendedModelTests =
@@ -849,7 +850,7 @@ extendedModelTests =
 
 -- | 'helloDep' with its build mode swapped for the given 'BuildSpec'.
 depWithBuild :: BuildSpec -> Deployment
-depWithBuild b = helloDep {build = b}
+depWithBuild b = helloDep & #build .~ b
 
 prebuiltSpec :: BuildSpec
 prebuiltSpec = PrebuiltImage (unsafe (mkTag "v1.2.3"))
@@ -967,50 +968,50 @@ standaloneTask =
   unsafe $
     mkTask
       Task
-        { taskName = unsafe (mkServiceName "cleanup")
-        , taskNamespace = unsafe (mkNamespace "personal")
-        , taskSchedule = unsafe (mkSchedule "0 3 * * *")
-        , taskImage = Just (unsafe (mkImageRef "gcr.io/myproject/notes"))
-        , taskApp = Nothing
-        , taskCommand = ["python", "manage.py", "cleanup"]
-        , taskArgs = []
-        , taskEnv =
+        { name = unsafe (mkServiceName "cleanup")
+        , namespace = unsafe (mkNamespace "personal")
+        , schedule = unsafe (mkSchedule "0 3 * * *")
+        , image = Just (unsafe (mkImageRef "gcr.io/myproject/notes"))
+        , app = Nothing
+        , command = ["python", "manage.py", "cleanup"]
+        , args = []
+        , env =
             Map.fromList
               [(unsafe (mkEnvName "DRY_RUN"), runtimeScoped (EnvLiteral "false"))]
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Just 600
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        , resources = Nothing
+        , timeoutSeconds = Just 600
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
 
 -- | A task associated with the @notes@ app: it inherits @notes@'s image
--- (taskImage = Nothing) and its runtime env/secret (rendered as envFrom), and
+-- (image = Nothing) and its runtime env/secret (rendered as envFrom), and
 -- carries the nagare.dev/app label.
 appTask :: Task
 appTask =
   unsafe $
     mkTask
       Task
-        { taskName = unsafe (mkServiceName "sync")
-        , taskNamespace = unsafe (mkNamespace "personal")
-        , taskSchedule = unsafe (mkSchedule "*/15 * * * *")
-        , taskImage = Nothing
-        , taskApp = Just (unsafe (mkServiceName "notes"))
-        , taskCommand = ["python", "manage.py", "sync"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Nothing
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 2
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = unsafe (mkServiceName "sync")
+        , namespace = unsafe (mkNamespace "personal")
+        , schedule = unsafe (mkSchedule "*/15 * * * *")
+        , image = Nothing
+        , app = Just (unsafe (mkServiceName "notes"))
+        , command = ["python", "manage.py", "sync"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Nothing
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 2
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
 
 taskTests :: [TestTree]
@@ -1029,11 +1030,11 @@ taskTests =
   , testGroup
       "mkTask invariants"
       [ testCase "rejects inheriting image with no app" $
-          assertLeftContains "inherit" (mkTask standaloneTask {taskImage = Nothing, taskApp = Nothing})
+          assertLeftContains "inherit" (mkTask (standaloneTask & #image .~ Nothing & #app .~ Nothing))
       , testCase "rejects negative backoffLimit" $
-          assertLeftContains ">= 0" (mkTask standaloneTask {taskBackoffLimit = -1})
+          assertLeftContains ">= 0" (mkTask (standaloneTask & #backoffLimit .~ -1))
       , testCase "rejects non-positive timeout" $
-          assertLeftContains "> 0" (mkTask standaloneTask {taskTimeoutSeconds = Just 0})
+          assertLeftContains "> 0" (mkTask (standaloneTask & #timeoutSeconds .~ Just 0))
       ]
   , testGroup
       "JSON round-trip and kind discrimination"
@@ -1070,10 +1071,10 @@ taskTests =
   ]
 
 -- | A `notes` deployment that co-locates EP-50's inheriting `sync` task
--- (MasterPlan 10 / EP-52). The task's `taskApp` is `notes`, matching the
+-- (MasterPlan 10 / EP-52). The task's `app` is `notes`, matching the
 -- enclosing app, so it satisfies the deploy-level association invariant.
 notesWithTask :: Deployment
-notesWithTask = helloDep {name = unsafe (mkServiceName "notes"), tasks = [appTask]}
+notesWithTask = helloDep & #name .~ unsafe (mkServiceName "notes") & #tasks .~ [appTask]
 
 deploymentTaskTests :: [TestTree]
 deploymentTaskTests =
@@ -1091,14 +1092,12 @@ deploymentTaskTests =
   where
     badAppTaskDep =
       helloDep
-        { name = unsafe (mkServiceName "notes")
-        , tasks = [appTask {taskApp = Just (unsafe (mkServiceName "other"))}]
-        }
+        & #name .~ unsafe (mkServiceName "notes")
+        & #tasks .~ [appTask & #app .~ Just (unsafe (mkServiceName "other"))]
     dupTaskDep =
       helloDep
-        { name = unsafe (mkServiceName "notes")
-        , tasks = [appTask, appTask]
-        }
+        & #name .~ unsafe (mkServiceName "notes")
+        & #tasks .~ [appTask, appTask]
 
 unsafe :: Either Text a -> a
 unsafe (Right a) = a

@@ -6,6 +6,8 @@
 -- below as those milestones land.
 module WorkerSpec (workerTests) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
@@ -114,37 +116,36 @@ presetTests =
 minimalWorker :: Worker
 minimalWorker =
   case webWorker "queue-consumer" "us-west1-docker.pkg.dev/tan-nb-exp/nagare/queue-consumer" of
-    Right w -> w {replicas = unsafe (mkReplicas 2)}
+    Right w -> w & #replicas .~ unsafe (mkReplicas 2)
     Left e -> error ("test fixture invalid: " <> e)
 
 richWorker :: Worker
 richWorker =
   minimalWorker
-    { command = Just (unsafe (mkCommand ["python", "-m", "worker"]))
-    , env =
-        Map.fromList
-          [ (unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))
-          , (unsafe (mkEnvName "API_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "queue-secret"))))
-          ]
-    , resources =
-        Just
-          Resources
-            { cpu = Just (unsafe (mkQuantity "100m"))
-            , memory = Just (unsafe (mkQuantity "128Mi"))
-            , cpuLimit = Just (unsafe (mkQuantity "500m"))
-            , memoryLimit = Just (unsafe (mkQuantity "256Mi"))
-            }
-    , volumes =
-        [ Volume
-            { volName = unsafe (mkVolumeName "scratch")
-            , size = unsafe (mkQuantity "1Gi")
-            , mountPath = unsafe (mkMountPath "/scratch")
-            , accessMode = ReadWriteOnce
-            , readOnly = False
-            , retention = Retain
-            }
+    & #command .~ Just (unsafe (mkCommand ["python", "-m", "worker"]))
+    & #env
+      .~ Map.fromList
+        [ (unsafe (mkEnvName "LOG_LEVEL"), runtimeScoped (EnvLiteral "info"))
+        , (unsafe (mkEnvName "API_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "queue-secret"))))
         ]
-    }
+    & #resources
+      .~ Just
+        Resources
+          { cpu = Just (unsafe (mkQuantity "100m"))
+          , memory = Just (unsafe (mkQuantity "128Mi"))
+          , cpuLimit = Just (unsafe (mkQuantity "500m"))
+          , memoryLimit = Just (unsafe (mkQuantity "256Mi"))
+          }
+    & #volumes
+      .~ [ Volume
+             { name = unsafe (mkVolumeName "scratch")
+             , size = unsafe (mkQuantity "1Gi")
+             , mountPath = unsafe (mkMountPath "/scratch")
+             , accessMode = ReadWriteOnce
+             , readOnly = False
+             , retention = Retain
+             }
+         ]
 
 renderTests :: [TestTree]
 renderTests =
@@ -195,16 +196,15 @@ renderTests =
 -- | EP-74 M2: probe-bearing workers for the round-trip. Exec is the primary
 -- case; TCP and HTTP exercise the other two branches.
 execProbeWorker :: Worker
-execProbeWorker = minimalWorker {liveness = Just (unsafe (execProbe ["/app/healthcheck"]))}
+execProbeWorker = minimalWorker & #liveness .~ Just (unsafe (execProbe ["/app/healthcheck"]))
 
 tcpProbeWorker :: Worker
-tcpProbeWorker = minimalWorker {liveness = Just (mkTcpProbe (unsafe (mkPort 9000)) defaultProbeTiming)}
+tcpProbeWorker = minimalWorker & #liveness .~ Just (mkTcpProbe (unsafe (mkPort 9000)) defaultProbeTiming)
 
 httpProbeWorker :: Worker
 httpProbeWorker =
   minimalWorker
-    { liveness = Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))
-    }
+    & #liveness .~ Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP defaultProbeTiming))
 
 -- | Default timing with @asStartup = True@, built as a full literal so the field
 -- update is not ambiguous between 'ProbeTiming' and the app 'HealthCheck'.
@@ -213,7 +213,7 @@ startupTiming =
   ProbeTiming {initialDelay = 0, period = 10, timeout = 1, failureThreshold = 3, asStartup = True}
 
 startupProbeWorker :: Worker
-startupProbeWorker = minimalWorker {liveness = Just (unsafe (mkExecProbe ["/app/healthcheck"] startupTiming))}
+startupProbeWorker = minimalWorker & #liveness .~ Just (unsafe (mkExecProbe ["/app/healthcheck"] startupTiming))
 
 roundTripTests :: [TestTree]
 roundTripTests =
@@ -258,9 +258,8 @@ fixtureWorker =
   case webWorker "queue-consumer" "gcr.io/knative-samples/helloworld-go" of
     Right w ->
       w
-        { command = Just (unsafe (mkCommand ["sh", "-c", "while true; do echo working; sleep 5; done"]))
-        , replicas = unsafe (mkReplicas 2)
-        }
+        & #command .~ Just (unsafe (mkCommand ["sh", "-c", "while true; do echo working; sleep 5; done"]))
+        & #replicas .~ unsafe (mkReplicas 2)
     Left e -> error ("test fixture invalid: " <> e)
 
 brokerExampleWorker :: Worker

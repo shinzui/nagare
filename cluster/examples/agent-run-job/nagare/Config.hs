@@ -34,9 +34,9 @@ job = do
   runId <- first show (mkEnvName "NAGARE_RUN_ID")
   Right
     base
-      { jobBuild = PrebuiltImage tag
-      , jobCommand = Just command
-      , jobEnv =
+      { build = PrebuiltImage tag
+      , command = Just command
+      , env =
           Map.fromList
             [ ( repoRef
               , runtimeScoped

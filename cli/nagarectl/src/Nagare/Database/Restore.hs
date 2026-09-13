@@ -222,11 +222,11 @@ runDbRestore ns name backupId live backend dryRun = do
         let ts = snapshotTimestamp now
             src = resolveBackupObject backend name (backupExt eng) backupId
             image = engineImage eng <> ":" <> drVersion r
-            jobName = T.take 63 (T.toLower ("nagare-dbrestore-" <> name <> "-" <> ts))
+            name = T.take 63 (T.toLower ("nagare-dbrestore-" <> name <> "-" <> ts))
             inputs =
               RestoreJobInputs
                 { rjiNamespace = ns
-                , rjiJobName = jobName
+                , rjiJobName = name
                 , rjiEngine = eng
                 , rjiClientImage = image
                 , rjiSvcHost = name
@@ -242,9 +242,9 @@ runDbRestore ns name backupId live backend dryRun = do
             BS.putStr (renderRestoreJob inputs)
           else do
             applyJob (renderRestoreJob inputs)
-            waitForJob ns jobName
-            run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
-            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack jobName, "-n", T.unpack ns, "--ignore-not-found"]
+            waitForJob ns name
+            run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
+            run_ $ cmd "kubectl" & addArgs ["delete", "job", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]
             if live
               then TIO.putStrLn ("Restored " <> name <> " from " <> src)
               else TIO.putStrLn ("Restored " <> name <> " into a scratch target from " <> src <> " — compare, then promote manually.")
@@ -256,17 +256,17 @@ applyJob manifest = withSystemTempFile "nagare-dbrestore-job.yaml" $ \fp h -> do
   run_ $ cmd "kubectl" & addArgs ["apply", "-f", fp]
 
 waitForJob :: Text -> Text -> IO ()
-waitForJob ns jobName = do
+waitForJob ns name = do
   (code, _ :: StdoutUntrimmed) <-
     run $
       cmd "kubectl"
-        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack jobName, "-n", T.unpack ns]
+        & addArgs ["wait", "--for=condition=complete", "--timeout=600s", "job/" <> T.unpack name, "-n", T.unpack ns]
         & silenceStderr
   case code of
     ExitSuccess -> pure ()
     ExitFailure _ -> do
-      TIO.hPutStrLn stderr ("nagarectl: restore job " <> jobName <> " did not complete; recent logs:")
-      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack jobName, "-n", T.unpack ns, "--tail", "50"]
+      TIO.hPutStrLn stderr ("nagarectl: restore job " <> name <> " did not complete; recent logs:")
+      run_ $ cmd "kubectl" & addArgs ["logs", "job/" <> T.unpack name, "-n", T.unpack ns, "--tail", "50"]
       exitFailure
 
 die :: Text -> IO a

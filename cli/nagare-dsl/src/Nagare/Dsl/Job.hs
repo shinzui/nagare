@@ -50,18 +50,18 @@ configMapNameText (ConfigMapName n) = serviceNameText n
 -- but such a Pod does not match Nagare's @Terminating@ ResourceQuota and must
 -- not be used for agent runs.
 data Job = Job
-  { jobName :: !ServiceName
-  , jobNamespace :: !Namespace
-  , jobImage :: !ImageRef
-  , jobBuild :: !BuildSpec
-  , jobCommand :: !(Maybe Command)
-  , jobEnv :: !(Map EnvName ScopedEnvVar)
-  , jobResources :: !(Maybe Resources)
-  , jobBackoffLimit :: !Int
-  , jobActiveDeadlineSeconds :: !(Maybe Int)
-  , jobTtlSecondsAfterFinished :: !(Maybe Int)
-  , jobScratchSize :: !Quantity
-  , jobNixConfigMap :: !(Maybe ConfigMapName)
+  { name :: !ServiceName
+  , namespace :: !Namespace
+  , image :: !ImageRef
+  , build :: !BuildSpec
+  , command :: !(Maybe Command)
+  , env :: !(Map EnvName ScopedEnvVar)
+  , resources :: !(Maybe Resources)
+  , backoffLimit :: !Int
+  , activeDeadlineSeconds :: !(Maybe Int)
+  , ttlSecondsAfterFinished :: !(Maybe Int)
+  , scratchSize :: !Quantity
+  , nixConfigMap :: !(Maybe ConfigMapName)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -70,13 +70,13 @@ data Job = Job
 -- 'Nothing' asks the renderer for the hardened preset defaults.
 mkJob :: Job -> Either Text Job
 mkJob job
-  | jobBackoffLimit job < 0 =
-      Left ("backoffLimit must be >= 0, got: " <> tshow (jobBackoffLimit job))
-  | maybe False (<= 0) (jobActiveDeadlineSeconds job) =
+  | backoffLimit job < 0 =
+      Left ("backoffLimit must be >= 0, got: " <> tshow (backoffLimit job))
+  | maybe False (<= 0) (activeDeadlineSeconds job) =
       Left "activeDeadlineSeconds must be > 0 when set"
-  | maybe False (<= 0) (jobTtlSecondsAfterFinished job) =
+  | maybe False (<= 0) (ttlSecondsAfterFinished job) =
       Left "ttlSecondsAfterFinished must be > 0 when set"
-  | otherwise = validateResources (jobResources job) >> Right job
+  | otherwise = validateResources (resources job) >> Right job
   where
     validateResources Nothing = Right ()
     validateResources (Just Resources {cpu = Nothing}) = Left "resources.cpuRequest must be set"
@@ -94,18 +94,18 @@ oneShotJob nameText imageText = do
   scratch <- toStringError (mkQuantity "2Gi")
   toStringError . mkJob $
     Job
-      { jobName = name
-      , jobNamespace = defaultNamespace
-      , jobImage = image
-      , jobBuild = PrebuiltImage tag
-      , jobCommand = Nothing
-      , jobEnv = Map.empty
-      , jobResources = Nothing
-      , jobBackoffLimit = 0
-      , jobActiveDeadlineSeconds = Just 1800
-      , jobTtlSecondsAfterFinished = Just 3600
-      , jobScratchSize = scratch
-      , jobNixConfigMap = Nothing
+      { name = name
+      , namespace = defaultNamespace
+      , image = image
+      , build = PrebuiltImage tag
+      , command = Nothing
+      , env = Map.empty
+      , resources = Nothing
+      , backoffLimit = 0
+      , activeDeadlineSeconds = Just 1800
+      , ttlSecondsAfterFinished = Just 3600
+      , scratchSize = scratch
+      , nixConfigMap = Nothing
       }
   where
     toStringError = either (Left . Text.unpack) Right

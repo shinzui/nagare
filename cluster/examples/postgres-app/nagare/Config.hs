@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The postgres-app example app: a web service that references the managed
 -- Postgres database "pg-main". At deploy time it receives POSTGRES_HOST/PORT/
@@ -8,6 +9,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..), mkDatabaseName)
@@ -16,7 +19,7 @@ deployment :: Either String Deployment
 deployment = do
   dep <- first show (webService "postgres-app" "postgres-app")
   db <- first show (mkDatabaseName "pg-main")
-  pure dep {databases = [db]}
+  pure (dep & #databases .~ [db])
 
 main :: IO ()
 main = case deployment of

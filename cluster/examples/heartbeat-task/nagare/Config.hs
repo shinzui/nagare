@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 -- | The heartbeat-task example: a minimal app that co-locates a scheduled task
 -- (MasterPlan 10). The @heartbeat-app@ web service declares one task,
--- @heartbeat@, that runs every 15 minutes in the app's own image (taskImage =
+-- @heartbeat@, that runs every 15 minutes in the app's own image (image =
 -- Nothing => inherit) and prints the current UTC time. `nagarectl deploy`
 -- provisions the app's Knative Service AND the task's CronJob in one pass.
 --
@@ -16,6 +17,8 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Nagare.Dsl.Config (emitDeployment)
 import Nagare.Dsl.Presets (webService)
@@ -38,24 +41,24 @@ deployment = first show $ do
   heartbeat <-
     mkTask
       Task
-        { taskName = taskN
-        , taskNamespace = ns
-        , taskSchedule = sched
-        , taskImage = Nothing -- inherit heartbeat-app's image
-        , taskApp = Just app
-        , taskCommand = ["sh", "-c", "date -u"]
-        , taskArgs = []
-        , taskEnv = Map.empty
-        , taskResources = Nothing
-        , taskTimeoutSeconds = Just 60
-        , taskConcurrencyPolicy = Forbid
-        , taskRestartPolicy = Never
-        , taskBackoffLimit = 0
-        , taskSuccessfulJobsHistoryLimit = 3
-        , taskFailedJobsHistoryLimit = 1
-        , taskStartingDeadlineSeconds = Nothing
+        { name = taskN
+        , namespace = ns
+        , schedule = sched
+        , image = Nothing -- inherit heartbeat-app's image
+        , app = Just app
+        , command = ["sh", "-c", "date -u"]
+        , args = []
+        , env = Map.empty
+        , resources = Nothing
+        , timeoutSeconds = Just 60
+        , concurrencyPolicy = Forbid
+        , restartPolicy = Never
+        , backoffLimit = 0
+        , successfulJobsHistoryLimit = 3
+        , failedJobsHistoryLimit = 1
+        , startingDeadlineSeconds = Nothing
         }
-  pure dep {tasks = [heartbeat]}
+  pure (dep & #tasks .~ [heartbeat])
 
 main :: IO ()
 main = case deployment of

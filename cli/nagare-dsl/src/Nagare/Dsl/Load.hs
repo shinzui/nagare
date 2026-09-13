@@ -85,7 +85,7 @@ data LoadError
   = -- | the config source file does not exist
     FileNotFound !FilePath
   | -- | the config failed to compile or crashed at run time (carries the GHC
-    -- / runtime diagnostic from stderr)
+    -- / runtime diagnostic stderr from the subprocess)
     CompileError !FilePath !Text
   | -- | the config compiled and ran but printed nothing — it never called
     -- 'Nagare.Dsl.Config.emitDeployment'
@@ -133,7 +133,7 @@ renderLoadError = \case
 -- Execution budget
 
 -- | How long a config-as-program may run before it is killed, in whole seconds.
-newtype ConfigTimeout = ConfigTimeout {configTimeoutSeconds :: Int}
+newtype ConfigTimeout = ConfigTimeout {seconds :: Int}
   deriving stock (Generic, Eq, Show)
 
 -- | The budget every loader uses unless a caller says otherwise: two minutes,
@@ -146,11 +146,11 @@ defaultConfigTimeout = ConfigTimeout 120
 -- JSON intermediate (mirrors Nagare.Dsl.Config's emitted shape)
 
 data JsonEnvEntry = JsonEnvEntry
-  { jeVarName :: !Text
-  , jeKind :: !Text
-  , jeValue :: !(Maybe Text)
-  , jeSecretName :: !(Maybe Text)
-  , jeScopes :: !(Maybe [Text])
+  { varName :: !Text
+  , kind :: !Text
+  , value :: !(Maybe Text)
+  , secretName :: !(Maybe Text)
+  , scopes :: !(Maybe [Text])
   }
   deriving stock (Generic, Eq, Show)
 
@@ -169,12 +169,12 @@ instance FromJSON JsonEnvEntry where
 -- defaults mirror 'Nagare.Dsl.Presets.attachVolume' (RWO, not read-only,
 -- Retain).
 data JsonVolume = JsonVolume
-  { jvName :: !Text
-  , jvSize :: !Text
-  , jvMountPath :: !Text
-  , jvAccessMode :: !(Maybe Text)
-  , jvReadOnly :: !Bool
-  , jvRetention :: !(Maybe Text)
+  { name :: !Text
+  , size :: !Text
+  , mountPath :: !Text
+  , accessMode :: !(Maybe Text)
+  , readOnly :: !Bool
+  , retention :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -195,11 +195,11 @@ instance FromJSON JsonVolume where
 -- 'MarshalError' (rather than an aeson parse error) is produced when a required
 -- field for a given kind is missing.
 data JsonBuildSpec = JsonBuildSpec
-  { jbKind :: !Text
-  , jbTag :: !(Maybe Text)
-  , jbDockerfile :: !(Maybe Text)
-  , jbContext :: !(Maybe Text)
-  , jbBuildArgs :: !(Map.Map Text Text)
+  { kind :: !Text
+  , tag :: !(Maybe Text)
+  , dockerfile :: !(Maybe Text)
+  , context :: !(Maybe Text)
+  , buildArgs :: !(Map.Map Text Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -216,8 +216,8 @@ instance FromJSON JsonBuildSpec where
 -- @canonical@ defaults to 'False' when absent (an old single-domain config that
 -- has been migrated, or hand-written JSON).
 data JsonDomainSpec = JsonDomainSpec
-  { jdsDomain :: !Text
-  , jdsCanonical :: !Bool
+  { domain :: !Text
+  , canonical :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -232,16 +232,16 @@ instance FromJSON JsonDomainSpec where
 -- 'mkHealthCheck' rather than an aeson parse error; the defaults mirror
 -- 'httpHealthCheck'.
 data JsonHealthCheck = JsonHealthCheck
-  { jhcPath :: !Text
-  , jhcCheckPort :: !(Maybe Int)
-  , jhcScheme :: !Text
-  , jhcExpectedStatus :: !Int
-  , jhcInitialDelay :: !Int
-  , jhcPeriod :: !Int
-  , jhcTimeout :: !Int
-  , jhcFailureThreshold :: !Int
-  , jhcAsLiveness :: !Bool
-  , jhcAsStartup :: !Bool
+  { path :: !Text
+  , checkPort :: !(Maybe Int)
+  , scheme :: !Text
+  , expectedStatus :: !Int
+  , initialDelay :: !Int
+  , period :: !Int
+  , timeout :: !Int
+  , failureThreshold :: !Int
+  , asLiveness :: !Bool
+  , asStartup :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -260,26 +260,26 @@ instance FromJSON JsonHealthCheck where
       <*> o .:? "asStartup" .!= False
 
 data JsonDeployment = JsonDeployment
-  { jdName :: !Text
-  , jdNamespace :: !Text
-  , jdImage :: !Text
-  , jdBuild :: !(Maybe JsonBuildSpec)
-  , jdDomains :: ![JsonDomainSpec]
-  , jdPort :: !Int
-  , jdEnv :: ![JsonEnvEntry]
-  , jdCpuRequest :: !(Maybe Text)
-  , jdMemoryRequest :: !(Maybe Text)
-  , jdCpuLimit :: !(Maybe Text)
-  , jdMemoryLimit :: !(Maybe Text)
-  , jdScaleMin :: !(Maybe Int)
-  , jdScaleMax :: !(Maybe Int)
-  , jdHealthCheck :: !(Maybe JsonHealthCheck)
-  , jdVolumes :: ![JsonVolume]
-  , jdDatabases :: ![Text]
-  , jdBrokers :: ![JsonBrokerBinding]
-  , jdAccess :: !(Maybe JsonAccessPolicy)
-  , jdTasks :: ![JsonTask]
-  , jdCdn :: !(Maybe JsonCdn)
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , build :: !(Maybe JsonBuildSpec)
+  , domains :: ![JsonDomainSpec]
+  , port :: !Int
+  , env :: ![JsonEnvEntry]
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , scaleMin :: !(Maybe Int)
+  , scaleMax :: !(Maybe Int)
+  , healthCheck :: !(Maybe JsonHealthCheck)
+  , volumes :: ![JsonVolume]
+  , databases :: ![Text]
+  , brokers :: ![JsonBrokerBinding]
+  , access :: !(Maybe JsonAccessPolicy)
+  , tasks :: ![JsonTask]
+  , cdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -312,35 +312,35 @@ instance FromJSON JsonDeployment where
 
 toDeployment :: JsonDeployment -> Either LoadError Deployment
 toDeployment jd = do
-  name' <- first (MarshalError "name") $ mkServiceName (jdName jd)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jdNamespace jd)
-  img' <- first (MarshalError "image") $ mkImageRef (jdImage jd)
-  build' <- case jdBuild jd of
+  name' <- first (MarshalError "name") $ mkServiceName (jd ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (jd ^. #namespace)
+  img' <- first (MarshalError "image") $ mkImageRef (jd ^. #image)
+  build' <- case jd ^. #build of
     Nothing -> first (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
   domains' <-
     first (MarshalError "domains") $
-      mkDomains [(jdsDomain ds, jdsCanonical ds) | ds <- jdDomains jd]
-  port' <- first (MarshalError "port") $ mkPort (jdPort jd)
-  env' <- mapM toEnvEntry (jdEnv jd)
+      mkDomains [(ds ^. #domain, ds ^. #canonical) | ds <- jd ^. #domains]
+  port' <- first (MarshalError "port") $ mkPort (jd ^. #port)
+  env' <- mapM toEnvEntry (jd ^. #env)
   res' <- toResources jd
-  hc' <- toHealthCheck (jdHealthCheck jd)
-  vols' <- toVolumes (jdVolumes jd)
-  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jdDatabases jd)
-  brokerRefs' <- traverse (toBrokerBinding "brokers") (jdBrokers jd)
-  access' <- traverse toAccessPolicy (jdAccess jd)
+  hc' <- toHealthCheck (jd ^. #healthCheck)
+  vols' <- toVolumes (jd ^. #volumes)
+  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jd ^. #databases)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (jd ^. #brokers)
+  access' <- traverse toAccessPolicy (jd ^. #access)
   -- MasterPlan 10 / EP-52: re-validate each co-located task (re-runs every smart
   -- constructor, including EP-50's inherit-image-requires-an-app invariant), then
   -- enforce the two deploy-level cross-task invariants.
-  tasks' <- mapM toTask (jdTasks jd)
+  tasks' <- mapM toTask (jd ^. #tasks)
   -- Invariant 1: no two co-located tasks share a name.
-  case firstDuplicate (map (serviceNameText . taskName) tasks') of
+  case firstDuplicate (map (serviceNameText . (^. #name)) tasks') of
     Just dup -> Left (MarshalError "tasks" ("duplicate task name: " <> dup))
     Nothing -> Right ()
   -- Invariant 2: a co-located task that names an app must name THIS app.
   let thisApp = serviceNameText name'
   mapM_ (checkTaskApp thisApp) tasks'
-  scale' <- case (jdScaleMin jd, jdScaleMax jd) of
+  scale' <- case (jd ^. #scaleMin, jd ^. #scaleMax) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . first (MarshalError "scale") $ mkScale mn mx
     _ ->
@@ -349,7 +349,7 @@ toDeployment jd = do
             "scale"
             "scaleMin and scaleMax must both be present or both absent"
         )
-  cdn' <- traverse toCdn (jdCdn jd)
+  cdn' <- traverse toCdn (jd ^. #cdn)
   Right
     Deployment
       { name = name'
@@ -371,9 +371,9 @@ toDeployment jd = do
       }
 
 data JsonAccessPolicy = JsonAccessPolicy
-  { japAudience :: !(Maybe Text)
-  , japPermission :: !Text
-  , japRole :: !Text
+  { audience :: !(Maybe Text)
+  , permission :: !Text
+  , role :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
@@ -386,9 +386,9 @@ instance FromJSON JsonAccessPolicy where
 
 toAccessPolicy :: JsonAccessPolicy -> Either LoadError AccessPolicy
 toAccessPolicy j = do
-  audience' <- traverse (first (MarshalError "access.audience") . mkAudience) (japAudience j)
-  permission' <- first (MarshalError "access.permission") $ mkAccessPermission (japPermission j)
-  role' <- case japRole j of
+  audience' <- traverse (first (MarshalError "access.audience") . mkAudience) (j ^. #audience)
+  permission' <- first (MarshalError "access.permission") $ mkAccessPermission (j ^. #permission)
+  role' <- case j ^. #role of
     "protected" -> Right ProtectedSite
     "portal" -> Right AuthPortal
     other -> Left (MarshalError "access.role" ("unknown access role: " <> other))
@@ -399,28 +399,28 @@ toAccessPolicy j = do
 -- or an unknown kind is reported as a precise 'MarshalError' (mirroring
 -- 'toStaticBuild').
 toBuildSpec :: JsonBuildSpec -> Either LoadError BuildSpec
-toBuildSpec jb = case jbKind jb of
+toBuildSpec jb = case jb ^. #kind of
   "PrebuiltImage" -> do
     tag <-
       maybe (Left (MarshalError "build" "PrebuiltImage entry missing 'tag' field")) Right $
-        jbTag jb
+        jb ^. #tag
     fmap PrebuiltImage . first (MarshalError "build.tag") $ mkTag tag
   "DockerfileBuild" -> do
     df <-
       maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'dockerfile' field")) Right $
-        jbDockerfile jb
+        jb ^. #dockerfile
     ctx <-
       maybe (Left (MarshalError "build" "DockerfileBuild entry missing 'context' field")) Right $
-        jbContext jb
+        jb ^. #context
     df' <- first (MarshalError "build.dockerfile") $ mkFilePathText df
     ctx' <- first (MarshalError "build.context") $ mkFilePathText ctx
-    Right (DockerfileBuild {dockerfile = df', context = ctx', buildArgs = jbBuildArgs jb})
+    Right (DockerfileBuild {dockerfile = df', context = ctx', buildArgs = jb ^. #buildArgs})
   "NixpacksBuild" -> do
     ctx <-
       maybe (Left (MarshalError "build" "NixpacksBuild entry missing 'context' field")) Right $
-        jbContext jb
+        jb ^. #context
     ctx' <- first (MarshalError "build.context") $ mkFilePathText ctx
-    Right (NixpacksBuild {context = ctx', buildArgs = jbBuildArgs jb})
+    Right (NixpacksBuild {context = ctx', buildArgs = jb ^. #buildArgs})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
 -- | Decode a single scope token, rejecting any unknown value with a precise
@@ -434,27 +434,27 @@ parseScope var t = case t of
 
 toEnvEntry :: JsonEnvEntry -> Either LoadError (EnvName, ScopedEnvVar)
 toEnvEntry e = do
-  n <- first (MarshalError "env.varName") $ mkEnvName (jeVarName e)
-  v <- case jeKind e of
-    "Literal" -> case jeValue e of
-      Nothing -> Left (MarshalError ("env." <> jeVarName e) "Literal entry missing 'value' field")
+  n <- first (MarshalError "env.varName") $ mkEnvName (e ^. #varName)
+  v <- case e ^. #kind of
+    "Literal" -> case e ^. #value of
+      Nothing -> Left (MarshalError ("env." <> e ^. #varName) "Literal entry missing 'value' field")
       Just lit -> Right (EnvLiteral lit)
-    "SecretRef" -> case jeSecretName e of
-      Nothing -> Left (MarshalError ("env." <> jeVarName e) "SecretRef entry missing 'secretName' field")
+    "SecretRef" -> case e ^. #secretName of
+      Nothing -> Left (MarshalError ("env." <> e ^. #varName) "SecretRef entry missing 'secretName' field")
       Just sec ->
         fmap EnvSecretRef
-          . first (MarshalError ("env." <> jeVarName e <> ".secretRef"))
+          . first (MarshalError ("env." <> e ^. #varName <> ".secretRef"))
           $ mkSecretName sec
-    other -> Left (MarshalError ("env." <> jeVarName e <> ".kind") ("unknown env kind: " <> other))
-  scopeList <- traverse (parseScope (jeVarName e)) (fromMaybe [] (jeScopes e))
+    other -> Left (MarshalError ("env." <> e ^. #varName <> ".kind") ("unknown env kind: " <> other))
+  scopeList <- traverse (parseScope (e ^. #varName)) (fromMaybe [] (e ^. #scopes))
   let scopeSet = Set.fromList scopeList
       finalScopes = if Set.null scopeSet then Set.singleton Runtime else scopeSet
-  sev <- first (MarshalError ("env." <> jeVarName e <> ".scopes")) (scopedEnv finalScopes v)
+  sev <- first (MarshalError ("env." <> e ^. #varName <> ".scopes")) (scopedEnv finalScopes v)
   Right (n, sev)
 
 toResources :: JsonDeployment -> Either LoadError (Maybe Resources)
 toResources jd =
-  case (jdCpuRequest jd, jdMemoryRequest jd, jdCpuLimit jd, jdMemoryLimit jd) of
+  case (jd ^. #cpuRequest, jd ^. #memoryRequest, jd ^. #cpuLimit, jd ^. #memoryLimit) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
       c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
@@ -470,24 +470,24 @@ toResources jd =
 toHealthCheck :: Maybe JsonHealthCheck -> Either LoadError (Maybe HealthCheck)
 toHealthCheck Nothing = Right Nothing
 toHealthCheck (Just jhc) = do
-  scheme' <- case jhcScheme jhc of
+  scheme' <- case jhc ^. #scheme of
     "HTTP" -> Right HTTP
     "HTTPS" -> Right HTTPS
     other -> Left (MarshalError "healthCheck.scheme" ("unknown scheme: " <> other))
-  checkPort' <- traverse (first (MarshalError "healthCheck.checkPort") . mkPort) (jhcCheckPort jhc)
+  checkPort' <- traverse (first (MarshalError "healthCheck.checkPort") . mkPort) (jhc ^. #checkPort)
   fmap Just . first (MarshalError "healthCheck") $
     mkHealthCheck
       HealthCheck
-        { path = jhcPath jhc
+        { path = jhc ^. #path
         , checkPort = checkPort'
         , scheme = scheme'
-        , expectedStatus = jhcExpectedStatus jhc
-        , initialDelay = jhcInitialDelay jhc
-        , period = jhcPeriod jhc
-        , timeout = jhcTimeout jhc
-        , failureThreshold = jhcFailureThreshold jhc
-        , asLiveness = jhcAsLiveness jhc
-        , asStartup = jhcAsStartup jhc
+        , expectedStatus = jhc ^. #expectedStatus
+        , initialDelay = jhc ^. #initialDelay
+        , period = jhc ^. #period
+        , timeout = jhc ^. #timeout
+        , failureThreshold = jhc ^. #failureThreshold
+        , asLiveness = jhc ^. #asLiveness
+        , asStartup = jhc ^. #asStartup
         }
 
 -- | The first element that appears more than once in the list, in order, or
@@ -502,17 +502,17 @@ firstDuplicate = go Set.empty
       | otherwise = go (Set.insert x seen) xs
 
 -- | Deploy-level invariant (MasterPlan 10 / EP-52): a co-located task that names
--- an app via @taskApp@ must name the enclosing app, not some other app.
+-- an app via @app@ must name the enclosing app, not some other app.
 checkTaskApp :: Text -> Task -> Either LoadError ()
 checkTaskApp thisApp tk =
-  case taskApp tk of
+  case tk ^. #app of
     Just a
       | serviceNameText a /= thisApp ->
           Left
             ( MarshalError
                 "tasks"
                 ( "task '"
-                    <> serviceNameText (taskName tk)
+                    <> serviceNameText (tk ^. #name)
                     <> "' references app '"
                     <> serviceNameText a
                     <> "' but is co-located under app '"
@@ -527,23 +527,23 @@ checkTaskApp thisApp tk =
 -- failure is a precise 'MarshalError' keyed by the sub-field.
 toVolume :: JsonVolume -> Either LoadError Volume
 toVolume jv = do
-  vn <- first (MarshalError "volumes.name") $ mkVolumeName (jvName jv)
-  sz <- first (MarshalError "volumes.size") $ mkQuantity (jvSize jv)
-  mp <- first (MarshalError "volumes.mountPath") $ mkMountPath (jvMountPath jv)
-  am <- case fromMaybe "ReadWriteOnce" (jvAccessMode jv) of
+  vn <- first (MarshalError "volumes.name") $ mkVolumeName (jv ^. #name)
+  sz <- first (MarshalError "volumes.size") $ mkQuantity (jv ^. #size)
+  mp <- first (MarshalError "volumes.mountPath") $ mkMountPath (jv ^. #mountPath)
+  am <- case fromMaybe "ReadWriteOnce" (jv ^. #accessMode) of
     "ReadWriteOnce" -> Right ReadWriteOnce
     other -> Left (MarshalError "volumes.accessMode" ("unknown access mode: " <> other))
-  rp <- case fromMaybe "Retain" (jvRetention jv) of
+  rp <- case fromMaybe "Retain" (jv ^. #retention) of
     "Retain" -> Right Retain
     "Delete" -> Right Delete
     other -> Left (MarshalError "volumes.retention" ("unknown retention policy: " <> other))
   Right
     Volume
-      { volName = vn
+      { name = vn
       , size = sz
       , mountPath = mp
       , accessMode = am
-      , readOnly = jvReadOnly jv
+      , readOnly = jv ^. #readOnly
       , retention = rp
       }
 
@@ -554,8 +554,8 @@ toVolume jv = do
 toVolumes :: [JsonVolume] -> Either LoadError [Volume]
 toVolumes jvs = do
   vols <- traverse toVolume jvs
-  let names = map (volumeNameText . volName) vols
-      paths = map (mountPathText . mountPath) vols
+  let names = map (volumeNameText . (^. #name)) vols
+      paths = map (mountPathText . (^. #mountPath)) vols
   ensureUnique "duplicate volume name" names
   ensureUnique "duplicate mount path" paths
   Right vols
@@ -583,7 +583,7 @@ decodeDeployment bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       -- A Deployment carries no top-level "kind"; any kinded object (Database,
       -- StaticSite, ServerSite) loaded under `nagarectl deploy` fails precisely.
       Nothing -> case eitherDecodeStrict bs of
@@ -707,7 +707,7 @@ decodeBroker bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Broker" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode broker: " <> Text.pack perr))
@@ -719,16 +719,16 @@ decodeBroker bs =
 -- JSON intermediate for databases (mirrors Nagare.Dsl.Config's emitted shape)
 
 data JsonDatabase = JsonDatabase
-  { jdbName :: !Text
-  , jdbEngine :: !Text
-  , jdbVersion :: !Text
-  , jdbNamespace :: !Text
-  , jdbSize :: !Text
-  , jdbCpuRequest :: !(Maybe Text)
-  , jdbMemoryRequest :: !(Maybe Text)
-  , jdbCpuLimit :: !(Maybe Text)
-  , jdbMemoryLimit :: !(Maybe Text)
-  , jdbRetention :: !(Maybe Text)
+  { name :: !Text
+  , engine :: !Text
+  , version :: !Text
+  , namespace :: !Text
+  , size :: !Text
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , retention :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -748,21 +748,21 @@ instance FromJSON JsonDatabase where
 
 toDatabase :: JsonDatabase -> Either LoadError Database
 toDatabase j = do
-  name' <- first (MarshalError "name") $ mkDatabaseName (jdbName j)
-  eng' <- case parseEngine (jdbEngine j) of
+  name' <- first (MarshalError "name") $ mkDatabaseName (j ^. #name)
+  eng' <- case parseEngine (j ^. #engine) of
     Just e -> Right e
-    Nothing -> Left (MarshalError "engine" ("unknown engine: " <> jdbEngine j))
-  ver' <- first (MarshalError "version") $ mkEngineVersion eng' (jdbVersion j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jdbNamespace j)
-  size' <- first (MarshalError "size") $ mkQuantity (jdbSize j)
+    Nothing -> Left (MarshalError "engine" ("unknown engine: " <> j ^. #engine))
+  ver' <- first (MarshalError "version") $ mkEngineVersion eng' (j ^. #version)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  size' <- first (MarshalError "size") $ mkQuantity (j ^. #size)
   res' <- toDbResources j
-  ret' <- case fromMaybe "Retain" (jdbRetention j) of
+  ret' <- case fromMaybe "Retain" (j ^. #retention) of
     "Retain" -> Right Retain
     "Delete" -> Right Delete
     other -> Left (MarshalError "retention" ("unknown retention policy: " <> other))
   Right
     Database
-      { dbName = name'
+      { name = name'
       , engine = eng'
       , version = ver'
       , namespace = ns'
@@ -773,7 +773,7 @@ toDatabase j = do
 
 toDbResources :: JsonDatabase -> Either LoadError (Maybe Resources)
 toDbResources j =
-  case (jdbCpuRequest j, jdbMemoryRequest j, jdbCpuLimit j, jdbMemoryLimit j) of
+  case (j ^. #cpuRequest, j ^. #memoryRequest, j ^. #cpuLimit, j ^. #memoryLimit) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
       c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
@@ -790,7 +790,7 @@ decodeDatabase bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Database" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode database: " <> Text.pack perr))
@@ -805,25 +805,25 @@ decodeDatabase bs =
 -- @taskJSON@). Optional fields carry their model defaults so a partial object
 -- is a precise 'MarshalError', not an aeson parse error.
 data JsonTask = JsonTask
-  { jtName :: !Text
-  , jtNamespace :: !Text
-  , jtSchedule :: !Text
-  , jtImage :: !(Maybe Text)
-  , jtApp :: !(Maybe Text)
-  , jtCommand :: ![Text]
-  , jtArgs :: ![Text]
-  , jtEnv :: ![JsonEnvEntry]
-  , jtCpuRequest :: !(Maybe Text)
-  , jtMemoryRequest :: !(Maybe Text)
-  , jtCpuLimit :: !(Maybe Text)
-  , jtMemoryLimit :: !(Maybe Text)
-  , jtTimeoutSeconds :: !(Maybe Int)
-  , jtConcurrencyPolicy :: !(Maybe Text)
-  , jtRestartPolicy :: !(Maybe Text)
-  , jtBackoffLimit :: !(Maybe Int)
-  , jtSuccessfulJobsHistoryLimit :: !(Maybe Int)
-  , jtFailedJobsHistoryLimit :: !(Maybe Int)
-  , jtStartingDeadlineSeconds :: !(Maybe Int)
+  { name :: !Text
+  , namespace :: !Text
+  , schedule :: !Text
+  , image :: !(Maybe Text)
+  , app :: !(Maybe Text)
+  , command :: ![Text]
+  , args :: ![Text]
+  , env :: ![JsonEnvEntry]
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , timeoutSeconds :: !(Maybe Int)
+  , concurrencyPolicy :: !(Maybe Text)
+  , restartPolicy :: !(Maybe Text)
+  , backoffLimit :: !(Maybe Int)
+  , successfulJobsHistoryLimit :: !(Maybe Int)
+  , failedJobsHistoryLimit :: !(Maybe Int)
+  , startingDeadlineSeconds :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -857,53 +857,53 @@ instance FromJSON JsonTask where
 -- field.
 toTask :: JsonTask -> Either LoadError Task
 toTask j = do
-  name' <- first (MarshalError "name") $ mkServiceName (jtName j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jtNamespace j)
-  sched' <- first (MarshalError "schedule") $ mkSchedule (jtSchedule j)
-  img' <- traverse (first (MarshalError "image") . mkImageRef) (jtImage j)
-  app' <- traverse (first (MarshalError "app") . mkServiceName) (jtApp j)
-  env' <- mapM toEnvEntry (jtEnv j)
+  name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  sched' <- first (MarshalError "schedule") $ mkSchedule (j ^. #schedule)
+  img' <- traverse (first (MarshalError "image") . mkImageRef) (j ^. #image)
+  app' <- traverse (first (MarshalError "app") . mkServiceName) (j ^. #app)
+  env' <- mapM toEnvEntry (j ^. #env)
   res' <- toTaskResources j
-  cp' <- case parseConcurrencyPolicy (fromMaybe "Forbid" (jtConcurrencyPolicy j)) of
+  cp' <- case parseConcurrencyPolicy (fromMaybe "Forbid" (j ^. #concurrencyPolicy)) of
     Just p -> Right p
     Nothing ->
       Left
         ( MarshalError
             "concurrencyPolicy"
-            ("unknown concurrency policy: " <> fromMaybe "" (jtConcurrencyPolicy j))
+            ("unknown concurrency policy: " <> fromMaybe "" (j ^. #concurrencyPolicy))
         )
-  rp' <- case parseRestartPolicy (fromMaybe "Never" (jtRestartPolicy j)) of
+  rp' <- case parseRestartPolicy (fromMaybe "Never" (j ^. #restartPolicy)) of
     Just p -> Right p
     Nothing ->
       Left
         ( MarshalError
             "restartPolicy"
-            ("unknown restart policy: " <> fromMaybe "" (jtRestartPolicy j))
+            ("unknown restart policy: " <> fromMaybe "" (j ^. #restartPolicy))
         )
   first (MarshalError "task") $
     mkTask
       Task
-        { taskName = name'
-        , taskNamespace = ns'
-        , taskSchedule = sched'
-        , taskImage = img'
-        , taskApp = app'
-        , taskCommand = jtCommand j
-        , taskArgs = jtArgs j
-        , taskEnv = Map.fromList env'
-        , taskResources = res'
-        , taskTimeoutSeconds = jtTimeoutSeconds j
-        , taskConcurrencyPolicy = cp'
-        , taskRestartPolicy = rp'
-        , taskBackoffLimit = fromMaybe 0 (jtBackoffLimit j)
-        , taskSuccessfulJobsHistoryLimit = fromMaybe 3 (jtSuccessfulJobsHistoryLimit j)
-        , taskFailedJobsHistoryLimit = fromMaybe 1 (jtFailedJobsHistoryLimit j)
-        , taskStartingDeadlineSeconds = jtStartingDeadlineSeconds j
+        { name = name'
+        , namespace = ns'
+        , schedule = sched'
+        , image = img'
+        , app = app'
+        , command = j ^. #command
+        , args = j ^. #args
+        , env = Map.fromList env'
+        , resources = res'
+        , timeoutSeconds = j ^. #timeoutSeconds
+        , concurrencyPolicy = cp'
+        , restartPolicy = rp'
+        , backoffLimit = fromMaybe 0 (j ^. #backoffLimit)
+        , successfulJobsHistoryLimit = fromMaybe 3 (j ^. #successfulJobsHistoryLimit)
+        , failedJobsHistoryLimit = fromMaybe 1 (j ^. #failedJobsHistoryLimit)
+        , startingDeadlineSeconds = j ^. #startingDeadlineSeconds
         }
 
 toTaskResources :: JsonTask -> Either LoadError (Maybe Resources)
 toTaskResources j =
-  case (jtCpuRequest j, jtMemoryRequest j, jtCpuLimit j, jtMemoryLimit j) of
+  case (j ^. #cpuRequest, j ^. #memoryRequest, j ^. #cpuLimit, j ^. #memoryLimit) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
       c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
@@ -920,7 +920,7 @@ decodeTask bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Task" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode task: " <> Text.pack perr))
@@ -938,21 +938,21 @@ loadTask path = fmap (>>= decodeTask) (runConfig path)
 -- JSON intermediate for one-shot Jobs (mirrors Nagare.Dsl.Config.jobJSON)
 
 data JsonJob = JsonJob
-  { jjName :: !Text
-  , jjNamespace :: !Text
-  , jjImage :: !Text
-  , jjBuild :: !(Maybe JsonBuildSpec)
-  , jjCommand :: !(Maybe [Text])
-  , jjEnv :: ![JsonEnvEntry]
-  , jjCpuRequest :: !(Maybe Text)
-  , jjMemoryRequest :: !(Maybe Text)
-  , jjCpuLimit :: !(Maybe Text)
-  , jjMemoryLimit :: !(Maybe Text)
-  , jjBackoffLimit :: !Int
-  , jjActiveDeadlineSeconds :: !(Maybe Int)
-  , jjTtlSecondsAfterFinished :: !(Maybe Int)
-  , jjScratchSize :: !Text
-  , jjNixConfigMap :: !(Maybe Text)
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , build :: !(Maybe JsonBuildSpec)
+  , command :: !(Maybe [Text])
+  , env :: ![JsonEnvEntry]
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , backoffLimit :: !Int
+  , activeDeadlineSeconds :: !(Maybe Int)
+  , ttlSecondsAfterFinished :: !(Maybe Int)
+  , scratchSize :: !Text
+  , nixConfigMap :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -977,37 +977,37 @@ instance FromJSON JsonJob where
 
 toJob :: JsonJob -> Either LoadError Job
 toJob j = do
-  name' <- first (MarshalError "name") $ mkServiceName (jjName j)
-  namespace' <- first (MarshalError "namespace") $ mkNamespace (jjNamespace j)
-  image' <- first (MarshalError "image") $ mkImageRef (jjImage j)
-  build' <- case jjBuild j of
+  name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  namespace' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  image' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
+  build' <- case j ^. #build of
     Nothing -> first (MarshalError "build") defaultBuild
     Just build -> toBuildSpec build
-  command' <- traverse (first (MarshalError "command") . mkCommand) (jjCommand j)
-  env' <- mapM toEnvEntry (jjEnv j)
+  command' <- traverse (first (MarshalError "command") . mkCommand) (j ^. #command)
+  env' <- mapM toEnvEntry (j ^. #env)
   resources' <- toJobResources j
-  scratch' <- first (MarshalError "scratchSize") $ mkQuantity (jjScratchSize j)
-  nixConfigMap' <- traverse (first (MarshalError "nixConfigMap") . mkConfigMapName) (jjNixConfigMap j)
+  scratch' <- first (MarshalError "scratchSize") $ mkQuantity (j ^. #scratchSize)
+  nixConfigMap' <- traverse (first (MarshalError "nixConfigMap") . mkConfigMapName) (j ^. #nixConfigMap)
   first (MarshalError "job") $
     mkJob
       Job
-        { jobName = name'
-        , jobNamespace = namespace'
-        , jobImage = image'
-        , jobBuild = build'
-        , jobCommand = command'
-        , jobEnv = Map.fromList env'
-        , jobResources = resources'
-        , jobBackoffLimit = jjBackoffLimit j
-        , jobActiveDeadlineSeconds = jjActiveDeadlineSeconds j
-        , jobTtlSecondsAfterFinished = jjTtlSecondsAfterFinished j
-        , jobScratchSize = scratch'
-        , jobNixConfigMap = nixConfigMap'
+        { name = name'
+        , namespace = namespace'
+        , image = image'
+        , build = build'
+        , command = command'
+        , env = Map.fromList env'
+        , resources = resources'
+        , backoffLimit = j ^. #backoffLimit
+        , activeDeadlineSeconds = j ^. #activeDeadlineSeconds
+        , ttlSecondsAfterFinished = j ^. #ttlSecondsAfterFinished
+        , scratchSize = scratch'
+        , nixConfigMap = nixConfigMap'
         }
 
 toJobResources :: JsonJob -> Either LoadError (Maybe Resources)
 toJobResources j =
-  case (jjCpuRequest j, jjMemoryRequest j, jjCpuLimit j, jjMemoryLimit j) of
+  case (j ^. #cpuRequest, j ^. #memoryRequest, j ^. #cpuLimit, j ^. #memoryLimit) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (cpuRequest, memoryRequest, cpuLimit', memoryLimit') -> do
       cpuRequest' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) cpuRequest
@@ -1030,7 +1030,7 @@ decodeJob bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Job" -> case eitherDecodeStrict bs of
         Left perr -> Left (MarshalError "json" ("could not decode job: " <> Text.pack perr))
         Right job -> toJob job
@@ -1050,21 +1050,21 @@ loadJob path = fmap (>>= decodeJob) (runConfig path)
 -- defaults to the historical Dockerfile build, @replicas@ to @1@, @command@ to
 -- absent (run the image entrypoint).
 data JsonWorker = JsonWorker
-  { jwName :: !Text
-  , jwNamespace :: !Text
-  , jwImage :: !Text
-  , jwBuild :: !(Maybe JsonBuildSpec)
-  , jwCommand :: !(Maybe [Text])
-  , jwReplicas :: !Int
-  , jwEnv :: ![JsonEnvEntry]
-  , jwCpuRequest :: !(Maybe Text)
-  , jwMemoryRequest :: !(Maybe Text)
-  , jwCpuLimit :: !(Maybe Text)
-  , jwMemoryLimit :: !(Maybe Text)
-  , jwVolumes :: ![JsonVolume]
-  , jwDatabases :: ![Text]
-  , jwBrokers :: ![JsonBrokerBinding]
-  , jwLiveness :: !(Maybe JsonWorkerProbe)
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , build :: !(Maybe JsonBuildSpec)
+  , command :: !(Maybe [Text])
+  , replicas :: !Int
+  , env :: ![JsonEnvEntry]
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , cpuLimit :: !(Maybe Text)
+  , memoryLimit :: !(Maybe Text)
+  , volumes :: ![JsonVolume]
+  , databases :: ![Text]
+  , brokers :: ![JsonBrokerBinding]
+  , liveness :: !(Maybe JsonWorkerProbe)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1092,17 +1092,17 @@ instance FromJSON JsonWorker where
 -- the per-kind fields are optional so a missing one is a precise 'MarshalError'.
 -- The timing fields carry the model defaults (mirroring 'defaultProbeTiming').
 data JsonWorkerProbe = JsonWorkerProbe
-  { jwpKind :: !Text
-  , jwpCommand :: !(Maybe [Text])
-  , jwpPort :: !(Maybe Int)
-  , jwpPath :: !(Maybe Text)
-  , jwpCheckPort :: !(Maybe Int)
-  , jwpScheme :: !(Maybe Text)
-  , jwpInitialDelay :: !Int
-  , jwpPeriod :: !Int
-  , jwpTimeout :: !Int
-  , jwpFailureThreshold :: !Int
-  , jwpAsStartup :: !Bool
+  { kind :: !Text
+  , command :: !(Maybe [Text])
+  , port :: !(Maybe Int)
+  , path :: !(Maybe Text)
+  , checkPort :: !(Maybe Int)
+  , scheme :: !(Maybe Text)
+  , initialDelay :: !Int
+  , period :: !Int
+  , timeout :: !Int
+  , failureThreshold :: !Int
+  , asStartup :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1126,21 +1126,21 @@ instance FromJSON JsonWorkerProbe where
 -- per-kind field or unknown kind/scheme is a precise 'MarshalError "liveness*"'.
 toWorkerProbe :: JsonWorkerProbe -> Either LoadError WorkerProbe
 toWorkerProbe j =
-  case jwpKind j of
+  case j ^. #kind of
     "Exec" -> do
       argv <-
-        maybe (Left (MarshalError "liveness" "Exec probe missing 'command' field")) Right (jwpCommand j)
+        maybe (Left (MarshalError "liveness" "Exec probe missing 'command' field")) Right (j ^. #command)
       first (MarshalError "liveness") (mkExecProbe argv timing)
     "Tcp" -> do
-      p <- maybe (Left (MarshalError "liveness" "Tcp probe missing 'port' field")) Right (jwpPort j)
+      p <- maybe (Left (MarshalError "liveness" "Tcp probe missing 'port' field")) Right (j ^. #port)
       port <- first (MarshalError "liveness.port") (mkPort p)
       t <- first (MarshalError "liveness") (mkProbeTiming timing)
       Right (mkTcpProbe port t)
     "Http" -> do
       path <-
-        maybe (Left (MarshalError "liveness" "Http probe missing 'path' field")) Right (jwpPath j)
-      mport <- traverse (first (MarshalError "liveness.checkPort") . mkPort) (jwpCheckPort j)
-      scheme <- case fromMaybe "HTTP" (jwpScheme j) of
+        maybe (Left (MarshalError "liveness" "Http probe missing 'path' field")) Right (j ^. #path)
+      mport <- traverse (first (MarshalError "liveness.checkPort") . mkPort) (j ^. #checkPort)
+      scheme <- case fromMaybe "HTTP" (j ^. #scheme) of
         "HTTP" -> Right HTTP
         "HTTPS" -> Right HTTPS
         other -> Left (MarshalError "liveness.scheme" ("unknown scheme: " <> other))
@@ -1149,11 +1149,11 @@ toWorkerProbe j =
   where
     timing =
       ProbeTiming
-        { initialDelay = jwpInitialDelay j
-        , period = jwpPeriod j
-        , timeout = jwpTimeout j
-        , failureThreshold = jwpFailureThreshold j
-        , asStartup = jwpAsStartup j
+        { initialDelay = j ^. #initialDelay
+        , period = j ^. #period
+        , timeout = j ^. #timeout
+        , failureThreshold = j ^. #failureThreshold
+        , asStartup = j ^. #asStartup
         }
 
 -- | Re-validate a decoded worker: re-run every smart constructor
@@ -1163,20 +1163,20 @@ toWorkerProbe j =
 -- 'toDeployment' enforces it. Any failure is a precise 'MarshalError'.
 toWorker :: JsonWorker -> Either LoadError Worker
 toWorker j = do
-  name' <- first (MarshalError "name") $ mkServiceName (jwName j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jwNamespace j)
-  img' <- first (MarshalError "image") $ mkImageRef (jwImage j)
-  build' <- case jwBuild j of
+  name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
+  build' <- case j ^. #build of
     Nothing -> first (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
-  command' <- traverse (first (MarshalError "command") . mkCommand) (jwCommand j)
-  replicas' <- first (MarshalError "replicas") $ mkReplicas (jwReplicas j)
-  env' <- mapM toEnvEntry (jwEnv j)
+  command' <- traverse (first (MarshalError "command") . mkCommand) (j ^. #command)
+  replicas' <- first (MarshalError "replicas") $ mkReplicas (j ^. #replicas)
+  env' <- mapM toEnvEntry (j ^. #env)
   res' <- toWorkerResources j
-  vols' <- toVolumes (jwVolumes j)
-  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (jwDatabases j)
-  brokerRefs' <- traverse (toBrokerBinding "brokers") (jwBrokers j)
-  liveness' <- traverse toWorkerProbe (jwLiveness j)
+  vols' <- toVolumes (j ^. #volumes)
+  dbRefs' <- traverse (first (MarshalError "databases") . mkDatabaseName) (j ^. #databases)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
+  liveness' <- traverse toWorkerProbe (j ^. #liveness)
   Right
     Worker
       { name = name'
@@ -1195,7 +1195,7 @@ toWorker j = do
 
 toWorkerResources :: JsonWorker -> Either LoadError (Maybe Resources)
 toWorkerResources j =
-  case (jwCpuRequest j, jwMemoryRequest j, jwCpuLimit j, jwMemoryLimit j) of
+  case (j ^. #cpuRequest, j ^. #memoryRequest, j ^. #cpuLimit, j ^. #memoryLimit) of
     (Nothing, Nothing, Nothing, Nothing) -> Right Nothing
     (c, m, cl, ml) -> do
       c' <- traverse (first (MarshalError "cpuRequest") . mkQuantity) c
@@ -1212,7 +1212,7 @@ decodeWorker bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Worker" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode worker: " <> Text.pack perr))
@@ -1238,16 +1238,16 @@ loadWorker path = fmap (>>= decodeWorker) (runConfig path)
 -- do standalone. Optional fields default to empty so a partial object is a
 -- precise 'MarshalError', not an aeson parse error.
 data JsonApplication = JsonApplication
-  { jaName :: !Text
-  , jaNamespace :: !Text
-  , jaImage :: !Text
-  , jaEnv :: ![JsonEnvEntry]
-  , jaDatabases :: ![JsonDatabase]
-  , jaBrokers :: ![JsonBrokerBinding]
-  , jaAccess :: !(Maybe JsonAccessPolicy)
-  , jaService :: !(Maybe JsonDeployment)
-  , jaWorkers :: ![JsonWorker]
-  , jaTasks :: ![JsonTask]
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , env :: ![JsonEnvEntry]
+  , databases :: ![JsonDatabase]
+  , brokers :: ![JsonBrokerBinding]
+  , access :: !(Maybe JsonAccessPolicy)
+  , service :: !(Maybe JsonDeployment)
+  , workers :: ![JsonWorker]
+  , tasks :: ![JsonTask]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1274,23 +1274,23 @@ instance FromJSON JsonApplication where
 -- is rejected as a precise @MarshalError "application"@).
 toApplication :: JsonApplication -> Either LoadError Application
 toApplication j = do
-  name' <- first (MarshalError "name") $ mkServiceName (jaName j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jaNamespace j)
-  img' <- first (MarshalError "image") $ mkImageRef (jaImage j)
-  env' <- mapM toEnvEntry (jaEnv j)
-  dbs' <- traverse toDatabase (jaDatabases j)
-  brokerRefs' <- traverse (toBrokerBinding "brokers") (jaBrokers j)
-  access' <- traverse toAccessPolicy (jaAccess j)
-  svc' <- traverse toDeployment (jaService j)
-  wks' <- traverse toWorker (jaWorkers j)
-  tks' <- traverse toTask (jaTasks j)
+  name' <- first (MarshalError "name") $ mkServiceName (j ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
+  env' <- mapM toEnvEntry (j ^. #env)
+  dbs' <- traverse toDatabase (j ^. #databases)
+  brokerRefs' <- traverse (toBrokerBinding "brokers") (j ^. #brokers)
+  access' <- traverse toAccessPolicy (j ^. #access)
+  svc' <- traverse toDeployment (j ^. #service)
+  wks' <- traverse toWorker (j ^. #workers)
+  tks' <- traverse toTask (j ^. #tasks)
   let assembled =
         Application
-          { appName = name'
+          { name = name'
           , namespace = ns'
           , image = img'
           , env = Map.fromList env'
-          , appDatabases = dbs'
+          , databases = dbs'
           , brokers = brokerRefs'
           , access = access'
           , service = svc'
@@ -1308,7 +1308,7 @@ decodeApplication bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "Application" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode application: " <> Text.pack perr))
@@ -1331,8 +1331,8 @@ loadApplication path = fmap (>>= decodeApplication) (runConfig path)
 -- @.:?@ so a missing key is 'Nothing'; the encoder always writes the key (as
 -- @null@ for the never-cache case), so the round-trip preserves 'Nothing'.
 data JsonCdnCacheRule = JsonCdnCacheRule
-  { jcrPathPrefix :: !Text
-  , jcrEdgeTtlSeconds :: !(Maybe Int)
+  { pathPrefix :: !Text
+  , edgeTtlSeconds :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1344,10 +1344,10 @@ instance FromJSON JsonCdnCacheRule where
 -- @cacheRules@ to @[]@ so a hand-written partial object is forgiving, mirroring
 -- how 'JsonVolume'/'JsonHealthCheck' default their optional fields.
 data JsonCdn = JsonCdn
-  { jcProvider :: !Text
-  , jcDefaultTtlSeconds :: !(Maybe Int)
-  , jcCacheStaticAssets :: !Bool
-  , jcCacheRules :: ![JsonCdnCacheRule]
+  { provider :: !Text
+  , defaultTtlSeconds :: !(Maybe Int)
+  , cacheStaticAssets :: !Bool
+  , cacheRules :: ![JsonCdnCacheRule]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1366,44 +1366,44 @@ instance FromJSON JsonCdn where
 -- nor 'Nagare.Dsl.Cdn.Types.withDefaultTtl' can catch a hand-written value.
 toCdn :: JsonCdn -> Either LoadError Cdn
 toCdn j = do
-  prov <- case jcProvider j of
+  prov <- case j ^. #provider of
     "Cloudflare" -> Right CloudflareCdn
     "GcpCloudCdn" -> Right GcpCloudCdn
     other -> Left (MarshalError "cdn.provider" ("unknown cdn provider: " <> other))
-  case jcDefaultTtlSeconds j of
+  case j ^. #defaultTtlSeconds of
     Just n
       | n < 0 ->
           Left (MarshalError "cdn.defaultTtlSeconds" ("must be >= 0, got: " <> Text.pack (show n)))
     _ -> Right ()
-  rules <- traverse toCdnCacheRule (jcCacheRules j)
+  rules <- traverse toCdnCacheRule (j ^. #cacheRules)
   Right
     Cdn
       { provider = prov
-      , defaultTtlSeconds = jcDefaultTtlSeconds j
-      , cacheStaticAssets = jcCacheStaticAssets j
+      , defaultTtlSeconds = j ^. #defaultTtlSeconds
+      , cacheStaticAssets = j ^. #cacheStaticAssets
       , cacheRules = rules
       }
   where
     toCdnCacheRule r =
       first (MarshalError "cdn.cacheRules") $
-        mkCdnCacheRule (jcrPathPrefix r) (jcrEdgeTtlSeconds r)
+        mkCdnCacheRule (r ^. #pathPrefix) (r ^. #edgeTtlSeconds)
 
 -- ---------------------------------------------------------------------------
 -- JSON intermediate for static sites (mirrors Nagare.Dsl.Config's emitted shape)
 
 -- | A minimal envelope used to read the top-level @kind@ discriminator before
 -- committing to a full decode.
-newtype JsonKindEnvelope = JsonKindEnvelope {jkeKind :: Maybe Text}
+newtype JsonKindEnvelope = JsonKindEnvelope {kind :: Maybe Text}
   deriving stock (Generic, Eq, Show)
 
 instance FromJSON JsonKindEnvelope where
   parseJSON = withObject "kinded" $ \o -> JsonKindEnvelope <$> o .:? "kind"
 
 data JsonStaticBuild = JsonStaticBuild
-  { jsbKind :: !Text
-  , jsbDirectory :: !(Maybe Text)
-  , jsbCommand :: !(Maybe Text)
-  , jsbOutputDirectory :: !(Maybe Text)
+  { kind :: !Text
+  , directory :: !(Maybe Text)
+  , command :: !(Maybe Text)
+  , outputDirectory :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1416,9 +1416,9 @@ instance FromJSON JsonStaticBuild where
       <*> o .:? "outputDirectory"
 
 data JsonRedirect = JsonRedirect
-  { jrFrom :: !Text
-  , jrTo :: !Text
-  , jrStatus :: !Int
+  { from :: !Text
+  , to :: !Text
+  , status :: !Int
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1427,9 +1427,9 @@ instance FromJSON JsonRedirect where
     JsonRedirect <$> o .: "from" <*> o .: "to" <*> o .: "status"
 
 data JsonHeader = JsonHeader
-  { jhPath :: !Text
-  , jhName :: !Text
-  , jhValue :: !Text
+  { path :: !Text
+  , name :: !Text
+  , value :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1438,8 +1438,8 @@ instance FromJSON JsonHeader where
     JsonHeader <$> o .: "path" <*> o .: "name" <*> o .: "value"
 
 data JsonCache = JsonCache
-  { jcImmutableAssets :: !Bool
-  , jcDefaultMaxAge :: !(Maybe Int)
+  { immutableAssets :: !Bool
+  , defaultMaxAge :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1448,16 +1448,16 @@ instance FromJSON JsonCache where
     JsonCache <$> o .: "immutableAssets" <*> o .:? "defaultMaxAge"
 
 data JsonStaticSite = JsonStaticSite
-  { jssName :: !Text
-  , jssNamespace :: !Text
-  , jssImage :: !Text
-  , jssBuild :: !JsonStaticBuild
-  , jssDomains :: ![Text]
-  , jssRedirects :: ![JsonRedirect]
-  , jssHeaders :: ![JsonHeader]
-  , jssCache :: !JsonCache
-  , jssNotFound :: !(Maybe Text)
-  , jssCdn :: !(Maybe JsonCdn)
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , build :: !JsonStaticBuild
+  , domains :: ![Text]
+  , redirects :: ![JsonRedirect]
+  , headers :: ![JsonHeader]
+  , cache :: !JsonCache
+  , notFound :: !(Maybe Text)
+  , cdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1480,18 +1480,18 @@ instance FromJSON JsonStaticSite where
 
 toStaticSite :: JsonStaticSite -> Either LoadError StaticSite
 toStaticSite j = do
-  name' <- first (MarshalError "name") $ mkSiteName (jssName j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jssNamespace j)
-  img' <- first (MarshalError "image") $ mkImageRef (jssImage j)
-  build' <- toStaticBuild (jssBuild j)
-  domains' <- traverse (first (MarshalError "domain") . mkDomain) (jssDomains j)
-  redirects' <- traverse toRedirect (jssRedirects j)
-  headers' <- traverse toHeader (jssHeaders j)
+  name' <- first (MarshalError "name") $ mkSiteName (j ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
+  build' <- toStaticBuild (j ^. #build)
+  domains' <- traverse (first (MarshalError "domain") . mkDomain) (j ^. #domains)
+  redirects' <- traverse toRedirect (j ^. #redirects)
+  headers' <- traverse toHeader (j ^. #headers)
   cache' <-
     first (MarshalError "cache") $
-      mkCachePolicy (jcImmutableAssets cacheJ) (jcDefaultMaxAge cacheJ)
-  notFound' <- traverse (first (MarshalError "notFound") . mkFilePathText) (jssNotFound j)
-  cdn' <- traverse toCdn (jssCdn j)
+      mkCachePolicy (cacheJ ^. #immutableAssets) (cacheJ ^. #defaultMaxAge)
+  notFound' <- traverse (first (MarshalError "notFound") . mkFilePathText) (j ^. #notFound)
+  cdn' <- traverse toCdn (j ^. #cdn)
   Right
     StaticSite
       { name = name'
@@ -1506,31 +1506,31 @@ toStaticSite j = do
       , cdn = cdn'
       }
   where
-    cacheJ = jssCache j
+    cacheJ = j ^. #cache
 
 toStaticBuild :: JsonStaticBuild -> Either LoadError StaticBuild
-toStaticBuild jb = case jsbKind jb of
-  "NoBuild" -> case jsbDirectory jb of
+toStaticBuild jb = case jb ^. #kind of
+  "NoBuild" -> case jb ^. #directory of
     Nothing -> Left (MarshalError "build" "NoBuild entry missing 'directory' field")
     Just d -> fmap NoBuild . first (MarshalError "build.directory") $ mkFilePathText d
   "BuildCommand" -> do
     cmd <-
       maybe (Left (MarshalError "build" "BuildCommand entry missing 'command' field")) Right $
-        jsbCommand jb
+        jb ^. #command
     outD <-
       maybe (Left (MarshalError "build" "BuildCommand entry missing 'outputDirectory' field")) Right $
-        jsbOutputDirectory jb
+        jb ^. #outputDirectory
     outD' <- first (MarshalError "build.outputDirectory") $ mkFilePathText outD
     Right (BuildCommand {command = cmd, outputDirectory = outD'})
   other -> Left (MarshalError "build.kind" ("unknown build kind: " <> other))
 
 toRedirect :: JsonRedirect -> Either LoadError RedirectRule
 toRedirect jr =
-  first (MarshalError "redirect") $ mkRedirectRule (jrFrom jr) (jrTo jr) (jrStatus jr)
+  first (MarshalError "redirect") $ mkRedirectRule (jr ^. #from) (jr ^. #to) (jr ^. #status)
 
 toHeader :: JsonHeader -> Either LoadError HeaderRule
 toHeader jh =
-  first (MarshalError "header") $ mkHeaderRule (jhPath jh) (jhName jh) (jhValue jh)
+  first (MarshalError "header") $ mkHeaderRule (jh ^. #path) (jh ^. #name) (jh ^. #value)
 
 -- | Decode the JSON a config program emits (via
 -- 'Nagare.Dsl.Config.emitStaticSite') into a validated 'StaticSite', re-running
@@ -1544,7 +1544,7 @@ decodeStaticSite bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "StaticSite" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode static site: " <> Text.pack perr))
@@ -1585,15 +1585,15 @@ runConfigWith budget path = do
     then pure (Left (FileNotFound path))
     else do
       let configDir = takeDirectory path
-          seconds = configTimeoutSeconds budget
+          seconds' = budget ^. #seconds
       result <-
-        Timeout.timeout (seconds * 1_000_000) . try @IOException $
+        Timeout.timeout (seconds' * 1_000_000) . try @IOException $
           readProcessWithExitCode
             "runghc"
             ["--ghc-arg=-XGHC2024", "-i" <> configDir, path]
             ""
       pure $ case result of
-        Nothing -> Left (LoadTimedOut path seconds)
+        Nothing -> Left (LoadTimedOut path seconds')
         Just (Left ioErr) -> Left (CompileError path (Text.pack (show ioErr)))
         Just (Right (ExitFailure _, _out, err)) -> Left (CompileError path (Text.pack err))
         Just (Right (ExitSuccess, out, _err))
@@ -1657,7 +1657,7 @@ decodeSite bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "StaticSite" -> SiteStatic <$> decodeStaticSite bs
       Just "ServerSite" -> SiteServer <$> decodeServerSite bs
       Just other -> Left (UnexpectedKind "StaticSite or ServerSite" other)
@@ -1667,8 +1667,8 @@ decodeSite bs =
 -- JSON intermediate for server sites (mirrors Nagare.Dsl.Config's emitted shape)
 
 data JsonServerBuild = JsonServerBuild
-  { srvCommand :: !Text
-  , srvOutputDirs :: ![Text]
+  { command :: !Text
+  , outputDirs :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1677,8 +1677,8 @@ instance FromJSON JsonServerBuild where
     JsonServerBuild <$> o .: "command" <*> o .: "outputDirs"
 
 data JsonServerRuntime = JsonServerRuntime
-  { jsrBaseImage :: !Text
-  , jsrStartCommand :: ![Text]
+  { baseImage :: !Text
+  , startCommand :: ![Text]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1687,20 +1687,20 @@ instance FromJSON JsonServerRuntime where
     JsonServerRuntime <$> o .: "baseImage" <*> o .: "startCommand"
 
 data JsonServerSite = JsonServerSite
-  { jsvName :: !Text
-  , jsvNamespace :: !Text
-  , jsvImage :: !Text
-  , jsvBuild :: !JsonServerBuild
-  , jsvRuntime :: !JsonServerRuntime
-  , jsvPort :: !Int
-  , jsvEnv :: ![JsonEnvEntry]
-  , jsvCpuRequest :: !(Maybe Text)
-  , jsvMemoryRequest :: !(Maybe Text)
-  , jsvScaleMin :: !(Maybe Int)
-  , jsvScaleMax :: !(Maybe Int)
-  , jsvDomains :: ![Text]
-  , jsvVolumes :: ![JsonVolume]
-  , jsvCdn :: !(Maybe JsonCdn)
+  { name :: !Text
+  , namespace :: !Text
+  , image :: !Text
+  , build :: !JsonServerBuild
+  , runtime :: !JsonServerRuntime
+  , port :: !Int
+  , env :: ![JsonEnvEntry]
+  , cpuRequest :: !(Maybe Text)
+  , memoryRequest :: !(Maybe Text)
+  , scaleMin :: !(Maybe Int)
+  , scaleMax :: !(Maybe Int)
+  , domains :: ![Text]
+  , volumes :: ![JsonVolume]
+  , cdn :: !(Maybe JsonCdn)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -1727,21 +1727,21 @@ instance FromJSON JsonServerSite where
 
 toServerSite :: JsonServerSite -> Either LoadError ServerSite
 toServerSite j = do
-  name' <- first (MarshalError "name") $ mkSiteName (jsvName j)
-  ns' <- first (MarshalError "namespace") $ mkNamespace (jsvNamespace j)
-  img' <- first (MarshalError "image") $ mkImageRef (jsvImage j)
-  build' <- toServerBuild (jsvBuild j)
-  runtime' <- toServerRuntime (jsvRuntime j)
-  port' <- first (MarshalError "port") $ mkPort (jsvPort j)
-  env' <- mapM toEnvEntry (jsvEnv j)
-  res' <- toServerResources (jsvCpuRequest j) (jsvMemoryRequest j)
-  scale' <- case (jsvScaleMin j, jsvScaleMax j) of
+  name' <- first (MarshalError "name") $ mkSiteName (j ^. #name)
+  ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
+  img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
+  build' <- toServerBuild (j ^. #build)
+  runtime' <- toServerRuntime (j ^. #runtime)
+  port' <- first (MarshalError "port") $ mkPort (j ^. #port)
+  env' <- mapM toEnvEntry (j ^. #env)
+  res' <- toServerResources (j ^. #cpuRequest) (j ^. #memoryRequest)
+  scale' <- case (j ^. #scaleMin, j ^. #scaleMax) of
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . first (MarshalError "scale") $ mkScale mn mx
     _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
-  domains' <- traverse (first (MarshalError "domain") . mkDomain) (jsvDomains j)
-  vols' <- toVolumes (jsvVolumes j)
-  cdn' <- traverse toCdn (jsvCdn j)
+  domains' <- traverse (first (MarshalError "domain") . mkDomain) (j ^. #domains)
+  vols' <- toVolumes (j ^. #volumes)
+  cdn' <- traverse toCdn (j ^. #cdn)
   Right
     ServerSite
       { name = name'
@@ -1760,14 +1760,14 @@ toServerSite j = do
 
 toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild
 toServerBuild jb = do
-  dirs <- traverse (first (MarshalError "build.outputDirs") . mkFilePathText) (srvOutputDirs jb)
+  dirs <- traverse (first (MarshalError "build.outputDirs") . mkFilePathText) (jb ^. #outputDirs)
   neDirs <- maybe (Left (MarshalError "build.outputDirs" "outputDirs must be non-empty")) Right (NE.nonEmpty dirs)
-  Right (ServerBuild {command = srvCommand jb, outputDirs = neDirs})
+  Right (ServerBuild {command = jb ^. #command, outputDirs = neDirs})
 
 toServerRuntime :: JsonServerRuntime -> Either LoadError ServerRuntime
 toServerRuntime jr = do
-  base <- first (MarshalError "runtime.baseImage") $ mkRuntimeImage (jsrBaseImage jr)
-  neCmd <- maybe (Left (MarshalError "runtime.startCommand" "startCommand must be non-empty")) Right (NE.nonEmpty (jsrStartCommand jr))
+  base <- first (MarshalError "runtime.baseImage") $ mkRuntimeImage (jr ^. #baseImage)
+  neCmd <- maybe (Left (MarshalError "runtime.startCommand" "startCommand must be non-empty")) Right (NE.nonEmpty (jr ^. #startCommand))
   Right (ServerRuntime {baseImage = base, startCommand = neCmd})
 
 toServerResources :: Maybe Text -> Maybe Text -> Either LoadError (Maybe Resources)
@@ -1787,7 +1787,7 @@ decodeServerSite bs =
   case eitherDecodeStrict bs of
     Left perr ->
       Left (MarshalError "json" ("could not decode config output: " <> Text.pack perr))
-    Right envelope -> case jkeKind envelope of
+    Right (JsonKindEnvelope envelopeKind) -> case envelopeKind of
       Just "ServerSite" -> case eitherDecodeStrict bs of
         Left perr ->
           Left (MarshalError "json" ("could not decode server site: " <> Text.pack perr))

@@ -7,10 +7,13 @@
 -- config of the wrong @kind@ is reported as 'UnexpectedKind'.
 module ServerSpec (serverTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy (fromStrict)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -95,17 +98,16 @@ loadAndGoldenTests =
 notesVolApp :: ServerSite
 notesVolApp =
   notesApp
-    { volumes =
-        [ Volume
-            { volName = unsafe (mkVolumeName "uploads")
-            , size = unsafe (mkQuantity "2Gi")
-            , mountPath = unsafe (mkMountPath "/data/uploads")
-            , accessMode = ReadWriteOnce
-            , readOnly = False
-            , retention = Retain
-            }
-        ]
-    }
+    & #volumes
+      .~ [ Volume
+             { name = unsafe (mkVolumeName "uploads")
+             , size = unsafe (mkQuantity "2Gi")
+             , mountPath = unsafe (mkMountPath "/data/uploads")
+             , accessMode = ReadWriteOnce
+             , readOnly = False
+             , retention = Retain
+             }
+         ]
 
 volumeParityTests :: [TestTree]
 volumeParityTests =
@@ -134,21 +136,21 @@ decodeFailureTests =
         Right _ -> pure ()
         other -> assertFailure ("expected Right, got: " <> show other)
   , testCase "absolute output dir returns MarshalError build.outputDirs" $
-      assertMarshal "build.outputDirs" (serverJSON validParts {pOutputDirs = "[\"/abs\"]"})
+      assertMarshal "build.outputDirs" (serverJSON (validParts & #pOutputDirs .~ "[\"/abs\"]"))
   , testCase "parent-dir output dir returns MarshalError build.outputDirs" $
-      assertMarshal "build.outputDirs" (serverJSON validParts {pOutputDirs = "[\"a/../b\"]"})
+      assertMarshal "build.outputDirs" (serverJSON (validParts & #pOutputDirs .~ "[\"a/../b\"]"))
   , testCase "invalid base image returns MarshalError runtime.baseImage" $
-      assertMarshal "runtime.baseImage" (serverJSON validParts {pBaseImage = "\"node 22\""})
+      assertMarshal "runtime.baseImage" (serverJSON (validParts & #pBaseImage .~ "\"node 22\""))
   , testCase "empty start command returns MarshalError runtime.startCommand" $
-      assertMarshal "runtime.startCommand" (serverJSON validParts {pStartCommand = "[]"})
+      assertMarshal "runtime.startCommand" (serverJSON (validParts & #pStartCommand .~ "[]"))
   , testCase "empty output dirs returns MarshalError build.outputDirs" $
-      assertMarshal "build.outputDirs" (serverJSON validParts {pOutputDirs = "[]"})
+      assertMarshal "build.outputDirs" (serverJSON (validParts & #pOutputDirs .~ "[]"))
   , testCase "no kind returns UnexpectedKind" $
       case decodeServerSite (BC.pack deploymentJSON) of
         Left (UnexpectedKind "ServerSite" "<none>") -> pure ()
         other -> assertFailure ("expected UnexpectedKind, got: " <> show other)
   , testCase "StaticSite kind returns UnexpectedKind" $
-      case decodeServerSite (BC.pack (serverJSON validParts {pKind = "StaticSite"})) of
+      case decodeServerSite (BC.pack (serverJSON (validParts & #pKind .~ "StaticSite"))) of
         Left (UnexpectedKind "ServerSite" "StaticSite") -> pure ()
         other -> assertFailure ("expected UnexpectedKind StaticSite, got: " <> show other)
   ]
@@ -163,11 +165,12 @@ deploymentJSON =
   "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"port\":8080,\"env\":[]}"
 
 data ServerParts = ServerParts
-  { pKind :: String
-  , pOutputDirs :: String
-  , pBaseImage :: String
-  , pStartCommand :: String
+  { pKind :: !String
+  , pOutputDirs :: !String
+  , pBaseImage :: !String
+  , pStartCommand :: !String
   }
+  deriving stock (Eq, Show, Generic)
 
 validParts :: ServerParts
 validParts =
@@ -181,13 +184,13 @@ validParts =
 serverJSON :: ServerParts -> String
 serverJSON p =
   "{\"kind\":\""
-    <> pKind p
+    <> p ^. #pKind
     <> "\",\"name\":\"app\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"build\":{\"command\":\"npm run build\",\"outputDirs\":"
-    <> pOutputDirs p
+    <> p ^. #pOutputDirs
     <> "},\"runtime\":{\"baseImage\":"
-    <> pBaseImage p
+    <> p ^. #pBaseImage
     <> ",\"startCommand\":"
-    <> pStartCommand p
+    <> p ^. #pStartCommand
     <> "},\"port\":8080,\"env\":[],\"domains\":[]}"
 
 unsafe :: Either Text a -> a

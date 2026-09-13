@@ -93,7 +93,7 @@ nsText :: Database -> Text
 nsText db = namespaceText (db ^. #namespace)
 
 nameText :: Database -> Text
-nameText db = databaseNameText (db ^. #dbName)
+nameText db = databaseNameText (db ^. #name)
 
 -- | The IP3 labels stamped on every rendered resource.
 dbLabels :: Database -> Value
