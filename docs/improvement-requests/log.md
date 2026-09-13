@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-13
+* **Add**: Record IR-13 and IR-14 as proposed, from the tan-ng-labs rollout on v0.2.1: host init renders nagare.host.name, which the module does not declare, so no new host flake can be generated since a8918f9 (IR-13); and the default host name is the per-project-fixed instance name, so a second cluster collides on the tailnet (IR-14).
 * **Add**: Record IR-7 through IR-12 as proposed, from the tan-ng-labs rollout on v0.2.1: init inherits derived fields from the active context (IR-7); the operator package ships no pulumi and init fails after side effects with misleading recovery hints (IR-8); the context guard misreports a missing pulumi as an unprojected stack (IR-9); the package's lib/links collides with home-manager on install (IR-10); the docs still call a boot-disk size change in-place (IR-11); and no check covers the ADC account or quota project (IR-12).
 * **Add**: Record IR-6 as proposed and undecided: run the local cluster as k3s directly on Apple Container instead of k3d on Colima. A spike showed k3s reaches Ready with a /proc/sys remount and serves DNS and Service traffic; image builds still depend on Docker.
 * **Update**: Complete IR-2. Every cloud-mutating path now asserts the active context's project: foreign-owned buckets are refused, the auth image builds lost their gcloud-config fallback, infra-up and infra-preview run nagarectl context guard, and the launcher exports the context's Pulumi environment. Decision recorded as ADR 9.
