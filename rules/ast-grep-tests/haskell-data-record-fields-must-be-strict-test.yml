@@ -1,0 +1,19 @@
+id: haskell-data-record-fields-must-be-strict
+valid:
+  - |
+    module Strict where
+    data Strict = Strict
+      { required :: !Int
+      , optional :: !(Maybe Int)
+      }
+  - |
+    module Newtype where
+    newtype Identifier = Identifier
+      { value :: Int
+      }
+invalid:
+  - |
+    module Lazy where
+    data Lazy = Lazy
+      { value :: Int
+      }

@@ -1,0 +1,135 @@
+# Haskell syntax rules for the maintained Nagare packages. The file scope is
+# supplied by scripts/check-haskell-style.sh so fixtures and historical spikes
+# are not treated as production modules.
+id: haskell-data-record-fields-must-be-strict
+language: Haskell
+severity: error
+message: Every field of a data record must be explicitly strict with !
+note: Newtype fields are intentionally exempt because GHC rejects strictness annotations on them.
+rule:
+  all:
+    - kind: field
+    - inside:
+        kind: data_type
+        stopBy: end
+    - not:
+        has:
+          kind: strict_field
+          stopBy: end
+---
+id: haskell-deriving-must-name-strategy
+language: Haskell
+severity: error
+message: Deriving clauses must name an explicit strategy
+rule:
+  all:
+    - kind: deriving
+    - not:
+        has:
+          kind: deriving_strategy
+---
+id: haskell-qualified-imports-must-be-postpositive
+language: Haskell
+severity: error
+message: Qualified imports must use postpositive syntax
+rule:
+  kind: import
+  regex: '^import\s+qualified\b'
+---
+id: haskell-package-imports-only-in-preludes
+language: Haskell
+severity: error
+message: Package-qualified imports are restricted to custom Prelude modules
+ignores:
+  - '**/Prelude.hs'
+rule:
+  kind: import
+  regex: '^import\s+"'
+---
+id: haskell-package-imports-pragma-only-in-preludes
+language: Haskell
+severity: error
+message: PackageImports is restricted to custom Prelude modules
+ignores:
+  - '**/Prelude.hs'
+rule:
+  kind: pragma
+  regex: '\bPackageImports\b'
+---
+id: haskell-dsl-modules-import-custom-prelude
+language: Haskell
+severity: error
+message: Maintained DSL and CLI modules must import Nagare.Dsl.Prelude
+files:
+  - 'cli/nagare-dsl/src/**/*.hs'
+  - 'cli/nagare-dsl/test/*.hs'
+  - 'cli/nagarectl/src/**/*.hs'
+  - 'cli/nagarectl/app/*.hs'
+  - 'cli/nagarectl/nagared/*.hs'
+  - 'cli/nagarectl/test/*.hs'
+ignores:
+  - '**/Prelude.hs'
+rule:
+  all:
+    - kind: header
+    - inside:
+        all:
+          - kind: haskell
+          - not:
+              has:
+                pattern: import Nagare.Dsl.Prelude
+                stopBy: end
+---
+id: haskell-access-modules-import-custom-prelude
+language: Haskell
+severity: error
+message: Maintained access modules must import Nagare.Access.Prelude
+files:
+  - 'cli/nagare-access/src/**/*.hs'
+  - 'cli/nagare-access/app/*.hs'
+  - 'cli/nagare-access/test/*.hs'
+ignores:
+  - '**/Prelude.hs'
+rule:
+  all:
+    - kind: header
+    - inside:
+        all:
+          - kind: haskell
+          - not:
+              has:
+                pattern: import Nagare.Access.Prelude
+                stopBy: end
+---
+id: haskell-label-use-requires-explicit-import
+language: Haskell
+severity: error
+message: Label use requires an explicit import Data.Generics.Labels ()
+rule:
+  all:
+    - kind: header
+    - inside:
+        all:
+          - kind: haskell
+          - has:
+              kind: label
+              stopBy: end
+          - not:
+              has:
+                pattern: import Data.Generics.Labels ()
+                stopBy: end
+---
+id: haskell-label-import-must-be-used
+language: Haskell
+severity: error
+message: Remove the unused Data.Generics.Labels import
+rule:
+  all:
+    - pattern: import Data.Generics.Labels ()
+    - inside:
+        all:
+          - kind: haskell
+          - not:
+              has:
+                kind: label
+                stopBy: end
