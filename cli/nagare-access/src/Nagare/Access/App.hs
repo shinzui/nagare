@@ -20,7 +20,8 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth
 import Nagare.Access.BackendMap
-import Nagare.Access.Challenge (ChallengeMode (..), classifyChallenge, safeReturnDestination)
+import Nagare.Access.Challenge (ChallengeMode (..), RequestShape, classifyChallenge, safeReturnDestination)
+import Nagare.Access.Challenge qualified as Challenge
 import Nagare.Access.Cookie
   ( CookieSettings (cookieKey)
   , clearRefreshCookieHeader
@@ -74,6 +75,11 @@ appWithBackends :: BackendMap -> Application
 appWithBackends backends =
   appWithRuntime backends defaultAccessServices
 
+data LoginPage
+  = BuiltinLoginPage
+  | PortalLoginPage !Portal
+  deriving stock (Eq, Show)
+
 appWithRuntime :: BackendMap -> AccessServices -> Application
 appWithRuntime backends services req respond =
   case (requestMethod req, pathInfo req) of
@@ -84,7 +90,7 @@ appWithRuntime backends services req respond =
     ("GET", ["_nagare", "logout"]) ->
       respond =<< logoutResponse backends services req
     ("GET", ["_nagare", "login"]) ->
-      respond =<< loginFormResponse services req
+      respond =<< loginGetResponse backends services req
     ("POST", ["_nagare", "login"]) ->
       respond =<< loginSubmitResponse services req
     ("POST", ["_nagare", "mfa", "complete"]) ->
@@ -95,14 +101,14 @@ appWithRuntime backends services req respond =
           respond (maybe (textResponse status404 "not found") missingBackendResponse (lookupHost req))
         Just (host, target) ->
           case backendRole target of
-            ProtectedBackend -> respond =<< handleProtected services host req target
+            ProtectedBackend -> respond =<< handleProtected services (loginPageFor backends) host req target
             PortalBackend ->
               case findPortal backends of
                 Just portal -> respond =<< handlePortal backends services portal req
                 Nothing -> respond (textResponse status500 "portal backend is inconsistent")
 
-handleProtected :: AccessServices -> Text -> Request -> BackendTarget -> IO Response
-handleProtected services host req target = do
+handleProtected :: AccessServices -> LoginPage -> PublicHost -> Request -> BackendTarget -> IO Response
+handleProtected services loginPage host req target = do
   authenticated <- authenticateRequest services req challenge
   case authenticated of
     Left response ->
@@ -111,22 +117,93 @@ handleProtected services host req target = do
       outcome <-
         cacheLookupOrLoad
           (decisionCache services)
-          DecisionKey {subject = userSubject user, host = host}
-          (authorizeUser services user host)
+          DecisionKey {subject = userSubject user, host = hostText}
+          (authorizeUser services user hostText)
       case outcome of
         AuthorizationDecision AccessAllowed ->
-          addResponseHeaders responseHeaders <$> forwardAuthorized services user host target req
+          addResponseHeaders responseHeaders <$> forwardAuthorized services user hostText target req
         -- AccessDenied and AccessConditional are both a refusal: 403.
-        AuthorizationDecision _ ->
-          pure (addResponseHeaders responseHeaders (forbiddenResponse requestShape))
+        AuthorizationDecision _ -> do
+          denied <- portalDecisionResponse services loginPage ForbiddenPage status403 host requestShape user (forbiddenResponse requestShape)
+          pure (addResponseHeaders responseHeaders denied)
         -- The authorizer is down. This is not a denial and must not be
         -- presented as one: 503 tells the caller (and any retry logic) that
         -- the answer is unknown, and nothing was written to the cache.
-        AuthorizationUnavailable _ ->
-          pure (addResponseHeaders responseHeaders (textResponse status503 "authorization service unavailable"))
+        AuthorizationUnavailable _ -> do
+          unavailable <-
+            portalDecisionResponse
+              services
+              loginPage
+              UnavailablePage
+              status503
+              host
+              requestShape
+              user
+              (textResponse status503 "authorization service unavailable")
+          pure (addResponseHeaders responseHeaders unavailable)
   where
+    hostText = publicHostText host
     requestShape = requestShapeFromWai req
-    challenge = classifyChallenge requestShape
+    challenge = challengeFor loginPage host requestShape
+
+loginPageFor :: BackendMap -> LoginPage
+loginPageFor = maybe BuiltinLoginPage PortalLoginPage . findPortal
+
+challengeFor :: LoginPage -> PublicHost -> RequestShape -> ChallengeMode
+challengeFor BuiltinLoginPage _ requestShape = classifyChallenge requestShape
+challengeFor (PortalLoginPage portal) host requestShape =
+  case classifyChallenge requestShape of
+    RedirectDocument _ -> RedirectDocument login
+    JsonApi _ -> JsonApi login
+  where
+    target = ReturnTarget host <$> requestSafePath requestShape
+    login = portalLoginUrl portal Nothing target
+
+portalDecisionResponse :: AccessServices -> LoginPage -> PortalPageKind -> Status -> PublicHost -> RequestShape -> AuthenticatedUser -> Response -> IO Response
+portalDecisionResponse services loginPage kind status host requestShape user fallback =
+  case (loginPage, classifyChallenge requestShape) of
+    (PortalLoginPage portal, RedirectDocument _) ->
+      case requestSafePath requestShape of
+        Nothing -> pure fallback
+        Just path -> do
+          page <-
+            fetchPortalPage
+              services
+              portal
+              PortalPageRequest
+                { pageKind = kind
+                , pageTarget = ReturnTarget host path
+                , pageUser = Just user
+                }
+          pure (maybe fallback (portalPageResponse status) page)
+    _ -> pure fallback
+
+requestSafePath :: RequestShape -> Maybe SafePath
+requestSafePath requestShape =
+  mkSafePath $
+    if Text.null (Challenge.requestPath requestShape)
+      then "/"
+      else Challenge.requestPath requestShape
+
+loginGetResponse :: BackendMap -> AccessServices -> Request -> IO Response
+loginGetResponse backends services req =
+  case loginPageFor backends of
+    BuiltinLoginPage -> loginFormResponse services req
+    PortalLoginPage portal
+      | queryTextValue "builtin" (rawQueryString req) == Just "1" -> loginFormResponse services req
+      | otherwise ->
+          pure
+            ( responseLBS
+                status302
+                [(hLocation, TE.encodeUtf8 (portalLoginUrl portal Nothing returnTarget))]
+                ""
+            )
+      where
+        returnTarget = do
+          rawHost <- lookupHost req
+          host <- either (const Nothing) Just (mkPublicHost rawHost)
+          path <- mkSafePath (maybe "/" id (queryTextValue "rd" (rawQueryString req)))
+          pure ReturnTarget {targetHost = host, targetPath = path}
 
 authenticateRequest :: AccessServices -> Request -> ChallengeMode -> IO (Either Response (AuthenticatedUser, [Header]))
 authenticateRequest services req challenge =

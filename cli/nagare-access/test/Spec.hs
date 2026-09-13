@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (ToJSON, Value, decode, eitherDecode, encode, object, (.=))
@@ -251,7 +252,9 @@ backendMapTests =
         lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
     , testCase "lookup can return the canonical host used for auth decisions" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        lookupBackendWithHost "Tools.Example.com:443" backends @?= Just ("tools.example.com", BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+        (host, target) <- maybe (assertFailure "expected backend") pure (lookupBackendWithHost "Tools.Example.com:443" backends)
+        publicHostText host @?= "tools.example.com"
+        target @?= BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
     , testCase "rejects non-object JSON" $
         assertBool "expected Left" (isLeft (decodeBackendMap "[]"))
     , testCase "rejects non-string upstreams" $
@@ -833,6 +836,86 @@ portalTests =
         simpleStatus res @?= status302
         lookup hLocation (simpleHeaders res) @?= Just "https://auth.example.test/login?logged_out=1"
         readIORef revoked >>= (@?= ["current-access"])
+    , testCase "protected document challenges redirect to the portal" $ do
+        let req = withHeader hHost "app.example.test" (setPath defaultRequest "/x?y=1")
+        res <- runSession (request req) (appWithRuntime portalBackends testServices)
+        simpleStatus res @?= status302
+        lookup hLocation (simpleHeaders res)
+          @?= Just "https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2Fx%3Fy%3D1"
+    , testCase "protected API challenges include the absolute portal login URL" $ do
+        let req =
+              withHeader hAccept "application/json" $
+                withHeader hHost "app.example.test" (setPath defaultRequest "/api")
+        res <- runSession (request req) (appWithRuntime portalBackends testServices)
+        simpleStatus res @?= status401
+        decode (simpleBody res)
+          @?= Just
+            ( object
+                [ "error" .= ("unauthenticated" :: Text)
+                , "login" .= ("https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2Fapi" :: Text)
+                ]
+            )
+    , testCase "built-in login route redirects to portal unless break-glass is requested" $ do
+        let baseReq = withHeader hHost "app.example.test" defaultRequest
+        redirected <- runSession (request (setPath baseReq "/_nagare/login")) (appWithRuntime portalBackends testServices)
+        simpleStatus redirected @?= status302
+        lookup hLocation (simpleHeaders redirected)
+          @?= Just "https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2F"
+        builtin <- runSession (request (setPath baseReq "/_nagare/login?builtin=1")) (appWithRuntime portalBackends testServices)
+        simpleStatus builtin @?= status200
+        assertBool "expected built-in form" ("<h1>Sign in</h1>" `BS.isInfixOf` LBS.toStrict (simpleBody builtin))
+    , testCase "portal 403 page is used for documents and falls back when unavailable" $ do
+        let request403 =
+              request $
+                withHeader hAccept "text/html" $
+                  withHeader hHost "app.example.test" $
+                    withHeader "Cookie" "nagare_session=access" defaultRequest
+            denied = testServices {authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)}
+        branded <-
+          runSession
+            request403
+            (appWithRuntime portalBackends (denied {fetchPortalPage = \_ _ -> pure (Just (PortalPage "<p>portal 403</p>"))}))
+        simpleStatus branded @?= status403
+        simpleBody branded @?= "<p>portal 403</p>"
+        lookup "Cache-Control" (simpleHeaders branded) @?= Just "no-store"
+        fallback <- runSession request403 (appWithRuntime portalBackends denied)
+        simpleBody fallback @?= "Forbidden"
+    , testCase "portal 503 page is used for documents and falls back when unavailable" $ do
+        let request503 =
+              request $
+                withHeader hAccept "text/html" $
+                  withHeader hHost "app.example.test" $
+                    withHeader "Cookie" "nagare_session=access" defaultRequest
+            unavailable = testServices {authorizeUser = \_ _ -> pure (AuthorizationUnavailable "down")}
+        branded <-
+          runSession
+            request503
+            (appWithRuntime portalBackends (unavailable {fetchPortalPage = \_ _ -> pure (Just (PortalPage "<p>portal 503</p>"))}))
+        simpleStatus branded @?= status503
+        simpleBody branded @?= "<p>portal 503</p>"
+        fallback <- runSession request503 (appWithRuntime portalBackends unavailable)
+        simpleBody fallback @?= "authorization service unavailable\n"
+    , testCase "portal page fetcher accepts small HTML and sends error context" $
+        testWithApplication (pure portalHtmlPageApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          portal <- portalForPort port
+          pageRequest <- testPortalPageRequest ForbiddenPage
+          portalPageFetcher manager portal pageRequest >>= (@?= Just (PortalPage "<p>branded</p>"))
+    , testCase "portal page fetcher rejects non-HTML and oversized bodies" $ do
+        let fetchFrom application =
+              testWithApplication (pure application) $ \port -> do
+                manager <- HC.newManager HC.defaultManagerSettings
+                portal <- portalForPort port
+                pageRequest <- testPortalPageRequest ForbiddenPage
+                portalPageFetcher manager portal pageRequest
+        fetchFrom portalTextPageApp >>= (@?= Nothing)
+        fetchFrom portalLargePageApp >>= (@?= Nothing)
+    , testCase "portal page fetcher times out" $
+        testWithApplication (pure portalSlowPageApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          portal <- portalForPort port
+          pageRequest <- testPortalPageRequest UnavailablePage
+          portalPageFetcher manager portal pageRequest >>= (@?= Nothing)
     ]
 
 appTests :: TestTree
@@ -1655,6 +1738,38 @@ portalEstablishUpstreamApp _req respond =
       status204
       [("Nagare-Session-Establish", handoffHeader "portal-access" "portal-refresh" Nothing)]
       "ignored"
+
+testPortalPageRequest :: PortalPageKind -> IO PortalPageRequest
+testPortalPageRequest kind = do
+  host <- assertRight (mkPublicHost "app.example.test")
+  path <- maybe (assertFailure "expected safe path") pure (mkSafePath "/private?tab=1")
+  pure
+    PortalPageRequest
+      { pageKind = kind
+      , pageTarget = ReturnTarget host path
+      , pageUser = Just AuthenticatedUser {userSubject = "user:alice"}
+      }
+
+portalHtmlPageApp :: Wai.Application
+portalHtmlPageApp req respond = do
+  Wai.pathInfo req @?= ["errors", "403"]
+  lookup "X-Nagare-Error-Host" (requestHeaders req) @?= Just "app.example.test"
+  lookup "X-Nagare-Error-Path" (requestHeaders req) @?= Just "/private?tab=1"
+  lookup "X-Nagare-Return-To" (requestHeaders req) @?= Just "https://app.example.test/private?tab=1"
+  respond (Wai.responseLBS status200 [("Content-Type", "text/html; charset=utf-8")] "<p>branded</p>")
+
+portalTextPageApp :: Wai.Application
+portalTextPageApp _req respond =
+  respond (Wai.responseLBS status200 [("Content-Type", "text/plain")] "not html")
+
+portalLargePageApp :: Wai.Application
+portalLargePageApp _req respond =
+  respond (Wai.responseLBS status200 [("Content-Type", "text/html")] (LBS.replicate (300 * 1024) 120))
+
+portalSlowPageApp :: Wai.Application
+portalSlowPageApp _req respond = do
+  threadDelay 3000000
+  respond (Wai.responseLBS status200 [("Content-Type", "text/html")] "too late")
 
 successfulHandoffServices :: Maybe Text -> AccessServices
 successfulHandoffServices returnTo =
