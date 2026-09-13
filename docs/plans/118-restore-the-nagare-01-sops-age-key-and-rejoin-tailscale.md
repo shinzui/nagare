@@ -93,8 +93,8 @@ as `100.80.88.126`. Every future switch loses the `tailscaled-autoconnect` failu
 
 - `resolvconf.service` still fails, and Tailscale reports a DNS health warning because
   `/etc/resolv.conf` cannot be modified on this image. That is pre-existing and needs a follow-up.
-- The node is untagged, so its Tailscale node key expires on the tailnet's default schedule. Disable
-  key expiry for `nagare-01` in the admin console, or it will drop off again.
+- Node key expiry for `nagare-01` was disabled by the operator in the Tailscale admin console
+  (2026-09-13), so the untagged node will not drop off the tailnet on the default schedule.
 
 Lessons:
 
