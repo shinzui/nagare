@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "same",
+      "urn": "urn:pulumi:prod::nagare::pulumi:pulumi:Stack::nagare-prod"
+    },
+    {
+      "op": "replace",
+      "urn": "urn:pulumi:prod::nagare::nagare:components:NagarePerimeter$nagare:components:NagareInstance$gcp:compute/instance:Instance::nagare-01",
+      "replaceReasons": ["bootDisk"]
+    }
+  ],
+  "changeSummary": {"same": 1, "replace": 1}
+}

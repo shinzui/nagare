@@ -58,6 +58,7 @@ user-documentation-validate:
 infra-up:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     nagarectl context guard
+    nagarectl infra guard
     cd infra/pulumi && pulumi up
 
 # EP-2: preview the Pulumi changes without applying them.

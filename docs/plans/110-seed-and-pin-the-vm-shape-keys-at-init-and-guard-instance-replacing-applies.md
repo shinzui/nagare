@@ -101,12 +101,12 @@ This section must always reflect the actual current state of the work.
   - [x] Use it from `infra/pulumi/index.ts`.
   - [x] Add `infra/pulumi/test/vmShape.test.ts` and the `infra-vm-shape` flake check.
   - [x] Add the `vm-shape-defaults-agree` flake check so the Haskell and TypeScript fallbacks cannot drift.
-- [ ] M3: An instance-replacing plan is refused before it can be applied.
-  - [ ] Add the pure classifier `cli/nagarectl/src/Nagare/Infra/Plan.hs`.
-  - [ ] Add the three preview fixtures under `cli/nagarectl/test/fixtures/pulumi-preview/`.
-  - [ ] Add the `Nagare.Infra.Plan` test group to `cli/nagarectl/test/Spec.hs`.
-  - [ ] Add the `nagarectl infra guard` command in `cli/nagarectl/app/Main.hs`.
-  - [ ] Wire the guard into the `infra-up` recipe in `justfile` and assert it in the clone-free check.
+- [x] (2026-09-13 04:36Z) M3: An instance-replacing plan is refused before it can be applied.
+  - [x] Add the pure classifier `cli/nagarectl/src/Nagare/Infra/Plan.hs`.
+  - [x] Add the three preview fixtures under `cli/nagarectl/test/fixtures/pulumi-preview/`.
+  - [x] Add the `Nagare.Infra.Plan` test group to `cli/nagarectl/test/Spec.hs`.
+  - [x] Add the `nagarectl infra guard` command in `cli/nagarectl/app/Main.hs`.
+  - [x] Wire the guard into the `infra-up` recipe in `justfile` and assert it in the clone-free check.
 - [ ] M4: Documentation tells the operator which changes are safe and which rebuild the box.
   - [ ] `docs/user/provisioning-with-pulumi.md`: the in-place-versus-replacement matrix and the guard.
   - [ ] `docs/user/resizing-the-vm.md`: point at the context key, drop the stale `tan-nb-exp` instruction.

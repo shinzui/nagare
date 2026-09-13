@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "op": "create",
+      "urn": "urn:pulumi:new::nagare::gcp:compute/network:Network::nagare-network"
+    },
+    {
+      "op": "create",
+      "urn": "urn:pulumi:new::nagare::gcp:compute/disk:Disk::nagare-data"
+    },
+    {
+      "op": "create",
+      "urn": "urn:pulumi:new::nagare::nagare:components:NagarePerimeter$nagare:components:NagareInstance$gcp:compute/instance:Instance::nagare-01"
+    }
+  ],
+  "changeSummary": {"create": 3}
+}

@@ -153,6 +153,13 @@ import Nagare.Init
   , renderTargetEnv
   , seedKeys
   )
+import Nagare.Infra.Plan
+  ( PlanVerdict (..)
+  , classifyPlan
+  , gceInstanceType
+  , parsePreview
+  , renderVerdict
+  )
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
   , ImagePlan (..)
@@ -363,6 +370,7 @@ main = do
         , modeResolutionTests
         , dockerAuthPlanTests
         , initTests
+        , infraPlanTests
         , pulumiBackendBootstrapTests
         , contextGuardTests
         , accessGrantsTests
@@ -634,6 +642,42 @@ initTests =
         assertBool "infra-up" (T.isInfixOf "just infra-up" nextStepsText)
         assertBool "host-image" (T.isInfixOf "just host-image" nextStepsText)
     ]
+
+infraPlanTests :: TestTree
+infraPlanTests =
+  testGroup
+    "Nagare.Infra.Plan"
+    [ testCase "an instance replacement is refused" $ do
+        steps <- parseFixture "replace-instance.json"
+        case classifyPlan gceInstanceType steps of
+          PlanReplacesInstance replacing -> length replacing @?= 1
+          PlanAllowed -> assertFailure "replacement fixture was allowed"
+    , testCase "an in-place machine-type update is allowed" $ do
+        steps <- parseFixture "update-machine-type.json"
+        classifyPlan gceInstanceType steps @?= PlanAllowed
+    , testCase "a fresh instance creation is allowed" $ do
+        steps <- parseFixture "create-fresh.json"
+        classifyPlan gceInstanceType steps @?= PlanAllowed
+    , testCase "malformed JSON is refused" $
+        assertBool "malformed preview rejected" (isLeft (parsePreview "{"))
+    , testCase "an unknown operation is refused" $
+        assertBool
+          "unknown operation rejected"
+          (isLeft (parsePreview "{\"steps\":[{\"op\":\"mystery\",\"urn\":\"urn:test\"}]}"))
+    , testCase "the refusal explains the full boot-disk loss" $ do
+        steps <- parseFixture "replace-instance.json"
+        let rendered = renderVerdict "nagare-01" (classifyPlan gceInstanceType steps)
+        assertBool "k3s datastore" (T.isInfixOf "/var/lib/rancher" rendered)
+        assertBool "ACME key" (T.isInfixOf "ACME account key" rendered)
+        assertBool "instance" (T.isInfixOf "nagare-01" rendered)
+        assertBool "reason" (T.isInfixOf "bootDisk" rendered)
+    , testCase "a preview with no steps is allowed" $
+        (parsePreview "{}" >>= Right . classifyPlan gceInstanceType) @?= Right PlanAllowed
+    ]
+  where
+    parseFixture name = do
+      bytes <- BS.readFile ("test/fixtures/pulumi-preview" </> name)
+      either (assertFailure . T.unpack) pure (parsePreview bytes)
 
 -- ---------------------------------------------------------------------------
 -- EP-93: the GCS Pulumi state-bucket bootstrap. Pure bucket derivation + the
