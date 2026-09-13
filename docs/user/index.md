@@ -8,7 +8,7 @@ okf_version: "0.2"
 
 # Guide
 
-- [Accessing the host](accessing-the-host.md) - Reach a Nagare host through Tailscale SSH or an IAP break-glass tunnel and obtain cluster access.
+- [Accessing the host](accessing-the-host.md) - Reach a Nagare host through Tailscale SSH, an IAP tunnel, or the serial console boot menu, and obtain cluster access.
 - [CDN (edge caching)](cdn.md) - Configure and operate edge caching for Nagare applications through the supported CDN workflow.
 - [Target contexts](contexts.md) - Create, select, inspect, migrate, and troubleshoot named Nagare target contexts.
 - [Deploying apps](deploying-apps.md) - Define, deploy, verify, and operate applications on Nagare with the typed configuration model and nagarectl.
@@ -55,3 +55,4 @@ okf_version: "0.2"
 - [Getting started](getting-started.md) - Install Nagare, choose a target, and complete an initial working deployment.
 - [Local development](local-development.md) - Create a local Nagare platform, deploy a sample workload, and exercise the development and smoke-test workflow.
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) - Onboard a new Google Cloud project and complete the first Nagare platform setup from prerequisites through verification.
+
