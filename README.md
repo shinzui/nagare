@@ -200,7 +200,10 @@ DomainMapping.
 
 ```text
 nagare/
-  flake.nix
+  flake.nix             # flake-parts entry point and shared input pins
+  flake.lock
+  nix/                  # package, app, shell, Hydra, and source modules
+    checks/             # checks grouped by domain, with extracted scripts
   justfile
   infra/pulumi/        # GCP resources (VM, IP, DNS, disks, IAM, backups)
   nixos/hosts/         # NixOS host config for nagare-01

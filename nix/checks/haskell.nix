@@ -35,18 +35,7 @@
   examples-compile = pkgs.runCommand "examples-compile"
     { nativeBuildInputs = [ nagarePackages.typedConfigRuntime ]; src = src; }
     ''
-      cd "$src"
-      fail=0
-      for cfg in cluster/examples/*/nagare/Config.hs; do
-        dir="$(dirname "$cfg")"
-        echo "== compiling $cfg =="
-        if ! runghc -XGHC2024 -i"$dir" "$cfg" >/dev/null; then
-          echo "FAILED: $cfg" >&2
-          fail=1
-        fi
-      done
-      [ "$fail" -eq 0 ] || exit 1
-      touch "$out"
+      bash ${./scripts/examples-compile.sh}
     '';
 
   # Prove the installed wrapper loads a typed config from a directory with
@@ -54,32 +43,6 @@
   nagarectl-external-config = pkgs.runCommand "nagarectl-external-config"
     { nativeBuildInputs = [ nagarePackages.nagarectl ]; src = src; }
     ''
-      mkdir -p isolated/nagare
-      cp "$src/cluster/examples/hello-knative-service/nagare/Config.hs" isolated/nagare/Config.hs
-      cd isolated
-      unset GHC_ENVIRONMENT NAGARE_GHC_ENVIRONMENT
-      nagarectl deploy --dry-run --file "$PWD/nagare/Config.hs" > output
-      grep -q "kind: Service" output
-      grep -q "name: hello" output
-
-      cat > nagare/Invalid.hs <<'INVALID_CONFIG'
-      module Main where
-
-      import Nagare.Dsl.Config (emitDeployment)
-
-      main :: IO ()
-      main = emitDeployment missingDeployment
-      INVALID_CONFIG
-      if nagarectl deploy --dry-run --file "$PWD/nagare/Invalid.hs" \
-        > invalid-output 2> invalid-error; then
-        echo "invalid typed config unexpectedly succeeded" >&2
-        exit 1
-      fi
-      grep -q "nagare: compile error" invalid-error
-      if grep -Eqi 'docker|kubectl|knative' invalid-output invalid-error; then
-        echo "invalid typed config reached an external deployment phase" >&2
-        exit 1
-      fi
-      touch "$out"
+      bash ${./scripts/nagarectl-external-config.sh}
     '';
 }
