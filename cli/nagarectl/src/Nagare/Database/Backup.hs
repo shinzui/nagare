@@ -187,7 +187,7 @@ dumpContainer i =
     [ "name" .= ("dump" :: Text)
     , "image" .= bjiClientImage i
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON ["set -e; " <> waitForHost (bjiSvcHost i) <> dumpShell (bjiEngine i) (bjiSvcHost i)]
+    , "args" .= toJSON ["set -e; " <> waitForServer (bjiEngine i) (bjiSvcHost i) <> dumpShell (bjiEngine i) (bjiSvcHost i)]
     , "env" .= toJSON (dumpEnv (bjiEngine i) (bjiSecretName i))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -241,16 +241,25 @@ dumpEnv ClickHouse secret =
   , secretEnv "CLICKHOUSE_PASSWORD" secret "CLICKHOUSE_PASSWORD"
   ]
 
--- | Wait up to two minutes for the database Service name to resolve. A CronJob
--- that missed its schedule while the VM was stopped runs seconds after boot,
--- before CoreDNS answers, and @pg_dump@ would fail on the lookup.
-waitForHost :: Text -> Text
-waitForHost svc =
-  "i=0; until getent hosts "
+-- | Wait up to five minutes for the database to accept connections. A CronJob
+-- that missed its schedule while the VM was stopped runs right after boot: first
+-- CoreDNS does not yet resolve the Service, then the server refuses connections
+-- while it starts (the pod reports Ready before Postgres listens). Each probe
+-- uses the engine's own client, so it covers both.
+waitForServer :: Engine -> Text -> Text
+waitForServer eng svc =
+  "i=0; until "
+    <> readyProbe eng svc
+    <> " >/dev/null 2>&1; do i=$((i+1)); if [ \"$i\" -ge 150 ]; then echo \""
     <> svc
-    <> " >/dev/null 2>&1; do i=$((i+1)); if [ \"$i\" -ge 60 ]; then echo \""
-    <> svc
-    <> " did not resolve\" >&2; exit 1; fi; sleep 2; done; "
+    <> " is not accepting connections\" >&2; exit 1; fi; sleep 2; done; "
+
+-- | A command that succeeds once the server accepts authenticated queries.
+readyProbe :: Engine -> Text -> Text
+readyProbe Postgres svc = "pg_isready -q -h " <> svc
+readyProbe Redis svc = "redis-cli -h " <> svc <> " -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"
+readyProbe ClickHouse svc =
+  "clickhouse-client -h " <> svc <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""
 
 -- | The per-engine dump command, writing @\/dump\/backup.\<rawext\>@.
 dumpShell :: Engine -> Text -> Text
