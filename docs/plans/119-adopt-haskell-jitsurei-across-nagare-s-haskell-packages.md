@@ -60,8 +60,9 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 - [x] (2026-09-13T16:04:38Z) Milestone 5: migrated `nagare-access`, its executable,
       and its test suite; every component compiles with `NoFieldSelectors`, and all 128 access
       tests pass with the HTTP, cookie, header, redirect, proxy, Shomei, and En behavior intact.
-- [ ] Milestone 6: format and enforce the conventions, run whole-repository validation, and
-      complete ADR distillation.
+- [x] (2026-09-13T16:35:28Z) Milestone 6: formatted all maintained packages, added declarative
+      ast-grep and Cabal policy enforcement, completed ADR and contributor guidance, and passed
+      the root `nix flake check --print-build-logs --max-jobs 1` validation gate.
 
 
 ## Surprises & Discoveries
@@ -166,7 +167,26 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Nagare's three maintained Haskell packages now follow the repository's adopted
+`haskell-jitsurei` contract. Project-owned `data` records use semantic field names and explicit
+strictness bangs, while representation-erased `newtype` fields remain the sole compiler-required
+exception. Record reads and updates use generic-lens labels with explicit
+`Data.Generics.Labels ()` imports, derivations state their strategies, and package-qualified imports
+are confined to the two package Prelude modules. Existing serialized keys, Kubernetes goldens,
+help output, CLI behavior, and access-service protocol behavior were preserved.
+
+Validation completed with 387 DSL tests, 438 `nagarectl` tests, and 128 access tests passing under
+GHC 9.12.3. Direct `NoFieldSelectors` audits compiled every maintained component. The final root
+`nix flake check --print-build-logs --max-jobs 1` passed all 16 checks compatible with the native
+`aarch64-darwin` system, including the new hermetic `haskell-style` check, shipped-example
+compilation, `nagarectl-build-test`, and the corrected VM-shape consistency assertion.
+
+The most valuable enforcement choice was replacing ad hoc Haskell text inspection with ast-grep's
+syntax-aware rules. A focused rule test proves that lazy `data` fields fail while unbanged
+`newtype` fields pass, preventing the strictness rule from regressing or being over-applied. The
+single final Nix validation also justified its placement: it found one stale cross-language source
+assertion that the faster direct GHC loop could not observe, after the Haskell migration itself was
+already stable.
 
 
 ## Context and Orientation
@@ -468,3 +488,8 @@ and 5.3.6, both supporting GHC 9.12. The structural checker uses ast-grep 0.44.1
 its declarative rules live under `rules/ast-grep/` and are registered by `sgconfig.yml`. No new
 service or network API is introduced. The only new repository command is
 `scripts/check-haskell-style.sh`, exposed as `just haskell-style-check` and a root flake check.
+
+
+Revision note (2026-09-13): Completed all six milestones, recorded the strict-`data`/unbanged-
+`newtype` boundary and ast-grep enforcement decision, and added the final direct GHC, package-test,
+and native Nix validation evidence.
