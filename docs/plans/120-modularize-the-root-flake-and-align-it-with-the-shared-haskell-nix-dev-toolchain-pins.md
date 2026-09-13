@@ -84,12 +84,18 @@ scope and must not change.
       `gate: aarch64-darwin pre-existing outputs identical` and
       `gate: x86_64-linux pre-existing outputs identical`; the raw diff contained only the five
       documented empty standard output names.
-- [ ] Milestone 4: record the current `nix-haskell-flake` pin in the Decision Log.
-- [ ] Milestone 4: follow `haskell-nix-dev` for nixpkgs and flake-parts; add the Cachix `nixConfig`.
-- [ ] Milestone 4: switch every `ghc912` reference to `ghc9124`.
-- [ ] Milestone 4: disable Haddock for nagare's own Haskell packages (`cradle`, `nagare-dsl`,
-      `nagarectl`) and confirm their derivations no longer have a `doc` output.
-- [ ] Milestone 4: resolve the Pulumi override (drop it or refresh its hashes).
+- [x] (2026-09-13T17:26:19Z) Milestone 4: record the current `nix-haskell-flake` v0.14.0 pin and
+      its nixpkgs and flake-parts revisions in the Decision Log, verified against the registered
+      sources and upstream `master` refs.
+- [x] (2026-09-13T17:26:19Z) Milestone 4: follow `haskell-nix-dev` for nixpkgs and flake-parts, add
+      the Cachix `nixConfig`, and keep the resulting lock to one nixpkgs node.
+- [x] (2026-09-13T17:26:19Z) Milestone 4: switch every root-flake `ghc912` reference to `ghc9124`;
+      direct evaluation reports GHC 9.12.4.
+- [x] (2026-09-13T17:26:19Z) Milestone 4: disable Haddock for Nagare's own Haskell packages
+      (`cradle`, `nagare-dsl`, `nagarectl`); both checked derivations expose only `out`, and the
+      wrapper's underlying `nagarectl` package exposes no `doc` output.
+- [x] (2026-09-13T17:26:19Z) Milestone 4: drop the Pulumi override and its release-specific hashes;
+      the shared nixpkgs supplies Pulumi 3.255.0.
 - [ ] Milestone 4: `nix flake check` passes on both systems; lock is immovable; `nixos/flake.lock`
       unchanged.
 - [ ] Milestone 5 (optional): move large inline check scripts into `nix/checks/scripts/*.sh` and
@@ -127,6 +133,12 @@ scope and must not change.
   Evidence: direct `nix eval --json ... --apply builtins.attrNames` probes returned empty attribute
   sets for all five; `legacyPackages` has one empty set under each supported system. The existing
   packages, apps, checks, development shells, Hydra jobs, and release metadata remain populated.
+
+- Observation: `haskell-nix-dev` revision `206ecd25` carries `treefmt-nix`, but does not point that
+  input's nixpkgs edge at its own nixpkgs despite the source comment saying all carried inputs do so.
+  Evidence: the first generated lock had `nixpkgs` at `d5dfd8e` and `nixpkgs_2` at `4533d92`, matching
+  the current `nix-haskell-flake` template lock. Overriding
+  `haskell-nix-dev/treefmt-nix/nixpkgs` to follow `haskell-nix-dev/nixpkgs` removes `nixpkgs_2`.
 
 
 ## Decision Log
@@ -181,6 +193,28 @@ scope and must not change.
   Rationale: They are empty module-schema defaults rather than new build or release artifacts. The
   plan explicitly permits empty flake-parts outputs, while still requiring every pre-existing
   derivation and value to compare exactly.
+  Date: 2026-09-13
+
+- Decision: Follow the current `nix-haskell-flake` v0.14.0 template's `haskell-nix-dev` revision
+  `206ecd25bcb4a07581210bdae3e6f43c8fd179d8`, which pins nixpkgs
+  `d5dfd8e6716dde34398bc14bc87c10dece9c8c68` and flake-parts
+  `31729ca8cbdb4fa927b34e5f4353e6a83f39e993`.
+  Rationale: those are the current module-owned toolchain pins. The local registered sources and
+  the authoritative upstream `master` refs both resolve to the same `haskell-nix-dev` and Seihou
+  commits; neither upstream repository currently publishes Git tags.
+  Date: 2026-09-13
+
+- Decision: Override the carried `treefmt-nix` input's nixpkgs edge to follow
+  `haskell-nix-dev/nixpkgs`.
+  Rationale: the input is locked even though Nagare does not consume treefmt-nix. Without this
+  override the shared flake introduces an unrelated second nixpkgs revision and violates the
+  single-nixpkgs acceptance invariant. The override changes no Nagare output.
+  Date: 2026-09-13
+
+- Decision: Use nixpkgs' Pulumi 3.255.0 and matching `pulumi-nodejs` package directly, deleting the
+  local 3.239.0 source and vendor-hash override.
+  Rationale: 3.255.0 is newer than the minimum accepted by existing state, so carrying a bespoke
+  source build and three release-specific hashes adds risk without benefit.
   Date: 2026-09-13
 
 - Decision: In Milestone 5, use `haskell-nix-dev`'s `lib.<system>.mkDevShell` rather than reaching

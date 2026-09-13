@@ -4,7 +4,7 @@
   flake.hydraJobs = lib.genAttrs config.systems (system:
     withSystem system ({ pkgs, nagareSource, ... }:
       let
-        ghc = pkgs.haskell.compiler.ghc912;
+        ghc = pkgs.haskell.compiler.ghc9124;
         haskellTooling = [ ghc pkgs.cabal-install pkgs.zlib pkgs.postgresql pkgs.pkg-config pkgs.git pkgs.cacert ];
       in
       {
