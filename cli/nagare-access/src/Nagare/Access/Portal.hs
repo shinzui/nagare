@@ -20,6 +20,9 @@ module Nagare.Access.Portal
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Data.Aeson (FromJSON (parseJSON), eitherDecodeStrict, withObject, (.:), (.:?))
 import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertFromBase)
 import Data.ByteString (ByteString)
@@ -34,23 +37,23 @@ import Network.HTTP.Types.URI (urlEncode)
 import Network.Wai (Response, responseLBS)
 
 newtype AccessToken = AccessToken Text
-  deriving stock (Eq)
+  deriving stock (Generic, Eq)
 
 instance Show AccessToken where
   show _ = "AccessToken <redacted>"
 
 newtype RefreshToken = RefreshToken Text
-  deriving stock (Eq)
+  deriving stock (Generic, Eq)
 
 instance Show RefreshToken where
   show _ = "RefreshToken <redacted>"
 
 data SessionHandoff = SessionHandoff
-  { handoffAccessToken :: !AccessToken
-  , handoffRefreshToken :: !RefreshToken
-  , handoffReturnTo :: !(Maybe Text)
+  { accessToken :: !AccessToken
+  , refreshToken :: !RefreshToken
+  , returnTo :: !(Maybe Text)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance FromJSON SessionHandoff where
   parseJSON =
@@ -60,7 +63,7 @@ instance FromJSON SessionHandoff where
       returnTo <- obj .:? "returnTo"
       access <- nonEmptyToken "accessToken" AccessToken rawAccess
       refresh <- nonEmptyToken "refreshToken" RefreshToken rawRefresh
-      pure SessionHandoff {handoffAccessToken = access, handoffRefreshToken = refresh, handoffReturnTo = returnTo}
+      pure SessionHandoff {accessToken = access, refreshToken = refresh, returnTo = returnTo}
 
 decodeSessionHandoff :: ByteString -> Either Text SessionHandoff
 decodeSessionHandoff encoded = do
@@ -68,14 +71,14 @@ decodeSessionHandoff encoded = do
   mapLeft Text.pack (eitherDecodeStrict decoded)
 
 data CapturedResponse = CapturedResponse
-  { capturedStatus :: !Status
-  , capturedHeaders :: ![Header]
-  , capturedBody :: !LBS.ByteString
+  { status :: !Status
+  , headers :: ![Header]
+  , body :: !LBS.ByteString
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 newtype SafePath = SafePath Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 safePathText :: SafePath -> Text
 safePathText (SafePath path) = path
@@ -84,14 +87,14 @@ mkSafePath :: Text -> Maybe SafePath
 mkSafePath = fmap SafePath . safeReturnDestination
 
 data ReturnTarget = ReturnTarget
-  { targetHost :: !PublicHost
-  , targetPath :: !SafePath
+  { host :: !PublicHost
+  , path :: !SafePath
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 renderReturnTarget :: ReturnTarget -> Text
 renderReturnTarget target =
-  "https://" <> publicHostText (targetHost target) <> safePathText (targetPath target)
+  "https://" <> publicHostText (target ^. #host) <> safePathText (target ^. #path)
 
 parseReturnTarget :: BackendMap -> Text -> Maybe ReturnTarget
 parseReturnTarget backends candidate = do
@@ -101,7 +104,7 @@ parseReturnTarget backends candidate = do
   host <- either (const Nothing) Just (mkPublicHost authority)
   if isRoutedHost host backends then Just () else Nothing
   path <- mkSafePath (normalizeRemainder remainder)
-  pure ReturnTarget {targetHost = host, targetPath = path}
+  pure ReturnTarget {host = host, path = path}
   where
     isPathStart c = c == '/' || c == '?' || c == '#'
     normalizeRemainder text
@@ -112,16 +115,16 @@ parseReturnTarget backends candidate = do
 portalHome :: Portal -> ReturnTarget
 portalHome portal =
   ReturnTarget
-    { targetHost = portalHost portal
-    , targetPath = SafePath "/"
+    { host = portal ^. #host
+    , path = SafePath "/"
     }
 
 data LoginNotice = SessionFailed | LoggedOut
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 portalLoginUrl :: Portal -> Maybe LoginNotice -> Maybe ReturnTarget -> Text
 portalLoginUrl portal notice target =
-  "https://" <> publicHostText (portalHost portal) <> "/login" <> renderQuery parameters
+  "https://" <> publicHostText (portal ^. #host) <> "/login" <> renderQuery parameters
   where
     parameters =
       noticeParameter notice
@@ -136,10 +139,10 @@ portalLoginUrl portal notice target =
     encode = TE.decodeUtf8 . urlEncode True . TE.encodeUtf8
 
 data PortalPageKind = ForbiddenPage | UnavailablePage
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 newtype PortalPage = PortalPage LBS.ByteString
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 portalPageResponse :: Status -> PortalPage -> Response
 portalPageResponse status (PortalPage body) =

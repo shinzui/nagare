@@ -9,6 +9,9 @@ module Nagare.Access.Jwks
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Control.Exception (try)
 import Crypto.JOSE.JWK (JWKSet)
 import Data.Aeson (eitherDecodeStrict)
@@ -27,6 +30,7 @@ data JwksCache = JwksCache
   , fetchJwks :: !(IO (Either Text JWKSet))
   , cacheState :: !(IORef (Maybe (Int, JWKSet)))
   }
+  deriving stock (Generic)
 
 newJwksCache :: Int -> IO Int -> IO (Either Text JWKSet) -> IO JwksCache
 newJwksCache ttlSeconds nowSeconds fetchJwks = do
@@ -35,19 +39,19 @@ newJwksCache ttlSeconds nowSeconds fetchJwks = do
 
 getCachedJwks :: JwksCache -> IO (Either Text JWKSet)
 getCachedJwks cache
-  | ttlSeconds cache <= 0 =
-      fetchJwks cache
+  | cache ^. #ttlSeconds <= 0 =
+      cache ^. #fetchJwks
   | otherwise = do
-      now <- nowSeconds cache
-      cached <- readIORef (cacheState cache)
+      now <- cache ^. #nowSeconds
+      cached <- readIORef (cache ^. #cacheState)
       case cached of
         Just (expiresAt, jwks)
           | now < expiresAt -> pure (Right jwks)
         _ -> do
-          loaded <- fetchJwks cache
+          loaded <- cache ^. #fetchJwks
           case loaded of
             Right jwks ->
-              writeIORef (cacheState cache) (Just (now + ttlSeconds cache, jwks))
+              writeIORef (cache ^. #cacheState) (Just (now + cache ^. #ttlSeconds, jwks))
             Left _ ->
               pure ()
           pure loaded
@@ -71,7 +75,7 @@ fetchJwksFromShomei manager cfg = do
 
 jwksUrlFor :: AuthPlaneConfig -> Text
 jwksUrlFor cfg =
-  Text.dropWhileEnd (== '/') (shomeiUrl cfg) <> "/.well-known/jwks.json"
+  Text.dropWhileEnd (== '/') (cfg ^. #shomeiUrl) <> "/.well-known/jwks.json"
 
 decodeJwks :: ByteString -> Either Text JWKSet
 decodeJwks bytes =

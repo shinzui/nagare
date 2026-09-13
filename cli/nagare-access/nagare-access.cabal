@@ -75,6 +75,8 @@ executable nagare-access
   build-depends:
     base,
     bytestring,
+    generic-lens ^>=2.3,
+    lens ^>=5.3,
     nagare-access,
     text,
     time,
@@ -100,6 +102,8 @@ test-suite nagare-access-test
     http-client,
     http-types,
     jose,
+    generic-lens ^>=2.3,
+    lens ^>=5.3,
     nagare-access,
     network,
     ram,

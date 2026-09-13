@@ -1,5 +1,8 @@
 module Main (main) where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.Text qualified as Text
@@ -29,15 +32,15 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   runtime <- either (fail . Text.unpack) pure . parseRuntimeConfig =<< getEnvironment
-  backends <- loadBackends (backendMapPath runtime)
+  backends <- loadBackends (runtime ^. #backendMapPath)
   waiApp <- appForRuntime runtime backends
-  let port = listenPort (runtimeListen runtime)
+  let port = listenPort (runtime ^. #listen)
   putStrLn ("nagare-access listening on :" <> show port)
   run port waiApp
 
 appForRuntime :: RuntimeConfig -> BackendMap -> IO Application
 appForRuntime runtime backends =
-  case authPlaneConfig runtime of
+  case runtime ^. #authPlaneConfig of
     Nothing ->
       pure (appWithBackends backends)
     Just cfg ->
@@ -48,7 +51,7 @@ buildAccessServices runtime cfg = do
   -- An omitted key is allowed for an intentionally unauthenticated En, but the
   -- safe default remains fail-closed: an authenticated En rejects the call and
   -- nagare-access turns that failure into 503 rather than granting access.
-  when (enApiKey cfg == Nothing) $
+  when (cfg ^. #enApiKey == Nothing) $
     putStrLn "warning: NAGARE_ACCESS_EN_API_KEY is not set; authenticated En requests will fail closed with 503"
   manager <- newProxyManager
   jwksCache <-
@@ -58,7 +61,7 @@ buildAccessServices runtime cfg = do
       (fetchJwksFromShomei manager cfg)
   enEnv <- either (fail . Text.unpack) pure =<< enClientEnvFromAuthPlane manager cfg
   shomeiLoginEnv <- shomeiLoginEnvFromAuthPlane cfg
-  decisionCache <- newDecisionCache (decisionTtlSeconds runtime) currentSeconds
+  decisionCache <- newDecisionCache (runtime ^. #decisionTtlSeconds) currentSeconds
   pure
     AccessServices
       { verifyCredential = verifyShomeiCredentialCached jwksCache cfg
@@ -77,9 +80,9 @@ buildAccessServices runtime cfg = do
 
 cookieSettingsFromAuthPlane :: AuthPlaneConfig -> CookieSettings
 cookieSettingsFromAuthPlane cfg =
-  case cookieKey cfg of
-    Nothing -> defaultCookieSettings (cookieDomain cfg)
-    Just key -> signedCookieSettings (cookieDomain cfg) key
+  case cfg ^. #cookieKey of
+    Nothing -> defaultCookieSettings (cfg ^. #cookieDomain)
+    Just key -> signedCookieSettings (cfg ^. #cookieDomain) key
 
 loadBackends :: Maybe FilePath -> IO BackendMap
 loadBackends Nothing = pure emptyBackendMap

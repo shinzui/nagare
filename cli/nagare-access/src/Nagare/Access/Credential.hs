@@ -6,6 +6,8 @@ module Nagare.Access.Credential
   )
 where
 
+import Nagare.Access.Prelude
+
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
@@ -16,7 +18,7 @@ import Network.HTTP.Types.Header (Header, HeaderName)
 data Credential
   = SessionCookie Text
   | BearerToken Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 credentialToken :: Credential -> Text
 credentialToken (SessionCookie token) = token

@@ -18,6 +18,9 @@ module Nagare.Access.BackendMap
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Data.Aeson (FromJSON (parseJSON), Value (Object, String), eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -30,7 +33,7 @@ import Data.Text qualified as Text
 
 -- | A public host after lower-casing and removing a port and trailing dot.
 newtype PublicHost = PublicHost Text
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Generic, Eq, Ord, Show)
 
 publicHostText :: PublicHost -> Text
 publicHostText (PublicHost host) = host
@@ -38,22 +41,22 @@ publicHostText (PublicHost host) = host
 data BackendRole
   = ProtectedBackend
   | PortalBackend
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data BackendTarget = BackendTarget
   { upstreamUrl :: !Text
-  , backendRole :: !BackendRole
+  , role :: !BackendRole
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data Portal = Portal
-  { portalHost :: !PublicHost
-  , portalTarget :: !BackendTarget
+  { host :: !PublicHost
+  , target :: !BackendTarget
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 newtype BackendMap = BackendMap (Map PublicHost BackendTarget)
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance FromJSON BackendTarget where
   parseJSON (String upstream) =
@@ -89,7 +92,7 @@ backendMapFromTargets entries = do
   where
     parseEntry (host, target) = do
       publicHost <- mkPublicHost host
-      validated <- validateTarget (backendRole target) (upstreamUrl target)
+      validated <- validateTarget (target ^. #role) (target ^. #upstreamUrl)
       pure (publicHost, validated)
 
 decodeBackendMap :: ByteString -> Either Text BackendMap
@@ -121,8 +124,8 @@ lookupBackendWithHost rawHost backendMap = do
 
 findPortal :: BackendMap -> Maybe Portal
 findPortal (BackendMap entries) =
-  case [(host, target) | (host, target) <- Map.toList entries, backendRole target == PortalBackend] of
-    (host, target) : _ -> Just Portal {portalHost = host, portalTarget = target}
+  case [(host, target) | (host, target) <- Map.toList entries, target ^. #role == PortalBackend] of
+    (host, target) : _ -> Just Portal {host = host, target = target}
     [] -> Nothing
 
 isRoutedHost :: PublicHost -> BackendMap -> Bool
@@ -162,7 +165,7 @@ validateTarget role raw =
 
 rejectMultiplePortals :: [(PublicHost, BackendTarget)] -> Either Text ()
 rejectMultiplePortals entries =
-  case [publicHostText host | (host, target) <- entries, backendRole target == PortalBackend] of
+  case [publicHostText host | (host, target) <- entries, target ^. #role == PortalBackend] of
     _ : second : _ -> Left ("backend map contains more than one portal; offending host: " <> second)
     _ -> Right ()
 

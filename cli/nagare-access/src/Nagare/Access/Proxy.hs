@@ -12,6 +12,9 @@ module Nagare.Access.Proxy
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, catch, finally, try)
@@ -86,11 +89,11 @@ portalPageFetcher manager portal pageRequest = do
 
 fetchPortalPageUnsafe :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)
 fetchPortalPageUnsafe manager portal pageRequest = do
-  baseReq <- HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal)))
+  baseReq <- HC.parseRequest (Text.unpack ((portal ^. #target) ^. #upstreamUrl))
   let request =
         baseReq
           { HC.method = "GET"
-          , HC.path = appendPaths (HC.path baseReq) (portalErrorPath (pageKind pageRequest))
+          , HC.path = appendPaths (HC.path baseReq) (portalErrorPath (pageRequest ^. #kind))
           , HC.queryString = ""
           , HC.requestBody = HC.RequestBodyBS BS.empty
           , HC.requestHeaders = portalPageHeaders pageRequest
@@ -116,11 +119,11 @@ portalPageHeaders pageRequest =
   , ("X-Nagare-Error-Path", TE.encodeUtf8 path)
   , ("X-Nagare-Return-To", TE.encodeUtf8 (renderReturnTarget target))
   ]
-    <> maybe [] (\user -> [("X-Forwarded-User", TE.encodeUtf8 (userSubject user))]) (pageUser pageRequest)
+    <> maybe [] (\user -> [("X-Forwarded-User", TE.encodeUtf8 (user ^. #subject))]) (pageRequest ^. #user)
   where
-    target = pageTarget pageRequest
-    host = publicHostText (targetHost target)
-    path = safePathText (targetPath target)
+    target = pageRequest ^. #target
+    host = publicHostText (target ^. #host)
+    path = safePathText (target ^. #path)
 
 isHtmlResponse :: HC.Response body -> Bool
 isHtmlResponse response =
@@ -141,7 +144,7 @@ readBodyCapped limit reader = go 0 []
 
 buildProxyRequest :: AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO (Either Text HC.Request)
 buildProxyRequest user publicHost target waiReq = do
-  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl target)))
+  parsed <- try (HC.parseRequest (Text.unpack (target ^. #upstreamUrl)))
   pure $ case parsed of
     Left (err :: HC.HttpException) ->
       Left ("invalid upstream URL: " <> Text.pack (show err))
@@ -160,7 +163,7 @@ buildProxyRequest user publicHost target waiReq = do
 
 buildPortalRequest :: Portal -> PortalIdentity -> Wai.Request -> IO (Either Text HC.Request)
 buildPortalRequest portal identity waiReq = do
-  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal))))
+  parsed <- try (HC.parseRequest (Text.unpack ((portal ^. #target) ^. #upstreamUrl)))
   pure $ case parsed of
     Left (err :: HC.HttpException) ->
       Left ("invalid upstream URL: " <> Text.pack (show err))
@@ -178,7 +181,7 @@ buildPortalRequest portal identity waiReq = do
 
 buildWebSocketProxyRequest :: AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO (Either Text HC.Request)
 buildWebSocketProxyRequest user publicHost target waiReq = do
-  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl target)))
+  parsed <- try (HC.parseRequest (Text.unpack (target ^. #upstreamUrl)))
   pure $ case parsed of
     Left (err :: HC.HttpException) ->
       Left ("invalid upstream URL: " <> Text.pack (show err))
@@ -197,7 +200,7 @@ buildWebSocketProxyRequest user publicHost target waiReq = do
 
 buildPortalWebSocketRequest :: Portal -> PortalIdentity -> Wai.Request -> IO (Either Text HC.Request)
 buildPortalWebSocketRequest portal identity waiReq = do
-  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal))))
+  parsed <- try (HC.parseRequest (Text.unpack ((portal ^. #target) ^. #upstreamUrl)))
   pure $ case parsed of
     Left (err :: HC.HttpException) ->
       Left ("invalid upstream URL: " <> Text.pack (show err))
@@ -240,9 +243,9 @@ interceptPortalResponse response =
           pure
             ( PortalSessionClear
                 CapturedResponse
-                  { capturedStatus = HC.responseStatus response
-                  , capturedHeaders = filterResponseHeaders (HC.responseHeaders response)
-                  , capturedBody = LBS.fromStrict body
+                  { status = HC.responseStatus response
+                  , headers = filterResponseHeaders (HC.responseHeaders response)
+                  , body = LBS.fromStrict body
                   }
             )
         Nothing -> pure (PortalPassThrough (proxyResponseToWai response))
@@ -333,7 +336,7 @@ rawBadGateway msg =
 hardenRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenRequestHeaders publicHost user headers =
   ensureAcceptEncodingHeader (stripEnforcerCookies (filterRequestHeaders headers))
-    <> [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
+    <> [ ("X-Forwarded-User", TE.encodeUtf8 (user ^. #subject))
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
        ]
@@ -341,7 +344,7 @@ hardenRequestHeaders publicHost user headers =
 hardenWebSocketRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenWebSocketRequestHeaders publicHost user headers =
   ensureAcceptEncodingHeader (stripEnforcerCookies (filterWebSocketRequestHeaders headers))
-    <> [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
+    <> [ ("X-Forwarded-User", TE.encodeUtf8 (user ^. #subject))
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
        ]
@@ -350,7 +353,7 @@ portalRequestHeaders :: Portal -> PortalIdentity -> [Header] -> [Header]
 portalRequestHeaders portal identity headers =
   ensureAcceptEncodingHeader (stripEnforcerCookies (filter portalHeaderAllowed (filterRequestHeaders headers)))
     <> portalIdentityHeaders identity
-    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portalHost portal)))
+    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portal ^. #host)))
        , ("X-Forwarded-Proto", "https")
        ]
 
@@ -358,7 +361,7 @@ portalWebSocketRequestHeaders :: Portal -> PortalIdentity -> [Header] -> [Header
 portalWebSocketRequestHeaders portal identity headers =
   ensureAcceptEncodingHeader (stripEnforcerCookies (filter portalHeaderAllowed (filterWebSocketRequestHeaders headers)))
     <> portalIdentityHeaders identity
-    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portalHost portal)))
+    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portal ^. #host)))
        , ("X-Forwarded-Proto", "https")
        ]
 
@@ -369,7 +372,7 @@ portalHeaderAllowed (name, _) =
 portalIdentityHeaders :: PortalIdentity -> [Header]
 portalIdentityHeaders PortalAnonymous = []
 portalIdentityHeaders (PortalAuthenticated user (AccessToken token)) =
-  [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
+  [ ("X-Forwarded-User", TE.encodeUtf8 (user ^. #subject))
   , ("Authorization", "Bearer " <> TE.encodeUtf8 token)
   ]
 

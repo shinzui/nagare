@@ -57,7 +57,9 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 - [x] (2026-09-13T15:46:28Z) Milestone 4: migrated the `nagarectl` and `nagared`
       entry points; both compile with `NoFieldSelectors`, both help texts are byte-identical to
       their pre-migration captures, and all 438 `nagarectl` tests pass.
-- [ ] Milestone 5: migrate `nagare-access`, its executable, and its test suite.
+- [x] (2026-09-13T16:04:38Z) Milestone 5: migrated `nagare-access`, its executable,
+      and its test suite; every component compiles with `NoFieldSelectors`, and all 128 access
+      tests pass with the HTTP, cookie, header, redirect, proxy, Shomei, and En behavior intact.
 - [ ] Milestone 6: format and enforce the conventions, run whole-repository validation, and
       complete ADR distillation.
 

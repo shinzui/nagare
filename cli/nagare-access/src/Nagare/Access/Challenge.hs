@@ -8,6 +8,9 @@ module Nagare.Access.Challenge
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Data.ByteString.Char8 qualified as BC
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -18,13 +21,13 @@ import Network.HTTP.Types.URI (urlEncode)
 data ChallengeMode
   = RedirectDocument Text
   | JsonApi Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data RequestShape = RequestShape
-  { requestPath :: !Text
-  , requestHeaders :: ![Header]
+  { path :: !Text
+  , headers :: ![Header]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Accept only same-host absolute paths. This prevents the login form's @rd@
 -- field from becoming an open redirect.
@@ -58,7 +61,7 @@ classifyChallenge req
   | wantsJson req = JsonApi login
   | otherwise = RedirectDocument login
   where
-    login = loginPathFor (requestPath req)
+    login = loginPathFor (req ^. #path)
 
 wantsJson :: RequestShape -> Bool
 wantsJson req =
@@ -66,7 +69,7 @@ wantsJson req =
     || hasHeaderValue "Sec-Fetch-Mode" (`elem` ["cors", "same-origin"]) hs
     || hasHeaderValueBytes hAccept (BC.isInfixOf "application/json") hs
   where
-    hs = requestHeaders req
+    hs = req ^. #headers
 
 hasHeaderValue :: HeaderName -> (BC.ByteString -> Bool) -> [Header] -> Bool
 hasHeaderValue name p = hasHeaderValueBytes name (p . BC.strip)
