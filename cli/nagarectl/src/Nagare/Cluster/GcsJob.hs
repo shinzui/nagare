@@ -224,7 +224,7 @@ storeRmStdin (MinioBackend ref) =
   "while read k; do aws s3 rm \"$PREFIX$k\" --endpoint-url " <> mrEndpoint ref <> "; done"
 
 -- | The parts of a GCS data-movement Job that vary across renderers. The shared
--- scaffolding (@restartPolicy: Never@, @backoffLimit: 0@, the metadata
+-- scaffolding (@restartPolicy: Never@, the metadata
 -- @hostAliases@) is supplied by 'dataMovementJobSpec'; the caller supplies only
 -- the variable pieces.
 data DataMovementJob = DataMovementJob
@@ -241,6 +241,9 @@ data DataMovementJob = DataMovementJob
   -- ^ one or more containers
   , dmjVolumes :: ![Value]
   -- ^ pod volumes (an @emptyDir@ scratch for db jobs; a PVC for volume jobs)
+  , dmjBackoffLimit :: !Int
+  -- ^ pod retries before the Job fails: 0 where a rerun is unsafe (restores),
+  -- more where it is idempotent (db backups ride out a cold-boot DNS race)
   }
 
 -- | Assemble the full Job @.spec@ body from the per-Job variation. The field
@@ -254,7 +257,7 @@ data DataMovementJob = DataMovementJob
 dataMovementJobSpec :: DataMovementJob -> Value
 dataMovementJobSpec j =
   object
-    [ "backoffLimit" .= (0 :: Int)
+    [ "backoffLimit" .= dmjBackoffLimit j
     , "template"
         .= object
           ( maybe [] (\ls -> ["metadata" .= object ["labels" .= ls]]) (dmjTemplateLabels j)

@@ -22,6 +22,7 @@ module Nagare.Database.Backup
   , defaultBackupSchedule
 
     -- * Job / CronJob rendering (pure)
+  , BackupDest (..)
   , BackupJobInputs (..)
   , renderBackupJob
   , backupJobSpecValue
@@ -105,6 +106,17 @@ defaultBackupSchedule = "17 3 * * *"
 -- ---------------------------------------------------------------------------
 -- Job / CronJob rendering
 
+-- | Where the upload container writes the dump.
+data BackupDest
+  = -- | A fixed object URL: the on-demand Job names its timestamp up front.
+    BackupDestUrl !Text
+  | -- | @$PREFIX\<ts\>.\<ext\>@, stamped when the pod runs (the CronJob). Kubernetes
+    -- does not run a shell over @env@ values, so the stamp is taken in the upload
+    -- shell; the key matches 'dbBackupObjectPath' so restore-by-id and pruning
+    -- treat scheduled and on-demand backups alike.
+    BackupDestStamped
+  deriving stock (Generic, Eq, Show)
+
 data BackupJobInputs = BackupJobInputs
   { bjiNamespace :: !Text
   , bjiJobName :: !Text
@@ -114,8 +126,8 @@ data BackupJobInputs = BackupJobInputs
   , bjiSecretName :: !Text
   , bjiName :: !Text
   -- ^ the database name (for labels)
-  , bjiDestUrl :: !Text
-  -- ^ the @gs://@ destination (Job: a timestamped object; CronJob: a templated one)
+  , bjiDest :: !BackupDest
+  -- ^ the destination (Job: a fixed timestamped object; CronJob: stamped at run time)
   , bjiPrefix :: !Text
   -- ^ the @gs://@ listing prefix (for the self-prune step)
   , bjiKeep :: !Int
@@ -145,6 +157,7 @@ backupJobSpecValue i =
   dataMovementJobSpec
     DataMovementJob
       { dmjTemplateLabels = Just (labelsValue i)
+      , dmjBackoffLimit = 2
       , dmjHostAliases = storeHostAliases (bjiBackend i)
       , dmjInitContainers = [dumpContainer i]
       , dmjContainers = [uploadContainer i]
@@ -174,7 +187,7 @@ dumpContainer i =
     [ "name" .= ("dump" :: Text)
     , "image" .= bjiClientImage i
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [dumpShell (bjiEngine i) (bjiSvcHost i)]
+    , "args" .= toJSON ["set -e; " <> waitForHost (bjiSvcHost i) <> dumpShell (bjiEngine i) (bjiSvcHost i)]
     , "env" .= toJSON (dumpEnv (bjiEngine i) (bjiSecretName i))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -191,8 +204,8 @@ uploadContainer i =
     , "args" .= toJSON [uploadShell i]
     , "env"
         .= toJSON
-          ( [ plainEnv "DEST" (bjiDestUrl i)
-            , plainEnv "PREFIX" (bjiPrefix i)
+          ( [plainEnv "DEST" url | BackupDestUrl url <- [bjiDest i]]
+              ++ [ plainEnv "PREFIX" (bjiPrefix i)
             , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
             ]
               ++ storeEnv (bjiBackend i)
@@ -228,16 +241,27 @@ dumpEnv ClickHouse secret =
   , secretEnv "CLICKHOUSE_PASSWORD" secret "CLICKHOUSE_PASSWORD"
   ]
 
--- | The per-engine dump shell, writing @\/dump\/backup.\<rawext\>@.
+-- | Wait up to two minutes for the database Service name to resolve. A CronJob
+-- that missed its schedule while the VM was stopped runs seconds after boot,
+-- before CoreDNS answers, and @pg_dump@ would fail on the lookup.
+waitForHost :: Text -> Text
+waitForHost svc =
+  "i=0; until getent hosts "
+    <> svc
+    <> " >/dev/null 2>&1; do i=$((i+1)); if [ \"$i\" -ge 60 ]; then echo \""
+    <> svc
+    <> " did not resolve\" >&2; exit 1; fi; sleep 2; done; "
+
+-- | The per-engine dump command, writing @\/dump\/backup.\<rawext\>@.
 dumpShell :: Engine -> Text -> Text
 dumpShell Postgres svc =
-  "set -e; pg_dump --no-owner --no-privileges -h "
+  "pg_dump --no-owner --no-privileges -h "
     <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" > /dump/backup.sql"
 dumpShell Redis svc =
-  "set -e; redis-cli -h " <> svc <> " -a \"$REDIS_PASSWORD\" --rdb /dump/backup.rdb"
+  "redis-cli -h " <> svc <> " -a \"$REDIS_PASSWORD\" --rdb /dump/backup.rdb"
 dumpShell ClickHouse svc =
-  "set -e; CH=\"clickhouse-client -h "
+  "CH=\"clickhouse-client -h "
     <> svc
     <> " --user $CLICKHOUSE_USER --password $CLICKHOUSE_PASSWORD\"; "
     <> "$CH --query \"SHOW TABLES FROM default\" | while read t; do "
@@ -252,8 +276,12 @@ uploadShell i =
   where
     backend = bjiBackend i
     raw = backupRawExt (bjiEngine i)
+    stamp = case bjiDest i of
+      BackupDestUrl _ -> ""
+      BackupDestStamped -> "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (bjiEngine i) <> "\"; "
     base =
       "set -e; "
+        <> stamp
         <> storeShellPreamble backend
         <> "gzip -9 -c /dump/backup."
         <> raw
@@ -314,8 +342,7 @@ renderDbBackupCronJob ns name eng version backend keep =
             , bjiSvcHost = name
             , bjiSecretName = dbSecretName name
             , bjiName = name
-            , bjiDestUrl =
-                storeObjectUrl backend ("databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt eng)
+            , bjiDest = BackupDestStamped
             , bjiPrefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             , bjiKeep = keep
             , bjiSelfPrune = True
@@ -355,7 +382,7 @@ runDbBackup ns name backend keep dryRun = do
                 , bjiSvcHost = name
                 , bjiSecretName = secret
                 , bjiName = name
-                , bjiDestUrl = dest
+                , bjiDest = BackupDestUrl dest
                 , bjiPrefix = prefix
                 , bjiKeep = keep
                 , bjiSelfPrune = False
@@ -367,7 +394,7 @@ runDbBackup ns name backend keep dryRun = do
                 , bciBase =
                     jobInputs
                       { bjiJobName = "nagare-dbbackup-" <> name
-                      , bjiDestUrl = storeObjectUrl backend ("databases/" <> name <> "/scheduled-$(date -u +%Y%m%dT%H%M%SZ)." <> ext)
+                      , bjiDest = BackupDestStamped
                       , bjiSelfPrune = True
                       }
                 }

@@ -66,6 +66,7 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Database.Backup
   ( BackupCronInputs (..)
+  , BackupDest (..)
   , BackupJobInputs (..)
   , backupExt
   , backupRawExt
@@ -74,6 +75,7 @@ import Nagare.Database.Backup
   , defaultBackupSchedule
   , renderBackupCronJob
   , renderBackupJob
+  , renderDbBackupCronJob
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
@@ -3121,7 +3123,7 @@ backupJobInputsPg =
     , bjiSvcHost = "mydb"
     , bjiSecretName = "nagare-db-mydb"
     , bjiName = "mydb"
-    , bjiDestUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
+    , bjiDest = BackupDestUrl "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
     , bjiPrefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
     , bjiKeep = 7
     , bjiSelfPrune = False
@@ -3224,7 +3226,7 @@ storeBackendModeTests =
               assertBool "no metadata ip" (not ("169.254.169.254" `T.isInfixOf` y))
               assertBool "no metadata dns" (not ("metadata.google.internal" `T.isInfixOf` y))
       | (name, render) <-
-          [ ("db backup Job", \b -> renderBackupJob backupJobInputsPg {bjiBackend = b, bjiDestUrl = destFor b "databases/mydb/20260610T141503Z.sql.gz", bjiPrefix = destFor b "databases/mydb/"})
+          [ ("db backup Job", \b -> renderBackupJob backupJobInputsPg {bjiBackend = b, bjiDest = BackupDestUrl (destFor b "databases/mydb/20260610T141503Z.sql.gz"), bjiPrefix = destFor b "databases/mydb/"})
           , ("db restore Job", \b -> renderRestoreJob restoreJobInputsPg {rjiBackend = b, rjiSrcUrl = destFor b "databases/mydb/20260610T141503Z.sql.gz"})
           , ("volume snapshot Job", \b -> renderSnapshotJob snapshotJobInputs {sjiBackend = b, sjiDestUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
           , ("volume restore Job", \b -> renderStorageRestoreJob storageRestoreJobInputs {sriBackend = b, sriSrcUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
@@ -3302,6 +3304,21 @@ backupRestoreTests =
           assertBool "schedule" ("17 3 * * *" `T.isInfixOf` y)
           assertBool "no overlap" ("Forbid" `T.isInfixOf` y)
           assertBool "self-prune" ("pruning" `T.isInfixOf` y)
+      , testCase "renderDbBackupCronJob stamps the object key when the pod runs" $ do
+          let y = TE.decodeUtf8 (renderDbBackupCronJob "nagare-system" "en-db" Postgres "18" tnbGcsBackend 7)
+          -- Kubernetes never runs a shell over env values, so a $(date) in DEST
+          -- was uploaded verbatim and every run overwrote one object.
+          assertBool "stamp computed in the upload shell" ("DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ).sql.gz\"" `T.isInfixOf` y)
+          assertBool "no scheduled- key prefix" (not ("scheduled-" `T.isInfixOf` y))
+          assertBool "no DEST env var" (not ("name: DEST" `T.isInfixOf` y))
+          assertBool "listing prefix" ("gs://tan-nb-exp-nagare-backups/databases/en-db/" `T.isInfixOf` y)
+      , testCase "backup Jobs wait for the Service name and retry" $ do
+          let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
+          assertBool "waits for DNS before the dump" ("until getent hosts mydb" `T.isInfixOf` y)
+          assertBool "retries" ("backoffLimit: 2" `T.isInfixOf` y)
+          assertBool "on-demand keeps its fixed DEST" ("value: gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz" `T.isInfixOf` y)
+      , testCase "restore Jobs still never retry" $
+          assertBool "backoffLimit 0" ("backoffLimit: 0" `T.isInfixOf` TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg))
       ]
   , testGroup
       "restore"

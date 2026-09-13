@@ -93,6 +93,7 @@ renderStorageRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { dmjTemplateLabels = Nothing
+              , dmjBackoffLimit = 0
               , dmjHostAliases = storeHostAliases (sriBackend i)
               , dmjInitContainers = []
               , dmjContainers = [restoreContainer i]
