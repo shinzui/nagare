@@ -2,41 +2,43 @@
 
 let
   inherit (pkgs) lib;
+  hl = pkgs.haskell.lib;
 
-  haskellPackages = pkgs.haskell.packages.ghc912.override {
+  haskellPackages = pkgs.haskell.packages.ghc9124.override {
     overrides = hfinal: _hprev: {
       generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
       generic-lens-core = hfinal.callHackage "generic-lens-core" "2.3.0.0" { };
 
-      cradle = pkgs.haskell.lib.dontCheck (
+      cradle = hl.dontHaddock (hl.dontCheck (
         hfinal.callCabal2nix "cradle" cradleSrc { }
-      );
+      ));
 
-      nagare-dsl = pkgs.haskell.lib.dontCheck (
+      nagare-dsl = hl.dontHaddock (hl.dontCheck (
         hfinal.callCabal2nix "nagare-dsl" ../cli/nagare-dsl { }
-      );
+      ));
 
       nagarectl =
         let
           package = hfinal.callCabal2nix "nagarectl" ../cli/nagarectl { };
           revisionPackage =
             if sourceRevision == null then package
-            else pkgs.haskell.lib.overrideCabal package (_old: {
-              postPatch = ''
-                substituteInPlace src/Nagare/Version.hs \
-                  --replace-fail "revision = Nothing" \
-                  'revision = Just "${sourceRevision}"'
-              '';
-            });
+            else
+              hl.overrideCabal package (_old: {
+                postPatch = ''
+                  substituteInPlace src/Nagare/Version.hs \
+                    --replace-fail "revision = Nothing" \
+                    'revision = Just "${sourceRevision}"'
+                '';
+              });
         in
-        pkgs.haskell.lib.dontCheck revisionPackage;
+        hl.dontHaddock (hl.dontCheck revisionPackage);
     };
   };
 
   typedConfigRuntime = haskellPackages.ghcWithPackages (hp: [ hp.nagare-dsl ]);
 
-  checkedNagareDsl = pkgs.haskell.lib.doCheck (
-    pkgs.haskell.lib.overrideCabal haskellPackages.nagare-dsl (_old: {
+  checkedNagareDsl = hl.doCheck (
+    hl.overrideCabal haskellPackages.nagare-dsl (_old: {
       postPatch = ''
         substituteInPlace test/ApplicationSpec.hs test/WorkerSpec.hs test/Spec.hs \
           --replace-fail "../../cluster/examples" "${../cluster/examples}"
@@ -48,8 +50,8 @@ let
     })
   );
 
-  checkedNagarectl = pkgs.haskell.lib.doCheck (
-    pkgs.haskell.lib.overrideCabal haskellPackages.nagarectl (_old: {
+  checkedNagarectl = hl.doCheck (
+    hl.overrideCabal haskellPackages.nagarectl (_old: {
       preCheck = ''
         export GHC_ENVIRONMENT=-
         export PATH=${lib.makeBinPath [ typedConfigRuntime ]}:$PATH

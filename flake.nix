@@ -1,14 +1,20 @@
 {
   description = "nagare developer shell (project-pinned Pulumi + Haskell + cloud toolchain)";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  inputs.flake-parts = {
-    url = "github:hercules-ci/flake-parts/31729ca8cbdb4fa927b34e5f4353e6a83f39e993";
-    inputs.nixpkgs-lib.follows = "nixpkgs";
+  inputs.haskell-nix-dev = {
+    url = "github:shinzui/haskell-nix-dev/206ecd25bcb4a07581210bdae3e6f43c8fd179d8";
+    inputs.treefmt-nix.inputs.nixpkgs.follows = "haskell-nix-dev/nixpkgs";
   };
+  inputs.nixpkgs.follows = "haskell-nix-dev/nixpkgs";
+  inputs.flake-parts.follows = "haskell-nix-dev/flake-parts";
   inputs.cradle = {
     url = "github:garnix-io/cradle/711c441fa8f190a8964c56a3bae864cd5321c5c5";
     flake = false;
+  };
+
+  nixConfig = {
+    extra-substituters = [ "https://shinzui.cachix.org" ];
+    extra-trusted-public-keys = [ "shinzui.cachix.org-1:QEmAoJrA9WwLP0uxfDgktLi2BRrcvQQWdz8NzcMg4/E=" ];
   };
 
   outputs = inputs@{ self, flake-parts, ... }:
