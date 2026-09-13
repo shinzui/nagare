@@ -5,6 +5,19 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-13
+
+A safety release for cloud contexts; do not run `nagarectl platform upgrade` with 0.2.0.
+- **Stack config.** The Pulumi stack config now has a context-owned home that every workspace links
+  to, and payload workspaces install the Pulumi program's locked Node dependencies.
+- **Upgrade guards.** The upgrade's Pulumi phases run the project guard and the replacement guard,
+  and apply no longer skips its preview.
+- **Replacement guard.** The guard also protects the Cloud DNS zone and storage buckets.
+- **Contexts.** `context create --force` merges instead of resetting omitted fields.
+- **Status.** Host release identities are read correctly.
+
+See [the 0.2.1 release notes](docs/releases/v0.2.1.md).
+
 ## [0.2.0] - 2026-09-13
 
 This breaking pre-1.0 release confines every cloud-mutating path to the active context's project.
