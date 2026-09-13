@@ -96,11 +96,11 @@ This section must always reflect the actual current state of the work.
   - [x] Add the four flags and TTY prompts to `nagarectl init`, and the four flags to `nagarectl context create`.
   - [x] Export the four variables from `scripts/lib/target.sh` and document them in the two `*.env.example` files.
   - [x] Extend the hermetic `nagare-clone-free-platform` check in `flake.nix` to assert all four seeded keys.
-- [ ] M2: The Pulumi program reads the shape through one tested resolver.
-  - [ ] Extract `infra/pulumi/src/vmShape.ts` with `resolveVmShape` and `VM_SHAPE_FALLBACKS`.
-  - [ ] Use it from `infra/pulumi/index.ts`.
-  - [ ] Add `infra/pulumi/test/vmShape.test.ts` and the `infra-vm-shape` flake check.
-  - [ ] Add the `vm-shape-defaults-agree` flake check so the Haskell and TypeScript fallbacks cannot drift.
+- [x] (2026-09-13 04:32Z) M2: The Pulumi program reads the shape through one tested resolver.
+  - [x] Extract `infra/pulumi/src/vmShape.ts` with `resolveVmShape` and `VM_SHAPE_FALLBACKS`.
+  - [x] Use it from `infra/pulumi/index.ts`.
+  - [x] Add `infra/pulumi/test/vmShape.test.ts` and the `infra-vm-shape` flake check.
+  - [x] Add the `vm-shape-defaults-agree` flake check so the Haskell and TypeScript fallbacks cannot drift.
 - [ ] M3: An instance-replacing plan is refused before it can be applied.
   - [ ] Add the pure classifier `cli/nagarectl/src/Nagare/Infra/Plan.hs`.
   - [ ] Add the three preview fixtures under `cli/nagarectl/test/fixtures/pulumi-preview/`.
