@@ -17,10 +17,13 @@
 -- checkout and re-records the same release id (deduped), so no duplicate work.
 module Main (main) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Exception (SomeException, try)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -74,14 +77,15 @@ import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 -- Options / environment
 
 data Options = Options
-  { optPort :: !Int
-  , optSecretFile :: !(Maybe FilePath)
-  , optProductionBranch :: !Text
-  , optBaseDomain :: !Text
-  , optWorkspace :: !FilePath
-  , optGhcEnv :: !(Maybe FilePath)
-  , optConfigTimeout :: !Int
+  { port :: !Int
+  , secretFile :: !(Maybe FilePath)
+  , productionBranch :: !Text
+  , baseDomain :: !Text
+  , workspace :: !FilePath
+  , ghcEnv :: !(Maybe FilePath)
+  , configTimeout :: !Int
   }
+  deriving stock (Generic, Show)
 
 optionsParser :: Parser Options
 optionsParser =
@@ -96,7 +100,7 @@ optionsParser =
       positiveInt
       ( long "config-timeout"
           <> metavar "SECONDS"
-          <> value (seconds defaultConfigTimeout)
+          <> value (defaultConfigTimeout ^. #seconds)
           <> showDefault
           <> help "Kill a pushed nagare/Config.hs that has not finished within this many seconds"
       )
@@ -112,13 +116,14 @@ positiveInt = do
     else readerError "must be a positive number of seconds"
 
 data Env = Env
-  { envSecret :: !ByteString
-  , envProductionBranch :: !Text
-  , envBaseDomain :: !Text
-  , envWorkspace :: !FilePath
-  , envTargetProfile :: !TargetProfile
-  , envConfigTimeout :: !ConfigTimeout
+  { secret :: !ByteString
+  , productionBranch :: !Text
+  , baseDomain :: !Text
+  , workspace :: !FilePath
+  , targetProfile :: !TargetProfile
+  , configTimeout :: !ConfigTimeout
   }
+  deriving stock (Generic, Show)
 
 -- ---------------------------------------------------------------------------
 -- Main
@@ -127,20 +132,20 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   o <- execParser parserInfo
-  secret <- resolveSecret (optSecretFile o)
-  provisionGhcEnv (optGhcEnv o)
+  secret <- resolveSecret (o ^. #secretFile)
+  provisionGhcEnv (o ^. #ghcEnv)
   targetProfile <- resolveTargetProfile
   let env =
         Env
-          { envSecret = secret
-          , envProductionBranch = optProductionBranch o
-          , envBaseDomain = optBaseDomain o
-          , envWorkspace = optWorkspace o
-          , envTargetProfile = targetProfile
-          , envConfigTimeout = ConfigTimeout (optConfigTimeout o)
+          { secret = secret
+          , productionBranch = o ^. #productionBranch
+          , baseDomain = o ^. #baseDomain
+          , workspace = o ^. #workspace
+          , targetProfile = targetProfile
+          , configTimeout = ConfigTimeout (o ^. #configTimeout)
           }
-  putStrLn ("nagared listening on :" <> show (optPort o))
-  run (optPort o) (app env)
+  putStrLn ("nagared listening on :" <> show (o ^. #port))
+  run (o ^. #port) (app env)
   where
     parserInfo =
       info
@@ -193,8 +198,8 @@ handleWebhook env site req = do
   let hdr name = lookup name (requestHeaders req)
       cfg =
         WebhookConfig
-          { secret = envSecret env
-          , productionBranch = envProductionBranch env
+          { secret = env ^. #secret
+          , productionBranch = env ^. #productionBranch
           }
   -- Log every outcome: the operator's journal is the only place the reason a
   -- delivery did or did not deploy is visible (a fork PR, for instance, is a
@@ -213,28 +218,28 @@ handleWebhook env site req = do
 -- | A one-line description of an accepted action, for the log.
 describeAction :: DeployAction -> Text
 describeAction = \case
-  DeployProduction spec -> "production deploy of " <> repoFullName spec <> "@" <> T.take 12 (sha spec)
-  DeployPreview name spec -> "preview '" <> name <> "' of " <> repoFullName spec <> "@" <> T.take 12 (sha spec)
+  DeployProduction spec -> "production deploy of " <> spec ^. #repoFullName <> "@" <> T.take 12 (spec ^. #sha)
+  DeployPreview name spec -> "preview '" <> name <> "' of " <> spec ^. #repoFullName <> "@" <> T.take 12 (spec ^. #sha)
 
 runAction :: Env -> Text -> DeployAction -> IO Response
 runAction env _site act = do
   let spec = actionCheckout act
-  checkout <- checkoutRepo (envWorkspace env) spec
+  checkout <- checkoutRepo (env ^. #workspace) spec
   case checkout of
     Left e -> pure (textResponse status500 ("checkout failed: " <> e))
     Right dir -> do
-      esite <- loadStaticSiteWith (envConfigTimeout env) (dir </> "nagare" </> "Config.hs")
+      esite <- loadStaticSiteWith (env ^. #configTimeout) (dir </> "nagare" </> "Config.hs")
       case esite of
         Left le -> pure (textResponse status500 (renderLoadError le))
         Right s -> do
           let inputs =
                 DeployInputs
                   { site = s
-                  , imageTag = T.take 12 (sha spec)
-                  , baseDomain = envBaseDomain env
+                  , imageTag = T.take 12 (spec ^. #sha)
+                  , baseDomain = env ^. #baseDomain
                   , projectDir = dir
                   , skipBuild = False
-                  , targetProfile = envTargetProfile env
+                  , targetProfile = env ^. #targetProfile
                   }
           outcome <- try (deployFor inputs act) :: IO (Either SomeException (Either Text Text))
           pure $ case outcome of
@@ -244,7 +249,7 @@ runAction env _site act = do
 
 deployFor :: DeployInputs -> DeployAction -> IO (Either Text Text)
 deployFor inputs = \case
-  DeployProduction spec -> deployStaticProduction inputs (Just (sha spec))
+  DeployProduction spec -> deployStaticProduction inputs (Just (spec ^. #sha))
   DeployPreview name _ -> deployStaticPreview inputs name
 
 actionCheckout :: DeployAction -> CheckoutSpec

@@ -38,9 +38,7 @@ import Data.Time (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
 import Nagare.Access.Resolve
-  ( AccessOps (applyShomeiPortal, loadBackends)
-  , BackendEntry (upstream)
-  , ShomeiPortalChange (EnablePortal)
+  ( ShomeiPortalChange (EnablePortal)
   , kubectlAccessOps
   , mkBaseDomain
   , portalRegistration
@@ -311,13 +309,13 @@ import Nagare.Task.Resolve (predefinedTaskEnv, renderResolvedTask)
 import Nagare.Task.Run (TaskRunParams (..), runTaskRun)
 import Nagare.Version
   ( BuildVersion (..)
+  , VersionError (..)
   , compatibilityToken
   , currentBuildVersion
   , parsePlatformVersion
   , renderBuildVersionJson
   , renderBuildVersionText
   , renderPlatformVersion
-  , text
   )
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
@@ -548,6 +546,7 @@ data Command
   | Domains DomainsCommand
   | CdnCmd CdnCommand
   | Cleanup CleanupOpts
+  deriving stock (Generic, Show)
 
 newtype VersionOpts = VersionOpts
   { json :: Bool
@@ -561,27 +560,27 @@ data HostCommand
   deriving stock (Generic, Show)
 
 data UpgradeOpts = UpgradeOpts
-  { uoTo :: !(Maybe String)
-  , uoPayloadRoot :: !(Maybe FilePath)
-  , uoApply :: !Bool
-  , uoResume :: !(Maybe String)
-  , uoDryRun :: !Bool
-  , uoYes :: !Bool
-  , uoJson :: !Bool
+  { to :: !(Maybe String)
+  , payloadRoot :: !(Maybe FilePath)
+  , apply :: !Bool
+  , resume :: !(Maybe String)
+  , dryRun :: !Bool
+  , yes :: !Bool
+  , json :: !Bool
   }
   deriving stock (Generic, Show)
 
 data HostInitOpts = HostInitOpts
-  { hioContext :: !(Maybe String)
-  , hioSshPublicKeyFiles :: ![FilePath]
-  , hioSopsFile :: !(Maybe FilePath)
-  , hioAgeKeyFile :: !FilePath
-  , hioHostName :: !(Maybe String)
-  , hioInstanceName :: !(Maybe String)
-  , hioRegistryHost :: !(Maybe String)
-  , hioDeployUser :: !String
-  , hioForce :: !Bool
-  , hioDryRun :: !Bool
+  { context :: !(Maybe String)
+  , sshPublicKeyFiles :: ![FilePath]
+  , sopsFile :: !(Maybe FilePath)
+  , ageKeyFile :: !FilePath
+  , hostName :: !(Maybe String)
+  , instanceName :: !(Maybe String)
+  , registryHost :: !(Maybe String)
+  , deployUser :: !String
+  , force :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -603,29 +602,29 @@ data ContextCommand
   deriving stock (Generic, Show)
 
 data ContextCreateOpts = ContextCreateOpts
-  { ccoProject :: !(Maybe String)
-  , ccoRegion :: !(Maybe String)
-  , ccoZone :: !(Maybe String)
-  , ccoBaseDomain :: !(Maybe String)
-  , ccoMachineType :: !(Maybe String)
-  , ccoBootDiskType :: !(Maybe String)
-  , ccoBootDiskSizeGb :: !(Maybe String)
-  , ccoDataDiskSizeGb :: !(Maybe String)
-  , ccoRegistryHost :: !(Maybe String)
-  , ccoArtifactRegistryId :: !(Maybe String)
-  , ccoImageBucket :: !(Maybe String)
-  , ccoBackupBucket :: !(Maybe String)
-  , ccoInstanceName :: !(Maybe String)
-  , ccoTargetPlatform :: !(Maybe String)
-  , ccoMode :: !(Maybe String)
-  , ccoLocalObjectStore :: !(Maybe String)
-  , ccoPulumiBackend :: !(Maybe String)
-  , ccoPulumiBackendUrl :: !(Maybe String)
-  , ccoPulumiBackendMember :: !(Maybe String)
-  , ccoAcmeEmail :: !(Maybe String)
-  , ccoAcmeDirectory :: !(Maybe String)
-  , ccoForce :: !Bool
-  , ccoUse :: !Bool
+  { project :: !(Maybe String)
+  , region :: !(Maybe String)
+  , zone :: !(Maybe String)
+  , baseDomain :: !(Maybe String)
+  , machineType :: !(Maybe String)
+  , bootDiskType :: !(Maybe String)
+  , bootDiskSizeGb :: !(Maybe String)
+  , dataDiskSizeGb :: !(Maybe String)
+  , registryHost :: !(Maybe String)
+  , artifactRegistryId :: !(Maybe String)
+  , imageBucket :: !(Maybe String)
+  , backupBucket :: !(Maybe String)
+  , instanceName :: !(Maybe String)
+  , targetPlatform :: !(Maybe String)
+  , mode :: !(Maybe String)
+  , localObjectStore :: !(Maybe String)
+  , pulumiBackend :: !(Maybe String)
+  , pulumiBackendUrl :: !(Maybe String)
+  , pulumiBackendMember :: !(Maybe String)
+  , acmeEmail :: !(Maybe String)
+  , acmeDirectory :: !(Maybe String)
+  , force :: !Bool
+  , use :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -665,6 +664,7 @@ data EnvCommand
     EnvDelete StoreCommonOpts ScopeSelection Bool String
   | -- | dryRun, reconcileExact, dotenv file
     EnvSync StoreCommonOpts ScopeSelection Bool Bool FilePath
+  deriving stock (Generic, Show)
 
 -- | The @secret@ subcommands. @SecretSet@'s value is read from stdin, never argv.
 data SecretCommand
@@ -674,6 +674,7 @@ data SecretCommand
     SecretList StoreCommonOpts Bool
   | -- | dryRun, KEY
     SecretDelete StoreCommonOpts ScopeSelection Bool String
+  deriving stock (Generic, Show)
 
 -- | The @storage@ subcommands (EP-35). Both reuse 'StoreCommonOpts' (positional
 -- APP + @-f@ config + @--ghc-env@); identity and the declared volume set come
@@ -687,6 +688,7 @@ data StorageCommand
     StorageSnapshot StoreCommonOpts String (Maybe String) Int
   | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run (EP-1)
     StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool
+  deriving stock (Generic, Show)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
 -- constructor per subcommand. EP-47 extends this with @DbBackup@/@DbRestore@
@@ -709,6 +711,7 @@ data DbCommand
     DbBackup DbBackupOpts
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
     DbRestore DbRestoreOpts
+  deriving stock (Generic, Show)
 
 -- | The @broker@ subcommands (MasterPlan 15, EP-78).
 data BrokerCommand
@@ -722,6 +725,7 @@ data BrokerCommand
     BrokerRestart BrokerNameOpts Bool
   | -- | nagarectl broker delete NAME [-n NS] [--yes] [--dry-run]
     BrokerDelete BrokerDeleteOpts
+  deriving stock (Generic, Show)
 
 -- | The @task@ subcommands (MasterPlan 10, EP-51, Integration Point IP4). One
 -- constructor per subcommand, mirroring 'DbCommand'. EP-52 may add app-scoping
@@ -735,94 +739,95 @@ data TaskCommand
     TaskLogs TaskLogsOpts
   | -- | nagarectl task delete APP TASK [-n NS] [--yes] [--dry-run]
     TaskDelete TaskDeleteOpts
+  deriving stock (Generic, Show)
 
 -- | Options for @task list [APP]@: an optional positional APP (scopes by the
 -- @nagare.dev/app@ label; @-@ means app-less) and a namespace.
 data TaskListOpts = TaskListOpts
-  { tlsApp :: !(Maybe String)
-  , tlsNamespace :: !(Maybe String)
+  { app :: !(Maybe String)
+  , namespace :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
 -- | The positional APP + TASK plus a namespace, shared by run.
 data TaskRunOpts = TaskRunOpts
-  { troApp :: !String
-  , troTask :: !String
-  , troNamespace :: !(Maybe String)
-  , troDryRun :: !Bool
+  { app :: !String
+  , task :: !String
+  , namespace :: !(Maybe String)
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 data TaskLogsOpts = TaskLogsOpts
-  { tlgApp :: !String
-  , tlgTask :: !String
-  , tlgNamespace :: !(Maybe String)
-  , tlgFollow :: !Bool
-  , tlgTail :: !(Maybe Int)
+  { app :: !String
+  , task :: !String
+  , namespace :: !(Maybe String)
+  , follow :: !Bool
+  , tail :: !(Maybe Int)
   }
   deriving stock (Generic, Show)
 
 data TaskDeleteOpts = TaskDeleteOpts
-  { tdoApp :: !String
-  , tdoTask :: !String
-  , tdoNamespace :: !(Maybe String)
-  , tdoYes :: !Bool
-  , tdoDryRun :: !Bool
+  { app :: !String
+  , task :: !String
+  , namespace :: !(Maybe String)
+  , yes :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 -- | Options for @db list@: just a namespace (default @personal@).
-newtype DbListOpts = DbListOpts {dbloNamespace :: Maybe String}
+newtype DbListOpts = DbListOpts {namespace :: Maybe String}
   deriving stock (Generic, Show)
 
 -- | The positional NAME plus a namespace, shared by get/shell/restart.
 data DbNameOpts = DbNameOpts
-  { dbnName :: !String
-  , dbnNamespace :: !(Maybe String)
+  { name :: !String
+  , namespace :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
 -- | Options for @db create ENGINE NAME@. Engine and NAME are positionals on the
 -- 'DbCreate' constructor, not in this record.
 data DbCreateOpts = DbCreateOpts
-  { dbcNamespace :: !(Maybe String)
-  , dbcVersion :: !(Maybe String)
-  , dbcSize :: !(Maybe String)
-  , dbcCpu :: !(Maybe String)
-  , dbcMemory :: !(Maybe String)
-  , dbcConfig :: !(Maybe FilePath)
-  , dbcDryRun :: !Bool
+  { namespace :: !(Maybe String)
+  , version :: !(Maybe String)
+  , size :: !(Maybe String)
+  , cpu :: !(Maybe String)
+  , memory :: !(Maybe String)
+  , config :: !(Maybe FilePath)
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 -- | Options for @db delete NAME@: namespace, the --yes guard, and --dry-run.
 data DbDeleteOpts = DbDeleteOpts
-  { dbdName :: !String
-  , dbdNamespace :: !(Maybe String)
-  , dbdYes :: !Bool
-  , dbdDryRun :: !Bool
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , yes :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 -- | Options for @db backup NAME@ (EP-47): namespace, --bucket, --keep, --dry-run.
 data DbBackupOpts = DbBackupOpts
-  { dbbName :: !String
-  , dbbNamespace :: !(Maybe String)
-  , dbbBucket :: !(Maybe String)
-  , dbbKeep :: !Int
-  , dbbDryRun :: !Bool
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , keep :: !Int
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 -- | Options for @db restore NAME BACKUP_ID@ (EP-47): namespace, --bucket,
 -- --into live (default scratch), --dry-run.
 data DbRestoreOpts = DbRestoreOpts
-  { dbrName :: !String
-  , dbrBackupId :: !String
-  , dbrNamespace :: !(Maybe String)
-  , dbrBucket :: !(Maybe String)
-  , dbrLive :: !Bool
-  , dbrDryRun :: !Bool
+  { name :: !String
+  , backupId :: !String
+  , namespace :: !(Maybe String)
+  , bucket :: !(Maybe String)
+  , live :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -866,7 +871,7 @@ data BrokerDeleteOpts = BrokerDeleteOpts
 -- | Options for @server status@ (MasterPlan 8, EP-38). @--skip-vm@ skips the
 -- best-effort IAP-SSH disk probe (so the report needs no SSH setup).
 data ServerStatusOpts = ServerStatusOpts
-  { ssSkipVm :: !Bool
+  { skipVm :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -878,7 +883,7 @@ serverStatusOptsParser =
 -- | Options for @doctor@ (MasterPlan 8, EP-39). Reuses the same inventory knob
 -- as @server status@: @--skip-vm@ skips the best-effort IAP-SSH disk probe.
 data DoctorOpts = DoctorOpts
-  { dSkipVm :: !Bool
+  { skipVm :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -946,13 +951,14 @@ contextCreateOptsParser =
 -- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
 -- group leaves room for future @domains add@/@remove@.
 newtype DomainsCommand = DomainsList DomainsListOpts
+  deriving stock (Generic, Show)
 
 -- | Options for @domains list@: namespace selection and an optional base-domain
 -- override (matching the deploy path's @--base-domain@).
 data DomainsListOpts = DomainsListOpts
-  { dloNamespace :: !(Maybe String)
-  , dloAllNamespaces :: !Bool
-  , dloBaseDomain :: !(Maybe String)
+  { namespace :: !(Maybe String)
+  , allNamespaces :: !Bool
+  , baseDomain :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
@@ -974,31 +980,31 @@ data CdnCommand
   deriving stock (Generic, Show)
 
 data CdnListOpts = CdnListOpts
-  { cloNamespace :: !(Maybe String)
-  , cloAllNamespaces :: !Bool
-  , cloBaseDomain :: !(Maybe String)
+  { namespace :: !(Maybe String)
+  , allNamespaces :: !Bool
+  , baseDomain :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
 data CdnStatusOpts = CdnStatusOpts
-  { csoHost :: !String
-  , csoNamespace :: !(Maybe String)
-  , csoBaseDomain :: !(Maybe String)
+  { host :: !String
+  , namespace :: !(Maybe String)
+  , baseDomain :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 
 data CdnPurgeOpts = CdnPurgeOpts
-  { cpoHost :: !String
-  , cpoPaths :: ![String]
-  , cpoNamespace :: !(Maybe String)
-  , cpoDryRun :: !Bool
+  { host :: !String
+  , paths :: ![String]
+  , namespace :: !(Maybe String)
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 data CdnDisableOpts = CdnDisableOpts
-  { cdoHost :: !String
-  , cdoNamespace :: !(Maybe String)
-  , cdoDryRun :: !Bool
+  { host :: !String
+  , namespace :: !(Maybe String)
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -2384,7 +2390,7 @@ runPlatformGuard mctx = do
   (_, status) <- gatherPlatformStatus mctx
   case guardPlatformMutation status of
     Left err -> dieT err
-    Right () -> TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (compatibility status) <> ")")
+    Right () -> TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
 
 runPlatformStamp :: Maybe String -> IO ()
 runPlatformStamp mctx = do
@@ -2395,7 +2401,7 @@ runPlatformStamp mctx = do
 
 runPlatformAdopt :: Maybe String -> String -> Bool -> Bool -> IO ()
 runPlatformAdopt mctx rawVersion yes asJson = do
-  target <- either (dieT . ("invalid --version: " <>) . text) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
+  target <- either (dieT . ("invalid --version: " <>) . renderVersionError) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
   (active, status) <- gatherPlatformStatus mctx
   if asJson
     then LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["context" Aeson..= contextNameText (active ^. #contextName), "requestedVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
@@ -2459,25 +2465,25 @@ runPlatformUpgradeRollback mctx requested yes asJson = do
   runPlatformUpgrade
     mctx
     UpgradeOpts
-      { uoTo = Just (T.unpack oldVersion)
-      , uoPayloadRoot = Just oldWorkspace
-      , uoApply = False
-      , uoResume = Nothing
-      , uoDryRun = True
-      , uoYes = False
-      , uoJson = asJson
+      { to = Just (T.unpack oldVersion)
+      , payloadRoot = Just oldWorkspace
+      , apply = False
+      , resume = Nothing
+      , dryRun = True
+      , yes = False
+      , json = asJson
       }
   newId <- latestUpgradeTransactionId (active ^. #contextName) >>= maybe (dieT "rollback plan did not create a transaction") pure
   runPlatformUpgrade
     mctx
     UpgradeOpts
-      { uoTo = Nothing
-      , uoPayloadRoot = Nothing
-      , uoApply = True
-      , uoResume = Just (T.unpack newId)
-      , uoDryRun = False
-      , uoYes = True
-      , uoJson = asJson
+      { to = Nothing
+      , payloadRoot = Nothing
+      , apply = True
+      , resume = Just (T.unpack newId)
+      , dryRun = False
+      , yes = True
+      , json = asJson
       }
 
 findRetainedWorkspace :: ContextName -> Text -> IO FilePath
@@ -2508,10 +2514,10 @@ printUpgradeTransaction asJson tx =
 runPlatformUpgrade :: Maybe String -> UpgradeOpts -> IO ()
 runPlatformUpgrade mctx options = do
   active <- activeTarget mctx
-  if uoApply options
+  if options ^. #apply
     then do
-      unless (uoYes options) (dieT "refusing to apply an upgrade without --yes")
-      resumeId <- maybe (dieT "--apply requires --resume TRANSACTION_ID") pure (uoResume options)
+      unless (options ^. #yes) (dieT "refusing to apply an upgrade without --yes")
+      resumeId <- maybe (dieT "--apply requires --resume TRANSACTION_ID") pure (options ^. #resume)
       (path, tx) <- loadUpgradeTransaction (active ^. #contextName) (Just resumeId)
       paths <- validatePlatformRoot ExplicitRoot (tx ^. #workspaceRoot) >>= either (dieT . renderPlatformPathError) pure
       manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
@@ -2522,13 +2528,13 @@ runPlatformUpgrade mctx options = do
       result <- applyUpgrade True ops tx
       case result of
         Left err -> do
-          readUpgradeTransaction path >>= either (const (pure ())) (printUpgradeTransaction (uoJson options))
+          readUpgradeTransaction path >>= either (const (pure ())) (printUpgradeTransaction (options ^. #json))
           dieT err
-        Right completed -> printUpgradeTransaction (uoJson options) completed
+        Right completed -> printUpgradeTransaction (options ^. #json) completed
     else do
-      when (uoResume options /= Nothing) (dieT "--resume is only valid with --apply")
-      target <- maybe (dieT "a new upgrade plan requires --to VERSION") (either (dieT . ("invalid --to version: " <>) . text) (pure . renderPlatformVersion) . parsePlatformVersion . T.pack) (uoTo options)
-      targetPaths <- resolveUpgradePayload target (uoPayloadRoot options)
+      when (options ^. #resume /= Nothing) (dieT "--resume is only valid with --apply")
+      target <- maybe (dieT "a new upgrade plan requires --to VERSION") (either (dieT . ("invalid --to version: " <>) . renderVersionError) (pure . renderPlatformVersion) . parsePlatformVersion . T.pack) (options ^. #to)
+      targetPaths <- resolveUpgradePayload target (options ^. #payloadRoot)
       manifest <- readPayloadManifest targetPaths >>= either (dieT . renderWorkspaceError) pure
       when (manifest ^. #platformVersion /= target) $
         dieT ("target payload reports version " <> manifest ^. #platformVersion <> ", expected " <> target)
@@ -2554,7 +2560,7 @@ runPlatformUpgrade mctx options = do
               (workspace ^. #digest)
               (workspace ^. #root)
               staged
-              (maybe False (`elem` rollbackSupportedFrom manifest) (active ^. #profile . #platformVersion))
+              (maybe False (`elem` manifest ^. #rollbackSupportedFrom) (active ^. #profile . #platformVersion))
               now
       writeUpgradeTransaction txPath tx
       ensurePulumiInWorkspace (active ^. #contextName) (active ^. #profile) workspace
@@ -2562,9 +2568,9 @@ runPlatformUpgrade mctx options = do
       result <- planUpgrade ops tx
       case result of
         Left err -> do
-          readUpgradeTransaction txPath >>= either (const (pure ())) (printUpgradeTransaction (uoJson options))
+          readUpgradeTransaction txPath >>= either (const (pure ())) (printUpgradeTransaction (options ^. #json))
           dieT err
-        Right planned -> printUpgradeTransaction (uoJson options) planned
+        Right planned -> printUpgradeTransaction (options ^. #json) planned
   where
     -- The transaction stores all paths needed to resume without re-resolving a tag.
     workspaceFromTransaction tx =
@@ -2709,8 +2715,8 @@ runHost globalContext = \case
     unless exists $ dieT ("host configuration does not exist for context '" <> contextNameText (active ^. #contextName) <> "'; run nagarectl host init first")
     TIO.readFile modulePath >>= TIO.putStr
   HostInit options -> do
-    active <- activeTarget (hioContext options <|> globalContext)
-    keys <- readAuthorizedKeys (hioSshPublicKeyFiles options) >>= either dieT pure
+    active <- activeTarget (options ^. #context <|> globalContext)
+    keys <- readAuthorizedKeys (options ^. #sshPublicKeyFiles) >>= either dieT pure
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     nixosSource <- makeAbsolute (paths ^. #nixosDir)
     let payloadBuild = BuildVersion (workspace ^. #platformVersion) (workspace ^. #sourceRevision)
@@ -2719,16 +2725,16 @@ runHost globalContext = \case
         config =
           HostConfig
             { context = active ^. #contextName
-            , name = T.pack (fromMaybe (T.unpack defaultInstance) (hioHostName options))
-            , instanceName = T.pack (fromMaybe (T.unpack defaultInstance) (hioInstanceName options))
-            , registryHost = T.pack (fromMaybe (T.unpack (profile ^. #registryHost)) (hioRegistryHost options))
-            , deployUser = T.pack (hioDeployUser options)
+            , name = T.pack (fromMaybe (T.unpack defaultInstance) (options ^. #hostName))
+            , instanceName = T.pack (fromMaybe (T.unpack defaultInstance) (options ^. #instanceName))
+            , registryHost = T.pack (fromMaybe (T.unpack (profile ^. #registryHost)) (options ^. #registryHost))
+            , deployUser = T.pack (options ^. #deployUser)
             , authorizedKeys = keys
-            , ageKeyFile = hioAgeKeyFile options
+            , ageKeyFile = options ^. #ageKeyFile
             , nagareNixosSource = nixosSource
             }
     root <- hostConfigDir (active ^. #contextName)
-    if hioDryRun options
+    if options ^. #dryRun
       then do
         TIO.putStrLn "DRY RUN — generated host configuration:"
         TIO.putStr (renderHostSummary root config)
@@ -2737,7 +2743,7 @@ runHost globalContext = \case
         TIO.putStrLn "--- host.nix ---"
         TIO.putStr (renderHostModule config)
       else do
-        result <- installHostFlake (hioForce options) config payloadBuild (hioSopsFile options) >>= either dieT pure
+        result <- installHostFlake (options ^. #force) config payloadBuild (options ^. #sopsFile) >>= either dieT pure
         let verb = case result of
               HostInstalled -> "Installed"
               HostReplaced -> "Replaced"
@@ -2816,7 +2822,7 @@ runServerStatus :: Maybe String -> ServerStatusOpts -> IO ()
 runServerStatus mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  let invOpts = (inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp) {skipVm = ssSkipVm o}
+  let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
   probes <- gatherInventory tp invOpts
   (_, versionStatus) <- gatherPlatformStatus mctx
   TIO.putStr (renderInventory (probes <> [platformProbe versionStatus]))
@@ -2830,7 +2836,7 @@ runDoctor :: Maybe String -> DoctorOpts -> IO ()
 runDoctor mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
-  let invOpts = (inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp) {skipVm = dSkipVm o}
+  let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
   probes <- gatherInventory tp invOpts
   (_, versionStatus) <- gatherPlatformStatus mctx
   let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> [platformProbe versionStatus])
@@ -3016,7 +3022,7 @@ runContext mctx = \case
       then do
         setCurrentContext name
         tp <- either dieT pure =<< readContextProfile name
-        case mode tp of
+        case tp ^. #mode of
           Local -> void (resolvePlatformWorkspace name)
           Cloud -> do
             workspace <- ensurePulumiForContext name tp
@@ -3036,15 +3042,15 @@ runContext mctx = \case
   ContextCreate rawName o -> do
     name <- parseContextNameOrDie rawName
     exists <- contextExists name
-    when (exists && not (ccoForce o)) $
+    when (exists && not (o ^. #force)) $
       dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite")
     -- EP-112: validate the ACME identity BEFORE a context file exists, so a typo
     -- is reported here rather than at `nagare cluster-bootstrap`. The contact is
     -- OPTIONAL here (unlike `init`): this is the low-level writer that also
     -- creates local contexts, where no ACME account is ever registered. The
     -- renderer's refusal is the backstop for a context written without one.
-    mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (ccoAcmeEmail o)
-    mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (ccoAcmeDirectory o)
+    mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (o ^. #acmeEmail)
+    mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (o ^. #acmeDirectory)
     (_, workspace) <- resolvePlatformWorkspace name
     let contextMap = Map.insert "NAGARE_PLATFORM_VERSION" (workspace ^. #platformVersion) (Map.fromList (contextEnvPairs o))
         tp = profileFromContextMap contextMap
@@ -3052,10 +3058,10 @@ runContext mctx = \case
     writeContextProfile name tp
     path <- contextFilePath name
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
-    when (ccoUse o) $ do
+    when (o ^. #use) $ do
       setCurrentContext name
-      when (mode tp == Cloud) $ do
-        bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> ccoPulumiBackendMember o)
+      when (tp ^. #mode == Cloud) $ do
+        bootstrapGcsIfNeeded False (contextNameText name) tp (T.pack <$> o ^. #pulumiBackendMember)
         ensurePulumiInWorkspace name tp workspace
         s <- seedPulumiConfig (workspace ^. #pulumiDir) False (contextNameText name) tp
         case s of
@@ -3109,7 +3115,7 @@ runContextGuard mctx asJson = do
   let name = active ^. #contextName
       tp = active ^. #profile
       ctx = contextNameText name
-  case mode tp of
+  case tp ^. #mode of
     -- A local context has no GCP project, exactly as `_require_target_project` in
     -- scripts/lib/target.sh has no project to check there.
     Local ->
@@ -3204,26 +3210,26 @@ writeNamedContext force dryRun name tp = do
 contextEnvPairs :: ContextCreateOpts -> [(String, Text)]
 contextEnvPairs o =
   catMaybes
-    [ pair "CLOUDSDK_CORE_PROJECT" (ccoProject o)
-    , pair "CLOUDSDK_COMPUTE_REGION" (ccoRegion o)
-    , pair "CLOUDSDK_COMPUTE_ZONE" (ccoZone o)
-    , pair "NAGARE_BASE_DOMAIN" (ccoBaseDomain o)
-    , pair "NAGARE_MACHINE_TYPE" (ccoMachineType o)
-    , pair "NAGARE_BOOT_DISK_TYPE" (ccoBootDiskType o)
-    , pair "NAGARE_BOOT_DISK_SIZE_GB" (ccoBootDiskSizeGb o)
-    , pair "NAGARE_DATA_DISK_SIZE_GB" (ccoDataDiskSizeGb o)
-    , pair "NAGARE_REGISTRY_HOST" (ccoRegistryHost o)
-    , pair "NAGARE_ARTIFACT_REGISTRY_ID" (ccoArtifactRegistryId o)
-    , pair "NAGARE_IMAGE_BUCKET" (ccoImageBucket o)
-    , pair "NAGARE_BACKUP_BUCKET" (ccoBackupBucket o)
-    , pair "NAGARE_INSTANCE_NAME" (ccoInstanceName o)
-    , pair "NAGARE_TARGET_PLATFORM" (ccoTargetPlatform o)
-    , pair "NAGARE_MODE" (ccoMode o)
-    , pair "NAGARE_LOCAL_OBJECT_STORE" (ccoLocalObjectStore o)
-    , pair "NAGARE_PULUMI_BACKEND" (ccoPulumiBackend o)
-    , pair "NAGARE_PULUMI_BACKEND_URL" (ccoPulumiBackendUrl o)
-    , pair "NAGARE_ACME_EMAIL" (ccoAcmeEmail o)
-    , pair "NAGARE_ACME_DIRECTORY" (ccoAcmeDirectory o)
+    [ pair "CLOUDSDK_CORE_PROJECT" (o ^. #project)
+    , pair "CLOUDSDK_COMPUTE_REGION" (o ^. #region)
+    , pair "CLOUDSDK_COMPUTE_ZONE" (o ^. #zone)
+    , pair "NAGARE_BASE_DOMAIN" (o ^. #baseDomain)
+    , pair "NAGARE_MACHINE_TYPE" (o ^. #machineType)
+    , pair "NAGARE_BOOT_DISK_TYPE" (o ^. #bootDiskType)
+    , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)
+    , pair "NAGARE_DATA_DISK_SIZE_GB" (o ^. #dataDiskSizeGb)
+    , pair "NAGARE_REGISTRY_HOST" (o ^. #registryHost)
+    , pair "NAGARE_ARTIFACT_REGISTRY_ID" (o ^. #artifactRegistryId)
+    , pair "NAGARE_IMAGE_BUCKET" (o ^. #imageBucket)
+    , pair "NAGARE_BACKUP_BUCKET" (o ^. #backupBucket)
+    , pair "NAGARE_INSTANCE_NAME" (o ^. #instanceName)
+    , pair "NAGARE_TARGET_PLATFORM" (o ^. #targetPlatform)
+    , pair "NAGARE_MODE" (o ^. #mode)
+    , pair "NAGARE_LOCAL_OBJECT_STORE" (o ^. #localObjectStore)
+    , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
+    , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
+    , pair "NAGARE_ACME_DIRECTORY" (o ^. #acmeDirectory)
     ]
   where
     pair k mv = fmap (\v -> (k, T.pack v)) mv
@@ -3251,12 +3257,12 @@ formatContextList cur rows =
 runDomainsList :: Maybe String -> DomainsListOpts -> IO ()
 runDomainsList mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
-  base <- resolveDomainsBaseAt mctx workspace (dloBaseDomain o)
+  base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
   ip <- fromMaybe "(unknown)" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   nss <-
-    if dloAllNamespaces o
+    if o ^. #allNamespaces
       then listNamespaces
-      else pure [appNamespace (dloNamespace o)]
+      else pure [appNamespace (o ^. #namespace)]
   rows <- concat <$> traverse (queryDomainRows base ip) nss
   let baseRow = DomainRow base Nothing Nothing (UnderWildcard ip) CertDisabled
   TIO.putStr (formatDomainList (baseRow : rows))
@@ -3284,12 +3290,12 @@ runCdn mctx = \case
 runCdnList :: Maybe String -> CdnListOpts -> IO ()
 runCdnList mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
-  base <- resolveDomainsBaseAt mctx workspace (cloBaseDomain o)
+  base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
   ip <- fromMaybe "(unknown)" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   nss <-
-    if cloAllNamespaces o
+    if o ^. #allNamespaces
       then listNamespaces
-      else pure [appNamespace (cloNamespace o)]
+      else pure [appNamespace (o ^. #namespace)]
   rows <- concat <$> traverse (queryCdnRows base ip) nss
   TIO.putStr (formatCdnList rows)
 
@@ -3298,10 +3304,10 @@ runCdnList mctx o = do
 runCdnStatus :: Maybe String -> CdnStatusOpts -> IO ()
 runCdnStatus mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
-  base <- resolveDomainsBaseAt mctx workspace (csoBaseDomain o)
+  base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
   ip <- fromMaybe "(unknown)" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
-  let ns = appNamespace (csoNamespace o)
-      host = T.pack (csoHost o)
+  let ns = appNamespace (o ^. #namespace)
+      host = T.pack (o ^. #host)
   rows <- queryCdnRows base ip ns
   case filter ((== host) . (^. #host)) rows of
     (r : _) -> TIO.putStr (formatCdnStatus r)
@@ -3311,10 +3317,10 @@ runCdnStatus mctx o = do
 -- prints the planned purge; live needs @CF_API_TOKEN@.
 runCdnPurge :: CdnPurgeOpts -> IO ()
 runCdnPurge o = do
-  let host = T.pack (cpoHost o)
-      paths = map T.pack (cpoPaths o)
+  let host = T.pack (o ^. #host)
+      paths = map T.pack (o ^. #paths)
       pathsDesc = if null paths then "everything" else T.intercalate ", " paths
-  if cpoDryRun o
+  if o ^. #dryRun
     then TIO.putStrLn ("Would purge Cloudflare edge cache for " <> host <> " (paths: " <> pathsDesc <> ")")
     else do
       ecreds <- loadCloudflareCreds
@@ -3332,7 +3338,7 @@ runCdnPurge o = do
 -- prints the planned revert without making it.
 runCdnDisable :: Maybe String -> CdnDisableOpts -> IO ()
 runCdnDisable mctx o = do
-  let host = T.pack (cdoHost o)
+  let host = T.pack (o ^. #host)
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
   refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) tp
@@ -3342,10 +3348,10 @@ runCdnDisable mctx o = do
         , "delete"
         , host <> "."
         , "--type=A"
-        , "--zone=" <> dnsZone refs
+        , "--zone=" <> refs ^. #dnsZone
         , "--project=" <> tp ^. #project
         ]
-  if cdoDryRun o
+  if o ^. #dryRun
     then do
       TIO.putStrLn ("Would revert " <> host <> " DNS to the VM:")
       TIO.putStrLn ("  Google: gcloud " <> T.unwords gArgs)
@@ -3458,7 +3464,7 @@ runDeploy mctx dopts = do
       forM_ taskBytes $ \tb -> do
         BC.putStrLn "--- Task CronJob manifest ---"
         BC.putStr tb
-      TIO.putStrLn ("Build mode: " <> describeBuild (targetPlatform tp) spec)
+      TIO.putStrLn ("Build mode: " <> describeBuild (tp ^. #targetPlatform) spec)
       TIO.putStrLn ("URL: " <> url)
       cdnDeployStep mctx True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
     else do
@@ -3470,7 +3476,7 @@ runDeploy mctx dopts = do
           (bargs, warns) <- gatherBuildArgs name ns (dep ^. #env)
           printBuildArgWarnings warns
           configureDockerAuthFor tp
-          performBuild (targetPlatform tp) (addBuildArgs bargs spec) ref
+          performBuild (tp ^. #targetPlatform) (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a
@@ -3625,7 +3631,7 @@ cdnDeployStep mctx dry (Just c) hostnames ns service = do
       res <- provisionCdn c target refs
       case res of
         Left e -> TIO.hPutStrLn stderr ("nagarectl: CDN provisioning failed (origin is up): " <> e)
-        Right r -> TIO.putStrLn (summary r)
+        Right r -> TIO.putStrLn (r ^. #summary)
 
 -- | Read the four EP-56 Google stack outputs, with a clear placeholder when an
 -- output is absent (the CDN load balancer is disabled, or Pulumi is unavailable).
@@ -3679,7 +3685,7 @@ runSiteRollback mctx copts rid = do
           let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
           applyManifests (svc : dms)
           waitForReady name ns >>= requireWait ("service '" <> name <> "'")
-          writeReleaseLog name ns logv {current = Just (rel ^. #releaseId)}
+          writeReleaseLog name ns (logv & #current .~ Just (rel ^. #releaseId))
           TIO.putStrLn ("Rolled back to " <> (rel ^. #releaseId) <> ": " <> (rel ^. #url))
 
 -- | The (name, namespace) of either site kind.
@@ -3811,8 +3817,8 @@ printAppSummary s = do
   TIO.putStrLn ("Name:     " <> s ^. #name)
   TIO.putStrLn ("Ready:    " <> maybe "?" boolText (s ^. #ready))
   TIO.putStrLn ("URL:      " <> fromMaybe "-" (s ^. #url))
-  TIO.putStrLn ("Revision: " <> fromMaybe "-" (latestRevision s))
-  TIO.putStrLn ("Image:    " <> fromMaybe "-" (image s))
+  TIO.putStrLn ("Revision: " <> fromMaybe "-" (s ^. #latestRevision))
+  TIO.putStrLn ("Image:    " <> fromMaybe "-" (s ^. #image))
   where
     boolText True = "True"
     boolText False = "False"
@@ -4077,40 +4083,40 @@ runBroker = \case
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
 runDb :: Maybe String -> DbCommand -> IO ()
 runDb mctx = \case
-  DbList o -> runDbList (nsOf (dbloNamespace o))
+  DbList o -> runDbList (nsOf (o ^. #namespace))
   DbCreate eng name o -> do
-    when (isJust (dbcConfig o)) (provisionGhcEnv Nothing)
+    when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
     tp <- activeProfile mctx
     runDbCreate
       eng
       (T.pack name)
       DbCreateParams
-        { namespace = nsOf (dbcNamespace o)
-        , version = T.pack <$> dbcVersion o
-        , size = T.pack <$> dbcSize o
-        , cpu = T.pack <$> dbcCpu o
-        , memory = T.pack <$> dbcMemory o
-        , config = dbcConfig o
-        , dryRun = dbcDryRun o
+        { namespace = nsOf (o ^. #namespace)
+        , version = T.pack <$> o ^. #version
+        , size = T.pack <$> o ^. #size
+        , cpu = T.pack <$> o ^. #cpu
+        , memory = T.pack <$> o ^. #memory
+        , config = o ^. #config
+        , dryRun = o ^. #dryRun
         , targetProfile = tp
         }
-  DbGet o -> runDbGet (nsOf (dbnNamespace o)) (T.pack (dbnName o))
-  DbShell o -> runDbShell (nsOf (dbnNamespace o)) (T.pack (dbnName o))
-  DbRestart o dry -> runDbRestart (nsOf (dbnNamespace o)) (T.pack (dbnName o)) dry
+  DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
+  DbShell o -> runDbShell (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
+  DbRestart o dry -> runDbRestart (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) dry
   DbDelete o ->
     runDbDelete
       DbDeleteParams
-        { name = T.pack (dbdName o)
-        , namespace = nsOf (dbdNamespace o)
-        , yes = dbdYes o
-        , dryRun = dbdDryRun o
+        { name = T.pack (o ^. #name)
+        , namespace = nsOf (o ^. #namespace)
+        , yes = o ^. #yes
+        , dryRun = o ^. #dryRun
         }
   DbBackup o -> do
-    backend <- resolveStoreBackend mctx (dbbBucket o)
-    runDbBackup (nsOf (dbbNamespace o)) (T.pack (dbbName o)) backend (dbbKeep o) (dbbDryRun o)
+    backend <- resolveStoreBackend mctx (o ^. #bucket)
+    runDbBackup (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) backend (o ^. #keep) (o ^. #dryRun)
   DbRestore o -> do
-    backend <- resolveStoreBackend mctx (dbrBucket o)
-    runDbRestore (nsOf (dbrNamespace o)) (T.pack (dbrName o)) (T.pack (dbrBackupId o)) (dbrLive o) backend (dbrDryRun o)
+    backend <- resolveStoreBackend mctx (o ^. #bucket)
+    runDbRestore (nsOf (o ^. #namespace)) (T.pack (o ^. #name)) (T.pack (o ^. #backupId)) (o ^. #live) backend (o ^. #dryRun)
   where
     nsOf = maybe "personal" T.pack
 
@@ -4159,19 +4165,19 @@ runAccess mctx = \case
           , host = T.pack (o ^. #host)
           }
   AccessPortal PortalShow -> do
-    backends <- loadBackends kubectlAccessOps
+    backends <- kubectlAccessOps ^. #loadBackends
     case portalRegistration backends of
       Nothing -> TIO.putStrLn "portal: (none; protected sites use the built-in sign-in pages)"
       Just (portalHost, entry) ->
-        TIO.putStrLn ("portal: " <> publicHostText portalHost <> " -> " <> upstream entry)
+        TIO.putStrLn ("portal: " <> publicHostText portalHost <> " -> " <> entry ^. #upstream)
   AccessPortal PortalSync -> do
-    backends <- loadBackends kubectlAccessOps
+    backends <- kubectlAccessOps ^. #loadBackends
     case portalRegistration backends of
       Nothing -> TIO.putStrLn "no portal registered"
       Just (portalHost, _) -> do
         rawBase <- resolveBaseDomain mctx Nothing
         base <- either dieT pure (mkBaseDomain rawBase)
-        applyShomeiPortal kubectlAccessOps (EnablePortal portalHost base)
+        (kubectlAccessOps ^. #applyShomeiPortal) (EnablePortal portalHost base)
         TIO.putStrLn ("synchronized portal: " <> publicHostText portalHost)
 
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
@@ -4179,33 +4185,33 @@ runAccess mctx = \case
 -- that app; for @task list@ an omitted @APP@ means "any app".
 runTask :: TaskCommand -> IO ()
 runTask = \case
-  TaskList o -> runTaskList (nsOf (tlsNamespace o)) (scopeOfMaybe (tlsApp o))
+  TaskList o -> runTaskList (nsOf (o ^. #namespace)) (scopeOfMaybe (o ^. #app))
   TaskRun o ->
     runTaskRun
       TaskRunParams
-        { app = T.pack (troApp o)
-        , task = T.pack (troTask o)
-        , namespace = nsOf (troNamespace o)
-        , scope = scopeOf (troApp o)
-        , dryRun = troDryRun o
+        { app = T.pack (o ^. #app)
+        , task = T.pack (o ^. #task)
+        , namespace = nsOf (o ^. #namespace)
+        , scope = scopeOf (o ^. #app)
+        , dryRun = o ^. #dryRun
         }
   TaskLogs o ->
     runTaskLogs
       TaskLogTarget
-        { namespace = nsOf (tlgNamespace o)
-        , task = T.pack (tlgTask o)
-        , scope = scopeOf (tlgApp o)
-        , follow = tlgFollow o
-        , tail = tlgTail o
+        { namespace = nsOf (o ^. #namespace)
+        , task = T.pack (o ^. #task)
+        , scope = scopeOf (o ^. #app)
+        , follow = o ^. #follow
+        , tail = o ^. #tail
         }
   TaskDelete o ->
     runTaskDelete
       TaskDeleteParams
-        { name = T.pack (tdoTask o)
-        , namespace = nsOf (tdoNamespace o)
-        , scope = scopeOf (tdoApp o)
-        , yes = tdoYes o
-        , dryRun = tdoDryRun o
+        { name = T.pack (o ^. #task)
+        , namespace = nsOf (o ^. #namespace)
+        , scope = scopeOf (o ^. #app)
+        , yes = o ^. #yes
+        , dryRun = o ^. #dryRun
         }
   where
     nsOf = maybe "personal" T.pack
@@ -4221,7 +4227,7 @@ runTask = \case
 -- @NAGARE_BACKUP_BUCKET@ and the @\<project>-nagare-backups@ derivation).
 resolveBackupBucket :: Maybe String -> Maybe String -> IO Text
 resolveBackupBucket _ (Just b) = pure (T.pack b)
-resolveBackupBucket mctx Nothing = backupBucket <$> activeProfile mctx
+resolveBackupBucket mctx Nothing = (^. #backupBucket) <$> activeProfile mctx
 
 -- | Resolve the object-store backend for the four data-movement verbs (EP-84):
 -- the cloud GCS backend (project + 'resolveBackupBucket') in cloud mode, the
@@ -4390,6 +4396,9 @@ dieT :: Text -> IO a
 dieT msg = do
   TIO.hPutStrLn stderr ("nagarectl: " <> msg)
   exitFailure
+
+renderVersionError :: VersionError -> Text
+renderVersionError (VersionError message) = message
 
 -- | Resolve the apps base domain: an explicit @--base-domain@ flag wins;
 -- otherwise the resolved target profile's base domain (EP-62; honors
