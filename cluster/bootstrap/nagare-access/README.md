@@ -78,3 +78,10 @@ The Knative Service is always-on (`min-scale=1`) because protected-site traffic
 flows through it on every request. `nagarectl` checks for both the Knative
 Service and the generated Kubernetes Service named `nagare-access` in
 `nagare-system` before it will wire a protected site.
+
+The `backends.json` value in `nagare-access-backends` remains backward compatible:
+protected hosts are plain `"host":"upstream"` entries. At most one entry may instead
+be an object with `{"upstream":"...","role":"portal"}`. `nagarectl deploy` owns this
+map, its reload annotation, and the portal's Shomei environment; inspect or reapply the
+registration with `nagarectl access portal show` and `nagarectl access portal sync`.
+Do not edit the ConfigMap by hand.

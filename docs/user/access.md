@@ -140,6 +140,27 @@ When the plane is installed, `nagarectl` writes the host to the
 that host, and owns the protected host's DomainMapping in `nagare-system` so it
 can target the shared `nagare-access` Knative Service.
 
+## Customize sign-in with an auth portal
+
+The built-in sign-in and plain 403/503 pages remain the default. To supply your own
+brand, password-reset pages, account management, and passkey flows, deploy one ordinary
+app with `access = Just authPortal`. The bundled implementation lives at
+`cluster/examples/auth-portal`:
+
+```bash
+cd cluster/examples/auth-portal
+nagarectl deploy -f nagare/Config.hs
+nagarectl access portal show
+```
+
+Once registered, document requests redirect to the portal's `/login` page and the
+enforcer embeds its branded error pages without changing the protected URL or status.
+The old form stays reachable at `/_nagare/login?builtin=1` as a break-glass path.
+
+Read [Operator-owned authentication portal](auth-portal.md) before implementing or
+restyling a portal. It defines the fixed paths, response handoff header, CSRF boundary,
+token handling, Shomei synchronization, and safe removal procedure.
+
 ## Manage grants
 
 Grant a shomei user access to one protected host:
@@ -227,17 +248,24 @@ verified with a constant-time comparison, so a modified cookie is rejected.
 Generate the key with `openssl rand -base64 48`, keep it in the
 `nagare-access` Secret, and rotate it as a session-invalidating credential.
 
-Login return destinations are restricted to same-host absolute paths.
-Protocol-relative URLs, absolute URLs, backslashes, and control characters fall
-back to `/`, preventing an `rd` parameter from becoming an open redirect or
-response-header injection. Invalid UTF-8 in a hostile `Host` header is treated
-as an unknown host instead of crashing the request handler.
+Built-in login return destinations are restricted to same-host absolute paths. Portal
+return destinations must be HTTPS URLs whose host is present in the backend map and
+whose path passes the same path checks. Protocol-relative paths, unknown hosts,
+userinfo, backslashes, and control characters fall back to the portal home, preventing
+return parameters from becoming open redirects or response-header injection. Invalid
+UTF-8 in a hostile `Host` header is treated as an unknown host instead of crashing the
+request handler.
 
 Apps do not implement authentication themselves. They receive requests only
 after the enforcer has verified the shomei JWT and en has allowed
 `app:<host>#access`. For server-rendered apps that want to know the user, trust
 `X-Forwarded-User` only when the app is reached through the internal cluster
 path behind `nagare-access`.
+
+Before proxying, the enforcer strips its session, refresh, and CSRF cookies from every
+upstream request. The registered portal alone receives a verified bearer access token,
+and only its internal response may request a session handoff. The enforcer rotates the
+handoff refresh token before setting browser cookies and owns the cookie-signing key.
 
 The future ingress direction is Envoy Gateway `ext_authz`. The DSL field and en
 authorization model should stay the same; only the routing mechanism changes.

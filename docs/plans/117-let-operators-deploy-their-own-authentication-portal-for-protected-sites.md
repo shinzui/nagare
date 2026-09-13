@@ -113,12 +113,14 @@ contract, which is documented in `docs/user/auth-portal.md`.
   - [x] The `linux/amd64` Docker image builds successfully and runs as user `node`.
   - [x] `nagarectl deploy --dry-run` renders only the ordinary Service and DomainMapping;
     access registration remains a deploy-time effect.
-- [ ] Milestone 6: documentation and local end-to-end validation.
-  - [ ] `docs/user/auth-portal.md` (contract), updates to `docs/user/access.md` and
+- [ ] Milestone 6: documentation and local end-to-end validation (manual passkey ceremony pending).
+  - [x] `docs/user/auth-portal.md` (contract), updates to `docs/user/access.md` and
     `cluster/bootstrap/nagare-access/README.md`.
-  - [ ] Local k3d run of the full scenario in Validation and Acceptance, transcript
-    captured here.
-  - [ ] ADR distillation (portal contract and cookie ownership).
+  - [x] Local k3d run of every non-browser scenario in Validation and Acceptance,
+    transcript captured here.
+  - [ ] Manual passkey ceremony in a browser that trusts `nagare-local-ca`. Chrome
+    correctly refused the untrusted certificate; its security interstitial was not bypassed.
+  - [x] ADR distillation (portal contract and cookie ownership).
 
 
 ## Surprises & Discoveries
@@ -186,6 +188,38 @@ These were found while researching the plan (2026-09-12), before any implementat
   Every config-as-program import then became ambiguous. Letting `runghc` use the exact
   `GHC_ENVIRONMENT` package ID removed the ambiguity; all 825 tests across the two suites
   then passed.
+- **A cold auth-image build exposed three integration drifts.** The standalone En image
+  needed the unpublished `mori://shinzui/hs-opentelemetry-instrumentation-servant` source
+  pin from En's project; the combined image was copying the current En and Shomei sibling
+  checkouts instead of the revisions pinned by `cli/nagare-access/cabal.project`; and
+  current En resolves `generic-lens-2.3.0.0` while `nagare-dsl` unnecessarily capped the
+  package below 2.3. The builder now extracts the declared Git revisions, the missing En
+  source pin is explicit, and the tested DSL bound is `>=2.2 && <2.4`. Mori located each
+  dependency source, while upstream refs and Hackage confirmed the selected revisions.
+- **The En manifest still used retired health paths.** Current En deliberately exposes
+  unauthenticated `/health/live` and `/health/ready`; Kubernetes probes against `/healthz`
+  and `/readyz` received 401 and prevented rollout. The bootstrap manifest now follows
+  the registered En source contract.
+- **The existing local Shomei database predated Shomei 0.2's repaired migration history.**
+  Its ledger correctly reported checksum mismatches. Validation used a fresh
+  `nagare_plan117` database while preserving the original database rather than deleting
+  it.
+- **Auth-plane reinstall used to erase access state.** Both installers reapplied the
+  bootstrap `backends.json: "{}"`, which would remove protected routes and the portal.
+  They now create the managed ConfigMap only when absent. A live reinstall retained the
+  portal entry and `SHOMEI_PUBLIC_BASE_URL`, so `nagarectl access portal sync` is a repair
+  command rather than a normal post-install step.
+- **The workstation's localhost port 443 was intercepted by an unrelated Portless TLS
+  endpoint.** Kubernetes held the expected `nagare-local-ca` certificates, but the host
+  listener served `portless Local CA`. The transcript therefore forwarded Kourier's
+  external TLS service to localhost:18443 and used explicit SNI/Host values; the cluster
+  path then passed CA verification. Chrome still required the CA to be installed in its
+  trust store, so the manual passkey ceremony remains outstanding.
+- **Knative treats `max-scale: "0"` as unlimited, not disabled.** To exercise the
+  enforcer fallback deterministically, the validation temporarily pointed the portal
+  backend at an unavailable cluster-local service and forced a backend-map reload. The
+  request remained 503 and changed from the branded page to the exact built-in
+  `authorization service unavailable` body; redeploy restored the real upstream.
 
 
 ## Decision Log
@@ -333,10 +367,57 @@ These were found while researching the plan (2026-09-12), before any implementat
   installed version and make every `Nagare.Dsl.*` import ambiguous.
   Date: 2026-09-13
 
+- Decision: The local-source auth-image builder extracts En and Shomei at the Git tags
+  declared in `cli/nagare-access/cabal.project` when building `nagare-access`; standalone
+  En and Shomei service images still use their current Mori-located source checkout.
+  Rationale: The enforcer compiles against a pinned API and must not silently adopt an
+  unrelated sibling HEAD. This makes the Cabal project the single compatibility source
+  of truth and preserves normal current-source service development.
+  Date: 2026-09-13
+
+- Decision: Auth-plane installation creates `nagare-access-backends` only when it is
+  absent and otherwise leaves it to `nagarectl`.
+  Rationale: The ConfigMap's managed label already identifies the resolver as owner.
+  Replacing it with the bootstrap empty value during reinstall destroys durable operator
+  routing and portal state.
+  Date: 2026-09-13
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Milestones 1 through 5 are complete, and Milestone 6's documentation, ADR, offline
+checks, and non-browser local acceptance are complete. Operators can deploy an ordinary
+app with `authPortal`, receive login and account traffic there, brand 403/503 pages, and
+remove it to restore the built-in pages. `nagare-access` alone owns cookies; upstream
+apps no longer receive them; a portal response can establish a session only through the
+bounded internal header handoff, whose refresh token is rotated before use.
+
+The local transcript on 2026-09-13 observed:
+
+- unauthenticated protected traffic returned 302 to the portal with the original URL;
+- password login returned 303, set both parent-domain cookies, and exposed no handoff
+  header; unauthorized and authorized requests returned the branded 403 and 200;
+- `/account` showed `plan117@example.test`; password change returned 303, did **not**
+  revoke the current session, and the new password created a new session;
+- Shomei's default log notifier wrote a `password_reset` event with email, token hash,
+  and expiry to the Shomei pod log, but no full reset URL unless
+  `SHOMEI_NOTIFIER_LOG_SECRETS=true` is intentionally enabled;
+- En downtime returned the branded 503, and an unreachable portal changed that response
+  to the built-in `authorization service unavailable` body;
+- the break-glass login rendered, logout redirected to `logged_out=1`, and replaying the
+  pre-logout refresh token against Shomei returned 401;
+- re-running `cluster/bootstrap/local-auth/install.sh` preserved the portal registration
+  and Shomei public base URL after the installer fix; and
+- deleting the portal removed its backend, DomainMapping, Shomei origin, Knative Service,
+  and deployment history. Once the enforcer reload revision was ready, protected traffic
+  returned to the built-in `/_nagare/login?rd=%2F` challenge.
+
+The cold image run also proved all three ARM64 auth-plane images can build and push to
+the local registry. The only remaining acceptance item is the manual WebAuthn ceremony:
+the connected Chrome instance refused the intentionally local CA with
+`ERR_CERT_AUTHORITY_INVALID`. Bypassing that interstitial would invalidate the secure
+origin being tested, so a human must first trust `nagare-local-ca` and perform Validation
+step 10.
 
 
 ## Context and Orientation
@@ -485,7 +566,8 @@ the source checkout.
 **Relevant ADRs.**
 [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md) says the
 `nagare-access` image mirrors Shomei's and En's pinned dependency plans; this plan adds
-no new Haskell dependencies to `nagare-access`, so its build stays as it is.
+only the compiler-bundled `transformers` package as a direct dependency and introduces
+no new package source or version bound for the enforcer.
 [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md) says
 Shomei and En own their schemas; this plan changes no schema.
 [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)
@@ -1179,8 +1261,8 @@ path, record the transcript in Surprises & Discoveries or Outcomes, and fix anyt
 exposes. Specifically confirm and record:
 
 1. whether re-running `cluster/bootstrap/local-auth/install.sh` keeps the Shomei env
-   set by `nagarectl` (if not, the docs tell operators to run `nagarectl access portal
-   sync` after re-installing);
+   set by `nagarectl` (the 2026-09-13 run kept it; the docs retain `nagarectl access
+   portal sync` as an explicit repair command);
 2. whether Shomei's password change revokes the current session;
 3. where the log notifier prints reset links, for the forgot-password check.
 
@@ -1246,7 +1328,7 @@ Deploy the protected example and the portal, then check the registration:
 
 ```bash
 nagarectl deploy -f cluster/examples/protected-hello/nagare/Config.hs
-nagarectl deploy -f cluster/examples/auth-portal/nagare/Config.hs
+(cd cluster/examples/auth-portal && nagarectl deploy -f nagare/Config.hs)
 nagarectl access portal show
 ```
 
@@ -1362,21 +1444,28 @@ tests are:
    ```
 
    After the decision cache expires (30 seconds), a request with the session returns
-   `503` whose body contains "temporarily unavailable". Then scale the portal to zero
-   as well:
+   `503` whose body contains "temporarily unavailable". Knative interprets a maximum
+   scale of zero as unlimited, so it cannot disable the portal. For this failure-only
+   check, preserve the map, change the portal entry's upstream to a nonexistent
+   cluster-local Service, apply the ConfigMap, and force the normal enforcer reload:
 
    ```bash
-   kubectl -n personal patch ksvc auth-portal --type=merge \
-     -p '{"spec":{"template":{"metadata":{"annotations":{"autoscaling.knative.dev/min-scale":"0","autoscaling.knative.dev/max-scale":"0"}}}}}'
+   BACKENDS=$(kubectl -n nagare-system get cm nagare-access-backends \
+     -o go-template='{{index .data "backends.json"}}')
+   BROKEN=$(printf '%s' "$BACKENDS" | jq -c \
+     '."auth.127-0-0-1.sslip.io".upstream="http://auth-portal-unavailable.personal.svc.cluster.local"')
+   kubectl -n nagare-system create configmap nagare-access-backends \
+     --from-literal="backends.json=$BROKEN" --dry-run=client -o yaml | kubectl apply -f -
+   kubectl -n nagare-system patch ksvc nagare-access --type=merge \
+     -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"nagare.dev/backend-map-reload\":\"fallback-$(date +%s)\"}}}}}"
    ```
 
-   If the platform refuses a max-scale of zero, delete the portal's pods instead and
-   note it. The same request must still return `503` with the built-in body
-   `authorization service unavailable`. Restore both:
+   The same request must still return `503` with the built-in body `authorization
+   service unavailable`. Restore both; redeploying the portal restores its map entry:
 
    ```bash
    kubectl -n nagare-system scale deploy/en --replicas=1
-   nagarectl deploy -f cluster/examples/auth-portal/nagare/Config.hs
+   (cd cluster/examples/auth-portal && nagarectl deploy -f nagare/Config.hs)
    ```
 
 8. **Break-glass.**
@@ -1416,7 +1505,7 @@ tests are:
 11. **Removing the portal restores the defaults.**
 
     ```bash
-    nagarectl app delete auth-portal --namespace personal   # use the exact delete syntax from `nagarectl app delete --help`
+    (cd cluster/examples/auth-portal && nagarectl app delete auth-portal --namespace personal --file nagare/Config.hs)
     nagarectl access portal show
     curl -sS --cacert $CA -o /dev/null -w '%{http_code} %{redirect_url}\n' "$APP/"
     ```
@@ -1732,6 +1821,12 @@ interface of this plan. Any change to it after Milestone 6 must update
 
 
 ## Revision notes
+
+- 2026-09-13: Implemented Milestones 1–5 and the non-browser portion of Milestone 6.
+  Added the operator runbook and ADR, recorded the local transcript, and updated the
+  cold auth-image path to honor dependency pins. Local validation fixed current En
+  probes and made auth-plane reinstall preserve the resolver-owned backend map. The
+  manual passkey ceremony remains open until a browser trusts the local CA.
 
 - 2026-09-12: Reworked the Haskell interfaces after review.
   - Replaced bare-`Text` and nested `Either`/`Maybe` signatures with domain types.
