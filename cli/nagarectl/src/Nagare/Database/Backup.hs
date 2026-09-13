@@ -32,17 +32,15 @@ module Nagare.Database.Backup
 
     -- * Command driver
   , runDbBackup
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
-
-import Cradle
 import Control.Monad (forM_)
+import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
@@ -63,6 +61,7 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp, snapshotsToPrune)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (hClose, stderr)
@@ -206,8 +205,8 @@ uploadContainer i =
         .= toJSON
           ( [plainEnv "DEST" url | BackupDestUrl url <- [i ^. #destination]]
               ++ [ plainEnv "PREFIX" (i ^. #prefix)
-            , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
-            ]
+                 , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
+                 ]
               ++ storeEnv (i ^. #backend)
           )
     , "volumeMounts" .= toJSON [dumpMount]

@@ -15,16 +15,14 @@ module Nagare.Database.Restore
   , RestoreJobInputs (..)
   , renderRestoreJob
   , runDbRestore
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
@@ -43,6 +41,7 @@ import Nagare.Cluster.GcsJob
 import Nagare.Database.Backup (backupExt, backupRawExt, dbBackupObjectPath)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (hClose, stderr)

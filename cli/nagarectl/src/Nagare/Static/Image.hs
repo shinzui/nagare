@@ -16,14 +16,14 @@
 module Nagare.Static.Image
   ( staticDockerfile
   , withStaticImageContext
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render (renderNginxConfig)
 import Nagare.Dsl.Static.Types (StaticSite)
 import Nagare.Static.Build (PreparedStaticOutput (..))

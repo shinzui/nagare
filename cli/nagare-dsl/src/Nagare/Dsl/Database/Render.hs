@@ -23,17 +23,16 @@ module Nagare.Dsl.Database.Render
   , dbServiceName
   , dbPvcName
   , dbConfigMapName
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Database
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (Resources, namespaceText, quantityText)
 
 -- ---------------------------------------------------------------------------
@@ -191,8 +190,8 @@ commandPairs Redis =
   [ "command" .= toJSON (["sh", "-c"] :: [Text])
   , "args"
       .= toJSON
-        ( ["exec redis-server --requirepass \"$REDIS_PASSWORD\" --dir /data --save 60 1 --appendonly no"]
-            :: [Text]
+        ( ["exec redis-server --requirepass \"$REDIS_PASSWORD\" --dir /data --save 60 1 --appendonly no"] ::
+            [Text]
         )
   ]
 commandPairs _ = []

@@ -22,14 +22,15 @@ module Main (main) where
 
 import Control.Exception (IOException, bracket, bracket_, catch)
 import Control.Monad (forM, forM_, unless, void)
-import Data.Char (isAlphaNum)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy.Char8 qualified as LBC
+import Data.Char (isAlphaNum)
+import Data.Generics.Labels ()
+import Data.List (sort)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.List (sort)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -137,9 +138,9 @@ import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
+  , commitStagedHostFlake
   , hostConfigDir
   , installHostFlake
-  , commitStagedHostFlake
   , readAuthorizedKeys
   , renderHostFlake
   , renderHostModule
@@ -153,6 +154,13 @@ import Nagare.Image
   , pushImage
   , qualifyImage
   )
+import Nagare.Infra.Plan
+  ( PlanVerdict (..)
+  , classifyPlan
+  , gceInstanceType
+  , parsePreview
+  , renderVerdict
+  )
 import Nagare.Init
   ( InitOpts (..)
   , WriteResult (..)
@@ -164,19 +172,17 @@ import Nagare.Init
   , seedPulumiConfig
   , writeTargetEnv
   )
-import Nagare.Infra.Plan
-  ( PlanVerdict (..)
-  , classifyPlan
-  , gceInstanceType
-  , parsePreview
-  , renderVerdict
-  )
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
   , defaultKeepReleases
   , defaultPreviewTtlDays
   , executeCleanup
   , formatCleanupReport
+  )
+import Nagare.Ops.ContextGuard
+  ( ProjectGuardInputs (..)
+  , projectGuardVerdict
+  , renderProjectGuard
   )
 import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecksAt)
 import Nagare.Ops.Domains
@@ -189,11 +195,6 @@ import Nagare.Ops.Domains
   )
 import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
-import Nagare.Ops.ContextGuard
-  ( ProjectGuardInputs (..)
-  , projectGuardVerdict
-  , renderProjectGuard
-  )
 import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
 import Nagare.Platform.Paths
@@ -203,13 +204,6 @@ import Nagare.Platform.Paths
   , renderPlatformPathError
   , resolvePlatformPaths
   , validatePlatformRoot
-  )
-import Nagare.Platform.Workspace
-  ( PayloadManifest (..)
-  , PlatformWorkspace (..)
-  , readPayloadManifest
-  , preparePlatformWorkspace
-  , renderWorkspaceError
   )
 import Nagare.Platform.Status
   ( PlatformStatus (..)
@@ -239,6 +233,13 @@ import Nagare.Platform.Upgrade
   , renderUpgradeTransaction
   , writeUpgradeTransaction
   )
+import Nagare.Platform.Workspace
+  ( PayloadManifest (..)
+  , PlatformWorkspace (..)
+  , preparePlatformWorkspace
+  , readPayloadManifest
+  , renderWorkspaceError
+  )
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
@@ -267,14 +268,15 @@ import Nagare.Storage.List (runStorageList)
 import Nagare.Storage.Restore (runStorageRestore)
 import Nagare.Storage.Snapshot (backupExcludedWarnings, runSnapshot)
 import Nagare.Target
-  ( ActiveTarget (..)
+  ( AcmeDirectory (..)
+  , ActiveTarget (..)
   , ContextName
   , Mode (..)
   , PulumiBackendKind (..)
-  , AcmeDirectory (..)
   , PulumiEnv (..)
   , TargetProfile (..)
   , VmShape (..)
+  , acmeDirectoryToken
   , clearCurrentContext
   , contextExists
   , contextFilePath
@@ -284,21 +286,20 @@ import Nagare.Target
   , listContexts
   , mkContextName
   , nagareStateDir
-  , acmeDirectoryToken
   , parseAcmeDirectory
   , parsePulumiBackendKind
   , profileFromContextMap
-  , validateAcmeEmail
-  , validateVmShape
-  , vmShapeOf
   , pulumiEnvFor
-  , renderContextShellEnv
   , readContextProfile
   , readCurrentContext
+  , renderContextShellEnv
   , resolveActiveContext
   , resolveActiveTarget
   , setCurrentContext
   , storeBackendFor
+  , validateAcmeEmail
+  , validateVmShape
+  , vmShapeOf
   , writeContextPlatformVersion
   )
 import Nagare.Task.Delete (TaskDeleteParams (..), runTaskDelete)
@@ -330,7 +331,6 @@ import System.Process
   , readCreateProcessWithExitCode
   , readProcessWithExitCode
   )
-import Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- CLI options
@@ -2650,8 +2650,9 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
           ["--justfile", workspace ^. #justfile, "--working-directory", workspace ^. #root, bootstrapRecipe]
           ""
     runPhase ClusterStamp = applyClusterMarker manifest
-    runPhase ContextCommit = writeContextPlatformVersion context (manifest ^. #platformVersion) >>=
-      pure . fmap (const ("context pin advanced to " <> manifest ^. #platformVersion))
+    runPhase ContextCommit =
+      writeContextPlatformVersion context (manifest ^. #platformVersion)
+        >>= pure . fmap (const ("context pin advanced to " <> manifest ^. #platformVersion))
     bootstrapRecipe = case profile ^. #mode of
       Local -> "local-bootstrap"
       Cloud -> "cluster-bootstrap"
@@ -2935,8 +2936,10 @@ runInit mctx o = do
   tpBase <- profileFromOpts project region zone baseDomain shape acmeEmail acmeDirectory
   let baseProfile =
         tpBase
-          & #pulumiBackend .~ parsePulumiBackendKind (o ^. #pulumiBackend)
-          & #pulumiBackendUrl .~ maybe "" T.pack (o ^. #pulumiBackendUrl)
+          & #pulumiBackend
+          .~ parsePulumiBackendKind (o ^. #pulumiBackend)
+          & #pulumiBackendUrl
+          .~ maybe "" T.pack (o ^. #pulumiBackendUrl)
   contextName <- case o ^. #contextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"

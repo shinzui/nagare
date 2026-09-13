@@ -36,14 +36,14 @@ module Nagare.Dsl.Build
   , resolveImageTag
   , requiresBuild
   , defaultBuild
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isSpace)
 import Data.Map (Map)
 import Data.Text qualified as Text
 import Nagare.Dsl.Path (FilePathText, mkFilePathText)
+import Nagare.Dsl.Prelude
 
 -- | A Docker image tag, e.g. @"v1.2.3"@ or @"20260609-000000"@. The constructor
 -- is hidden; use 'mkTag'. Digests (@\@sha256:...@) are out of scope.

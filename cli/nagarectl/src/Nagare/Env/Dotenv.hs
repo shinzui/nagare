@@ -11,14 +11,14 @@
 -- are NOT supported.
 module Nagare.Env.Dotenv
   ( parseDotenv
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isSpace)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 
 -- | Parse a dotenv file's text into a key/value map. See the module header for
 -- the accepted grammar. A malformed line yields a 'Left' naming the offender.

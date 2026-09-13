@@ -28,17 +28,15 @@ module Nagare.Storage.Snapshot
 
     -- * Command driver
   , runSnapshot
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
-
-import Cradle
 import Control.Monad (forM_)
+import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.List (sortBy)
 import Data.Ord (Down (..), comparing)
 import Data.Text qualified as T
@@ -57,6 +55,7 @@ import Nagare.Cluster.GcsJob
   , storePrefixUrl
   , storeShellPreamble
   )
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( Deployment
   , RetentionPolicy (..)

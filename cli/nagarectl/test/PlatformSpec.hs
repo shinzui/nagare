@@ -2,8 +2,6 @@
 
 module PlatformSpec (platformTests) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (bracket, finally)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
@@ -14,6 +12,7 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Platform.Paths
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
@@ -26,8 +25,8 @@ import System.Directory
   , getCurrentDirectory
   , setCurrentDirectory
   )
-import System.FilePath (takeDirectory, (</>))
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit

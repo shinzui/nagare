@@ -18,9 +18,8 @@ module Nagare.Task.Resolve
   ( resolveTaskImage
   , predefinedTaskEnv
   , renderResolvedTask
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Data.Aeson (Value (Array, Object, String), object, (.=))
 import Data.Aeson.Key qualified as Key
@@ -30,6 +29,7 @@ import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Vector qualified as V
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Task.Render (cronJobValue, encodeCronJob)
 import Nagare.Dsl.Types
@@ -52,11 +52,13 @@ import Nagare.Dsl.Types
 --   * When the task inherits (@image = Nothing@), the app's full resolved
 --     image reference is used verbatim — the SAME string the app's own container
 --     gets this run — so the task runs the app's current code.
-resolveTaskImage
-  :: Text -- ^ the app's resolved image reference, @repo:tag@ (for inheritance)
-  -> Text -- ^ the bare deploy tag, @tag@ (to pin an explicit task image)
-  -> Task
-  -> Text
+resolveTaskImage ::
+  -- | the app's resolved image reference, @repo:tag@ (for inheritance)
+  Text ->
+  -- | the bare deploy tag, @tag@ (to pin an explicit task image)
+  Text ->
+  Task ->
+  Text
 resolveTaskImage appImageTagged deployTag t =
   case t ^. #image of
     Just ref -> imageRefText ref <> ":" <> deployTag
@@ -96,15 +98,17 @@ runIdEnvEntry =
 -- predefined @NAGARE_*@ literals merged into the task's inline env (via the
 -- caller-supplied @withPredefEnv@ setter, which unions 'predefinedTaskEnv' into
 -- the task's @env@), and the @NAGARE_RUN_ID@ Downward-API entry appended.
-renderResolvedTask
-  :: Text -- ^ the app's resolved image reference, @repo:tag@
-  -> Text -- ^ the bare deploy tag
-  -> (Task -> Task)
-  -- ^ how to augment the task's inline env with 'predefinedTaskEnv' (the caller
+renderResolvedTask ::
+  -- | the app's resolved image reference, @repo:tag@
+  Text ->
+  -- | the bare deploy tag
+  Text ->
+  -- | how to augment the task's inline env with 'predefinedTaskEnv' (the caller
   -- supplies a setter that unions @predefinedTaskEnv t@ into @env t@, so this
   -- module needs no record-update knowledge of the Task field shape)
-  -> Task
-  -> ByteString
+  (Task -> Task) ->
+  Task ->
+  ByteString
 renderResolvedTask appImageTagged deployTag withPredefEnv t =
   encodeCronJob (patchContainer (injectImageAndRunId resolvedImage) (cronJobValue (withPredefEnv t)))
   where

@@ -13,11 +13,11 @@ module Nagare.Dsl.Path
   ( FilePathText
   , mkFilePathText
   , filePathText
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Text qualified as Text
+import Nagare.Dsl.Prelude
 
 -- | A relative filesystem path inside the project: a build output directory
 -- (e.g. @"dist"@), a nested directory (@"build/client"@), a Dockerfile path

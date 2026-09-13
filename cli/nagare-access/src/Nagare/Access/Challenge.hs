@@ -8,13 +8,12 @@ module Nagare.Access.Challenge
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Data.ByteString.Char8 qualified as BC
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Nagare.Access.Prelude
 import Network.HTTP.Types.Header (Header, HeaderName, hAccept)
 import Network.HTTP.Types.URI (urlEncode)
 

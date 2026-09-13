@@ -2,8 +2,6 @@
 -- transport / loader round-trip.
 module CdnSpec (cdnTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy (toStrict)
@@ -14,6 +12,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Config (encodeDeployment)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (Deployment (..))
 import Test.Tasty

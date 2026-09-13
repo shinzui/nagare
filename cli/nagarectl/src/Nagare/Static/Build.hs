@@ -11,14 +11,13 @@ module Nagare.Static.Build
   , StaticBuildError (..)
   , renderStaticBuildError
   , prepareStaticOutput
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types
   ( StaticSite
   , filePathText

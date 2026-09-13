@@ -42,9 +42,9 @@ module Nagare.Dsl.Worker
   )
 where
 
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)

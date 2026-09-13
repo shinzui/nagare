@@ -7,8 +7,6 @@
 -- config of the wrong @kind@ is reported as 'UnexpectedKind'.
 module ServerSpec (serverTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -21,6 +19,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Load
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (mkSiteName)
@@ -99,15 +98,15 @@ notesVolApp :: ServerSite
 notesVolApp =
   notesApp
     & #volumes
-      .~ [ Volume
-             { name = unsafe (mkVolumeName "uploads")
-             , size = unsafe (mkQuantity "2Gi")
-             , mountPath = unsafe (mkMountPath "/data/uploads")
-             , accessMode = ReadWriteOnce
-             , readOnly = False
-             , retention = Retain
-             }
-         ]
+    .~ [ Volume
+           { name = unsafe (mkVolumeName "uploads")
+           , size = unsafe (mkQuantity "2Gi")
+           , mountPath = unsafe (mkMountPath "/data/uploads")
+           , accessMode = ReadWriteOnce
+           , readOnly = False
+           , retention = Retain
+           }
+       ]
 
 volumeParityTests :: [TestTree]
 volumeParityTests =

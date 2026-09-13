@@ -5,8 +5,6 @@
 -- 'decodeDeployment' so it needs no @runghc@ invocation.
 module LoadSpec (loadTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.ByteString.Char8 qualified as BC
 import Data.Map qualified as Map
 import Data.Set (Set)
@@ -14,6 +12,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Load
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( Deployment (..)
   , EnvScope (..)

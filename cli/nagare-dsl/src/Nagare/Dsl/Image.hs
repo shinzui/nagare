@@ -9,7 +9,8 @@
 module Nagare.Dsl.Image
   ( mkImageName
   , imageRefFromName
-  ) where
+  )
+where
 
 import Data.Text (Text)
 import Data.Text qualified as T

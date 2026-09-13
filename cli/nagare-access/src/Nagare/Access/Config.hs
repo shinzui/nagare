@@ -11,11 +11,10 @@ module Nagare.Access.Config
   )
 where
 
-import Nagare.Access.Prelude
 import Data.Generics.Labels ()
-
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Access.Prelude
 
 data Listen = Listen
   { host :: !(Maybe Text)

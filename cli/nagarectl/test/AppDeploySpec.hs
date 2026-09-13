@@ -7,8 +7,6 @@
 -- the nagare-dsl loader tests do).
 module AppDeploySpec (appDeployTests) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -23,6 +21,7 @@ import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.App.Deploy
 import Nagare.Dsl.Load (loadApplication)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkImageRef)
 import Nagare.Target (Mode (..), PulumiBackendKind (..), TargetProfile (..))
 import System.Exit (ExitCode (..))

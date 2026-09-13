@@ -17,9 +17,8 @@ module Nagare.Task.Discover
   , listTasks
   , getTask
   , formatTaskTable
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Aeson (eitherDecodeStrict)
@@ -31,6 +30,7 @@ import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
 
 -- | How a command scopes discovery by the @nagare.dev/app@ label.

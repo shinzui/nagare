@@ -37,27 +37,25 @@ module Nagare.Ops.PulumiBackend
   , GcloudOps (..)
   , realGcloudOps
   , bootstrapPulumiStateBucketWith
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
+import Cradle (addArgs, cmd, run)
 import Data.Function ((&))
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Exit (ExitCode (..))
-import System.Process (readProcessWithExitCode)
-
-import Cradle (addArgs, cmd, run)
-
+import Nagare.Dsl.Prelude
 import Nagare.Target
   ( PulumiBackendKind (..)
   , TargetProfile (..)
   , defaultGcsPulumiBackendUrl
   , effectivePulumiBackend
   )
+import System.Exit (ExitCode (..))
+import System.Process (readProcessWithExitCode)
 
 -- | Parse the bucket out of a @gs://\<bucket>/\<path>@ URL. 'Nothing' if the URL is
 -- not a @gs://@ URL or names no bucket.

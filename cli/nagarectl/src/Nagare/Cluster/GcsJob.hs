@@ -48,14 +48,14 @@ module Nagare.Cluster.GcsJob
     -- * The full Job @.spec@ body
   , DataMovementJob (..)
   , dataMovementJobSpec
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude hiding ((.=))
 
 -- | A @hostAliases@ entry mapping @metadata.google.internal@ to the GCE metadata
 -- IP, so @gcloud@/@gsutil@ (which look up the canonical name) find the metadata
@@ -128,7 +128,7 @@ parseLocalObjectStore :: Text -> Maybe (Text, Text)
 parseLocalObjectStore raw =
   let (beforeBucket, bucket) = T.breakOnEnd "/" raw
       endpoint = T.dropWhileEnd (== '/') beforeBucket
-  in if T.null endpoint || T.null bucket then Nothing else Just (endpoint, bucket)
+   in if T.null endpoint || T.null bucket then Nothing else Just (endpoint, bucket)
 
 -- | The data-movement container image for the backend.
 storeImage :: StoreBackend -> Text
@@ -265,7 +265,7 @@ dataMovementJobSpec j =
           ( maybe [] (\ls -> ["metadata" .= object ["labels" .= ls]]) (j ^. #templateLabels)
               ++ [ "spec"
                      .= object
-                       ( [ "restartPolicy" .= ("Never" :: Text) ]
+                       ( ["restartPolicy" .= ("Never" :: Text)]
                            ++ maybe [] (\ha -> ["hostAliases" .= ha]) (j ^. #hostAliases)
                            ++ ["initContainers" .= toJSON (j ^. #initContainers) | not (null (j ^. #initContainers))]
                            ++ [ "containers" .= toJSON (j ^. #containers)

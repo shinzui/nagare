@@ -12,9 +12,6 @@ module Nagare.Access.Cookie
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.ByteArray (convert)
@@ -24,9 +21,11 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Nagare.Access.Prelude
 import Network.HTTP.Types.Header (Header)
 
 data CookieSettings = CookieSettings

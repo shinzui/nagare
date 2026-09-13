@@ -29,8 +29,8 @@ module Nagare.Ops.Doctor
   )
 where
 
-import Data.Text qualified as T
 import Data.Generics.Labels ()
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Target (TargetProfile (..))

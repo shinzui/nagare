@@ -10,14 +10,14 @@ module Nagare.Env.Generated
   ( GeneratedContext (..)
   , generatedEnv
   , mergeGenerated
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text (Text)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( EnvName
   , EnvVar (EnvLiteral)
@@ -64,12 +64,12 @@ generatedEnv ctx =
 
 -- | Merge generated variables over an app's existing env map, generated winning
 -- on key collisions (left-biased on the generated map). Reserves @NAGARE_*@.
-mergeGenerated
-  :: Map EnvName ScopedEnvVar
-  -- ^ generated (wins)
-  -> Map EnvName ScopedEnvVar
-  -- ^ user / config env
-  -> Map EnvName ScopedEnvVar
+mergeGenerated ::
+  -- | generated (wins)
+  Map EnvName ScopedEnvVar ->
+  -- | user / config env
+  Map EnvName ScopedEnvVar ->
+  Map EnvName ScopedEnvVar
 mergeGenerated = Map.union -- Data.Map.union is left-biased
 
 -- | Construct an 'EnvName' from a known-valid @NAGARE_*@ literal. These names are

@@ -17,9 +17,8 @@ module Nagare.App.Deployments
   , formatDeploymentsTable
   , resolveRevisionForTag
   , revisionForTag
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Aeson (eitherDecodeStrict)
@@ -30,6 +29,7 @@ import Data.ByteString (ByteString)
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Nagare.Dsl.Prelude
 import Nagare.Static.Release
   ( StaticRelease
   , StaticReleaseLog

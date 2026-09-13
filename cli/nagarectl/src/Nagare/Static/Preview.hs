@@ -14,13 +14,13 @@ module Nagare.Static.Preview
   , previewDomain
   , listPreviews
   , deletePreview
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Char (isAsciiLower, isDigit)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import System.Exit (ExitCode)
 
 -- ---------------------------------------------------------------------------

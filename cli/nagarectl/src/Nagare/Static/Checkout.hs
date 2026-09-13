@@ -7,14 +7,14 @@
 module Nagare.Static.Checkout
   ( workspacePathFor
   , checkoutRepo
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Static.Webhook (CheckoutSpec (..))
 import System.Directory (doesDirectoryExist)
 import System.Exit (ExitCode (..))

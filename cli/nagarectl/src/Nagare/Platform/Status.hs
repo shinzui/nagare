@@ -19,8 +19,6 @@ module Nagare.Platform.Status
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
@@ -28,6 +26,7 @@ import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Platform.Workspace (PayloadManifest (..))
 import Nagare.Target (TargetProfile (..))

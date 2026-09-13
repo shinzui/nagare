@@ -4,6 +4,7 @@ module Nagare.Broker.Get
   )
 where
 
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Broker.Discover (BrokerRow (..), getBroker)
@@ -12,7 +13,6 @@ import Nagare.Dsl.Broker.Render (brokerPvcName)
 import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
-import Data.Generics.Labels ()
 
 runBrokerGet :: Text -> Text -> IO ()
 runBrokerGet ns brokerName = do

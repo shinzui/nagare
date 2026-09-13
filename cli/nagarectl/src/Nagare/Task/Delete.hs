@@ -7,14 +7,14 @@
 module Nagare.Task.Delete
   ( TaskDeleteParams (..)
   , runTaskDelete
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Task.Discover (AppScope, getTask)
 import System.Exit (exitFailure)
 import System.IO (stderr)

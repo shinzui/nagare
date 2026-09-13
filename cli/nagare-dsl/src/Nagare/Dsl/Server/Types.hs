@@ -23,15 +23,15 @@ module Nagare.Dsl.Server.Types
   , runtimeImageText
   , defaultServerRuntime
   , tanstackStartBuild
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import Data.Text qualified as Text
 import Nagare.Dsl.Cdn.Types (Cdn)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (FilePathText, SiteName, mkFilePathText)
 import Nagare.Dsl.Types
   ( Domain
@@ -120,11 +120,11 @@ data ServerSite = ServerSite
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
   , domains :: ![Domain]
-  -- | Durable disks attached to the site (same model as
-  -- 'Nagare.Dsl.Types.Deployment'). Empty means a stateless site.
   , volumes :: ![Volume]
-  -- | An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
-  -- (the backward-compatible default) means no CDN.
+  -- ^ Durable disks attached to the site (same model as
+  -- 'Nagare.Dsl.Types.Deployment'). Empty means a stateless site.
   , cdn :: !(Maybe Cdn)
+  -- ^ An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
+  -- (the backward-compatible default) means no CDN.
   }
   deriving stock (Generic, Eq, Show)

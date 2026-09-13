@@ -7,8 +7,6 @@
 -- wrong @kind@ (or none) is reported as 'UnexpectedKind' rather than misread.
 module StaticSpec (staticTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -18,6 +16,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Load
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)

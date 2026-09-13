@@ -16,12 +16,11 @@ module Nagare.Platform.Paths
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (IOException, try)
 import Data.List (intercalate)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory, makeAbsolute)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))

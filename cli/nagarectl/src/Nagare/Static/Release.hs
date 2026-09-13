@@ -31,9 +31,8 @@ module Nagare.Static.Release
   , writeReleaseLogWith
   , recordReleaseFor
   , recordReleaseForWith
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
+  )
+where
 
 import Cradle
 import Data.Aeson
@@ -52,15 +51,16 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
-import Data.Generics.Labels ()
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.List (find, sortOn)
 import Data.Ord (Down (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, getCurrentTime)
 import Nagare.Deploy (applyManifests)
+import Nagare.Dsl.Prelude hiding ((.=))
 import System.Exit (ExitCode (..))
 
 -- ---------------------------------------------------------------------------

@@ -20,13 +20,13 @@
 module Nagare.GhcEnv
   ( findGhcEnvIn
   , resolveProjectGhcEnv
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Control.Exception (SomeException, try)
 import Data.List (isPrefixOf, nub, sort)
 import Data.Maybe (catMaybes, listToMaybe)
+import Nagare.Dsl.Prelude
 import System.Directory
   ( doesDirectoryExist
   , doesFileExist

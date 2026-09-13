@@ -5,15 +5,15 @@
 -- password in argv.
 module Nagare.Database.Shell
   ( runDbShell
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (DbRow (..), getDatabase)
+import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
 

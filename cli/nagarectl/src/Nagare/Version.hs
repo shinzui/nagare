@@ -14,8 +14,6 @@ module Nagare.Version
   )
 where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -23,6 +21,7 @@ import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Version (showVersion)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Numeric.Natural (Natural)
 import Paths_nagarectl qualified as Package
 import Text.Read (readMaybe)

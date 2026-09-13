@@ -18,18 +18,17 @@ module Nagare.Access.BackendMap
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Data.Aeson (FromJSON (parseJSON), Value (Object, String), eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Access.Prelude
 
 -- | A public host after lower-casing and removing a port and trailing dot.
 newtype PublicHost = PublicHost Text

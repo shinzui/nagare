@@ -48,14 +48,14 @@ module Nagare.Dsl.Static.Types
   , CachePolicy (..)
   , defaultCachePolicy
   , mkCachePolicy
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isControl, isDigit, isLower, isSpace)
 import Data.Text qualified as Text
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (Domain, ImageRef, Namespace)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the static site's Knative Service
@@ -194,10 +194,10 @@ data StaticSite = StaticSite
   , headers :: ![HeaderRule]
   , cache :: !CachePolicy
   , notFound :: !(Maybe FilePathText)
-  -- | An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
+  , cdn :: !(Maybe Cdn)
+  -- ^ An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
   -- (the backward-compatible default) means no CDN — the site is served directly
   -- from the VM. EP-58 provisions the chosen provider at deploy time.
-  , cdn :: !(Maybe Cdn)
   }
   deriving stock (Generic, Eq, Show)
 

@@ -1,10 +1,8 @@
 module Main (main) where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Control.Monad (when)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.UUID (toText)
@@ -17,6 +15,7 @@ import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookie
 import Nagare.Access.DecisionCache (newDecisionCache)
 import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
+import Nagare.Access.Prelude
 import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)

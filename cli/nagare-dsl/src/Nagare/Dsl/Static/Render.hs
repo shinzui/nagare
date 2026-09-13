@@ -16,18 +16,17 @@ module Nagare.Dsl.Static.Render
   , renderNginxConfig
   , renderStaticService
   , renderStaticDomainMappings
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Types (Domain, domainText, imageRefText, namespaceText)
 

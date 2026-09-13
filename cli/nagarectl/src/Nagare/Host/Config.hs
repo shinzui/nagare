@@ -16,8 +16,6 @@ module Nagare.Host.Config
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (IOException, onException, try)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
@@ -28,6 +26,7 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Target (ContextName, contextNameText, nagareConfigDir)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
@@ -230,7 +229,7 @@ installHostFlake force config buildVersion requestedSopsFile = do
       createDirectoryIfMissing True parent
       staging <- createTempDirectory parent ("." <> T.unpack (contextNameText (config ^. #context)) <> ".staging.")
       let cleanup = removeIfPresent staging
-      (do
+      ( do
           TIO.writeFile (staging </> "flake.nix") (renderHostFlake config buildVersion)
           TIO.writeFile (staging </> "host.nix") (renderHostModule config)
           copyFile sopsSource (staging </> "secrets.yaml")
@@ -246,12 +245,15 @@ installHostFlake force config buildVersion requestedSopsFile = do
                   unchanged <- if exists then sameGeneratedTree destination staging else pure False
                   if unchanged
                     then cleanup >> pure (Right HostUnchanged)
-                    else if exists && not force
-                      then cleanup >> pure (Left ("host configuration already exists at " <> T.pack destination <> "; pass --force to replace generated scaffolding"))
-                      else if exists
-                        then replaceDirectory destination staging
-                        else renameDirectory staging destination >> pure (Right HostInstalled)
-        ) `onException` cleanup
+                    else
+                      if exists && not force
+                        then cleanup >> pure (Left ("host configuration already exists at " <> T.pack destination <> "; pass --force to replace generated scaffolding"))
+                        else
+                          if exists
+                            then replaceDirectory destination staging
+                            else renameDirectory staging destination >> pure (Right HostInstalled)
+        )
+        `onException` cleanup
 
 resolveSopsSource :: FilePath -> Maybe FilePath -> IO (Either Text FilePath)
 resolveSopsSource destination requested = do
@@ -271,11 +273,13 @@ validateGeneratedTree root = do
   pure $
     if "PRIVATE KEY" `T.isInfixOf` T.toUpper publicText
       then Left "generated host configuration contains private-key material"
-      else if "tskey-" `T.isInfixOf` secretsText
-        then Left "refusing plaintext Tailscale token in the host secrets file; encrypt it with sops first"
-        else if not ("sops:" `T.isInfixOf` secretsText && "ENC[" `T.isInfixOf` secretsText)
-          then Left "host secrets file does not look sops-encrypted (expected sops metadata and ENC[...] values)"
-          else Right ()
+      else
+        if "tskey-" `T.isInfixOf` secretsText
+          then Left "refusing plaintext Tailscale token in the host secrets file; encrypt it with sops first"
+          else
+            if not ("sops:" `T.isInfixOf` secretsText && "ENC[" `T.isInfixOf` secretsText)
+              then Left "host secrets file does not look sops-encrypted (expected sops metadata and ENC[...] values)"
+              else Right ()
 
 validateNixFlake :: FilePath -> IO (Either Text ())
 validateNixFlake root = do
@@ -326,4 +330,4 @@ nixString value = "\"" <> escapeInterpolation (T.concatMap escapeChar value) <> 
 trimOutput :: String -> String
 trimOutput output =
   let outputLines = lines output
-  in unlines (take 12 outputLines <> ["..."] <> drop (max 12 (length outputLines - 30)) outputLines)
+   in unlines (take 12 outputLines <> ["..."] <> drop (max 12 (length outputLines - 30)) outputLines)

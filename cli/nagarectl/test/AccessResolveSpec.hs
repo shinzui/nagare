@@ -1,7 +1,5 @@
 module AccessResolveSpec (accessResolveTests) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (try)
 import Data.Aeson (eitherDecodeStrict, encode)
 import Data.ByteString.Lazy qualified as LBS
@@ -13,6 +11,7 @@ import Data.Text qualified as T
 import Nagare.Access.Resolve
 import Nagare.Dsl.Access (authPortal, requireLogin)
 import Nagare.Dsl.Build (defaultBuild)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 import System.Exit (ExitCode (..))
 import Test.Tasty

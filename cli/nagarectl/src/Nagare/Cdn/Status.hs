@@ -9,12 +9,12 @@ module Nagare.Cdn.Status
   , formatCdnList
   , formatCdnStatus
   , queryCdnRows
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 
 -- | Where a CDN-fronted hostname currently points.
 data CdnDnsTarget

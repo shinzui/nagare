@@ -22,13 +22,11 @@ module Nagare.Cdn.Provision
 
     -- * Provisioning (IO; total via Either)
   , provisionCdn
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Data.Text qualified as T
 import Data.Generics.Labels ()
-
+import Data.Text qualified as T
 import Nagare.Cdn.Cloudflare
   ( OriginTlsMode (Flexible)
   , applyCacheRules
@@ -37,6 +35,7 @@ import Nagare.Cdn.Cloudflare
   , upsertProxiedRecord
   )
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..), CdnProvider (..))
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 
 -- ---------------------------------------------------------------------------

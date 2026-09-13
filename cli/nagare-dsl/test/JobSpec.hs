@@ -1,11 +1,8 @@
 module JobSpec (jobTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy (fromStrict)
-import Data.ByteString.Lazy (toStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -15,6 +12,7 @@ import Nagare.Dsl.Config (encodeJob, encodeWorker)
 import Nagare.Dsl.Job
 import Nagare.Dsl.Job.Render
 import Nagare.Dsl.Load (LoadError (..), decodeJob, loadJob)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (webWorker)
 import Test.Tasty
@@ -61,7 +59,7 @@ constructorTests =
         ( mkJob
             ( fixtureJob
                 & #resources
-                  .~ Just (completeResources & #memoryLimit .~ Nothing)
+                .~ Just (completeResources & #memoryLimit .~ Nothing)
             )
         )
   , testCase "mkJob accepts complete explicit resources" $
@@ -164,32 +162,38 @@ representativeJob =
     Left err -> error ("test fixture invalid: " <> err)
     Right job ->
       job
-        & #command .~ Just (unsafe (mkCommand ["/app/agent-run"]))
+        & #command
+        .~ Just (unsafe (mkCommand ["/app/agent-run"]))
         & #env
-          .~ Map.fromList
-            [ (unsafe (mkEnvName "NAGARE_RUN_ID"), runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
-            , ( unsafe (mkEnvName "REPO_REF")
-              , runtimeScoped
-                  (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
-              )
-            ]
+        .~ Map.fromList
+          [ (unsafe (mkEnvName "NAGARE_RUN_ID"), runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
+          ,
+            ( unsafe (mkEnvName "REPO_REF")
+            , runtimeScoped
+                (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
+            )
+          ]
 
 nixJob :: Job
 nixJob =
   representativeJob
-    & #nixConfigMap .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
+    & #nixConfigMap
+    .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
 
 richJob :: Job
 richJob =
   fixtureJob
-    & #command .~ Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
+    & #command
+    .~ Just (unsafe (mkCommand ["sh", "-c", "echo one-shot job"]))
     & #env
-      .~ Map.fromList
-        [ (unsafe (mkEnvName "REPO_REF"), runtimeScoped (EnvLiteral "repo_example@0123456789012345678901234567890123456789"))
-        , (unsafe (mkEnvName "FORGE_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "forge-token"))))
-        ]
-    & #resources .~ Just completeResources
-    & #nixConfigMap .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
+    .~ Map.fromList
+      [ (unsafe (mkEnvName "REPO_REF"), runtimeScoped (EnvLiteral "repo_example@0123456789012345678901234567890123456789"))
+      , (unsafe (mkEnvName "FORGE_TOKEN"), runtimeScoped (EnvSecretRef (unsafe (mkSecretName "forge-token"))))
+      ]
+    & #resources
+    .~ Just completeResources
+    & #nixConfigMap
+    .~ Just (unsafe (mkConfigMapName "nagare-nix-cache-client"))
 
 completeResources :: Resources
 completeResources =

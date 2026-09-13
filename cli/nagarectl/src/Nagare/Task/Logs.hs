@@ -8,14 +8,14 @@ module Nagare.Task.Logs
   , taskLogArgs
   , grafanaHint
   , runTaskLogs
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Task.Discover (AppScope (..))
 
 data TaskLogTarget = TaskLogTarget

@@ -22,9 +22,8 @@ module Nagare.Database.Discover
   , getDatabase
   , lookupConnection
   , formatDbTable
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Aeson (eitherDecodeStrict)
@@ -39,6 +38,7 @@ import Data.Text qualified as T
 import Data.Vector qualified as V
 import Nagare.Database.Connection (ConnIdentity (..))
 import Nagare.Dsl.Database (Engine (..), dbSecretName, parseEngine)
+import Nagare.Dsl.Prelude
 import Nagare.Env.Store (extractSecretData)
 import System.Exit (ExitCode (..))
 

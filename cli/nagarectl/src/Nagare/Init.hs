@@ -26,8 +26,6 @@ module Nagare.Init
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Control.Monad (when)
 import Cradle (addArgs, cmd, run)
 import Data.Function ((&))
@@ -37,6 +35,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Target
   ( Mode (..)
@@ -163,7 +162,7 @@ renderTargetEnv tp =
     , "export NAGARE_PULUMI_BACKEND=" <> pulumiBackendToken (tp ^. #pulumiBackend)
     , "export NAGARE_PULUMI_BACKEND_URL=" <> tp ^. #pulumiBackendUrl
     ]
-    <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
+      <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)
   where
     modeToken Cloud = "cloud"
     modeToken Local = "local"

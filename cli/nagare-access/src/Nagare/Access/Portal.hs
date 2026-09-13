@@ -20,18 +20,17 @@ module Nagare.Access.Portal
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Data.Aeson (FromJSON (parseJSON), eitherDecodeStrict, withObject, (.:), (.:?))
 import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertFromBase)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.BackendMap
 import Nagare.Access.Challenge (safeReturnDestination)
+import Nagare.Access.Prelude
 import Network.HTTP.Types (Header, Status)
 import Network.HTTP.Types.URI (urlEncode)
 import Network.Wai (Response, responseLBS)

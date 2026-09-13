@@ -31,17 +31,18 @@ library
   hs-source-dirs: src
   autogen-modules:
     Paths_nagarectl
+
   other-modules:
     Paths_nagarectl
+
   exposed-modules:
     Nagare.Access.Grants
     Nagare.Access.Resolve
     Nagare.App
     Nagare.App.Deploy
     Nagare.App.Deployments
-    Nagare.Build
-    Nagare.Broker.Create
     Nagare.Broker.Connection
+    Nagare.Broker.Create
     Nagare.Broker.Delete
     Nagare.Broker.Discover
     Nagare.Broker.Get
@@ -49,6 +50,7 @@ library
     Nagare.Broker.List
     Nagare.Broker.Restart
     Nagare.Broker.Topic
+    Nagare.Build
     Nagare.Cdn.Cloudflare
     Nagare.Cdn.Provision
     Nagare.Cdn.Status
@@ -57,11 +59,11 @@ library
     Nagare.Database.Connection
     Nagare.Database.Create
     Nagare.Database.Delete
-    Nagare.Database.Restore
     Nagare.Database.Discover
     Nagare.Database.Get
     Nagare.Database.List
     Nagare.Database.Restart
+    Nagare.Database.Restore
     Nagare.Database.Secret
     Nagare.Database.Shell
     Nagare.Deploy
@@ -186,6 +188,7 @@ test-suite nagarectl-test
     AppDeploySpec
     HostSpec
     PlatformSpec
+
   build-depends:
     aeson,
     base,

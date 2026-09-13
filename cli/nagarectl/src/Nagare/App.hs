@@ -37,25 +37,24 @@ module Nagare.App
   , deleteApp
   , appDomains
   , extractDomainsFor
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
-
-import Cradle
 import Control.Monad (forM_)
+import Cradle
 import Data.Aeson (eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Vector qualified as V
 import Nagare.Access.Resolve (kubectlAccessOps, removeServiceAccessWithOps)
 import Nagare.Dsl.Load qualified as Load
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (mkNamespace, mkServiceName, namespaceText, serviceNameText)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)

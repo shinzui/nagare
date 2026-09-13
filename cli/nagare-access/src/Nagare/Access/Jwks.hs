@@ -9,18 +9,17 @@ module Nagare.Access.Jwks
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Control.Exception (try)
 import Crypto.JOSE.JWK (JWKSet)
 import Data.Aeson (eitherDecodeStrict)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Access.Config (AuthPlaneConfig (..))
+import Nagare.Access.Prelude
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (status200)
 

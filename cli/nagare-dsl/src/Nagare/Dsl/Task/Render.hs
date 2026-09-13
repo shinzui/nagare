@@ -17,15 +17,13 @@ module Nagare.Dsl.Task.Render
   , taskCronJobName
   , cronJobValue
   , encodeCronJob
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Batch.Render
   ( argvPairs
@@ -34,6 +32,7 @@ import Nagare.Dsl.Batch.Render
   , resourcesPairs
   , runtimeEnvPairs
   )
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
   ( imageRefText
@@ -100,14 +99,14 @@ taskJobSpecValue t =
     ( ["backoffLimit" .= (t ^. #backoffLimit)]
         <> activeDeadlinePairs t
         <> [ "template"
-              .= object
-                [ "metadata" .= object ["labels" .= taskLabels t]
-                , "spec"
-                    .= object
-                      [ "restartPolicy" .= restartPolicyToken (t ^. #restartPolicy)
-                      , "containers" .= toJSON [containerValue t]
-                      ]
-                ]
+               .= object
+                 [ "metadata" .= object ["labels" .= taskLabels t]
+                 , "spec"
+                     .= object
+                       [ "restartPolicy" .= restartPolicyToken (t ^. #restartPolicy)
+                       , "containers" .= toJSON [containerValue t]
+                       ]
+                 ]
            ]
     )
 

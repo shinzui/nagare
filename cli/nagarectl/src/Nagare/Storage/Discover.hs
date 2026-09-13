@@ -28,11 +28,8 @@ module Nagare.Storage.Discover
 
     -- * Re-exports from the EP-34 renderer (IP3)
   , pvcName
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
 import Data.Aeson (eitherDecodeStrict)
@@ -40,10 +37,12 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Types (Volume, quantityText, volumeNameText)
 import System.Exit (ExitCode (..))

@@ -16,9 +16,8 @@ module Nagare.Database.Connection
   ( ConnIdentity (..)
   , connectionEnv
   , mergeConnectionEnvs
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Generics.Labels ()
 import Data.Map (Map)
@@ -26,6 +25,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Database (DatabaseName, Engine (..), databaseNameText, dbSecretName)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( EnvName
   , EnvVar (EnvLiteral, EnvSecretRef)
