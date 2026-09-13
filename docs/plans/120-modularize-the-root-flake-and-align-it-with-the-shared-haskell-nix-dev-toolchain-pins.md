@@ -69,10 +69,11 @@ scope and must not change.
 - [x] (2026-09-13T16:40:41Z) Milestone 1: route the post-plan `haskell-style` check and the
       networked Hydra job through the same source so later wiring-only refactors preserve their
       derivations too.
-- [x] (2026-09-13T16:56:49Z) Milestone 1: `nix flake check --print-build-logs` passed all 21 native
+- [x] (2026-09-13T16:51:07Z) Milestone 1: `nix flake check --print-build-logs` passed all 21 native
       checks, including all 438 CLI tests; the committed-tree probe printed `wiring edits are
       invisible to checks` after adding both a `flake.nix` comment and `nix/probe.nix`.
-- [ ] Milestone 2: split `flake.nix` into plain Nix functions under `nix/` and `nix/checks/`.
+- [x] (2026-09-13T16:53:04Z) Milestone 2: split `flake.nix` into plain Nix functions under `nix/`
+      and `nix/checks/`; the root entry point is now 66 lines and `.envrc` watches the modules.
 - [ ] Milestone 2: pass the derivation-equivalence gate on `aarch64-darwin` and `x86_64-linux`.
 - [ ] Milestone 3: convert the wiring to flake-parts modules with a rev-pinned `flake-parts` input.
 - [ ] Milestone 3: pass the derivation-equivalence gate on both systems.
@@ -99,6 +100,12 @@ scope and must not change.
   Evidence: before Milestone 1, `rg -n 'src = \./\.;' flake.nix` found the new check at line 98 and
   the Hydra job at line 556 in addition to the checks named below. Leaving the Hydra job unfiltered
   would make Milestone 2's all-output derivation-equivalence gate fail when the Nix wiring moves.
+
+- Observation: The first Milestone 2 gate exposed an infinite recursion in `devShells.default` that
+  the dirty-worktree `nix flake check --no-build` had not surfaced.
+  Evidence: the exported `path:` flake failed while reading `devShells.default.drvPath`; the cause
+  was `inherit (pulumi) pulumi` inside a recursive `let`. Referencing the bundle as
+  `pulumi.pulumi` and `pulumi.pulumi-nodejs` removes the self-reference.
 
 
 ## Decision Log
