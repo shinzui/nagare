@@ -52,10 +52,12 @@ in {
       "kernel.kptr_restrict" = 2;
     };
 
-    services.journald.extraConfig = ''
-      SystemMaxUse=500M
-      MaxRetentionSec=7day
-    '';
+    services.journald.settings.Journal = {
+      # nixpkgs stopped defaulting Storage to persistent; keep logs across reboots.
+      Storage = "persistent";
+      SystemMaxUse = "500M";
+      MaxRetentionSec = "7day";
+    };
 
     users.users = lib.mkIf (cfg.user.sshAuthorizedKeys != [ ]) {
       ${cfg.user.name} = {
