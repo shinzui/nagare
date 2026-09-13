@@ -93,6 +93,7 @@ renderRestoreJob i =
           .= dataMovementJobSpec
             DataMovementJob
               { dmjTemplateLabels = Just labels
+              , dmjBackoffLimit = 0
               , dmjHostAliases = storeHostAliases (rjiBackend i)
               , dmjInitContainers = [downloadContainer i]
               , dmjContainers = [restoreContainer i]

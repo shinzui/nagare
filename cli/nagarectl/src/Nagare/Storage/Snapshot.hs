@@ -155,6 +155,7 @@ jobValue i =
         .= dataMovementJobSpec
           DataMovementJob
             { dmjTemplateLabels = Nothing
+            , dmjBackoffLimit = 0
             , dmjHostAliases = storeHostAliases (sjiBackend i)
             , dmjInitContainers = []
             , dmjContainers =
