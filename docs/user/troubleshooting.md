@@ -42,6 +42,22 @@ networking.dhcpcd.extraConfig = "nohook resolv.conf";
 config), so the guest agent is unaffected. **Don't "simplify" this away** — it's
 load-bearing.
 
+Tailscale is told not to manage DNS (`--accept-dns=false` in `tailscale.nix`), because
+MagicDNS would repoint `/etc/resolv.conf` at `100.100.100.100`, and k3s pods inherit the
+host's resolvers through CoreDNS.
+
+**Related: `resolvconf.service` fails with "Operation not permitted".** Check
+`lsattr /etc/resolv.conf`. An `i` flag means someone locked the file by hand with
+`chattr +i` (an early, pre-declarative workaround for the problem above). Tailscale then
+also warns that it cannot set DNS. Unlock it and let NixOS regenerate the file:
+
+```bash
+sudo tailscale set --accept-dns=false     # if the host predates the tailscale.nix flag
+sudo chattr -i /etc/resolv.conf
+sudo systemctl restart resolvconf
+cat /etc/resolv.conf                       # still 8.8.8.8 / 8.8.4.4
+```
+
 ---
 
 ## k3s won't start: "Dependency failed for k3s service"
