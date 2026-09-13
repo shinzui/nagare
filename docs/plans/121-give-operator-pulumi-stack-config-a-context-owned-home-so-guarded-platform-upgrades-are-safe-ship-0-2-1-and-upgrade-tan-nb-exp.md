@@ -70,9 +70,24 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   indentation. Live: `platform status` shows `Host: 0.1.0`.
 - [x] (2026-09-13 22:40Z) Milestone 3b: `context create --force` merges; the classifier protects the
   instance, DNS zone, and buckets; docs, ADR 13 and 14 amendments, and ADR 18 written.
-- [ ] Run `nix flake check` on the Milestone 2-3b change and commit it.
-- [ ] Milestone 4: release Nagare 0.2.1.
-- [ ] Milestone 5: rehearse, then upgrade `tan-nb-exp` to 0.2.1 under one bounded approval.
+- [x] (2026-09-13 22:55Z) `nix flake check` passed (28 checks) on the Milestone 2-3b change;
+  committed `bf35b90`.
+- [x] Milestone 4: release Nagare 0.2.1. (2026-09-13 23:03Z) candidate `3644275`; source-only,
+  `nix flake check`, release gate, and clone-free rehearsal passed locally; native Release rehearsal
+  (run 34785194885) and CI passed; artifacts assembled with every checksum OK; signed `v0.2.1`
+  verified and pushed; publish workflow (run 34786727467) succeeded; all 7 attachments pass their
+  checksums and are byte-identical to the rehearsal; `nix run github:shinzui/nagare/v0.2.1#nagarectl
+  -- version --json` reports 0.2.1 at `3644275`; the v0.2.0 release description leads with the
+  known-issue note.
+- [x] (2026-09-13 22:05Z) Milestone 5 rehearsal, read-only: dry-run plan
+  `20260913T21593728645-0.2.1-fed38583` succeeded with guarded Pulumi evidence and only the platform
+  ConfigMap in the Kubernetes diff; the staged host toplevel equals the running system; host-switch
+  and cluster-bootstrap dry runs reviewed; the issuer renders with no diff in a clean environment.
+- [x] (2026-09-13 23:05Z) Milestone 5 re-plan with the published CLI inside `nagarectl context env`:
+  transaction `20260913T23042832920-0.2.1-fed38583` planned; guarded preview confined with no
+  replacement; one Kubernetes object (the platform ConfigMap); staged toplevel identical to the
+  running system; instance id `3250226760661474799`.
+- [ ] Milestone 5: operator approval, then apply the transaction and verify.
 - [ ] ADR distillation and Outcomes & Retrospective.
 
 
@@ -173,6 +188,41 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
 
   After `npm ci` in the workspace (346 packages, about 3 seconds), the guard reported no replacement.
 
+- Observation (Milestone 4): the first local release-gate run failed because this plan file was
+  edited while the gates ran, and publication requires a clean worktree. The edit was set aside and
+  the gates rerun clean. Later, another session added untracked MasterPlan 21 and ExecPlans
+  122-127 files; the tag precondition was narrowed to tracked files, which cannot affect a tag.
+
+- Observation (Milestone 5 rehearsal): a shell loaded by direnv before the context gained
+  `NAGARE_ACME_EMAIL` still exports `NAGARE_ACME_EMAIL=` (empty), and the environment beats the
+  context file, so the issuer render refused. In an environment with `NAGARE_*`, `CLOUDSDK_*`, and
+  `PULUMI_*` removed, it renders with no diff. The apply must run in that clean environment.
+
+  ```text
+  nagare: no ACME contact is configured for context 'tan-nb-exp'.
+  == issuer diff (clean env)
+  issuer diff rc=0
+  ```
+
+- Observation (Milestone 5 rehearsal): the staged host flake builds the exact running system, so
+  `host-apply` re-activates the current generation.
+
+  ```text
+  staged toplevel: /nix/store/zyrpc5ganyhl8abwf4w1m8m64jnnywia-nixos-system-nagare-01-google-compute-26.11.20260911.eaad089
+  running system:  /nix/store/zyrpc5ganyhl8abwf4w1m8m64jnnywia-nixos-system-nagare-01-google-compute-26.11.20260911.eaad089
+  ```
+
+  The pinned cert-manager (v1.20.2), Knative Serving and Kourier (1.22.0), and net-certmanager
+  (1.14.0) match the live cluster. `kubectl diff` shows no change except Knative's
+  runtime-rewritten webhook rules and `config-certmanager`, which the recipe re-patches.
+
+- Observation (process error, 2026-09-13): a zsh glob failure in an `&&` chain skipped
+  `export KUBECONFIG`, and commands after a `;` then ran `kubectl config view` and
+  `kubectl get nodes` against the workstation's default GKE context (`sennari`). Both were
+  read-only and nothing was mutated, but this breached the read-isolation rule. Every later live
+  command runs under `bash -euo pipefail` and first asserts the kube server
+  `https://127.0.0.1:16443` and node `nagare-01`.
+
 ## Decision Log
 
 - Decision: the canonical stack configuration path is
@@ -230,6 +280,19 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   path, and such a link counts as already linked.
   Rationale: ADR 13's existing checkout symlink points directly into the private repository; it
   reads the same file and must keep working without being rewritten.
+  Date: 2026-09-13
+- Decision: run the Milestone 5 apply inside `eval "$(nagarectl context env)"` from the published
+  CLI, started from `env -i`, rather than the operator's direnv shell or a fully empty environment.
+  Rationale: the rehearsal showed that the direnv shell carries a stale empty `NAGARE_ACME_EMAIL`,
+  and that an empty environment exposes gcloud's own configured project (`tan-ng`), which the
+  project guard would rightly refuse. `context env` is the launcher's exact contract for the
+  context.
+  Date: 2026-09-13
+- Decision: start `nix-builder-x86` for the apply and stop it afterwards.
+  Rationale: `host-apply` runs `scripts/host-switch.sh` in its default local-build-and-copy mode,
+  and the transaction offers no way to pass `--build-on-host`. The workstation store lacks the
+  host closure, and the remote x86 builder was `TERMINATED`. Without the builder, `host-apply` fails
+  before anything on the host is armed, which is safe but leaves a failed transaction.
   Date: 2026-09-13
 - Decision: ship as 0.2.1, a patch release.
   Rationale: the change fixes defects in 0.2.0 and adds no incompatible interface; existing
@@ -484,7 +547,19 @@ Expected output ends with:
 infra guard: no GCE instance replacement is planned
 ```
 
-Milestone 5 commands are recorded here as they are rehearsed.
+Milestone 5 pre-upgrade baselines, recorded read-only on 2026-09-13 with the port forward open:
+
+```text
+nagare-01 Ready v1.35.8+k3s1
+gcloud instance id: 3250226760661474799 (RUNNING)
+nagare-dbbackup-en-db-29821157       Complete 1/1  (18h ago)
+nagare-dbbackup-shomei-db-29821157   Complete 1/1  (18h ago)
+letsencrypt-dns   True
+ksvc Ready: nagare-system/nagare-access, personal/hello, personal/protected-hello
+ssh -o BatchMode=yes deploy@nagare-01 'sudo -n true' -> fresh-login-sudo-ok
+```
+
+Further Milestone 5 commands are recorded here as they are rehearsed.
 
 
 ## Validation and Acceptance
