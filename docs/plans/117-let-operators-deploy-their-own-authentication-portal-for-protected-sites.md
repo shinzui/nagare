@@ -1822,6 +1822,12 @@ interface of this plan. Any change to it after Milestone 6 must update
 
 ## Revision notes
 
+- 2026-09-13: Added a resumable macOS passkey-validation procedure to
+  `docs/user/auth-portal.md`. It covers CA inspection, explicit system trust and exact
+  removal, the port-443 certificate check, disposable identity/grant setup, all three
+  browser ceremonies, and cleanup. The acceptance checkbox remains open until the
+  ceremony is actually observed.
+
 - 2026-09-13: Implemented Milestones 1–5 and the non-browser portion of Milestone 6.
   Added the operator runbook and ADR, recorded the local transcript, and updated the
   cold auth-image path to honor dependency pins. Local validation fixed current En
