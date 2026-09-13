@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | A kizashi-shaped multi-workload Application fixture (MasterPlan 14, EP-2):
@@ -12,6 +13,7 @@
 module Main (main) where
 
 import Data.Bifunctor (first)
+import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -19,6 +21,7 @@ import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Config (emitApplication)
 import Nagare.Dsl.Database qualified as DB
 import Nagare.Dsl.Presets (webService)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Task
   ( ConcurrencyPolicy (..)
   , RestartPolicy (..)
@@ -42,8 +45,8 @@ import Nagare.Dsl.Worker (webWorker)
 sharedImage :: Text
 sharedImage = "gcr.io/knative-samples/helloworld-go"
 
-app :: Either Text Application
-app = do
+application :: Either Text Application
+application = do
   appNm <- mkServiceName "kizashi"
   ns <- mkNamespace "personal"
   img <- mkImageRef sharedImage
@@ -68,7 +71,7 @@ app = do
   worker <- first Text.pack (webWorker "kizashi-worker" sharedImage)
   escalation <- first Text.pack (webWorker "kizashi-escalation-worker" sharedImage)
   agent <- first Text.pack (webWorker "kizashi-agent-worker" sharedImage)
-  let bindDb w = w {W.databases = [dbn]}
+  let bindDb w = w & #databases .~ [dbn]
 
   migrateNm <- mkServiceName "kizashi-migrate"
   sched <- mkSchedule "0 0 * * *"
@@ -108,4 +111,4 @@ app = do
       }
 
 main :: IO ()
-main = either (ioError . userError . Text.unpack) emitApplication app
+main = either (ioError . userError . Text.unpack) emitApplication application

@@ -56,13 +56,13 @@ import System.Environment (lookupEnv)
 -- ---------------------------------------------------------------------------
 -- Types
 
--- | Cloudflare API credentials. @cfApiToken@ is a scoped API token read from
--- @CF_API_TOKEN@; never logged. @cfZoneId@ is the optional @CF_ZONE_ID@; when
+-- | Cloudflare API credentials. @apiToken@ is a scoped API token read from
+-- @CF_API_TOKEN@; never logged. @zoneId@ is the optional @CF_ZONE_ID@; when
 -- 'Nothing', the zone is discovered from the hostname via 'zoneNameFromHostname'
 -- and a @GET /zones?name=<root>@ call.
 data CloudflareCreds = CloudflareCreds
-  { cfApiToken :: !Text
-  , cfZoneId :: !(Maybe Text)
+  { apiToken :: !Text
+  , zoneId :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -117,9 +117,9 @@ buildCacheRulesPayload :: Text -> Cdn -> Value
 buildCacheRulesPayload hostname cdn =
   object
     [ "rules"
-        .= ( map (pathRule hostname) (cacheRules cdn)
-               ++ staticAssetRules hostname (cacheStaticAssets cdn)
-               ++ defaultRules hostname (defaultTtlSeconds cdn)
+        .= ( map (pathRule hostname) (cdn ^. #cacheRules)
+               ++ staticAssetRules hostname (cdn ^. #cacheStaticAssets)
+               ++ defaultRules hostname (cdn ^. #defaultTtlSeconds)
            )
     ]
 
@@ -294,15 +294,15 @@ cfRequest token method path mbody =
     `catch` \(e :: HttpException) ->
       pure (Left ("Cloudflare request failed: " <> T.pack (show e)))
 
--- | Resolve the zone id: use @cfZoneId@ if present, else discover it from the
+-- | Resolve the zone id: use @zoneId@ if present, else discover it from the
 -- hostname's registrable domain via @GET /zones?name=<root>@.
 resolveZoneId :: CloudflareCreds -> Text -> IO (Either Text Text)
 resolveZoneId creds host =
-  case cfZoneId creds of
+  case creds ^. #zoneId of
     Just z -> pure (Right z)
     Nothing -> do
       let root = zoneNameFromHostname host
-      r <- cfRequest (cfApiToken creds) "GET" ("/zones?name=" <> root) Nothing
+      r <- cfRequest (creds ^. #apiToken) "GET" ("/zones?name=" <> root) Nothing
       pure $ case r of
         Left e -> Left e
         Right bs -> case parseZoneId bs of
@@ -330,7 +330,7 @@ sendUnit token method path body = do
 -- repeated deploy leaves exactly one record.
 upsertProxiedRecord :: CloudflareCreds -> Text -> Text -> IO (Either Text ())
 upsertProxiedRecord creds host originIp = withZone creds host $ \zone -> do
-  let tok = cfApiToken creds
+  let tok = creds ^. #apiToken
       body = buildUpsertRecordPayload host originIp
   listR <-
     cfRequest tok "GET" ("/zones/" <> zone <> "/dns_records?type=A&name=" <> host) Nothing
@@ -346,7 +346,7 @@ upsertProxiedRecord creds host originIp = withZone creds host $ \zone -> do
 applyCacheRules :: CloudflareCreds -> Text -> Cdn -> IO (Either Text ())
 applyCacheRules creds host cdn = withZone creds host $ \zone ->
   sendUnit
-    (cfApiToken creds)
+    (creds ^. #apiToken)
     "PUT"
     ("/zones/" <> zone <> "/rulesets/phases/http_request_cache_settings/entrypoint")
     (Just (buildCacheRulesPayload host cdn))
@@ -355,7 +355,7 @@ applyCacheRules creds host cdn = withZone creds host $ \zone ->
 setOriginTlsMode :: CloudflareCreds -> Text -> OriginTlsMode -> IO (Either Text ())
 setOriginTlsMode creds host mode = withZone creds host $ \zone ->
   sendUnit
-    (cfApiToken creds)
+    (creds ^. #apiToken)
     "PATCH"
     ("/zones/" <> zone <> "/settings/ssl")
     (Just (object ["value" .= sslModeToken mode]))
@@ -365,7 +365,7 @@ setOriginTlsMode creds host mode = withZone creds host $ \zone ->
 purgeHostname :: CloudflareCreds -> Text -> [Text] -> IO (Either Text ())
 purgeHostname creds host paths = withZone creds host $ \zone ->
   sendUnit
-    (cfApiToken creds)
+    (creds ^. #apiToken)
     "POST"
     ("/zones/" <> zone <> "/purge_cache")
     (Just (buildPurgePayload host paths))

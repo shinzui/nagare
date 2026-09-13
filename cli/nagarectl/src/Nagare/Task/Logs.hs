@@ -13,16 +13,17 @@ module Nagare.Task.Logs
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Task.Discover (AppScope (..))
 
 data TaskLogTarget = TaskLogTarget
-  { tltNamespace :: !Text
-  , tltTask :: !Text
-  , tltScope :: !AppScope
-  , tltFollow :: !Bool
-  , tltTail :: !(Maybe Int)
+  { namespace :: !Text
+  , task :: !Text
+  , scope :: !AppScope
+  , follow :: !Bool
+  , tail :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -35,12 +36,12 @@ taskLogArgs t =
   , "-l"
   , T.unpack (selector t)
   , "-n"
-  , T.unpack (tltNamespace t)
+  , T.unpack (t ^. #namespace)
   ]
-    <> maybe [] (\n -> ["--tail", show n]) (tltTail t)
-    <> ["--follow" | tltFollow t]
+    <> maybe [] (\n -> ["--tail", show n]) (t ^. #tail)
+    <> ["--follow" | t ^. #follow]
   where
-    selector x = "nagare.dev/task=" <> tltTask x <> appTerm (tltScope x)
+    selector x = "nagare.dev/task=" <> x ^. #task <> appTerm (x ^. #scope)
     appTerm AnyApp = ""
     appTerm NoApp = ",!nagare.dev/app"
     appTerm (App a) = ",nagare.dev/app=" <> a
@@ -63,4 +64,4 @@ grafanaHint task =
 runTaskLogs :: TaskLogTarget -> IO ()
 runTaskLogs t = do
   run_ $ cmd "kubectl" & addArgs (taskLogArgs t)
-  TIO.putStrLn (grafanaHint (tltTask t))
+  TIO.putStrLn (grafanaHint (t ^. #task))

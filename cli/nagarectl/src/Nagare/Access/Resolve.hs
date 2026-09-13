@@ -47,6 +47,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Foldable (toList)
 import Data.List (foldl')
 import Data.Map.Strict (Map)
@@ -57,7 +58,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Nagare.Deploy (applyManifests)
-import Nagare.Dsl.Access (AccessPolicy, AccessRole (..), role)
+import Nagare.Dsl.Access (AccessPolicy, AccessRole (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( Deployment
@@ -110,10 +111,10 @@ data EntryRole = ProtectedEntry | PortalEntry
   deriving stock (Eq, Show)
 
 data BackendEntry = BackendEntry
-  { entryUpstream :: !Text
-  , entryRole :: !EntryRole
+  { upstream :: !Text
+  , role :: !EntryRole
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance FromJSON BackendEntry where
   parseJSON (String upstream) = pure (BackendEntry upstream ProtectedEntry)
@@ -127,9 +128,9 @@ instance FromJSON BackendEntry where
 
 instance ToJSON BackendEntry where
   toJSON entry =
-    case entryRole entry of
-      ProtectedEntry -> String (entryUpstream entry)
-      PortalEntry -> object ["upstream" .= entryUpstream entry, "role" .= ("portal" :: Text)]
+    case entry ^. #role of
+      ProtectedEntry -> String (entry ^. #upstream)
+      PortalEntry -> object ["upstream" .= (entry ^. #upstream), "role" .= ("portal" :: Text)]
 
 newtype BackendMap = BackendMap (Map PublicHost BackendEntry)
   deriving stock (Eq, Show)
@@ -143,7 +144,7 @@ instance Monoid BackendMap where
 instance FromJSON BackendMap where
   parseJSON = withObject "backend map" $ \obj -> do
     entries <- traverse parseOne (KeyMap.toList obj)
-    let portals = [host | (host, entry) <- entries, entryRole entry == PortalEntry]
+    let portals = [host | (host, entry) <- entries, entry ^. #role == PortalEntry]
     case portals of
       _ : second : _ -> fail ("backend map contains more than one portal; offending host: " <> T.unpack (publicHostText second))
       _ -> pure (BackendMap (Map.fromList entries))
@@ -165,7 +166,7 @@ backendMapFromList entries = do
 
 portalRegistration :: BackendMap -> Maybe (PublicHost, BackendEntry)
 portalRegistration (BackendMap entries) =
-  case [(host, entry) | (host, entry) <- Map.toAscList entries, entryRole entry == PortalEntry] of
+  case [(host, entry) | (host, entry) <- Map.toAscList entries, entry ^. #role == PortalEntry] of
     registration : _ -> Just registration
     [] -> Nothing
 
@@ -173,18 +174,18 @@ data RouteMode = ExistingDomainMapping | DefaultKnativeHost
   deriving stock (Eq, Show)
 
 data AccessRoute = AccessRoute
-  { arHost :: !Text
-  , arMode :: !RouteMode
+  { host :: !Text
+  , mode :: !RouteMode
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data RouteTarget = RouteTarget
-  { rtApiVersion :: !Text
-  , rtKind :: !Text
-  , rtName :: !Text
-  , rtNamespace :: !Text
+  { apiVersion :: !Text
+  , kind :: !Text
+  , name :: !Text
+  , namespace :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data RouteOp
   = RouteTo !RouteTarget
@@ -219,6 +220,7 @@ data AccessOps = AccessOps
   , applyRouteOp :: !(Namespace -> PublicHost -> RouteOp -> IO ())
   , applyShomeiPortal :: !(ShomeiPortalChange -> IO ())
   }
+  deriving stock (Generic)
 
 authPlaneMissingMessage :: Text
 authPlaneMissingMessage =
@@ -242,7 +244,7 @@ resolveDeploymentAccessWithOps :: AccessOps -> BaseDomain -> Deployment -> IO ()
 resolveDeploymentAccessWithOps ops base dep = do
   let routes = deploymentAccessRoutes (baseDomainText base) dep
   case dep ^. #access of
-    Just policy | role policy == AuthPortal && length routes /= 1 ->
+    Just policy | policy ^. #role == AuthPortal && length routes /= 1 ->
       dieT "an auth portal must have exactly one public host"
     _ -> pure ()
   forM_ routes $ \route ->
@@ -250,16 +252,16 @@ resolveDeploymentAccessWithOps ops base dep = do
 
 resolveAccessRouteWithOps :: AccessOps -> BaseDomain -> Namespace -> ServiceName -> AccessRoute -> Maybe AccessPolicy -> IO ()
 resolveAccessRouteWithOps ops base ns name route policy = do
-  host <- either dieT pure (mkPublicHost (arHost route))
+  host <- either dieT pure (mkPublicHost (route ^. #host))
   case policy of
     Just accessPolicy -> registerRoute host accessPolicy
     Nothing -> unregisterRoute host
   where
     registerRoute host accessPolicy = do
-      present <- checkEnforcerPresent ops
+      present <- ops ^. #checkEnforcerPresent
       unless present (dieT authPlaneMissingMessage)
-      backends <- loadBackends ops
-      let desiredRole = if role accessPolicy == AuthPortal then PortalEntry else ProtectedEntry
+      backends <- ops ^. #loadBackends
+      let desiredRole = if accessPolicy ^. #role == AuthPortal then PortalEntry else ProtectedEntry
           entry = BackendEntry (upstreamFor ns name) desiredRole
       when (desiredRole == PortalEntry && not (isUnderBaseDomain base host)) $
         dieT
@@ -277,46 +279,46 @@ resolveAccessRouteWithOps ops base ns name route policy = do
               dieT
                 ( publicHostText existingHost
                     <> " is already the auth portal (service "
-                    <> serviceFromUpstream (entryUpstream existingEntry)
+                    <> serviceFromUpstream (existingEntry ^. #upstream)
                     <> ").\n       Remove `access = Just authPortal` from that app (or delete it) before registering another portal."
                 )
         _ -> pure ()
       let previous = lookupEntry host backends
           updated = insertEntry host entry backends
-      saveBackends ops updated
-      applyRouteOp ops ns host (RouteTo (knativeServiceTarget enforcerName backendConfigMapNamespace))
+      (ops ^. #saveBackends) updated
+      (ops ^. #applyRouteOp) ns host (RouteTo (knativeServiceTarget enforcerName backendConfigMapNamespace))
       case desiredRole of
-        PortalEntry -> applyShomeiPortal ops (EnablePortal host base)
+        PortalEntry -> (ops ^. #applyShomeiPortal) (EnablePortal host base)
         ProtectedEntry ->
-          when (maybe False ((== PortalEntry) . entryRole) previous) $
-            applyShomeiPortal ops (DisablePortal host)
+          when (maybe False (\entry -> entry ^. #role == PortalEntry) previous) $
+            (ops ^. #applyShomeiPortal) (DisablePortal host)
 
     unregisterRoute host = do
-      backends <- loadBackends ops
+      backends <- ops ^. #loadBackends
       let previous = lookupEntry host backends
           updated = deleteEntry host backends
-      when (updated /= backends) (saveBackends ops updated)
-      when (maybe False ((== PortalEntry) . entryRole) previous) $
-        applyShomeiPortal ops (DisablePortal host)
-      case arMode route of
-        ExistingDomainMapping -> applyRouteOp ops ns host (RouteTo (knativeServiceTarget (serviceNameText name) (namespaceText ns)))
-        DefaultKnativeHost -> applyRouteOp ops ns host DeleteRouteOverride
+      when (updated /= backends) ((ops ^. #saveBackends) updated)
+      when (maybe False (\entry -> entry ^. #role == PortalEntry) previous) $
+        (ops ^. #applyShomeiPortal) (DisablePortal host)
+      case route ^. #mode of
+        ExistingDomainMapping -> (ops ^. #applyRouteOp) ns host (RouteTo (knativeServiceTarget (serviceNameText name) (namespaceText ns)))
+        DefaultKnativeHost -> (ops ^. #applyRouteOp) ns host DeleteRouteOverride
 
 removeServiceAccessWithOps :: AccessOps -> Namespace -> ServiceName -> IO [PublicHost]
 removeServiceAccessWithOps ops ns name = do
-  present <- checkEnforcerPresent ops
+  present <- ops ^. #checkEnforcerPresent
   if not present
     then pure []
     else do
-      BackendMap entries <- loadBackends ops
+      BackendMap entries <- ops ^. #loadBackends
       let upstream = upstreamFor ns name
-          removed = [(host, entry) | (host, entry) <- Map.toAscList entries, entryUpstream entry == upstream]
+          removed = [(host, entry) | (host, entry) <- Map.toAscList entries, entry ^. #upstream == upstream]
           updated = BackendMap (foldr (Map.delete . fst) entries removed)
       unless (null removed) $ do
-        saveBackends ops updated
+        (ops ^. #saveBackends) updated
         forM_ removed $ \(host, entry) -> do
-          applyRouteOp ops ns host DeleteEnforcerRoute
-          when (entryRole entry == PortalEntry) (applyShomeiPortal ops (DisablePortal host))
+          (ops ^. #applyRouteOp) ns host DeleteEnforcerRoute
+          when (entry ^. #role == PortalEntry) ((ops ^. #applyShomeiPortal) (DisablePortal host))
       pure (map fst removed)
 
 lookupEntry :: PublicHost -> BackendMap -> Maybe BackendEntry
@@ -357,7 +359,7 @@ renderAccessDomainMapping objectNamespace host target =
       [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
       , "kind" .= ("DomainMapping" :: Text)
       , "metadata" .= object ["name" .= host, "namespace" .= objectNamespace, "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]]
-      , "spec" .= object ["ref" .= object ["apiVersion" .= rtApiVersion target, "kind" .= rtKind target, "name" .= rtName target, "namespace" .= rtNamespace target]]
+      , "spec" .= object ["ref" .= object ["apiVersion" .= (target ^. #apiVersion), "kind" .= (target ^. #kind), "name" .= (target ^. #name), "namespace" .= (target ^. #namespace)]]
       ]
 
 kubectlAccessOps :: AccessOps
@@ -393,7 +395,7 @@ reloadPatch :: Text -> Text
 reloadPatch stamp = "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"nagare.dev/backend-map-reload\":\"" <> stamp <> "\"}}}}}"
 
 isCentralEnforcer :: RouteTarget -> Bool
-isCentralEnforcer target = rtApiVersion target == "serving.knative.dev/v1" && rtKind target == "Service" && rtName target == enforcerName && rtNamespace target == backendConfigMapNamespace
+isCentralEnforcer target = target ^. #apiVersion == "serving.knative.dev/v1" && target ^. #kind == "Service" && target ^. #name == enforcerName && target ^. #namespace == backendConfigMapNamespace
 
 deleteDomainMapping :: Text -> Text -> IO ()
 deleteDomainMapping objectNamespace host =

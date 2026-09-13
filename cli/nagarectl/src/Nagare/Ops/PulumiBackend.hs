@@ -39,11 +39,14 @@ module Nagare.Ops.PulumiBackend
   , bootstrapPulumiStateBucketWith
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Data.Function ((&))
+import Data.Generics.Labels ()
 import Data.Maybe (isJust)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -65,11 +68,11 @@ gcsBucketOfUrl url = do
   if T.null bucket then Nothing else Just bucket
 
 -- | The resolved @gs://@ backend URL for a context: the explicit
--- 'tpPulumiBackendUrl' when set, else 'defaultGcsPulumiBackendUrl'.
+-- 'pulumiBackendUrl' when set, else 'defaultGcsPulumiBackendUrl'.
 pulumiStateBackendUrl :: Text -> TargetProfile -> Text
 pulumiStateBackendUrl ctx tp
-  | T.null (tpPulumiBackendUrl tp) = defaultGcsPulumiBackendUrl ctx tp
-  | otherwise = tpPulumiBackendUrl tp
+  | T.null (tp ^. #pulumiBackendUrl) = defaultGcsPulumiBackendUrl ctx tp
+  | otherwise = tp ^. #pulumiBackendUrl
 
 -- | The GCS bucket that holds a context's Pulumi state (the bucket portion of
 -- 'pulumiStateBackendUrl').
@@ -193,15 +196,16 @@ bootstrapPulumiStateBucket = bootstrapPulumiStateBucketWith realGcloudOps
 -- prove that a refusal ran NO update and NO IAM change rather than merely returning an
 -- error.
 data GcloudOps = GcloudOps
-  { gcloudCapture :: [String] -> IO (Maybe Text)
+  { capture :: !([String] -> IO (Maybe Text))
   -- ^ Run and capture trimmed stdout; 'Nothing' on any failure.
-  , gcloudExec :: Text -> [String] -> IO (Either Text ())
+  , execute :: !(Text -> [String] -> IO (Either Text ()))
   -- ^ Run for effect, streaming output; 'Left' names the failed step.
   }
+  deriving stock (Generic)
 
 -- | The production 'GcloudOps': a real @gcloud@ on @PATH@.
 realGcloudOps :: GcloudOps
-realGcloudOps = GcloudOps {gcloudCapture = captureGcloud, gcloudExec = runGcloud}
+realGcloudOps = GcloudOps {capture = captureGcloud, execute = runGcloud}
 
 -- | 'bootstrapPulumiStateBucket' with the @gcloud@ effects supplied by the caller.
 bootstrapPulumiStateBucketWith :: GcloudOps -> Bool -> Text -> TargetProfile -> Maybe Text -> IO (Either Text ())
@@ -216,9 +220,9 @@ bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember =
             TIO.putStrLn ("  # ensure the Pulumi state bucket gs://" <> bucket <> " exists (idempotent):")
             mapM_
               (\a -> TIO.putStrLn ("  gcloud " <> T.pack (unwords a)))
-              (bootstrapCommands bucket (tpProject tp) (tpRegion tp) mMember)
+              (bootstrapCommands bucket (tp ^. #project) (tp ^. #region) mMember)
             pure (Right ())
-        | otherwise -> runBootstrap ops bucket (tpProject tp) (tpRegion tp) mMember
+        | otherwise -> runBootstrap ops bucket (tp ^. #project) (tp ^. #region) mMember
 
 -- | The bootstrap sequence. The ownership assertion sits between the
 -- create-if-missing step and the update, exactly where its Bash twin
@@ -226,21 +230,21 @@ bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember =
 -- happen before ANY mutation that addresses the bucket by its global name.
 runBootstrap :: GcloudOps -> Text -> Text -> Text -> Maybe Text -> IO (Either Text ())
 runBootstrap ops bucket project location mMember = do
-  exists <- isJust <$> gcloudCapture ops (bucketDescribeArgs bucket)
+  exists <- isJust <$> (ops ^. #capture) (bucketDescribeArgs bucket)
   createStep <-
     if exists
       then pure (Right ())
-      else gcloudExec ops ("create bucket gs://" <> bucket) (bucketCreateArgs bucket project location)
+      else (ops ^. #execute) ("create bucket gs://" <> bucket) (bucketCreateArgs bucket project location)
   chain createStep $
     chainIO assertOwnership $
-      chainIO (gcloudExec ops ("update bucket gs://" <> bucket) (bucketUpdateArgs bucket)) $
+      chainIO ((ops ^. #execute) ("update bucket gs://" <> bucket) (bucketUpdateArgs bucket)) $
         case mMember of
           Nothing -> pure (Right ())
-          Just m -> gcloudExec ops ("grant " <> m <> " on gs://" <> bucket) (bucketIamArgs bucket m)
+          Just m -> (ops ^. #execute) ("grant " <> m <> " on gs://" <> bucket) (bucketIamArgs bucket m)
   where
     assertOwnership = do
-      mBucketNumber <- gcloudCapture ops (bucketProjectNumberArgs bucket)
-      mTargetNumber <- gcloudCapture ops (projectNumberArgs project)
+      mBucketNumber <- (ops ^. #capture) (bucketProjectNumberArgs bucket)
+      mTargetNumber <- (ops ^. #capture) (projectNumberArgs project)
       pure (bucketOwnershipVerdict bucket project mBucketNumber mTargetNumber)
     chain (Left e) _ = pure (Left e)
     chain (Right ()) next = next

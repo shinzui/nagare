@@ -20,6 +20,8 @@ module Nagare.Env.BuildArgs
   , printBuildArgWarnings
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set

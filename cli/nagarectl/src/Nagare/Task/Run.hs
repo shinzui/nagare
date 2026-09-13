@@ -17,6 +17,7 @@ module Nagare.Task.Run
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
@@ -25,11 +26,11 @@ import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
 data TaskRunParams = TaskRunParams
-  { trpApp :: !Text
-  , trpTask :: !Text
-  , trpNamespace :: !Text
-  , trpScope :: !AppScope
-  , trpDryRun :: !Bool
+  { app :: !Text
+  , task :: !Text
+  , namespace :: !Text
+  , scope :: !AppScope
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -60,12 +61,12 @@ runArgs ns task name =
 -- waits, and reports.
 runTaskRun :: TaskRunParams -> IO ()
 runTaskRun p
-  | trpDryRun p = do
+  | p ^. #dryRun = do
       now <- getCurrentTime
-      let ns = trpNamespace p
-          task = trpTask p
-          name = oneOffJobName task now
-          args = runArgs ns task name
+      let ns = p ^. #namespace
+          taskText = p ^. #task
+          name = oneOffJobName taskText now
+          args = runArgs ns taskText name
       TIO.putStrLn "--- task run (dry-run) ---"
       TIO.putStrLn ("kubectl " <> T.unwords (map T.pack args))
       TIO.putStrLn
@@ -75,21 +76,21 @@ runTaskRun p
             <> ns
         )
   | otherwise = do
-      erow <- getTask (trpNamespace p) (trpScope p) (trpTask p)
+      erow <- getTask (p ^. #namespace) (p ^. #scope) (p ^. #task)
       case erow of
         Left err -> do
           TIO.hPutStrLn stderr ("nagarectl: " <> err)
           exitFailure
         Right _ -> do
           now <- getCurrentTime
-          let ns = trpNamespace p
-              task = trpTask p
-              name = oneOffJobName task now
-              args = runArgs ns task name
+          let ns = p ^. #namespace
+              taskText = p ^. #task
+              name = oneOffJobName taskText now
+              args = runArgs ns taskText name
           TIO.putStrLn ("Starting one-off run " <> name <> " ...")
           run_ $ cmd "kubectl" & addArgs args
-          waitForTaskJob ns name task
-          TIO.putStrLn ("Task " <> task <> " completed (" <> name <> ").")
+          waitForTaskJob ns name taskText
+          TIO.putStrLn ("Task " <> taskText <> " completed (" <> name <> ").")
 
 -- | Wait for the one-off Job to reach @condition=complete@; on timeout/failure,
 -- tail its logs and exit non-zero. Mirrors 'Nagare.Database.Backup.waitForJob'.

@@ -12,6 +12,7 @@ module Nagare.Static.Checkout
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Static.Webhook (CheckoutSpec (..))
@@ -32,7 +33,7 @@ workspacePathFor root fullName = root </> T.unpack (slug fullName)
 -- git step failed.
 checkoutRepo :: FilePath -> CheckoutSpec -> IO (Either Text FilePath)
 checkoutRepo root spec = do
-  let dir = workspacePathFor root (repoFullName spec)
+  let dir = workspacePathFor root (spec ^. #repoFullName)
   exists <- doesDirectoryExist (dir </> ".git")
   result <-
     if exists
@@ -41,11 +42,11 @@ checkoutRepo root spec = do
   pure (dir <$ result)
   where
     clone dir =
-      git ["clone", "--no-checkout", T.unpack (cloneUrl spec), dir]
+      git ["clone", "--no-checkout", T.unpack (spec ^. #cloneUrl), dir]
     fetch dir =
-      gitIn dir ["fetch", "--depth", "1", "origin", T.unpack (sha spec)]
+      gitIn dir ["fetch", "--depth", "1", "origin", T.unpack (spec ^. #sha)]
     reset dir =
-      gitIn dir ["reset", "--hard", T.unpack (sha spec)]
+      gitIn dir ["reset", "--hard", T.unpack (spec ^. #sha)]
 
     -- run a git command, surfacing a non-zero exit as Left
     git args = do

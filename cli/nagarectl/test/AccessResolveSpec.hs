@@ -1,8 +1,11 @@
 module AccessResolveSpec (accessResolveTests) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Exception (try)
 import Data.Aeson (eitherDecodeStrict, encode)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -159,7 +162,7 @@ baseDomain :: BaseDomain
 baseDomain = unsafe (mkBaseDomain "apps.example.com")
 
 portalDep :: [DomainSpec] -> Deployment
-portalDep domains = (demoDep domains) {access = Just authPortal}
+portalDep domains = demoDep domains & #access ?~ authPortal
 
 demoDep :: [DomainSpec] -> Deployment
 demoDep domains =

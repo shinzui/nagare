@@ -20,6 +20,7 @@ module Nagare.Database.Connection
 
 import Nagare.Dsl.Prelude
 
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -41,10 +42,10 @@ import Nagare.Dsl.Types
 -- | The non-secret connection identity for a database: the application role/user
 -- and the logical database name. Redis has neither in the variable contract, so
 -- both are 'Nothing' for Redis; Postgres populates both; ClickHouse populates
--- 'connUser'.
+-- 'user'.
 data ConnIdentity = ConnIdentity
-  { connUser :: !(Maybe Text)
-  , connDb :: !(Maybe Text)
+  { user :: !(Maybe Text)
+  , database :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -64,8 +65,8 @@ connectionEnv eng name ns ident =
     (lits, refs) = case eng of
       Postgres ->
         ( [lit "POSTGRES_HOST" host, lit "POSTGRES_PORT" "5432"]
-            <> maybeLit "POSTGRES_USER" (connUser ident)
-            <> maybeLit "POSTGRES_DB" (connDb ident)
+            <> maybeLit "POSTGRES_USER" (ident ^. #user)
+            <> maybeLit "POSTGRES_DB" (ident ^. #database)
         , [ref "POSTGRES_PASSWORD", ref "DATABASE_URL"]
         )
       Redis ->
@@ -74,7 +75,7 @@ connectionEnv eng name ns ident =
         )
       ClickHouse ->
         ( [lit "CLICKHOUSE_HOST" host, lit "CLICKHOUSE_PORT" "9000"]
-            <> maybeLit "CLICKHOUSE_USER" (connUser ident)
+            <> maybeLit "CLICKHOUSE_USER" (ident ^. #user)
         , [ref "CLICKHOUSE_PASSWORD", ref "CLICKHOUSE_URL"]
         )
 

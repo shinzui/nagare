@@ -10,6 +10,7 @@ module Nagare.Database.Shell
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (DbRow (..), getDatabase)
@@ -24,9 +25,9 @@ runDbShell ns name = do
     Left err -> do
       TIO.hPutStrLn stderr ("nagarectl: " <> err)
       exitFailure
-    Right r -> case clientArgs (drEngine r) of
+    Right r -> case clientArgs (r ^. #engine) of
       Nothing -> do
-        TIO.hPutStrLn stderr ("nagarectl: unknown engine '" <> drEngine r <> "' for db shell")
+        TIO.hPutStrLn stderr ("nagarectl: unknown engine '" <> r ^. #engine <> "' for db shell")
         exitFailure
       Just clientCmd ->
         run_ $

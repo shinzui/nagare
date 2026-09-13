@@ -18,9 +18,12 @@ module Nagare.Static.Image
   , withStaticImageContext
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Cradle
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Nagare.Dsl.Static.Render (renderNginxConfig)
 import Nagare.Dsl.Static.Types (StaticSite)
 import Nagare.Static.Build (PreparedStaticOutput (..))
@@ -52,7 +55,7 @@ withStaticImageContext site prepared action =
     -- <out>/. <siteDir>` copies the directory contents, not the directory
     -- itself, so files land directly under site/.
     run_ $ cmd "mkdir" & addArgs ["-p", siteDir]
-    run_ $ cmd "cp" & addArgs ["-R", outputDirectory prepared <> "/.", siteDir]
+    run_ $ cmd "cp" & addArgs ["-R", prepared ^. #outputDirectory <> "/.", siteDir]
     BS.writeFile (ctx </> "nginx.conf") (renderNginxConfig site)
     BS.writeFile (ctx </> "Dockerfile") staticDockerfile
     action ctx

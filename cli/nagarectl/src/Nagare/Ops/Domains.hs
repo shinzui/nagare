@@ -36,6 +36,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
@@ -49,14 +50,14 @@ import Nagare.Ops.Probe (captureTool)
 -- | One row of @domains list@: a domain, the Service it routes to, its
 -- DomainMapping readiness, its DNS expectation, and its certificate state.
 data DomainRow = DomainRow
-  { drDomain :: !Text
+  { domain :: !Text
   -- ^ the hostname (base apex, or DomainMapping host)
-  , drService :: !(Maybe Text)
+  , service :: !(Maybe Text)
   -- ^ owning Service (@.spec.ref.name@); 'Nothing' for the base row
-  , drMappingReady :: !(Maybe Bool)
+  , mappingReady :: !(Maybe Bool)
   -- ^ DomainMapping @Ready@ condition; 'Nothing' for the base row
-  , drDns :: !DnsExpectation
-  , drCert :: !CertState
+  , dns :: !DnsExpectation
+  , certificate :: !CertState
   }
   deriving stock (Generic, Eq, Show)
 
@@ -80,9 +81,9 @@ data CertState
 
 -- | A decoded @DomainMapping@: hostname, owning Service, and @Ready@ state.
 data DomainMapping = DomainMapping
-  { dmHost :: !Text
-  , dmService :: !(Maybe Text)
-  , dmReady :: !(Maybe Bool)
+  { host :: !Text
+  , service :: !(Maybe Text)
+  , ready :: !(Maybe Bool)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -187,15 +188,15 @@ formatDomainList :: [DomainRow] -> Text
 formatDomainList [] = "(no domains)\n"
 formatDomainList rows = T.unlines (header : map row rows)
   where
-    base = maybe "" drDomain (find (isNothing . drService) rows)
+    base = maybe "" (^. #domain) (find (isNothing . (^. #service)) rows)
     header = "  " <> pad 32 "DOMAIN" <> pad 16 "SERVICE" <> pad 34 "DNS" <> "CERT"
     row r =
       "  "
-        <> pad 32 (drDomain r)
-        <> pad 16 (fromMaybe "(base)" (drService r))
+        <> pad 32 (r ^. #domain)
+        <> pad 16 (fromMaybe "(base)" (r ^. #service))
         <> pad 34 (dnsCell r)
-        <> certCell (drCert r)
-    dnsCell r = case drDns r of
+        <> certCell (r ^. #certificate)
+    dnsCell r = case r ^. #dns of
       UnderWildcard ip -> "*." <> base <> " A -> " <> ip
       OutsideWildcard -> "(outside wildcard)"
     certCell CertReady = "Ready"
@@ -218,11 +219,11 @@ queryDomainRows base ip ns = do
       readiness = either (const []) id (extractCertReadiness certs)
   pure
     [ DomainRow
-        (dmHost m)
-        (dmService m)
-        (dmReady m)
-        (dnsExpectationFor base ip (dmHost m))
-        (certStateFor readiness (dmHost m))
+        (m ^. #host)
+        (m ^. #service)
+        (m ^. #ready)
+        (dnsExpectationFor base ip (m ^. #host))
+        (certStateFor readiness (m ^. #host))
     | m <- mappings
     ]
 

@@ -29,7 +29,7 @@ import Cradle
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText, mkImageRef)
-import Nagare.Target (Mode (..), TargetProfile, registryPrefix, resolveTargetProfile, tpMode, tpRegistryHost)
+import Nagare.Target (Mode (..), TargetProfile, registryPrefix, resolveTargetProfile)
 
 -- | Compute a deploy tag: UTC timestamp in @YYYYMMDD-HHMMSS@ format.
 computeTag :: IO Text
@@ -121,7 +121,7 @@ dockerAuthPlan Cloud host =
 -- invoked. Resolves the profile internally so all call sites are unchanged.
 configureDockerAuthFor :: TargetProfile -> IO ()
 configureDockerAuthFor tp =
-  case dockerAuthPlan (tpMode tp) (tpRegistryHost tp) of
+  case dockerAuthPlan (tp ^. #mode) (tp ^. #registryHost) of
     SkipDockerAuth -> pure ()
     GcloudConfigureDocker args -> run_ $ cmd "gcloud" & addArgs args
 

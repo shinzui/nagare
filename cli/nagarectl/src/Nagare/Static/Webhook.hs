@@ -41,6 +41,7 @@ import Data.Aeson (eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Types (Parser, Value, parseEither)
 import Data.ByteArray qualified as BA
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.ByteString.Char8 qualified as BC
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -166,6 +167,7 @@ data WebhookConfig = WebhookConfig
   { secret :: !ByteString
   , productionBranch :: !Text
   }
+  deriving stock (Generic, Eq, Show)
 
 -- | What an accepted event maps to.
 data DeployAction
@@ -185,13 +187,13 @@ data DeployAction
 routeEvent :: WebhookConfig -> GitHubEvent -> Either Text DeployAction
 routeEvent cfg = \case
   PushEvent {branch, checkout}
-    | branch == productionBranch cfg -> Right (DeployProduction checkout)
+    | branch == cfg ^. #productionBranch -> Right (DeployProduction checkout)
     | otherwise -> Left ("push to non-production branch '" <> branch <> "'")
   PullRequestEvent {action, prNumber, baseRepoFullName, checkout}
-    | repoFullName checkout /= baseRepoFullName ->
+    | checkout ^. #repoFullName /= baseRepoFullName ->
         Left
           ( "ignoring fork pull request: head repo '"
-              <> repoFullName checkout
+              <> checkout ^. #repoFullName
               <> "' is not base repo '"
               <> baseRepoFullName
               <> "'"
@@ -232,7 +234,7 @@ decideWebhook cfg mEvent mSignature body =
   case mSignature of
     Nothing -> Rejected 401 "missing X-Hub-Signature-256 header"
     Just sig
-      | not (verifySignature (secret cfg) body sig) -> Rejected 401 "invalid signature"
+      | not (verifySignature (cfg ^. #secret) body sig) -> Rejected 401 "invalid signature"
       | otherwise -> case parseGitHubEvent (fromMaybe "" mEvent) body of
           Left err -> Rejected 400 ("could not parse event: " <> err)
           Right PingEvent -> Ignored "pong"

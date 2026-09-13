@@ -40,6 +40,7 @@ module Nagare.Dsl.Task
 import Nagare.Dsl.Prelude
 
 import Data.Char (isDigit)
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
@@ -257,19 +258,19 @@ data Task = Task
 -- image inheritance with no app to inherit from.
 mkTask :: Task -> Either Text Task
 mkTask t
-  | backoffLimit t < 0 =
-      Left ("backoffLimit must be >= 0, got: " <> tshow (backoffLimit t))
-  | successfulJobsHistoryLimit t < 0 =
+  | t ^. #backoffLimit < 0 =
+      Left ("backoffLimit must be >= 0, got: " <> tshow (t ^. #backoffLimit))
+  | t ^. #successfulJobsHistoryLimit < 0 =
       Left "successfulJobsHistoryLimit must be >= 0"
-  | failedJobsHistoryLimit t < 0 =
+  | t ^. #failedJobsHistoryLimit < 0 =
       Left "failedJobsHistoryLimit must be >= 0"
-  | maybe False (<= 0) (timeoutSeconds t) =
+  | maybe False (<= 0) (t ^. #timeoutSeconds) =
       Left "timeoutSeconds must be > 0 when set"
-  | maybe False (<= 0) (startingDeadlineSeconds t) =
+  | maybe False (<= 0) (t ^. #startingDeadlineSeconds) =
       Left "startingDeadlineSeconds must be > 0 when set"
-  | isNothing (image t) && isNothing (app t) =
+  | isNothing (t ^. #image) && isNothing (t ^. #app) =
       Left "a task with no image must reference an app to inherit its image from"
-  | null (command t) && isNothing (app t) =
+  | null (t ^. #command) && isNothing (t ^. #app) =
       Left "a task must have a command, or reference an app to inherit its entrypoint"
   | otherwise = Right t
 

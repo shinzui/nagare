@@ -10,7 +10,7 @@
 -- and translating 'doctorExitOk' into a process exit code) lives in
 -- @app/Main.hs@.
 --
--- The knowledge base keys off EP-38's committed 'probeName' display values
+-- The knowledge base keys off EP-38's committed 'name' display values
 -- (e.g. @"VM"@, @"k3s node"@, @"Knative controller"@). EP-38 ships display-only
 -- names and no separate machine key, so those names are the stable matching key
 -- (see the Decision Log in
@@ -30,6 +30,7 @@ module Nagare.Ops.Doctor
 where
 
 import Data.Text qualified as T
+import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
 import Nagare.Target (TargetProfile (..))
@@ -41,18 +42,18 @@ import System.FilePath ((</>))
 -- | A remediation: a plain-language explanation of what is wrong and the exact
 -- command (or short pointer) to run to fix it.
 data Remediation = Remediation
-  { remWhy :: !Text
-  , remCommand :: !Text
+  { reason :: !Text
+  , command :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | One graded check: the underlying probe plus its remediation hint (absent for
 -- an @OK@ probe).
 data Check = Check
-  { checkProbe :: !Probe
-  , checkHint :: !(Maybe Remediation)
+  { probe :: !Probe
+  , hint :: !(Maybe Remediation)
   }
-  deriving stock (Show)
+  deriving stock (Generic, Show)
 
 -- ---------------------------------------------------------------------------
 -- Grading
@@ -74,26 +75,26 @@ remediationFor :: TargetProfile -> Probe -> Maybe Remediation
 remediationFor = remediationForAt "." "infra/pulumi" "scripts/iap-ssh.sh"
 
 remediationForAt :: FilePath -> FilePath -> FilePath -> TargetProfile -> Probe -> Maybe Remediation
-remediationForAt root pulumiDir iapSsh tp p = case probeStatus p of
+remediationForAt root pulumiDir iapSsh tp p = case p ^. #status of
   StatusOk -> Nothing
   StatusUnknown ->
     Just
       Remediation
-        { remWhy = "could not check; " <> probeDetail p
-        , remCommand = commandAt root pulumiDir iapSsh tp (probeName p)
+        { reason = "could not check; " <> p ^. #detail
+        , command = commandAt root pulumiDir iapSsh tp (p ^. #name)
         }
   _ ->
     Just
       Remediation
-        { remWhy = why tp (probeName p) (probeDetail p)
-        , remCommand = commandAt root pulumiDir iapSsh tp (probeName p)
+        { reason = why tp (p ^. #name) (p ^. #detail)
+        , command = commandAt root pulumiDir iapSsh tp (p ^. #name)
         }
 
 -- | The catalogued plain-language /why/ for a non-OK probe name. Falls back to
 -- echoing the live detail when the name is not catalogued.
 why :: TargetProfile -> Text -> Text -> Text
 why tp name detail
-  | name == "VM" = "The VM " <> tpInstanceName tp <> " is powered off."
+  | name == "VM" = "The VM " <> tp ^. #instanceName <> " is powered off."
   | name == "k3s node" = "kubectl cannot reach the k3s cluster (or your context points at the wrong cluster)."
   | isDeploy name = "The " <> name <> " control plane is not ready."
   | name == "ClusterIssuer" = "TLS issuance is not ready."
@@ -113,7 +114,7 @@ why tp name detail
 commandAt :: FilePath -> FilePath -> FilePath -> TargetProfile -> Text -> Text
 commandAt root pulumiDir iapSsh tp name
   | name == "VM" =
-      "gcloud compute instances start " <> tpInstanceName tp <> " --zone=" <> tpZone tp
+      "gcloud compute instances start " <> tp ^. #instanceName <> " --zone=" <> tp ^. #zone
   | name == "k3s node" =
       "point kubectl at the k3s cluster — the workstation default context often points at the unrelated "
         <> "GKE cluster tan-cluster; retrieve the k3s kubeconfig per "
@@ -154,14 +155,14 @@ commandAt root pulumiDir iapSsh tp name
         <> ")"
   | name == "Artifact Registry" =
       "gcloud auth configure-docker "
-        <> tpRegistryHost tp
+        <> tp ^. #registryHost
         <> "; "
         <> "verify the nagare-node service account holds roles/artifactregistry.writer"
   | isDisk name =
       "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 "
         <> T.pack iapSsh
         <> " ssh "
-        <> tpInstanceName tp
+        <> tp ^. #instanceName
         <> " -- 'df -h'; "
         <> "then run nagarectl cleanup once available (EP-41)"
   | isBackup name = "take an on-demand managed-DB backup: nagarectl db backup <name>; consult " <> asset "docs/runbooks/disaster-recovery.md"
@@ -230,21 +231,21 @@ formatDoctor checks =
         <> tshow (count StatusOk)
         <> " ok."
 
-    count st = length [() | c <- checks, probeStatus (checkProbe c) == st]
+    count st = length [() | c <- checks, c ^. #probe . #status == st]
     -- WARN and UNKNOWN both render as a WARN line.
-    countWarn = length [() | c <- checks, let s = probeStatus (checkProbe c), s == StatusWarn || s == StatusUnknown]
+    countWarn = length [() | c <- checks, let s = c ^. #probe . #status, s == StatusWarn || s == StatusUnknown]
 
     renderCheck (Check p mhint) =
       let line1 =
             "  "
-              <> pad 8 ("[" <> tag (probeStatus p) <> "]")
-              <> pad 25 (probeName p)
+              <> pad 8 ("[" <> tag (p ^. #status) <> "]")
+              <> pad 25 (p ^. #name)
               <> trailing
           trailing = case mhint of
-            Just rem' | probeStatus p /= StatusOk -> remWhy rem'
-            _ -> probeDetail p
+            Just rem' | p ^. #status /= StatusOk -> rem' ^. #reason
+            _ -> p ^. #detail
        in case mhint of
-            Just rem' -> [line1, "          fix: " <> remCommand rem']
+            Just rem' -> [line1, "          fix: " <> rem' ^. #command]
             Nothing -> [line1]
 
     tag StatusOk = "OK"
@@ -260,4 +261,4 @@ formatDoctor checks =
 doctorExitOk :: [Check] -> Bool
 doctorExitOk = not . any isFail
   where
-    isFail c = probeStatus (checkProbe c) == StatusFail
+    isFail c = c ^. #probe . #status == StatusFail

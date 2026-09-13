@@ -41,23 +41,23 @@ import System.IO (stderr)
 -- does not depend on the executable's option types. The GHC environment is
 -- provisioned by @Main@ before this runs (mirroring @db create --config@).
 data WorkerDeployParams = WorkerDeployParams
-  { wdpConfigPath :: !FilePath
+  { configPath :: !FilePath
   -- ^ path to the worker's @Config.hs@ (default @nagare/Config.hs@).
-  , wdpTag :: !(Maybe Text)
+  , tag :: !(Maybe Text)
   -- ^ explicit deploy tag; 'Nothing' computes a UTC timestamp.
-  , wdpContextOverride :: !(Maybe FilePath)
-  , wdpDockerfileOverride :: !(Maybe FilePath)
-  , wdpDryRun :: !Bool
+  , contextOverride :: !(Maybe FilePath)
+  , dockerfileOverride :: !(Maybe FilePath)
+  , dryRun :: !Bool
   -- ^ print the manifests and the build mode; apply nothing.
-  , wdpTargetProfile :: !TargetProfile
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
 -- | Run @worker deploy@.
 runWorkerDeploy :: WorkerDeployParams -> IO ()
 runWorkerDeploy params = do
-  eWorker <- loadWorker (wdpConfigPath params)
-  let tp = wdpTargetProfile params
+  eWorker <- loadWorker (params ^. #configPath)
+  let tp = params ^. #targetProfile
   worker <- case eWorker of
     Left err -> dieT (renderLoadError err)
     -- EP-62 M3: a name-only image (no '/') is qualified with the resolved
@@ -66,8 +66,8 @@ runWorkerDeploy params = do
       Left e -> dieT ("nagarectl worker deploy: " <> e)
       Right qimg -> pure (w & #image %~ const qimg)
 
-  imageTag <- maybe computeTag pure (wdpTag params)
-  spec <- orDie (applyBuildOverrides (wdpContextOverride params) (wdpDockerfileOverride params) (worker ^. #build))
+  imageTag <- maybe computeTag pure (params ^. #tag)
+  spec <- orDie (applyBuildOverrides (params ^. #contextOverride) (params ^. #dockerfileOverride) (worker ^. #build))
   brokerEnv <- resolveBrokerEnv (worker ^. #namespace) (worker ^. #brokers)
 
   let worker' = worker & #env %~ mergeGenerated brokerEnv
@@ -82,14 +82,14 @@ runWorkerDeploy params = do
       manifests = renderWorker worker' imageTag
       (pvcBytes, depBytes) = splitLast manifests
 
-  if wdpDryRun params
+  if params ^. #dryRun
     then do
       forM_ pvcBytes $ \pvc -> do
         TIO.putStrLn "--- PersistentVolumeClaim manifest ---"
         TIO.putStr (TE.decodeUtf8 pvc)
       TIO.putStrLn "--- Deployment manifest ---"
       mapM_ (TIO.putStr . TE.decodeUtf8) depBytes
-      TIO.putStrLn ("Build mode: " <> describeBuild (tpTargetPlatform tp) spec)
+      TIO.putStrLn ("Build mode: " <> describeBuild (tp ^. #targetPlatform) spec)
       TIO.putStrLn
         ( "Would apply apps/v1 Deployment "
             <> workerDeploymentName name
@@ -127,7 +127,7 @@ buildAndPush tp worker name ns spec ref = do
   (bargs, warns) <- gatherBuildArgs name ns (worker ^. #env)
   printBuildArgWarnings warns
   configureDockerAuthFor tp
-  performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
+  performBuild (tp ^. #targetPlatform) (addBuildArgs bargs spec) ref
   pushImage ref
 
 -- | Split a non-empty manifest list into (all-but-last, [last]). For a

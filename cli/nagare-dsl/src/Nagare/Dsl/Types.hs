@@ -110,6 +110,7 @@ module Nagare.Dsl.Types
 where
 
 import Data.Char (isDigit, isLower)
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -381,19 +382,19 @@ data HealthCheck = HealthCheck
 -- 'timeout', 'failureThreshold' all @>= 1@.
 mkHealthCheck :: HealthCheck -> Either Text HealthCheck
 mkHealthCheck hc
-  | Text.null (path hc) = Left "health check path must not be empty"
-  | not (Text.isPrefixOf "/" (path hc)) =
-      Left ("health check path must start with '/': " <> path hc)
-  | expectedStatus hc < 100 || expectedStatus hc > 599 =
-      Left ("health check expectedStatus must be in 100-599, got: " <> tshow (expectedStatus hc))
-  | initialDelay hc < 0 =
-      Left ("health check initialDelay must be >= 0, got: " <> tshow (initialDelay hc))
-  | period hc < 1 =
-      Left ("health check period must be >= 1, got: " <> tshow (period hc))
-  | timeout hc < 1 =
-      Left ("health check timeout must be >= 1, got: " <> tshow (timeout hc))
-  | failureThreshold hc < 1 =
-      Left ("health check failureThreshold must be >= 1, got: " <> tshow (failureThreshold hc))
+  | Text.null (hc ^. #path) = Left "health check path must not be empty"
+  | not (Text.isPrefixOf "/" (hc ^. #path)) =
+      Left ("health check path must start with '/': " <> hc ^. #path)
+  | hc ^. #expectedStatus < 100 || hc ^. #expectedStatus > 599 =
+      Left ("health check expectedStatus must be in 100-599, got: " <> tshow (hc ^. #expectedStatus))
+  | hc ^. #initialDelay < 0 =
+      Left ("health check initialDelay must be >= 0, got: " <> tshow (hc ^. #initialDelay))
+  | hc ^. #period < 1 =
+      Left ("health check period must be >= 1, got: " <> tshow (hc ^. #period))
+  | hc ^. #timeout < 1 =
+      Left ("health check timeout must be >= 1, got: " <> tshow (hc ^. #timeout))
+  | hc ^. #failureThreshold < 1 =
+      Left ("health check failureThreshold must be >= 1, got: " <> tshow (hc ^. #failureThreshold))
   | otherwise = Right hc
 
 -- | Build a 'HealthCheck' from just a path, filling sensible defaults:
@@ -468,7 +469,7 @@ mkDomains :: [(Text, Bool)] -> Either Text [DomainSpec]
 mkDomains [] = Right []
 mkDomains pairs = do
   specs <- traverse toSpec pairs
-  let canonicalCount = length (filter canonical specs)
+  let canonicalCount = length (filter (^. #canonical) specs)
   if canonicalCount == 1
     then Right specs
     else
@@ -484,7 +485,7 @@ mkDomains pairs = do
 -- | The canonical entry's domain, or 'Nothing' for an empty list. For a list
 -- built by 'mkDomains' there is at most one canonical entry.
 canonicalDomain :: [DomainSpec] -> Maybe Domain
-canonicalDomain specs = domain <$> find canonical specs
+canonicalDomain specs = (^. #domain) <$> find (^. #canonical) specs
   where
     find p = foldr (\x acc -> if p x then Just x else acc) Nothing
 

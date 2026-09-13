@@ -40,17 +40,17 @@ import System.Exit (exitFailure)
 import System.IO (stderr)
 
 data AccessGrantParams = AccessGrantParams
-  { agpEnUrl :: !(Maybe Text)
-  , agpEnApiKey :: !(Maybe Text)
-  , agpHost :: !Text
-  , agpUser :: !Text
+  { enUrl :: !(Maybe Text)
+  , enApiKey :: !(Maybe Text)
+  , host :: !Text
+  , user :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
 data AccessListParams = AccessListParams
-  { alpEnUrl :: !(Maybe Text)
-  , alpEnApiKey :: !(Maybe Text)
-  , alpHost :: !Text
+  { enUrl :: !(Maybe Text)
+  , enApiKey :: !(Maybe Text)
+  , host :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
@@ -63,7 +63,7 @@ data ObjectRefWire = ObjectRefWire
   { objectType :: !Text
   , objectId :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance ToJSON ObjectRefWire where
   toJSON (ObjectRefWire objectType objectId) =
@@ -111,7 +111,7 @@ data TupleWire = TupleWire
   , subject :: !SubjectWire
   , caveat :: !(Maybe ())
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance ToJSON TupleWire where
   toJSON (TupleWire object relation subject caveat) =
@@ -172,7 +172,7 @@ instance FromJSON ConsistencyWire where
 newtype CaveatContextWire = CaveatContextWire
   { values :: Map.Map Text ()
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance ToJSON CaveatContextWire where
   toJSON (CaveatContextWire values) = Aeson.object ["values" .= values]
@@ -186,7 +186,7 @@ data ExpandRequestWire = ExpandRequestWire
   , limit :: !Int
   , cursor :: !(Maybe Text)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance ToJSON ExpandRequestWire where
   toJSON (ExpandRequestWire consistency object permission context limit cursor) =
@@ -286,21 +286,21 @@ instance FromJSON ExpandStateWire where
 
 runAccessGrant :: AccessGrantParams -> IO ()
 runAccessGrant params = do
-  response <- enRequest (agpEnUrl params) (agpEnApiKey params) methodPost "/v1/relationships" (WriteTuplesRequestWire [accessTuple (agpHost params) (agpUser params)])
-  TIO.putStrLn ("Granted " <> agpUser params <> " access to " <> canonicalHost (agpHost params) <> " (token " <> token response <> ").")
+  response <- (enRequest (params ^. #enUrl) (params ^. #enApiKey) methodPost "/v1/relationships" (WriteTuplesRequestWire [accessTuple (params ^. #host) (params ^. #user)]) :: IO WriteTuplesResponseWire)
+  TIO.putStrLn ("Granted " <> params ^. #user <> " access to " <> canonicalHost (params ^. #host) <> " (token " <> response ^. #token <> ").")
 
 runAccessRevoke :: AccessGrantParams -> IO ()
 runAccessRevoke params = do
-  response <- enRequest (agpEnUrl params) (agpEnApiKey params) methodPost "/v1/relationships/delete" (DeleteTuplesRequestWire [accessTuple (agpHost params) (agpUser params)])
-  TIO.putStrLn ("Revoked " <> agpUser params <> " access to " <> canonicalHost (agpHost params) <> " (token " <> token response <> ").")
+  response <- (enRequest (params ^. #enUrl) (params ^. #enApiKey) methodPost "/v1/relationships/delete" (DeleteTuplesRequestWire [accessTuple (params ^. #host) (params ^. #user)]) :: IO WriteTuplesResponseWire)
+  TIO.putStrLn ("Revoked " <> params ^. #user <> " access to " <> canonicalHost (params ^. #host) <> " (token " <> response ^. #token <> ").")
 
 runAccessList :: AccessListParams -> IO AccessListResult
 runAccessList params = do
-  tree <- enRequest (alpEnUrl params) (alpEnApiKey params) methodPost "/v1/expand" (expandRequest (alpHost params))
+  tree <- enRequest (params ^. #enUrl) (params ^. #enApiKey) methodPost "/v1/expand" (expandRequest (params ^. #host))
   let result = AccessListResult (collectExpandedSubjects tree)
-  if null (users result)
+  if null (result ^. #users)
     then TIO.putStrLn "(none)"
-    else mapM_ TIO.putStrLn (users result)
+    else mapM_ TIO.putStrLn (result ^. #users)
   pure result
 
 accessTuple :: Text -> Text -> TupleWire
@@ -325,12 +325,12 @@ expandRequest host =
 
 collectExpandedSubjects :: ExpandTreeWire -> [Text]
 collectExpandedSubjects tree =
-  T.strip <$> concatMap collectNode (children tree)
+  T.strip <$> concatMap collectNode (tree ^. #children)
   where
     collectNode = \case
       ExpandSubjectWire (SubjectIdWire (ObjectRefWire "user" user)) -> [user]
-      ExpandSubjectWire (SubjectIdWire ref) -> [objectType ref <> ":" <> objectId ref]
-      ExpandSubjectWire (SubjectSetWire ref relation) -> [objectType ref <> ":" <> objectId ref <> "#" <> relation]
+      ExpandSubjectWire (SubjectIdWire ref) -> [ref ^. #objectType <> ":" <> ref ^. #objectId]
+      ExpandSubjectWire (SubjectSetWire ref relation) -> [ref ^. #objectType <> ":" <> ref ^. #objectId <> "#" <> relation]
       ExpandSubjectWire (SubjectWildcardWire typ) -> [typ <> ":*"]
       ExpandUsersetWire _ _ nodes -> concatMap collectNode nodes
       ExpandCaveatedWire _ nodes -> concatMap collectNode nodes

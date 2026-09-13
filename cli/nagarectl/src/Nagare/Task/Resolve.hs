@@ -26,16 +26,11 @@ import Data.Aeson (Value (Array, Object, String), object, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Vector qualified as V
-import Nagare.Dsl.Task
-  ( Task
-  , app
-  , image
-  , name
-  , namespace
-  )
+import Nagare.Dsl.Task (Task)
 import Nagare.Dsl.Task.Render (cronJobValue, encodeCronJob)
 import Nagare.Dsl.Types
   ( EnvName
@@ -63,7 +58,7 @@ resolveTaskImage
   -> Task
   -> Text
 resolveTaskImage appImageTagged deployTag t =
-  case image t of
+  case t ^. #image of
     Just ref -> imageRefText ref <> ":" <> deployTag
     Nothing -> appImageTagged
 
@@ -80,10 +75,10 @@ predefinedTaskEnv t =
   where
     lit name v = (envName name, runtimeScoped (EnvLiteral v))
     fixed =
-      [ lit "NAGARE_TASK_NAME" (serviceNameText (name t))
-      , lit "NAGARE_NAMESPACE" (namespaceText (namespace t))
+      [ lit "NAGARE_TASK_NAME" (serviceNameText (t ^. #name))
+      , lit "NAGARE_NAMESPACE" (namespaceText (t ^. #namespace))
       ]
-    appEntry = case app t of
+    appEntry = case t ^. #app of
       Just a -> [lit "NAGARE_APP" (serviceNameText a)]
       Nothing -> []
 

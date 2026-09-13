@@ -36,6 +36,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.Char (isDigit)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
@@ -70,27 +71,27 @@ data CleanupOpts = CleanupOpts
 
 -- | One static preview Service and its age inputs.
 data PreviewInfo = PreviewInfo
-  { previewName :: !Text
-  , previewNamespace :: !Text
-  , previewCreatedAt :: !UTCTime
+  { name :: !Text
+  , namespace :: !Text
+  , createdAt :: !UTCTime
   }
   deriving stock (Generic, Eq, Show)
 
 -- | A parsed containerd image row from @crictl images@.
 data ImagePlan = ImagePlan
-  { imageRepo :: !Text
-  , imageSizeBytes :: !Integer
+  { repository :: !Text
+  , sizeBytes :: !Integer
   }
   deriving stock (Generic, Eq, Show)
 
 -- | What a dry run would do / what a confirmed run did.
 data CleanupReport = CleanupReport
-  { reportImages :: !(Maybe (Int, Integer))
+  { images :: !(Maybe (Int, Integer))
   -- ^ (count, reclaimable bytes), or 'Nothing' if images were not scanned
-  , reportStalePreviews :: ![PreviewInfo]
-  , reportTrimmedReleases :: ![(Text, [Rel.StaticRelease])]
+  , stalePreviews :: ![PreviewInfo]
+  , trimmedReleases :: ![(Text, [Rel.StaticRelease])]
   -- ^ (logSubject, removed entries)
-  , reportConfirmed :: !Bool
+  , confirmed :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -108,21 +109,21 @@ defaultKeepReleases = 10
 -- plus the @current@ record wherever it sits, and report the rest as removed.
 pruneReleases :: Int -> Rel.StaticReleaseLog -> (Rel.StaticReleaseLog, [Rel.StaticRelease])
 pruneReleases keep logv =
-  let rs = Rel.releases logv
+  let rs = logv ^. #releases
       kept = take keep rs
-      keptIds = map Rel.releaseId kept
-      curExtra = case Rel.current logv of
-        Just cid | cid `notElem` keptIds -> filter ((== cid) . Rel.releaseId) rs
+      keptIds = map (^. #releaseId) kept
+      curExtra = case logv ^. #current of
+        Just cid | cid `notElem` keptIds -> filter ((== cid) . (^. #releaseId)) rs
         _ -> []
       keptAll = kept <> curExtra
-      keptAllIds = map Rel.releaseId keptAll
-      removed = filter ((`notElem` keptAllIds) . Rel.releaseId) rs
-   in (logv {Rel.releases = keptAll}, removed)
+      keptAllIds = map (^. #releaseId) keptAll
+      removed = filter ((`notElem` keptAllIds) . (^. #releaseId)) rs
+   in (logv & #releases .~ keptAll, removed)
 
 -- | Given the wall-clock @now@, a TTL, and the previews discovered in-cluster,
 -- return those whose age exceeds the TTL (should be deleted). Pure in @now@.
 selectStalePreviews :: UTCTime -> NominalDiffTime -> [PreviewInfo] -> [PreviewInfo]
-selectStalePreviews now ttl = filter (\p -> diffUTCTime now (previewCreatedAt p) > ttl)
+selectStalePreviews now ttl = filter (\p -> diffUTCTime now (p ^. #createdAt) > ttl)
 
 -- | Parse @crictl images@ table output into rows, tolerating the header and
 -- blank lines. The columns are @IMAGE TAG IMAGE-ID SIZE@; SIZE is a
@@ -155,34 +156,34 @@ parseSize t =
 
 -- | Total reclaimable bytes across parsed image rows.
 sumReclaimableBytes :: [ImagePlan] -> Integer
-sumReclaimableBytes = sum . map imageSizeBytes
+sumReclaimableBytes = sum . map (^. #sizeBytes)
 
 -- ---------------------------------------------------------------------------
 -- Pure formatter
 
 -- | Render the cleanup report as an aligned, human-readable block. The closing
--- line is the dry-run notice unless @reportConfirmed@ is 'True'.
+-- line is the dry-run notice unless @confirmed@ is 'True'.
 formatCleanupReport :: CleanupReport -> Text
 formatCleanupReport rep =
   T.unlines $ [headerLine, ""] <> body <> ["", lastLine]
   where
-    confirmed = reportConfirmed rep
-    headerLine = "cleanup " <> (if confirmed then "(applied)" else "(dry run)")
+    isConfirmed = rep ^. #confirmed
+    headerLine = "cleanup " <> (if isConfirmed then "(applied)" else "(dry run)")
     body = imagesPart <> previewsPart <> releasesPart
-    imagesPart = case reportImages rep of
+    imagesPart = case rep ^. #images of
       Nothing -> []
       Just (n, bytes)
-        | confirmed -> ["  IMAGES     pruned via crictl rmi --prune (~" <> humanBytes bytes <> " reclaimable)"]
+        | isConfirmed -> ["  IMAGES     pruned via crictl rmi --prune (~" <> humanBytes bytes <> " reclaimable)"]
         | otherwise -> ["  IMAGES     " <> tshow n <> " unused images (~" <> humanBytes bytes <> " reclaimable)"]
     previewsPart =
-      let ps = reportStalePreviews rep
+      let ps = rep ^. #stalePreviews
        in if null ps
             then ["  PREVIEWS   none stale"]
             else
-              ("  PREVIEWS   " <> tshow (length ps) <> (if confirmed then " deleted:" else " stale:"))
-                : ["               " <> previewName p | p <- ps]
+              ("  PREVIEWS   " <> tshow (length ps) <> (if isConfirmed then " deleted:" else " stale:"))
+                : ["               " <> p ^. #name | p <- ps]
     releasesPart =
-      let trs = reportTrimmedReleases rep
+      let trs = rep ^. #trimmedReleases
        in if null trs
             then ["  RELEASES   none to trim"]
             else
@@ -190,14 +191,14 @@ formatCleanupReport rep =
                   <> subj
                   <> ": "
                   <> tshow (length removed)
-                  <> ( if confirmed
+                  <> ( if isConfirmed
                          then " entries trimmed (current kept)"
                          else " entries beyond keep would be trimmed (current kept)"
                      )
               | (subj, removed) <- trs
               ]
     lastLine =
-      if confirmed
+      if isConfirmed
         then "done."
         else "(dry run — nothing removed; re-run with --confirm to apply)"
     tshow = T.pack . show
@@ -225,20 +226,20 @@ humanBytes b
 -- unreachable VM yields an empty category, not a crash).
 executeCleanup :: FilePath -> Text -> CleanupOpts -> IO CleanupReport
 executeCleanup iapSsh instanceName o = do
-  let allCats = not (doImages o || doPreviews o || doReleases o)
-      wantImages = doImages o || allCats
-      wantPreviews = doPreviews o || allCats
-      wantReleases = doReleases o || allCats
-      ns = fromMaybe "default" (namespace o)
+  let allCats = not (o ^. #doImages || o ^. #doPreviews || o ^. #doReleases)
+      wantImages = o ^. #doImages || allCats
+      wantPreviews = o ^. #doPreviews || allCats
+      wantReleases = o ^. #doReleases || allCats
+      ns = fromMaybe "default" (o ^. #namespace)
   imagesR <- if wantImages then Just <$> imageStep iapSsh instanceName o else pure Nothing
   previewsR <- if wantPreviews then previewStep o ns else pure []
   releasesR <- if wantReleases then releaseStep o ns else pure []
   pure
     CleanupReport
-      { reportImages = imagesR
-      , reportStalePreviews = previewsR
-      , reportTrimmedReleases = releasesR
-      , reportConfirmed = confirm o
+      { images = imagesR
+      , stalePreviews = previewsR
+      , trimmedReleases = releasesR
+      , confirmed = o ^. #confirm
       }
 
 -- | Images: list the containerd store over IAP-SSH (read-only), and under
@@ -247,7 +248,7 @@ imageStep :: FilePath -> Text -> CleanupOpts -> IO (Int, Integer)
 imageStep iapSsh instanceName o = do
   m <- captureTool iapSsh ["ssh", T.unpack instanceName, "--", "sudo k3s crictl images"]
   let imgs = maybe [] parseCrictlImages m
-  when (confirm o) $
+  when (o ^. #confirm) $
     void $
       captureTool iapSsh ["ssh", T.unpack instanceName, "--", "sudo k3s crictl rmi --prune"]
   pure (length imgs, sumReclaimableBytes imgs)
@@ -261,13 +262,13 @@ previewStep o ns = do
   now <- getCurrentTime
   m <- captureTool "kubectl" ["get", "ksvc", "-n", T.unpack ns, "-o", "json"]
   let previews = maybe [] (parsePreviewInfos ns) m
-      ttl = fromIntegral (previewTtlDays o) * 86400 :: NominalDiffTime
+      ttl = fromIntegral (o ^. #previewTtlDays) * 86400 :: NominalDiffTime
       stale = selectStalePreviews now ttl previews
-  when (confirm o) $
+  when (o ^. #confirm) $
     forM_ stale $ \p ->
       run_ $
         cmd "kubectl"
-          & addArgs ["delete", "ksvc", T.unpack (previewName p), "-n", T.unpack (previewNamespace p), "--ignore-not-found"]
+          & addArgs ["delete", "ksvc", T.unpack (p ^. #name), "-n", T.unpack (p ^. #namespace), "--ignore-not-found"]
   pure stale
 
 -- | Releases: enumerate the namespace's static-release ConfigMaps, trim each to
@@ -288,11 +289,11 @@ releaseStep o ns = do
     case elog of
       Left _ -> pure Nothing
       Right logv -> do
-        let (trimmed, removed) = pruneReleases (keepReleases o) logv
+        let (trimmed, removed) = pruneReleases (o ^. #keepReleases) logv
         if null removed
           then pure Nothing
           else do
-            when (confirm o) $ Rel.writeReleaseLogWith prefix subj ns trimmed
+            when (o ^. #confirm) $ Rel.writeReleaseLogWith prefix subj ns trimmed
             pure (Just (subj, removed))
   pure [r | Just r <- results]
 

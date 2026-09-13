@@ -13,6 +13,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Batch.Render
   ( argvPairs
@@ -55,10 +56,10 @@ renderJobManifest job deployTag =
   YP.encodePretty (batchConfig jobKeyRanks) (jobValue job deployTag)
 
 logicalName :: Job -> Text
-logicalName = serviceNameText . name
+logicalName = serviceNameText . (^. #name)
 
 namespaceName :: Job -> Text
-namespaceName = namespaceText . namespace
+namespaceName = namespaceText . (^. #namespace)
 
 resourceName :: Job -> Text
 resourceName job = jobResourceName (logicalName job)
@@ -74,7 +75,7 @@ jobLabels job = object (baseLabels <> nixCacheLabelPairs job)
       ]
 
 nixCacheLabelPairs :: Job -> [Pair]
-nixCacheLabelPairs job = case nixConfigMap job of
+nixCacheLabelPairs job = case job ^. #nixConfigMap of
   Nothing -> []
   Just _ -> ["nagare.dev/nix-cache-client" .= ("true" :: Text)]
 
@@ -123,7 +124,7 @@ jobValue job deployTag =
         .= object
           ( [ "parallelism" .= (1 :: Int)
             , "completions" .= (1 :: Int)
-            , "backoffLimit" .= backoffLimit job
+            , "backoffLimit" .= (job ^. #backoffLimit)
             ]
               <> activeDeadlinePairs job
               <> ttlPairs job
@@ -132,12 +133,12 @@ jobValue job deployTag =
     ]
 
 activeDeadlinePairs :: Job -> [Pair]
-activeDeadlinePairs job = case activeDeadlineSeconds job of
+activeDeadlinePairs job = case job ^. #activeDeadlineSeconds of
   Nothing -> []
   Just seconds -> ["activeDeadlineSeconds" .= seconds]
 
 ttlPairs :: Job -> [Pair]
-ttlPairs job = case ttlSecondsAfterFinished job of
+ttlPairs job = case job ^. #ttlSecondsAfterFinished of
   Nothing -> []
   Just seconds -> ["ttlSecondsAfterFinished" .= seconds]
 
@@ -173,8 +174,8 @@ containerValue job deployTag =
     ( [ "name" .= logicalName job
       , "image" .= resolvedImage
       ]
-        <> maybe [] (argvPairs . commandArgvList) (command job)
-        <> runtimeEnvPairs (env job)
+        <> maybe [] (argvPairs . commandArgvList) (job ^. #command)
+        <> runtimeEnvPairs (job ^. #env)
         <> managedEnvFromPairs (logicalName job)
         <> resourcesPairs (Just (effectiveResources job))
         <> [ "securityContext" .= containerSecurityContext
@@ -183,12 +184,12 @@ containerValue job deployTag =
     )
   where
     resolvedImage =
-      imageRefText (image job)
+      imageRefText (job ^. #image)
         <> ":"
-        <> resolveImageTag (build job) deployTag
+        <> resolveImageTag (job ^. #build) deployTag
 
 effectiveResources :: Job -> Resources
-effectiveResources job = fromMaybe defaultJobResources (resources job)
+effectiveResources job = fromMaybe defaultJobResources (job ^. #resources)
 
 defaultJobResources :: Resources
 defaultJobResources =
@@ -221,7 +222,7 @@ volumeMountValues job = scratchMount : nixMounts
         , "mountPath" .= ("/scratch" :: Text)
         , "readOnly" .= False
         ]
-    nixMounts = case nixConfigMap job of
+    nixMounts = case job ^. #nixConfigMap of
       Nothing -> []
       Just _ ->
         [ object
@@ -239,9 +240,9 @@ volumeValues job = scratchVolume : nixVolumes
       object
         [ "name" .= ("scratch" :: Text)
         , "emptyDir"
-            .= object ["sizeLimit" .= quantityText (scratchSize job)]
+            .= object ["sizeLimit" .= quantityText (job ^. #scratchSize)]
         ]
-    nixVolumes = case nixConfigMap job of
+    nixVolumes = case job ^. #nixConfigMap of
       Nothing -> []
       Just configMap ->
         [ object

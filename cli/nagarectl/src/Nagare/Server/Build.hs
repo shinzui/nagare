@@ -31,7 +31,7 @@ import System.FilePath ((</>))
 newtype PreparedServerOutput = PreparedServerOutput
   { outputs :: NonEmpty (FilePath, FilePath)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Run the server build (unless skipped) and resolve/validate every output
 -- directory. @prepareServerOutput skipBuild site projectRoot@ runs in

@@ -13,6 +13,7 @@ module Nagare.Database.Delete
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (DbRow (..), getDatabase)
@@ -22,31 +23,31 @@ import System.Exit (exitFailure)
 import System.IO (stderr)
 
 data DbDeleteParams = DbDeleteParams
-  { ddpName :: !Text
-  , ddpNamespace :: !Text
-  , ddpYes :: !Bool
-  , ddpDryRun :: !Bool
+  { name :: !Text
+  , namespace :: !Text
+  , yes :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 runDbDelete :: DbDeleteParams -> IO ()
 runDbDelete p = do
-  erow <- getDatabase (ddpNamespace p) (ddpName p)
+  erow <- getDatabase (p ^. #namespace) (p ^. #name)
   case erow of
     Left err -> do
       TIO.hPutStrLn stderr ("nagarectl: " <> err)
       exitFailure
     Right r -> do
-      let ns = ddpNamespace p
-          name = ddpName p
-          deleteData = drRetention r == "Delete"
-          pvc = dbPvcName name
-      if not (ddpYes p) || ddpDryRun p
+      let ns = p ^. #namespace
+          nameText = p ^. #name
+          deleteData = r ^. #retention == "Delete"
+          pvc = dbPvcName nameText
+      if not (p ^. #yes) || p ^. #dryRun
         then do
           TIO.putStr $
             T.unlines
               ( ["Would delete (run again with --yes):"]
-                  <> map ("  " <>) (objectsToDelete name)
+                  <> map ("  " <>) (objectsToDelete nameText)
                   <> [ if deleteData
                         then "Retention is Delete: the data volume " <> pvc <> " is REMOVED."
                         else
@@ -58,18 +59,18 @@ runDbDelete p = do
                      ]
               )
         else do
-          mapM_ (deleteObj ns) (objectsToDelete name)
+          mapM_ (deleteObj ns) (objectsToDelete nameText)
           if deleteData
             then do
               deleteObj ns ("pvc/" <> pvc)
-              TIO.putStrLn ("Deleted database " <> name <> " (data volume removed)")
+              TIO.putStrLn ("Deleted database " <> nameText <> " (data volume removed)")
             else do
               TIO.putStrLn
                 ( "Retention is Retain: kept pvc "
                     <> pvc
                     <> " (delete manually to reclaim the disk)."
                 )
-              TIO.putStrLn ("Deleted database " <> name)
+              TIO.putStrLn ("Deleted database " <> nameText)
 
 -- | The objects deleted in dependency order (workload, scheduled backup, then
 -- Service, Secret, and the ClickHouse memory ConfigMap). The data PVC is

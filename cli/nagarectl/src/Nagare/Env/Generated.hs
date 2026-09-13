@@ -14,6 +14,7 @@ module Nagare.Env.Generated
 
 import Nagare.Dsl.Prelude
 
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -51,13 +52,13 @@ generatedEnv ctx =
   where
     lit name v = (envName name, runtimeScoped (EnvLiteral v))
     fixed =
-      [ lit "NAGARE_SERVICE_URL" (serviceUrl ctx)
-      , lit "NAGARE_SERVICE_NAME" (serviceName ctx)
-      , lit "NAGARE_NAMESPACE" (namespace ctx)
-      , lit "NAGARE_BASE_DOMAIN" (baseDomain ctx)
-      , lit "NAGARE_RELEASE_ID" (releaseId ctx)
+      [ lit "NAGARE_SERVICE_URL" (ctx ^. #serviceUrl)
+      , lit "NAGARE_SERVICE_NAME" (ctx ^. #serviceName)
+      , lit "NAGARE_NAMESPACE" (ctx ^. #namespace)
+      , lit "NAGARE_BASE_DOMAIN" (ctx ^. #baseDomain)
+      , lit "NAGARE_RELEASE_ID" (ctx ^. #releaseId)
       ]
-    sourceEntry = case source ctx of
+    sourceEntry = case ctx ^. #source of
       Just s -> [lit "NAGARE_SOURCE" s]
       Nothing -> []
 

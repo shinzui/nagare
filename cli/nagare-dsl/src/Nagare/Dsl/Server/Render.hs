@@ -68,7 +68,7 @@ data ServerDeployContext = ServerDeployContext
   deriving stock (Generic, Eq, Show)
 
 serviceNameFor :: ServerSite -> ServerDeployContext -> Text
-serviceNameFor site ctx = fromMaybe (siteNameText (site ^. #name)) (previewName ctx)
+serviceNameFor site ctx = fromMaybe (siteNameText (site ^. #name)) (ctx ^. #previewName)
 
 -- ---------------------------------------------------------------------------
 -- Dockerfile
@@ -162,7 +162,7 @@ containerValue :: ServerSite -> ServerDeployContext -> Value
 containerValue site ctx =
   object (required <> optionals)
   where
-    imageStr = imageRefText (site ^. #image) <> ":" <> imageTag ctx
+    imageStr = imageRefText (site ^. #image) <> ":" <> ctx ^. #imageTag
     portN = portInt (site ^. #port)
     required =
       [ "image" .= imageStr

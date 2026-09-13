@@ -106,7 +106,7 @@ getBroker ns name' = do
   rows <- listBrokers ns
   pure $ case rows of
     Left e -> Left e
-    Right rs -> case find ((== name') . name) rs of
+    Right rs -> case find ((== name') . (^. #name)) rs of
       Just r -> Right r
       Nothing -> Left ("no managed broker named '" <> name' <> "' in namespace " <> ns)
 

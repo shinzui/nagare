@@ -59,6 +59,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
@@ -74,32 +75,32 @@ import System.Exit (ExitCode (..))
 data ProbeStatus = StatusOk | StatusWarn | StatusUnknown | StatusFail
   deriving stock (Eq, Show)
 
--- | One inspected platform facet and its observed state. @probeName@ is the
+-- | One inspected platform facet and its observed state. @name@ is the
 -- left-column label (e.g. @"VM"@, @"k3s node"@, @"Kourier ingress"@);
--- @probeDetail@ is the right-column human description (e.g. @"RUNNING"@,
+-- @detail@ is the right-column human description (e.g. @"RUNNING"@,
 -- @"EXTERNAL-IP 34.x = publicIp"@).
 data Probe = Probe
-  { probeName :: !Text
-  , probeStatus :: !ProbeStatus
-  , probeDetail :: !Text
+  { name :: !Text
+  , status :: !ProbeStatus
+  , detail :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The knobs 'Nagare.Ops.Status.gatherInventory' reads. Kept a record so EP-39
 -- can add fields without breaking callers.
 data InventoryOpts = InventoryOpts
-  { ioZone :: !Text
+  { zone :: !Text
   -- ^ compute zone, e.g. @"us-west1-a"@
-  , ioInstance :: !Text
+  , instanceName :: !Text
   -- ^ VM instance name, e.g. @"nagare-01"@
-  , ioPulumiDir :: !FilePath
+  , pulumiDir :: !FilePath
   -- ^ Pulumi project dir, e.g. @"infra/pulumi"@
-  , ioIapSsh :: !FilePath
+  , iapSsh :: !FilePath
   -- ^ resolved IAP helper, e.g. @"/share/nagare/scripts/iap-ssh.sh"@
-  , ioSkipVm :: !Bool
+  , skipVm :: !Bool
   -- ^ when 'True', skip the best-effort IAP-SSH disk probe
   }
-  deriving stock (Show)
+  deriving stock (Generic, Show)
 
 -- ---------------------------------------------------------------------------
 -- Rendering
@@ -119,7 +120,7 @@ renderInventory :: [Probe] -> Text
 renderInventory ps = T.unlines (header : map row ps)
   where
     header = "  " <> pad 9 "STATUS" <> pad 25 "CHECK" <> "DETAIL"
-    row p = "  " <> pad 9 (statusLabel (probeStatus p)) <> pad 25 (probeName p) <> probeDetail p
+    row p = "  " <> pad 9 (statusLabel (p ^. #status)) <> pad 25 (p ^. #name) <> p ^. #detail
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 
 -- ---------------------------------------------------------------------------
@@ -295,17 +296,17 @@ parseNodeExternalIp bs = do
 -- probe in "Nagare.Ops.Status"; graded purely by 'gradeKourier' so every branch
 -- is unit-testable without a cluster.
 data KourierEvidence = KourierEvidence
-  { keLbExternalIp :: !(Maybe Text)
+  { loadBalancerExternalIp :: !(Maybe Text)
   -- ^ the Kourier LoadBalancer EXTERNAL-IP ('parseKourierIp')
-  , kePublicIp :: !(Maybe Text)
+  , publicIp :: !(Maybe Text)
   -- ^ the Pulumi @publicIp@ output
-  , keHttpCode :: !(Maybe Text)
+  , httpCode :: !(Maybe Text)
   -- ^ a curl @%{http_code}@ against @http://\<publicIp>/@; 'Nothing' if curl is
   -- absent or returned @000@
-  , keNodeExternalIp :: !(Maybe Text)
+  , nodeExternalIp :: !(Maybe Text)
   -- ^ the node's advertised ExternalIP ('parseNodeExternalIp')
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Grade the Kourier ingress from gathered evidence (EP-4 M1). Reachability is
 -- the ground truth: any HTTP response on the reserved public IP proves the
@@ -315,12 +316,12 @@ data KourierEvidence = KourierEvidence
 -- public IP; if even that is inconclusive, WARN — never FAIL on a healthy
 -- ServiceLB cluster.
 gradeKourier :: KourierEvidence -> Probe
-gradeKourier ev = case keLbExternalIp ev of
+gradeKourier ev = case ev ^. #loadBalancerExternalIp of
   Nothing -> Probe nm StatusFail "no EXTERNAL-IP assigned to the Kourier LoadBalancer"
-  Just lbIp -> case keHttpCode ev of
+  Just lbIp -> case ev ^. #httpCode of
     Just code ->
       Probe nm StatusOk ("serving on " <> publicIpStr <> " (HTTP " <> code <> "; LB EXTERNAL-IP " <> lbIp <> ")")
-    Nothing -> case (kePublicIp ev, keNodeExternalIp ev) of
+    Nothing -> case (ev ^. #publicIp, ev ^. #nodeExternalIp) of
       (Just want, Just nodeExt)
         | nodeExt == want -> Probe nm StatusOk ("LB EXTERNAL-IP " <> lbIp <> " fronted by " <> want <> " (node ExternalIP)")
         | otherwise -> Probe nm StatusFail ("node ExternalIP " <> nodeExt <> " != publicIp " <> want)
@@ -330,7 +331,7 @@ gradeKourier ev = case keLbExternalIp ev of
         Probe nm StatusWarn ("LB EXTERNAL-IP " <> lbIp <> " (publicIp unknown)")
   where
     nm = "Kourier ingress"
-    publicIpStr = fromMaybe "the public IP" (kePublicIp ev)
+    publicIpStr = fromMaybe "the public IP" (ev ^. #publicIp)
 
 -- | The registry hosts listed in @config-deployment@'s
 -- @.data.registriesSkippingTagResolving@ (a comma-separated string), trimmed and

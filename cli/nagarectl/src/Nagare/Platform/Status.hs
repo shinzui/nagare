@@ -19,9 +19,12 @@ module Nagare.Platform.Status
   )
 where
 
+import Nagare.Dsl.Prelude
+
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -37,34 +40,34 @@ import Nagare.Version
   )
 
 data ReleaseIdentity = ReleaseIdentity
-  { identityVersion :: !(Maybe Text)
-  , identityRevision :: !(Maybe Text)
-  , identityPayloadSchema :: !(Maybe Int)
+  { version :: !(Maybe Text)
+  , revision :: !(Maybe Text)
+  , payloadSchema :: !(Maybe Int)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data PlatformStatus = PlatformStatus
-  { statusCli :: !ReleaseIdentity
-  , statusPayload :: !ReleaseIdentity
-  , statusContext :: !ReleaseIdentity
-  , statusHost :: !ReleaseIdentity
-  , statusCluster :: !ReleaseIdentity
-  , statusCompatibility :: !Compatibility
+  { cli :: !ReleaseIdentity
+  , payload :: !ReleaseIdentity
+  , context :: !ReleaseIdentity
+  , host :: !ReleaseIdentity
+  , cluster :: !ReleaseIdentity
+  , compatibility :: !Compatibility
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 identityFromBuild :: BuildVersion -> ReleaseIdentity
-identityFromBuild build = ReleaseIdentity (Just (versionText build)) (revisionText build) Nothing
+identityFromBuild build = ReleaseIdentity (Just (build ^. #version)) (build ^. #revision) Nothing
 
 identityFromPayload :: PayloadManifest -> ReleaseIdentity
 identityFromPayload manifest =
   ReleaseIdentity
-    (Just (pmPlatformVersion manifest))
-    (pmSourceRevision manifest)
-    (Just (pmAssetSchemaVersion manifest))
+    (Just (manifest ^. #platformVersion))
+    (manifest ^. #sourceRevision)
+    (Just (manifest ^. #assetSchemaVersion))
 
 identityFromContext :: TargetProfile -> ReleaseIdentity
-identityFromContext profile = ReleaseIdentity (tpPlatformVersion profile) Nothing Nothing
+identityFromContext profile = ReleaseIdentity (profile ^. #platformVersion) Nothing Nothing
 
 parseHostIdentity :: Text -> ReleaseIdentity
 parseHostIdentity contents =
@@ -96,10 +99,10 @@ assessPlatformStatus :: ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity ->
 assessPlatformStatus cli payload context host cluster =
   PlatformStatus cli payload context host cluster aggregate
   where
-    expected = identityVersion payload >>= either (const Nothing) Just . parsePlatformVersion
+    expected = payload ^. #version >>= either (const Nothing) Just . parsePlatformVersion
     compareOne identity = case expected of
       Nothing -> LegacyUnknown
-      Just version -> comparePlatformVersions version (identityVersion identity >>= either (const Nothing) Just . parsePlatformVersion)
+      Just expectedVersion -> comparePlatformVersions expectedVersion (identity ^. #version >>= either (const Nothing) Just . parsePlatformVersion)
     comparisons = map compareOne [cli, context, host, cluster]
     aggregate
       | MajorIncompatible `elem` comparisons = MajorIncompatible
@@ -111,46 +114,46 @@ assessPlatformStatus cli payload context host cluster =
 platformStatusValue :: PlatformStatus -> Aeson.Value
 platformStatusValue status =
   Aeson.object
-    [ "cli" Aeson..= identityVersion (statusCli status)
-    , "payload" Aeson..= identityVersion (statusPayload status)
-    , "context" Aeson..= identityVersion (statusContext status)
-    , "host" Aeson..= identityVersion (statusHost status)
-    , "cluster" Aeson..= identityVersion (statusCluster status)
-    , "compatibility" Aeson..= compatibilityToken (statusCompatibility status)
+    [ "cli" Aeson..= (status ^. #cli . #version)
+    , "payload" Aeson..= (status ^. #payload . #version)
+    , "context" Aeson..= (status ^. #context . #version)
+    , "host" Aeson..= (status ^. #host . #version)
+    , "cluster" Aeson..= (status ^. #cluster . #version)
+    , "compatibility" Aeson..= compatibilityToken (status ^. #compatibility)
     , "identities"
         Aeson..= Aeson.object
-          [ "cli" Aeson..= identityValue (statusCli status)
-          , "payload" Aeson..= identityValue (statusPayload status)
-          , "context" Aeson..= identityValue (statusContext status)
-          , "host" Aeson..= identityValue (statusHost status)
-          , "cluster" Aeson..= identityValue (statusCluster status)
+          [ "cli" Aeson..= identityValue (status ^. #cli)
+          , "payload" Aeson..= identityValue (status ^. #payload)
+          , "context" Aeson..= identityValue (status ^. #context)
+          , "host" Aeson..= identityValue (status ^. #host)
+          , "cluster" Aeson..= identityValue (status ^. #cluster)
           ]
     ]
   where
     identityValue identity =
       Aeson.object
-        [ "version" Aeson..= identityVersion identity
-        , "revision" Aeson..= identityRevision identity
-        , "payloadSchema" Aeson..= identityPayloadSchema identity
+        [ "version" Aeson..= (identity ^. #version)
+        , "revision" Aeson..= (identity ^. #revision)
+        , "payloadSchema" Aeson..= (identity ^. #payloadSchema)
         ]
 
 renderPlatformStatus :: Text -> PlatformStatus -> Text
 renderPlatformStatus contextName status =
   T.unlines
     [ "Nagare platform status (context " <> contextName <> ")"
-    , renderLine "CLI" (statusCli status)
-    , renderLine "Payload" (statusPayload status)
-    , renderLine "Context" (statusContext status)
-    , renderLine "Host" (statusHost status)
-    , renderLine "Cluster" (statusCluster status)
-    , "Compatibility: " <> compatibilityToken (statusCompatibility status)
+    , renderLine "CLI" (status ^. #cli)
+    , renderLine "Payload" (status ^. #payload)
+    , renderLine "Context" (status ^. #context)
+    , renderLine "Host" (status ^. #host)
+    , renderLine "Cluster" (status ^. #cluster)
+    , "Compatibility: " <> compatibilityToken (status ^. #compatibility)
     ]
   where
-    renderLine label identity = pad 12 (label <> ":") <> maybe "legacy / unknown" id (identityVersion identity)
+    renderLine label identity = pad 12 (label <> ":") <> maybe "legacy / unknown" (\value -> value) (identity ^. #version)
     pad width value = value <> T.replicate (max 1 (width - T.length value)) " "
 
 platformProbe :: PlatformStatus -> Probe
-platformProbe status = case statusCompatibility status of
+platformProbe status = case status ^. #compatibility of
   Exact -> Probe "platform version" StatusOk "CLI, payload, context, host, and cluster agree"
   PatchSkew -> Probe "platform version" StatusWarn "patch release skew; inspection and compatible mutation remain available"
   MinorUpgradeRequired -> Probe "platform version" StatusFail "minor release skew requires `nagarectl platform upgrade`"
@@ -158,7 +161,7 @@ platformProbe status = case statusCompatibility status of
   LegacyUnknown -> Probe "platform version" StatusWarn "one or more release identities are legacy, absent, or unreachable"
 
 guardPlatformMutation :: PlatformStatus -> Either Text ()
-guardPlatformMutation status = case statusCompatibility status of
+guardPlatformMutation status = case status ^. #compatibility of
   MajorIncompatible -> Left "major platform-version mismatch; inspect `nagarectl platform status` and run an explicit upgrade"
   MinorUpgradeRequired -> Left "minor platform-version skew requires `nagarectl platform upgrade` before platform mutation"
   _ -> Right ()
@@ -170,22 +173,22 @@ guardPlatformMutation status = case statusCompatibility status of
 -- exactly so adoption cannot disguise real release skew as missing metadata.
 validatePlatformAdoption :: Text -> PlatformStatus -> Either Text ()
 validatePlatformAdoption target status
-  | identityVersion (statusContext status) /= Nothing =
+  | status ^. #context . #version /= Nothing =
       Left "the selected context already has a platform version; use `nagarectl platform upgrade`"
-  | identityVersion (statusPayload status) /= Just target =
-      Left ("the active payload reports " <> observed (statusPayload status) <> ", not requested version " <> target)
+  | status ^. #payload . #version /= Just target =
+      Left ("the active payload reports " <> observed (status ^. #payload) <> ", not requested version " <> target)
   | otherwise = mapM_ requireMatch observations
   where
     observations =
-      [ ("CLI", statusCli status)
-      , ("host", statusHost status)
-      , ("cluster", statusCluster status)
+      [ ("CLI", status ^. #cli)
+      , ("host", status ^. #host)
+      , ("cluster", status ^. #cluster)
       ]
     requireMatch (_, ReleaseIdentity Nothing _ _) = Right ()
     requireMatch (label, identity)
-      | identityVersion identity == Just target = Right ()
+      | identity ^. #version == Just target = Right ()
       | otherwise = Left ("observed " <> label <> " version " <> observed identity <> " does not match requested adoption " <> target)
-    observed identity = maybe "legacy / unknown" id (identityVersion identity)
+    observed identity = maybe "legacy / unknown" (\value -> value) (identity ^. #version)
 
 clusterMarkerValue :: ReleaseIdentity -> Text -> Aeson.Value
 clusterMarkerValue identity installedAt =
@@ -200,9 +203,9 @@ clusterMarkerValue identity installedAt =
           ]
     , "data"
         Aeson..= Aeson.object
-          ( [ "version" Aeson..= maybe "" id (identityVersion identity)
-            , "revision" Aeson..= maybe "" id (identityRevision identity)
-            , "payloadSchema" Aeson..= maybe "" (T.pack . show) (identityPayloadSchema identity)
+          ( [ "version" Aeson..= maybe "" (\value -> value) (identity ^. #version)
+            , "revision" Aeson..= maybe "" (\value -> value) (identity ^. #revision)
+            , "payloadSchema" Aeson..= maybe "" (T.pack . show) (identity ^. #payloadSchema)
             , "installedAt" Aeson..= installedAt
             ]
           )

@@ -13,6 +13,7 @@ module Nagare.Cdn.Status
 
 import Nagare.Dsl.Prelude
 
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 
 -- | Where a CDN-fronted hostname currently points.
@@ -27,13 +28,13 @@ data CdnDnsTarget
 
 -- | One CDN-fronted hostname's state for @cdn list@ / @cdn status@.
 data CdnRow = CdnRow
-  { cdnRowHost :: !Text
-  , cdnRowProvider :: !Text
+  { host :: !Text
+  , provider :: !Text
   -- ^ "Cloudflare" | "GcpCloudCdn"
-  , cdnRowDns :: !CdnDnsTarget
-  , cdnRowCache :: !Text
+  , dns :: !CdnDnsTarget
+  , cache :: !Text
   -- ^ short cache summary, e.g. "default 3600s, 2 rules"
-  , cdnRowReady :: !Bool
+  , ready :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -45,11 +46,11 @@ formatCdnList rows =
   T.unlines (headerLine : map rowLine rows)
   where
     cols =
-      [ ("HOST", cdnRowHost)
-      , ("PROVIDER", cdnRowProvider)
-      , ("DNS", dnsCell . cdnRowDns)
-      , ("CACHE", cdnRowCache)
-      , ("READY", readyCell . cdnRowReady)
+      [ ("HOST", (^. #host))
+      , ("PROVIDER", (^. #provider))
+      , ("DNS", dnsCell . (^. #dns))
+      , ("CACHE", (^. #cache))
+      , ("READY", readyCell . (^. #ready))
       ]
     widthOf (h, f) = maximum (T.length h : map (T.length . f) rows)
     widths = map widthOf cols
@@ -62,11 +63,11 @@ formatCdnList rows =
 formatCdnStatus :: CdnRow -> Text
 formatCdnStatus r =
   T.unlines
-    [ "Host:     " <> cdnRowHost r
-    , "Provider: " <> cdnRowProvider r
-    , "DNS:      " <> dnsCell (cdnRowDns r)
-    , "Cache:    " <> cdnRowCache r
-    , "Ready:    " <> readyCell (cdnRowReady r)
+    [ "Host:     " <> r ^. #host
+    , "Provider: " <> r ^. #provider
+    , "DNS:      " <> dnsCell (r ^. #dns)
+    , "Cache:    " <> r ^. #cache
+    , "Ready:    " <> readyCell (r ^. #ready)
     ]
 
 dnsCell :: CdnDnsTarget -> Text

@@ -12,6 +12,7 @@ module Nagare.Task.Delete
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Task.Discover (AppScope, getTask)
@@ -19,31 +20,31 @@ import System.Exit (exitFailure)
 import System.IO (stderr)
 
 data TaskDeleteParams = TaskDeleteParams
-  { tdpName :: !Text
-  , tdpNamespace :: !Text
-  , tdpScope :: !AppScope
-  , tdpYes :: !Bool
-  , tdpDryRun :: !Bool
+  { name :: !Text
+  , namespace :: !Text
+  , scope :: !AppScope
+  , yes :: !Bool
+  , dryRun :: !Bool
   }
   deriving stock (Generic, Show)
 
 runTaskDelete :: TaskDeleteParams -> IO ()
 runTaskDelete p = do
-  erow <- getTask (tdpNamespace p) (tdpScope p) (tdpName p)
+  erow <- getTask (p ^. #namespace) (p ^. #scope) (p ^. #name)
   case erow of
     Left err -> do
       TIO.hPutStrLn stderr ("nagarectl: " <> err)
       exitFailure
     Right _ -> do
-      let ns = tdpNamespace p
-          objs = objectsToDelete (tdpName p)
-      if not (tdpYes p) || tdpDryRun p
+      let ns = p ^. #namespace
+          objs = objectsToDelete (p ^. #name)
+      if not (p ^. #yes) || p ^. #dryRun
         then
           TIO.putStr $
             T.unlines (["Would delete (run again with --yes):"] <> map ("  " <>) objs)
         else do
           mapM_ (deleteObj ns) objs
-          TIO.putStrLn ("Deleted task " <> tdpName p)
+          TIO.putStrLn ("Deleted task " <> p ^. #name)
 
 -- | The objects deleted for one task: its CronJob, then any run-history ConfigMap.
 objectsToDelete :: Text -> [Text]

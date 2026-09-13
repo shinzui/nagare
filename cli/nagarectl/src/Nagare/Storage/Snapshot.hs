@@ -116,14 +116,14 @@ backupExcludedWarnings app vols =
 
 -- | Inputs to 'renderSnapshotJob'.
 data SnapshotJobInputs = SnapshotJobInputs
-  { sjiNamespace :: !Text
-  , sjiJobName :: !Text
-  , sjiClaimName :: !Text
-  , sjiDestUrl :: !Text
+  { namespace :: !Text
+  , jobName :: !Text
+  , claimName :: !Text
+  , destinationUrl :: !Text
   -- ^ the object URL from @storeObjectUrl backend (snapshotObjectPath …)@
-  , sjiMountPath :: !Text
+  , mountPath :: !Text
   -- ^ in-Job mount path, e.g. @/vol@
-  , sjiBackend :: !StoreBackend
+  , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): drives the snapshot container's image,
   -- env, and copy-to-store shell.
   }
@@ -147,40 +147,40 @@ jobValue i =
     , "kind" .= ("Job" :: Text)
     , "metadata"
         .= object
-          [ "name" .= sjiJobName i
-          , "namespace" .= sjiNamespace i
+          [ "name" .= (i ^. #jobName)
+          , "namespace" .= (i ^. #namespace)
           , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
           ]
     , "spec"
         .= dataMovementJobSpec
           DataMovementJob
-            { dmjTemplateLabels = Nothing
-            , dmjBackoffLimit = 0
-            , dmjHostAliases = storeHostAliases (sjiBackend i)
-            , dmjInitContainers = []
-            , dmjContainers =
+            { templateLabels = Nothing
+            , backoffLimit = 0
+            , hostAliases = storeHostAliases (i ^. #backend)
+            , initContainers = []
+            , containers =
                 [ object
                     [ "name" .= ("snapshot" :: Text)
-                    , "image" .= storeImage (sjiBackend i)
+                    , "image" .= storeImage (i ^. #backend)
                     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
                     , "args" .= toJSON [snapshotShell]
                     , "env"
                         .= toJSON
-                          (envVar "DEST" (sjiDestUrl i) : storeEnv (sjiBackend i))
+                          (envVar "DEST" (i ^. #destinationUrl) : storeEnv (i ^. #backend))
                     , "volumeMounts"
                         .= toJSON
                           [ object
                               [ "name" .= ("vol" :: Text)
-                              , "mountPath" .= sjiMountPath i
+                              , "mountPath" .= (i ^. #mountPath)
                               , "readOnly" .= True
                               ]
                           ]
                     ]
                 ]
-            , dmjVolumes =
+            , volumes =
                 [ object
                     [ "name" .= ("vol" :: Text)
-                    , "persistentVolumeClaim" .= object ["claimName" .= sjiClaimName i]
+                    , "persistentVolumeClaim" .= object ["claimName" .= (i ^. #claimName)]
                     ]
                 ]
             }
@@ -191,11 +191,11 @@ jobValue i =
     -- above. The cloud (@gsutil@) bytes are unchanged; MinIO uses @aws s3@.
     snapshotShell =
       "set -e; "
-        <> storeShellPreamble (sjiBackend i)
+        <> storeShellPreamble (i ^. #backend)
         <> "tar -C "
-        <> sjiMountPath i
+        <> i ^. #mountPath
         <> " -czf - . | "
-        <> storeCpFromStdin (sjiBackend i) "\"$DEST\"" ::
+        <> storeCpFromStdin (i ^. #backend) "\"$DEST\"" ::
         Text
 
 -- ---------------------------------------------------------------------------
@@ -221,12 +221,12 @@ runSnapshot dep volume backend keep = do
           name = T.take 63 (T.toLower ("nagare-snapshot-" <> app <> "-" <> volume <> "-" <> ts))
           job =
             SnapshotJobInputs
-              { sjiNamespace = ns
-              , sjiJobName = name
-              , sjiClaimName = claim
-              , sjiDestUrl = dest
-              , sjiMountPath = "/vol"
-              , sjiBackend = backend
+              { namespace = ns
+              , jobName = name
+              , claimName = claim
+              , destinationUrl = dest
+              , mountPath = "/vol"
+              , backend = backend
               }
       applyJob (renderSnapshotJob job)
       waitForJob ns name

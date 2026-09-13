@@ -55,23 +55,23 @@ appPVCLabelSelector :: Text -> Text
 appPVCLabelSelector app = "nagare.dev/app=" <> app
 
 -- | One discovered PVC, joined back to its declared volume by the
--- @nagare.dev/volume@ label. 'prNodePath' is enriched from the bound PV in IO
+-- @nagare.dev/volume@ label. 'nodePath' is enriched from the bound PV in IO
 -- ('listAppPVCs'); 'extractPVCStatus' leaves it empty (it is not in the PVC
--- JSON). 'prPvName' is the bound PV name (@""@ when still @Pending@).
+-- JSON). 'persistentVolumeName' is the bound PV name (@""@ when still @Pending@).
 data PVCRow = PVCRow
-  { prVolume :: !Text
-  , prName :: !Text
-  , prSize :: !Text
-  , prStatus :: !Text
-  , prPvName :: !Text
-  , prNodePath :: !Text
+  { volume :: !Text
+  , name :: !Text
+  , size :: !Text
+  , status :: !Text
+  , persistentVolumeName :: !Text
+  , nodePath :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
 -- | Parse a @kubectl get pvc -n <ns> -l nagare.dev/app=<app> -o json@ list
 -- response into rows. Defensive (mirrors @Nagare.App.extractAppSummaries@): an
 -- empty/absent @items@ array is @Right []@, a malformed top-level shape is a
--- 'Left', and a single odd item is skipped rather than crashing. 'prNodePath'
+-- 'Left', and a single odd item is skipped rather than crashing. 'nodePath'
 -- is left empty here and filled by 'listAppPVCs'.
 extractPVCStatus :: ByteString -> Either Text [PVCRow]
 extractPVCStatus bs =
@@ -92,12 +92,12 @@ rowFromItem item = do
   name <- textAt ["metadata", "name"] item
   pure
     PVCRow
-      { prVolume = fromMaybe "" (labelAt "nagare.dev/volume" item)
-      , prName = name
-      , prSize = fromMaybe "" (textAt ["spec", "resources", "requests", "storage"] item)
-      , prStatus = fromMaybe "Pending" (textAt ["status", "phase"] item)
-      , prPvName = fromMaybe "" (textAt ["spec", "volumeName"] item)
-      , prNodePath = ""
+      { volume = fromMaybe "" (labelAt "nagare.dev/volume" item)
+      , name = name
+      , size = fromMaybe "" (textAt ["spec", "resources", "requests", "storage"] item)
+      , status = fromMaybe "Pending" (textAt ["status", "phase"] item)
+      , persistentVolumeName = fromMaybe "" (textAt ["spec", "volumeName"] item)
+      , nodePath = ""
       }
 
 -- | List an app's PVCs in @ns@ via @kubectl get pvc -l <selector> -o json@, then
@@ -129,10 +129,10 @@ listAppPVCs ns app = do
 -- @"-"@ when unbound or the lookup fails).
 enrich :: Text -> PVCRow -> IO PVCRow
 enrich ns r
-  | T.null (prPvName r) = pure r {prNodePath = "-"}
+  | T.null (r ^. #persistentVolumeName) = pure (r & #nodePath .~ "-")
   | otherwise = do
-      p <- readPVNodePath (prPvName r)
-      pure r {prNodePath = p}
+      p <- readPVNodePath (r ^. #persistentVolumeName)
+      pure (r & #nodePath .~ p)
   where
     _ = ns -- node path is cluster-scoped; ns kept for signature symmetry
 
@@ -172,10 +172,10 @@ formatStorageTable app vols rows
       let vol = volumeNameText (v ^. #name)
           sz = quantityText (v ^. #size)
           pn = pvcName app vol
-          mrow = find (\r -> prVolume r == vol) rows
-          status = maybe "MISSING" prStatus mrow
-          nodePath = maybe "-" prNodePath mrow
-       in T.concat ["  ", pad 12 vol, pad 26 pn, pad 8 sz, pad 10 status, nodePath]
+          mrow = find (\r -> r ^. #volume == vol) rows
+          statusText = maybe "MISSING" (^. #status) mrow
+          nodePathText = maybe "-" (^. #nodePath) mrow
+       in T.concat ["  ", pad 12 vol, pad 26 pn, pad 8 sz, pad 10 statusText, nodePathText]
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 
 -- ---------------------------------------------------------------------------

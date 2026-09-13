@@ -14,9 +14,12 @@ module Nagare.Version
   )
 where
 
+import Nagare.Dsl.Prelude hiding ((.=))
+
 import Data.Aeson (encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Version (showVersion)
@@ -33,10 +36,10 @@ data PlatformVersion = PlatformVersion
   , patch :: !Natural
   , preRelease :: !(Maybe Text)
   }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Generic, Eq, Ord, Show)
 
-newtype VersionError = VersionError {versionErrorText :: Text}
-  deriving stock (Eq, Show)
+newtype VersionError = VersionError {text :: Text}
+  deriving stock (Generic, Eq, Show)
 
 data Compatibility
   = Exact
@@ -79,8 +82,8 @@ parsePlatformVersion input = do
 
 renderPlatformVersion :: PlatformVersion -> Text
 renderPlatformVersion version =
-  Text.intercalate "." (map (Text.pack . show) [major version, minor version, patch version])
-    <> maybe "" ("-" <>) (preRelease version)
+  Text.intercalate "." (map (Text.pack . show) [version ^. #major, version ^. #minor, version ^. #patch])
+    <> maybe "" ("-" <>) (version ^. #preRelease)
 
 -- | Compare the release supplying an operation with an observed or intended
 -- release. Missing identity is legacy/unknown; a prerelease difference is
@@ -89,8 +92,8 @@ comparePlatformVersions :: PlatformVersion -> Maybe PlatformVersion -> Compatibi
 comparePlatformVersions _ Nothing = LegacyUnknown
 comparePlatformVersions expected (Just observed)
   | expected == observed = Exact
-  | major expected /= major observed = MajorIncompatible
-  | minor expected /= minor observed = MinorUpgradeRequired
+  | expected ^. #major /= observed ^. #major = MajorIncompatible
+  | expected ^. #minor /= observed ^. #minor = MinorUpgradeRequired
   | otherwise = PatchSkew
 
 compatibilityToken :: Compatibility -> Text
@@ -102,31 +105,31 @@ compatibilityToken LegacyUnknown = "legacy-unknown"
 
 -- | Version metadata carried by a built CLI distribution.
 data BuildVersion = BuildVersion
-  { versionText :: !Text
+  { version :: !Text
   -- ^ Semantic package version generated from the Cabal package metadata.
-  , revisionText :: !(Maybe Text)
+  , revision :: !(Maybe Text)
   -- ^ Optional source revision for distribution channels that provide one.
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Build identity for the running executable.
 currentBuildVersion :: BuildVersion
 currentBuildVersion =
   BuildVersion
-    { versionText = Text.pack (showVersion Package.version)
-    , revisionText = Nothing
+    { version = Text.pack (showVersion Package.version)
+    , revision = Nothing
     }
 
 -- | Render the stable command-line representation.
 renderBuildVersionText :: BuildVersion -> Text
-renderBuildVersionText (BuildVersion versionText revisionText) =
+renderBuildVersionText (BuildVersion version revision) =
   "nagarectl "
-    <> versionText
-    <> maybe "" (\revision -> " (" <> revision <> ")") revisionText
+    <> version
+    <> maybe "" (\revision -> " (" <> revision <> ")") revision
 
 -- | Render the stable JSON representation used by automation.
 renderBuildVersionJson :: BuildVersion -> ByteString
-renderBuildVersionJson (BuildVersion versionText revisionText) =
+renderBuildVersionJson (BuildVersion version revision) =
   LBS.toStrict . encode . object $
-    ["version" .= versionText, "platformVersion" .= versionText]
-      <> maybe [] (\revision -> ["revision" .= revision]) revisionText
+    ["version" .= version, "platformVersion" .= version]
+      <> maybe [] (\revision -> ["revision" .= revision]) revision

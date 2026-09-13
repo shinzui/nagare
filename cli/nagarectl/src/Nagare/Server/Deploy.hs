@@ -84,7 +84,7 @@ deployServerProduction inputs src = do
   case prep of
     Left err -> pure (Left err)
     Right out -> do
-      configureDockerAuthFor (targetProfile inputs)
+      configureDockerAuthFor (inputs ^. #targetProfile)
       withServerImageContext s out (buildImage ref)
       pushImage ref
       applyManifests (m ^. #service : m ^. #domainMappings)

@@ -51,7 +51,9 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
       fixtures, CLI consumers, and shipped examples to semantic fields and label-based access;
       all 387 DSL tests pass, the dependent `nagarectl` workspace builds, and the hermetic
       `examples-compile` check accepts every shipped configuration.
-- [ ] Milestone 3: migrate the `nagarectl` library and focused tests.
+- [x] (2026-09-13T15:28:29Z) Milestone 3: migrated the `nagarectl` library and focused tests;
+      the library and direct test suite compile with `NoFieldSelectors`, all 438 tests pass,
+      and both executables compile against the renamed library surface.
 - [ ] Milestone 4: migrate the `nagarectl` and `nagared` entry points without changing their CLI.
 - [ ] Milestone 5: migrate `nagare-access`, its executable, and its test suite.
 - [ ] Milestone 6: format and enforce the conventions, run whole-repository validation, and
@@ -65,6 +67,11 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   while every field of a project-owned `data` record remains explicitly strict.
   Evidence: GHC 9.12.3 reports `A newtype constructor must not have a strictness annotation` for
   `ConfigTimeout`, `PreparedServerOutput`, and analogous wire wrappers when a bang is added.
+
+- Cabal's ignored `.ghc.environment.*` file can retain package IDs from an older package database
+  even after the library and tests rebuild. Regenerating the file turned eight apparent fixture
+  loader failures into a useful source-level check, which then found one `Task.app`/fixture-value
+  namespace collision; renaming the fixture value restored all 438 tests.
 
 
 ## Decision Log
@@ -126,6 +133,14 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   `mori://ekmett/lens/packages/generic-lens-core` confirm that the released 2.3.0.0 packages are a
   matched pair and support the repository's GHC 9.12 toolchain. The hermetic examples check builds
   both overrides before compiling every shipped configuration.
+  Date: 2026-09-13
+
+- Decision: Use local GHC builds, `NoFieldSelectors` compile audits, and focused/full Cabal tests
+  while migrating the remaining Haskell components; run the expensive hermetic Nix build once
+  after the Haskell migration and mechanical formatting are complete.
+  Rationale: The Nix package derivations also rebuild profiling objects and Haddocks. Running them
+  between milestones repeats work that subsequent source edits invalidate without finding more
+  Haskell type errors than the local compiler gates.
   Date: 2026-09-13
 
 

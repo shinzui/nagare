@@ -61,16 +61,16 @@ resolveBackupObject backend name ext backupId
   | otherwise = storeObjectUrl backend (dbBackupObjectPath name backupId ext)
 
 data RestoreJobInputs = RestoreJobInputs
-  { rjiNamespace :: !Text
-  , rjiJobName :: !Text
-  , rjiEngine :: !Engine
-  , rjiClientImage :: !Text
-  , rjiSvcHost :: !Text
-  , rjiSecretName :: !Text
-  , rjiName :: !Text
-  , rjiSrcUrl :: !Text
-  , rjiLiveTarget :: !Bool
-  , rjiBackend :: !StoreBackend
+  { namespace :: !Text
+  , jobName :: !Text
+  , engine :: !Engine
+  , clientImage :: !Text
+  , serviceHost :: !Text
+  , secretName :: !Text
+  , name :: !Text
+  , sourceUrl :: !Text
+  , liveTarget :: !Bool
+  , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): drives the download container's image,
   -- env, and copy-from-store shell.
   }
@@ -85,26 +85,26 @@ renderRestoreJob i =
       , "kind" .= ("Job" :: Text)
       , "metadata"
           .= object
-            [ "name" .= rjiJobName i
-            , "namespace" .= rjiNamespace i
+            [ "name" .= (i ^. #jobName)
+            , "namespace" .= (i ^. #namespace)
             , "labels" .= labels
             ]
       , "spec"
           .= dataMovementJobSpec
             DataMovementJob
-              { dmjTemplateLabels = Just labels
-              , dmjBackoffLimit = 0
-              , dmjHostAliases = storeHostAliases (rjiBackend i)
-              , dmjInitContainers = [downloadContainer i]
-              , dmjContainers = [restoreContainer i]
-              , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+              { templateLabels = Just labels
+              , backoffLimit = 0
+              , hostAliases = storeHostAliases (i ^. #backend)
+              , initContainers = [downloadContainer i]
+              , containers = [restoreContainer i]
+              , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
               }
       ]
   where
     labels =
       object
         [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-        , "nagare.dev/database" .= rjiName i
+        , "nagare.dev/database" .= (i ^. #name)
         ]
 
 dumpMount :: Value
@@ -114,12 +114,12 @@ downloadContainer :: RestoreJobInputs -> Value
 downloadContainer i =
   object
     [ "name" .= ("download" :: Text)
-    , "image" .= storeImage (rjiBackend i)
+    , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [downloadShell (rjiBackend i) (rjiEngine i)]
+    , "args" .= toJSON [downloadShell (i ^. #backend) (i ^. #engine)]
     , "env"
         .= toJSON
-          (plainEnv "SRC" (rjiSrcUrl i) : storeEnv (rjiBackend i))
+          (plainEnv "SRC" (i ^. #sourceUrl) : storeEnv (i ^. #backend))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -127,10 +127,10 @@ restoreContainer :: RestoreJobInputs -> Value
 restoreContainer i =
   object
     [ "name" .= ("restore" :: Text)
-    , "image" .= rjiClientImage i
+    , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [restoreShell (rjiEngine i) (rjiSvcHost i) (rjiLiveTarget i)]
-    , "env" .= toJSON (restoreEnv (rjiEngine i) (rjiSecretName i))
+    , "args" .= toJSON [restoreShell (i ^. #engine) (i ^. #serviceHost) (i ^. #liveTarget)]
+    , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -215,26 +215,26 @@ runDbRestore ns name backupId live backend dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
-    Right r -> case parseEngine (drEngine r) of
-      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> drEngine r)
+    Right r -> case parseEngine (r ^. #engine) of
+      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> r ^. #engine)
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
             src = resolveBackupObject backend name (backupExt eng) backupId
-            image = engineImage eng <> ":" <> drVersion r
+            image = engineImage eng <> ":" <> r ^. #version
             name = T.take 63 (T.toLower ("nagare-dbrestore-" <> name <> "-" <> ts))
             inputs =
               RestoreJobInputs
-                { rjiNamespace = ns
-                , rjiJobName = name
-                , rjiEngine = eng
-                , rjiClientImage = image
-                , rjiSvcHost = name
-                , rjiSecretName = dbSecretName name
-                , rjiName = name
-                , rjiSrcUrl = src
-                , rjiLiveTarget = live
-                , rjiBackend = backend
+                { namespace = ns
+                , jobName = name
+                , engine = eng
+                , clientImage = image
+                , serviceHost = name
+                , secretName = dbSecretName name
+                , name = name
+                , sourceUrl = src
+                , liveTarget = live
+                , backend = backend
                 }
         if dryRun
           then do

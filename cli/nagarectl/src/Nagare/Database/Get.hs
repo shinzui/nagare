@@ -8,6 +8,7 @@ module Nagare.Database.Get
 import Nagare.Dsl.Prelude
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map qualified as Map
 import Data.Text qualified as T
@@ -30,13 +31,13 @@ runDbGet ns name = do
       keys <- secretKeyNames ns name
       TIO.putStr $
         T.unlines
-          [ "Name:      " <> drName r
-          , "Engine:    " <> drEngine r
-          , "Version:   " <> drVersion r
-          , "Size:      " <> drSize r
-          , "Host:      " <> drHost r
-          , "Retention: " <> drRetention r
-          , "Ready:     " <> (if drReady r then "True" else "False")
+          [ "Name:      " <> r ^. #name
+          , "Engine:    " <> r ^. #engine
+          , "Version:   " <> r ^. #version
+          , "Size:      " <> r ^. #size
+          , "Host:      " <> r ^. #host
+          , "Retention: " <> r ^. #retention
+          , "Ready:     " <> (if r ^. #ready then "True" else "False")
           , "Secret:    " <> dbSecretName name <> " (" <> T.intercalate ", " keys <> ")"
           ]
 

@@ -2,6 +2,8 @@
 
 module HostSpec (hostTests) where
 
+import Nagare.Dsl.Prelude
+
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -40,7 +42,7 @@ hostTests =
         let prodModule = renderHostModule (fixtureConfig prod)
             labsConfig =
               (fixtureConfig labs)
-                { hostName = "labs-host"
+                { name = "labs-host"
                 , instanceName = "labs-instance"
                 , registryHost = "asia-northeast1-docker.pkg.dev"
                 , authorizedKeys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILabsFixtureKeyOnly labs@example" :| []
@@ -75,8 +77,8 @@ hostTests =
 fixtureConfig :: ContextName -> HostConfig
 fixtureConfig context =
   HostConfig
-    { hostContext = context
-    , hostName = "prod-host"
+    { context = context
+    , name = "prod-host"
     , instanceName = "prod-instance"
     , registryHost = "us-west1-docker.pkg.dev"
     , deployUser = "deploy"
