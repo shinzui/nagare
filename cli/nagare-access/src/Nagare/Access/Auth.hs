@@ -7,16 +7,20 @@ module Nagare.Access.Auth
   , LoginOutcome (..)
   , MfaChallenge (..)
   , MfaCompletion (..)
+  , PortalIdentity (..)
+  , PortalPageRequest (..)
+  , PortalUpstreamResult (..)
   , SessionTokens (..)
   )
 where
 
 import Data.Aeson (Value)
 import Data.Text (Text)
-import Nagare.Access.BackendMap (BackendTarget)
+import Nagare.Access.BackendMap (BackendTarget, Portal)
 import Nagare.Access.Cookie (CookieSettings)
 import Nagare.Access.Credential (Credential)
 import Nagare.Access.DecisionCache (AuthorizationResult, DecisionCache)
+import Nagare.Access.Portal (AccessToken, CapturedResponse, PortalPage, PortalPageKind, ReturnTarget, SessionHandoff)
 import Network.Wai (Request, Response)
 
 newtype AuthenticatedUser = AuthenticatedUser
@@ -62,6 +66,24 @@ data LoginOutcome
   | LoginFailed !Text
   deriving stock (Eq, Show)
 
+data PortalIdentity
+  = PortalAnonymous
+  | PortalAuthenticated !AuthenticatedUser !AccessToken
+  deriving stock (Eq, Show)
+
+data PortalUpstreamResult
+  = PortalPassThrough !Response
+  | PortalSessionEstablish !SessionHandoff
+  | PortalHandoffMalformed !Text
+  | PortalSessionClear !CapturedResponse
+
+data PortalPageRequest = PortalPageRequest
+  { pageKind :: !PortalPageKind
+  , pageTarget :: !ReturnTarget
+  , pageUser :: !(Maybe AuthenticatedUser)
+  }
+  deriving stock (Eq, Show)
+
 data AccessServices = AccessServices
   { verifyCredential :: !(Credential -> IO (Either AuthFailure AuthenticatedUser))
   , authorizeUser :: !(AuthenticatedUser -> Text -> IO AuthorizationResult)
@@ -71,6 +93,9 @@ data AccessServices = AccessServices
   , loginUser :: !(LoginCredentials -> IO LoginOutcome)
   , completeMfa :: !(MfaCompletion -> IO LoginOutcome)
   , refreshUserSession :: !(Text -> IO LoginOutcome)
+  , revokeSession :: !(AccessToken -> IO ())
+  , forwardPortal :: !(Portal -> PortalIdentity -> Request -> IO PortalUpstreamResult)
+  , fetchPortalPage :: !(Portal -> PortalPageRequest -> IO (Maybe PortalPage))
   , newCsrfToken :: !(IO Text)
   , decisionCache :: !DecisionCache
   , cookieSettings :: !(Maybe CookieSettings)

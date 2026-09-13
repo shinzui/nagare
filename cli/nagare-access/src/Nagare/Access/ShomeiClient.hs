@@ -2,16 +2,19 @@
 module Nagare.Access.ShomeiClient
   ( completeMfaWithShomei
   , loginWithShomei
+  , logoutWithShomei
   , refreshWithShomei
   , shomeiLoginEnvFromAuthPlane
   )
 where
 
 import Control.Applicative ((<|>))
+import Control.Exception (SomeException, catch)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Access.Auth (LoginCredentials (..), LoginOutcome (..), MfaChallenge (..), MfaCompletion (..), SessionTokens (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
+import Nagare.Access.Portal (AccessToken (..))
 import Shomei.Client qualified as Shomei
 import Shomei.Mfa.Dto qualified as Mfa
 import Shomei.Session.Dto qualified as DTO
@@ -54,6 +57,20 @@ refreshWithShomei env refreshToken = do
     Right (Shomei.ApplicationSuccess response) ->
       tokenPairOutcome "refresh failed" (Shomei.cookieBody response)
     _ -> LoginFailed "refresh failed"
+
+-- | Revoke a Shomei session on a best-effort basis. Logout must still clear the
+-- browser cookies when Shomei is temporarily unreachable.
+logoutWithShomei :: Shomei.ClientEnv -> AccessToken -> IO ()
+logoutWithShomei env (AccessToken token) =
+  revoke `catch` reportException
+  where
+    revoke = do
+      result <- Shomei.logout env (Shomei.Token token)
+      case result of
+        Right _ -> pure ()
+        Left err -> putStrLn ("warning: could not revoke Shomei session: " <> show err)
+    reportException (err :: SomeException) =
+      putStrLn ("warning: could not revoke Shomei session: " <> show err)
 
 shomeiLoginEnvFromAuthPlane :: AuthPlaneConfig -> IO Shomei.ClientEnv
 shomeiLoginEnvFromAuthPlane cfg =

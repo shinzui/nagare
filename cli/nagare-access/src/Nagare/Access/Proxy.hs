@@ -4,6 +4,7 @@ module Nagare.Access.Proxy
   , hardenRequestHeaders
   , hardenWebSocketRequestHeaders
   , newProxyManager
+  , portalForwarder
   , proxyForwarder
   , proxyResponseToWai
   , stripEnforcerCookies
@@ -24,7 +25,9 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth (AuthenticatedUser (..))
-import Nagare.Access.BackendMap (BackendTarget (..))
+import Nagare.Access.Auth (PortalIdentity (..), PortalUpstreamResult (..))
+import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), publicHostText)
+import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), decodeSessionHandoff)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Client.Internal qualified as HCI
 import Network.HTTP.Client.TLS (newTlsManager)
@@ -55,6 +58,26 @@ proxyForwarder manager user publicHost target waiReq = do
             Right response ->
               proxyResponseToWai response
 
+-- | Forward a request to the configured portal, intercepting its two trusted
+-- session-control response headers before they can reach the browser.
+portalForwarder :: HC.Manager -> Portal -> PortalIdentity -> Wai.Request -> IO PortalUpstreamResult
+portalForwarder manager portal identity waiReq = do
+  let upgrade = isWebSocketUpgrade waiReq
+  built <-
+    if upgrade
+      then buildPortalWebSocketRequest portal identity waiReq
+      else buildPortalRequest portal identity waiReq
+  case built of
+    Left err -> pure (PortalPassThrough (badGatewayResponse err))
+    Right proxyReq
+      | upgrade -> pure (PortalPassThrough (webSocketProxyResponse manager proxyReq))
+      | otherwise -> do
+          opened <- try (HC.responseOpen proxyReq manager)
+          case opened of
+            Left (err :: HC.HttpException) ->
+              pure (PortalPassThrough (badGatewayResponse ("upstream request failed: " <> Text.pack (show err))))
+            Right response -> interceptPortalResponse response
+
 buildProxyRequest :: AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO (Either Text HC.Request)
 buildProxyRequest user publicHost target waiReq = do
   parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl target)))
@@ -70,6 +93,24 @@ buildProxyRequest user publicHost target waiReq = do
           , HC.requestBody = HC.RequestBodyStreamChunked ($ Wai.getRequestBodyChunk waiReq)
           , HC.requestHeaders =
               hardenRequestHeaders publicHost user (Wai.requestHeaders waiReq)
+          , HC.decompress = const False
+          , HC.redirectCount = 0
+          }
+
+buildPortalRequest :: Portal -> PortalIdentity -> Wai.Request -> IO (Either Text HC.Request)
+buildPortalRequest portal identity waiReq = do
+  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal))))
+  pure $ case parsed of
+    Left (err :: HC.HttpException) ->
+      Left ("invalid upstream URL: " <> Text.pack (show err))
+    Right baseReq ->
+      Right $
+        baseReq
+          { HC.method = Wai.requestMethod waiReq
+          , HC.path = appendPaths (HC.path baseReq) (Wai.rawPathInfo waiReq)
+          , HC.queryString = Wai.rawQueryString waiReq
+          , HC.requestBody = HC.RequestBodyStreamChunked ($ Wai.getRequestBodyChunk waiReq)
+          , HC.requestHeaders = portalRequestHeaders portal identity (Wai.requestHeaders waiReq)
           , HC.decompress = const False
           , HC.redirectCount = 0
           }
@@ -93,6 +134,24 @@ buildWebSocketProxyRequest user publicHost target waiReq = do
           , HC.redirectCount = 0
           }
 
+buildPortalWebSocketRequest :: Portal -> PortalIdentity -> Wai.Request -> IO (Either Text HC.Request)
+buildPortalWebSocketRequest portal identity waiReq = do
+  parsed <- try (HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal))))
+  pure $ case parsed of
+    Left (err :: HC.HttpException) ->
+      Left ("invalid upstream URL: " <> Text.pack (show err))
+    Right baseReq ->
+      Right $
+        baseReq
+          { HC.method = Wai.requestMethod waiReq
+          , HC.path = appendPaths (HC.path baseReq) (Wai.rawPathInfo waiReq)
+          , HC.queryString = Wai.rawQueryString waiReq
+          , HC.requestBody = HC.RequestBodyBS BS.empty
+          , HC.requestHeaders = portalWebSocketRequestHeaders portal identity (Wai.requestHeaders waiReq)
+          , HC.decompress = const False
+          , HC.redirectCount = 0
+          }
+
 proxyResponseToWai :: HC.Response HC.BodyReader -> Wai.Response
 proxyResponseToWai response =
   Wai.responseStream
@@ -102,6 +161,43 @@ proxyResponseToWai response =
         streamResponseBody (HC.responseBody response) write flush
           `finally` HC.responseClose response
     )
+
+interceptPortalResponse :: HC.Response HC.BodyReader -> IO PortalUpstreamResult
+interceptPortalResponse response =
+  case lookup "Nagare-Session-Establish" (HC.responseHeaders response) of
+    Just value -> do
+      HC.responseClose response
+      pure $
+        case decodeSessionHandoff value of
+          Left err -> PortalHandoffMalformed err
+          Right handoff -> PortalSessionEstablish handoff
+    Nothing ->
+      case lookup "Nagare-Session-Clear" (HC.responseHeaders response) of
+        Just _ -> do
+          body <- readBodyAtMost (64 * 1024) (HC.responseBody response)
+          HC.responseClose response
+          pure
+            ( PortalSessionClear
+                CapturedResponse
+                  { capturedStatus = HC.responseStatus response
+                  , capturedHeaders = filterResponseHeaders (HC.responseHeaders response)
+                  , capturedBody = LBS.fromStrict body
+                  }
+            )
+        Nothing -> pure (PortalPassThrough (proxyResponseToWai response))
+
+readBodyAtMost :: Int -> HC.BodyReader -> IO BS.ByteString
+readBodyAtMost limit reader = go limit []
+  where
+    go remaining chunks
+      | remaining <= 0 = pure (BS.concat (reverse chunks))
+      | otherwise = do
+          chunk <- HC.brRead reader
+          if BS.null chunk
+            then pure (BS.concat (reverse chunks))
+            else
+              let kept = BS.take remaining chunk
+               in go (remaining - BS.length kept) (kept : chunks)
 
 streamResponseBody :: HC.BodyReader -> (Builder.Builder -> IO ()) -> IO () -> IO ()
 streamResponseBody reader write flush = do
@@ -188,6 +284,33 @@ hardenWebSocketRequestHeaders publicHost user headers =
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
        ]
+
+portalRequestHeaders :: Portal -> PortalIdentity -> [Header] -> [Header]
+portalRequestHeaders portal identity headers =
+  ensureAcceptEncodingHeader (stripEnforcerCookies (filter portalHeaderAllowed (filterRequestHeaders headers)))
+    <> portalIdentityHeaders identity
+    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portalHost portal)))
+       , ("X-Forwarded-Proto", "https")
+       ]
+
+portalWebSocketRequestHeaders :: Portal -> PortalIdentity -> [Header] -> [Header]
+portalWebSocketRequestHeaders portal identity headers =
+  ensureAcceptEncodingHeader (stripEnforcerCookies (filter portalHeaderAllowed (filterWebSocketRequestHeaders headers)))
+    <> portalIdentityHeaders identity
+    <> [ ("X-Forwarded-Host", TE.encodeUtf8 (publicHostText (portalHost portal)))
+       , ("X-Forwarded-Proto", "https")
+       ]
+
+portalHeaderAllowed :: Header -> Bool
+portalHeaderAllowed (name, _) =
+  name `notElem` ["Authorization", "Nagare-Session-Establish", "Nagare-Session-Clear"]
+
+portalIdentityHeaders :: PortalIdentity -> [Header]
+portalIdentityHeaders PortalAnonymous = []
+portalIdentityHeaders (PortalAuthenticated user (AccessToken token)) =
+  [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
+  , ("Authorization", "Bearer " <> TE.encodeUtf8 token)
+  ]
 
 ensureAcceptEncodingHeader :: [Header] -> [Header]
 ensureAcceptEncodingHeader headers
@@ -287,6 +410,8 @@ shouldStripResponseHeader name =
            , "TE"
            , "Trailer"
            , "Upgrade"
+           , "Nagare-Session-Establish"
+           , "Nagare-Session-Clear"
            ]
 
 appendPaths :: BS.ByteString -> BS.ByteString -> BS.ByteString
