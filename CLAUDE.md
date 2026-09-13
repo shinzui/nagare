@@ -101,8 +101,9 @@ recorded in that MasterPlan's Decision Log.
   it, and do not chain speculative recovery actions against a host you cannot observe. Write the
   recovery as an ExecPlan with pass/fail gates first.
 - GCE startup scripts do not run on Nagare's NixOS image. Never use them for recovery.
-- Cloud-mutating commands require the human's approval each time (enforced by
-  `.claude/hooks/guard_host_mutation.py`).
+- Cloud-mutating commands need the operator's go-ahead. Rehearse them first, then ask once for a
+  bounded sequence rather than per command. No Claude Code hook enforces this; the agent guard was
+  removed on 2026-09-13 (ADR 11 amendment).
 
 ## Git conventions
 

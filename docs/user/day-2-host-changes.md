@@ -169,9 +169,7 @@ you touch it, or k3s may start before its storage path exists.
   switch reverts itself within the confirmation window, and on any reboot, unless a fresh SSH
   login and `sudo` succeed. If all of that fails, the GRUB menu on the serial console lets you
   boot an earlier generation (see
-  [Accessing the host](accessing-the-host.md#path-3-serial-console-boot-menu-break-glass)). In
-  Claude Code sessions, `.claude/hooks/guard_host_mutation.py` also blocks direct activation
-  commands.
+  [Accessing the host](accessing-the-host.md#path-3-serial-console-boot-menu-break-glass)).
 - **The boot menu waits ten seconds** on every boot (`boot-recovery.nix`) and keeps the last 20
   generations. That is the cost of the break-glass path.
 - **`nofail` on the data disk** means a disk problem won't wedge the whole boot —
