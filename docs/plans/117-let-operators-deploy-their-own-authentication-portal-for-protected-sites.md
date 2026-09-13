@@ -106,9 +106,13 @@ contract, which is documented in `docs/user/auth-portal.md`.
   - [x] `nagarectl app delete` removes the app's access wiring.
   - [x] `nagarectl access portal show` and `nagarectl access portal sync`.
   - [x] All 387 `nagare-dsl-test` and all 438 `nagarectl-test` tests pass.
-- [ ] Milestone 5: reference portal example.
-  - [ ] `cluster/examples/auth-portal` Node app, Dockerfile, `nagare/Config.hs`, README.
-  - [ ] Offline contract test script for the example.
+- [x] (2026-09-13T05:24:21Z) Milestone 5: reference portal example.
+  - [x] `cluster/examples/auth-portal` Node app, non-root Dockerfile, typed
+    `nagare/Config.hs`, styles, passkey browser client, and README.
+  - [x] All seven offline contract tests pass with Node 22.22.3.
+  - [x] The `linux/amd64` Docker image builds successfully and runs as user `node`.
+  - [x] `nagarectl deploy --dry-run` renders only the ordinary Service and DomainMapping;
+    access registration remains a deploy-time effect.
 - [ ] Milestone 6: documentation and local end-to-end validation.
   - [ ] `docs/user/auth-portal.md` (contract), updates to `docs/user/access.md` and
     `cluster/bootstrap/nagare-access/README.md`.
