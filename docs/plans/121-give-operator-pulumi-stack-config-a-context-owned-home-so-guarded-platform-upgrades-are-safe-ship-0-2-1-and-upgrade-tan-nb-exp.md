@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5"
     harness: "claude-code"
     at: 2026-09-13T21:27:21Z
+  revisions:
+    - model: "claude-opus-5"
+      harness: "claude-code"
+      at: 2026-09-13T21:30:50Z
+      mode: "implement"
+      note: "Implementing milestones 1-3 (stack link, guarded upgrade phases, host identity)"
 ---
 
 # Give operator Pulumi stack config a context-owned home so guarded platform upgrades are safe, ship 0.2.1, and upgrade tan-nb-exp
@@ -52,9 +58,12 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
 - [x] (2026-09-13 21:27Z) Audit the live `tan-nb-exp` state read-only and record the evidence below.
 - [x] (2026-09-13 21:27Z) Record the ACME contact and live VM shape in the private context
   (`shinzui/nagare-ops` commit `f8a2878`).
-- [ ] Milestone 1: prove Pulumi's behavior with a symlinked stack configuration file.
+- [x] (2026-09-13 21:45Z) Milestone 1: proved Pulumi's behavior with a symlinked stack configuration
+  file (see Surprises & Discoveries).
 - [ ] Milestone 2: context-owned stack configuration linked into every Pulumi workspace.
 - [ ] Milestone 3: guarded upgrade Pulumi phases and correct host identity parsing.
+- [ ] Milestone 3b: `context create --force` merges onto the existing context, the ACME docs stop
+  recommending a partial overwrite, and the replacement guard also protects the DNS zone and buckets.
 - [ ] Milestone 4: release Nagare 0.2.1.
 - [ ] Milestone 5: rehearse, then upgrade `tan-nb-exp` to 0.2.1 under one bounded approval.
 - [ ] ADR distillation and Outcomes & Retrospective.
@@ -114,6 +123,38 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   `nadeem@gmail.com` with the Let's Encrypt production directory.
 
 
+- Observation (Milestone 1, Pulumi 3.255.0, scratch project with a file backend): with
+  `Pulumi.probe.yaml` a symlink to an empty file elsewhere, `pulumi stack init`, `config set`,
+  `config set --secret` (which adds `encryptionsalt`), and `config rm` all wrote through the link
+  and left it a symlink; `config get` read through it. A dangling link was treated as empty
+  configuration with no error, so Nagare must refuse a dangling canonical link itself.
+
+  ```text
+  == 1 empty canonical file + symlink, then stack init and config set
+  Created stack 'probe'
+  still-symlink
+  real:
+  encryptionsalt: v1:oCnAzWqARw4=:...
+  config:
+    nagare:k: v
+  == 2 read through symlink
+  v
+  == 4 dangling symlink
+  error: configuration key 'nagare:k' not found for stack 'probe'
+  still-symlink
+  ```
+
+- Observation (reported 2026-09-13 by the `tan-infrastructure` session, verified at `v0.2.0`): the
+  `ContextCreate` handler in `cli/nagarectl/app/Main.hs` builds the context only from the flags
+  passed (`Map.fromList (contextEnvPairs o)`), so `--force` resets every omitted field to the
+  defaults in `profileFromContextMap` (`cli/nagarectl/src/Nagare/Target.hs`), for example
+  `NAGARE_BASE_DOMAIN=apps.example.com` and the default VM shape. `docs/user/contexts.md` tells
+  operators to run exactly such a partial `context create --force` to switch the ACME directory.
+  Projected and applied, a changed base domain replaces the `gcp.dns.ManagedZone`
+  (`dnsName` is create-only), which issues new name servers and breaks the parent delegation.
+  `classifyPlan` only protects `gcp:compute/instance:Instance`, so that replacement passes.
+
+
 ## Decision Log
 
 - Decision: the canonical stack configuration path is
@@ -141,6 +182,15 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   Rationale: adoption at 0.1.0 needs the v0.1.0 CLI, whose context-version writer predates
   ExecPlan 116 and may rename over the symlinked context file. `platform upgrade` accepts a legacy
   context (`previousVersion` is recorded as absent) and advances the pin last.
+  Date: 2026-09-13
+- Decision: include the `context create --force` reset bug in 0.2.1. `--force` merges the flags
+  onto the existing context (a flag overrides, an omitted flag keeps the stored value), the ACME
+  documentation uses that merge, and the replacement guard protects a list of resource types: the
+  GCE instance, the Cloud DNS managed zone, and storage buckets.
+  Rationale: it is the same class of defect as the stack configuration loss (an operator-facing
+  command silently rewrites recorded infrastructure identity), a documented procedure triggers it,
+  and the zone's name servers and the buckets' contents are external contracts that a replacement
+  destroys.
   Date: 2026-09-13
 - Decision: ship as 0.2.1, a patch release.
   Rationale: the change fixes defects in 0.2.0 and adds no incompatible interface; existing
@@ -300,6 +350,29 @@ the upgrade transaction must run the same project and replacement guards as the 
 Acceptance: the new tests fail before the change and pass after; `nagarectl platform status` from
 this build against `tan-nb-exp` shows `Host: 0.1.0` instead of `legacy / unknown`.
 
+### Milestone 3b: merge `context create --force` and protect the DNS zone and buckets
+
+In the `ContextCreate` handler in `cli/nagarectl/app/Main.hs`, when the context exists and `--force`
+is passed, read the stored context map (the same parser `readContextProfile` uses in
+`cli/nagarectl/src/Nagare/Target.hs`) and insert the flag pairs from `contextEnvPairs o` over it,
+so only passed flags change. Keep `NAGARE_PLATFORM_VERSION` from the stored file when present
+instead of stamping the payload version, because changing a field is not an upgrade. Print the
+fields that changed. Add tests that a forced create with only `--acme-directory staging` keeps the
+stored base domain, project, VM shape, and platform version.
+
+In `cli/nagarectl/src/Nagare/Infra/Plan.hs`, replace the single `gceInstanceType` target with
+`protectedResourceTypes`, containing `gcp:compute/instance:Instance`,
+`gcp:dns/managedZone:ManagedZone`, and `gcp:storage/bucket:Bucket`. `classifyPlan` takes that list,
+and the refusal names each replaced resource and why it matters (a zone replacement issues new name
+servers; a bucket replacement deletes its objects). Extend the classifier tests in
+`cli/nagarectl/test/Spec.hs` with zone and bucket replacement fixtures. Update
+`docs/user/contexts.md` (the Let's Encrypt staging section) to show the merging command and to warn
+that changing `NAGARE_BASE_DOMAIN` replaces the DNS zone, and update
+`docs/user/provisioning-with-pulumi.md` where it describes `NAGARE_ALLOW_VM_REPLACEMENT`.
+
+Acceptance: the new tests fail at `v0.2.0` and pass after the change, and a forced create against a
+scratch context with one flag changes exactly one line of the context file.
+
 ### Milestone 4: release Nagare 0.2.1
 
 Follow `docs/runbooks/releases.md` and the repository's `nagare-release` skill end to end: set
@@ -440,3 +513,9 @@ No new library dependencies are needed: `directory` already provides `createFile
 `getSymbolicLinkTarget`, `pathIsSymbolicLink`, and `canonicalizePath`. External tools are the
 pinned `pulumi` 3.255.0, `just`, `kubectl`, `gcloud`, and `nix` already used by the workspace
 recipes. Haskell style follows ADR 16 and must pass `just haskell-style-check`.
+
+## Revision notes
+
+- 2026-09-13: Recorded Milestone 1 evidence. Added Milestone 3b after the `tan-infrastructure`
+  session reported, and this session verified, that `context create --force` resets omitted fields
+  and that the replacement guard does not protect the DNS zone or buckets; both ship in 0.2.1.
