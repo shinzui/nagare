@@ -30,6 +30,19 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
+      - name: Use and populate the Nagare binary cache
+        # Pulls from shinzui.cachix.org, then pushes this job's build results so a
+        # later run of the same revision (the tag run after a release rehearsal)
+        # substitutes instead of rebuilding. Without CACHIX_AUTH_TOKEN it only pulls.
+        # useDaemon: false pushes once at job end; the daemon's short shutdown grace
+        # can leave large macOS paths unpushed and fail the job.
+        uses: cachix/cachix-action@v17
+        with:
+          name: shinzui
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
+          useDaemon: false
+
       - name: Run the flake checks (the source of truth)
         # The checks ARE the CI: if any cluster/examples/*/nagare/Config.hs stops
         # compiling, either Haskell test suite fails, or a shell script has an
