@@ -97,11 +97,171 @@ nagarectl access portal sync
 
 `sync` exits successfully with `no portal registered` when the backend map has none.
 
-Before relying on passkeys, trust the local CA as described in
-`cluster/bootstrap/local-tls/README.md`, open the portal's `/account` page in a real
-browser, add a passkey, sign out, and exercise both the password-plus-passkey and
-passwordless login buttons. Browser automation must not bypass the certificate warning:
-an untrusted local CA makes WebAuthn validation invalid rather than merely inconvenient.
+## Finish local passkey validation later on macOS
+
+This procedure completes the one browser-only acceptance check left by ExecPlan 117.
+It changes the macOS System keychain, so save any browser work first and run the `sudo`
+commands yourself. Trusting this development CA lets the holder of its private key in
+the local cluster mint certificates accepted by the machine. Remove the trust after the
+test unless you intentionally use this cluster for ongoing browser development.
+
+### 1. Start the saved local cluster
+
+From the Nagare repository root:
+
+```bash
+colima start
+
+kubectl --context k3d-nagare-local \
+  -n nagare-system wait --for=condition=Available \
+  deployment/shomei deployment/en --timeout=180s
+kubectl --context k3d-nagare-local \
+  -n nagare-system wait --for=condition=Ready \
+  ksvc/nagare-access --timeout=180s
+```
+
+The explicit context keeps the workstation's current kubectl context unchanged.
+
+### 2. Inspect and trust only Nagare's CA
+
+Export the root from the known local cluster and inspect it before changing the
+keychain:
+
+```bash
+kubectl --context k3d-nagare-local \
+  -n cert-manager get secret nagare-local-ca \
+  -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d > /tmp/nagare-local-ca.pem
+
+openssl x509 -in /tmp/nagare-local-ca.pem \
+  -noout -subject -issuer -fingerprint -sha256
+```
+
+Both subject and issuer must be `CN=nagare-local-ca`. If they are not, stop. Install
+that inspected certificate into the System keychain:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  /tmp/nagare-local-ca.pem
+```
+
+Fully quit Chrome and reopen it so the browser reloads the trust settings. Do not click
+through a certificate interstitial; a bypassed warning does not prove a valid WebAuthn
+secure origin.
+
+### 3. Deploy the portal and verify its served certificate
+
+```bash
+source "$HOME/.config/nagare/contexts/local.env"
+export NAGARE_CONTEXT=local
+
+(
+  cd cluster/examples/auth-portal
+  nagarectl --context local deploy -f nagare/Config.hs
+)
+
+nagarectl --context local access portal show
+
+openssl s_client \
+  -connect auth.127-0-0-1.sslip.io:443 \
+  -servername auth.127-0-0-1.sslip.io </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -issuer
+```
+
+Expect the portal certificate's issuer to be `CN=nagare-local-ca`. If it says
+`portless Local CA`, another local endpoint owns port 443. Stop there, quit that
+endpoint, restart Colima, and repeat this certificate check. Do not substitute port
+18443 for the browser test: WebAuthn validates the exact configured origin
+`https://auth.127-0-0-1.sslip.io`.
+
+### 4. Create and grant a disposable test identity
+
+Choose a unique email and enter a temporary password without placing it in shell
+history:
+
+```bash
+TEST_EMAIL="passkey-$(date +%s)@example.test"
+read -s "TEST_PASSWORD?Temporary test password: "
+printf '\n'
+printf '%s\n' "$TEST_PASSWORD" | \
+  kubectl --context k3d-nagare-local \
+    -n nagare-system exec -i deploy/shomei -- \
+    env LC_ALL=C.UTF-8 shomei-admin users create \
+      --email "$TEST_EMAIL" --display-name "Passkey test" --email-verified
+printf 'Test login: %s\n' "$TEST_EMAIL"
+```
+
+Copy the printed `user_...` identifier. In a second terminal, keep this private En
+port-forward running:
+
+```bash
+kubectl --context k3d-nagare-local \
+  -n nagare-system port-forward service/en 18082:80
+```
+
+Back in the first terminal, replace `user_...` and grant the protected example:
+
+```bash
+export NAGARE_EN_URL=http://127.0.0.1:18082
+export NAGARE_EN_API_KEY="$(kubectl --context k3d-nagare-local \
+  -n nagare-system get secret nagare-en-api-keys \
+  -o go-template='{{index .data "read-write" | base64decode}}')"
+nagarectl --context local access grant \
+  --host protected-hello.127-0-0-1.sslip.io --user user_...
+unset NAGARE_EN_API_KEY
+```
+
+Keep `TEST_PASSWORD` private. If Codex is helping with the browser, fill the password
+yourself and complete every native Touch ID/passkey prompt.
+
+### 5. Exercise all three browser ceremonies
+
+1. Open `https://auth.127-0-0-1.sslip.io/login`, sign in with `TEST_EMAIL` and the
+   temporary password, then open `https://auth.127-0-0-1.sslip.io/account`.
+2. Select **Add a passkey**, complete the native prompt, and confirm that **Browser
+   passkey** appears in the account list.
+3. Select **Sign out**, open `https://protected-hello.127-0-0-1.sslip.io/`, and submit
+   the password login again. Expect the **Use your passkey** page; select **Continue**,
+   complete the prompt, and expect the protected app to load.
+4. Sign out again, open `https://auth.127-0-0-1.sslip.io/login`, select **Sign in with a
+   passkey**, and complete the prompt. Expect a signed-in redirect rather than another
+   password form.
+
+If you want Codex to drive the ordinary page interactions, stop after reopening Chrome
+and verifying the served certificate, then say: `CA trusted, Chrome restarted, and the
+portal certificate is issued by nagare-local-ca.` You retain control of password entry
+and native passkey prompts.
+
+### 6. Clean up and remove system trust
+
+Remove the portal through its typed config so its access registration and Shomei origin
+are also removed:
+
+```bash
+(
+  cd cluster/examples/auth-portal
+  nagarectl --context local app delete auth-portal \
+    --namespace personal --file nagare/Config.hs
+)
+
+unset TEST_PASSWORD TEST_EMAIL NAGARE_EN_URL NAGARE_CONTEXT
+```
+
+Stop the En port-forward with Control-C. Then remove the exact CA identified by the
+exported certificate and stop the local runtime if it was previously stopped:
+
+```bash
+NAGARE_CA_SHA1="$(openssl x509 -in /tmp/nagare-local-ca.pem \
+  -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)"
+sudo security delete-certificate -Z "$NAGARE_CA_SHA1" \
+  /Library/Keychains/System.keychain
+unset NAGARE_CA_SHA1
+rm -f /tmp/nagare-local-ca.pem
+colima stop
+```
+
+Fully quit and reopen Chrome once more so removal takes effect.
 
 ## Portal HTTP contract
 
