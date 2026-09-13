@@ -134,7 +134,7 @@ use the transaction workflow above rather than changing those pins in place.
 ## NixOS host
 
 The NixOS inputs move only when the lock file is updated. The current nixpkgs
-lock dates from 2026-05-31; ordinary `nixos-rebuild` runs do not advance it.
+lock dates from 2026-09-11; ordinary `nixos-rebuild` runs do not advance it.
 
 ```bash
 cd nixos
