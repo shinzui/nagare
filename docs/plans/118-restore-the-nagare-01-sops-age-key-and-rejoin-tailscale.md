@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-13T00:08:38Z
+  revisions:
+    - model: "claude-opus-5[1m]"
+      harness: "claude-code"
+      at: 2026-09-13T00:24:58Z
+      mode: "implement"
+      note: "Milestones 0-3 executed; nagare-01 rejoined Tailscale"
 ---
 
 # Restore the nagare-01 sops age key and rejoin Tailscale
@@ -43,17 +49,20 @@ see it working when three things hold:
   `hosts/tan-nb-exp/secrets.yaml` in the private operator repository. The file holds one
   `tailscale.authkey` value (44 characters, `tskey-auth-` prefix), last modified 2026-06-02.
 - [x] (2026-09-13T00:07Z) VM `nagare-01` is `RUNNING`.
-- [ ] Milestone 0: read-only host preflight over IAP (blocked: the harness classifier refused the
-  SSH read as "Production Reads"; needs operator permission).
-- [ ] Milestone 1: operator issues a new Tailscale auth key; re-encrypt it into `secrets.yaml` without
-  displaying it; commit and push `nagare-ops`.
-- [ ] Milestone 2: install the age key on the host (0400 root).
-- [ ] Milestone 3: `just host-switch`; verify secrets, Tailscale online, SSH over Tailscale.
+- [x] (2026-09-13T00:18Z) Milestone 1: operator signed in to the Tailscale console in Chrome; agent generated a non-reusable, non-ephemeral, untagged, 1-day auth key (`nagare01rejoin`) and stored it with `sops set --value-stdin`. Verified length 62, prefix `tskey-auth-`, `lastmodified 2026-09-13T00:17:37Z`, recipient `age1rc26869…`; `nagare-ops@e197bc4` pushed.
+- [x] (2026-09-13T00:19Z) Milestone 0 (after operator turned off auto mode): age key ABSENT, `/run/secrets` absent, `tailscaled` active, `tailscaled-autoconnect` failed, `resolvconf` failed, Tailscale "Logged out", generation `8fgipxvf…`.
+- [x] (2026-09-13T00:20Z) Milestone 2: installed `/var/lib/sops-nix/age-key.txt` as `400 root:root`, 189 bytes, sha256 `a6b4d7ae…cc7f` equal to the workstation file.
+- [x] (2026-09-13T00:22Z) Milestone 3: `just host-switch` over an IAP tunnel with `NIX_SSHOPTS="-F <scratch ssh_config>"` (rehearsed login and sudo first). `ACTIVATE_RC=4` (resolvconf only), `fresh login and sudo verified (attempt 1)`, `COMMITTED new=/nix/store/ljf91688avdvicz2frwpdi03sy288xjh-nixos-system-nagare-01-google-compute-26.11.20260531.331800d`. Gates: `/run/secrets/tailscale/authkey` `400 root`; `tailscaled` active; `tailscaled-autoconnect` inactive (not failed); only `resolvconf.service` failed; `tailscale status` on host: `100.80.88.126 nagare-01 nadeem@ linux`.
+- [ ] Workstation-side gate: `ssh deploy@nagare-01` over Tailscale not yet observed. The workstation's Tailscale service was not running ("failed to connect to local Tailscale service"), so `100.80.88.126:22` timed out and `nagare-01` did not resolve.
 - [ ] Milestone 4: outcomes, docs, memory.
 
 
 ## Surprises & Discoveries
 
+- `~/.ssh/config` is a read-only home-manager symlink, so the EP-114 technique of adding a temporary
+  `Host nagare-01` block is unavailable. `scripts/host-switch.sh` and
+  `nixos/lib/nagare-safe-switch-client.sh` pass `NIX_SSHOPTS` to every ssh, which made
+  `-F <scratch config>` sufficient.
 - The encrypted auth key was last modified on 2026-06-02, 103 days before this plan. Tailscale auth
   keys expire after at most 90 days, so the stored key is almost certainly expired. Placing the age
   key alone would leave `tailscaled-autoconnect` failing with an authentication error instead of a
@@ -79,7 +88,21 @@ see it working when three things hold:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Host side complete (2026-09-13): `nagare-01` decrypts its sops secrets and is logged in to the tailnet
+as `100.80.88.126`. Every future switch loses the `tailscaled-autoconnect` failure. Remaining:
+
+- Confirm access from a workstation with Tailscale running.
+- `resolvconf.service` still fails, and Tailscale reports a DNS health warning because
+  `/etc/resolv.conf` cannot be modified on this image. That is pre-existing and needs a follow-up.
+- The node is untagged, so its Tailscale node key expires on the tailnet's default schedule. Disable
+  key expiry for `nagare-01` in the admin console, or it will drop off again.
+
+Lessons:
+
+- `NIX_SSHOPTS` is honored by both `nix copy` and the safe-switch client. A scratch `-F` SSH config
+  routes `host-switch` over IAP without editing a (home-manager, read-only) `~/.ssh/config`.
+- The harness's auto-mode classifier blocks host reads and secret handling; turning auto mode off
+  converts those denials into approvable prompts.
 
 
 ## Context and Orientation
