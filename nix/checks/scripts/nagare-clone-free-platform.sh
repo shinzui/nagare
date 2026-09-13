@@ -87,13 +87,14 @@ grep -q -- '-C.*nagare/local/platform/' "$NAGARE_FAKE_TOOL_LOG"
 # reports observations, stamps the absent cluster marker, and
 # commits only this context's release pin.
 sed -i '/NAGARE_PLATFORM_VERSION=/d' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
-nagarectl platform adopt --version 0.1.0 --yes --json > adopt.json
-jq -e '.adopted == true and .platformVersion == "0.1.0" and .observations.context == null' adopt.json >/dev/null
-grep -q 'NAGARE_PLATFORM_VERSION=0.1.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+platform_version="$(nagarectl version --json | jq -er '.version')"
+nagarectl platform adopt --version "$platform_version" --yes --json > adopt.json
+jq -e --arg version "$platform_version" '.adopted == true and .platformVersion == $version and .observations.context == null' adopt.json >/dev/null
+grep -q "NAGARE_PLATFORM_VERSION=$platform_version" "$XDG_CONFIG_HOME/nagare/contexts/local.env"
 
 # EP-108: planning from a different context pin stages the host
 # release, records all previews, and leaves the context unchanged.
-sed -i 's/NAGARE_PLATFORM_VERSION=0.1.0/NAGARE_PLATFORM_VERSION=0.0.0/' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+sed -i "s/NAGARE_PLATFORM_VERSION=$platform_version/NAGARE_PLATFORM_VERSION=0.0.0/" "$XDG_CONFIG_HOME/nagare/contexts/local.env"
 host_dir="$XDG_CONFIG_HOME/nagare/hosts/local"
 mkdir -p "$host_dir"
 cat > "$host_dir/flake.nix" <<'HOST_FLAKE'
@@ -107,8 +108,8 @@ HOST_FLAKE
 printf '%s\n' '{ ... }: { }' > "$host_dir/host.nix"
 printf '%s\n' 'token: ENC[AES256_GCM,data:test]' 'sops: {}' > "$host_dir/secrets.yaml"
 payload_root="$(jq -er '.payloadRoot' root.json)"
-nagarectl platform upgrade --to 0.1.0 --payload-root "$payload_root" --dry-run --json > upgrade.json
-jq -e '.state == "planned" and .previousVersion == "0.0.0" and .targetVersion == "0.1.0" and ([.phases[] | select(.state == "succeeded")] | length) == 3' upgrade.json >/dev/null
+nagarectl platform upgrade --to "$platform_version" --payload-root "$payload_root" --dry-run --json > upgrade.json
+jq -e --arg version "$platform_version" '.state == "planned" and .previousVersion == "0.0.0" and .targetVersion == $version and ([.phases[] | select(.state == "succeeded")] | length) == 3' upgrade.json >/dev/null
 grep -q 'NAGARE_PLATFORM_VERSION=0.0.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
 
 # EP-113: `nagarectl context guard` refuses when the selected Pulumi

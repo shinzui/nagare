@@ -26,10 +26,10 @@ release and supplies its manifest, native Nix output identities, notes, and `SHA
 | Provision or operate the platform | `nagare` | `nagarectl`, the immutable payload, and the `nagare` recipe launcher |
 | Build or change Nagare itself | source checkout | `nix develop`, tests, and maintainer tools |
 
-The examples use version 0.1.0. Replace it only after reviewing the target release notes.
+The examples use version 0.2.0. Replace it only after reviewing the target release notes.
 
 ```bash
-export NAGARE_VERSION=0.1.0
+export NAGARE_VERSION=0.2.0
 export NAGARE_FLAKE="github:shinzui/nagare/v${NAGARE_VERSION}"
 ```
 
