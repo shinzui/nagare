@@ -24,8 +24,10 @@ that may drift:
   permissions.
 - `scripts/check-release.sh`, `scripts/rehearse-clone-free-release.sh`, and
   `scripts/assemble-release.sh` for executable release invariants.
-- `nix/platform-package.nix` and `nix/haskell-packages.nix` when the packaged closure or output names
-  matter.
+- `flake.nix`, `flake.lock`, `nix/packages.nix`, `nix/nagare-packages.nix`,
+  `nix/platform-package.nix`, and `nix/haskell-packages.nix` when inputs, the packaged closure, or
+  output names matter; read the domain modules and extracted scripts under `nix/checks/` when a
+  release gate changes.
 
 For publication or recovery, also read
 `docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md`. Read

@@ -38,9 +38,9 @@ metadata, packages, apps, a networked CI job, and a developer shell with a hand-
 override. Reading or changing any one of those concerns means scrolling past all the others.
 Separately, the flake pins its own `nixos-unstable` nixpkgs (locked at `331800d`, 2026-05-31) and
 its own GHC 9.12 package set, while the maintainer's other Haskell projects all share one toolchain
-generation defined by the `haskell-nix-dev` base flake (`mori://shinzui/haskell-nix-dev`) through the
-`nix-haskell-flake` Seihou module (`mori://shinzui/seihou-modules`, path
-`modules/haskell/nix-haskell-flake`; the artifact-level Mori URI for Seihou modules is pending).
+generation defined by the `haskell-nix-dev` base flake
+(`mori://shinzui/haskell-nix-dev/repos/haskell-nix-dev`) through the `nix-haskell-flake` Seihou
+template (`mori://shinzui/seihou-modules/templates/nix-haskell-flake`).
 Because nagare is on a different nixpkgs revision, nothing it builds is shared with those projects:
 its Haskell library closure is compiled separately, and its Haskell Language Server (HLS, the editor
 backend) is compiled from source instead of downloaded from the `shinzui.cachix.org` binary cache.
@@ -100,10 +100,13 @@ scope and must not change.
       unchanged.
 - [ ] Milestone 5 (optional): move large inline check scripts into `nix/checks/scripts/*.sh` and
       shellcheck them.
-- [ ] Milestone 5 (optional): build the developer shells with `haskell-nix-dev`'s `mkDevShell` so HLS
-      is substituted from Cachix.
-- [ ] Milestone 5: update `README.md`, `.envrc`, and `agents/skills/nagare-release/SKILL.md`
-      references; distill durable decisions into an ADR.
+- [x] (2026-09-13T17:52:22Z) Milestone 5: build both developer shells with
+      `haskell-nix-dev`'s `mkDevShell`; the default includes HLS and the Haskell-focused shell omits
+      it. The Cachix path probe succeeded, HLS 2.13.0.0 reports GHC 9.12.4, and `ghc --version`
+      reports 9.12.4.
+- [x] (2026-09-13T17:52:22Z) Milestone 5: update `README.md`, `.envrc`, and
+      `agents/skills/nagare-release/SKILL.md`; ADR 17 now records the durable pin and ownership
+      decisions, and `just docs-validate` passes.
 
 
 ## Surprises & Discoveries
@@ -769,10 +772,11 @@ inputs, substituting from caches, and dispatching builds to the configured Linux
 
 ## Interfaces and Dependencies
 
-Inputs at the end of the plan: `haskell-nix-dev` (rev-pinned, `mori://shinzui/haskell-nix-dev`),
+Inputs at the end of the plan: `haskell-nix-dev` (rev-pinned,
+`mori://shinzui/haskell-nix-dev/repos/haskell-nix-dev`),
 `nixpkgs` following `haskell-nix-dev/nixpkgs`, `flake-parts` following `haskell-nix-dev/flake-parts`,
-and `cradle` (rev-pinned, non-flake). The module template that decides the pin lives in
-`mori://shinzui/seihou-modules` at `modules/haskell/nix-haskell-flake/files/flake.nix.tpl`.
+and `cradle` (rev-pinned, non-flake). The module template that decides the pin is
+`mori://shinzui/seihou-modules/templates/nix-haskell-flake`.
 
 Flake outputs must keep their names and shapes, because `.github/workflows/ci.yml`,
 `.github/workflows/release.yml`, the release scripts, and operators depend on them:
