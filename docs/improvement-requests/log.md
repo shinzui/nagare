@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-13
+* **Add**: Record IR-6 as proposed and undecided: run the local cluster as k3s directly on Apple Container instead of k3d on Colima. A spike showed k3s reaches Ready with a /proc/sys remount and serves DNS and Service traffic; image builds still depend on Docker.
 * **Update**: Complete IR-2. Every cloud-mutating path now asserts the active context's project: foreign-owned buckets are refused, the auth image builds lost their gcloud-config fallback, infra-up and infra-preview run nagarectl context guard, and the launcher exports the context's Pulumi environment. Decision recorded as ADR 9.
 * **Update**: Complete IR-4: init seeds the VM shape keys and infra-up refuses an instance-replacing plan.
 

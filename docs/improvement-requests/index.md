@@ -13,4 +13,5 @@ okf_version: "0.2"
 - [Make the ACME identity context-owned and remove the personal fallback defaults](context-owned-acme-identity.md) - Add the ACME contact and directory endpoint to the context schema and fail closed instead of registering Let's Encrypt accounts under a hardcoded personal address.
 - [Seed and pin the VM shape keys at init so a routine apply cannot replace the instance](seed-vm-shape-keys-at-init.md) - Have nagarectl init seed machineType and bootDiskType, and warn before any plan that would destroy the boot disk holding k3s state and TLS material.
 - [Document and automate growing the data disk](data-disk-grow-procedure.md) - Make the data-disk grow a real, tested procedure instead of a one-sentence reference that an operational alert already links to.
+- [Run the local cluster on Apple Container instead of k3d on Colima](local-cluster-on-apple-container.md) - Replace the k3d-on-Colima local substrate with k3s launched directly as an Apple Container, and make local image builds work without a Docker daemon.
 
