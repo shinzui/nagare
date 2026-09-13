@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-12T21:55:22Z
       mode: "update"
       note: "Replace bare-Text and nested Either/Maybe interfaces with domain types"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-13T04:50:20Z
+      mode: "implement"
+      note: "Implemented auth portal plan milestones beginning with backend roles and cookie isolation"
 ---
 
 # Let operators deploy their own authentication portal for protected sites
@@ -72,12 +77,12 @@ contract, which is documented in `docs/user/auth-portal.md`.
 
 ## Progress
 
-- [ ] Milestone 1: backend-map roles and auth-cookie stripping in `nagare-access`.
-  - [ ] Extend `Nagare.Access.BackendMap` so a value may be a string (protected site) or an
+- [x] (2026-09-13T04:50:20Z) Milestone 1: backend-map roles and auth-cookie stripping in `nagare-access`.
+  - [x] Extend `Nagare.Access.BackendMap` so a value may be a string (protected site) or an
     object with `upstream` and `role`; reject more than one `portal` entry.
-  - [ ] Strip `nagare_session`, `nagare_refresh`, and `__Host-nagare_csrf` from the
+  - [x] Strip `nagare_session`, `nagare_refresh`, and `__Host-nagare_csrf` from the
     `Cookie` header before proxying to any backend.
-  - [ ] Tests in `cli/nagare-access/test/Spec.hs` for both, all existing tests still green.
+  - [x] Tests in `cli/nagare-access/test/Spec.hs` for both; all 109 tests pass.
 - [ ] Milestone 2: portal routing mode in `nagare-access`.
   - [ ] Optional authentication and identity forwarding (with `Authorization: Bearer`) for
     the portal host.

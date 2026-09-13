@@ -1,9 +1,12 @@
 -- | Reverse-proxy forwarding for authorized nagare-access requests.
 module Nagare.Access.Proxy
   ( buildProxyRequest
+  , hardenRequestHeaders
+  , hardenWebSocketRequestHeaders
   , newProxyManager
   , proxyForwarder
   , proxyResponseToWai
+  , stripEnforcerCookies
   )
 where
 
@@ -172,7 +175,7 @@ rawBadGateway msg =
 
 hardenRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenRequestHeaders publicHost user headers =
-  ensureAcceptEncodingHeader (filterRequestHeaders headers)
+  ensureAcceptEncodingHeader (stripEnforcerCookies (filterRequestHeaders headers))
     <> [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
@@ -180,7 +183,7 @@ hardenRequestHeaders publicHost user headers =
 
 hardenWebSocketRequestHeaders :: Text -> AuthenticatedUser -> [Header] -> [Header]
 hardenWebSocketRequestHeaders publicHost user headers =
-  ensureAcceptEncodingHeader (filterWebSocketRequestHeaders headers)
+  ensureAcceptEncodingHeader (stripEnforcerCookies (filterWebSocketRequestHeaders headers))
     <> [ ("X-Forwarded-User", TE.encodeUtf8 (userSubject user))
        , ("X-Forwarded-Host", TE.encodeUtf8 publicHost)
        , ("X-Forwarded-Proto", "https")
@@ -220,6 +223,25 @@ filterWebSocketRequestHeaders =
 filterResponseHeaders :: [Header] -> [Header]
 filterResponseHeaders =
   filter (not . shouldStripResponseHeader . fst)
+
+-- | Remove cookies owned by nagare-access before a request reaches any app.
+-- Unrelated application cookies retain their order and are normalized to the
+-- conventional @name=value; name=value@ form.
+stripEnforcerCookies :: [Header] -> [Header]
+stripEnforcerCookies = foldr stripOne []
+  where
+    stripOne (name, value) kept
+      | name /= "Cookie" = (name, value) : kept
+      | otherwise =
+          case filter (not . isEnforcerCookie) (cookiePairs value) of
+            [] -> kept
+            pairs -> (name, B8.intercalate "; " pairs) : kept
+
+    cookiePairs = filter (not . BS.null) . map trim . B8.split ';'
+    trim = B8.dropWhile (== ' ') . B8.dropWhileEnd (== ' ')
+    isEnforcerCookie pair =
+      let cookieName = trim (fst (B8.break (== '=') pair))
+       in cookieName `elem` ["nagare_session", "nagare_refresh", "__Host-nagare_csrf"]
 
 shouldStripRequestHeader :: HeaderName -> Bool
 shouldStripRequestHeader name =

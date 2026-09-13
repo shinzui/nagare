@@ -220,13 +220,35 @@ backendMapTests =
     "backend map"
     [ testCase "decodes host to upstream JSON" $ do
         backends <- assertRight (decodeBackendMap "{\"Tools.Example.com\":\"http://tools.personal.svc.cluster.local\"}")
-        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local")
+        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+    , testCase "decodes object targets with protected and portal roles" $ do
+        backends <-
+          assertRight
+            ( decodeBackendMap
+                "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"protected\"},\"auth.example.com\":{\"upstream\":\"http://auth.personal.svc.cluster.local\",\"role\":\"portal\"}}"
+            )
+        lookupBackend "tools.example.com" backends
+          @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+        lookupBackend "auth.example.com" backends
+          @?= Just (BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
+        portal <- maybe (assertFailure "expected portal") pure (findPortal backends)
+        publicHostText (portalHost portal) @?= "auth.example.com"
+    , testCase "rejects a second portal and names its host" $
+        case
+            decodeBackendMap
+              "{\"auth-a.example.com\":{\"upstream\":\"http://auth-a.personal.svc.cluster.local\",\"role\":\"portal\"},\"auth-b.example.com\":{\"upstream\":\"http://auth-b.personal.svc.cluster.local\",\"role\":\"portal\"}}" of
+          Left err -> assertBool "expected offending host in error" ("auth-b.example.com" `Text.isInfixOf` err)
+          Right _ -> assertFailure "expected duplicate portals to fail"
+    , testCase "rejects an unknown backend role" $
+        assertBool
+          "expected Left"
+          (isLeft (decodeBackendMap "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"admin\"}}"))
     , testCase "lookup strips Host header port" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local")
+        lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
     , testCase "lookup can return the canonical host used for auth decisions" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        lookupBackendWithHost "Tools.Example.com:443" backends @?= Just ("tools.example.com", BackendTarget "http://tools.personal.svc.cluster.local")
+        lookupBackendWithHost "Tools.Example.com:443" backends @?= Just ("tools.example.com", BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
     , testCase "rejects non-object JSON" $
         assertBool "expected Left" (isLeft (decodeBackendMap "[]"))
     , testCase "rejects non-string upstreams" $
@@ -580,7 +602,7 @@ proxyTests =
                 , rawQueryString = "?v=1"
                 }
             user = AuthenticatedUser {userSubject = "user:alice"}
-            target = BackendTarget "http://tools.personal.svc.cluster.local/base"
+            target = BackendTarget "http://tools.personal.svc.cluster.local/base" ProtectedBackend
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         HC.method proxyReq @?= "POST"
         HC.path proxyReq @?= "/base/assets/app.js"
@@ -596,7 +618,7 @@ proxyTests =
                     withHeader hHost "tools.example.com" $
                       setPath defaultRequest "/"
             user = AuthenticatedUser {userSubject = "user:alice"}
-            target = BackendTarget "http://tools.personal.svc.cluster.local"
+            target = BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         lookup "X-Forwarded-User" (HC.requestHeaders proxyReq) @?= Just "user:alice"
         lookup "X-Forwarded-Host" (HC.requestHeaders proxyReq) @?= Just "tools.example.com"
@@ -604,11 +626,26 @@ proxyTests =
         lookup "Connection" (HC.requestHeaders proxyReq) @?= Nothing
         lookup hHost (HC.requestHeaders proxyReq) @?= Nothing
         lookup "Accept-Encoding" (HC.requestHeaders proxyReq) @?= Just ""
+    , testCase "strips only nagare-owned cookies before forwarding" $ do
+        let headers =
+              hardenRequestHeaders
+                "tools.example.com"
+                AuthenticatedUser {userSubject = "user:alice"}
+                [ ("Cookie", "theme=dark; nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z; lang=en")
+                ]
+        lookup "Cookie" headers @?= Just "theme=dark; lang=en"
+    , testCase "removes a cookie header containing only nagare-owned cookies" $ do
+        let headers =
+              hardenRequestHeaders
+                "tools.example.com"
+                AuthenticatedUser {userSubject = "user:alice"}
+                [("Cookie", "nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z")]
+        lookup "Cookie" headers @?= Nothing
     , testCase "streams upstream response bodies through WAI" $
         testWithApplication (pure streamingUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           let user = AuthenticatedUser {userSubject = "user:alice"}
-              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port))
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
               proxyApp req respond =
                 proxyForwarder manager user "tools.example.com" target req >>= respond
           res <- runSession (request (setPath defaultRequest "/events")) proxyApp
@@ -1318,7 +1355,7 @@ websocketProxyApp :: Int -> Wai.Application
 websocketProxyApp upstreamPort req respond = do
   manager <- HC.newManager HC.defaultManagerSettings
   let user = AuthenticatedUser {userSubject = "user:alice"}
-      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort))
+      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort)) ProtectedBackend
   proxyForwarder manager user "tools.example.com" target req >>= respond
 
 websocketUpstreamApp :: Wai.Application

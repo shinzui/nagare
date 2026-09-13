@@ -1,79 +1,142 @@
--- | Host to upstream mapping for protected sites.
+-- | Host to upstream mapping for protected sites and the authentication portal.
 module Nagare.Access.BackendMap
   ( BackendMap
+  , BackendRole (..)
   , BackendTarget (..)
+  , Portal (..)
+  , PublicHost
   , backendMapFromList
+  , backendMapFromTargets
   , decodeBackendMap
   , emptyBackendMap
+  , findPortal
+  , isRoutedHost
   , lookupBackend
   , lookupBackendWithHost
+  , mkPublicHost
+  , publicHostText
   )
 where
 
-import Data.Aeson (Value (Object, String), eitherDecodeStrict)
+import Data.Aeson (FromJSON (parseJSON), Value (Object, String), eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-newtype BackendMap = BackendMap (Map Text BackendTarget)
+-- | A public host after lower-casing and removing a port and trailing dot.
+newtype PublicHost = PublicHost Text
+  deriving stock (Eq, Ord, Show)
+
+publicHostText :: PublicHost -> Text
+publicHostText (PublicHost host) = host
+
+data BackendRole
+  = ProtectedBackend
+  | PortalBackend
   deriving stock (Eq, Show)
 
-newtype BackendTarget = BackendTarget
-  { upstreamUrl :: Text
+data BackendTarget = BackendTarget
+  { upstreamUrl :: !Text
+  , backendRole :: !BackendRole
   }
   deriving stock (Eq, Show)
+
+data Portal = Portal
+  { portalHost :: !PublicHost
+  , portalTarget :: !BackendTarget
+  }
+  deriving stock (Eq, Show)
+
+newtype BackendMap = BackendMap (Map PublicHost BackendTarget)
+  deriving stock (Eq, Show)
+
+instance FromJSON BackendTarget where
+  parseJSON (String upstream) =
+    either (fail . Text.unpack) pure (validateTarget ProtectedBackend upstream)
+  parseJSON value@(Object _) =
+    withObject "backend target" parseTarget value
+    where
+      parseTarget obj = do
+        upstream <- obj .: "upstream"
+        roleText <- obj .: "role"
+        role <- case (roleText :: Text) of
+          "protected" -> pure ProtectedBackend
+          "portal" -> pure PortalBackend
+          other -> fail ("unknown backend role: " <> Text.unpack other)
+        either (fail . Text.unpack) pure (validateTarget role upstream)
+  parseJSON _ = fail "backend target must be a string URL or an object with upstream and role"
 
 emptyBackendMap :: BackendMap
 emptyBackendMap = BackendMap Map.empty
 
 backendMapFromList :: [(Text, Text)] -> Either Text BackendMap
 backendMapFromList entries =
-  BackendMap . Map.fromList <$> traverse parseEntry entries
+  backendMapFromTargets
+    [ (host, BackendTarget upstream ProtectedBackend)
+    | (host, upstream) <- entries
+    ]
+
+backendMapFromTargets :: [(Text, BackendTarget)] -> Either Text BackendMap
+backendMapFromTargets entries = do
+  parsed <- traverse parseEntry entries
+  rejectMultiplePortals parsed
+  pure (BackendMap (Map.fromList parsed))
   where
-    parseEntry (host, upstream) =
-      (,) <$> canonicalHost host <*> validateTarget upstream
+    parseEntry (host, target) = do
+      publicHost <- mkPublicHost host
+      validated <- validateTarget (backendRole target) (upstreamUrl target)
+      pure (publicHost, validated)
 
 decodeBackendMap :: ByteString -> Either Text BackendMap
 decodeBackendMap bs =
   case eitherDecodeStrict bs of
     Left e -> Left ("could not decode backend map JSON: " <> Text.pack e)
-    Right (Object obj) ->
-      backendMapFromList [(Key.toText host, upstream) | (host, String upstream) <- KeyMap.toList obj]
-        >>= rejectNonStringValues obj
+    Right (Object obj) -> do
+      entries <- traverse parseEntry (KeyMap.toList obj)
+      rejectMultiplePortals entries
+      pure (BackendMap (Map.fromList entries))
     Right _ ->
-      Left "backend map must be a JSON object mapping host names to upstream URLs"
+      Left "backend map must be a JSON object mapping host names to backend targets"
+  where
+    parseEntry (key, value) = do
+      let hostText = Key.toText key
+      host <- mapLeft (\err -> "backend map host " <> hostText <> ": " <> err) (mkPublicHost hostText)
+      target <- mapLeft (\err -> "backend map value for " <> hostText <> ": " <> Text.pack err) (Aeson.parseEither parseJSON value)
+      pure (host, target)
 
 lookupBackend :: Text -> BackendMap -> Maybe BackendTarget
-lookupBackend rawHost (BackendMap entries) =
-  case canonicalHost rawHost of
-    Left _ -> Nothing
-    Right host -> Map.lookup host entries
+lookupBackend rawHost backendMap = do
+  host <- either (const Nothing) Just (mkPublicHost rawHost)
+  lookupBackendByHost host backendMap
 
 lookupBackendWithHost :: Text -> BackendMap -> Maybe (Text, BackendTarget)
-lookupBackendWithHost rawHost (BackendMap entries) =
-  case canonicalHost rawHost of
-    Left _ -> Nothing
-    Right host -> (host,) <$> Map.lookup host entries
+lookupBackendWithHost rawHost backendMap = do
+  host <- either (const Nothing) Just (mkPublicHost rawHost)
+  (publicHostText host,) <$> lookupBackendByHost host backendMap
 
-rejectNonStringValues :: KeyMap.KeyMap Value -> BackendMap -> Either Text BackendMap
-rejectNonStringValues obj parsed =
-  case [Key.toText k | (k, v) <- KeyMap.toList obj, not (isString v)] of
-    [] -> Right parsed
-    bad : _ -> Left ("backend map value for " <> bad <> " must be a string URL")
-  where
-    isString (String _) = True
-    isString _ = False
+findPortal :: BackendMap -> Maybe Portal
+findPortal (BackendMap entries) =
+  case [(host, target) | (host, target) <- Map.toList entries, backendRole target == PortalBackend] of
+    (host, target) : _ -> Just Portal {portalHost = host, portalTarget = target}
+    [] -> Nothing
 
-canonicalHost :: Text -> Either Text Text
-canonicalHost raw =
+isRoutedHost :: PublicHost -> BackendMap -> Bool
+isRoutedHost host (BackendMap entries) = Map.member host entries
+
+lookupBackendByHost :: PublicHost -> BackendMap -> Maybe BackendTarget
+lookupBackendByHost host (BackendMap entries) = Map.lookup host entries
+
+mkPublicHost :: Text -> Either Text PublicHost
+mkPublicHost raw =
   let stripped = Text.toLower . Text.dropWhileEnd (== '.') . stripPort . Text.strip $ raw
    in if Text.null stripped || Text.any isBadHostChar stripped
         then Left "host must be a non-empty DNS name without whitespace"
-        else Right stripped
+        else Right (PublicHost stripped)
 
 stripPort :: Text -> Text
 stripPort host =
@@ -90,12 +153,18 @@ isBadHostChar c =
 isDigitText :: Char -> Bool
 isDigitText c = c >= '0' && c <= '9'
 
-validateTarget :: Text -> Either Text BackendTarget
-validateTarget raw =
+validateTarget :: BackendRole -> Text -> Either Text BackendTarget
+validateTarget role raw =
   let upstream = Text.strip raw
    in if hasHttpScheme upstream && hasHostPart upstream && not (Text.any badTargetChar upstream)
-        then Right (BackendTarget upstream)
+        then Right (BackendTarget upstream role)
         else Left ("invalid backend upstream URL: " <> raw)
+
+rejectMultiplePortals :: [(PublicHost, BackendTarget)] -> Either Text ()
+rejectMultiplePortals entries =
+  case [publicHostText host | (host, target) <- entries, backendRole target == PortalBackend] of
+    _ : second : _ -> Left ("backend map contains more than one portal; offending host: " <> second)
+    _ -> Right ()
 
 hasHttpScheme :: Text -> Bool
 hasHttpScheme upstream =
@@ -112,5 +181,7 @@ hasHostPart upstream =
     hostPart = fst (Text.breakOn "/" withoutScheme)
 
 badTargetChar :: Char -> Bool
-badTargetChar c =
-  c <= ' '
+badTargetChar c = c <= ' '
+
+mapLeft :: (a -> b) -> Either a c -> Either b c
+mapLeft f = either (Left . f) Right
