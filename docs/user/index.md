@@ -39,6 +39,7 @@ okf_version: "0.2"
 
 # Runbook
 
+- [Operator-owned authentication portal](auth-portal.md) - Deploy, customize, operate, and remove an authentication portal for protected Nagare sites.
 - [Identity-aware access](access.md) - Configure, verify, operate, and revoke identity-aware access to protected Nagare services.
 - [Backups and disaster recovery](backups-and-disaster-recovery.md) - Back up Nagare state, recover platform and workload data, and drill the documented failure procedures safely.
 - [Cluster bootstrap](cluster-bootstrap.md) - Install, configure, smoke-test, and verify the Nagare Kubernetes platform components.
@@ -55,4 +56,3 @@ okf_version: "0.2"
 - [Getting started](getting-started.md) - Install Nagare, choose a target, and complete an initial working deployment.
 - [Local development](local-development.md) - Create a local Nagare platform, deploy a sample workload, and exercise the development and smoke-test workflow.
 - [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md) - Onboard a new Google Cloud project and complete the first Nagare platform setup from prerequisites through verification.
-

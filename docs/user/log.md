@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-13
+* **Update**: Document deploying, customizing, synchronizing, and safely removing an operator-owned authentication portal.
 * **Update**: Document the context-owned VM shape, the in-place versus replacement matrix, and the infra-up replacement guard.
 
 ## 2026-09-12

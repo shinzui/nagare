@@ -22,15 +22,17 @@ Run the offline contract tests:
 node --test cluster/examples/auth-portal/test/contract-test.mjs
 ```
 
-Preview the deployment from `cli/nagarectl` (the access registration is a deploy-time
-side effect, so dry-run output contains only ordinary app manifests):
+Preview the deployment from the portal directory (the Dockerfile and context in the
+typed config are relative to this directory). Access registration is a deploy-time side
+effect, so dry-run output contains only ordinary app manifests:
 
 ```bash
-cabal run -v0 nagarectl -- deploy --dry-run \
-  --file ../../cluster/examples/auth-portal/nagare/Config.hs \
+cd cluster/examples/auth-portal
+nagarectl deploy --dry-run --file nagare/Config.hs \
   --base-domain apps.example.com --tag test
 ```
 
 For a live deployment, run the same command without `--dry-run`. The auth plane must
-already be installed. Deleting the app with `nagarectl app delete auth-portal
---namespace personal` also removes its portal registration and Shomei origin.
+already be installed. From the same directory, deleting the app with `nagarectl app
+delete auth-portal --namespace personal --file nagare/Config.hs` also removes its portal
+registration and Shomei origin.
