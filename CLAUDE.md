@@ -124,5 +124,7 @@ and the canonical `haskell-jitsurei` standards at
 `mori://shinzui/haskell-jitsurei/docs/core-record-patterns`, and
 `mori://shinzui/haskell-jitsurei/docs/core-custom-prelude`. Use the package Prelude, postpositive
 `qualified`, strict unprefixed project-owned record fields, explicit deriving strategies, and
-generic-lens labels for project-owned record access and updates. Import `Data.Generics.Labels ()`
-only in modules that use those labels; `PackageImports` belongs only in package Prelude modules.
+generic-lens labels for project-owned record access and updates. Every `data` record field has an
+explicit `!`; only `newtype` fields omit it because GHC rejects a strictness annotation there.
+Import `Data.Generics.Labels ()` only in modules that use those labels; `PackageImports` belongs
+only in package Prelude modules. Run `just haskell-style-check` before committing Haskell changes.

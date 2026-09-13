@@ -322,6 +322,16 @@ status:
 live-test:
     scripts/live-test.sh
 
+# EP-119: enforce the production Haskell source contract and pinned formatting.
+# Check Haskell structure, Fourmolu formatting, and Cabal manifest formatting.
+[group('test')]
+haskell-style-check:
+    scripts/check-haskell-style.sh
+    git ls-files -z 'cli/**/*.hs' | xargs -0 fourmolu --mode check --config cli/fourmolu.yaml --ghc-opt=-XImportQualifiedPost
+    cabal-gild --mode check --input cli/nagare-dsl/nagare-dsl.cabal
+    cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
+    cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
+
 # EP-5 (docs/plans/69-ci-pipeline-and-live-smoke-test.md): live smoke test.
 # Starts the VM if needed, deploys a private-registry build-mode app, snapshots
 # and RESTORES a volume (confirming a sentinel round-trips through GCS), verifies

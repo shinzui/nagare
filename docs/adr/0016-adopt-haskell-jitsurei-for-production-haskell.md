@@ -42,6 +42,11 @@ semantic field names, and generic-lens labels for access and updates. Constructo
 construction and patterns remain valid. The rule does not apply to records owned by dependencies,
 which may continue to use their native selectors and update syntax.
 
+Every field of a project-owned `data` record carries an explicit strictness bang to prevent
+accidental thunk retention and space leaks. A `newtype` record field is the sole syntactic
+exception: its constructor is representation-erased, and GHC rejects a strictness annotation on
+it.
+
 `Nagare.Dsl.Prelude` is shared by `nagare-dsl` and `nagarectl` because the CLI already depends on
 the DSL. The independently packaged access service uses `Nagare.Access.Prelude`. `PackageImports`
 is enabled only in those Prelude modules. Neither Prelude imports `Data.Generics.Labels`; modules
@@ -50,6 +55,11 @@ that manipulate generic records opt into its orphan `IsLabel` instance with a pl
 Field renames may break Haskell source compatibility before 1.0, but explicit Aeson mappings keep
 JSON keys byte-identical. Deployment YAML, platform transaction data, command names and help,
 access-service cookies, headers, statuses, bodies, and error text remain unchanged.
+
+The repository expresses syntax-aware parts of this contract as ast-grep rules. This lets the
+strict-field rule distinguish `data` from `newtype` structurally and keeps comments from triggering
+import or label checks. A thin shell entry point limits the scan to maintained components and
+checks Cabal-level policy; the root flake additionally runs Fourmolu and Cabal Gild in check mode.
 
 ## Consequences
 

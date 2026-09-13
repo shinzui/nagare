@@ -150,6 +150,14 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   Haskell type errors than the local compiler gates.
   Date: 2026-09-13
 
+- Decision: Express Haskell syntax enforcement as declarative ast-grep rules and retain
+  `scripts/check-haskell-style.sh` only as a thin scope-and-Cabal-policy entry point.
+  Rationale: The installed ast-grep Haskell parser represents strict record types as
+  `strict_field` nodes beneath `data_type`, so it precisely exempts `newtype` while rejecting lazy
+  `data` fields. It also distinguishes code from comments for imports and overloaded labels. Cabal
+  files are outside that parser, so the wrapper still owns their component-level check.
+  Date: 2026-09-13
+
 
 ## Outcomes & Retrospective
 
@@ -451,6 +459,7 @@ Construction and constructor-directed patterns are permitted; `field record` and
 `ix` for keyed containers when clearer.
 
 Direct bounds are `generic-lens ^>=2.3` and `lens ^>=5.3`. Verified released versions are 2.3.0.0
-and 5.3.6, both supporting GHC 9.12. No new service or network API is introduced. The only new
-repository command is `scripts/check-haskell-style.sh`, exposed as `just haskell-style-check` and a
-root flake check.
+and 5.3.6, both supporting GHC 9.12. The structural checker uses ast-grep 0.44.1's Haskell parser;
+its declarative rules live under `rules/ast-grep/` and are registered by `sgconfig.yml`. No new
+service or network API is introduced. The only new repository command is
+`scripts/check-haskell-style.sh`, exposed as `just haskell-style-check` and a root flake check.

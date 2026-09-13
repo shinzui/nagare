@@ -72,12 +72,9 @@
       # inherited networked Cabal check for nagare-access is kept separately in
       # `hydraJobs` until that executable gets its own package derivation.
       #
-      # NOTE: a `fourmolu-format` check is intentionally NOT included — the pinned
-      # fourmolu (0.19.x) reformats 82/93 committed files (a version drift from the
-      # older fourmolu that last formatted the tree, unrelated to any contributor's
-      # change), so the check would be red on a clean tree. Re-pinning fourmolu or
-      # a one-time tree-wide reformat is a separate follow-up; see this plan's
-      # Surprises & Discoveries.
+      # EP-119 formats all maintained Haskell with the pinned Fourmolu and checks
+      # structural house-style rules with ast-grep, so formatting drift is now a
+      # hermetic flake failure rather than an out-of-band convention.
       checks = forAllSystems (pkgs:
         let
           nagarePackages = nagarePackagesFor pkgs;
@@ -86,6 +83,32 @@
           # Build and test the typed DSL and CLI through the hermetic package set.
           nagare-dsl-build-test = nagarePackages.checkedNagareDsl;
           nagarectl-build-test = nagarePackages.checkedNagarectl;
+
+          haskell-style = pkgs.runCommand "haskell-style"
+            {
+              nativeBuildInputs = [
+                pkgs.ast-grep
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.findutils
+                pkgs.ripgrep
+                pkgs.haskell.packages.ghc912.fourmolu
+                pkgs.haskell.packages.ghc912.cabal-gild
+              ];
+              src = ./.;
+            }
+            ''
+              cd "$src"
+              scripts/check-haskell-style.sh
+              find cli -type f -name '*.hs' -print0 \
+                | sort -z \
+                | xargs -0 fourmolu --mode check --config cli/fourmolu.yaml \
+                    --ghc-opt=-XImportQualifiedPost
+              cabal-gild --mode check --input cli/nagare-dsl/nagare-dsl.cabal
+              cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
+              cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
+              touch "$out"
+            '';
 
           nagare-platform-assets = pkgs.runCommand "nagare-platform-assets"
             { nativeBuildInputs = [ pkgs.jq ]; payload = nagarePackages.nagarePlatform; }
@@ -635,6 +658,7 @@
               pkgs.haskell.packages.ghc912.haskell-language-server
               pkgs.haskell.packages.ghc912.fourmolu
               pkgs.haskell.packages.ghc912.cabal-gild
+              pkgs.ast-grep
               pkgs.zlib
               pkgs.postgresql
               pkgs.pkg-config
@@ -655,6 +679,9 @@
             packages = [
               pkgs.haskell.compiler.ghc912
               pkgs.cabal-install
+              pkgs.haskell.packages.ghc912.fourmolu
+              pkgs.haskell.packages.ghc912.cabal-gild
+              pkgs.ast-grep
               pkgs.zlib
               pkgs.postgresql
               pkgs.pkg-config

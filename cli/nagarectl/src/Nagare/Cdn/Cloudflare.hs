@@ -44,6 +44,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
