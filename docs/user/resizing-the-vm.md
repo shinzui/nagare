@@ -97,18 +97,28 @@ is the cost-optimized family; `n2`/`n2d` cost more but perform more predictably.
    `nagarectl context current`; the dev shell's `.envrc` exports that context's
    project, and the Pulumi stack name is the context name.
 
-2. **Preview the change.** Set the new type and see exactly what Pulumi will do:
+2. **Record and preview the change.** The context is the durable owner of the
+   machine type. Edit `NAGARE_MACHINE_TYPE` in
+   `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/<context>.env`, then
+   regenerate the Pulumi projection and preview it:
 
    ```bash
-   pulumi -C infra/pulumi config set machineType n2-standard-4
+   context="$(nagarectl context current)"
+   # Edit .../nagare/contexts/$context.env: export NAGARE_MACHINE_TYPE=n2-standard-4
+   nagarectl context use "$context"
    just infra-preview
    ```
 
+   When creating a context for the first time, pass
+   `nagarectl context create ... --machine-type n2-standard-4 --use` instead.
+   `pulumi -C infra/pulumi config set machineType n2-standard-4` remains a
+   one-off override, but it is replaced by the context value on the next
+   `nagarectl context use`.
+
    The plan should show a single **update** to `nagare-01`'s `machineType` — an
-   `~ machineType` diff, **not** a `+/- replace`. If you see a replacement, stop:
-   you've changed something that forces re-creation (e.g. zone or image), which
-   would destroy the boot disk and cluster state. Back the change out and
-   investigate before proceeding.
+   `~ machineType` diff, **not** a `+/- replace`. `infra-up` now runs
+   `nagarectl infra guard`, so a replacement is refused rather than merely
+   warned about. If the preview shows one, back the change out and investigate.
 
 3. **(Optional but recommended) quiesce.** A resize is graceful — the VM gets a
    clean ACPI shutdown — but if you run a managed database, take a backup first
@@ -173,9 +183,8 @@ Same stop/start window, same preserved disks and IP.
   page.
 - **Resizing the disks.** Growing `/var/lib/nagare` is covered below in
   [Growing the data disk](#growing-the-data-disk). Growing the **boot** disk is
-  not an in-place operation: `bootDiskSizeGb` is a create-time setting, so
-  raising it plans a replacement of the whole instance, which deletion
-  protection refuses, and which would lose k3s's on-disk state if forced.
+  an in-place disk change, but growing the root filesystem to use that space is
+  a separate operation. Neither disk can shrink.
 
 ---
 

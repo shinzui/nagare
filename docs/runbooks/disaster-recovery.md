@@ -319,7 +319,18 @@ pulumi -C infra/pulumi config get nagareImageSelfLink
 ```
 
 A `pulumi up` that recreates the instance boots that image, then the platform is
-re-bootstrapped with steps 4–8 above.
+re-bootstrapped with steps 4–8 above. The ordinary `infra-up` path refuses an
+instance replacement, so explicitly allow this one deliberate rebuild after
+reviewing the preview:
+
+```bash
+pulumi -C infra/pulumi config set nagare:vmDeletionProtection false
+just infra-up
+just infra-preview
+NAGARE_ALLOW_VM_REPLACEMENT=1 nagare infra-up
+pulumi -C infra/pulumi config set nagare:vmDeletionProtection true
+just infra-up
+```
 
 **Full teardown (stop all charges).**
 

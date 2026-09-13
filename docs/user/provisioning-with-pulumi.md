@@ -79,7 +79,7 @@ profile files.
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | `e2-standard-4` for more headroom. |
 | `nagare:dataDiskSizeGb` | no | `100` | Data-disk (`/var/lib/nagare`) size in GiB. An increase is an in-place update and the filesystem grows online; shrinking is refused (`protect: true`). See [Growing the data disk](resizing-the-vm.md#growing-the-data-disk). |
-| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB, applied only when the instance is created. Changing it later plans a replacement of the whole instance (refused by deletion protection), not an in-place grow. |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB. Growth is in place; growing the filesystem is a separate step. Disks cannot shrink. |
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's type forces instance replacement; pin its existing type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE blocks deletion and replacement while true. Temporarily disable only during an intentional VM rebuild. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
@@ -126,7 +126,7 @@ From the dev shell:
 
 ```bash
 just infra-preview     # nagarectl context guard; cd infra/pulumi && pulumi preview
-just infra-up          # nagarectl platform guard; nagarectl context guard; cd infra/pulumi && pulumi up
+just infra-up          # platform guard; context guard; infra guard; pulumi up
 ```
 
 ### The project preflight
@@ -183,6 +183,21 @@ fails closed around stateful resources:
 - a later apply reasserts the declared protections. `unprotect` is a temporary
   state operation, not a permanent code change.
 
+The VM-shape fields have different live-update behavior:
+
+| Context key | Live change |
+| --- | --- |
+| `NAGARE_MACHINE_TYPE` | In-place resize with a brief stop/start. |
+| `NAGARE_BOOT_DISK_SIZE_GB` | In-place growth; grow the root filesystem separately. Shrinking is impossible. |
+| `NAGARE_DATA_DISK_SIZE_GB` | In-place growth only; the mounted filesystem grows online. |
+| `NAGARE_BOOT_DISK_TYPE` | **Replaces the instance and its boot disk.** |
+
+Changing the image self-link or zone also replaces the instance. Before every
+`infra-up`, `nagarectl infra guard` runs a Pulumi preview and refuses any such
+replacement. Its message names the boot-disk state that would be lost. This is
+separate from deletion protection: the guard stops the apply before it starts,
+while deletion protection is the Compute API's last backstop.
+
 For a deliberate VM rebuild, leave the data disk and backup bucket protected.
 Disable only VM deletion protection and apply that change **before** changing
 the image self-link or boot-disk type; then apply the replacement and re-enable
@@ -194,7 +209,7 @@ just infra-up                  # protection-only update on the existing VM
 
 # now run just host-image, or change the replacement-causing boot-disk setting
 just infra-preview             # replacement must preserve nagare-data
-just infra-up                  # deliberate VM replacement
+NAGARE_ALLOW_VM_REPLACEMENT=1 just infra-up  # deliberate VM replacement
 
 pulumi -C infra/pulumi config set nagare:vmDeletionProtection true
 just infra-up

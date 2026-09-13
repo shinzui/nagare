@@ -33,6 +33,12 @@ All of this lives in the `nagare-dsl` library:
 | `Nagare.Dsl.Presets` | Reusable building blocks: `webService`, overlays, helpers. |
 | `Nagare.Dsl.Config` | `emitDeployment` — the last line of your config's `main`. |
 
+Infrastructure sizing is deliberately outside the application DSL. The active
+target context owns `NAGARE_MACHINE_TYPE`, `NAGARE_BOOT_DISK_TYPE`,
+`NAGARE_BOOT_DISK_SIZE_GB`, and `NAGARE_DATA_DISK_SIZE_GB`; `nagarectl init` or
+`nagarectl context create` records them, and `nagarectl context use` projects
+them into Pulumi configuration. See [Target contexts](contexts.md).
+
 ---
 
 ## The `Deployment` record

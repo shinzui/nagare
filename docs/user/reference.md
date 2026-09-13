@@ -111,6 +111,10 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_ACME_EMAIL` | — (none) | Let's Encrypt contact for the cluster's ACME account. **No default**; rendering the `letsencrypt-dns` ClusterIssuer refuses without it. See [ACME identity](contexts.md#acme-identity). |
 | `NAGARE_ACME_DIRECTORY` | `production` | ACME service: `production`, `staging` (untrusted certs, looser rate limits), or an absolute `https://` directory URL. An unrecognized value is an error, not a fallback. |
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
+| `NAGARE_MACHINE_TYPE` | `e2-standard-2` | GCE machine type; live changes are in-place stop/start resizes |
+| `NAGARE_BOOT_DISK_TYPE` | `pd-balanced` | boot-disk type; changing a live VM replaces the instance |
+| `NAGARE_BOOT_DISK_SIZE_GB` | `100` | boot-disk size in GB; growth is in place, filesystem growth is separate |
+| `NAGARE_DATA_DISK_SIZE_GB` | `100` | protected data-disk size in GB; growth only |
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
 | `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
 | `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
@@ -143,8 +147,9 @@ contacts Let's Encrypt, and `just local-bootstrap` installs no `ClusterIssuer`.
 | `nagarectl context current` | Print the current context name. |
 | `nagarectl context use NAME` | Set the current context, select its Pulumi stack/backend, and regenerate its config projection. |
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
-| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL), `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. Both ACME flags are optional here (unlike `nagarectl init`) because this command also writes local contexts. |
+| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--machine-type`, `--boot-disk-type`, `--boot-disk-size-gb`, `--data-disk-size-gb`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL), `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. Both ACME flags are optional here (unlike `nagarectl init`) because this command also writes local contexts. |
 | `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
+| `nagarectl infra guard [--allow-replacement]` | Preview the active Pulumi stack and refuse if the plan replaces the GCE instance. `infra-up` runs it automatically. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
@@ -207,7 +212,7 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | |
 | `nagare:dataDiskSizeGb` | no | `100` | Data-disk (`/var/lib/nagare`) size in GiB. An increase is an in-place update and the filesystem grows online; shrinking is refused (`protect: true`). See [Growing the data disk](resizing-the-vm.md#growing-the-data-disk). |
-| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB, applied only when the instance is created. Changing it later plans a replacement of the whole instance (refused by deletion protection), not an in-place grow. |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB. Growth is in place; filesystem growth is separate. Shrinking is impossible. |
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's disk type forces instance replacement; pin the current type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE refuses instance deletion/replacement while true. Disable only for the deliberate rebuild window, then re-enable. |
 | `nagare:artifactRegistryId` | no | `nagare` | |
@@ -282,7 +287,8 @@ it. Only Traefik is disabled.
 
 `nagarectl init [NAME]` is the guided onboarding command (the one command
 permitted to drive Pulumi/gcloud). Flags: `--project`, `--region`, `--zone`,
-`--base-domain`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL),
+`--base-domain`, `--machine-type`, `--boot-disk-type`, `--boot-disk-size-gb`,
+`--data-disk-size-gb`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL),
 `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`,
 `--pulumi-backend-member`, `--force`, `--skip-preflight`, `--skip-enable`,
 `--skip-seed`, `--dry-run`. `--acme-email` is **required**: on a terminal it is

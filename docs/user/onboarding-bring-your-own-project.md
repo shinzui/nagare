@@ -60,8 +60,10 @@ for onboarding.
 
 ```bash
 nagarectl init prod --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com \
+  --machine-type e2-standard-4 --boot-disk-type pd-balanced \
+  --boot-disk-size-gb 100 --data-disk-size-gb 100 \
   --acme-email you@yourdomain.com
-# On a TTY it prompts for project / region / zone / base domain / ACME contact.
+# On a TTY it also prompts for the four VM-shape values.
 ```
 
 Flags (exactly as shipped):
@@ -72,6 +74,10 @@ Flags (exactly as shipped):
 | `--region` | Compute region (default `us-west1`). |
 | `--zone` | Compute zone (default `us-west1-a`). |
 | `--base-domain` | Apps base domain (default `apps.example.com`). |
+| `--machine-type` | GCE machine type (default `e2-standard-2`; use `e2-standard-4` when installing observability). |
+| `--boot-disk-type` | Boot disk type (default `pd-balanced`; changing it later replaces the VM). |
+| `--boot-disk-size-gb` | Boot disk size in GB (default `100`). |
+| `--data-disk-size-gb` | Protected data disk size in GB (default `100`). |
 | `--acme-email` | **Required.** The Let's Encrypt contact address for this context's cluster. There is no default — any default would be somebody's real mailbox. On a TTY you are prompted; without a TTY and without the flag the run exits non-zero naming it. See [ACME identity](contexts.md#acme-identity). |
 | `--acme-directory` | ACME service: `production` (default), `staging` (untrusted certificates, far looser rate limits — use it to rehearse issuance on a new domain), or an absolute `https://` directory URL. |
 | `--force` | Overwrite an existing named context, or an existing `nagare.target.env` in legacy mode. |
@@ -88,9 +94,10 @@ the other.
 Ordered effect: resolve defaults → **preflight** (gcloud active account + the six operator
 IAM roles) → write the named context (the same `export` lines shown below) and make it
 current → **enable** the six APIs →
-**seed** eight Pulumi stack-config keys for that context (`gcp:project`, `gcp:region`, `gcp:zone`,
+**seed** twelve Pulumi stack-config keys for that context (`gcp:project`, `gcp:region`, `gcp:zone`,
 `nagare:baseDomain`, `nagare:imageBucket`, `nagare:backupBucket`, `nagare:artifactRegistryId`,
-`nagare:instanceName`) → print next steps.
+`nagare:instanceName`, `nagare:machineType`, `nagare:bootDiskType`,
+`nagare:bootDiskSizeGb`, `nagare:dataDiskSizeGb`) → print next steps.
 
 The generated context is your single source of truth. `nagarectl context show prod`
 prints it in the same flat format:
@@ -107,7 +114,14 @@ export NAGARE_BASE_DOMAIN=apps.example.com
 export NAGARE_ACME_EMAIL=you@yourdomain.com               # YOUR Let's Encrypt contact; no default
 export NAGARE_ACME_DIRECTORY=production                   # or `staging` while rehearsing issuance
 export NAGARE_INSTANCE_NAME=nagare-01
+export NAGARE_MACHINE_TYPE=e2-standard-4
+export NAGARE_BOOT_DISK_TYPE=pd-balanced
+export NAGARE_BOOT_DISK_SIZE_GB=100
+export NAGARE_DATA_DISK_SIZE_GB=100
 ```
+
+Those four shape values are recorded in the context, so later source releases
+cannot silently change the shape of this stack through a fallback literal.
 
 If you omit `NAME`, `nagarectl init` keeps the legacy behavior and writes
 `./nagare.target.env`. That path is still supported, but named contexts are the

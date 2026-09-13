@@ -194,6 +194,22 @@ is loopback.
 
 ---
 
+## Choosing a VM shape
+
+The default `e2-standard-2` machine has two virtual CPUs and is suitable for a
+couple of small applications. If this cluster will also run Nagare's
+observability stack, start at `e2-standard-4` (four virtual CPUs). On the
+two-CPU shape, the observability components' CPU requests alone once left no
+room to schedule workloads, and Kubernetes reported
+`0/1 nodes are available: Insufficient cpu`; the evidence is recorded in
+[`docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md`](../plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md).
+
+The machine type can be raised later with an in-place stop/start resize. The
+boot-disk type cannot be converted in place: changing it replaces the instance
+and its boot disk. `nagarectl init` records both choices in the target context,
+and `infra-up` refuses an instance-replacing plan unless you explicitly allow a
+deliberate rebuild.
+
 ## Where to next
 
 - **[Bring-your-own-project onboarding](onboarding-bring-your-own-project.md)** — the
