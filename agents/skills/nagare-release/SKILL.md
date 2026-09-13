@@ -21,7 +21,8 @@ that may drift:
 - `docs/runbooks/releases.md` for the maintainer procedure and recovery rules.
 - `release.json` for the platform version, schema versions, supported systems, and rollback claims.
 - `.github/workflows/release.yml` for the native build matrix, attachment set, and publication
-  permissions.
+  permissions; read `.github/workflows/ci.yml` and `.github/workflows/live-smoke.yml` too when Nix
+  installation, flake evaluation, cache trust, or workflow consistency changes.
 - `scripts/check-release.sh`, `scripts/rehearse-clone-free-release.sh`, and
   `scripts/assemble-release.sh` for executable release invariants.
 - `flake.nix`, `flake.lock`, `nix/packages.nix`, `nix/nagare-packages.nix`,
@@ -161,6 +162,14 @@ nix flake check --print-build-logs
 ./scripts/check-release.sh --version X.Y.Z --json
 ./scripts/rehearse-clone-free-release.sh --version X.Y.Z
 ```
+
+Every GitHub workflow that evaluates the root flake must use the same supported
+`cachix/install-nix-action` major as the release workflow and set `accept-flake-config = true` in
+`extra_nix_config`. This keeps clean runners independent of a maintainer's local flake registry and
+lets them use the public cache advertised by `flake.nix`. If CI tries to update an otherwise clean
+lock and reports that a `flake:` input is absent from the registry, compare the runner's Nix version
+and workflow installer with the release workflow before changing the lock or adding a registry
+dependency.
 
 The local rehearsal proves only the current system. Require the GitHub `Release` workflow's manual,
 non-publishing dispatch to pass for every system declared in `release.json`, then assemble and verify
