@@ -3,7 +3,7 @@
   "hostFlakeMetadataSchemaVersion": 1,
   "compatibilitySchemaVersion": 1,
   "payloadId": "source-development",
-  "platformVersion": "0.2.0",
+  "platformVersion": "0.2.1",
   "sourceRevision": null,
   "supportedSystems": [
     "x86_64-linux",
