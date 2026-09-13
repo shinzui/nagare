@@ -80,7 +80,10 @@ scope and must not change.
 - [x] (2026-09-13T17:13:29Z) Milestone 3: convert the wiring to flake-parts modules with a
       rev-pinned `flake-parts` input; `nix flake check --no-build --print-build-logs` passes and
       `flake.lock` still contains exactly one nixpkgs node.
-- [ ] Milestone 3: pass the derivation-equivalence gate on both systems.
+- [x] (2026-09-13T17:21:19Z) Milestone 3: the normalized derivation-equivalence gate printed
+      `gate: aarch64-darwin pre-existing outputs identical` and
+      `gate: x86_64-linux pre-existing outputs identical`; the raw diff contained only the five
+      documented empty standard output names.
 - [ ] Milestone 4: record the current `nix-haskell-flake` pin in the Decision Log.
 - [ ] Milestone 4: follow `haskell-nix-dev` for nixpkgs and flake-parts; add the Cachix `nixConfig`.
 - [ ] Milestone 4: switch every `ghc912` reference to `ghc9124`.
