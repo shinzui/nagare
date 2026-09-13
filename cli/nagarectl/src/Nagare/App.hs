@@ -54,8 +54,9 @@ import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Vector qualified as V
+import Nagare.Access.Resolve (kubectlAccessOps, removeServiceAccessWithOps)
 import Nagare.Dsl.Load qualified as Load
-import Nagare.Dsl.Types (namespaceText, serviceNameText)
+import Nagare.Dsl.Types (mkNamespace, mkServiceName, namespaceText, serviceNameText)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 
@@ -328,6 +329,9 @@ stopApp ns name =
 -- a clean no-op.
 deleteApp :: Text -> Text -> [Text] -> IO ()
 deleteApp ns name domains = do
+  typedNamespace <- either dieApp pure (mkNamespace ns)
+  typedName <- either dieApp pure (mkServiceName name)
+  _ <- removeServiceAccessWithOps kubectlAccessOps typedNamespace typedName
   run_ $
     cmd "kubectl"
       & addArgs ["delete", "ksvc", T.unpack name, "-n", T.unpack ns, "--ignore-not-found"]

@@ -111,7 +111,11 @@ accessPolicyJSON policy =
   object
     [ "audience" .= fmap audienceText (policy ^. #audience)
     , "permission" .= accessPermissionText (policy ^. #permission)
+    , "role" .= accessRoleToken (policy ^. #role)
     ]
+  where
+    accessRoleToken ProtectedSite = "protected" :: Text
+    accessRoleToken AuthPortal = "portal"
 
 -- | Serialize a 'Database' to JSON and write it to stdout. Call this as the last
 -- line of a database project's @Config.hs@ @main@. The top-level

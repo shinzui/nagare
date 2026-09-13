@@ -545,6 +545,11 @@ accessTests =
       [ testCase "requireLogin uses the default access permission and no custom audience" $ do
           audience requireLogin @?= Nothing
           accessPermissionText (permission requireLogin) @?= "access"
+          role requireLogin @?= ProtectedSite
+      , testCase "authPortal uses the portal role" $ do
+          audience authPortal @?= Nothing
+          accessPermissionText (permission authPortal) @?= "access"
+          role authPortal @?= AuthPortal
       , testCase "mkAudience accepts a simple audience" $
           fmap audienceText (mkAudience "nagare") @?= Right "nagare"
       , testCase "mkAudience rejects empty" $
@@ -563,6 +568,14 @@ accessTests =
       [ testCase "deployment access policy survives emit -> decode round-trip" $
           let protected = helloDep & #access .~ Just requireLogin
            in decodeDeployment (toStrict (encodeDeployment protected)) @?= Right protected
+      , testCase "auth portal survives emit -> decode round-trip" $
+          let portal = helloDep & #access .~ Just authPortal
+           in decodeDeployment (toStrict (encodeDeployment portal)) @?= Right portal
+      , testCase "missing access role defaults to protected" $
+          case decodeDeployment
+            "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/x/y\",\"build\":{\"kind\":\"PrebuiltImage\",\"tag\":\"v1\"},\"domains\":[],\"port\":8080,\"env\":[],\"brokers\":[],\"access\":{\"permission\":\"access\"}}" of
+            Right dep -> role <$> access dep @?= Just ProtectedSite
+            Left err -> assertFailure ("expected legacy access JSON to load: " <> show err)
       , testCase "deployment access is invisible to the Knative renderer" $
           renderService (helloDep & #access .~ Just requireLogin) "20260602-120000"
             @?= renderService helloDep "20260602-120000"
