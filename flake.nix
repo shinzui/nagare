@@ -159,10 +159,10 @@
                   exit 1
                 }
               }
-              compare_default machineType 's/^[[:space:]]*machineType: "\([^"]*\)",/\1/p' 's/.*vsMachineType = "\([^"]*\)".*/\1/p'
-              compare_default bootDiskType 's/^[[:space:]]*bootDiskType: "\([^"]*\)",/\1/p' 's/.*vsBootDiskType = "\([^"]*\)".*/\1/p'
-              compare_default bootDiskSizeGb 's/^[[:space:]]*bootDiskSizeGb: \([0-9][0-9]*\),/\1/p' 's/.*vsBootDiskSizeGb = "\([0-9][0-9]*\)".*/\1/p'
-              compare_default dataDiskSizeGb 's/^[[:space:]]*dataDiskSizeGb: \([0-9][0-9]*\),/\1/p' 's/.*vsDataDiskSizeGb = "\([0-9][0-9]*\)".*/\1/p'
+              compare_default machineType 's/^[[:space:]]*machineType: "\([^"]*\)",/\1/p' 's/^[[:space:]]*[{,][[:space:]]*machineType = "\([^"]*\)".*/\1/p'
+              compare_default bootDiskType 's/^[[:space:]]*bootDiskType: "\([^"]*\)",/\1/p' 's/^[[:space:]]*[{,][[:space:]]*bootDiskType = "\([^"]*\)".*/\1/p'
+              compare_default bootDiskSizeGb 's/^[[:space:]]*bootDiskSizeGb: \([0-9][0-9]*\),/\1/p' 's/^[[:space:]]*[{,][[:space:]]*bootDiskSizeGb = "\([0-9][0-9]*\)".*/\1/p'
+              compare_default dataDiskSizeGb 's/^[[:space:]]*dataDiskSizeGb: \([0-9][0-9]*\),/\1/p' 's/^[[:space:]]*[{,][[:space:]]*dataDiskSizeGb = "\([0-9][0-9]*\)".*/\1/p'
               touch "$out"
             '';
 

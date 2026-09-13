@@ -80,6 +80,11 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   Cabal's isolated test environment is temporary while fixture `runghc` processes are children of
   the test executable.
 
+- The final hermetic run found that `checks.vm-shape-defaults-agree` encoded the old `VmShape`
+  selector prefixes in its source-text extraction patterns. Direct GHC tests could not expose this
+  because it is a Nix-level cross-language consistency check. Updating its four patterns to the new
+  semantic field names restored the check without changing the compared values.
+
 
 ## Decision Log
 
