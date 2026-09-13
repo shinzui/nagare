@@ -7,14 +7,14 @@
 -- command @node .output/server/index.mjs@ resolves under @WORKDIR /app@.
 module Nagare.Server.Image
   ( withServerImageContext
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render (renderServerDockerfile)
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Server.Build (PreparedServerOutput (..))

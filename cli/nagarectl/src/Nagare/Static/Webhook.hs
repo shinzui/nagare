@@ -41,8 +41,8 @@ import Data.Aeson (eitherDecodeStrict, withObject, (.:))
 import Data.Aeson.Types (Parser, Value, parseEither)
 import Data.ByteArray qualified as BA
 import Data.ByteString (ByteString)
-import Data.Generics.Labels ()
 import Data.ByteString.Char8 qualified as BC
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE

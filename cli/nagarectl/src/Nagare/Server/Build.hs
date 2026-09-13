@@ -9,17 +9,16 @@
 module Nagare.Server.Build
   ( PreparedServerOutput (..)
   , prepareServerOutput
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (filePathText)
 import System.Directory (doesDirectoryExist, makeAbsolute)

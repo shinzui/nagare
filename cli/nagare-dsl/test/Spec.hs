@@ -1,7 +1,5 @@
 module Main (main) where
 
-import Nagare.Dsl.Prelude hiding (elements)
-
 import ApplicationSpec (applicationTests)
 import CdnSpec (cdnTests)
 import Control.Lens ((&), (.~))
@@ -13,8 +11,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import LoadSpec (loadTests)
 import JobSpec (jobTests)
+import LoadSpec (loadTests)
 import Nagare.Dsl.Access
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render
@@ -34,6 +32,7 @@ import Nagare.Dsl.Database.Render
 import Nagare.Dsl.Image (imageRefFromName, mkImageName)
 import Nagare.Dsl.Load (LoadError (..), decodeBroker, decodeDatabase, decodeDeployment, decodeTask, loadBroker, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
+import Nagare.Dsl.Prelude hiding (elements)
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Task

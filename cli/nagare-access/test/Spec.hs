@@ -3,9 +3,6 @@
 
 module Main (main) where
 
-import Nagare.Access.Prelude hiding ((.=))
-import Data.Generics.Labels ()
-
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
@@ -15,6 +12,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -66,6 +64,7 @@ import Nagare.Access.DecisionCache
 import Nagare.Access.En
 import Nagare.Access.Jwks
 import Nagare.Access.Portal
+import Nagare.Access.Prelude hiding ((.=))
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
@@ -241,9 +240,8 @@ backendMapTests =
         portal <- maybe (assertFailure "expected portal") pure (findPortal backends)
         publicHostText (portal ^. #host) @?= "auth.example.com"
     , testCase "rejects a second portal and names its host" $
-        case
-            decodeBackendMap
-              "{\"auth-a.example.com\":{\"upstream\":\"http://auth-a.personal.svc.cluster.local\",\"role\":\"portal\"},\"auth-b.example.com\":{\"upstream\":\"http://auth-b.personal.svc.cluster.local\",\"role\":\"portal\"}}" of
+        case decodeBackendMap
+          "{\"auth-a.example.com\":{\"upstream\":\"http://auth-a.personal.svc.cluster.local\",\"role\":\"portal\"},\"auth-b.example.com\":{\"upstream\":\"http://auth-b.personal.svc.cluster.local\",\"role\":\"portal\"}}" of
           Left err -> assertBool "expected offending host in error" ("auth-b.example.com" `Text.isInfixOf` err)
           Right _ -> assertFailure "expected duplicate portals to fail"
     , testCase "rejects an unknown backend role" $
@@ -702,7 +700,8 @@ portalTests =
     , testCase "return targets accept only routed https hosts and safe paths" $ do
         let accepted = parseReturnTarget portalBackends "https://app.example.test/x?y=1"
         renderReturnTarget <$> accepted @?= Just "https://app.example.test/x?y=1"
-        map (parseReturnTarget portalBackends)
+        map
+          (parseReturnTarget portalBackends)
           [ "https://evil.example/"
           , "https://app.example.test@evil.example/"
           , "http://app.example.test/"
@@ -751,33 +750,38 @@ portalTests =
         refreshedWith <- newIORef []
         let services =
               testServices
-                & #verifyCredential .~ (\credential ->
-                    pure $
-                      if credentialToken credential `elem` ["portal-access", "refreshed-access"]
-                        then Right AuthenticatedUser {subject = "user:alice"}
-                        else Left InvalidCredential)
-                & #refreshUserSession .~ (\token -> do
-                    modifyIORef' refreshedWith (token :)
-                    pure
-                      ( LoginSucceeded
-                          SessionTokens
-                            { accessToken = "refreshed-access"
-                            , refreshToken = Just "refreshed-refresh"
-                            , expiresIn = 900
-                            }
-                      )
-                  )
-                & #forwardPortal .~ (\_ _ _ ->
-                    pure
-                      ( PortalSessionEstablish
-                          SessionHandoff
-                            { accessToken = AccessToken "portal-access"
-                            , refreshToken = RefreshToken "portal-refresh"
-                            , returnTo = Just "https://app.example.test/x?y=1"
-                            }
-                      )
-                  )
-                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
+                & #verifyCredential
+                .~ ( \credential ->
+                       pure $
+                         if credentialToken credential `elem` ["portal-access", "refreshed-access"]
+                           then Right AuthenticatedUser {subject = "user:alice"}
+                           else Left InvalidCredential
+                   )
+                & #refreshUserSession
+                .~ ( \token -> do
+                       modifyIORef' refreshedWith (token :)
+                       pure
+                         ( LoginSucceeded
+                             SessionTokens
+                               { accessToken = "refreshed-access"
+                               , refreshToken = Just "refreshed-refresh"
+                               , expiresIn = 900
+                               }
+                         )
+                   )
+                & #forwardPortal
+                .~ ( \_ _ _ ->
+                       pure
+                         ( PortalSessionEstablish
+                             SessionHandoff
+                               { accessToken = AccessToken "portal-access"
+                               , refreshToken = RefreshToken "portal-refresh"
+                               , returnTo = Just "https://app.example.test/x?y=1"
+                               }
+                         )
+                   )
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
         res <- runSession (request req) (appWithRuntime portalBackends services)
         simpleStatus res @?= status303
@@ -796,7 +800,8 @@ portalTests =
     , testCase "failed hand-off sets no cookies and redirects to the portal login" $ do
         let services =
               (successfulHandoffServices Nothing)
-                & #verifyCredential .~ (\_ -> pure (Left InvalidCredential))
+                & #verifyCredential
+                .~ (\_ -> pure (Left InvalidCredential))
             req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
         res <- runSession (request req) (appWithRuntime portalBackends services)
         simpleStatus res @?= status303
@@ -806,18 +811,21 @@ portalTests =
         revoked <- newIORef []
         let services =
               testServices
-                & #revokeSession .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
-                & #forwardPortal .~ (\_ _ _ ->
-                    pure
-                      ( PortalSessionClear
-                          CapturedResponse
-                            { status = status204
-                            , headers = []
-                            , body = ""
-                            }
-                      )
-                  )
-                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
+                & #revokeSession
+                .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
+                & #forwardPortal
+                .~ ( \_ _ _ ->
+                       pure
+                         ( PortalSessionClear
+                             CapturedResponse
+                               { status = status204
+                               , headers = []
+                               , body = ""
+                               }
+                         )
+                   )
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req =
               withHeader hHost "auth.example.test" $
                 withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/logout")
@@ -829,8 +837,10 @@ portalTests =
         revoked <- newIORef []
         let services =
               testServices
-                & #revokeSession .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
-                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
+                & #revokeSession
+                .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req =
               withHeader hHost "app.example.test" $
                 withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/_nagare/logout")
@@ -992,11 +1002,13 @@ appTests =
         seen <- newIORef []
         let services =
               testServices
-                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                & #loginUser .~ (\credentials -> do
-                    modifyIORef' seen (<> [credentials])
-                    pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
-                  )
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #loginUser
+                .~ ( \credentials -> do
+                       modifyIORef' seen (<> [credentials])
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                   )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1022,15 +1034,16 @@ appTests =
     , testCase "login submit with MFA renders a passkey challenge page" $ do
         let services =
               testServices
-                & #loginUser .~ (\_ ->
-                    pure
-                      ( LoginMfaRequired
-                          MfaChallenge
-                            { ceremonyId = "ceremony-1"
-                            , options = object ["challenge" .= ("abc" :: Text), "allowCredentials" .= ([] :: [Value])]
-                            }
-                      )
-                  )
+                & #loginUser
+                .~ ( \_ ->
+                       pure
+                         ( LoginMfaRequired
+                             MfaChallenge
+                               { ceremonyId = "ceremony-1"
+                               , options = object ["challenge" .= ("abc" :: Text), "allowCredentials" .= ([] :: [Value])]
+                               }
+                         )
+                   )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1048,11 +1061,13 @@ appTests =
         let assertion = object ["id" .= ("credential-1" :: Text)]
             services =
               testServices
-                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                & #completeMfa .~ (\completion -> do
-                    modifyIORef' seen (<> [completion])
-                    pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
-                  )
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #completeMfa
+                .~ ( \completion -> do
+                       modifyIORef' seen (<> [completion])
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
+                   )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1078,7 +1093,8 @@ appTests =
         calls <- newIORef (0 :: Int)
         let services =
               testServices
-                & #completeMfa .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
+                & #completeMfa
+                .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1093,7 +1109,8 @@ appTests =
         calls <- newIORef (0 :: Int)
         let services =
               testServices
-                & #loginUser .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
+                & #loginUser
+                .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1117,15 +1134,19 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                & #verifyCredential .~ (\credential ->
-                    case credential of
-                      SessionCookie "access.new" -> pure (Right AuthenticatedUser {subject = "user:alice"})
-                      _ -> pure (Left InvalidCredential))
-                & #refreshUserSession .~ (\token -> do
-                    token @?= "refresh.old"
-                    pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900})
-                  )
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #verifyCredential
+                .~ ( \credential ->
+                       case credential of
+                         SessionCookie "access.new" -> pure (Right AuthenticatedUser {subject = "user:alice"})
+                         _ -> pure (Left InvalidCredential)
+                   )
+                & #refreshUserSession
+                .~ ( \token -> do
+                       token @?= "refresh.old"
+                       pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900})
+                   )
         res <-
           runSession
             (request (withHeader "Cookie" ("nagare_refresh=" <> refreshCookie) (withHeader hHost "tools.example.com" (setPath defaultRequest "/"))))
@@ -1140,9 +1161,12 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                & #verifyCredential .~ (\_ -> pure (Left ExpiredCredential))
-                & #refreshUserSession .~ (\_ -> pure (LoginFailed "refresh failed"))
+                & #cookieSettings
+                .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #verifyCredential
+                .~ (\_ -> pure (Left ExpiredCredential))
+                & #refreshUserSession
+                .~ (\_ -> pure (LoginFailed "refresh failed"))
         res <-
           runSession
             ( request
@@ -1194,8 +1218,10 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                & #decisionCache .~ cache
-                & #authorizeUser .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed))
+                & #decisionCache
+                .~ cache
+                & #authorizeUser
+                .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed))
             req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
@@ -1209,8 +1235,10 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                & #decisionCache .~ cache
-                & #authorizeUser .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down"))
+                & #decisionCache
+                .~ cache
+                & #authorizeUser
+                .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down"))
             req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> do
           simpleStatus res @?= status503
@@ -1224,7 +1252,8 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                & #authorizeUser .~ (\_ host -> modifyIORef' seen (<> [host]) >> pure (AuthorizationDecision AccessAllowed))
+                & #authorizeUser
+                .~ (\_ host -> modifyIORef' seen (<> [host]) >> pure (AuthorizationDecision AccessAllowed))
         res <-
           runSession
             (request (withHeader hHost "Tools.Example.com:443" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
@@ -1240,12 +1269,16 @@ appTests =
             backends <- assertRight (backendMapFromList [("tools.example.com", "http://127.0.0.1:" <> Text.pack (show upstreamPort))])
             let services =
                   testServices
-                    & #verifyCredential .~ (\case
-                        BearerToken "alice-token" -> pure (Right AuthenticatedUser {subject = "alice"})
-                        BearerToken "bob-token" -> pure (Right AuthenticatedUser {subject = "bob"})
-                        _ -> pure (Left InvalidCredential))
-                    & #authorizeUser .~ authorizeWithEn clientEnv
-                    & #forwardAuthorized .~ proxyForwarder manager
+                    & #verifyCredential
+                    .~ ( \case
+                           BearerToken "alice-token" -> pure (Right AuthenticatedUser {subject = "alice"})
+                           BearerToken "bob-token" -> pure (Right AuthenticatedUser {subject = "bob"})
+                           _ -> pure (Left InvalidCredential)
+                       )
+                    & #authorizeUser
+                    .~ authorizeWithEn clientEnv
+                    & #forwardAuthorized
+                    .~ proxyForwarder manager
                 authedReq token =
                   request $
                     withHeader hHost "tools.example.com" $
@@ -1487,9 +1520,9 @@ enAccessApp tuples =
         { runPorts =
             \_active ->
               runEff
-              . runErrorNoCallStack
-              . Kikan.runTupleStoreInMemory tuples
-              . Kikan.runConsistencyStoreInMemory
+                . runErrorNoCallStack
+                . Kikan.runTupleStoreInMemory tuples
+                . Kikan.runConsistencyStoreInMemory
         , readActiveSchema = pure nagareAccessActiveSchema
         , checkOperation = EnCheck.check
         , lookupWithDeadlineOperation = EnLookup.lookupWithDeadline
@@ -1769,32 +1802,37 @@ portalSlowPageApp _req respond = do
 successfulHandoffServices :: Maybe Text -> AccessServices
 successfulHandoffServices returnTo =
   testServices
-    & #verifyCredential .~ (\credential ->
-        pure $
-          if credentialToken credential `elem` ["portal-access", "refreshed-access"]
-            then Right AuthenticatedUser {subject = "user:alice"}
-            else Left InvalidCredential)
-    & #refreshUserSession .~ (\_ ->
-        pure
-          ( LoginSucceeded
-              SessionTokens
-                { accessToken = "refreshed-access"
-                , refreshToken = Just "refreshed-refresh"
-                , expiresIn = 900
-                }
-          )
-      )
-    & #forwardPortal .~ (\_ _ _ ->
-        pure
-          ( PortalSessionEstablish
-              SessionHandoff
-                { accessToken = AccessToken "portal-access"
-                , refreshToken = RefreshToken "portal-refresh"
-                , returnTo = returnTo
-                }
-          )
-      )
-    & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
+    & #verifyCredential
+    .~ ( \credential ->
+           pure $
+             if credentialToken credential `elem` ["portal-access", "refreshed-access"]
+               then Right AuthenticatedUser {subject = "user:alice"}
+               else Left InvalidCredential
+       )
+    & #refreshUserSession
+    .~ ( \_ ->
+           pure
+             ( LoginSucceeded
+                 SessionTokens
+                   { accessToken = "refreshed-access"
+                   , refreshToken = Just "refreshed-refresh"
+                   , expiresIn = 900
+                   }
+             )
+       )
+    & #forwardPortal
+    .~ ( \_ _ _ ->
+           pure
+             ( PortalSessionEstablish
+                 SessionHandoff
+                   { accessToken = AccessToken "portal-access"
+                   , refreshToken = RefreshToken "portal-refresh"
+                   , returnTo = returnTo
+                   }
+             )
+       )
+    & #cookieSettings
+    .~ Just (signedCookieSettings ".example.test" "cookie-secret")
 
 testServices :: AccessServices
 testServices =

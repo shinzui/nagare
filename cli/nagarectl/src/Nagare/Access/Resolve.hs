@@ -47,8 +47,8 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
-import Data.Generics.Labels ()
 import Data.Foldable (toList)
+import Data.Generics.Labels ()
 import Data.List (foldl')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -244,8 +244,9 @@ resolveDeploymentAccessWithOps :: AccessOps -> BaseDomain -> Deployment -> IO ()
 resolveDeploymentAccessWithOps ops base dep = do
   let routes = deploymentAccessRoutes (baseDomainText base) dep
   case dep ^. #access of
-    Just policy | policy ^. #role == AuthPortal && length routes /= 1 ->
-      dieT "an auth portal must have exactly one public host"
+    Just policy
+      | policy ^. #role == AuthPortal && length routes /= 1 ->
+          dieT "an auth portal must have exactly one public host"
     _ -> pure ()
   forM_ routes $ \route ->
     resolveAccessRouteWithOps ops base (dep ^. #namespace) (dep ^. #name) route (dep ^. #access)

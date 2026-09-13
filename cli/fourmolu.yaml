@@ -1,9 +1,7 @@
-# Shared fourmolu config for the cli/ Haskell tree (nagare-dsl + nagarectl).
-# Wired here by EP-12 when nagarectl joined the tree (MasterPlan 2,
-# Integration Point 6). Calibrated to the style the existing nagare-dsl
-# modules (EP-9/EP-10/EP-11) already use — leading commas, single-line
-# `-- |` haddocks — so running fourmolu over the tree is a no-op for them and
-# only normalises new code.
+# Shared Fourmolu config for the maintained cli/ Haskell tree: nagare-dsl,
+# nagarectl (including nagared), and nagare-access. The settings preserve the
+# established leading-comma and single-line Haddock conventions while giving
+# every package one formatter contract.
 indentation: 2
 function-arrows: trailing
 comma-style: leading

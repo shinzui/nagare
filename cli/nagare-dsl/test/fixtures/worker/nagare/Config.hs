@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | A queue-consumer worker fixture (EP-71): a long-running background process
 -- that is not request-driven. It uses a public, pullable image with a `command`
@@ -9,8 +9,8 @@
 -- are used for updates rather than generated selector syntax.
 module Main (main) where
 
-import Data.Bifunctor (first)
 import Control.Lens ((&), (.~))
+import Data.Bifunctor (first)
 import Data.Generics.Labels ()
 import Nagare.Dsl.Config (emitWorker)
 import Nagare.Dsl.Worker (Worker (..), mkCommand, mkReplicas, webWorker)

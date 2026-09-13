@@ -16,6 +16,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.Char (ord)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
@@ -23,7 +24,6 @@ import Nagare.Broker.Discover (BrokerRow (..))
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 import Numeric (showHex)
-import Data.Generics.Labels ()
 
 data HealthStatus = HealthOk | HealthWarn | HealthUnknown | HealthFail
   deriving stock (Generic, Eq, Show)

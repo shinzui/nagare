@@ -18,15 +18,15 @@ module Nagare.Env.BuildArgs
   , assembleBuildArgs
   , gatherBuildArgs
   , printBuildArgWarnings
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( EnvName
   , EnvScope (..)
@@ -39,7 +39,9 @@ import System.IO (stderr)
 
 -- | A build-scoped secret-ref that will be passed as a (non-confidential)
 -- @--build-arg@. Carried out so the caller can print the warning.
-newtype BuildArgWarning = BuildArgSecretRef Text -- ^ the env var name
+newtype BuildArgWarning
+  = -- | the env var name
+    BuildArgSecretRef Text
   deriving stock (Eq, Show)
 
 -- | Pure: merge managed Build env (ConfigMap + decoded Secret) with the inline
@@ -50,14 +52,14 @@ newtype BuildArgWarning = BuildArgSecretRef Text -- ^ the env var name
 -- Build Secret store by the variable name; if absent there it is dropped — but
 -- either way it produces a warning, because a build secret-ref passed as a
 -- @--build-arg@ is not confidential.
-assembleBuildArgs
-  :: Map Text Text
-  -- ^ managed Build ConfigMap data
-  -> Map Text Text
-  -- ^ managed Build Secret data (decoded)
-  -> Map EnvName ScopedEnvVar
-  -- ^ inline DSL env (full map; filtered to {Build} here)
-  -> ([(Text, Text)], [BuildArgWarning])
+assembleBuildArgs ::
+  -- | managed Build ConfigMap data
+  Map Text Text ->
+  -- | managed Build Secret data (decoded)
+  Map Text Text ->
+  -- | inline DSL env (full map; filtered to {Build} here)
+  Map EnvName ScopedEnvVar ->
+  ([(Text, Text)], [BuildArgWarning])
 assembleBuildArgs cfg sec inlineEnv = (Map.toAscList merged, warnings)
   where
     inlineBuild =
@@ -79,14 +81,14 @@ assembleBuildArgs cfg sec inlineEnv = (Map.toAscList merged, warnings)
 -- | IO: read the app's managed Build stores and assemble the build args for it.
 -- A missing store reads as empty (EP-24), so a never-populated Build store yields
 -- no build args.
-gatherBuildArgs
-  :: Text
-  -- ^ app name (the deploy/service name)
-  -> Text
-  -- ^ namespace
-  -> Map EnvName ScopedEnvVar
-  -- ^ inline DSL env
-  -> IO ([(Text, Text)], [BuildArgWarning])
+gatherBuildArgs ::
+  -- | app name (the deploy/service name)
+  Text ->
+  -- | namespace
+  Text ->
+  -- | inline DSL env
+  Map EnvName ScopedEnvVar ->
+  IO ([(Text, Text)], [BuildArgWarning])
 gatherBuildArgs app ns inlineEnv = do
   cfg <- either (const Map.empty) id <$> readEnvStore app ns Build
   sec <- either (const Map.empty) id <$> readSecretStore app ns Build

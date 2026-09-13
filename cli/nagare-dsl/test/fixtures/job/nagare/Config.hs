@@ -2,8 +2,8 @@
 
 module Main (main) where
 
-import Data.Text qualified as Text
 import Data.Map qualified as Map
+import Data.Text qualified as Text
 import Nagare.Dsl.Command (mkCommand)
 import Nagare.Dsl.Config (emitJob)
 import Nagare.Dsl.Job
@@ -28,7 +28,8 @@ config = do
       , env =
           Map.fromList
             [ (runId, runtimeScoped (EnvLiteral "01k3qz212e989078m6ssetr2b"))
-            , ( repoRef
+            ,
+              ( repoRef
               , runtimeScoped
                   (EnvLiteral "repo_01ktrw3em3emg8b6zxrtqh843h@6f1c2b0a9d4e8f7c6b5a4938271605f4e3d2c1b0")
               )

@@ -19,15 +19,14 @@ module Nagare.Image
   , imageRef
   , taggedImageRef
   , qualifyImage
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (Deployment, ImageRef, imageRefText, mkImageRef)
 import Nagare.Target (Mode (..), TargetProfile, registryPrefix, resolveTargetProfile)
 

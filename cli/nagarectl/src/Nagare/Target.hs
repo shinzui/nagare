@@ -60,8 +60,6 @@ module Nagare.Target
   )
 where
 
-import Nagare.Dsl.Prelude hiding ((<.>))
-
 import Control.Exception (IOException, try)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.Generics.Labels ()
@@ -77,6 +75,7 @@ import Nagare.Cluster.GcsJob
   , StoreBackend (..)
   , parseLocalObjectStore
   )
+import Nagare.Dsl.Prelude hiding ((<.>))
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))

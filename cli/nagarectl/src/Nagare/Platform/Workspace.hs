@@ -12,8 +12,6 @@ module Nagare.Platform.Workspace
   )
 where
 
-import Nagare.Dsl.Prelude hiding (Context)
-
 import Control.Exception (IOException, bracketOnError, try)
 import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import Data.Aeson ((.:))
@@ -27,6 +25,7 @@ import Data.List (isPrefixOf, isSuffixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude hiding (Context)
 import Nagare.Platform.Paths (PlatformPaths (..))
 import Nagare.Target (ContextName, contextNameText)
 import System.Directory

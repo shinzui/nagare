@@ -18,8 +18,6 @@ module Nagare.Deploy.Resolve
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Control.Monad (forM)
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -32,6 +30,7 @@ import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Discover (lookupConnection)
 import Nagare.Dsl.Broker (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( DatabaseName
   , EnvName

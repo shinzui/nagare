@@ -39,6 +39,11 @@ import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+-- Qualified: 'timeout' is also a record field of both 'ProbeTiming'
+-- (Nagare.Dsl.Worker) and 'HealthCheck' (Nagare.Dsl.Types), which are imported
+-- unqualified here.
+
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -71,11 +76,7 @@ import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.Process (readProcessWithExitCode)
--- Qualified: 'timeout' is also a record field of both 'ProbeTiming'
--- (Nagare.Dsl.Worker) and 'HealthCheck' (Nagare.Dsl.Types), which are imported
--- unqualified here.
 import System.Timeout qualified as Timeout
-import Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- LoadError

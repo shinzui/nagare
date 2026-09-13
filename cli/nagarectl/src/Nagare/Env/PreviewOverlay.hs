@@ -26,8 +26,6 @@ module Nagare.Env.PreviewOverlay
   )
 where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -37,6 +35,7 @@ import Data.Text (Text)
 import Data.Vector qualified as V
 import Data.Yaml qualified as Yaml
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName)
 import Nagare.Dsl.Types (EnvScope (..))
 

@@ -18,12 +18,12 @@ where
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (Resources, namespaceText, quantityText)
-import Data.Generics.Labels ()
 
 renderBroker :: Broker -> [ByteString]
 renderBroker broker =

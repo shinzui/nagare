@@ -35,15 +35,15 @@ module Nagare.Dsl.Task
 
     -- * Naming (IP3)
   , taskResourceName
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isDigit)
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( EnvName
   , ImageRef
@@ -141,8 +141,14 @@ validateTerm label lo hi term =
       Just n -> Right n
       Nothing ->
         Left
-          ( "cron " <> label <> " value out of range " <> tshow lo <> "-" <> tshow hi
-              <> " (or not a number): " <> t
+          ( "cron "
+              <> label
+              <> " value out of range "
+              <> tshow lo
+              <> "-"
+              <> tshow hi
+              <> " (or not a number): "
+              <> t
           )
     readInRange t = do
       n <- readIntT t

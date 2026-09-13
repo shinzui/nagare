@@ -22,12 +22,12 @@ module Nagare.Ops.ContextGuard
   ( ProjectGuardInputs (..)
   , projectGuardVerdict
   , renderProjectGuard
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Generics.Labels ()
 import Data.Text (Text)
+import Nagare.Dsl.Prelude
 
 -- | What the guard compared and what it concluded. Rendered for humans and for
 -- @--json@, so a failing recipe can be diagnosed from its output alone.

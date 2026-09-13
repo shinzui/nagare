@@ -13,12 +13,12 @@
 -- in place for the deploy path and is not touched here.
 module Nagare.Ops.Pulumi
   ( stackOutput
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Data.Text.Encoding (decodeUtf8)
 import Data.Text qualified as T
+import Data.Text.Encoding (decodeUtf8)
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 
 -- | @pulumi -C \<dir\> stack output \<name\>@. 'Nothing' if @pulumi@ is missing,

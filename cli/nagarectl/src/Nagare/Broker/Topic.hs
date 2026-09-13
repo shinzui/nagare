@@ -15,6 +15,7 @@ where
 import Control.Monad (forM_)
 import Cradle
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -24,7 +25,6 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
-import Data.Generics.Labels ()
 
 data TopicStatus = TopicStatus
   { name :: !Text

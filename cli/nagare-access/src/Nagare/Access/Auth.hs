@@ -14,8 +14,6 @@ module Nagare.Access.Auth
   )
 where
 
-import Nagare.Access.Prelude
-
 import Data.Aeson (Value)
 import Data.Text (Text)
 import Nagare.Access.BackendMap (BackendTarget, Portal)
@@ -23,6 +21,7 @@ import Nagare.Access.Cookie (CookieSettings)
 import Nagare.Access.Credential (Credential)
 import Nagare.Access.DecisionCache (AuthorizationResult, DecisionCache)
 import Nagare.Access.Portal (AccessToken, CapturedResponse, PortalPage, PortalPageKind, ReturnTarget, SessionHandoff)
+import Nagare.Access.Prelude
 import Network.Wai (Request, Response)
 
 newtype AuthenticatedUser = AuthenticatedUser

@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | A multi-workload Application fixture (MasterPlan 14, EP-1): one logical app
 -- that is, in Nagare terms, several objects across four kinds — one web Service
@@ -15,8 +15,8 @@
 -- every constrained field still goes through its smart constructor.
 module Main (main) where
 
-import Data.Bifunctor (first)
 import Control.Lens ((&), (.~))
+import Data.Bifunctor (first)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -42,8 +42,8 @@ import Nagare.Dsl.Types
   , mkServiceName
   , runtimeScoped
   )
-import Nagare.Dsl.Worker qualified as W
 import Nagare.Dsl.Worker (webWorker)
+import Nagare.Dsl.Worker qualified as W
 
 sharedImage :: Text
 sharedImage = "gcr.io/knative-samples/helloworld-go"

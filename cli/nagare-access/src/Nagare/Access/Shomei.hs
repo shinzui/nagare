@@ -7,17 +7,16 @@ module Nagare.Access.Shomei
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Crypto.JOSE.JWK (JWKSet)
+import Data.Generics.Labels ()
 import Nagare.Access.Auth (AuthFailure (..), AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.Credential (Credential, credentialToken)
 import Nagare.Access.Jwks (JwksCache, getCachedJwks)
-import Shomei.Config (ShomeiConfig, defaultShomeiConfig)
+import Nagare.Access.Prelude
 import Shomei.Authorization.Claims.Domain (Audience (..), Issuer (..))
 import Shomei.Authorization.Claims.Domain qualified as Claims
+import Shomei.Config (ShomeiConfig, defaultShomeiConfig)
 import Shomei.Error (TokenError (..))
 import Shomei.Id qualified as ShomeiId
 import Shomei.SigningKey.Verify.Jwt (verifyToken)

@@ -1,10 +1,9 @@
 module AccessGrantsSpec (accessGrantsTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.Aeson (eitherDecode, encode)
 import Data.ByteString.Lazy (ByteString)
 import Nagare.Access.Grants
+import Nagare.Dsl.Prelude
 import Test.Tasty
 import Test.Tasty.HUnit
 

@@ -2,12 +2,11 @@
 
 module HostSpec (hostTests) where
 
-import Nagare.Dsl.Prelude
-
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Host.Config
 import Nagare.Target (ContextName, mkContextName)
 import Nagare.Version (BuildVersion (..))

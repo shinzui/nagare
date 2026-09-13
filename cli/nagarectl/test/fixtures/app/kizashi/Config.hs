@@ -20,8 +20,8 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Config (emitApplication)
 import Nagare.Dsl.Database qualified as DB
-import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
   ( ConcurrencyPolicy (..)
   , RestartPolicy (..)
@@ -39,8 +39,8 @@ import Nagare.Dsl.Types
   , mkServiceName
   , runtimeScoped
   )
-import Nagare.Dsl.Worker qualified as W
 import Nagare.Dsl.Worker (webWorker)
+import Nagare.Dsl.Worker qualified as W
 
 sharedImage :: Text
 sharedImage = "gcr.io/knative-samples/helloworld-go"

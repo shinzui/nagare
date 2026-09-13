@@ -17,16 +17,14 @@ module Nagare.Storage.Restore
   , renderStorageRestoreJob
   , renderScratchPvc
   , runStorageRestore
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
@@ -43,6 +41,7 @@ import Nagare.Cluster.GcsJob
   , storeShellPreamble
   )
 import Nagare.Database.Restore (isObjectUrl)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( Deployment
   , Volume

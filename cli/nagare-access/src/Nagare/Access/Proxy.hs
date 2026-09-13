@@ -12,9 +12,6 @@ module Nagare.Access.Proxy
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, catch, finally, try)
@@ -25,13 +22,14 @@ import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Char (toLower)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
-import Nagare.Access.Auth (AuthenticatedUser (..))
-import Nagare.Access.Auth (PortalIdentity (..), PortalPageRequest (..), PortalUpstreamResult (..))
+import Nagare.Access.Auth (AuthenticatedUser (..), PortalIdentity (..), PortalPageRequest (..), PortalUpstreamResult (..))
 import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), publicHostText)
 import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), PortalPage (..), PortalPageKind (..), ReturnTarget (..), decodeSessionHandoff, renderReturnTarget, safePathText)
+import Nagare.Access.Prelude
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Client.Internal qualified as HCI
 import Network.HTTP.Client.TLS (newTlsManager)

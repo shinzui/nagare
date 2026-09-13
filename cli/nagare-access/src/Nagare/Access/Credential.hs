@@ -6,13 +6,12 @@ module Nagare.Access.Credential
   )
 where
 
-import Nagare.Access.Prelude
-
 import Control.Applicative ((<|>))
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
+import Nagare.Access.Prelude
 import Network.HTTP.Types.Header (Header, HeaderName)
 
 data Credential

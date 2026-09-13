@@ -7,13 +7,12 @@ module Nagare.Access.Response
   )
 where
 
-import Nagare.Access.Prelude hiding ((.=))
-
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Challenge
+import Nagare.Access.Prelude hiding ((.=))
 import Network.HTTP.Types
   ( Status
   , status302

@@ -7,9 +7,6 @@ module Nagare.Access.App
   )
 where
 
-import Nagare.Access.Prelude hiding ((.=))
-import Data.Generics.Labels ()
-
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Aeson (FromJSON (parseJSON), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
@@ -17,6 +14,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Function ((&))
+import Data.Generics.Labels ()
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -37,6 +35,7 @@ import Nagare.Access.Cookie
 import Nagare.Access.Credential (Credential (SessionCookie), credentialToken, extractCredential)
 import Nagare.Access.DecisionCache
 import Nagare.Access.Portal
+import Nagare.Access.Prelude hiding ((.=))
 import Nagare.Access.Response (challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFromWai)
 import Network.HTTP.Types
   ( Header

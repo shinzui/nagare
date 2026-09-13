@@ -3,9 +3,8 @@
 -- present in its managed Secret — never the values. Read-only.
 module Nagare.Database.Get
   ( runDbGet
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
@@ -15,6 +14,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (dbSecretName)
+import Nagare.Dsl.Prelude
 import Nagare.Env.Store (extractSecretData)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)

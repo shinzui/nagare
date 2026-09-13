@@ -7,8 +7,6 @@
 -- are added to the groups below as those milestones land.
 module ApplicationSpec (applicationTests) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Lens ((&), (.~))
 import Data.ByteString.Lazy (toStrict)
 import Data.Generics.Labels ()
@@ -21,6 +19,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Config (encodeApplication, encodeDeployment)
 import Nagare.Dsl.Database (Database (..), Engine (..), mkDatabaseName, mkEngineVersion)
 import Nagare.Dsl.Load (LoadError (..), decodeApplication, decodeDeployment, loadApplication)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types

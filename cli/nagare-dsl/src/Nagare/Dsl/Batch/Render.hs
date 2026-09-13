@@ -10,8 +10,6 @@ module Nagare.Dsl.Batch.Render
   )
 where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.Generics.Labels ()
@@ -19,6 +17,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( EnvName
   , EnvScope (Runtime)

@@ -13,9 +13,9 @@ module Nagare.Dsl.Job
   )
 where
 
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Command (Command)

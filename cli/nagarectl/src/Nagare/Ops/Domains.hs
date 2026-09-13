@@ -27,9 +27,8 @@ module Nagare.Ops.Domains
     -- * Cluster queries (thin kubectl IO)
   , queryDomainRows
   , listNamespaces
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Aeson (eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
@@ -41,7 +40,7 @@ import Data.List (find)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
-
+import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 
 -- ---------------------------------------------------------------------------
@@ -63,20 +62,20 @@ data DomainRow = DomainRow
 
 -- | What DNS /should/ look like for this domain (computed, not resolved).
 data DnsExpectation
-  = UnderWildcard !Text
-  -- ^ falls under @*.\<baseDomain\>@; payload is the expected A target (publicIp)
-  | OutsideWildcard
-  -- ^ does NOT fall under @*.\<baseDomain\>@; needs its own record
+  = -- | falls under @*.\<baseDomain\>@; payload is the expected A target (publicIp)
+    UnderWildcard !Text
+  | -- | does NOT fall under @*.\<baseDomain\>@; needs its own record
+    OutsideWildcard
   deriving stock (Generic, Eq, Show)
 
 -- | Certificate readiness for a domain.
 data CertState
-  = CertReady
-  -- ^ a Certificate covering this domain exists and is @Ready@
-  | CertPending
-  -- ^ a Certificate covers this domain but is not yet @Ready@
-  | CertDisabled
-  -- ^ no Certificate present / external-domain TLS off
+  = -- | a Certificate covering this domain exists and is @Ready@
+    CertReady
+  | -- | a Certificate covers this domain but is not yet @Ready@
+    CertPending
+  | -- | no Certificate present / external-domain TLS off
+    CertDisabled
   deriving stock (Generic, Eq, Show)
 
 -- | A decoded @DomainMapping@: hostname, owning Service, and @Ready@ state.

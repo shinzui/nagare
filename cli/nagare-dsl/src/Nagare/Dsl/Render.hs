@@ -20,10 +20,12 @@
 module Nagare.Dsl.Render
   ( renderService
   , renderDomainMappings
+
     -- * Managed-resource naming helpers (IP2)
   , scopeToken
   , managedConfigMapName
   , managedSecretName
+
     -- * Persistent volume rendering (IP2/IP3)
   , pvcName
   , renderVolumeClaims
@@ -31,24 +33,24 @@ module Nagare.Dsl.Render
   , volumeMountsField
   , volumesField
   , volumeAnnotationPairs
+
     -- * Container env rendering (reused by "Nagare.Dsl.Worker.Render", IP3)
   , envField
   , envFromField
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Build (resolveImageTag)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
 
 -- | Render a 'Deployment' to a Knative Service YAML document. The second

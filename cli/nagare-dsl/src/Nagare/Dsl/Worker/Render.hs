@@ -18,17 +18,16 @@ module Nagare.Dsl.Worker.Render
   ( renderWorker
   , renderWorkerDeployment
   , workerDeploymentName
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Build (resolveImageTag)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render
   ( envField
   , envFromField

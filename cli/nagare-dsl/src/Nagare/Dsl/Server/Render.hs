@@ -16,15 +16,13 @@ module Nagare.Dsl.Server.Render
   , renderServerService
   , renderServerDomainMappings
   , renderServerVolumeClaims
-  ) where
-
-import Nagare.Dsl.Prelude hiding ((.=))
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
@@ -32,6 +30,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Yaml.Pretty qualified as YP
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render
   ( managedConfigMapName
   , managedSecretName

@@ -10,6 +10,7 @@ where
 
 import Cradle
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -28,7 +29,6 @@ import Nagare.Dsl.Types
   )
 import System.Exit (exitFailure)
 import System.IO (stderr)
-import Data.Generics.Labels ()
 
 data BrokerCreateParams = BrokerCreateParams
   { namespace :: !Text

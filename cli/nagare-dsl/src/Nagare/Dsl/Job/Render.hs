@@ -8,8 +8,6 @@ module Nagare.Dsl.Job.Render
   )
 where
 
-import Nagare.Dsl.Prelude hiding ((.=))
-
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
@@ -25,6 +23,7 @@ import Nagare.Dsl.Batch.Render
 import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Command (commandArgvList)
 import Nagare.Dsl.Job
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types
   ( Quantity
   , Resources (..)

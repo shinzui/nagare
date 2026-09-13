@@ -8,12 +8,9 @@
 -- build/output-preparation state machine.
 module Main (main) where
 
-import Nagare.Dsl.Prelude hiding ((<.>))
-
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
-import HostSpec (hostTests)
 import Control.Exception (IOException, finally, try)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -37,6 +34,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import HostSpec (hostTests)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -107,6 +105,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build (BuildSpec (..), defaultBuild, mkTag)
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database (Engine (..), engineToken, mkDatabaseName)
+import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Render (renderService)
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types
@@ -149,19 +148,19 @@ import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Env.Store
 import Nagare.GhcEnv (findGhcEnvIn)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
-import Nagare.Init
-  ( nextStepsText
-  , operatorRoles
-  , pulumiConfigSetArgs
-  , renderTargetEnv
-  , seedKeys
-  )
 import Nagare.Infra.Plan
   ( PlanVerdict (..)
   , classifyPlan
   , gceInstanceType
   , parsePreview
   , renderVerdict
+  )
+import Nagare.Init
+  ( nextStepsText
+  , operatorRoles
+  , pulumiConfigSetArgs
+  , renderTargetEnv
+  , seedKeys
   )
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
@@ -172,6 +171,11 @@ import Nagare.Ops.Cleanup
   , pruneReleases
   , selectStalePreviews
   , sumReclaimableBytes
+  )
+import Nagare.Ops.ContextGuard
+  ( ProjectGuardInputs (..)
+  , projectGuardVerdict
+  , renderProjectGuard
   )
 import Nagare.Ops.Doctor
   ( Check (..)
@@ -211,11 +215,6 @@ import Nagare.Ops.Probe
   , parseSkipTagResolvingHosts
   , renderInventory
   , statusLabel
-  )
-import Nagare.Ops.ContextGuard
-  ( ProjectGuardInputs (..)
-  , projectGuardVerdict
-  , renderProjectGuard
   )
 import Nagare.Ops.PulumiBackend
   ( GcloudOps (..)
@@ -259,6 +258,7 @@ import Nagare.Target
   , PulumiEnv (..)
   , TargetProfile (..)
   , VmShape (..)
+  , acmeDirectoryUrl
   , clearCurrentContext
   , contextExists
   , contextFilePath
@@ -269,24 +269,23 @@ import Nagare.Target
   , effectivePulumiBackend
   , listContexts
   , mkContextName
-  , renderContextShellEnv
-  , acmeDirectoryUrl
   , parseAcmeDirectory
   , parseContextEnv
   , parseMode
-  , validateAcmeEmail
-  , validateVmShape
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
   , readContextProfile
   , readCurrentContext
   , registryPrefix
+  , renderContextShellEnv
   , resolveActiveContext
   , resolveActiveTarget
   , resolveTargetProfile
   , setCurrentContext
   , storeBackendFor
+  , validateAcmeEmail
+  , validateVmShape
   , writeContextPlatformVersion
   )
 import Nagare.Task.Discover
@@ -458,10 +457,14 @@ initTests =
         let out =
               renderTargetEnv $
                 initProfile
-                  & #mode .~ Local
-                  & #registryHost .~ "k3d-registry.localhost:5000"
-                  & #baseDomain .~ "127-0-0-1.sslip.io"
-                  & #localObjectStore .~ "http://minio:9000/nagare-backups"
+                  & #mode
+                  .~ Local
+                  & #registryHost
+                  .~ "k3d-registry.localhost:5000"
+                  & #baseDomain
+                  .~ "127-0-0-1.sslip.io"
+                  & #localObjectStore
+                  .~ "http://minio:9000/nagare-backups"
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
@@ -533,8 +536,10 @@ initTests =
               "/tmp/nagare-state"
               "labs"
               ( initProfile
-                  & #pulumiBackend .~ PulumiBackendGcs
-                  & #pulumiBackendUrl .~ "gs://custom-bucket/state/labs"
+                  & #pulumiBackend
+                  .~ PulumiBackendGcs
+                  & #pulumiBackendUrl
+                  .~ "gs://custom-bucket/state/labs"
               )
           )
           @?= "gs://custom-bucket/state/labs"
@@ -756,8 +761,10 @@ pulumiBackendBootstrapTests =
         pulumiStateBucket
           "labs"
           ( initProfile
-              & #pulumiBackend .~ PulumiBackendGcs
-              & #pulumiBackendUrl .~ "gs://custom-bucket/state/labs"
+              & #pulumiBackend
+              .~ PulumiBackendGcs
+              & #pulumiBackendUrl
+              .~ "gs://custom-bucket/state/labs"
           )
           @?= Just "custom-bucket"
     , testCase "bucketCreateArgs sets location, uniform access, and public-access prevention" $
@@ -899,8 +906,10 @@ qualifyImageTests =
   where
     acmeProfile =
       tnbProfile
-        & #project .~ "acme-prod"
-        & #registryHost .~ "europe-west1-docker.pkg.dev"
+        & #project
+        .~ "acme-prod"
+        & #registryHost
+        .~ "europe-west1-docker.pkg.dev"
 
 -- ---------------------------------------------------------------------------
 -- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows the GCS
@@ -1438,8 +1447,10 @@ taskResolveTests =
       unsafe $
         mkTask
           ( inheritTask
-              & #image .~ Just (unsafe (mkImageRef "gcr.io/myproject/other"))
-              & #app .~ Nothing
+              & #image
+              .~ Just (unsafe (mkImageRef "gcr.io/myproject/other"))
+              & #app
+              .~ Nothing
           )
 
 -- ---------------------------------------------------------------------------
@@ -3319,34 +3330,47 @@ storeBackendModeTests =
               assertBool "no metadata ip" (not ("169.254.169.254" `T.isInfixOf` y))
               assertBool "no metadata dns" (not ("metadata.google.internal" `T.isInfixOf` y))
       | (name, render) <-
-          [ ( "db backup Job"
+          [
+            ( "db backup Job"
             , \b ->
                 renderBackupJob $
                   backupJobInputsPg
-                    & #backend .~ b
-                    & #destination .~ BackupDestUrl (destFor b "databases/mydb/20260610T141503Z.sql.gz")
-                    & #prefix .~ destFor b "databases/mydb/"
+                    & #backend
+                    .~ b
+                    & #destination
+                    .~ BackupDestUrl (destFor b "databases/mydb/20260610T141503Z.sql.gz")
+                    & #prefix
+                    .~ destFor b "databases/mydb/"
             )
-          , ( "db restore Job"
+          ,
+            ( "db restore Job"
             , \b ->
                 renderRestoreJob $
                   restoreJobInputsPg
-                    & #backend .~ b
-                    & #sourceUrl .~ destFor b "databases/mydb/20260610T141503Z.sql.gz"
+                    & #backend
+                    .~ b
+                    & #sourceUrl
+                    .~ destFor b "databases/mydb/20260610T141503Z.sql.gz"
             )
-          , ( "volume snapshot Job"
+          ,
+            ( "volume snapshot Job"
             , \b ->
                 renderSnapshotJob $
                   snapshotJobInputs
-                    & #backend .~ b
-                    & #destinationUrl .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
+                    & #backend
+                    .~ b
+                    & #destinationUrl
+                    .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
             )
-          , ( "volume restore Job"
+          ,
+            ( "volume restore Job"
             , \b ->
                 renderStorageRestoreJob $
                   storageRestoreJobInputs
-                    & #backend .~ b
-                    & #sourceUrl .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
+                    & #backend
+                    .~ b
+                    & #sourceUrl
+                    .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
             )
           ]
       , backend <- [tnbGcsBackend, localMinioBackend]

@@ -12,15 +12,15 @@ module Nagare.Infra.Plan
   , parsePreview
   , classifyPlan
   , renderVerdict
-  ) where
+  )
+where
 
-import Nagare.Dsl.Prelude
-
-import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?), (.!=))
+import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 
 data StepOp
   = OpSame

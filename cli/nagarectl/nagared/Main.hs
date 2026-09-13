@@ -17,8 +17,6 @@
 -- checkout and re-records the same release id (deduped), so no duplicate work.
 module Main (main) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (SomeException, try)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -33,6 +31,7 @@ import Nagare.Dsl.Load
   , loadStaticSiteWith
   , renderLoadError
   )
+import Nagare.Dsl.Prelude
 import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Static.Checkout (checkoutRepo)
 import Nagare.Static.Deploy

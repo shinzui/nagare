@@ -41,12 +41,12 @@ module Nagare.Dsl.Database
 
     -- * Managed Secret naming (IP3)
   , dbSecretName
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isDigit)
 import Data.Text qualified as Text
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
   ( DatabaseName
   , Namespace

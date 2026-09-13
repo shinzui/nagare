@@ -20,8 +20,6 @@ module Nagare.Platform.Upgrade
   )
 where
 
-import Nagare.Dsl.Prelude
-
 import Control.Exception (IOException, try)
 import Data.Aeson ((.:), (.:?))
 import Data.Aeson qualified as Aeson
@@ -32,6 +30,7 @@ import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Nagare.Dsl.Prelude
 import System.Directory (createDirectoryIfMissing, renameFile)
 import System.FilePath (takeDirectory)
 

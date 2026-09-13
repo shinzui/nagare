@@ -29,6 +29,7 @@ where
 
 import Data.Aeson (Value, encode, object, toJSON, (.=))
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -47,7 +48,6 @@ import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt)
-import Data.Generics.Labels ()
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.

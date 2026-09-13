@@ -6,8 +6,6 @@
 -- below as those milestones land.
 module WorkerSpec (workerTests) where
 
-import Nagare.Dsl.Prelude
-
 import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
@@ -21,6 +19,7 @@ import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeDeployment, encodeWorker)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker, loadWorker)
 import Nagare.Dsl.Path (mkFilePathText)
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
 import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)

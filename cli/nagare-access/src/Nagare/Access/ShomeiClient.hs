@@ -8,16 +8,15 @@ module Nagare.Access.ShomeiClient
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, catch)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Access.Auth (LoginCredentials (..), LoginOutcome (..), MfaChallenge (..), MfaCompletion (..), SessionTokens (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.Portal (AccessToken (..))
+import Nagare.Access.Prelude
 import Shomei.Client qualified as Shomei
 import Shomei.Mfa.Dto qualified as Mfa
 import Shomei.Session.Dto qualified as DTO

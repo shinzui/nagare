@@ -6,15 +6,14 @@
 -- is a clear error (exit non-zero) rather than a confusing empty @describe@.
 module Nagare.Storage.Inspect
   ( runStorageInspect
-  ) where
-
-import Nagare.Dsl.Prelude
-
-import Data.Generics.Labels ()
+  )
+where
 
 import Cradle
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (Deployment, namespaceText, serviceNameText, volumeNameText)
 import Nagare.Storage.Discover (pvcName)
 import System.Exit (exitFailure)

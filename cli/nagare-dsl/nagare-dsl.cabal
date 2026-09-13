@@ -1,18 +1,18 @@
-cabal-version:   3.0
-name:            nagare-dsl
-version:         0.1.0
-synopsis:        Typed deployment model and Knative renderer for Nagare.
+cabal-version: 3.0
+name: nagare-dsl
+version: 0.1.0
+synopsis: Typed deployment model and Knative renderer for Nagare.
 description:
   A library of maximally-safe Haskell types for describing Nagare
   deployments, together with a renderer that produces Knative Service and
   DomainMapping YAML. Illegal configurations (bad DNS names, value+secretRef
   env vars, max<min scale) are made unrepresentable by the type system.
 
-build-type:      Simple
+build-type: Simple
 
 -- House standard: GHC2024 + the common extension set (haskell-jitsurei).
 common common
-  default-language:   GHC2024
+  default-language: GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -20,13 +20,16 @@ common common
     OverloadedLabels
     OverloadedStrings
 
-  ghc-options:        -Wall -Wno-unused-imports
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
 
 library
-  import:          common
-  hs-source-dirs:  src
+  import: common
+  hs-source-dirs: src
   other-modules:
     Nagare.Dsl.Batch.Render
+
   exposed-modules:
     Nagare.Dsl.Access
     Nagare.Dsl.Application
@@ -58,33 +61,33 @@ library
     Nagare.Dsl.Worker.Render
 
   build-depends:
-    , aeson
-    , base          >=4.17 && <5
-    , bytestring
-    , containers
-    , directory
-    , filepath
-    , generic-lens  ^>=2.3
-    , lens          ^>=5.3
-    , process
-    , text
-    , yaml
+    aeson,
+    base >=4.17 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    generic-lens ^>=2.3,
+    lens ^>=5.3,
+    process,
+    text,
+    yaml,
 
 -- Tiny demo: prints renderLoadError of each LoadError variant (EP-10 M1.5).
 executable nagare-dsl-load-demo
-  import:          common
-  main-is:         LoadDemo.hs
-  hs-source-dirs:  demo
+  import: common
+  main-is: LoadDemo.hs
+  hs-source-dirs: demo
   build-depends:
-    , base
-    , nagare-dsl
-    , text
+    base,
+    nagare-dsl,
+    text,
 
 test-suite nagare-dsl-test
-  import:          common
-  type:            exitcode-stdio-1.0
-  main-is:         Spec.hs
-  hs-source-dirs:  test
+  import: common
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
   other-modules:
     ApplicationSpec
     CdnSpec
@@ -93,16 +96,17 @@ test-suite nagare-dsl-test
     ServerSpec
     StaticSpec
     WorkerSpec
+
   build-depends:
-    , base
-    , bytestring
-    , containers
-    , generic-lens     ^>=2.3
-    , lens             ^>=5.3
-    , nagare-dsl
-    , tasty            >=1.4
-    , tasty-golden     >=2.3
-    , tasty-hunit      >=0.10
-    , tasty-quickcheck >=0.10
-    , temporary
-    , text
+    base,
+    bytestring,
+    containers,
+    generic-lens ^>=2.3,
+    lens ^>=5.3,
+    nagare-dsl,
+    tasty >=1.4,
+    tasty-golden >=2.3,
+    tasty-hunit >=0.10,
+    tasty-quickcheck >=0.10,
+    temporary,
+    text,

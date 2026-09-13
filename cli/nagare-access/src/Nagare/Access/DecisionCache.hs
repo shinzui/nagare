@@ -11,9 +11,7 @@ module Nagare.Access.DecisionCache
   )
 where
 
-import Nagare.Access.Prelude
 import Data.Generics.Labels ()
-
 import Data.IORef
   ( IORef
   , atomicModifyIORef'
@@ -23,6 +21,7 @@ import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Nagare.Access.Prelude
 
 data AccessDecision
   = AccessAllowed

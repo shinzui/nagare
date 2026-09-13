@@ -8,9 +8,8 @@
 module Nagare.Database.Delete
   ( DbDeleteParams (..)
   , runDbDelete
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Cradle
 import Data.Generics.Labels ()
@@ -19,6 +18,7 @@ import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (dbSecretName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
+import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
@@ -49,13 +49,15 @@ runDbDelete p = do
               ( ["Would delete (run again with --yes):"]
                   <> map ("  " <>) (objectsToDelete nameText)
                   <> [ if deleteData
-                        then "Retention is Delete: the data volume " <> pvc <> " is REMOVED."
-                        else
-                          "Retention is Retain: the data volume " <> pvc <> " is KEPT.\n"
-                            <> "  Remove it manually with: kubectl delete pvc "
-                            <> pvc
-                            <> " -n "
-                            <> ns
+                         then "Retention is Delete: the data volume " <> pvc <> " is REMOVED."
+                         else
+                           "Retention is Retain: the data volume "
+                             <> pvc
+                             <> " is KEPT.\n"
+                             <> "  Remove it manually with: kubectl delete pvc "
+                             <> pvc
+                             <> " -n "
+                             <> ns
                      ]
               )
         else do

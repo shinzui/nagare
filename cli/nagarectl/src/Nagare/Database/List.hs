@@ -2,12 +2,12 @@
 -- databases in a namespace, discovered by the IP3 labels. Read-only.
 module Nagare.Database.List
   ( runDbList
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Text.IO qualified as TIO
 import Nagare.Database.Discover (formatDbTable, listDatabases)
+import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
 

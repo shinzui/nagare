@@ -7,14 +7,13 @@
 -- with no PVC shows @MISSING@, so a never-deployed volume is visible.
 module Nagare.Storage.List
   ( runStorageList
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Generics.Labels ()
-
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (Deployment, namespaceText, serviceNameText)
 import Nagare.Storage.Discover (formatStorageTable, listAppPVCs)
 import System.Exit (exitFailure)

@@ -40,13 +40,13 @@ module Nagare.Dsl.Cdn.Types
   , withDefaultTtl
   , withCacheRule
   , withoutStaticAssetCache
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Char (isSpace)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
+import Nagare.Dsl.Prelude
 
 -- | The CDN backend fronting a site. @CloudflareCdn@ is the preferred default
 -- (larger edge network, free tier, DDoS protection); @GcpCloudCdn@ keeps an
@@ -59,7 +59,7 @@ data CdnProvider = CloudflareCdn | GcpCloudCdn
 -- @edgeTtlSeconds@ as their edge time-to-live; @Nothing@ means "never cache this
 -- path" (bypass the edge cache). Construct with 'mkCdnCacheRule'.
 data CdnCacheRule = CdnCacheRule
-  { pathPrefix     :: !Text
+  { pathPrefix :: !Text
   , edgeTtlSeconds :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
@@ -70,10 +70,10 @@ data CdnCacheRule = CdnCacheRule
 -- @cacheRules@ are per-path overrides applied in order. Construct via
 -- 'cloudflareCdn' / 'gcpCloudCdn' and the @with*@ combinators.
 data Cdn = Cdn
-  { provider          :: !CdnProvider
+  { provider :: !CdnProvider
   , defaultTtlSeconds :: !(Maybe Int)
   , cacheStaticAssets :: !Bool
-  , cacheRules        :: ![CdnCacheRule]
+  , cacheRules :: ![CdnCacheRule]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -85,7 +85,8 @@ mkCdnCacheRule prefix ttl
   | Text.null prefix = Left "cdn cache rule pathPrefix must not be empty"
   | Text.all isSpace prefix =
       Left "cdn cache rule pathPrefix must not be all whitespace"
-  | Just n <- ttl, n < 0 =
+  | Just n <- ttl
+  , n < 0 =
       Left ("cdn cache rule edgeTtlSeconds must be >= 0 (or null), got: " <> tshow n)
   | otherwise = Right (CdnCacheRule {pathPrefix = prefix, edgeTtlSeconds = ttl})
 

@@ -8,6 +8,7 @@ module Nagare.Broker.Connection
 where
 
 import Data.Char (isAlphaNum, toUpper)
+import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -32,7 +33,6 @@ import Nagare.Dsl.Types
   , namespaceText
   , runtimeScoped
   )
-import Data.Generics.Labels ()
 
 data BrokerConn = BrokerConn
   { provider :: !BrokerProvider

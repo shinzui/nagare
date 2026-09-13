@@ -7,8 +7,8 @@ module Nagare.Dsl.Command
   )
 where
 
-import Data.Text qualified as Text
 import Data.Generics.Labels ()
+import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
 
 -- | An optional container entrypoint override. @argv[0]@ is the executable.

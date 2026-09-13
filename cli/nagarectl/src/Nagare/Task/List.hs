@@ -4,11 +4,11 @@
 -- it lists only app-less tasks.
 module Nagare.Task.List
   ( runTaskList
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Text.IO qualified as TIO
+import Nagare.Dsl.Prelude
 import Nagare.Task.Discover (AppScope, formatTaskTable, listTasks)
 import System.Exit (exitFailure)
 import System.IO (stderr)

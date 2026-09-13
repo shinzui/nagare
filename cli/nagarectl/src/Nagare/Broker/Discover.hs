@@ -16,13 +16,13 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Nagare.Dsl.Broker (TopicName, topicNameText)
 import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
-import Data.Generics.Labels ()
 
 brokerLabelSelector :: Text
 brokerLabelSelector = "nagare.dev/managed-by=nagarectl,nagare.dev/broker"

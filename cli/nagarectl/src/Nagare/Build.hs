@@ -21,9 +21,8 @@ module Nagare.Build
   , describeBuild
   , applyBuildOverrides
   , addBuildArgs
-  ) where
-
-import Nagare.Dsl.Prelude
+  )
+where
 
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -31,6 +30,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Build (BuildSpec (..), tagText)
 import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
+import Nagare.Dsl.Prelude
 import Nagare.Image (buildDockerfile, buildNixpacks)
 import System.Directory (findExecutable)
 import System.Exit (exitFailure)
@@ -100,8 +100,8 @@ describeBuild platform = \case
 --   * 'PrebuiltImage' — any override is a user error (nothing is built).
 --
 -- With both overrides 'Nothing' the spec is returned unchanged.
-applyBuildOverrides
-  :: Maybe FilePath -> Maybe FilePath -> BuildSpec -> Either Text BuildSpec
+applyBuildOverrides ::
+  Maybe FilePath -> Maybe FilePath -> BuildSpec -> Either Text BuildSpec
 applyBuildOverrides ctxOverride dfOverride spec = case spec of
   PrebuiltImage _
     | hasOverride -> Left prebuiltOverrideError

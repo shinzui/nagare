@@ -11,10 +11,8 @@ module Nagare.Access.En
   )
 where
 
-import Nagare.Access.Prelude
-import Data.Generics.Labels ()
-
 import Control.Exception (try)
+import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -35,6 +33,7 @@ import En.Servant.Seam (ErrorEnvelopeWire (..))
 import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..))
+import Nagare.Access.Prelude
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (hAuthorization)
 import Servant.Client
