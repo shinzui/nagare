@@ -155,7 +155,13 @@ nagarectl db restore NAME BACKUP_ID  # restore a backup, scratch-first
 `db create` generates the `nagare-db-<name>` Secret, then applies the PVC,
 ClickHouse memory ConfigMap (ClickHouse only), Service, and StatefulSet, then
 waits for the rollout. It is **idempotent** and never regenerates the password on
-re-run. Resources are discovered by the `nagare.dev/managed-by: nagarectl` +
+re-run. The database container carries a readiness probe (`pg_isready`, an
+authenticated Redis `PING`, or ClickHouse's HTTP `/ping`), so the pod and its
+Service report ready only once the server accepts connections — not while it is
+initialising or recovering after a VM start. There is deliberately no liveness
+probe, so a slow crash recovery is never restarted in a loop. Re-running
+`db create` on an existing database applies the probe; the change rolls the pod
+once. Resources are discovered by the `nagare.dev/managed-by: nagarectl` +
 `nagare.dev/database: <name>` labels, so `db list`/`get` always reflect what was
 provisioned.
 
@@ -268,7 +274,11 @@ gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native dump for ClickHouse), gzipped, at
 `databases/<name>/<timestamp>.<ext>` in the active store, with keep-last-N
-retention (`--keep`, default 7). In cloud mode that key is under
+retention (`--keep`, default 7). Scheduled and on-demand backups share that key
+layout, so either can be restored by its timestamp. The dump waits up to five
+minutes for the database to accept connections, and a failed backup Job is
+retried twice, so a run the CronJob catches up right after a VM start is not lost
+to DNS or server start-up. In cloud mode that key is under
 `gs://<backup-bucket>/`; in local mode it is under `s3://nagare-backups/` on
 MinIO.
 
