@@ -18,10 +18,15 @@
         else null;
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f (import nixpkgs { inherit system; }));
+      nagareSource = import ./nix/source.nix {
+        inherit (nixpkgs) lib;
+        root = ./.;
+      };
       nagarePackagesFor = pkgs:
         let
           platformPackage = import ./nix/platform-package.nix {
             inherit pkgs releaseVersion sourceRevision;
+            inherit (nagareSource) isNixWiring;
             sourceRoot = ./.;
           };
         in
@@ -95,7 +100,7 @@
                 pkgs.haskell.packages.ghc912.fourmolu
                 pkgs.haskell.packages.ghc912.cabal-gild
               ];
-              src = ./.;
+              src = nagareSource.src;
             }
             ''
               cd "$src"
@@ -132,7 +137,7 @@
             '';
 
           infra-vm-shape = pkgs.runCommand "nagare-infra-vm-shape-test"
-            { nativeBuildInputs = [ pkgs.nodejs pkgs.typescript ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.nodejs pkgs.typescript ]; src = nagareSource.src; }
             ''
               mkdir build
               tsc --strict --target ES2020 --module commonjs --outDir build \
@@ -143,7 +148,7 @@
             '';
 
           vm-shape-defaults-agree = pkgs.runCommand "nagare-vm-shape-defaults-agree"
-            { nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ]; src = nagareSource.src; }
             ''
               ts="$src/infra/pulumi/src/vmShape.ts"
               hs="$src/cli/nagarectl/src/Nagare/Target.hs"
@@ -340,7 +345,7 @@
           # Compile-and-run every shipped cluster/examples/*/nagare/Config.hs through
           # the same packaged runghc runtime used by the installed CLI.
           examples-compile = pkgs.runCommand "examples-compile"
-            { nativeBuildInputs = [ nagarePackages.typedConfigRuntime ]; src = ./.; }
+            { nativeBuildInputs = [ nagarePackages.typedConfigRuntime ]; src = nagareSource.src; }
             ''
               cd "$src"
               fail=0
@@ -359,7 +364,7 @@
           # Prove the installed wrapper loads a typed config from a directory with
           # no Nagare checkout ancestor and no Cabal-generated package environment.
           nagarectl-external-config = pkgs.runCommand "nagarectl-external-config"
-            { nativeBuildInputs = [ nagarePackages.nagarectl ]; src = ./.; }
+            { nativeBuildInputs = [ nagarePackages.nagarectl ]; src = nagareSource.src; }
             ''
               mkdir -p isolated/nagare
               cp "$src/cluster/examples/hello-knative-service/nagare/Config.hs" isolated/nagare/Config.hs
@@ -394,7 +399,7 @@
           # SC1091 "not following sourced file" and SC2034 "appears unused" — the
           # TARGET_* vars other scripts consume — are info/warning, not errors).
           shellcheck-scripts = pkgs.runCommand "shellcheck-scripts"
-            { nativeBuildInputs = [ pkgs.shellcheck ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.shellcheck ]; src = nagareSource.src; }
             ''
               cd "$src"
               shellcheck --severity=error \
@@ -413,7 +418,7 @@
           bucket-ownership-guard = pkgs.runCommand "nagare-bucket-ownership-guard-test"
             {
               nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep ];
-              src = ./.;
+              src = nagareSource.src;
             }
             ''
               cd "$src"
@@ -426,7 +431,7 @@
           image-build-guard = pkgs.runCommand "nagare-image-build-guard-test"
             {
               nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.rsync ];
-              src = ./.;
+              src = nagareSource.src;
             }
             ''
               cd "$src"
@@ -440,7 +445,7 @@
           render-context-template = pkgs.runCommand "nagare-render-context-template-test"
             {
               nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
-              src = ./.;
+              src = nagareSource.src;
             }
             ''
               cd "$src"
@@ -453,7 +458,7 @@
           # URLs — which are deliberately duplicated between the shell resolver and
           # the Haskell one — may not drift apart.
           cluster-bootstrap-defaults = pkgs.runCommand "nagare-cluster-bootstrap-defaults"
-            { nativeBuildInputs = [ pkgs.gnugrep pkgs.gnused pkgs.findutils ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.gnugrep pkgs.gnused pkgs.findutils ]; src = nagareSource.src; }
             ''
               cd "$src"
               # No specific project id and no email-shaped literal may appear as a
@@ -516,7 +521,7 @@
           forge-credential-refresh = pkgs.runCommand "nagare-forge-credential-refresh-test"
             {
               nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq pkgs.openssl ];
-              src = ./.;
+              src = nagareSource.src;
             }
             ''
               cd "$src"
@@ -525,7 +530,7 @@
             '';
 
           release-consistency-source = pkgs.runCommand "release-consistency-source"
-            { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ]; src = nagareSource.src; }
             ''
               cp -R "$src" source
               chmod -R u+w source
@@ -535,7 +540,7 @@
             '';
 
           github-actions = pkgs.runCommand "github-actions"
-            { nativeBuildInputs = [ pkgs.actionlint ]; src = ./.; }
+            { nativeBuildInputs = [ pkgs.actionlint ]; src = nagareSource.src; }
             ''
               actionlint "$src/.github/workflows/"*.yml
               touch "$out"
@@ -553,7 +558,7 @@
         in
         {
           nagare-access-build-test = pkgs.runCommand "nagare-access-build-test"
-            { nativeBuildInputs = haskellTooling; src = ./.; __noChroot = true; }
+            { nativeBuildInputs = haskellTooling; src = nagareSource.src; __noChroot = true; }
             ''
               cp -r "$src" build && chmod -R +w build
               cd build/cli/nagare-access

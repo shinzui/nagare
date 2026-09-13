@@ -1,4 +1,4 @@
-{ pkgs, sourceRoot, releaseVersion, sourceRevision ? null }:
+{ pkgs, sourceRoot, isNixWiring, releaseVersion, sourceRevision ? null }:
 
 let
   clusterSecretsRoot = toString (sourceRoot + /cluster/secrets);
@@ -11,6 +11,7 @@ let
         isClusterSecret = pathString == clusterSecretsRoot || pkgs.lib.hasPrefix "${clusterSecretsRoot}/" pathString;
       in
       !isClusterSecret
+      && !(isNixWiring path)
       && !(builtins.elem name [ ".direnv" ".git" ".pulumi-home" ".pulumi-state" "dist-newstyle" "node_modules" "result" ])
       && !(name != "Pulumi.yaml" && pkgs.lib.hasPrefix "Pulumi." name && pkgs.lib.hasSuffix ".yaml" name);
   };
