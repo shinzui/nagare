@@ -14,7 +14,7 @@ import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookie
 import Nagare.Access.DecisionCache (newDecisionCache)
 import Nagare.Access.En (authorizeWithEn, enClientEnvFromAuthPlane)
 import Nagare.Access.Jwks (fetchJwksFromShomei, newJwksCache)
-import Nagare.Access.Proxy (newProxyManager, portalForwarder, proxyForwarder)
+import Nagare.Access.Proxy (newProxyManager, portalForwarder, portalPageFetcher, proxyForwarder)
 import Nagare.Access.Shomei (verifyShomeiCredentialCached)
 import Nagare.Access.ShomeiClient (completeMfaWithShomei, loginWithShomei, logoutWithShomei, refreshWithShomei, shomeiLoginEnvFromAuthPlane)
 import Network.Wai (Application)
@@ -69,7 +69,7 @@ buildAccessServices runtime cfg = do
       , refreshUserSession = refreshWithShomei shomeiLoginEnv
       , revokeSession = logoutWithShomei shomeiLoginEnv
       , forwardPortal = portalForwarder manager
-      , fetchPortalPage = \_ _ -> pure Nothing
+      , fetchPortalPage = portalPageFetcher manager
       , newCsrfToken = toText <$> nextRandom
       , decisionCache
       , cookieSettings = Just (cookieSettingsFromAuthPlane cfg)

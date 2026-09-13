@@ -114,10 +114,10 @@ lookupBackend rawHost backendMap = do
   host <- either (const Nothing) Just (mkPublicHost rawHost)
   lookupBackendByHost host backendMap
 
-lookupBackendWithHost :: Text -> BackendMap -> Maybe (Text, BackendTarget)
+lookupBackendWithHost :: Text -> BackendMap -> Maybe (PublicHost, BackendTarget)
 lookupBackendWithHost rawHost backendMap = do
   host <- either (const Nothing) Just (mkPublicHost rawHost)
-  (publicHostText host,) <$> lookupBackendByHost host backendMap
+  (host,) <$> lookupBackendByHost host backendMap
 
 findPortal :: BackendMap -> Maybe Portal
 findPortal (BackendMap entries) =

@@ -91,13 +91,13 @@ contract, which is documented in `docs/user/auth-portal.md`.
     return URL.
   - [x] Revoke the Shomei session on `/_nagare/logout` (both default and portal modes).
   - [x] Tests with stub upstreams; all 120 tests pass.
-- [ ] Milestone 3: portal-driven challenges and branded error pages.
-  - [ ] Document challenges redirect to the portal when one is configured; JSON challenges
+- [x] (2026-09-13T05:03:30Z) Milestone 3: portal-driven challenges and branded error pages.
+  - [x] Document challenges redirect to the portal when one is configured; JSON challenges
     carry the absolute portal login URL.
-  - [ ] `GET /_nagare/login` redirects to the portal unless `builtin=1`.
-  - [ ] 403 and 503 document responses embed the portal's `/errors/403` and `/errors/503`
+  - [x] `GET /_nagare/login` redirects to the portal unless `builtin=1`.
+  - [x] 403 and 503 document responses embed the portal's `/errors/403` and `/errors/503`
     HTML with a timeout and built-in fallback.
-  - [ ] Tests proving the no-portal responses are unchanged.
+  - [x] Tests proving the no-portal responses are unchanged; all 128 tests pass.
 - [ ] Milestone 4: DSL and `nagarectl` wiring.
   - [ ] `authPortal` in `Nagare.Dsl.Access` with a `role` field, JSON round trip in the
     loader.

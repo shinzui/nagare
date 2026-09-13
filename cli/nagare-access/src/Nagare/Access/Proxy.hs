@@ -5,6 +5,7 @@ module Nagare.Access.Proxy
   , hardenWebSocketRequestHeaders
   , newProxyManager
   , portalForwarder
+  , portalPageFetcher
   , proxyForwarder
   , proxyResponseToWai
   , stripEnforcerCookies
@@ -25,13 +26,13 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth (AuthenticatedUser (..))
-import Nagare.Access.Auth (PortalIdentity (..), PortalUpstreamResult (..))
+import Nagare.Access.Auth (PortalIdentity (..), PortalPageRequest (..), PortalUpstreamResult (..))
 import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), publicHostText)
-import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), decodeSessionHandoff)
+import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), PortalPage (..), PortalPageKind (..), ReturnTarget (..), decodeSessionHandoff, renderReturnTarget, safePathText)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Client.Internal qualified as HCI
 import Network.HTTP.Client.TLS (newTlsManager)
-import Network.HTTP.Types (Header, HeaderName, HttpVersion (..), Status (..), hHost, status502, statusCode, statusMessage)
+import Network.HTTP.Types (Header, HeaderName, HttpVersion (..), Status (..), hHost, status200, status502, statusCode, statusMessage)
 import Network.Wai qualified as Wai
 
 newProxyManager :: IO HC.Manager
@@ -77,6 +78,66 @@ portalForwarder manager portal identity waiReq = do
             Left (err :: HC.HttpException) ->
               pure (PortalPassThrough (badGatewayResponse ("upstream request failed: " <> Text.pack (show err))))
             Right response -> interceptPortalResponse response
+
+portalPageFetcher :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)
+portalPageFetcher manager portal pageRequest = do
+  result <- try (fetchPortalPageUnsafe manager portal pageRequest)
+  pure (either (const Nothing) id (result :: Either HC.HttpException (Maybe PortalPage)))
+
+fetchPortalPageUnsafe :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)
+fetchPortalPageUnsafe manager portal pageRequest = do
+  baseReq <- HC.parseRequest (Text.unpack (upstreamUrl (portalTarget portal)))
+  let request =
+        baseReq
+          { HC.method = "GET"
+          , HC.path = appendPaths (HC.path baseReq) (portalErrorPath (pageKind pageRequest))
+          , HC.queryString = ""
+          , HC.requestBody = HC.RequestBodyBS BS.empty
+          , HC.requestHeaders = portalPageHeaders pageRequest
+          , HC.responseTimeout = HC.responseTimeoutMicro 2000000
+          , HC.decompress = const False
+          , HC.redirectCount = 0
+          }
+  HC.withResponse request manager $ \response ->
+    if HC.responseStatus response /= status200 || not (isHtmlResponse response)
+      then pure Nothing
+      else do
+        body <- readBodyCapped (256 * 1024) (HC.responseBody response)
+        pure (PortalPage <$> body)
+
+portalErrorPath :: PortalPageKind -> BS.ByteString
+portalErrorPath ForbiddenPage = "/errors/403"
+portalErrorPath UnavailablePage = "/errors/503"
+
+portalPageHeaders :: PortalPageRequest -> [Header]
+portalPageHeaders pageRequest =
+  [ ("Accept", "text/html")
+  , ("X-Nagare-Error-Host", TE.encodeUtf8 host)
+  , ("X-Nagare-Error-Path", TE.encodeUtf8 path)
+  , ("X-Nagare-Return-To", TE.encodeUtf8 (renderReturnTarget target))
+  ]
+    <> maybe [] (\user -> [("X-Forwarded-User", TE.encodeUtf8 (userSubject user))]) (pageUser pageRequest)
+  where
+    target = pageTarget pageRequest
+    host = publicHostText (targetHost target)
+    path = safePathText (targetPath target)
+
+isHtmlResponse :: HC.Response body -> Bool
+isHtmlResponse response =
+  maybe False (BS.isPrefixOf "text/html" . asciiLower) (lookup "Content-Type" (HC.responseHeaders response))
+
+readBodyCapped :: Int -> HC.BodyReader -> IO (Maybe LBS.ByteString)
+readBodyCapped limit reader = go 0 []
+  where
+    go total chunks = do
+      chunk <- HC.brRead reader
+      if BS.null chunk
+        then pure (Just (LBS.fromChunks (reverse chunks)))
+        else
+          let newTotal = total + BS.length chunk
+           in if newTotal > limit
+                then pure Nothing
+                else go newTotal (chunk : chunks)
 
 buildProxyRequest :: AuthenticatedUser -> Text -> BackendTarget -> Wai.Request -> IO (Either Text HC.Request)
 buildProxyRequest user publicHost target waiReq = do
