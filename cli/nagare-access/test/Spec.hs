@@ -6,6 +6,7 @@ module Main (main) where
 import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (ToJSON, Value, decode, eitherDecode, encode, object, (.=))
+import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertToBase)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Builder qualified as Builder
@@ -60,11 +61,12 @@ import Nagare.Access.Credential
 import Nagare.Access.DecisionCache
 import Nagare.Access.En
 import Nagare.Access.Jwks
+import Nagare.Access.Portal
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status302, status400, status401, status403, status404, status502, status503)
+import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status204, status302, status303, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
@@ -111,6 +113,7 @@ main =
       , enTests
       , decisionCacheTests
       , proxyTests
+      , portalTests
       , challengeTests
       , appTests
       ]
@@ -442,6 +445,8 @@ shomeiTests =
                         , expiresIn = 902
                         }
                 )
+
+          logoutWithShomei env (AccessToken "access.to-revoke")
     ]
 
 enTests :: TestTree
@@ -653,6 +658,16 @@ proxyTests =
           simpleBody res @?= "event: one\n\nevent: two\n\n"
           lookup "Content-Type" (simpleHeaders res) @?= Just "text/event-stream"
           lookup "Connection" (simpleHeaders res) @?= Nothing
+    , testCase "strips forged session-control headers from protected upstreams" $
+        testWithApplication (pure forgedSessionUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          let user = AuthenticatedUser {userSubject = "user:alice"}
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
+              proxyApp req respond = proxyForwarder manager user "app.example.test" target req >>= respond
+          res <- runSession (request (setPath defaultRequest "/")) proxyApp
+          simpleStatus res @?= status200
+          lookup "Nagare-Session-Establish" (simpleHeaders res) @?= Nothing
+          lookup "Nagare-Session-Clear" (simpleHeaders res) @?= Nothing
     , testCase "tunnels websocket upgrade bytes after upstream 101" $
         testWithApplication (pure websocketUpstreamApp) $ \upstreamPort ->
           testWithApplication (pure (websocketProxyApp upstreamPort)) $ \proxyPort ->
@@ -664,6 +679,160 @@ proxyTests =
               SocketBS.sendAll socket "hello"
               echoed <- assertSocketRead socket
               echoed @?= "upstream:hello"
+    ]
+
+portalTests :: TestTree
+portalTests =
+  testGroup
+    "portal"
+    [ testCase "decodes a base64url session hand-off" $ do
+        decodeSessionHandoff (handoffHeader "initial-access" "initial-refresh" (Just "https://app.example.test/x"))
+          @?= Right
+            SessionHandoff
+              { handoffAccessToken = AccessToken "initial-access"
+              , handoffRefreshToken = RefreshToken "initial-refresh"
+              , handoffReturnTo = Just "https://app.example.test/x"
+              }
+    , testCase "return targets accept only routed https hosts and safe paths" $ do
+        let accepted = parseReturnTarget portalBackends "https://app.example.test/x?y=1"
+        renderReturnTarget <$> accepted @?= Just "https://app.example.test/x?y=1"
+        map (parseReturnTarget portalBackends)
+          [ "https://evil.example/"
+          , "https://app.example.test@evil.example/"
+          , "http://app.example.test/"
+          , "https://app.example.test//evil"
+          ]
+          @?= replicate 4 Nothing
+    , testCase "anonymous portal forwarding strips spoofed identity and auth cookies" $
+        testWithApplication (pure portalEchoUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          portal <- portalForPort port
+          let req =
+                withHeader "X-Forwarded-User" "user:mallory" $
+                  withHeader hAuthorization "Bearer stolen" $
+                    withHeader "Cookie" "theme=dark; nagare_session=secret" $
+                      withHeader hHost "auth.example.test" (setPath defaultRequest "/headers")
+              proxyApp request' respond = do
+                result <- portalForwarder manager portal PortalAnonymous request'
+                case result of
+                  PortalPassThrough response -> respond response
+                  _ -> respond (textResponse status502 "unexpected interception")
+          res <- runSession (request req) proxyApp
+          simpleStatus res @?= status200
+          simpleBody res @?= "user=; authorization=; cookie=theme=dark"
+    , testCase "portal forwarding intercepts a session establish header" $
+        testWithApplication (pure portalEstablishUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          portal <- portalForPort port
+          result <- portalForwarder manager portal PortalAnonymous (setPath defaultRequest "/login")
+          case result of
+            PortalSessionEstablish handoff ->
+              handoffRefreshToken handoff @?= RefreshToken "portal-refresh"
+            _ -> assertFailure "expected an intercepted session hand-off"
+    , testCase "authenticated portal forwarding injects the bearer token" $
+        testWithApplication (pure portalEchoUpstreamApp) $ \port -> do
+          manager <- HC.newManager HC.defaultManagerSettings
+          portal <- portalForPort port
+          let identity = PortalAuthenticated AuthenticatedUser {userSubject = "user:alice"} (AccessToken "access-token")
+              proxyApp request' respond = do
+                result <- portalForwarder manager portal identity request'
+                case result of
+                  PortalPassThrough response -> respond response
+                  _ -> respond (textResponse status502 "unexpected interception")
+          res <- runSession (request (setPath defaultRequest "/headers")) proxyApp
+          simpleBody res @?= "user=user:alice; authorization=Bearer access-token; cookie="
+    , testCase "document hand-off rotates tokens and establishes the refreshed session" $ do
+        refreshedWith <- newIORef []
+        let services =
+              testServices
+                { verifyCredential = \credential ->
+                    pure $
+                      if credentialToken credential `elem` ["portal-access", "refreshed-access"]
+                        then Right AuthenticatedUser {userSubject = "user:alice"}
+                        else Left InvalidCredential
+                , refreshUserSession = \token -> do
+                    modifyIORef' refreshedWith (token :)
+                    pure
+                      ( LoginSucceeded
+                          SessionTokens
+                            { accessToken = "refreshed-access"
+                            , refreshToken = Just "refreshed-refresh"
+                            , expiresIn = 900
+                            }
+                      )
+                , forwardPortal = \_ _ _ ->
+                    pure
+                      ( PortalSessionEstablish
+                          SessionHandoff
+                            { handoffAccessToken = AccessToken "portal-access"
+                            , handoffRefreshToken = RefreshToken "portal-refresh"
+                            , handoffReturnTo = Just "https://app.example.test/x?y=1"
+                            }
+                      )
+                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
+                }
+            req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
+        res <- runSession (request req) (appWithRuntime portalBackends services)
+        simpleStatus res @?= status303
+        lookup hLocation (simpleHeaders res) @?= Just "https://app.example.test/x?y=1"
+        sessionValue <- setCookieValue "nagare_session" res
+        sessionValue @?= "refreshed-access"
+        readIORef refreshedWith >>= (@?= ["portal-refresh"])
+    , testCase "API hand-off returns JSON and unsafe targets fall back to portal home" $ do
+        let services = successfulHandoffServices (Just "https://evil.example/")
+            req =
+              withHeader hAccept "application/json" $
+                withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
+        res <- runSession (request req) (appWithRuntime portalBackends services)
+        simpleStatus res @?= status200
+        simpleBody res @?= "{\"redirect\":\"https://auth.example.test/\"}"
+    , testCase "failed hand-off sets no cookies and redirects to the portal login" $ do
+        let services =
+              (successfulHandoffServices Nothing)
+                { verifyCredential = \_ -> pure (Left InvalidCredential)
+                }
+            req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
+        res <- runSession (request req) (appWithRuntime portalBackends services)
+        simpleStatus res @?= status303
+        lookup hLocation (simpleHeaders res) @?= Just "https://auth.example.test/login?error=session"
+        assertBool "no session cookie expected" (not (any ((== "Set-Cookie") . fst) (simpleHeaders res)))
+    , testCase "clear revokes the current session and clears cookies" $ do
+        revoked <- newIORef []
+        let services =
+              testServices
+                { revokeSession = \(AccessToken token) -> modifyIORef' revoked (token :)
+                , forwardPortal = \_ _ _ ->
+                    pure
+                      ( PortalSessionClear
+                          CapturedResponse
+                            { capturedStatus = status204
+                            , capturedHeaders = []
+                            , capturedBody = ""
+                            }
+                      )
+                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
+                }
+            req =
+              withHeader hHost "auth.example.test" $
+                withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/logout")
+        res <- runSession (request req) (appWithRuntime portalBackends services)
+        simpleStatus res @?= status204
+        readIORef revoked >>= (@?= ["current-access"])
+        assertBool "expected clear cookies" (length (filter ((== "Set-Cookie") . fst) (simpleHeaders res)) == 2)
+    , testCase "logout revokes and redirects to the portal when configured" $ do
+        revoked <- newIORef []
+        let services =
+              testServices
+                { revokeSession = \(AccessToken token) -> modifyIORef' revoked (token :)
+                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
+                }
+            req =
+              withHeader hHost "app.example.test" $
+                withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/_nagare/logout")
+        res <- runSession (request req) (appWithRuntime portalBackends services)
+        simpleStatus res @?= status302
+        lookup hLocation (simpleHeaders res) @?= Just "https://auth.example.test/login?logged_out=1"
+        readIORef revoked >>= (@?= ["current-access"])
     ]
 
 appTests :: TestTree
@@ -1056,6 +1225,9 @@ appTests =
                       , loginUser = loginWithShomei shomeiLoginEnv
                       , completeMfa = completeMfaWithShomei shomeiLoginEnv
                       , refreshUserSession = refreshWithShomei shomeiLoginEnv
+                      , revokeSession = logoutWithShomei shomeiLoginEnv
+                      , forwardPortal = portalForwarder manager
+                      , fetchPortalPage = \_ _ -> pure Nothing
                       , newCsrfToken = pure "csrf-token"
                       , decisionCache
                       , cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
@@ -1192,6 +1364,9 @@ shomeiAdapterStubApp req respond =
           respondJson status200 (ShomeiSessionDTO.TokenPairResponse (Just "access.from-mfa") (Just "refresh.from-mfa") 902)
         _ ->
           respondJson status401 (object ["error" .= ("invalid_mfa" :: Text)])
+    ("POST", ["v1", "auth", "logout"]) -> do
+      lookup hAuthorization (requestHeaders req) @?= Just "Bearer access.to-revoke"
+      respond (Wai.responseLBS status204 [("Content-Type", "application/json")] "")
     _ ->
       respond (Wai.responseLBS status404 [] "not found")
   where
@@ -1339,6 +1514,16 @@ streamingUpstreamApp _req respond =
           flush
       )
 
+forgedSessionUpstreamApp :: Wai.Application
+forgedSessionUpstreamApp _req respond =
+  respond $
+    Wai.responseLBS
+      status200
+      [ ("Nagare-Session-Establish", "forged")
+      , ("Nagare-Session-Clear", "1")
+      ]
+      "ordinary body"
+
 identityUpstreamApp :: Wai.Application
 identityUpstreamApp req respond =
   respond $
@@ -1420,6 +1605,86 @@ assertSocketRead socket = do
     Just _ -> assertFailure "socket closed before expected bytes"
     Nothing -> assertFailure "timed out waiting for socket bytes"
 
+portalBackends :: BackendMap
+portalBackends =
+  either (error . Text.unpack) id $
+    backendMapFromTargets
+      [ ("app.example.test", BackendTarget "http://app.personal.svc.cluster.local" ProtectedBackend)
+      , ("auth.example.test", BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
+      ]
+
+portalForPort :: Int -> IO Portal
+portalForPort port = do
+  host <- assertRight (mkPublicHost "auth.example.test")
+  pure
+    Portal
+      { portalHost = host
+      , portalTarget = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) PortalBackend
+      }
+
+handoffHeader :: Text -> Text -> Maybe Text -> ByteString
+handoffHeader access refresh returnTo =
+  convertToBase Base64URLUnpadded . LBS.toStrict . encode $
+    object
+      [ "accessToken" .= access
+      , "refreshToken" .= refresh
+      , "returnTo" .= returnTo
+      ]
+
+portalEchoUpstreamApp :: Wai.Application
+portalEchoUpstreamApp req respond =
+  respond $
+    Wai.responseLBS
+      status200
+      [("Content-Type", "text/plain")]
+      ( LBS.fromStrict $
+          BS.concat
+            [ "user="
+            , maybe "" id (lookup "X-Forwarded-User" (Wai.requestHeaders req))
+            , "; authorization="
+            , maybe "" id (lookup hAuthorization (Wai.requestHeaders req))
+            , "; cookie="
+            , maybe "" id (lookup "Cookie" (Wai.requestHeaders req))
+            ]
+      )
+
+portalEstablishUpstreamApp :: Wai.Application
+portalEstablishUpstreamApp _req respond =
+  respond $
+    Wai.responseLBS
+      status204
+      [("Nagare-Session-Establish", handoffHeader "portal-access" "portal-refresh" Nothing)]
+      "ignored"
+
+successfulHandoffServices :: Maybe Text -> AccessServices
+successfulHandoffServices returnTo =
+  testServices
+    { verifyCredential = \credential ->
+        pure $
+          if credentialToken credential `elem` ["portal-access", "refreshed-access"]
+            then Right AuthenticatedUser {userSubject = "user:alice"}
+            else Left InvalidCredential
+    , refreshUserSession = \_ ->
+        pure
+          ( LoginSucceeded
+              SessionTokens
+                { accessToken = "refreshed-access"
+                , refreshToken = Just "refreshed-refresh"
+                , expiresIn = 900
+                }
+          )
+    , forwardPortal = \_ _ _ ->
+        pure
+          ( PortalSessionEstablish
+              SessionHandoff
+                { handoffAccessToken = AccessToken "portal-access"
+                , handoffRefreshToken = RefreshToken "portal-refresh"
+                , handoffReturnTo = returnTo
+                }
+          )
+    , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
+    }
+
 testServices :: AccessServices
 testServices =
   AccessServices
@@ -1429,6 +1694,9 @@ testServices =
     , loginUser = \_ -> pure (LoginFailed "invalid login")
     , completeMfa = \_ -> pure (LoginFailed "mfa failed")
     , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
+    , revokeSession = \_ -> pure ()
+    , forwardPortal = \_ _ _ -> pure (PortalPassThrough (textResponse status200 "portal"))
+    , fetchPortalPage = \_ _ -> pure Nothing
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing

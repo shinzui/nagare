@@ -7,17 +7,20 @@ module Nagare.Access.App
   )
 where
 
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Aeson (FromJSON (parseJSON), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Function ((&))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Auth
 import Nagare.Access.BackendMap
-import Nagare.Access.Challenge (ChallengeMode, classifyChallenge, safeReturnDestination)
+import Nagare.Access.Challenge (ChallengeMode (..), classifyChallenge, safeReturnDestination)
 import Nagare.Access.Cookie
   ( CookieSettings (cookieKey)
   , clearRefreshCookieHeader
@@ -27,8 +30,9 @@ import Nagare.Access.Cookie
   , refreshCookieHeader
   , sessionCookieHeader
   )
-import Nagare.Access.Credential (Credential (SessionCookie), extractCredential)
+import Nagare.Access.Credential (Credential (SessionCookie), credentialToken, extractCredential)
 import Nagare.Access.DecisionCache
+import Nagare.Access.Portal
 import Nagare.Access.Response (challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFromWai)
 import Network.HTTP.Types
   ( Header
@@ -39,6 +43,7 @@ import Network.HTTP.Types
   , parseQuery
   , status200
   , status302
+  , status303
   , status400
   , status401
   , status403
@@ -77,7 +82,7 @@ appWithRuntime backends services req respond =
     ("GET", ["_nagare", "userinfo"]) ->
       respond =<< userInfoResponse services req
     ("GET", ["_nagare", "logout"]) ->
-      respond (logoutResponse services)
+      respond =<< logoutResponse backends services req
     ("GET", ["_nagare", "login"]) ->
       respond =<< loginFormResponse services req
     ("POST", ["_nagare", "login"]) ->
@@ -89,7 +94,12 @@ appWithRuntime backends services req respond =
         Nothing ->
           respond (maybe (textResponse status404 "not found") missingBackendResponse (lookupHost req))
         Just (host, target) ->
-          respond =<< handleProtected services host req target
+          case backendRole target of
+            ProtectedBackend -> respond =<< handleProtected services host req target
+            PortalBackend ->
+              case findPortal backends of
+                Just portal -> respond =<< handlePortal backends services portal req
+                Nothing -> respond (textResponse status500 "portal backend is inconsistent")
 
 handleProtected :: AccessServices -> Text -> Request -> BackendTarget -> IO Response
 handleProtected services host req target = do
@@ -151,6 +161,110 @@ refreshOrChallenge services req challenge =
         LoginFailed _ ->
           pure (Left (clearAuthCookies services (challengeResponse challenge)))
 
+handlePortal :: BackendMap -> AccessServices -> Portal -> Request -> IO Response
+handlePortal backends services portal req = do
+  (identity, authenticationHeaders) <- authenticatePortal services req
+  upstream <- forwardPortal services portal identity req
+  case upstream of
+    PortalPassThrough response ->
+      pure (addResponseHeaders authenticationHeaders response)
+    PortalSessionEstablish handoff -> do
+      established <- runExceptT (establishSession services backends portal handoff)
+      case established of
+        Left failure -> do
+          putStrLn ("auth portal session hand-off failed: " <> show failure)
+          pure (handoffFailureResponse portal)
+        Right (target, headers) ->
+          pure (handoffSuccessResponse req target headers)
+    PortalHandoffMalformed reason -> do
+      putStrLn ("auth portal session hand-off failed: " <> show (HandoffMalformed reason))
+      pure (handoffFailureResponse portal)
+    PortalSessionClear captured -> do
+      case identity of
+        PortalAuthenticated _ token -> revokeSession services token
+        PortalAnonymous -> pure ()
+      pure
+        ( responseLBS
+            (capturedStatus captured)
+            (clearAuthCookieHeaders services <> capturedHeaders captured)
+            (capturedBody captured)
+        )
+
+authenticatePortal :: AccessServices -> Request -> IO (PortalIdentity, [Header])
+authenticatePortal services req =
+  case extractCredential (requestHeaders req) of
+    Nothing -> refreshPortalIdentity services req
+    Just credential -> do
+      verified <- verifyCredential services credential
+      case verified of
+        Right user -> pure (PortalAuthenticated user (AccessToken (credentialToken credential)), [])
+        Left _ -> refreshPortalIdentity services req
+
+refreshPortalIdentity :: AccessServices -> Request -> IO (PortalIdentity, [Header])
+refreshPortalIdentity services req =
+  case refreshTokenFromRequest services req of
+    Nothing -> pure (PortalAnonymous, [])
+    Just refresh -> do
+      outcome <- refreshUserSession services refresh
+      case outcome of
+        LoginSucceeded tokens -> do
+          verified <- verifyCredential services (SessionCookie (accessToken tokens))
+          case verified of
+            Right user ->
+              pure
+                ( PortalAuthenticated user (AccessToken (accessToken tokens))
+                , either (const []) id (sessionHeaders services tokens)
+                )
+            Left _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
+        LoginMfaRequired _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
+        LoginFailed _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
+
+data HandoffFailure
+  = HandoffMalformed !Text
+  | HandoffAccessTokenRejected
+  | HandoffRefreshFailed
+  | HandoffRefreshedTokenRejected
+  | HandoffCookieCreationFailed
+  deriving stock (Eq, Show)
+
+establishSession :: AccessServices -> BackendMap -> Portal -> SessionHandoff -> ExceptT HandoffFailure IO (ReturnTarget, [Header])
+establishSession services backends portal handoff = do
+  let AccessToken initialAccess = handoffAccessToken handoff
+      RefreshToken initialRefresh = handoffRefreshToken handoff
+  initialVerified <- lift (verifyCredential services (SessionCookie initialAccess))
+  case initialVerified of
+    Left _ -> throwE HandoffAccessTokenRejected
+    Right _ -> pure ()
+  refreshed <- lift (refreshUserSession services initialRefresh)
+  tokens <- case refreshed of
+    LoginSucceeded sessionTokens | refreshToken sessionTokens /= Nothing -> pure sessionTokens
+    _ -> throwE HandoffRefreshFailed
+  refreshedVerified <- lift (verifyCredential services (SessionCookie (accessToken tokens)))
+  case refreshedVerified of
+    Left _ -> throwE HandoffRefreshedTokenRejected
+    Right _ -> pure ()
+  headers <- either (const (throwE HandoffCookieCreationFailed)) pure (sessionHeaders services tokens)
+  let target =
+        fromMaybe
+          (portalHome portal)
+          (handoffReturnTo handoff >>= parseReturnTarget backends)
+  pure (target, headers)
+
+handoffSuccessResponse :: Request -> ReturnTarget -> [Header] -> Response
+handoffSuccessResponse req target headers =
+  case classifyChallenge (requestShapeFromWai req) of
+    RedirectDocument _ -> responseLBS status303 ((hLocation, TE.encodeUtf8 rendered) : headers) ""
+    JsonApi _ -> jsonResponseWithHeaders status200 headers (object ["redirect" .= rendered])
+  where
+    rendered = renderReturnTarget target
+
+handoffFailureResponse :: Portal -> Response
+handoffFailureResponse portal =
+  responseLBS
+    status303
+    [(hLocation, TE.encodeUtf8 (portalLoginUrl portal (Just SessionFailed) Nothing))]
+    ""
+
 -- | The @Host@ header as text, or 'Nothing' when it is absent *or* not valid
 -- UTF-8. A hostile client can send arbitrary bytes here; the strict
 -- 'TE.decodeUtf8' throws an imprecise exception when the resulting 'Text' is
@@ -168,6 +282,9 @@ defaultAccessServices =
     , loginUser = \_ -> pure (LoginFailed "login is not configured")
     , completeMfa = \_ -> pure (LoginFailed "mfa is not configured")
     , refreshUserSession = \_ -> pure (LoginFailed "refresh is not configured")
+    , revokeSession = \_ -> pure ()
+    , forwardPortal = \_ _ _ -> pure (PortalPassThrough (textResponse status404 "not found"))
+    , fetchPortalPage = \_ _ -> pure Nothing
     , newCsrfToken = pure "csrf-token"
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
@@ -194,15 +311,24 @@ unauthenticatedUserInfoResponse :: Response
 unauthenticatedUserInfoResponse =
   jsonResponse status401 (object ["authenticated" .= False])
 
-logoutResponse :: AccessServices -> Response
-logoutResponse services =
-  responseLBS
-    status302
-    headers
-    ""
+logoutResponse :: BackendMap -> AccessServices -> Request -> IO Response
+logoutResponse backends services req = do
+  case extractCredential (requestHeaders req) of
+    Nothing -> pure ()
+    Just credential -> do
+      verified <- verifyCredential services credential
+      case verified of
+        Right _ -> revokeSession services (AccessToken (credentialToken credential))
+        Left _ -> pure ()
+  pure (responseLBS status302 headers "")
   where
+    destination =
+      maybe
+        "/_nagare/login"
+        (\portal -> portalLoginUrl portal (Just LoggedOut) Nothing)
+        (findPortal backends)
     headers =
-      [(hLocation, "/_nagare/login")]
+      [(hLocation, TE.encodeUtf8 destination)]
         <> clearAuthCookieHeaders services
 
 jsonResponse :: Status -> Value -> Response

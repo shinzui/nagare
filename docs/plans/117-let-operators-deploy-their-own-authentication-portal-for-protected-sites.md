@@ -83,14 +83,14 @@ contract, which is documented in `docs/user/auth-portal.md`.
   - [x] Strip `nagare_session`, `nagare_refresh`, and `__Host-nagare_csrf` from the
     `Cookie` header before proxying to any backend.
   - [x] Tests in `cli/nagare-access/test/Spec.hs` for both; all 109 tests pass.
-- [ ] Milestone 2: portal routing mode in `nagare-access`.
-  - [ ] Optional authentication and identity forwarding (with `Authorization: Bearer`) for
+- [x] (2026-09-13T04:58:30Z) Milestone 2: portal routing mode in `nagare-access`.
+  - [x] Optional authentication and identity forwarding (with `Authorization: Bearer`) for
     the portal host.
-  - [ ] Session hand-off: intercept `Nagare-Session-Establish` / `Nagare-Session-Clear`
+  - [x] Session hand-off: intercept `Nagare-Session-Establish` / `Nagare-Session-Clear`
     response headers from the portal upstream only; rotate the refresh token; validate the
     return URL.
-  - [ ] Revoke the Shomei session on `/_nagare/logout` (both default and portal modes).
-  - [ ] Tests with stub upstreams.
+  - [x] Revoke the Shomei session on `/_nagare/logout` (both default and portal modes).
+  - [x] Tests with stub upstreams; all 120 tests pass.
 - [ ] Milestone 3: portal-driven challenges and branded error pages.
   - [ ] Document challenges redirect to the portal when one is configured; JSON challenges
     carry the absolute portal login URL.
@@ -167,6 +167,15 @@ These were found while researching the plan (2026-09-12), before any implementat
   `shomei-server/src/Shomei/Server/Config.hs:706-712`). Both the built-in pages and a
   portal call Shomei from one pod, so one attacker's failures count against everyone.
   This is not introduced by this plan; see the Decision Log.
+- **The plan's required `ExceptT` hand-off block needs a direct `transformers`
+  dependency.** Cabal hides transitive packages, so importing
+  `Control.Monad.Trans.Except` requires listing the compiler-bundled `transformers`
+  package in `cli/nagare-access/nagare-access.cabal`. This is the only Haskell
+  dependency-list change; no new package source or version bound was introduced.
+- **The pinned Shomei release already exposes an authenticated logout client.** The
+  pinned commit `6a96185f4f809e5e7a99095274caa6bd90e7a8d7` is the peeled target of the
+  authoritative upstream tags `release-2026-08-27` and `shomei-core-0.2.0.0`, and
+  `Shomei.Client.logout` sends the bearer token to `POST /v1/auth/logout`.
 
 
 ## Decision Log
@@ -290,6 +299,22 @@ These were found while researching the plan (2026-09-12), before any implementat
   Fixing it means trusting forwarded client addresses from cluster pods
   (`SHOMEI_TRUSTED_PROXIES`), which is a separate security decision.
   Date: 2026-09-12
+
+- Decision: Implement session revocation with the generated
+  `Shomei.Client.logout` function from the pinned Shomei source, wrapped as a
+  best-effort `logoutWithShomei` adapter.
+  Rationale: The typed client exactly matches the pinned server API and avoids a
+  parallel hand-written HTTP contract. Logout must still clear browser cookies when
+  Shomei is unreachable, so transport or application failures are logged and do not
+  escape the adapter.
+  Date: 2026-09-13
+
+- Decision: Add the compiler-bundled `transformers` package as a direct
+  `nagare-access` dependency.
+  Rationale: The plan requires the multi-step hand-off to be one `ExceptT` block;
+  Cabal package visibility requires the owning package to be named directly even
+  though it is already present in the compiler package set.
+  Date: 2026-09-13
 
 
 ## Outcomes & Retrospective
@@ -1431,7 +1456,10 @@ restores them. If a check is interrupted, run `kubectl -n nagare-system scale de
 
 ## Interfaces and Dependencies
 
-No new Haskell or npm dependencies are added.
+No new npm dependencies or externally sourced Haskell packages are added. Milestone 2
+adds the compiler-bundled `transformers` package as a direct Cabal dependency because
+the required `ExceptT` hand-off block imports `Control.Monad.Trans.Except`; the package
+was already present in the compiler package set.
 
 - `nagare-access` keeps using `wai`, `http-client`, `http-types`, `aeson`, `base64`
   handling from `memory`/`crypton` (`Data.ByteArray.Encoding`, already used in
