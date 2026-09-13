@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { buildSshCommand } from "./src/outputs";
+import { resolveVmShape } from "./src/vmShape";
 
 const cfg = new pulumi.Config();
 const gcpCfg = new pulumi.Config("gcp");
@@ -16,8 +17,9 @@ const zone = gcpCfg.require("zone");
 // stack output is named after its exported binding, so the exports must
 // literally be `baseDomain`, `instanceName`, etc.).
 const instanceNameCfg = cfg.get("instanceName") ?? "nagare-01";
-const machineTypeCfg = cfg.get("machineType") ?? "e2-standard-2";
-const dataDiskSizeGbCfg = cfg.getNumber("dataDiskSizeGb") ?? 100;
+const vmShape = resolveVmShape(cfg);
+const machineTypeCfg = vmShape.machineType;
+const dataDiskSizeGbCfg = vmShape.dataDiskSizeGb;
 const baseDomainCfg = cfg.get("baseDomain") ?? "apps.example.com";
 const artifactRegistryIdCfg = cfg.get("artifactRegistryId") ?? "nagare";
 const backupBucketNameCfg = cfg.get("backupBucket") ?? `${gcpProject}-nagare-backups`;
@@ -43,14 +45,8 @@ const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
 // Two commands, not a code edit, and the default stays fail-closed.
 const vmDeletionProtectionCfg = cfg.getBoolean("vmDeletionProtection") ?? true;
 
-// EP-99: boot-disk geometry, previously hardcoded in NagareInstance.
-// pd-balanced is the sensible default for a fresh stack. CAUTION: GCE cannot
-// convert a boot disk's type in place, so changing `bootDiskType` against a
-// live VM forces an INSTANCE REPLACEMENT. A stack whose VM is already running
-// on another type should pin it (`pulumi config set bootDiskType pd-standard`)
-// until a deliberate rebuild is being performed.
-const bootDiskSizeGbCfg = cfg.getNumber("bootDiskSizeGb") ?? 100;
-const bootDiskTypeCfg = cfg.get("bootDiskType") ?? "pd-balanced";
+const bootDiskSizeGbCfg = vmShape.bootDiskSizeGb;
+const bootDiskTypeCfg = vmShape.bootDiskType;
 
 // EP-63: codify the GCP service APIs the topology needs. On a brand-new project
 // these may be off; declaring them here makes `pulumi up` self-enable them, and
