@@ -72,7 +72,9 @@ jobs:
         uses: cachix/install-nix-action@v31
         with:
           github_access_token: ${{ github.token }}
-          extra_nix_config: experimental-features = nix-command flakes
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
 
       - name: Install pinned release tools
         run: nix profile install .#release-tools
