@@ -20,7 +20,7 @@
 -- artifacts and URL without side effects.
 module Main (main) where
 
-import Control.Exception (IOException, bracket, bracket_, catch)
+import Control.Exception (IOException, bracket, bracket_, catch, try)
 import Control.Monad (forM, forM_, unless, void)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -157,8 +157,9 @@ import Nagare.Image
 import Nagare.Infra.Plan
   ( PlanVerdict (..)
   , classifyPlan
-  , gceInstanceType
   , parsePreview
+  , previewErrors
+  , protectedResourceTypes
   , renderVerdict
   )
 import Nagare.Init
@@ -205,6 +206,7 @@ import Nagare.Platform.Paths
   , resolvePlatformPaths
   , validatePlatformRoot
   )
+import Nagare.Platform.StackConfig (linkContextStackConfig)
 import Nagare.Platform.Status
   ( PlatformStatus (..)
   , ReleaseIdentity (..)
@@ -284,12 +286,14 @@ import Nagare.Target
   , contextsDir
   , deleteContext
   , listContexts
+  , mergeContextOverrides
   , mkContextName
   , nagareStateDir
   , parseAcmeDirectory
   , parsePulumiBackendKind
   , profileFromContextMap
   , pulumiEnvFor
+  , readContextMap
   , readContextProfile
   , readCurrentContext
   , renderContextShellEnv
@@ -326,7 +330,7 @@ import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
 import System.Process
-  ( CreateProcess (env)
+  ( CreateProcess (cwd, env)
   , proc
   , readCreateProcessWithExitCode
   , readProcessWithExitCode
@@ -945,7 +949,7 @@ contextCreateOptsParser =
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during --use bootstrap (not persisted)"))
     <*> optional (strOption (long "acme-email" <> metavar "ADDRESS" <> help "Let's Encrypt contact address (no default; required to render the cluster issuer)"))
     <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
-    <*> switch (long "force" <> help "Overwrite an existing context of this name")
+    <*> switch (long "force" <> help "Update an existing context: passed flags change, every other stored field is kept")
     <*> switch (long "use" <> help "Also set this context as the current context")
 
 -- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
@@ -2628,13 +2632,19 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
       pure (LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt)))
     runPhase NixEvaluate =
       runExternal [ExitSuccess] "nix" ["eval", "path:" <> staged <> "#packages.x86_64-linux.nagare-image.drvPath"] ""
-    runPhase PulumiPreview =
-      runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+    -- EP-121: both Pulumi phases run the project guard and the protected-resource
+    -- replacement guard, exactly as `just infra-up` does, and apply re-previews.
+    runPhase PulumiPreview = guardPulumi
+    runPhase PulumiApply = do
+      guarded <- guardPulumi
+      case guarded of
+        Left err -> pure (Left err)
+        Right evidence ->
+          fmap ((evidence <> "\n") <>)
+            <$> runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "up", "--yes", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
     runPhase KubernetesDiff = do
       marker <- markerInput
       runExternal [ExitSuccess, ExitFailure 1] "kubectl" ["diff", "-f", "-", "--request-timeout=5s"] marker
-    runPhase PulumiApply =
-      runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "up", "--yes", "--skip-preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
     runPhase HostApply = do
       switched <- withEnvironment "NAGARE_HOST_FLAKE" staged $ runExternal [ExitSuccess] "bash" [workspace ^. #scriptsDir </> "host-switch.sh"] ""
       case switched of
@@ -2653,6 +2663,17 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     runPhase ContextCommit =
       writeContextPlatformVersion context (manifest ^. #platformVersion)
         >>= pure . fmap (const ("context pin advanced to " <> manifest ^. #platformVersion))
+    guardPulumi = case profile ^. #mode of
+      Local ->
+        runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+      Cloud -> do
+        pgi <- projectGuardInputsFor context profile workspace
+        case projectGuardVerdict pgi of
+          Left refusal -> pure (Left refusal)
+          Right () -> do
+            allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+            fmap ((renderProjectGuard pgi <> "\n") <>)
+              <$> instanceReplacementGuard profile workspace (T.unpack (contextNameText context)) allowed
     bootstrapRecipe = case profile ^. #mode of
       Local -> "local-bootstrap"
       Cloud -> "cluster-bootstrap"
@@ -2753,7 +2774,11 @@ runHost globalContext = \case
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext name tp = do
-  (_, workspace) <- resolvePlatformWorkspace name
+  (paths, workspace) <- resolvePlatformWorkspace name
+  -- EP-121: a source checkout's own `just` recipes run Pulumi in its infra/pulumi,
+  -- so it must read the same context-owned stack config as the workspace.
+  when (paths ^. #rootSource == SourceRoot) $
+    linkContextStackConfig name (paths ^. #pulumiDir) >>= either dieT (const (pure ()))
   ensurePulumiInWorkspace name tp workspace
   pure workspace
 
@@ -2763,6 +2788,10 @@ ensurePulumiInWorkspace name tp workspace = do
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = penv ^. #stack
       pulumiDir = workspace ^. #pulumiDir
+  -- EP-121: payload workspaces exclude every Pulumi.<stack>.yaml, so link the
+  -- context-owned stack config in before Pulumi reads or writes it.
+  linkContextStackConfig name pulumiDir >>= either dieT (const (pure ()))
+  ensurePulumiProgramDependencies pulumiDir
   createDirectoryIfMissing True (penv ^. #home)
   -- Only a local (@file://@) backend has a state directory to create; a GCS
   -- backend URL is @gs://…@ and must never be treated as a local path.
@@ -2802,6 +2831,24 @@ bootstrapGcsIfNeeded :: Bool -> Text -> TargetProfile -> Maybe Text -> IO ()
 bootstrapGcsIfNeeded dryRun ctx tp mMember =
   bootstrapPulumiStateBucket dryRun ctx tp mMember
     >>= either (\msg -> dieT ("GCS state-bucket bootstrap failed: " <> msg)) pure
+
+-- | EP-121: payload workspaces exclude node_modules, so a clone-free Pulumi run
+-- would fail with "the Pulumi SDK has not been installed". Install the program's
+-- locked dependencies once per workspace, before any Pulumi command needs them.
+ensurePulumiProgramDependencies :: FilePath -> IO ()
+ensurePulumiProgramDependencies pulumiDir = do
+  installed <- doesFileExist (pulumiDir </> "node_modules" </> "@pulumi" </> "pulumi" </> "package.json")
+  locked <- doesFileExist (pulumiDir </> "package-lock.json")
+  when (locked && not installed) $ do
+    TIO.hPutStrLn stderr ("Installing the Pulumi program's locked Node dependencies in " <> T.pack pulumiDir <> " ...")
+    result <-
+      try (readCreateProcessWithExitCode ((proc "npm" ["ci", "--no-audit", "--no-fund"]) {cwd = Just pulumiDir}) "")
+    case result of
+      Left (err :: IOException) ->
+        dieT ("could not run `npm ci` for the Pulumi program (Node.js and npm are required): " <> T.pack (show err))
+      Right (ExitSuccess, _, _) -> pure ()
+      Right (ExitFailure code, _, err) ->
+        dieT ("`npm ci` failed in " <> T.pack pulumiDir <> " (exit " <> T.pack (show code) <> "):\n" <> T.strip (T.pack err))
 
 pulumiQuiet :: [String] -> IO ExitCode
 pulumiQuiet args =
@@ -2851,34 +2898,48 @@ runInfraGuard mctx allowReplacementFlag = do
   case tp ^. #mode of
     Local -> TIO.putStrLn "infra guard: local mode has no GCE instance to protect"
     Cloud -> do
-      void (either dieT pure (validateVmShape (vmShapeOf tp)))
       ctx <- fromMaybe "default" <$> lookupEnv "NAGARE_PULUMI_STACK"
+      envAllowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+      result <- instanceReplacementGuard tp workspace ctx (allowReplacementFlag || envAllowed)
+      case result of
+        Right message -> TIO.putStr message
+        Left message -> TIO.hPutStr stderr (ensureNewline message) >> exitFailure
+  where
+    ensureNewline t = if "\n" `T.isSuffixOf` t then t else t <> "\n"
+
+-- | Preview the stack and refuse a plan that replaces a protected resource (the
+-- GCE instance, the Cloud DNS zone, or a bucket). Any failure to preview or parse
+-- is a refusal. Shared by @nagarectl infra guard@ and the upgrade's Pulumi phases
+-- (EP-121), so the transaction is never less guarded than @just infra-up@.
+instanceReplacementGuard :: TargetProfile -> PlatformWorkspace -> String -> Bool -> IO (Either Text Text)
+instanceReplacementGuard tp workspace stack allowReplacement =
+  case validateVmShape (vmShapeOf tp) of
+    Left err -> pure (Left err)
+    Right _ -> do
       previewResult <-
         catch
-          (Right <$> readProcessWithExitCode "pulumi" ["-C", workspace ^. #pulumiDir, "preview", "--json", "--stack", ctx] "")
+          (Right <$> readProcessWithExitCode "pulumi" ["-C", workspace ^. #pulumiDir, "preview", "--json", "--stack", stack, "--non-interactive"] "")
           (pure . Left . (\(err :: IOException) -> err))
-      case previewResult of
-        Left err -> dieT ("infra guard could not run Pulumi preview; refusing to apply: " <> T.pack (show err))
-        Right (ExitFailure code, _, err) ->
-          dieT
+      pure $ case previewResult of
+        Left err -> Left ("infra guard could not run Pulumi preview; refusing to apply: " <> T.pack (show err))
+        Right (ExitFailure code, out, err) ->
+          Left
             ( "infra guard could not inspect the Pulumi plan (preview exited "
                 <> T.pack (show code)
                 <> "); refusing to apply:\n"
-                <> T.strip (T.pack err)
+                <> T.strip (T.unlines (T.pack err : previewErrors (TE.encodeUtf8 (T.pack out))))
             )
-        Right (ExitSuccess, out, _) -> do
-          steps <- either (dieT . ("infra guard could not parse Pulumi preview; refusing to apply: " <>)) pure (parsePreview (TE.encodeUtf8 (T.pack out)))
-          let verdict = classifyPlan gceInstanceType steps
-          case verdict of
-            PlanAllowed -> TIO.putStr (renderVerdict (tp ^. #instanceName) verdict)
-            PlanReplacesInstance _ -> do
-              envAllowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
-              let message = renderVerdict (tp ^. #instanceName) verdict
-              if allowReplacementFlag || envAllowed
-                then do
-                  TIO.hPutStrLn stderr "VM replacement explicitly allowed for this run."
-                  TIO.hPutStr stderr message
-                else TIO.hPutStr stderr message >> exitFailure
+        Right (ExitSuccess, out, _) ->
+          case parsePreview (TE.encodeUtf8 (T.pack out)) of
+            Left err -> Left ("infra guard could not parse Pulumi preview; refusing to apply: " <> err)
+            Right steps ->
+              let verdict = classifyPlan protectedResourceTypes steps
+                  message = renderVerdict (tp ^. #instanceName) verdict
+               in case verdict of
+                    PlanAllowed -> Right message
+                    PlanReplacesProtected _
+                      | allowReplacement -> Right ("Protected resource replacement explicitly allowed for this run.\n" <> message)
+                      | otherwise -> Left message
 
 -- | @nagarectl init@: the guided onboarding flow (EP-63). Order: resolve target
 -- (flags or prompts) -> preflight (gcloud auth + operator IAM) -> write the profile
@@ -3046,7 +3107,7 @@ runContext mctx = \case
     name <- parseContextNameOrDie rawName
     exists <- contextExists name
     when (exists && not (o ^. #force)) $
-      dieT ("context '" <> contextNameText name <> "' already exists; pass --force to overwrite")
+      dieT ("context '" <> contextNameText name <> "' already exists; pass --force to change the given fields")
     -- EP-112: validate the ACME identity BEFORE a context file exists, so a typo
     -- is reported here rather than at `nagare cluster-bootstrap`. The contact is
     -- OPTIONAL here (unlike `init`): this is the low-level writer that also
@@ -3055,12 +3116,21 @@ runContext mctx = \case
     mapM_ (either dieT (const (pure ())) . validateAcmeEmail . T.pack) (o ^. #acmeEmail)
     mapM_ (either dieT (const (pure ())) . parseAcmeDirectory . T.pack) (o ^. #acmeDirectory)
     (_, workspace) <- resolvePlatformWorkspace name
-    let contextMap = Map.insert "NAGARE_PLATFORM_VERSION" (workspace ^. #platformVersion) (Map.fromList (contextEnvPairs o))
+    path <- contextFilePath name
+    -- EP-121: --force merges onto the stored context rather than resetting every
+    -- omitted field to its default.
+    stored <- if exists then readContextMap path else pure Nothing
+    let contextMap = mergeContextOverrides stored (contextEnvPairs o) (workspace ^. #platformVersion)
         tp = profileFromContextMap contextMap
     void (either dieT pure (validateVmShape (vmShapeOf tp)))
     writeContextProfile name tp
-    path <- contextFilePath name
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
+    forM_ stored $ \previous -> do
+      let before = T.lines (renderTargetEnv (profileFromContextMap previous))
+          changed = filter (`notElem` before) (T.lines (renderTargetEnv tp))
+      if null changed
+        then TIO.putStrLn "No fields changed."
+        else TIO.putStr (T.unlines ("Changed:" : map ("  " <>) changed))
     when (o ^. #use) $ do
       setCurrentContext name
       when (tp ^. #mode == Cloud) $ do
@@ -3131,25 +3201,8 @@ runContextGuard mctx asJson = do
       -- needs. These operations are idempotent and `.envrc` performs them on every
       -- shell entry already.
       workspace <- ensurePulumiForContext name tp
-      stateRoot <- nagareStateDir
-      let penv = pulumiEnvFor stateRoot ctx tp
-          stack = penv ^. #stack
-      stackProject <-
-        captureTrimmed
-          "pulumi"
-          ["-C", workspace ^. #pulumiDir, "config", "get", "gcp:project", "--stack", T.unpack stack]
-      ambient <- fmap T.pack <$> lookupEnv "CLOUDSDK_CORE_PROJECT"
-      configured <- gcloudConfiguredProject
-      let pgi =
-            ProjectGuardInputs
-              { context = ctx
-              , declared = tp ^. #project
-              , stack = stack
-              , stackProject = stackProject
-              , ambient = nonBlank =<< ambient
-              , configured = configured
-              }
-          observed =
+      pgi <- projectGuardInputsFor name tp workspace
+      let observed =
             Aeson.object
               [ "context" Aeson..= (pgi ^. #context)
               , "declaredProject" Aeson..= (pgi ^. #declared)
@@ -3167,6 +3220,30 @@ runContextGuard mctx asJson = do
           if asJson
             then LBC.putStrLn (Aeson.encode (Aeson.object ["confined" Aeson..= True, "observations" Aeson..= observed]))
             else TIO.putStrLn (renderProjectGuard pgi)
+
+-- | The three project observations the project guard compares with the context.
+-- Shared by @nagarectl context guard@ and the upgrade's Pulumi phases (EP-121).
+projectGuardInputsFor :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ProjectGuardInputs
+projectGuardInputsFor name tp workspace = do
+  stateRoot <- nagareStateDir
+  let ctx = contextNameText name
+      penv = pulumiEnvFor stateRoot ctx tp
+      stack = penv ^. #stack
+  stackProject <-
+    captureTrimmed
+      "pulumi"
+      ["-C", workspace ^. #pulumiDir, "config", "get", "gcp:project", "--stack", T.unpack stack]
+  ambient <- fmap T.pack <$> lookupEnv "CLOUDSDK_CORE_PROJECT"
+  configured <- gcloudConfiguredProject
+  pure
+    ProjectGuardInputs
+      { context = ctx
+      , declared = tp ^. #project
+      , stack = stack
+      , stackProject = stackProject
+      , ambient = nonBlank =<< ambient
+      , configured = configured
+      }
   where
     nonBlank t = if T.null (T.strip t) then Nothing else Just (T.strip t)
     captureTrimmed exe args = (nonBlank . TE.decodeUtf8Lenient =<<) <$> captureTool exe args

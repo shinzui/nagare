@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "same",
+      "urn": "urn:pulumi:labs::nagare::nagare:components:NagarePerimeter$gcp:compute/instance:Instance::nagare-01"
+    },
+    {
+      "op": "replace",
+      "urn": "urn:pulumi:labs::nagare::nagare:components:NagarePerimeter$gcp:dns/managedZone:ManagedZone::nagare-zone",
+      "replaceReasons": ["dnsName"]
+    }
+  ],
+  "changeSummary": {"same": 1, "replace": 1}
+}

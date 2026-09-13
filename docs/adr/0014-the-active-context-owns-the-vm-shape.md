@@ -81,3 +81,18 @@ state that the protected data disk and backup bucket do not contain. The
 operation-token and GCE-resource-type contracts are pinned by fixtures and must
 be updated if Pulumi changes its preview schema or the infrastructure stops
 using `gcp.compute.Instance`.
+
+## Amendment — 2026-09-13: the guard protects the DNS zone and buckets
+
+The replacement guard now classifies a list of protected resource types:
+`gcp:compute/instance:Instance`, `gcp:dns/managedZone:ManagedZone`, and
+`gcp:storage/bucket:Bucket`. A managed zone's `dnsName` is create-only, so a base-domain
+change replaces the zone. Cloud DNS then assigns new name servers and the parent delegation
+breaks. A bucket replacement deletes the bucket's objects. `NAGARE_ALLOW_VM_REPLACEMENT=1`
+remains the single per-run override.
+
+The trigger was found in 0.2.0: `nagarectl context create --force` reset every omitted field to
+its default, and the documentation recommended a partial forced create. That command now merges
+the passed flags onto the stored context and keeps its platform pin.
+`nagarectl platform upgrade` runs this guard too (ADR 18). Implemented by
+[ExecPlan 121](../plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md).

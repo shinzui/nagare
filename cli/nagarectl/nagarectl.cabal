@@ -87,6 +87,7 @@ library
     Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
     Nagare.Platform.Paths
+    Nagare.Platform.StackConfig
     Nagare.Platform.Status
     Nagare.Platform.Upgrade
     Nagare.Platform.Workspace

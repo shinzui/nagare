@@ -29,7 +29,8 @@ the Artifact Registry, the GCS buckets, and finally the VM. The program lives in
 > [Bring-your-own-project onboarding](onboarding-bring-your-own-project.md); this
 > page is the provisioning detail it links. The stack config below is a **derived
 > projection of the active context** — `nagarectl init NAME` and
-> `nagarectl context use NAME` write `Pulumi.<context>.yaml`, so you normally
+> `nagarectl context use NAME` write `Pulumi.<context>.yaml` (a symlink to the
+> context-owned file described in [Target contexts](contexts.md)), so you normally
 > don't hand-edit Pulumi stack config for a new project.
 
 ---
@@ -61,8 +62,9 @@ existing bindings on the target project (which may be a shared project).
 
 ## Configuration
 
-Each target context maps to a Pulumi stack with the same name. Config is the
-git-ignored projection `infra/pulumi/Pulumi.<context>.yaml`, and state lives in
+Each target context maps to a Pulumi stack with the same name. Config lives at
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/pulumi/Pulumi.<context>.yaml`, linked into
+`infra/pulumi/Pulumi.<context>.yaml` of every workspace, and state lives in
 that context's file backend under
 `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`. The keys:
 See [Target contexts](contexts.md) for context selection and migration from old
@@ -194,7 +196,12 @@ The VM-shape fields have different live-update behavior:
 
 Changing the image self-link or zone also replaces the instance. Before every
 `infra-up`, `nagarectl infra guard` runs a Pulumi preview and refuses any such
-replacement. Its message names the boot-disk state that would be lost. This is
+replacement. Its message names the boot-disk state that would be lost. Since 0.2.1
+the guard also refuses replacing the Cloud DNS managed zone (new name servers break
+the parent delegation; a `NAGARE_BASE_DOMAIN` change causes it) and any storage
+bucket (its objects are deleted), and `nagarectl platform upgrade` runs the same
+guard in its Pulumi phases. `NAGARE_ALLOW_VM_REPLACEMENT=1` overrides all three
+for one run. This is
 separate from deletion protection: the guard stops the apply before it starts,
 while deletion protection is the Compute API's last backstop.
 

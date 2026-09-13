@@ -84,3 +84,24 @@ secret that must be treated as exposed is rotated in a follow-up plan.
 
 With an empty passphrase, the secret-marked values in `tan-nb-exp` state are readable by anyone
 with read access to the state bucket. That access is limited to principals in `tan-nb-exp`.
+
+## Amendment — 2026-09-13: the Pulumi stack config has a context-owned home
+
+Nagare 0.2.0 showed that point 2's checkout symlink is not enough. The installed CLI and
+`nagarectl platform upgrade` run Pulumi in payload workspaces (ADR 4), which exclude every
+`Pulumi.<stack>.yaml` and are replaced by each release. For `tan-nb-exp` the project guard
+refused and the upgrade's Pulumi phases would have run without the stack's image link and
+disk types.
+
+Since 0.2.1 the stack config's one real location is
+`${XDG_CONFIG_HOME}/nagare/pulumi/Pulumi.<context>.yaml`, alongside `contexts/`, `hosts/`,
+and `cluster-secrets/`. A private repository wires it there by symlink like the others.
+Before any Pulumi command, `nagarectl` links `Pulumi.<context>.yaml` in the workspace, and in
+a source checkout's `infra/pulumi`, to that path. It adopts a lone pre-0.2.1 workspace copy.
+It refuses when two different copies exist or when the canonical path is a dangling symlink,
+because Pulumi silently reads a dangling stack file as empty configuration. Pulumi writes
+through the link, which was verified for `config set`, `--secret`, and `config rm`. The
+existing checkout symlink keeps working when it resolves to the same real file. The same
+change installs the Pulumi program's locked Node dependencies (`npm ci`) in a workspace that
+lacks them, because payloads exclude `node_modules`. Implemented by
+[ExecPlan 121](../plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md).

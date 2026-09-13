@@ -75,8 +75,10 @@ parseHostIdentity contents =
     (commentValue "# Nagare source revision: ")
     Nothing
   where
+    -- EP-121: the generated flake indents these comments, so compare each line
+    -- without its leading whitespace.
     commentValue prefix = do
-      line <- find (T.isPrefixOf prefix) (T.lines contents)
+      line <- find (T.isPrefixOf prefix) (map T.stripStart (T.lines contents))
       let value = T.strip (T.drop (T.length prefix) line)
       if T.null value || value == "unknown" then Nothing else Just value
 

@@ -45,6 +45,7 @@ module Nagare.Target
   , readContextMap
   , readCurrentContext
   , profileFromContextMap
+  , mergeContextOverrides
   , pulumiEnvFor
   , renderContextShellEnv
   , parsePulumiBackendKind
@@ -743,6 +744,18 @@ mapRaw ctx name = case Map.lookup name ctx of
 -- map alone. Unlike 'resolveProfileFrom', this does not inspect process
 -- environment, so creating/showing a stored context is not polluted by ambient
 -- @CLOUDSDK_*@ or @NAGARE_*@ variables.
+-- | EP-121: the context map a forced @nagarectl context create@ writes. Passed
+-- flags override stored values and every omitted field keeps its stored value,
+-- so a one-field change (for example the ACME directory) cannot reset the base
+-- domain or VM shape to defaults. A stored platform pin is kept: editing a field
+-- is not an upgrade. Only a new context is stamped with the payload version.
+mergeContextOverrides :: Maybe (Map String Text) -> [(String, Text)] -> Text -> Map String Text
+mergeContextOverrides stored overrides payloadVersion =
+  let merged = Map.union (Map.fromList overrides) (fromMaybe Map.empty stored)
+   in if Map.member "NAGARE_PLATFORM_VERSION" merged
+        then merged
+        else Map.insert "NAGARE_PLATFORM_VERSION" payloadVersion merged
+
 profileFromContextMap :: Map String Text -> TargetProfile
 profileFromContextMap ctx =
   let project = mapOr ctx "CLOUDSDK_CORE_PROJECT" "tan-nb-exp"

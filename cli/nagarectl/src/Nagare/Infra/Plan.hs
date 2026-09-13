@@ -9,7 +9,11 @@ module Nagare.Infra.Plan
   , PlanStep (..)
   , PlanVerdict (..)
   , gceInstanceType
+  , dnsManagedZoneType
+  , storageBucketType
+  , protectedResourceTypes
   , parsePreview
+  , previewErrors
   , classifyPlan
   , renderVerdict
   )
@@ -39,7 +43,7 @@ data PlanStep = PlanStep
   }
   deriving stock (Generic, Eq, Show)
 
-data PlanVerdict = PlanAllowed | PlanReplacesInstance ![PlanStep]
+data PlanVerdict = PlanAllowed | PlanReplacesProtected ![PlanStep]
   deriving stock (Eq, Show)
 
 -- | Pulumi's type token for the resource created in
@@ -47,6 +51,19 @@ data PlanVerdict = PlanAllowed | PlanReplacesInstance ![PlanStep]
 -- the complete URN longer, so 'classifyPlan' searches for this substring.
 gceInstanceType :: Text
 gceInstanceType = "gcp:compute/instance:Instance"
+
+-- | EP-121: the zone's @dnsName@ is create-only, so a base-domain change replaces
+-- it and Cloud DNS assigns new name servers, breaking the parent delegation.
+dnsManagedZoneType :: Text
+dnsManagedZoneType = "gcp:dns/managedZone:ManagedZone"
+
+-- | EP-121: replacing a bucket deletes the old one and every object in it.
+storageBucketType :: Text
+storageBucketType = "gcp:storage/bucket:Bucket"
+
+-- | Resources whose replacement destroys state or an external contract.
+protectedResourceTypes :: [Text]
+protectedResourceTypes = [gceInstanceType, dnsManagedZoneType, storageBucketType]
 
 newtype Preview = Preview [PlanStep]
 
@@ -82,35 +99,69 @@ parsePreview bytes = case eitherDecodeStrict bytes of
   Left err -> Left (T.pack err)
   Right (Preview steps) -> Right steps
 
-classifyPlan :: Text -> [PlanStep] -> PlanVerdict
-classifyPlan instanceType steps =
-  case filter replacesInstance steps of
+-- | Error diagnostics from a failed @pulumi preview --json@. Pulumi reports
+-- program failures there, often with nothing on stderr.
+previewErrors :: ByteString -> [Text]
+previewErrors bytes = case eitherDecodeStrict bytes of
+  Right (PreviewDiagnostics diagnostics) -> [T.strip message | Diagnostic "error" message <- diagnostics]
+  Left _ -> []
+
+data Diagnostic = Diagnostic !Text !Text
+
+instance FromJSON Diagnostic where
+  parseJSON = withObject "Pulumi diagnostic" $ \obj ->
+    Diagnostic <$> obj .:? "severity" .!= "" <*> obj .:? "message" .!= ""
+
+newtype PreviewDiagnostics = PreviewDiagnostics [Diagnostic]
+
+instance FromJSON PreviewDiagnostics where
+  parseJSON = withObject "Pulumi preview" $ \obj -> PreviewDiagnostics <$> obj .:? "diagnostics" .!= []
+
+classifyPlan :: [Text] -> [PlanStep] -> PlanVerdict
+classifyPlan protectedTypes steps =
+  case filter replacesProtected steps of
     [] -> PlanAllowed
-    replacing -> PlanReplacesInstance replacing
+    replacing -> PlanReplacesProtected replacing
   where
-    replacesInstance step = case (step ^. #op) of
-      OpReplaceLike _ -> instanceType `T.isInfixOf` (step ^. #urn)
+    replacesProtected step = case (step ^. #op) of
+      OpReplaceLike _ -> any (`T.isInfixOf` (step ^. #urn)) protectedTypes
       _ -> False
 
 renderVerdict :: Text -> PlanVerdict -> Text
-renderVerdict _ PlanAllowed = "infra guard: no GCE instance replacement is planned\n"
-renderVerdict instanceName (PlanReplacesInstance steps) =
+renderVerdict _ PlanAllowed = "infra guard: no GCE instance replacement is planned (DNS zone and buckets also unchanged)\n"
+renderVerdict instanceName (PlanReplacesProtected steps) =
   T.unlines
-    ( [ "REFUSING TO APPLY: Pulumi plans to replace GCE instance '" <> instanceName <> "'."
+    ( [ "REFUSING TO APPLY: Pulumi plans to replace a protected resource."
       , "Replacement steps:"
       ]
         <> map renderStep steps
+        <> consequences gceInstanceType instanceConsequences
+        <> consequences dnsManagedZoneType zoneConsequences
+        <> consequences storageBucketType bucketConsequences
         <> [ ""
-           , "Replacing the instance destroys its boot disk and the k3s cluster datastore under /var/lib/rancher."
-           , "That loses every Knative and cert-manager object, every TLS certificate already issued, and the ACME account key."
-           , "Recovery requires re-bootstrapping the cluster and re-issuing certificates."
-           , "The separately protected data disk at /var/lib/nagare survives."
-           , "A machine-type change is an in-place resize and does not need this override."
            , "For a deliberate rebuild, first read docs/runbooks/disaster-recovery.md, then run:"
            , "  NAGARE_ALLOW_VM_REPLACEMENT=1 nagare infra-up"
            ]
     )
   where
+    consequences resourceType lines'
+      | any ((resourceType `T.isInfixOf`) . (^. #urn)) steps = "" : lines'
+      | otherwise = []
+    instanceConsequences =
+      [ "Replacing GCE instance '" <> instanceName <> "' destroys its boot disk and the k3s cluster datastore under /var/lib/rancher."
+      , "That loses every Knative and cert-manager object, every TLS certificate already issued, and the ACME account key."
+      , "Recovery requires re-bootstrapping the cluster and re-issuing certificates."
+      , "The separately protected data disk at /var/lib/nagare survives."
+      , "A machine-type change is an in-place resize and does not need this override."
+      ]
+    zoneConsequences =
+      [ "Replacing the Cloud DNS managed zone assigns new name servers."
+      , "The parent domain's NS delegation then points at name servers that no longer serve it, so DNS and certificate issuance break."
+      , "A base-domain change (NAGARE_BASE_DOMAIN) is the usual cause; check the context before overriding."
+      ]
+    bucketConsequences =
+      [ "Replacing a storage bucket deletes the existing bucket and every object in it, including images or backups."
+      ]
     renderStep step =
       "  - "
         <> resourceName (step ^. #urn)
