@@ -54,7 +54,9 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 - [x] (2026-09-13T15:28:29Z) Milestone 3: migrated the `nagarectl` library and focused tests;
       the library and direct test suite compile with `NoFieldSelectors`, all 438 tests pass,
       and both executables compile against the renamed library surface.
-- [ ] Milestone 4: migrate the `nagarectl` and `nagared` entry points without changing their CLI.
+- [x] (2026-09-13T15:46:28Z) Milestone 4: migrated the `nagarectl` and `nagared`
+      entry points; both compile with `NoFieldSelectors`, both help texts are byte-identical to
+      their pre-migration captures, and all 438 `nagarectl` tests pass.
 - [ ] Milestone 5: migrate `nagare-access`, its executable, and its test suite.
 - [ ] Milestone 6: format and enforce the conventions, run whole-repository validation, and
       complete ADR distillation.
@@ -68,10 +70,13 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
   Evidence: GHC 9.12.3 reports `A newtype constructor must not have a strictness annotation` for
   `ConfigTimeout`, `PreparedServerOutput`, and analogous wire wrappers when a bang is added.
 
-- Cabal's ignored `.ghc.environment.*` file can retain package IDs from an older package database
-  even after the library and tests rebuild. Regenerating the file turned eight apparent fixture
-  loader failures into a useful source-level check, which then found one `Task.app`/fixture-value
-  namespace collision; renaming the fixture value restored all 438 tests.
+- Cabal's ignored `.ghc.environment.*` files can retain package IDs from an older package database
+  even after the library and tests rebuild. Regenerating both workspace files turned apparent
+  fixture-loader failures into a useful source-level check, which then found one
+  `Task.app`/fixture-value namespace collision; renaming the fixture value restored all 438 tests.
+  The `nagarectl` suite must be run with its materialized environment explicitly selected because
+  Cabal's isolated test environment is temporary while fixture `runghc` processes are children of
+  the test executable.
 
 
 ## Decision Log
