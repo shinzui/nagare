@@ -24,28 +24,31 @@ module Nagare.Ops.ContextGuard
   , renderProjectGuard
   ) where
 
+import Nagare.Dsl.Prelude
+
+import Data.Generics.Labels ()
 import Data.Text (Text)
 
 -- | What the guard compared and what it concluded. Rendered for humans and for
 -- @--json@, so a failing recipe can be diagnosed from its output alone.
 data ProjectGuardInputs = ProjectGuardInputs
-  { pgiContext :: !Text
+  { context :: !Text
   -- ^ active context name
-  , pgiDeclared :: !Text
+  , declared :: !Text
   -- ^ the project the active context declares
-  , pgiStack :: !Text
+  , stack :: !Text
   -- ^ the selected Pulumi stack
-  , pgiStackProject :: !(Maybe Text)
+  , stackProject :: !(Maybe Text)
   -- ^ the stack's @gcp:project@; 'Nothing' when unset or unreadable
-  , pgiAmbient :: !(Maybe Text)
+  , ambient :: !(Maybe Text)
   -- ^ @CLOUDSDK_CORE_PROJECT@ from the environment, when set
-  , pgiConfigured :: !(Maybe Text)
+  , configured :: !(Maybe Text)
   -- ^ gcloud's configured project, read with @CLOUDSDK_CORE_PROJECT@ stripped from
   -- the environment. Stripping matters for the same reason it does in
   -- @scripts\/lib\/target.sh@: @gcloud@ lets that variable shadow its own
   -- configuration, so reading it unstripped would compare a value against itself.
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Fail closed on ANY disagreement. Returns the refusal text on 'Left'.
 --
@@ -55,65 +58,65 @@ data ProjectGuardInputs = ProjectGuardInputs
 -- @CLOUDSDK_CORE_PROJECT@ differs from the context's, or when — with no ambient
 -- override — gcloud's own configured project differs.
 --
--- A 'Nothing' 'pgiConfigured' alongside a set 'pgiAmbient' is __not__ a refusal:
+-- A 'Nothing' 'configured' alongside a set 'ambient' is __not__ a refusal:
 -- @gcloud@ need not be installed on a machine that only previews.
 projectGuardVerdict :: ProjectGuardInputs -> Either Text ()
-projectGuardVerdict pgi = case pgiStackProject pgi of
+projectGuardVerdict pgi = case pgi ^. #stackProject of
   Nothing ->
     Left $
       "refusing to run: Pulumi stack '"
-        <> pgiStack pgi
+        <> pgi ^. #stack
         <> "' declares no gcp:project, so the next Pulumi operation's target project is unknown.\n"
         <> "fix: re-project the stack config with 'nagarectl context use "
-        <> pgiContext pgi
+        <> pgi ^. #context
         <> "'."
   Just stackProject
-    | stackProject /= declared ->
+    | stackProject /= declaredText ->
         Left $
           "refusing to run: Pulumi stack '"
-            <> pgiStack pgi
+            <> pgi ^. #stack
             <> "' targets project '"
             <> stackProject
             <> "', not the active context's project '"
-            <> declared
+            <> declaredText
             <> "'.\n"
             <> "fix: re-project the stack config with 'nagarectl context use "
-            <> pgiContext pgi
+            <> pgi ^. #context
             <> "', or select the context that owns '"
             <> stackProject
             <> "'."
   _ -> ambientVerdict
   where
-    declared = pgiDeclared pgi
-    ambientVerdict = case pgiAmbient pgi of
+    declaredText = pgi ^. #declared
+    ambientVerdict = case pgi ^. #ambient of
       Just ambient
-        | ambient /= declared ->
+        | ambient /= declaredText ->
             Left $
               "refusing to run: the ambient CLOUDSDK_CORE_PROJECT is '"
                 <> ambient
                 <> "', not the active context's project '"
-                <> declared
+                <> declaredText
                 <> "' (context: "
-                <> pgiContext pgi
+                <> pgi ^. #context
                 <> ").\n"
                 <> "fix: unset the ambient CLOUDSDK_CORE_PROJECT override, or select the context that declares '"
                 <> ambient
                 <> "'."
       Just _ -> Right ()
       Nothing -> configuredVerdict
-    configuredVerdict = case pgiConfigured pgi of
+    configuredVerdict = case pgi ^. #configured of
       Just configured
-        | configured /= declared ->
+        | configured /= declaredText ->
             Left $
               "refusing to run: gcloud's configured project is '"
                 <> configured
                 <> "', not the active context's project '"
-                <> declared
+                <> declaredText
                 <> "' (context: "
-                <> pgiContext pgi
+                <> pgi ^. #context
                 <> ").\n"
                 <> "fix: run 'gcloud config set project "
-                <> declared
+                <> declaredText
                 <> "', or select the context that declares '"
                 <> configured
                 <> "'."
@@ -123,9 +126,9 @@ projectGuardVerdict pgi = case pgiStackProject pgi of
 renderProjectGuard :: ProjectGuardInputs -> Text
 renderProjectGuard pgi =
   "context guard: "
-    <> pgiContext pgi
+    <> pgi ^. #context
     <> " confined to project "
-    <> pgiDeclared pgi
+    <> pgi ^. #declared
     <> " (stack "
-    <> pgiStack pgi
+    <> pgi ^. #stack
     <> ")"

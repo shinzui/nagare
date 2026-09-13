@@ -60,8 +60,11 @@ module Nagare.Target
   )
 where
 
+import Nagare.Dsl.Prelude hiding ((<.>))
+
 import Control.Exception (IOException, try)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
+import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -340,12 +343,12 @@ writeContextPlatformVersion name version = do
 -- They live in the target context so a later change to a Pulumi-program fallback
 -- cannot silently change an existing stack.
 data VmShape = VmShape
-  { vsMachineType :: !Text
-  , vsBootDiskType :: !Text
-  , vsBootDiskSizeGb :: !Text
-  , vsDataDiskSizeGb :: !Text
+  { machineType :: !Text
+  , bootDiskType :: !Text
+  , bootDiskSizeGb :: !Text
+  , dataDiskSizeGb :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The shape used by a fresh context and by legacy contexts that predate the
 -- four explicit fields. Keep these literals in sync with
@@ -354,20 +357,20 @@ data VmShape = VmShape
 defaultVmShape :: VmShape
 defaultVmShape =
   VmShape
-    { vsMachineType = "e2-standard-2"
-    , vsBootDiskType = "pd-balanced"
-    , vsBootDiskSizeGb = "100"
-    , vsDataDiskSizeGb = "100"
+    { machineType = "e2-standard-2"
+    , bootDiskType = "pd-balanced"
+    , bootDiskSizeGb = "100"
+    , dataDiskSizeGb = "100"
     }
 
 -- | Project a target profile down to the shape values Pulumi consumes.
 vmShapeOf :: TargetProfile -> VmShape
 vmShapeOf tp =
   VmShape
-    { vsMachineType = tpMachineType tp
-    , vsBootDiskType = tpBootDiskType tp
-    , vsBootDiskSizeGb = tpBootDiskSizeGb tp
-    , vsDataDiskSizeGb = tpDataDiskSizeGb tp
+    { machineType = tp ^. #machineType
+    , bootDiskType = tp ^. #bootDiskType
+    , bootDiskSizeGb = tp ^. #bootDiskSizeGb
+    , dataDiskSizeGb = tp ^. #dataDiskSizeGb
     }
 
 -- | Validate a VM shape at context-write and apply-guard boundaries. This is a
@@ -391,10 +394,10 @@ validateVmShape shape
   | not (validSize dataSize) = Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
   | otherwise = Right shape
   where
-    machine = vsMachineType shape
-    bootType = vsBootDiskType shape
-    bootSize = vsBootDiskSizeGb shape
-    dataSize = vsDataDiskSizeGb shape
+    machine = shape ^. #machineType
+    bootType = shape ^. #bootDiskType
+    bootSize = shape ^. #bootDiskSizeGb
+    dataSize = shape ^. #dataDiskSizeGb
     acceptedBootTypes = ["pd-standard", "pd-balanced", "pd-ssd", "hyperdisk-balanced"]
     validSize value = maybe False (>= (10 :: Integer)) (readMaybe (T.unpack value))
     validMachineType value
@@ -415,91 +418,91 @@ validateVmShape shape
 -- | The fully-resolved GCP target. Every field is the final value a consumer
 -- should use; no further env lookups or literal fallbacks happen downstream.
 data TargetProfile = TargetProfile
-  { tpProject :: !Text
+  { project :: !Text
   -- ^ CLOUDSDK_CORE_PROJECT, e.g. @"tan-nb-exp"@
-  , tpRegion :: !Text
+  , region :: !Text
   -- ^ CLOUDSDK_COMPUTE_REGION, e.g. @"us-west1"@
-  , tpZone :: !Text
+  , zone :: !Text
   -- ^ CLOUDSDK_COMPUTE_ZONE, e.g. @"us-west1-a"@
-  , tpRegistryHost :: !Text
+  , registryHost :: !Text
   -- ^ NAGARE_REGISTRY_HOST, default @"\<region>-docker.pkg.dev"@
-  , tpArtifactRegistryId :: !Text
+  , artifactRegistryId :: !Text
   -- ^ NAGARE_ARTIFACT_REGISTRY_ID, default @"nagare"@
-  , tpImageBucket :: !Text
+  , imageBucket :: !Text
   -- ^ NAGARE_IMAGE_BUCKET, default @"\<project>-nagare-images"@
-  , tpBackupBucket :: !Text
+  , backupBucket :: !Text
   -- ^ NAGARE_BACKUP_BUCKET, default @"\<project>-nagare-backups"@
-  , tpBaseDomain :: !Text
+  , baseDomain :: !Text
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
-  , tpInstanceName :: !Text
+  , instanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
-  , tpMachineType :: !Text
+  , machineType :: !Text
   -- ^ NAGARE_MACHINE_TYPE, default @"e2-standard-2"@
-  , tpBootDiskType :: !Text
+  , bootDiskType :: !Text
   -- ^ NAGARE_BOOT_DISK_TYPE, default @"pd-balanced"@
-  , tpBootDiskSizeGb :: !Text
+  , bootDiskSizeGb :: !Text
   -- ^ NAGARE_BOOT_DISK_SIZE_GB, default @"100"@
-  , tpDataDiskSizeGb :: !Text
+  , dataDiskSizeGb :: !Text
   -- ^ NAGARE_DATA_DISK_SIZE_GB, default @"100"@
-  , tpTargetPlatform :: !Text
+  , targetPlatform :: !Text
   -- ^ NAGARE_TARGET_PLATFORM, the Docker platform string the cluster node runs,
   -- default @"linux/amd64"@. Passed verbatim to @docker build --platform@ and
   -- @nixpacks build --platform@ (EP-3). The node is amd64; an operator whose
   -- node differs overrides this in @nagare.target.env@.
-  , tpMode :: !Mode
+  , mode :: !Mode
   -- ^ NAGARE_MODE; 'Local' selects the EP-82 local cluster, default 'Cloud'
   -- (unset or any non-@local@ value). Drives conditional Docker auth in
   -- 'Nagare.Image.configureDockerAuth' (EP-83).
-  , tpLocalObjectStore :: !Text
+  , localObjectStore :: !Text
   -- ^ NAGARE_LOCAL_OBJECT_STORE, the in-cluster S3 endpoint + bucket used for
   -- backups/snapshots in local mode (form @"\<endpoint-url>/\<bucket>"@, e.g.
   -- @"http://minio.nagare-system.svc.cluster.local:9000/nagare-backups"@).
   -- Default @""@ (unset); only read in local mode, where EP-82's profile sets
   -- it. Consumed by EP-84's @StoreBackend@ in 'Nagare.Cluster.GcsJob'.
-  , tpPulumiBackend :: !PulumiBackendKind
+  , pulumiBackend :: !PulumiBackendKind
   -- ^ NAGARE_PULUMI_BACKEND (EP-93); 'PulumiBackendGcs' opts a cloud context into
   -- remote GCS Pulumi state, default 'PulumiBackendLocal' (EP-90's per-context
   -- @file://@ backend). Downgraded to local in local mode by 'effectivePulumiBackend'.
-  , tpPulumiBackendUrl :: !Text
+  , pulumiBackendUrl :: !Text
   -- ^ NAGARE_PULUMI_BACKEND_URL (EP-93), an explicit @gs://\<bucket>/\<path>@ backend
   -- URL. Default @""@; when empty and the backend is GCS, the URL is derived by
   -- 'defaultGcsPulumiBackendUrl'.
-  , tpAcmeEmail :: !Text
+  , acmeEmail :: !Text
   -- ^ NAGARE_ACME_EMAIL (EP-112), the contact address the cluster's Let's
   -- Encrypt account is registered under. Default @""@, which means NOT
   -- CONFIGURED — there is deliberately no default, because any default would be
   -- somebody's real mailbox and an ACME account cannot be re-pointed at another
   -- address once registered. Rendering the cert-manager ClusterIssuer refuses
   -- rather than substituting.
-  , tpAcmeDirectory :: !Text
+  , acmeDirectory :: !Text
   -- ^ NAGARE_ACME_DIRECTORY (EP-112): @"production"@ (the default),
   -- @"staging"@, or an absolute @https:\/\/@ ACME directory URL. Parsed by
   -- 'parseAcmeDirectory'.
-  , tpPlatformVersion :: !(Maybe Text)
+  , platformVersion :: !(Maybe Text)
   -- ^ Optional NAGARE_PLATFORM_VERSION. 'Nothing' identifies a legacy
   -- source-managed context whose release has not been explicitly adopted.
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The active context identity plus its resolved target bundle. The synthetic
 -- context name @"default"@ represents the legacy in-repo/default profile path.
 data ActiveTarget = ActiveTarget
-  { atContextName :: !ContextName
-  , atProfile :: !TargetProfile
+  { contextName :: !ContextName
+  , profile :: !TargetProfile
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The Pulumi process environment derived for a context (EP-90, extended by
--- EP-93). The stack name is the context name. 'peHome' is always the per-context
+-- EP-93). The stack name is the context name. 'home' is always the per-context
 -- __local__ Pulumi home (Pulumi keeps its workspace and credentials cache there even
--- for a remote backend); only 'peBackendUrl' changes between backends.
+-- for a remote backend); only 'backendUrl' changes between backends.
 data PulumiEnv = PulumiEnv
-  { peHome :: !FilePath
-  , peBackendUrl :: !Text
-  , peStack :: !Text
-  , peKind :: !PulumiBackendKind
+  { home :: !FilePath
+  , backendUrl :: !Text
+  , stack :: !Text
+  , kind :: !PulumiBackendKind
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The backend a context actually uses. A @mode=local@ context can never use GCS:
 -- local mode points every primitive at loopback substitutes and the GCP guardrail
@@ -507,9 +510,9 @@ data PulumiEnv = PulumiEnv
 -- @gcs@ setting on a local context is therefore downgraded to 'PulumiBackendLocal'
 -- (the shell resolver and 'Nagare.Init' surface a warning when this happens).
 effectivePulumiBackend :: TargetProfile -> PulumiBackendKind
-effectivePulumiBackend tp = case tpMode tp of
+effectivePulumiBackend tp = case tp ^. #mode of
   Local -> PulumiBackendLocal
-  Cloud -> tpPulumiBackend tp
+  Cloud -> tp ^. #pulumiBackend
 
 -- | The default GCS Pulumi backend URL for a context when @NAGARE_PULUMI_BACKEND=gcs@
 -- is set without an explicit URL: @gs://\<project>-nagare-pulumi-state/nagare/\<context>@.
@@ -517,12 +520,12 @@ effectivePulumiBackend tp = case tpMode tp of
 -- lifecycle, and deletion boundaries stay clear (EP-93 Decision Log).
 defaultGcsPulumiBackendUrl :: Text -> TargetProfile -> Text
 defaultGcsPulumiBackendUrl ctx tp =
-  "gs://" <> tpProject tp <> "-nagare-pulumi-state/nagare/" <> ctx
+  "gs://" <> tp ^. #project <> "-nagare-pulumi-state/nagare/" <> ctx
 
 -- | Derive the Pulumi environment for a context from the nagare state root, the
 -- context name, and its profile. Local backends get EP-90's @file://\<root>/state@
--- URL; GCS backends get the explicit 'tpPulumiBackendUrl' or, when empty, the
--- 'defaultGcsPulumiBackendUrl'. 'peHome' is the local @\<root>/home@ in both cases.
+-- URL; GCS backends get the explicit 'pulumiBackendUrl' or, when empty, the
+-- 'defaultGcsPulumiBackendUrl'. 'home' is the local @\<root>/home@ in both cases.
 pulumiEnvFor :: FilePath -> Text -> TargetProfile -> PulumiEnv
 pulumiEnvFor stateRoot ctx tp =
   let root = stateRoot </> T.unpack ctx
@@ -530,13 +533,13 @@ pulumiEnvFor stateRoot ctx tp =
       url = case kind of
         PulumiBackendLocal -> "file://" <> T.pack (root </> "state")
         PulumiBackendGcs
-          | T.null (tpPulumiBackendUrl tp) -> defaultGcsPulumiBackendUrl ctx tp
-          | otherwise -> tpPulumiBackendUrl tp
+          | T.null (tp ^. #pulumiBackendUrl) -> defaultGcsPulumiBackendUrl ctx tp
+          | otherwise -> tp ^. #pulumiBackendUrl
    in PulumiEnv
-        { peHome = root </> "home"
-        , peBackendUrl = url
-        , peStack = ctx
-        , peKind = kind
+        { home = root </> "home"
+        , backendUrl = url
+        , stack = ctx
+        , kind = kind
         }
 
 -- | The full shell environment an operator recipe needs (EP-113): the
@@ -556,32 +559,32 @@ renderContextShellEnv :: ContextName -> TargetProfile -> PulumiEnv -> Text
 renderContextShellEnv name tp penv =
   T.unlines
     [ line "NAGARE_CONTEXT" ctx
-    , line "CLOUDSDK_CORE_PROJECT" (tpProject tp)
-    , line "CLOUDSDK_COMPUTE_REGION" (tpRegion tp)
-    , line "CLOUDSDK_COMPUTE_ZONE" (tpZone tp)
-    , line "NAGARE_REGISTRY_HOST" (tpRegistryHost tp)
-    , line "NAGARE_ARTIFACT_REGISTRY_ID" (tpArtifactRegistryId tp)
-    , line "NAGARE_IMAGE_BUCKET" (tpImageBucket tp)
-    , line "NAGARE_BACKUP_BUCKET" (tpBackupBucket tp)
-    , line "NAGARE_BASE_DOMAIN" (tpBaseDomain tp)
-    , line "NAGARE_INSTANCE_NAME" (tpInstanceName tp)
-    , line "NAGARE_MACHINE_TYPE" (tpMachineType tp)
-    , line "NAGARE_BOOT_DISK_TYPE" (tpBootDiskType tp)
-    , line "NAGARE_BOOT_DISK_SIZE_GB" (tpBootDiskSizeGb tp)
-    , line "NAGARE_DATA_DISK_SIZE_GB" (tpDataDiskSizeGb tp)
-    , line "NAGARE_TARGET_PLATFORM" (tpTargetPlatform tp)
-    , line "NAGARE_MODE" (modeToken (tpMode tp))
-    , line "NAGARE_LOCAL_OBJECT_STORE" (tpLocalObjectStore tp)
+    , line "CLOUDSDK_CORE_PROJECT" (tp ^. #project)
+    , line "CLOUDSDK_COMPUTE_REGION" (tp ^. #region)
+    , line "CLOUDSDK_COMPUTE_ZONE" (tp ^. #zone)
+    , line "NAGARE_REGISTRY_HOST" (tp ^. #registryHost)
+    , line "NAGARE_ARTIFACT_REGISTRY_ID" (tp ^. #artifactRegistryId)
+    , line "NAGARE_IMAGE_BUCKET" (tp ^. #imageBucket)
+    , line "NAGARE_BACKUP_BUCKET" (tp ^. #backupBucket)
+    , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
+    , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
+    , line "NAGARE_MACHINE_TYPE" (tp ^. #machineType)
+    , line "NAGARE_BOOT_DISK_TYPE" (tp ^. #bootDiskType)
+    , line "NAGARE_BOOT_DISK_SIZE_GB" (tp ^. #bootDiskSizeGb)
+    , line "NAGARE_DATA_DISK_SIZE_GB" (tp ^. #dataDiskSizeGb)
+    , line "NAGARE_TARGET_PLATFORM" (tp ^. #targetPlatform)
+    , line "NAGARE_MODE" (modeToken (tp ^. #mode))
+    , line "NAGARE_LOCAL_OBJECT_STORE" (tp ^. #localObjectStore)
     , line "NAGARE_PULUMI_BACKEND" (pulumiBackendToken (effectivePulumiBackend tp))
-    , line "NAGARE_PULUMI_BACKEND_URL" (tpPulumiBackendUrl tp)
+    , line "NAGARE_PULUMI_BACKEND_URL" (tp ^. #pulumiBackendUrl)
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
-    , line "PULUMI_HOME" (T.pack (peHome penv))
-    , line "PULUMI_BACKEND_URL" (peBackendUrl penv)
+    , line "PULUMI_HOME" (T.pack (penv ^. #home))
+    , line "PULUMI_BACKEND_URL" (penv ^. #backendUrl)
     , -- EP-116: an empty PULUMI_CONFIG_PASSPHRASE would shadow the passphrase
       -- file; keep an operator's non-empty export, otherwise let the file decide.
       "[ -n \"${PULUMI_CONFIG_PASSPHRASE:-}\" ] || unset PULUMI_CONFIG_PASSPHRASE"
-    , line "PULUMI_CONFIG_PASSPHRASE_FILE" (T.pack (peHome penv </> "passphrase"))
-    , line "NAGARE_PULUMI_STACK" (peStack penv)
+    , line "PULUMI_CONFIG_PASSPHRASE_FILE" (T.pack (penv ^. #home </> "passphrase"))
+    , line "NAGARE_PULUMI_STACK" (penv ^. #stack)
     ]
   where
     ctx = contextNameText name
@@ -600,7 +603,7 @@ shellQuote v = "'" <> T.replace "'" "'\\''" v <> "'"
 -- MasterPlan 12 Integration Point 4).
 registryPrefix :: TargetProfile -> Text
 registryPrefix tp =
-  tpRegistryHost tp <> "/" <> tpProject tp <> "/" <> tpArtifactRegistryId tp
+  tp ^. #registryHost <> "/" <> tp ^. #project <> "/" <> tp ^. #artifactRegistryId
 
 -- | Parse a flat @export VAR=value@ context file into a variable map. Blank
 -- lines and lines whose first non-space character is '#' are ignored. A leading
@@ -752,10 +755,10 @@ profileFromContextMap ctx =
       backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
-      machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (vsMachineType defaultVmShape)
-      bootDiskType = mapOr ctx "NAGARE_BOOT_DISK_TYPE" (vsBootDiskType defaultVmShape)
-      bootDiskSizeGb = mapOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (vsBootDiskSizeGb defaultVmShape)
-      dataDiskSizeGb = mapOr ctx "NAGARE_DATA_DISK_SIZE_GB" (vsDataDiskSizeGb defaultVmShape)
+      machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
+      bootDiskType = mapOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
+      bootDiskSizeGb = mapOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (defaultVmShape ^. #bootDiskSizeGb)
+      dataDiskSizeGb = mapOr ctx "NAGARE_DATA_DISK_SIZE_GB" (defaultVmShape ^. #dataDiskSizeGb)
       targetPlatform = mapOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
       mode = parseMode (mapRaw ctx "NAGARE_MODE")
       localObjectStore = mapOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
@@ -765,27 +768,27 @@ profileFromContextMap ctx =
       acmeDirectory = mapOr ctx "NAGARE_ACME_DIRECTORY" "production"
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
    in TargetProfile
-        { tpProject = project
-        , tpRegion = region
-        , tpZone = zone
-        , tpRegistryHost = registryHost
-        , tpArtifactRegistryId = registryId
-        , tpImageBucket = imageBucket
-        , tpBackupBucket = backupBucket
-        , tpBaseDomain = baseDomain
-        , tpInstanceName = instanceName
-        , tpMachineType = machineType
-        , tpBootDiskType = bootDiskType
-        , tpBootDiskSizeGb = bootDiskSizeGb
-        , tpDataDiskSizeGb = dataDiskSizeGb
-        , tpTargetPlatform = targetPlatform
-        , tpMode = mode
-        , tpLocalObjectStore = localObjectStore
-        , tpPulumiBackend = pulumiBackend
-        , tpPulumiBackendUrl = pulumiBackendUrl
-        , tpAcmeEmail = acmeEmail
-        , tpAcmeDirectory = acmeDirectory
-        , tpPlatformVersion = platformVersion
+        { project = project
+        , region = region
+        , zone = zone
+        , registryHost = registryHost
+        , artifactRegistryId = registryId
+        , imageBucket = imageBucket
+        , backupBucket = backupBucket
+        , baseDomain = baseDomain
+        , instanceName = instanceName
+        , machineType = machineType
+        , bootDiskType = bootDiskType
+        , bootDiskSizeGb = bootDiskSizeGb
+        , dataDiskSizeGb = dataDiskSizeGb
+        , targetPlatform = targetPlatform
+        , mode = mode
+        , localObjectStore = localObjectStore
+        , pulumiBackend = pulumiBackend
+        , pulumiBackendUrl = pulumiBackendUrl
+        , acmeEmail = acmeEmail
+        , acmeDirectory = acmeDirectory
+        , platformVersion = platformVersion
         }
 
 resolveProfileFrom :: Map String Text -> IO TargetProfile
@@ -799,10 +802,10 @@ resolveProfileFrom ctx = do
   backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
-  machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (vsMachineType defaultVmShape)
-  bootDiskType <- ctxOr ctx "NAGARE_BOOT_DISK_TYPE" (vsBootDiskType defaultVmShape)
-  bootDiskSizeGb <- ctxOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (vsBootDiskSizeGb defaultVmShape)
-  dataDiskSizeGb <- ctxOr ctx "NAGARE_DATA_DISK_SIZE_GB" (vsDataDiskSizeGb defaultVmShape)
+  machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
+  bootDiskType <- ctxOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
+  bootDiskSizeGb <- ctxOr ctx "NAGARE_BOOT_DISK_SIZE_GB" (defaultVmShape ^. #bootDiskSizeGb)
+  dataDiskSizeGb <- ctxOr ctx "NAGARE_DATA_DISK_SIZE_GB" (defaultVmShape ^. #dataDiskSizeGb)
   targetPlatform <- ctxOr ctx "NAGARE_TARGET_PLATFORM" "linux/amd64"
   mode <- parseMode <$> ctxRaw ctx "NAGARE_MODE"
   localObjectStore <- ctxOr ctx "NAGARE_LOCAL_OBJECT_STORE" ""
@@ -813,27 +816,27 @@ resolveProfileFrom ctx = do
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
   pure
     TargetProfile
-      { tpProject = project
-      , tpRegion = region
-      , tpZone = zone
-      , tpRegistryHost = registryHost
-      , tpArtifactRegistryId = registryId
-      , tpImageBucket = imageBucket
-      , tpBackupBucket = backupBucket
-      , tpBaseDomain = baseDomain
-      , tpInstanceName = instanceName
-      , tpMachineType = machineType
-      , tpBootDiskType = bootDiskType
-      , tpBootDiskSizeGb = bootDiskSizeGb
-      , tpDataDiskSizeGb = dataDiskSizeGb
-      , tpTargetPlatform = targetPlatform
-      , tpMode = mode
-      , tpLocalObjectStore = localObjectStore
-      , tpPulumiBackend = pulumiBackend
-      , tpPulumiBackendUrl = pulumiBackendUrl
-      , tpAcmeEmail = acmeEmail
-      , tpAcmeDirectory = acmeDirectory
-      , tpPlatformVersion = platformVersion
+      { project = project
+      , region = region
+      , zone = zone
+      , registryHost = registryHost
+      , artifactRegistryId = registryId
+      , imageBucket = imageBucket
+      , backupBucket = backupBucket
+      , baseDomain = baseDomain
+      , instanceName = instanceName
+      , machineType = machineType
+      , bootDiskType = bootDiskType
+      , bootDiskSizeGb = bootDiskSizeGb
+      , dataDiskSizeGb = dataDiskSizeGb
+      , targetPlatform = targetPlatform
+      , mode = mode
+      , localObjectStore = localObjectStore
+      , pulumiBackend = pulumiBackend
+      , pulumiBackendUrl = pulumiBackendUrl
+      , acmeEmail = acmeEmail
+      , acmeDirectory = acmeDirectory
+      , platformVersion = platformVersion
       }
 
 -- | Resolve the active context into a context name plus fully-derived
@@ -850,7 +853,7 @@ resolveActiveTarget arg = do
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile
-resolveActiveContext arg = atProfile <$> resolveActiveTarget arg
+resolveActiveContext arg = (^. #profile) <$> resolveActiveTarget arg
 
 -- | Back-compat entry point: resolve with no explicit context selection.
 resolveTargetProfile :: IO TargetProfile
@@ -865,15 +868,15 @@ minioCredentialsSecret = "nagare-minio-credentials"
 
 -- | The object-store backend for a profile and a resolved backup bucket (EP-84,
 -- MasterPlan 16 Integration Point 3). This is the __one place__ the cloud-vs-local
--- backend is chosen, from 'tpMode': 'Cloud' yields a 'GcsBackend' (the cloud path
--- is byte-for-byte unchanged); 'Local' parses 'tpLocalObjectStore' into a MinIO
+-- backend is chosen, from 'mode': 'Cloud' yields a 'GcsBackend' (the cloud path
+-- is byte-for-byte unchanged); 'Local' parses 'localObjectStore' into a MinIO
 -- endpoint+bucket and yields a 'MinioBackend'. A 'Local' profile whose
 -- @NAGARE_LOCAL_OBJECT_STORE@ is unset/malformed is a 'Left' so the caller can
 -- fail loudly rather than silently target GCS from a laptop.
 storeBackendFor :: TargetProfile -> Text -> Either Text StoreBackend
-storeBackendFor tp bucket = case tpMode tp of
-  Cloud -> Right (GcsBackend (tpProject tp) bucket)
-  Local -> case parseLocalObjectStore (tpLocalObjectStore tp) of
+storeBackendFor tp bucket = case tp ^. #mode of
+  Cloud -> Right (GcsBackend (tp ^. #project) bucket)
+  Local -> case parseLocalObjectStore (tp ^. #localObjectStore) of
     Just (endpoint, b) -> Right (MinioBackend (MinioRef endpoint b minioCredentialsSecret))
     Nothing ->
       Left
@@ -881,5 +884,5 @@ storeBackendFor tp bucket = case tpMode tp of
             <> "\"<endpoint-url>/<bucket>\" (e.g. "
             <> "http://minio.nagare-system.svc.cluster.local:9000/nagare-backups); "
             <> "it is currently "
-            <> (if T.null (tpLocalObjectStore tp) then "unset" else "malformed: " <> tpLocalObjectStore tp)
+            <> (if T.null (tp ^. #localObjectStore) then "unset" else "malformed: " <> tp ^. #localObjectStore)
         )

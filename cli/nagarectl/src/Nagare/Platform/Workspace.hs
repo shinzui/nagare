@@ -12,6 +12,8 @@ module Nagare.Platform.Workspace
   )
 where
 
+import Nagare.Dsl.Prelude hiding (Context)
+
 import Control.Exception (IOException, bracketOnError, try)
 import Crypto.Hash (Context, Digest, SHA256, hashFinalize, hashInit, hashUpdate)
 import Data.Aeson ((.:))
@@ -20,6 +22,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
+import Data.Generics.Labels ()
 import Data.List (isPrefixOf, isSuffixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -39,13 +42,13 @@ import System.FilePath (makeRelative, takeDirectory, (</>))
 import System.IO.Temp (createTempDirectory)
 
 data PayloadManifest = PayloadManifest
-  { pmAssetSchemaVersion :: !Int
-  , pmPayloadId :: !Text
-  , pmPlatformVersion :: !Text
-  , pmSourceRevision :: !(Maybe Text)
-  , pmRollbackSupportedFrom :: ![Text]
+  { assetSchemaVersion :: !Int
+  , payloadId :: !Text
+  , platformVersion :: !Text
+  , sourceRevision :: !(Maybe Text)
+  , rollbackSupportedFrom :: ![Text]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 instance Aeson.FromJSON PayloadManifest where
   parseJSON = Aeson.withObject "PayloadManifest" $ \o ->
@@ -57,19 +60,19 @@ instance Aeson.FromJSON PayloadManifest where
       <*> o Aeson..:? "rollbackSupportedFrom" Aeson..!= []
 
 data PlatformWorkspace = PlatformWorkspace
-  { pwRoot :: !FilePath
-  , pwPayloadId :: !Text
-  , pwPlatformVersion :: !Text
-  , pwSourceRevision :: !(Maybe Text)
-  , pwDigest :: !Text
-  , pwPulumiDir :: !FilePath
-  , pwScriptsDir :: !FilePath
-  , pwClusterDir :: !FilePath
-  , pwNixosDir :: !FilePath
-  , pwJustfile :: !FilePath
-  , pwDocsDir :: !FilePath
+  { root :: !FilePath
+  , payloadId :: !Text
+  , platformVersion :: !Text
+  , sourceRevision :: !(Maybe Text)
+  , digest :: !Text
+  , pulumiDir :: !FilePath
+  , scriptsDir :: !FilePath
+  , clusterDir :: !FilePath
+  , nixosDir :: !FilePath
+  , justfile :: !FilePath
+  , docsDir :: !FilePath
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data WorkspaceError
   = InvalidPayloadManifest !FilePath !Text
@@ -102,11 +105,11 @@ ignoredNames = [".direnv", ".git", ".pulumi-home", ".pulumi-state", "dist-newsty
 
 readPayloadManifest :: PlatformPaths -> IO (Either WorkspaceError PayloadManifest)
 readPayloadManifest paths = do
-  result <- try (BS.readFile (ppManifest paths))
+  result <- try (BS.readFile (paths ^. #manifest))
   pure $ case result of
-    Left (err :: IOException) -> Left (WorkspaceIoError (ppManifest paths) (T.pack (show err)))
+    Left (err :: IOException) -> Left (WorkspaceIoError (paths ^. #manifest) (T.pack (show err)))
     Right bytes -> case Aeson.eitherDecodeStrict' bytes of
-      Left err -> Left (InvalidPayloadManifest (ppManifest paths) (T.pack err))
+      Left err -> Left (InvalidPayloadManifest (paths ^. #manifest) (T.pack err))
       Right manifest -> Right manifest
 
 payloadDigest :: PlatformPaths -> IO (Either WorkspaceError Text)
@@ -116,13 +119,13 @@ payloadDigest paths = do
     context <- foldlHash (hashInit :: Context SHA256) files
     pure (T.pack (show (hashFinalize context :: Digest SHA256)))
   pure $ case result of
-    Left (err :: IOException) -> Left (WorkspaceIoError (ppRoot paths) (T.pack (show err)))
+    Left (err :: IOException) -> Left (WorkspaceIoError (paths ^. #root) (T.pack (show err)))
     Right digest -> Right digest
   where
     foldlHash context [] = pure context
     foldlHash context (file : rest) = do
       bytes <- BS.readFile file
-      let relative = TE.encodeUtf8 (T.pack (makeRelative (ppRoot paths) file))
+      let relative = TE.encodeUtf8 (T.pack (makeRelative (paths ^. #root) file))
           separator = BS.singleton 0
           next = hashUpdate (hashUpdate (hashUpdate context relative) separator) bytes
       foldlHash (hashUpdate next separator) rest
@@ -135,12 +138,12 @@ preparePlatformWorkspace stateRoot context paths = do
     (Left err, _) -> pure (Left err)
     (_, Left err) -> pure (Left err)
     (Right manifest, Right digest)
-      | not (validPayloadId (pmPayloadId manifest)) -> pure (Left (InvalidPayloadId (pmPayloadId manifest)))
+      | not (validPayloadId (manifest ^. #payloadId)) -> pure (Left (InvalidPayloadId (manifest ^. #payloadId)))
       | otherwise -> materialize manifest digest
   where
     materialize manifest digest = do
       let parent = stateRoot </> T.unpack (contextNameText context) </> "platform"
-          directoryName = T.unpack (pmPayloadId manifest <> "-" <> T.take 16 digest)
+          directoryName = T.unpack (manifest ^. #payloadId <> "-" <> T.take 16 digest)
           destination = parent </> directoryName
       createDirectoryIfMissing True parent
       existing <- doesDirectoryExist destination
@@ -173,17 +176,17 @@ validPayloadId value =
 workspaceAt :: FilePath -> PayloadManifest -> Text -> PlatformWorkspace
 workspaceAt root manifest digest =
   PlatformWorkspace
-    { pwRoot = root
-    , pwPayloadId = pmPayloadId manifest
-    , pwPlatformVersion = pmPlatformVersion manifest
-    , pwSourceRevision = pmSourceRevision manifest
-    , pwDigest = digest
-    , pwPulumiDir = root </> "infra" </> "pulumi"
-    , pwScriptsDir = root </> "scripts"
-    , pwClusterDir = root </> "cluster"
-    , pwNixosDir = root </> "nixos"
-    , pwJustfile = root </> "justfile"
-    , pwDocsDir = root </> "docs" </> "user"
+    { root = root
+    , payloadId = manifest ^. #payloadId
+    , platformVersion = manifest ^. #platformVersion
+    , sourceRevision = manifest ^. #sourceRevision
+    , digest = digest
+    , pulumiDir = root </> "infra" </> "pulumi"
+    , scriptsDir = root </> "scripts"
+    , clusterDir = root </> "cluster"
+    , nixosDir = root </> "nixos"
+    , justfile = root </> "justfile"
+    , docsDir = root </> "docs" </> "user"
     }
 
 validateExisting :: FilePath -> PayloadManifest -> Text -> IO (Either WorkspaceError PlatformWorkspace)
@@ -193,7 +196,7 @@ validateExisting root manifest digest = do
     Left (_ :: IOException) -> Left (ExistingWorkspaceMismatch root)
     Right bytes -> case Aeson.decodeStrict' bytes of
       Just (Aeson.Object object)
-        | KeyMap.lookup "payloadId" object == Just (Aeson.String (pmPayloadId manifest))
+        | KeyMap.lookup "payloadId" object == Just (Aeson.String (manifest ^. #payloadId))
         , KeyMap.lookup "digest" object == Just (Aeson.String digest) ->
             Right (workspaceAt root manifest digest)
       _ -> Left (ExistingWorkspaceMismatch root)
@@ -203,15 +206,15 @@ writeWorkspaceManifest root manifest digest =
   LBS.writeFile (root </> ".nagare-workspace.json") $
     Aeson.encode $
       Aeson.object
-        [ "assetSchemaVersion" Aeson..= pmAssetSchemaVersion manifest
-        , "payloadId" Aeson..= pmPayloadId manifest
-        , "platformVersion" Aeson..= pmPlatformVersion manifest
-        , "sourceRevision" Aeson..= pmSourceRevision manifest
+        [ "assetSchemaVersion" Aeson..= (manifest ^. #assetSchemaVersion)
+        , "payloadId" Aeson..= (manifest ^. #payloadId)
+        , "platformVersion" Aeson..= (manifest ^. #platformVersion)
+        , "sourceRevision" Aeson..= (manifest ^. #sourceRevision)
         , "digest" Aeson..= digest
         ]
 
 platformFiles :: PlatformPaths -> IO [FilePath]
-platformFiles paths = sort . concat <$> traverse (filesBelow . (ppRoot paths </>)) workspaceAssets
+platformFiles paths = sort . concat <$> traverse (filesBelow . (paths ^. #root </>)) workspaceAssets
 
 filesBelow :: FilePath -> IO [FilePath]
 filesBelow path = do
@@ -229,7 +232,7 @@ filesBelow path = do
 copyPlatformAssets :: PlatformPaths -> FilePath -> IO ()
 copyPlatformAssets paths destination = traverse_ copyOne workspaceAssets
   where
-    copyOne relative = copyTree (ppRoot paths </> relative) (destination </> relative)
+    copyOne relative = copyTree (paths ^. #root </> relative) (destination </> relative)
 
 copyTree :: FilePath -> FilePath -> IO ()
 copyTree source destination = do

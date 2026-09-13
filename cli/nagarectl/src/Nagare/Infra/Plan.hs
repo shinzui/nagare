@@ -14,8 +14,11 @@ module Nagare.Infra.Plan
   , renderVerdict
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?), (.!=))
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -30,11 +33,11 @@ data StepOp
   deriving stock (Eq, Show)
 
 data PlanStep = PlanStep
-  { psOp :: !StepOp
-  , psUrn :: !Text
-  , psReplaceReasons :: ![Text]
+  { op :: !StepOp
+  , urn :: !Text
+  , replaceReasons :: ![Text]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data PlanVerdict = PlanAllowed | PlanReplacesInstance ![PlanStep]
   deriving stock (Eq, Show)
@@ -85,8 +88,8 @@ classifyPlan instanceType steps =
     [] -> PlanAllowed
     replacing -> PlanReplacesInstance replacing
   where
-    replacesInstance step = case psOp step of
-      OpReplaceLike _ -> instanceType `T.isInfixOf` psUrn step
+    replacesInstance step = case (step ^. #op) of
+      OpReplaceLike _ -> instanceType `T.isInfixOf` (step ^. #urn)
       _ -> False
 
 renderVerdict :: Text -> PlanVerdict -> Text
@@ -110,11 +113,11 @@ renderVerdict instanceName (PlanReplacesInstance steps) =
   where
     renderStep step =
       "  - "
-        <> resourceName (psUrn step)
+        <> resourceName (step ^. #urn)
         <> " (operation: "
-        <> opToken (psOp step)
+        <> opToken (step ^. #op)
         <> "; reasons: "
-        <> reasons (psReplaceReasons step)
+        <> reasons (step ^. #replaceReasons)
         <> ")"
     resourceName urn = case reverse (T.splitOn "::" urn) of
       name : _ -> name

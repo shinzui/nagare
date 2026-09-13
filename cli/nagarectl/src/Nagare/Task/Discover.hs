@@ -27,6 +27,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
 import Data.Vector qualified as V
@@ -53,18 +54,18 @@ taskLabelSelector scope = base <> appTerm scope
 
 -- | One discovered scheduled task, read back from its CronJob.
 data TaskRow = TaskRow
-  { trName :: !Text
+  { name :: !Text
   -- ^ the task name (the @nagare.dev/task@ label, falling back to the object name
   -- with the @nagare-task-@ prefix stripped)
-  , trApp :: !Text
+  , app :: !Text
   -- ^ the owning app (@nagare.dev/app@ label) or @"-"@ when app-less
-  , trSchedule :: !Text
+  , schedule :: !Text
   -- ^ @.spec.schedule@ (the cron expression) or @"?"@
-  , trLastRun :: !Text
+  , lastRun :: !Text
   -- ^ @.status.lastScheduleTime@ or @"never"@
-  , trLastSuccess :: !Text
+  , lastSuccess :: !Text
   -- ^ @.status.lastSuccessfulTime@ or @"never"@
-  , trActive :: !Int
+  , active :: !Int
   -- ^ number of currently-active Jobs (@length .status.active@)
   }
   deriving stock (Generic, Eq, Show)
@@ -94,12 +95,12 @@ rowFromItem item = do
           (labelAt "nagare.dev/task" item)
   pure
     TaskRow
-      { trName = name
-      , trApp = fromMaybe "-" (labelAt "nagare.dev/app" item)
-      , trSchedule = fromMaybe "?" (textAt ["spec", "schedule"] item)
-      , trLastRun = fromMaybe "never" (textAt ["status", "lastScheduleTime"] item)
-      , trLastSuccess = fromMaybe "never" (textAt ["status", "lastSuccessfulTime"] item)
-      , trActive = activeCount item
+      { name = name
+      , app = fromMaybe "-" (labelAt "nagare.dev/app" item)
+      , schedule = fromMaybe "?" (textAt ["spec", "schedule"] item)
+      , lastRun = fromMaybe "never" (textAt ["status", "lastScheduleTime"] item)
+      , lastSuccess = fromMaybe "never" (textAt ["status", "lastSuccessfulTime"] item)
+      , active = activeCount item
       }
 
 -- | Strip the @nagare-task-@ name prefix EP-50 stamps (IP3), if present.
@@ -142,7 +143,7 @@ getTask ns scope name = do
   rows <- listTasks ns scope
   pure $ case rows of
     Left e -> Left e
-    Right rs -> case find ((== name) . trName) rs of
+    Right rs -> case find (\row -> row ^. #name == name) rs of
       Just r -> Right r
       Nothing -> Left ("no managed task named '" <> name <> "' in namespace " <> ns)
 
@@ -162,12 +163,12 @@ formatTaskTable rows = T.unlines (header : map line rows)
     line r =
       T.concat
         [ "  "
-        , pad 18 (trName r)
-        , pad 12 (trApp r)
-        , pad 16 (trSchedule r)
-        , pad 22 (trLastRun r)
-        , pad 22 (trLastSuccess r)
-        , tShow (trActive r)
+        , pad 18 (r ^. #name)
+        , pad 12 (r ^. #app)
+        , pad 16 (r ^. #schedule)
+        , pad 22 (r ^. #lastRun)
+        , pad 22 (r ^. #lastSuccess)
+        , tShow (r ^. #active)
         ]
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 

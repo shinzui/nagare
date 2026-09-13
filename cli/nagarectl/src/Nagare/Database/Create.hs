@@ -57,14 +57,14 @@ import System.IO (stderr)
 -- | The create inputs, unpacked from @Main@'s @DbCreateOpts@ so the library does
 -- not depend on the executable's option types.
 data DbCreateParams = DbCreateParams
-  { dcpNamespace :: !Text
-  , dcpVersion :: !(Maybe Text)
-  , dcpSize :: !(Maybe Text)
-  , dcpCpu :: !(Maybe Text)
-  , dcpMemory :: !(Maybe Text)
-  , dcpConfig :: !(Maybe FilePath)
-  , dcpDryRun :: !Bool
-  , dcpTargetProfile :: !TargetProfile
+  { namespace :: !Text
+  , version :: !(Maybe Text)
+  , size :: !(Maybe Text)
+  , cpu :: !(Maybe Text)
+  , memory :: !(Maybe Text)
+  , config :: !(Maybe FilePath)
+  , dryRun :: !Bool
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
@@ -84,12 +84,12 @@ passwordKey ClickHouse = "CLICKHOUSE_PASSWORD"
 buildDatabase :: Engine -> Text -> DbCreateParams -> Either Text Database
 buildDatabase eng nameT params = do
   name' <- mkDatabaseName nameT
-  ver' <- case dcpVersion params of
+  ver' <- case params ^. #version of
     Nothing -> Right (defaultEngineVersion eng)
     Just v -> mkEngineVersion eng v
-  ns' <- mkNamespace (dcpNamespace params)
-  size' <- mkQuantity (fromMaybe (defaultSize eng) (dcpSize params))
-  res' <- buildResources (dcpCpu params) (dcpMemory params)
+  ns' <- mkNamespace (params ^. #namespace)
+  size' <- mkQuantity (fromMaybe (defaultSize eng) (params ^. #size))
+  res' <- buildResources (params ^. #cpu) (params ^. #memory)
   Right
     Database
       { name = name'
@@ -111,7 +111,7 @@ buildResources mc mm = do
 -- | Run @db create@.
 runDbCreate :: Engine -> Text -> DbCreateParams -> IO ()
 runDbCreate eng nameT params = do
-  db <- case dcpConfig params of
+  db <- case params ^. #config of
     Just path -> do
       eDb <- loadDatabase path
       case eDb of
@@ -124,20 +124,20 @@ runDbCreate eng nameT params = do
       host = dbHost name ns
       mkParts pw =
         ConnectionParts
-          { cpUser = defaultDbUser
-          , cpPassword = pw
-          , cpHost = host
-          , cpDb = sanitizeDbName name
+          { user = defaultDbUser
+          , password = pw
+          , host = host
+          , database = sanitizeDbName name
           }
       manifests = renderDatabase db
       -- EP-47: a managed database is backup-included by default — a daily,
       -- self-pruning CronJob — unless retention = Delete (treated as throwaway).
       backsUp = (db ^. #retention) /= Delete
-  let tp = dcpTargetProfile params
-      bucket = tpBackupBucket tp
+  let tp = params ^. #targetProfile
+      bucket = tp ^. #backupBucket
   backend <- either dieT pure (storeBackendFor tp bucket)
   let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
-  if dcpDryRun params
+  if params ^. #dryRun
     then do
       pw <- generatePassword
       let kvs = secretKeysFor engine' (mkParts pw)

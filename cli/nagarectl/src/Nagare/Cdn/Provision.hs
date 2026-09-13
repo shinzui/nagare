@@ -27,6 +27,7 @@ module Nagare.Cdn.Provision
 import Nagare.Dsl.Prelude
 
 import Data.Text qualified as T
+import Data.Generics.Labels ()
 
 import Nagare.Cdn.Cloudflare
   ( OriginTlsMode (Flexible)
@@ -44,39 +45,39 @@ import Nagare.Ops.Probe (captureTool)
 -- | Everything the seam needs that is independent of the provider, resolved by
 -- the caller from the loaded config and the Pulumi outputs.
 data CdnTarget = CdnTarget
-  { cdnHostnames :: ![Text]
+  { hostnames :: ![Text]
   -- ^ the site's custom domains (the hostnames to front)
-  , cdnOriginIp :: !Text
+  , originIp :: !Text
   -- ^ the origin VM IP (the @publicIp@ stack output)
-  , cdnNamespace :: !Text
+  , namespace :: !Text
   -- ^ the Knative namespace
-  , cdnService :: !Text
+  , service :: !Text
   -- ^ the Knative Service name
   }
   deriving stock (Generic, Eq, Show)
 
 -- | What the caller prints on success — the now-edge-served URLs and a summary.
 data CdnResult = CdnResult
-  { cdnEdgeUrls :: ![Text]
-  , cdnSummary :: !Text
+  { edgeUrls :: ![Text]
+  , summary :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
 -- | The Google-only inputs (EP-56 stack outputs). Unused on the Cloudflare branch.
 data GcpStackRefs = GcpStackRefs
-  { gsrGlobalIp :: !Text
-  , gsrBackendService :: !Text
-  , gsrUrlMap :: !Text
-  , gsrDnsZone :: !Text
-  , gsrProject :: !Text
-  -- ^ the GCP project the gcloud argv target (EP-62; from 'Nagare.Target.tpProject')
+  { globalIp :: !Text
+  , backendService :: !Text
+  , urlMap :: !Text
+  , dnsZone :: !Text
+  , project :: !Text
+  -- ^ the GCP project the gcloud argv target (EP-62; from 'Nagare.Target.project')
   }
   deriving stock (Generic, Eq, Show)
 
 -- | An ordered, provider-specific list of actions a CDN provisioning would take.
 data CdnPlan = CdnPlan
-  { planProvider :: !CdnProvider
-  , planActions :: ![CdnAction]
+  { provider :: !CdnProvider
+  , actions :: ![CdnAction]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -99,27 +100,27 @@ data CdnAction
 -- the origin-TLS mode, and applies the cache rules. Google writes a more-specific
 -- Cloud DNS A record at the anycast IP (so the hostname wins over the wildcard)
 -- and updates the backend service's cache behaviour — both as @gcloud@ argv that
--- already carry @--project=\<target-project>@ (EP-62: from 'gsrProject').
+-- already carry @--project=\<target-project>@ (EP-62: from 'project').
 planCdn :: Cdn -> CdnTarget -> GcpStackRefs -> CdnPlan
 planCdn cdn target refs =
-  case provider cdn of
+  case cdn ^. #provider of
     CloudflareCdn -> CdnPlan CloudflareCdn (cloudflareActions cdn target)
     GcpCloudCdn -> CdnPlan GcpCloudCdn (gcpActions cdn target refs)
 
 cloudflareActions :: Cdn -> CdnTarget -> [CdnAction]
 cloudflareActions cdn target =
-  [DnsUpsert h (cdnOriginIp target) "proxied" | h <- cdnHostnames target]
+  [DnsUpsert h (target ^. #originIp) "proxied" | h <- target ^. #hostnames]
     ++ [OriginTls "Flexible"]
-    ++ [CacheRule (pathPrefix r) (ttlDesc (edgeTtlSeconds r)) | r <- cacheRules cdn]
-    ++ [CacheRule "(static assets)" "31536000s" | cacheStaticAssets cdn]
-    ++ maybe [] (\t -> [CacheRule "(default)" (tshow t <> "s")]) (defaultTtlSeconds cdn)
+    ++ [CacheRule (r ^. #pathPrefix) (ttlDesc (r ^. #edgeTtlSeconds)) | r <- cdn ^. #cacheRules]
+    ++ [CacheRule "(static assets)" "31536000s" | cdn ^. #cacheStaticAssets]
+    ++ maybe [] (\t -> [CacheRule "(default)" (tshow t <> "s")]) (cdn ^. #defaultTtlSeconds)
 
 gcpActions :: Cdn -> CdnTarget -> GcpStackRefs -> [CdnAction]
 gcpActions cdn target refs =
-  [ GcloudCmd (gcloudDnsUpsertArgs (gsrProject refs) (gsrDnsZone refs) h (gsrGlobalIp refs))
-  | h <- cdnHostnames target
+  [ GcloudCmd (gcloudDnsUpsertArgs (refs ^. #project) (refs ^. #dnsZone) h (refs ^. #globalIp))
+  | h <- target ^. #hostnames
   ]
-    ++ [GcloudCmd (gcloudBackendCacheArgs (gsrProject refs) (gsrBackendService refs) cdn)]
+    ++ [GcloudCmd (gcloudBackendCacheArgs (refs ^. #project) (refs ^. #backendService) cdn)]
 
 -- | The description of an edge TTL for a plan line: @Just n@ -> @"<n>s"@,
 -- @Nothing@ -> @"never"@ (a never-cache / bypass rule).
@@ -156,19 +157,19 @@ gcloudBackendCacheArgs project backendService cdn =
   , backendService
   , "--cache-mode=" <> cacheMode
   ]
-    ++ maybe [] (\t -> ["--default-ttl=" <> tshow t]) (defaultTtlSeconds cdn)
+    ++ maybe [] (\t -> ["--default-ttl=" <> tshow t]) (cdn ^. #defaultTtlSeconds)
     ++ ["--project=" <> project]
   where
     cacheMode
-      | cacheStaticAssets cdn = "CACHE_ALL_STATIC"
+      | cdn ^. #cacheStaticAssets = "CACHE_ALL_STATIC"
       | otherwise = "USE_ORIGIN_HEADERS"
 
 -- | Render a plan as a stable, human-readable block for @--dry-run@.
 renderCdnPlan :: CdnPlan -> Text
 renderCdnPlan plan =
-  T.unlines (header : map renderAction (planActions plan))
+  T.unlines (header : map renderAction (plan ^. #actions))
   where
-    header = "--- CDN plan (" <> providerToken (planProvider plan) <> ") ---"
+    header = "--- CDN plan (" <> providerToken (plan ^. #provider) <> ") ---"
     providerToken CloudflareCdn = "Cloudflare"
     providerToken GcpCloudCdn = "GcpCloudCdn"
     renderAction (DnsUpsert host ip kind) =
@@ -187,7 +188,7 @@ renderCdnPlan plan =
 -- keeps the origin URL.
 provisionCdn :: Cdn -> CdnTarget -> GcpStackRefs -> IO (Either Text CdnResult)
 provisionCdn cdn target refs =
-  case provider cdn of
+  case cdn ^. #provider of
     CloudflareCdn -> provisionCloudflare cdn target
     GcpCloudCdn -> provisionGcp (planCdn cdn target refs) target
 
@@ -197,8 +198,8 @@ provisionCloudflare cdn target = do
   case ecreds of
     Left e -> pure (Left e)
     Right creds -> do
-      let hosts = cdnHostnames target
-          ip = cdnOriginIp target
+      let hosts = target ^. #hostnames
+          ip = target ^. #originIp
           steps =
             concat
               [ [ upsertProxiedRecord creds h ip
@@ -218,9 +219,9 @@ provisionCloudflare cdn target = do
             )
 
 provisionGcp :: CdnPlan -> CdnTarget -> IO (Either Text CdnResult)
-provisionGcp plan target = go (planActions plan)
+provisionGcp plan target = go (plan ^. #actions)
   where
-    hosts = cdnHostnames target
+    hosts = target ^. #hostnames
     done =
       Right
         ( CdnResult

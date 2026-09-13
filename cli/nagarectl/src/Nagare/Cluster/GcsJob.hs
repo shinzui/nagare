@@ -53,8 +53,9 @@ module Nagare.Cluster.GcsJob
 import Nagare.Dsl.Prelude hiding ((.=))
 
 import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Generics.Labels ()
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 
 -- | A @hostAliases@ entry mapping @metadata.google.internal@ to the GCE metadata
 -- IP, so @gcloud@/@gsutil@ (which look up the canonical name) find the metadata
@@ -95,7 +96,7 @@ minioContainerImage = "amazon/aws-cli:latest"
 -- The object-store backend (EP-84, MasterPlan 16 Integration Point 3)
 
 -- | Where a data-movement Job sends/reads bytes. Constructed __once__ from the
--- resolved mode ('Nagare.Target.tpMode') and threaded everywhere else as data,
+-- resolved mode ('Nagare.Target.mode') and threaded everywhere else as data,
 -- so the "which store?" decision lives in exactly one place and the four verbs
 -- ('db backup', 'db restore', 'storage snapshot', 'storage restore') cannot
 -- drift apart. In cloud mode the rendered Job is byte-for-byte what it was
@@ -110,14 +111,14 @@ data StoreBackend
 -- | The in-cluster MinIO target: the S3 endpoint URL, the bucket, and the name
 -- of the Kubernetes Secret holding @AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@.
 data MinioRef = MinioRef
-  { mrEndpoint :: !Text
+  { endpoint :: !Text
   -- ^ e.g. @http://minio.nagare-system.svc.cluster.local:9000@
-  , mrBucket :: !Text
+  , bucket :: !Text
   -- ^ the bucket, from @NAGARE_LOCAL_OBJECT_STORE@
-  , mrSecretName :: !Text
+  , secretName :: !Text
   -- ^ k8s Secret with @AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Parse @NAGARE_LOCAL_OBJECT_STORE@ (form @"\<endpoint>/\<bucket>"@) into its
 -- @(endpoint, bucket)@ parts by splitting on the last @/@. The endpoint keeps
@@ -148,8 +149,8 @@ storeHostAliases MinioBackend {} = Nothing
 storeEnv :: StoreBackend -> [Value]
 storeEnv (GcsBackend project _) = metadataEnv project
 storeEnv (MinioBackend ref) =
-  [ secretRefEnv "AWS_ACCESS_KEY_ID" (mrSecretName ref) "AWS_ACCESS_KEY_ID"
-  , secretRefEnv "AWS_SECRET_ACCESS_KEY" (mrSecretName ref) "AWS_SECRET_ACCESS_KEY"
+  [ secretRefEnv "AWS_ACCESS_KEY_ID" (ref ^. #secretName) "AWS_ACCESS_KEY_ID"
+  , secretRefEnv "AWS_SECRET_ACCESS_KEY" (ref ^. #secretName) "AWS_SECRET_ACCESS_KEY"
   , object ["name" .= ("AWS_DEFAULT_REGION" :: Text), "value" .= ("us-east-1" :: Text)]
   , object ["name" .= ("AWS_EC2_METADATA_DISABLED" :: Text), "value" .= ("true" :: Text)]
   ]
@@ -189,7 +190,7 @@ storeScheme MinioBackend {} = "s3://"
 
 storeBucket :: StoreBackend -> Text
 storeBucket (GcsBackend _ bucket) = bucket
-storeBucket (MinioBackend ref) = mrBucket ref
+storeBucket (MinioBackend ref) = ref ^. #bucket
 
 -- | Copy stdin to the object named by @destExpr@ (a shell expression, e.g.
 -- @"\\"$DEST\\""@). GCS uses @gsutil@; MinIO uses @aws s3 … --endpoint-url@.
@@ -197,13 +198,13 @@ storeCpFromStdin :: StoreBackend -> Text -> Text
 storeCpFromStdin GcsBackend {} destExpr =
   "gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp - " <> destExpr
 storeCpFromStdin (MinioBackend ref) destExpr =
-  "aws s3 cp - " <> destExpr <> " --endpoint-url " <> mrEndpoint ref
+  "aws s3 cp - " <> destExpr <> " --endpoint-url " <> ref ^. #endpoint
 
 -- | Copy the object named by @srcExpr@ to stdout.
 storeCpToStdout :: StoreBackend -> Text -> Text
 storeCpToStdout GcsBackend {} srcExpr = "gsutil cp " <> srcExpr <> " -"
 storeCpToStdout (MinioBackend ref) srcExpr =
-  "aws s3 cp " <> srcExpr <> " - --endpoint-url " <> mrEndpoint ref
+  "aws s3 cp " <> srcExpr <> " - --endpoint-url " <> ref ^. #endpoint
 
 -- | List the objects under @prefixExpr@, one name per line, newest-sortable by
 -- the timestamp tail. GCS lists full @gs://@ URLs (which 'storeRmStdin' for GCS
@@ -213,7 +214,7 @@ storeCpToStdout (MinioBackend ref) srcExpr =
 storeLs :: StoreBackend -> Text -> Text
 storeLs GcsBackend {} prefixExpr = "gsutil ls " <> prefixExpr
 storeLs (MinioBackend ref) prefixExpr =
-  "aws s3 ls " <> prefixExpr <> " --endpoint-url " <> mrEndpoint ref <> " | awk '{print $NF}'"
+  "aws s3 ls " <> prefixExpr <> " --endpoint-url " <> ref ^. #endpoint <> " | awk '{print $NF}'"
 
 -- | Delete the objects whose names are read on stdin. GCS reads full URLs
 -- (@gsutil -m rm -I@); MinIO reads basenames and re-qualifies them against the
@@ -221,53 +222,54 @@ storeLs (MinioBackend ref) prefixExpr =
 storeRmStdin :: StoreBackend -> Text
 storeRmStdin GcsBackend {} = "gsutil -m rm -I"
 storeRmStdin (MinioBackend ref) =
-  "while read k; do aws s3 rm \"$PREFIX$k\" --endpoint-url " <> mrEndpoint ref <> "; done"
+  "while read k; do aws s3 rm \"$PREFIX$k\" --endpoint-url " <> ref ^. #endpoint <> "; done"
 
 -- | The parts of a GCS data-movement Job that vary across renderers. The shared
 -- scaffolding (@restartPolicy: Never@, the metadata
 -- @hostAliases@) is supplied by 'dataMovementJobSpec'; the caller supplies only
 -- the variable pieces.
 data DataMovementJob = DataMovementJob
-  { dmjTemplateLabels :: !(Maybe Value)
+  { templateLabels :: !(Maybe Value)
   -- ^ optional pod-template @metadata.labels@ (snapshot omits these)
-  , dmjHostAliases :: !(Maybe Value)
+  , hostAliases :: !(Maybe Value)
   -- ^ the pod @hostAliases@: 'Just' 'metadataHostAliases' for the GCS backend
   -- (so ADC reaches the metadata server), 'Nothing' for the MinIO backend.
   -- Supply @storeHostAliases backend@. When 'Nothing' the key is omitted
   -- entirely, so the rendered pod spec carries no @hostAliases@ at all.
-  , dmjInitContainers :: ![Value]
+  , initContainers :: ![Value]
   -- ^ zero or more initContainers (db backup/restore have one; volume jobs none)
-  , dmjContainers :: ![Value]
+  , containers :: ![Value]
   -- ^ one or more containers
-  , dmjVolumes :: ![Value]
+  , volumes :: ![Value]
   -- ^ pod volumes (an @emptyDir@ scratch for db jobs; a PVC for volume jobs)
-  , dmjBackoffLimit :: !Int
+  , backoffLimit :: !Int
   -- ^ pod retries before the Job fails: 0 where a rerun is unsafe (restores),
   -- more where it is idempotent (db backups ride out a cold-boot DNS race)
   }
+  deriving stock (Generic)
 
 -- | Assemble the full Job @.spec@ body from the per-Job variation. The field
 -- order (@restartPolicy@, @hostAliases@, then @initContainers@, @containers@,
 -- @volumes@) matches the existing renderers so refactoring onto this module does
 -- not change any rendered manifest's bytes. @hostAliases@ is omitted when
--- 'dmjHostAliases' is 'Nothing' (the MinIO backend); supplying
+-- 'hostAliases' is 'Nothing' (the MinIO backend); supplying
 -- @Just metadataHostAliases@ keeps the cloud bytes unchanged. @initContainers@
 -- is omitted entirely when empty (snapshot/volume-restore have none), preserving
 -- their current shape.
 dataMovementJobSpec :: DataMovementJob -> Value
 dataMovementJobSpec j =
   object
-    [ "backoffLimit" .= dmjBackoffLimit j
+    [ "backoffLimit" .= (j ^. #backoffLimit)
     , "template"
         .= object
-          ( maybe [] (\ls -> ["metadata" .= object ["labels" .= ls]]) (dmjTemplateLabels j)
+          ( maybe [] (\ls -> ["metadata" .= object ["labels" .= ls]]) (j ^. #templateLabels)
               ++ [ "spec"
                      .= object
                        ( [ "restartPolicy" .= ("Never" :: Text) ]
-                           ++ maybe [] (\ha -> ["hostAliases" .= ha]) (dmjHostAliases j)
-                           ++ ["initContainers" .= toJSON (dmjInitContainers j) | not (null (dmjInitContainers j))]
-                           ++ [ "containers" .= toJSON (dmjContainers j)
-                              , "volumes" .= toJSON (dmjVolumes j)
+                           ++ maybe [] (\ha -> ["hostAliases" .= ha]) (j ^. #hostAliases)
+                           ++ ["initContainers" .= toJSON (j ^. #initContainers) | not (null (j ^. #initContainers))]
+                           ++ [ "containers" .= toJSON (j ^. #containers)
+                              , "volumes" .= toJSON (j ^. #volumes)
                               ]
                        )
                  ]

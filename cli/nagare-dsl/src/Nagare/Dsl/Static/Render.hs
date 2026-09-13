@@ -47,7 +47,7 @@ data StaticDeployContext = StaticDeployContext
 -- | The Knative Service name for this deploy: the preview name when set,
 -- otherwise the site's own name.
 serviceNameFor :: StaticSite -> StaticDeployContext -> Text
-serviceNameFor site ctx = fromMaybe (siteNameText (site ^. #name)) (previewName ctx)
+serviceNameFor site ctx = fromMaybe (siteNameText (site ^. #name)) (ctx ^. #previewName)
 
 -- ---------------------------------------------------------------------------
 -- Nginx config
@@ -99,7 +99,7 @@ headerBlock h =
 -- | The immutable-asset cache location, emitted only when the policy enables it.
 cacheBlock :: CachePolicy -> [Text]
 cacheBlock cp
-  | immutableAssets cp =
+  | cp ^. #immutableAssets =
       [ ""
       , "    # immutable fingerprinted assets"
       , "    location ~* \\.(?:js|css|woff2?|png|jpe?g|gif|svg|ico|webp|avif)$ {"
@@ -125,7 +125,7 @@ rootBlock mNotFound cp =
     fallback = case mNotFound of
       Just _ -> "=404"
       Nothing -> "/index.html"
-    maybeMaxAge = case defaultMaxAge cp of
+    maybeMaxAge = case cp ^. #defaultMaxAge of
       Just n ->
         ["        add_header Cache-Control \"public, max-age=" <> tshow n <> "\" always;"]
       Nothing -> []
@@ -176,7 +176,7 @@ templateValue site ctx =
 containerValue :: StaticSite -> StaticDeployContext -> Value
 containerValue site ctx =
   object
-    [ "image" .= (imageRefText (site ^. #image) <> ":" <> imageTag ctx)
+    [ "image" .= (imageRefText (site ^. #image) <> ":" <> ctx ^. #imageTag)
     , "ports" .= toJSON [object ["containerPort" .= (8080 :: Int)]]
     ]
 

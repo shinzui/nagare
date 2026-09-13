@@ -118,22 +118,22 @@ data BackupDest
   deriving stock (Generic, Eq, Show)
 
 data BackupJobInputs = BackupJobInputs
-  { bjiNamespace :: !Text
-  , bjiJobName :: !Text
-  , bjiEngine :: !Engine
-  , bjiClientImage :: !Text
-  , bjiSvcHost :: !Text
-  , bjiSecretName :: !Text
-  , bjiName :: !Text
+  { namespace :: !Text
+  , jobName :: !Text
+  , engine :: !Engine
+  , clientImage :: !Text
+  , serviceHost :: !Text
+  , secretName :: !Text
+  , name :: !Text
   -- ^ the database name (for labels)
-  , bjiDest :: !BackupDest
+  , destination :: !BackupDest
   -- ^ the destination (Job: a fixed timestamped object; CronJob: stamped at run time)
-  , bjiPrefix :: !Text
+  , prefix :: !Text
   -- ^ the @gs://@ listing prefix (for the self-prune step)
-  , bjiKeep :: !Int
-  , bjiSelfPrune :: !Bool
+  , keep :: !Int
+  , selfPrune :: !Bool
   -- ^ when True (the CronJob), the upload container prunes inline after upload
-  , bjiBackend :: !StoreBackend
+  , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): GCS in cloud mode, MinIO in local mode.
   -- Drives the upload container's image, env, destination URL, and shell verbs.
   }
@@ -156,19 +156,19 @@ backupJobSpecValue :: BackupJobInputs -> Value
 backupJobSpecValue i =
   dataMovementJobSpec
     DataMovementJob
-      { dmjTemplateLabels = Just (labelsValue i)
-      , dmjBackoffLimit = 2
-      , dmjHostAliases = storeHostAliases (bjiBackend i)
-      , dmjInitContainers = [dumpContainer i]
-      , dmjContainers = [uploadContainer i]
-      , dmjVolumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+      { templateLabels = Just (labelsValue i)
+      , backoffLimit = 2
+      , hostAliases = storeHostAliases (i ^. #backend)
+      , initContainers = [dumpContainer i]
+      , containers = [uploadContainer i]
+      , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
       }
 
 jobMetadata :: BackupJobInputs -> Value
 jobMetadata i =
   object
-    [ "name" .= bjiJobName i
-    , "namespace" .= bjiNamespace i
+    [ "name" .= (i ^. #jobName)
+    , "namespace" .= (i ^. #namespace)
     , "labels" .= labelsValue i
     ]
 
@@ -176,7 +176,7 @@ labelsValue :: BackupJobInputs -> Value
 labelsValue i =
   object
     [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-    , "nagare.dev/database" .= bjiName i
+    , "nagare.dev/database" .= (i ^. #name)
     ]
 
 -- | The dump initContainer: the engine client image, credentials from the
@@ -185,30 +185,30 @@ dumpContainer :: BackupJobInputs -> Value
 dumpContainer i =
   object
     [ "name" .= ("dump" :: Text)
-    , "image" .= bjiClientImage i
+    , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON ["set -e; " <> waitForServer (bjiEngine i) (bjiSvcHost i) <> dumpShell (bjiEngine i) (bjiSvcHost i)]
-    , "env" .= toJSON (dumpEnv (bjiEngine i) (bjiSecretName i))
+    , "args" .= toJSON ["set -e; " <> waitForServer (i ^. #engine) (i ^. #serviceHost) <> dumpShell (i ^. #engine) (i ^. #serviceHost)]
+    , "env" .= toJSON (dumpEnv (i ^. #engine) (i ^. #secretName))
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
 -- | The upload main container: the backend's data-movement image, gzip the dump
--- and copy stdin to @$DEST@ (@gsutil@/@aws s3@); when 'bjiSelfPrune' it then
+-- and copy stdin to @$DEST@ (@gsutil@/@aws s3@); when 'selfPrune' it then
 -- keeps the last N.
 uploadContainer :: BackupJobInputs -> Value
 uploadContainer i =
   object
     [ "name" .= ("upload" :: Text)
-    , "image" .= storeImage (bjiBackend i)
+    , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
     , "args" .= toJSON [uploadShell i]
     , "env"
         .= toJSON
-          ( [plainEnv "DEST" url | BackupDestUrl url <- [bjiDest i]]
-              ++ [ plainEnv "PREFIX" (bjiPrefix i)
-            , plainEnv "KEEP" (T.pack (show (bjiKeep i)))
+          ( [plainEnv "DEST" url | BackupDestUrl url <- [i ^. #destination]]
+              ++ [ plainEnv "PREFIX" (i ^. #prefix)
+            , plainEnv "KEEP" (T.pack (show (i ^. #keep)))
             ]
-              ++ storeEnv (bjiBackend i)
+              ++ storeEnv (i ^. #backend)
           )
     , "volumeMounts" .= toJSON [dumpMount]
     ]
@@ -281,13 +281,13 @@ dumpShell ClickHouse svc =
 -- bytes are unchanged; the MinIO path emits @aws s3 … --endpoint-url@.
 uploadShell :: BackupJobInputs -> Text
 uploadShell i =
-  base <> if bjiSelfPrune i then "; " <> prune else ""
+  base <> if i ^. #selfPrune then "; " <> prune else ""
   where
-    backend = bjiBackend i
-    raw = backupRawExt (bjiEngine i)
-    stamp = case bjiDest i of
+    backend = i ^. #backend
+    raw = backupRawExt (i ^. #engine)
+    stamp = case i ^. #destination of
       BackupDestUrl _ -> ""
-      BackupDestStamped -> "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (bjiEngine i) <> "\"; "
+      BackupDestStamped -> "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (i ^. #engine) <> "\"; "
     base =
       "set -e; "
         <> stamp
@@ -307,29 +307,29 @@ uploadShell i =
 
 -- | Inputs to the CronJob renderer: the schedule plus the shared backup body.
 data BackupCronInputs = BackupCronInputs
-  { bciSchedule :: !Text
-  , bciBase :: !BackupJobInputs
+  { schedule :: !Text
+  , base :: !BackupJobInputs
   }
   deriving stock (Generic, Eq, Show)
 
 -- | Render the @batch/v1@ CronJob wrapping the shared backup Job body on a
 -- schedule. Named deterministically @nagare-dbbackup-\<name\>@ (the singleton
 -- schedule), never overlapping (@concurrencyPolicy: Forbid@). The base inputs
--- should have @bjiSelfPrune = True@ so the scheduled run prunes itself.
+-- should have @selfPrune = True@ so the scheduled run prunes itself.
 renderBackupCronJob :: BackupCronInputs -> ByteString
 renderBackupCronJob i =
   Y.encode $
     object
       [ "apiVersion" .= ("batch/v1" :: Text)
       , "kind" .= ("CronJob" :: Text)
-      , "metadata" .= jobMetadata (bciBase i)
+      , "metadata" .= jobMetadata (i ^. #base)
       , "spec"
           .= object
-            [ "schedule" .= bciSchedule i
+            [ "schedule" .= (i ^. #schedule)
             , "concurrencyPolicy" .= ("Forbid" :: Text)
             , "successfulJobsHistoryLimit" .= (3 :: Int)
             , "failedJobsHistoryLimit" .= (1 :: Int)
-            , "jobTemplate" .= object ["spec" .= backupJobSpecValue (bciBase i)]
+            , "jobTemplate" .= object ["spec" .= backupJobSpecValue (i ^. #base)]
             ]
       ]
 
@@ -341,21 +341,21 @@ renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -
 renderDbBackupCronJob ns name eng version backend keep =
   renderBackupCronJob
     BackupCronInputs
-      { bciSchedule = defaultBackupSchedule
-      , bciBase =
+      { schedule = defaultBackupSchedule
+      , base =
           BackupJobInputs
-            { bjiNamespace = ns
-            , bjiJobName = "nagare-dbbackup-" <> name
-            , bjiEngine = eng
-            , bjiClientImage = engineImage eng <> ":" <> version
-            , bjiSvcHost = name
-            , bjiSecretName = dbSecretName name
-            , bjiName = name
-            , bjiDest = BackupDestStamped
-            , bjiPrefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-            , bjiKeep = keep
-            , bjiSelfPrune = True
-            , bjiBackend = backend
+            { namespace = ns
+            , jobName = "nagare-dbbackup-" <> name
+            , engine = eng
+            , clientImage = engineImage eng <> ":" <> version
+            , serviceHost = name
+            , secretName = dbSecretName name
+            , name = name
+            , destination = BackupDestStamped
+            , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
+            , keep = keep
+            , selfPrune = True
+            , backend = backend
             }
       }
 
@@ -371,41 +371,40 @@ runDbBackup ns name backend keep dryRun = do
   erow <- getDatabase ns name
   case erow of
     Left err -> die err
-    Right r -> case parseEngine (drEngine r) of
-      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> drEngine r)
+    Right r -> case parseEngine (r ^. #engine) of
+      Nothing -> die ("database '" <> name <> "' has an unknown engine: " <> r ^. #engine)
       Just eng -> do
         now <- getCurrentTime
         let ts = snapshotTimestamp now
             ext = backupExt eng
-            image = engineImage eng <> ":" <> drVersion r
+            image = engineImage eng <> ":" <> r ^. #version
             secret = dbSecretName name
             dest = storeObjectUrl backend (dbBackupObjectPath name ts ext)
             prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
             name = T.take 63 (T.toLower ("nagare-dbbackup-" <> name <> "-" <> ts))
             jobInputs =
               BackupJobInputs
-                { bjiNamespace = ns
-                , bjiJobName = name
-                , bjiEngine = eng
-                , bjiClientImage = image
-                , bjiSvcHost = name
-                , bjiSecretName = secret
-                , bjiName = name
-                , bjiDest = BackupDestUrl dest
-                , bjiPrefix = prefix
-                , bjiKeep = keep
-                , bjiSelfPrune = False
-                , bjiBackend = backend
+                { namespace = ns
+                , jobName = name
+                , engine = eng
+                , clientImage = image
+                , serviceHost = name
+                , secretName = secret
+                , name = name
+                , destination = BackupDestUrl dest
+                , prefix = prefix
+                , keep = keep
+                , selfPrune = False
+                , backend = backend
                 }
             cronInputs =
               BackupCronInputs
-                { bciSchedule = defaultBackupSchedule
-                , bciBase =
+                { schedule = defaultBackupSchedule
+                , base =
                     jobInputs
-                      { bjiJobName = "nagare-dbbackup-" <> name
-                      , bjiDest = BackupDestStamped
-                      , bjiSelfPrune = True
-                      }
+                      & #jobName .~ "nagare-dbbackup-" <> name
+                      & #destination .~ BackupDestStamped
+                      & #selfPrune .~ True
                 }
         if dryRun
           then do

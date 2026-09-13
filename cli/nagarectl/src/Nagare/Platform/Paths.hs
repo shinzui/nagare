@@ -16,6 +16,8 @@ module Nagare.Platform.Paths
   )
 where
 
+import Nagare.Dsl.Prelude
+
 import Control.Exception (IOException, try)
 import Data.List (intercalate)
 import Data.Text (Text)
@@ -28,17 +30,17 @@ data PlatformRootSource = ExplicitRoot | InstalledRoot | SourceRoot
   deriving stock (Eq, Show)
 
 data PlatformPaths = PlatformPaths
-  { ppRootSource :: !PlatformRootSource
-  , ppRoot :: !FilePath
-  , ppManifest :: !FilePath
-  , ppPulumiDir :: !FilePath
-  , ppScriptsDir :: !FilePath
-  , ppClusterDir :: !FilePath
-  , ppNixosDir :: !FilePath
-  , ppJustfile :: !FilePath
-  , ppDocsDir :: !FilePath
+  { rootSource :: !PlatformRootSource
+  , root :: !FilePath
+  , manifest :: !FilePath
+  , pulumiDir :: !FilePath
+  , scriptsDir :: !FilePath
+  , clusterDir :: !FilePath
+  , nixosDir :: !FilePath
+  , justfile :: !FilePath
+  , docsDir :: !FilePath
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data PlatformPathError
   = InvalidPlatformRoot !PlatformRootSource !FilePath ![FilePath]
@@ -62,15 +64,15 @@ requiredPlatformAssets =
 pathsFromRoot :: PlatformRootSource -> FilePath -> PlatformPaths
 pathsFromRoot source root =
   PlatformPaths
-    { ppRootSource = source
-    , ppRoot = root
-    , ppManifest = root </> "release.json"
-    , ppPulumiDir = root </> "infra" </> "pulumi"
-    , ppScriptsDir = root </> "scripts"
-    , ppClusterDir = root </> "cluster"
-    , ppNixosDir = root </> "nixos"
-    , ppJustfile = root </> "justfile"
-    , ppDocsDir = root </> "docs" </> "user"
+    { rootSource = source
+    , root = root
+    , manifest = root </> "release.json"
+    , pulumiDir = root </> "infra" </> "pulumi"
+    , scriptsDir = root </> "scripts"
+    , clusterDir = root </> "cluster"
+    , nixosDir = root </> "nixos"
+    , justfile = root </> "justfile"
+    , docsDir = root </> "docs" </> "user"
     }
 
 validatePlatformRoot :: PlatformRootSource -> FilePath -> IO (Either PlatformPathError PlatformPaths)

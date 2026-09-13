@@ -97,15 +97,15 @@ import System.IO (stderr)
 -- not depend on the executable's option types. @GHC_ENVIRONMENT@ is provisioned
 -- by @Main@ before this runs (mirroring @worker deploy@ / @db create --config@).
 data AppDeployParams = AppDeployParams
-  { adpConfigPath :: !FilePath
-  , adpTag :: !(Maybe Text)
-  , adpBaseDomain :: !(Maybe Text)
-  , adpContextOverride :: !(Maybe FilePath)
-  , adpDockerfileOverride :: !(Maybe FilePath)
-  , adpDryRun :: !Bool
-  , adpJson :: !Bool
-  , adpSource :: !(Maybe Text)
-  , adpTargetProfile :: !TargetProfile
+  { configPath :: !FilePath
+  , tag :: !(Maybe Text)
+  , baseDomain :: !(Maybe Text)
+  , contextOverride :: !(Maybe FilePath)
+  , dockerfileOverride :: !(Maybe FilePath)
+  , dryRun :: !Bool
+  , json :: !Bool
+  , source :: !(Maybe Text)
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic, Show)
 
@@ -114,25 +114,25 @@ data AppDeployParams = AppDeployParams
 -- down, and the namespace/base-domain. Built once in 'runAppDeploy' so every
 -- workload renders the SAME image and tag.
 data RolloutEnv = RolloutEnv
-  { reAppName :: !Text
+  { appName :: !Text
   -- ^ the @nagare.dev/app@ value (the 'Application' name).
-  , reQualImage :: !ImageRef
+  , qualifiedImage :: !ImageRef
   -- ^ the registry-qualified shared image, set on the service and every worker.
-  , reImageTag :: !Text
+  , imageTag :: !Text
   -- ^ the bare deploy tag (per-workload renderers resolve their own effective tag
   -- from their build spec against this).
-  , reEffTag :: !Text
+  , effectiveTag :: !Text
   -- ^ the resolved effective tag for the shared image (from the service's build
   -- spec); used to tag the image a hook Task inherits.
-  , reAppImageTagged :: !Text
+  , taggedAppImage :: !Text
   -- ^ @\<qualified-image\>:\<effTag\>@ — the exact image string an inheriting hook
   -- Task runs, so the migration runs the app's current code.
-  , reAppEnv :: !(Map EnvName ScopedEnvVar)
+  , appEnv :: !(Map EnvName ScopedEnvVar)
   -- ^ the shared env declared once on the 'Application', flowed down onto every
   -- workload (a workload's own env wins on a key collision).
-  , reNamespace :: !Text
-  , reBaseDomain :: !Text
-  , reTargetProfile :: !TargetProfile
+  , namespace :: !Text
+  , baseDomain :: !Text
+  , targetProfile :: !TargetProfile
   }
   deriving stock (Generic)
 
@@ -236,17 +236,17 @@ renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteStri
 renderServiceObjects env svc0 =
   traverse
     (stamp env "service")
-    (renderVolumeClaims svc <> [renderService svc (reImageTag env)] <> renderDomainMappings svc)
+    (renderVolumeClaims svc <> [renderService svc (env ^. #imageTag)] <> renderDomainMappings svc)
   where
-    svc = svc0 & #image .~ reQualImage env & #env %~ flowEnv env
+    svc = svc0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
 
 -- | Apply the shared image + shared env to a worker, render its PVCs + Deployment,
 -- and stamp the app label on each.
 renderWorkerObjects :: RolloutEnv -> Worker -> Either Text [(Text, ByteString)]
 renderWorkerObjects env w0 =
-  traverse (stamp env "worker") (renderWorker w (reImageTag env))
+  traverse (stamp env "worker") (renderWorker w (env ^. #imageTag))
   where
-    w = w0 & #image .~ reQualImage env & #env %~ flowEnv env
+    w = w0 & #image .~ (env ^. #qualifiedImage) & #env %~ flowEnv env
 
 -- | Render a pre-deploy hook Task's CronJob with the shared env flowed in and the
 -- app's resolved image substituted (an inheriting task runs the app's code), then
@@ -255,7 +255,7 @@ renderTaskObjects :: RolloutEnv -> Task -> Either Text [(Text, ByteString)]
 renderTaskObjects env t0 =
   traverse
     (stamp env "hook")
-    [renderResolvedTask (reAppImageTagged env) (reEffTag env) withPredef t]
+    [renderResolvedTask (env ^. #taggedAppImage) (env ^. #effectiveTag) withPredef t]
   where
     t = t0 & #env %~ flowEnv env
     withPredef tk = tk & #env %~ mergeGenerated (predefinedTaskEnv tk)
@@ -263,11 +263,11 @@ renderTaskObjects env t0 =
 -- | Merge the app's shared env under a workload's own env (the workload's own
 -- entries win on a key collision; 'mergeGenerated' is left-biased).
 flowEnv :: RolloutEnv -> Map EnvName ScopedEnvVar -> Map EnvName ScopedEnvVar
-flowEnv env own = mergeGenerated own (reAppEnv env)
+flowEnv env own = mergeGenerated own (env ^. #appEnv)
 
 -- | Tag a rendered manifest with its phase and the app-identity label.
 stamp :: RolloutEnv -> Text -> ByteString -> Either Text (Text, ByteString)
-stamp env ph bs = (\stamped -> (ph, stamped)) <$> stampAppLabel (reAppName env) bs
+stamp env ph bs = (\stamped -> (ph, stamped)) <$> stampAppLabel (env ^. #appName) bs
 
 -- | Insert @nagare.dev/app: \<name\>@ into a rendered manifest's top-level
 -- @metadata.labels@, immediately after the @nagare.dev/managed-by: nagarectl@
@@ -312,7 +312,7 @@ stampAppLabel name bs
 
     describe rendered =
       let obj = toRenderedObject "" rendered
-       in case (roKind obj, roName obj) of
+       in case (obj ^. #kind, obj ^. #name) of
             ("", "") -> "rendered manifest"
             (kind, "") -> kind
             (kind, name) -> kind <> " '" <> name <> "'"
@@ -325,14 +325,14 @@ stampAppLabel name bs
 -- object's @nagare.dev/app@ label without parsing YAML or human prose. The
 -- contract is additive: consumers ignore unknown keys.
 data RenderedObject = RenderedObject
-  { roApiVersion :: !Text
-  , roKind :: !Text
-  , roName :: !Text
-  , roNamespace :: !Text
-  , roPhase :: !Text
+  { apiVersion :: !Text
+  , kind :: !Text
+  , name :: !Text
+  , namespace :: !Text
+  , phase :: !Text
   -- ^ @"hook" | "database" | "service" | "worker"@.
-  , roLabels :: !(Map Text Text)
-  , roManifest :: !Text
+  , labels :: !(Map Text Text)
+  , manifest :: !Text
   -- ^ the exact rendered YAML document.
   }
   deriving stock (Generic, Eq, Show)
@@ -340,30 +340,30 @@ data RenderedObject = RenderedObject
 instance ToJSON RenderedObject where
   toJSON o =
     object
-      [ "apiVersion" .= roApiVersion o
-      , "kind" .= roKind o
-      , "name" .= roName o
-      , "namespace" .= roNamespace o
-      , "phase" .= roPhase o
-      , "labels" .= roLabels o
-      , "manifest" .= roManifest o
+      [ "apiVersion" .= (o ^. #apiVersion)
+      , "kind" .= (o ^. #kind)
+      , "name" .= (o ^. #name)
+      , "namespace" .= (o ^. #namespace)
+      , "phase" .= (o ^. #phase)
+      , "labels" .= (o ^. #labels)
+      , "manifest" .= (o ^. #manifest)
       ]
 
 -- | The whole rollout plan: the app identity, the resolved tagged image every
 -- workload runs, and the ordered object list (rollout-phase order).
 data AppDeployPlan = AppDeployPlan
-  { adpApp :: !Text
-  , adpImage :: !Text
-  , adpObjects :: ![RenderedObject]
+  { app :: !Text
+  , image :: !Text
+  , objects :: ![RenderedObject]
   }
   deriving stock (Generic, Eq, Show)
 
 instance ToJSON AppDeployPlan where
   toJSON p =
     object
-      [ "app" .= adpApp p
-      , "image" .= adpImage p
-      , "objects" .= adpObjects p
+      [ "app" .= (p ^. #app)
+      , "image" .= (p ^. #image)
+      , "objects" .= (p ^. #objects)
       ]
 
 -- | Build the machine-readable plan from the rendered, label-stamped objects.
@@ -374,9 +374,9 @@ renderPlan env app = do
   objects <- renderAppObjects env app
   pure
     AppDeployPlan
-      { adpApp = reAppName env
-      , adpImage = reAppImageTagged env
-      , adpObjects = [toRenderedObject ph bs | (ph, bs) <- objects]
+      { app = env ^. #appName
+      , image = env ^. #taggedAppImage
+      , objects = [toRenderedObject ph bs | (ph, bs) <- objects]
       }
 
 -- | Parse a rendered manifest's identity (apiVersion/kind/name/namespace/labels)
@@ -385,13 +385,13 @@ renderPlan env app = do
 toRenderedObject :: Text -> ByteString -> RenderedObject
 toRenderedObject ph bs =
   RenderedObject
-    { roApiVersion = str "apiVersion" top
-    , roKind = str "kind" top
-    , roName = str "name" meta
-    , roNamespace = str "namespace" meta
-    , roPhase = ph
-    , roLabels = labels
-    , roManifest = TE.decodeUtf8 bs
+    { apiVersion = str "apiVersion" top
+    , kind = str "kind" top
+    , name = str "name" meta
+    , namespace = str "namespace" meta
+    , phase = ph
+    , labels = labels
+    , manifest = TE.decodeUtf8 bs
     }
   where
     top = case Yaml.decodeEither' bs of
@@ -415,34 +415,34 @@ toRenderedObject ph bs =
 -- @nagare.dev/app@ label — in rollout order. The live apply path lands in M2/M4.
 runAppDeploy :: AppDeployParams -> IO ()
 runAppDeploy p = do
-  eapp <- loadApplication (adpConfigPath p)
-  let tp = adpTargetProfile p
+  eapp <- loadApplication (p ^. #configPath)
+  let tp = p ^. #targetProfile
   app <- case eapp of
     Left err -> dieT (renderLoadError err)
     Right a -> pure a
   qImg <- case qualifyImage tp (app ^. #image) of
     Left e -> dieT ("nagarectl app deploy: " <> e)
     Right q -> pure q
-  imageTag <- resolveTag (T.unpack <$> adpTag p)
+  imageTag <- resolveTag (T.unpack <$> p ^. #tag)
   brokerEnv <- resolveBrokerEnv (app ^. #namespace) (app ^. #brokers)
 
   let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
       env =
         RolloutEnv
-          { reAppName = serviceNameText (app ^. #name)
-          , reQualImage = qImg
-          , reImageTag = imageTag
-          , reEffTag = effTag
-          , reAppImageTagged = imageRefText qImg <> ":" <> effTag
-          , reAppEnv = mergeGenerated brokerEnv (app ^. #env)
-          , reNamespace = namespaceText (app ^. #namespace)
-          , reBaseDomain = fromMaybe (tpBaseDomain tp) (adpBaseDomain p)
-          , reTargetProfile = tp
+          { appName = serviceNameText (app ^. #name)
+          , qualifiedImage = qImg
+          , imageTag = imageTag
+          , effectiveTag = effTag
+          , taggedAppImage = imageRefText qImg <> ":" <> effTag
+          , appEnv = mergeGenerated brokerEnv (app ^. #env)
+          , namespace = namespaceText (app ^. #namespace)
+          , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
+          , targetProfile = tp
           }
 
-  if adpDryRun p
+  if p ^. #dryRun
     then
-      if adpJson p
+      if p ^. #json
         then do
           -- The machine-readable plan: a single JSON document on stdout, nothing else.
           plan <- requireRendered (renderPlan env app)
@@ -472,7 +472,7 @@ liveDeploy p tp env app = do
     PhaseFailed msg -> dieT ("nagarectl app deploy: " <> msg)
     PhaseOk -> do
       reportPVCsNote
-      TIO.putStrLn ("Deployed app '" <> reAppName env <> "' to namespace " <> reNamespace env <> ".")
+      TIO.putStrLn ("Deployed app '" <> env ^. #appName <> "' to namespace " <> env ^. #namespace <> ".")
   where
     reportPVCsNote = pure ()
 
@@ -485,14 +485,14 @@ buildAndPushShared p tp env app =
   case buildForTag app of
     Nothing -> TIO.putStrLn "Skipping build/push: app declares a prebuilt image."
     Just b0 -> do
-      spec <- resolveBuildSpec (adpContextOverride p) (adpDockerfileOverride p) b0
+      spec <- resolveBuildSpec (p ^. #contextOverride) (p ^. #dockerfileOverride) b0
       if requiresBuild spec
         then do
-          let ref = taggedImageRef (reQualImage env) (reEffTag env)
-          (bargs, warns) <- gatherBuildArgs (reAppName env) (reNamespace env) (app ^. #env)
+          let ref = taggedImageRef (env ^. #qualifiedImage) (env ^. #effectiveTag)
+          (bargs, warns) <- gatherBuildArgs (env ^. #appName) (env ^. #namespace) (app ^. #env)
           printBuildArgWarnings warns
           configureDockerAuthFor tp
-          performBuild (tpTargetPlatform tp) (addBuildArgs bargs spec) ref
+          performBuild (tp ^. #targetPlatform) (addBuildArgs bargs spec) ref
           pushImage ref
         else TIO.putStrLn "Skipping build/push: app declares a prebuilt image."
 
@@ -525,7 +525,7 @@ runHooks env = go
       applyManifests (map snd objects)
       now <- getCurrentTime
       let task = serviceNameText (t ^. #name)
-          ns = reNamespace env
+          ns = env ^. #namespace
           name = oneOffJobName task now
       TIO.putStrLn ("Running pre-deploy hook '" <> task <> "' (" <> name <> ") ...")
       run_ $ cmd "kubectl" & addArgs (runArgs ns task name)
@@ -562,14 +562,14 @@ ensureDatabase env db =
     (db ^. #engine)
     (databaseNameText (db ^. #name))
     DbCreateParams
-      { dcpNamespace = namespaceText (db ^. #namespace)
-      , dcpVersion = Just (engineVersionText (db ^. #version))
-      , dcpSize = Just (quantityText (db ^. #size))
-      , dcpCpu = fmap quantityText (db ^. #resources >>= (^. #cpuLimit))
-      , dcpMemory = fmap quantityText (db ^. #resources >>= (^. #memoryLimit))
-      , dcpConfig = Nothing
-      , dcpDryRun = False
-      , dcpTargetProfile = reTargetProfile env
+      { namespace = namespaceText (db ^. #namespace)
+      , version = Just (engineVersionText (db ^. #version))
+      , size = Just (quantityText (db ^. #size))
+      , cpu = fmap quantityText (db ^. #resources >>= (^. #cpuLimit))
+      , memory = fmap quantityText (db ^. #resources >>= (^. #memoryLimit))
+      , config = Nothing
+      , dryRun = False
+      , targetProfile = env ^. #targetProfile
       }
 
 -- | Apply the web Service (PVCs first, then the Service and DomainMappings) and
@@ -579,9 +579,9 @@ applyServicePhase env svc = do
   objects <- requireRendered (renderServiceObjects env svc)
   applyManifests (map snd objects)
   let name = serviceNameText (svc ^. #name)
-  code <- waitForReady name (reNamespace env)
+  code <- waitForReady name (env ^. #namespace)
   case waitResult ("service '" <> name <> "'") code of
-    PhaseOk -> resolveDeploymentAccess (reBaseDomain env) svc >> pure PhaseOk
+    PhaseOk -> resolveDeploymentAccess (env ^. #baseDomain) svc >> pure PhaseOk
     failed -> pure failed
 
 -- | Apply one Worker (PVCs first, then the Deployment) and wait for the rollout.
@@ -590,7 +590,7 @@ applyWorkerPhase env w = do
   objects <- requireRendered (renderWorkerObjects env w)
   applyManifests (map snd objects)
   let name = serviceNameText (w ^. #name)
-  code <- waitForWorkerRollout (reNamespace env) name
+  code <- waitForWorkerRollout (env ^. #namespace) name
   pure (waitResult ("worker '" <> name <> "'") code)
 
 -- | Turn a pure rendering/stamping failure into the command's normal one-line
@@ -613,7 +613,7 @@ buildForTag app =
 summaryLine :: Application -> RolloutEnv -> Text
 summaryLine app env =
   "Would deploy app '"
-    <> reAppName env
+    <> env ^. #appName
     <> "' ("
     <> count (length (maybe [] (: []) (app ^. #service))) "service"
     <> ", "
@@ -623,7 +623,7 @@ summaryLine app env =
     <> ", "
     <> count (length (app ^. #tasks)) "hook"
     <> ") to namespace "
-    <> reNamespace env
+    <> env ^. #namespace
   where
     count n noun = T.pack (show n) <> " " <> noun <> (if n == 1 then "" else "s")
 

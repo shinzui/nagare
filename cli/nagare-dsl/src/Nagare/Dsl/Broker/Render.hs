@@ -160,9 +160,9 @@ redpandaContainer broker =
       , "--mode"
       , "dev-container"
       , "--smp"
-      , tshow (smp sizing')
+      , tshow (sizing' ^. #smp)
       , "--memory"
-      , quantityText (memory sizing')
+      , quantityText (sizing' ^. #memory)
       , "--reserve-memory"
       , "0M"
       , "--overprovisioned"

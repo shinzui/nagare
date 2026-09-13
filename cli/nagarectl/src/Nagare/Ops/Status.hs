@@ -20,6 +20,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
@@ -36,11 +37,11 @@ import Nagare.Target (TargetProfile (..), registryPrefix)
 inventoryOptsFor :: FilePath -> FilePath -> TargetProfile -> InventoryOpts
 inventoryOptsFor pulumiDir iapSsh tp =
   InventoryOpts
-    { ioZone = tpZone tp
-    , ioInstance = tpInstanceName tp
-    , ioPulumiDir = pulumiDir
-    , ioIapSsh = iapSsh
-    , ioSkipVm = False
+    { zone = tp ^. #zone
+    , instanceName = tp ^. #instanceName
+    , pulumiDir = pulumiDir
+    , iapSsh = iapSsh
+    , skipVm = False
     }
 
 -- | Run every probe in report order and assemble the inventory. The Pulumi
@@ -49,10 +50,10 @@ inventoryOptsFor pulumiDir iapSsh tp =
 -- bucket falls back to the resolved profile's bucket when Pulumi is unreachable.
 gatherInventory :: TargetProfile -> InventoryOpts -> IO [Probe]
 gatherInventory tp o = do
-  publicIp <- stackOutput (ioPulumiDir o) "publicIp"
-  baseDomain <- stackOutput (ioPulumiDir o) "baseDomain"
-  bucket <- maybe (tpBackupBucket tp) id <$> stackOutput (ioPulumiDir o) "backupBucket"
-  dbNames <- either (const []) (map drName) <$> listDatabases "personal"
+  publicIp <- stackOutput (o ^. #pulumiDir) "publicIp"
+  baseDomain <- stackOutput (o ^. #pulumiDir) "baseDomain"
+  bucket <- maybe (tp ^. #backupBucket) id <$> stackOutput (o ^. #pulumiDir) "backupBucket"
+  dbNames <- either (const []) (map (^. #name)) <$> listDatabases "personal"
   core <-
     sequence
       ( [ probeVm o
@@ -89,9 +90,9 @@ probeVm o = do
       [ "compute"
       , "instances"
       , "describe"
-      , T.unpack (ioInstance o)
+      , T.unpack (o ^. #instanceName)
       , "--zone"
-      , T.unpack (ioZone o)
+      , T.unpack (o ^. #zone)
       , "--format=value(status)"
       ]
   pure $ case fmap (T.strip . decodeUtf8) m of
@@ -146,10 +147,10 @@ probeKourierIp publicIp = do
       pure $
         gradeKourier
           KourierEvidence
-            { keLbExternalIp = lbIp
-            , kePublicIp = publicIp
-            , keHttpCode = httpCode
-            , keNodeExternalIp = nodeExtIp
+            { loadBalancerExternalIp = lbIp
+            , publicIp = publicIp
+            , httpCode = httpCode
+            , nodeExternalIp = nodeExtIp
             }
 
 -- | Probe HTTP reachability of the gateway at @ip@: run @curl@ for the status
@@ -195,8 +196,8 @@ probeRegistryAuth tp = do
       [ "artifacts"
       , "repositories"
       , "describe"
-      , T.unpack (tpArtifactRegistryId tp)
-      , "--location=" <> T.unpack (tpRegion tp)
+      , T.unpack (tp ^. #artifactRegistryId)
+      , "--location=" <> T.unpack (tp ^. #region)
       ]
   pure $ case m of
     Just _ -> Probe "Artifact Registry" StatusOk (registryPrefix tp <> " reachable")
@@ -210,21 +211,21 @@ probeRegistryAuth tp = do
 probePrivateImagePull :: TargetProfile -> IO Probe
 probePrivateImagePull tp = do
   m <- captureTool "kubectl" ["get", "configmap", "config-deployment", "-n", "knative-serving", "-o", "json"]
-  let host = tpRegistryHost tp
+  let host = tp ^. #registryHost
   runMaybe "private image pull" "config-deployment not reachable" (m >>= parseSkipTagResolvingHosts) $ \hosts ->
     if host `elem` hosts
       then Probe "private image pull" StatusOk (host <> " in registriesSkippingTagResolving")
       else Probe "private image pull" StatusWarn (host <> " not configured for private pull")
 
 -- | Whether the configured build platform matches the node architecture
--- (EP-4 M3): compares @tpTargetPlatform@ (EP-3) against the k3s node's reported
+-- (EP-4 M3): compares @targetPlatform@ (EP-3) against the k3s node's reported
 -- architecture. WARN on mismatch (an arm64 image cannot run on the amd64 node),
 -- never FAIL; UNKNOWN when the node arch is unreadable.
 probeArch :: TargetProfile -> IO Probe
 probeArch tp = do
   m <- captureTool "kubectl" ["get", "nodes", "-o", "json"]
   runMaybe "build platform" "node arch not reachable" (m >>= parseNodeArch) $ \arch ->
-    gradeArch (tpTargetPlatform tp) arch
+    gradeArch (tp ^. #targetPlatform) arch
 
 -- | The age of the newest object in a backup prefix via @gsutil ls -l@.
 probeBackup :: Text -> Text -> IO Probe
@@ -245,18 +246,18 @@ probeBackup bucket prefix = do
               pure (Probe name (gradeAge age) ("newest object " <> formatAge age))
 
 -- | Boot- and data-disk usage via IAP-tunnelled SSH (best-effort). When
--- @ioSkipVm@ is set, or SSH is not configured, this degrades to a single
+-- @skipVm@ is set, or SSH is not configured, this degrades to a single
 -- 'StatusUnknown' line rather than failing the whole report. Requires
 -- @SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519@ in the environment (see
 -- @docs/runbooks/cluster-access.md@).
 probeDisk :: InventoryOpts -> IO [Probe]
 probeDisk o
-  | ioSkipVm o = pure [Probe "disk" StatusUnknown "skipped (--skip-vm)"]
+  | o ^. #skipVm = pure [Probe "disk" StatusUnknown "skipped (--skip-vm)"]
   | otherwise = do
       m <-
         captureTool
-          (ioIapSsh o)
-          ["ssh", T.unpack (ioInstance o), "--", "df -h /var/lib/nagare /"]
+          (o ^. #iapSsh)
+          ["ssh", T.unpack (o ^. #instanceName), "--", "df -h /var/lib/nagare /"]
       pure $ case fmap decodeUtf8 m of
         Nothing -> [Probe "disk" StatusUnknown "iap-ssh unavailable (VM off? key not set?)"]
         Just out ->

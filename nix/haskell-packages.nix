@@ -24,8 +24,8 @@ let
             else pkgs.haskell.lib.overrideCabal package (_old: {
               postPatch = ''
                 substituteInPlace src/Nagare/Version.hs \
-                  --replace-fail "revisionText = Nothing" \
-                  'revisionText = Just "${sourceRevision}"'
+                  --replace-fail "revision = Nothing" \
+                  'revision = Just "${sourceRevision}"'
               '';
             });
         in

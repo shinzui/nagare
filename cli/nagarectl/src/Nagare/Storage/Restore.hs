@@ -59,15 +59,15 @@ import System.IO.Temp (withSystemTempFile)
 
 -- | Inputs to 'renderStorageRestoreJob'.
 data StorageRestoreJobInputs = StorageRestoreJobInputs
-  { sriNamespace :: !Text
-  , sriJobName :: !Text
-  , sriClaimName :: !Text
+  { namespace :: !Text
+  , jobName :: !Text
+  , claimName :: !Text
   -- ^ the PVC the restore writes into (scratch or live)
-  , sriSrcUrl :: !Text
+  , sourceUrl :: !Text
   -- ^ the @tar.gz@ object to restore (@gs://@ in cloud, @s3://@ in local)
-  , sriMountPath :: !Text
+  , mountPath :: !Text
   -- ^ in-Job mount path, e.g. @/restore@
-  , sriBackend :: !StoreBackend
+  , backend :: !StoreBackend
   -- ^ the object-store backend (EP-84): drives the restore container's image,
   -- env, and copy-from-store shell.
   }
@@ -85,22 +85,22 @@ renderStorageRestoreJob i =
       , "kind" .= ("Job" :: Text)
       , "metadata"
           .= object
-            [ "name" .= sriJobName i
-            , "namespace" .= sriNamespace i
+            [ "name" .= (i ^. #jobName)
+            , "namespace" .= (i ^. #namespace)
             , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
             ]
       , "spec"
           .= dataMovementJobSpec
             DataMovementJob
-              { dmjTemplateLabels = Nothing
-              , dmjBackoffLimit = 0
-              , dmjHostAliases = storeHostAliases (sriBackend i)
-              , dmjInitContainers = []
-              , dmjContainers = [restoreContainer i]
-              , dmjVolumes =
+              { templateLabels = Nothing
+              , backoffLimit = 0
+              , hostAliases = storeHostAliases (i ^. #backend)
+              , initContainers = []
+              , containers = [restoreContainer i]
+              , volumes =
                   [ object
                       [ "name" .= ("restore" :: Text)
-                      , "persistentVolumeClaim" .= object ["claimName" .= sriClaimName i]
+                      , "persistentVolumeClaim" .= object ["claimName" .= (i ^. #claimName)]
                       ]
                   ]
               }
@@ -110,13 +110,13 @@ restoreContainer :: StorageRestoreJobInputs -> Value
 restoreContainer i =
   object
     [ "name" .= ("restore" :: Text)
-    , "image" .= storeImage (sriBackend i)
+    , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [restoreShell (sriBackend i) (sriMountPath i)]
-    , "env" .= toJSON (plainEnv "SRC" (sriSrcUrl i) : storeEnv (sriBackend i))
+    , "args" .= toJSON [restoreShell (i ^. #backend) (i ^. #mountPath)]
+    , "env" .= toJSON (plainEnv "SRC" (i ^. #sourceUrl) : storeEnv (i ^. #backend))
     , "volumeMounts"
         .= toJSON
-          [object ["name" .= ("restore" :: Text), "mountPath" .= sriMountPath i]]
+          [object ["name" .= ("restore" :: Text), "mountPath" .= (i ^. #mountPath)]]
     ]
 
 -- | Stream the archive from the store and untar it into the mount, then list the
@@ -189,12 +189,12 @@ runStorageRestore dep volume backupId live backend dryRun = do
           name = T.take 63 (T.toLower ("nagare-volrestore-" <> app <> "-" <> volume <> "-" <> ts))
           job =
             StorageRestoreJobInputs
-              { sriNamespace = ns
-              , sriJobName = name
-              , sriClaimName = claim
-              , sriSrcUrl = src
-              , sriMountPath = "/restore"
-              , sriBackend = backend
+              { namespace = ns
+              , jobName = name
+              , claimName = claim
+              , sourceUrl = src
+              , mountPath = "/restore"
+              , backend = backend
               }
       if dryRun
         then do

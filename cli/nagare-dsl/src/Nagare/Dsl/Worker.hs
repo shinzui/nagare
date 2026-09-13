@@ -44,6 +44,7 @@ where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
@@ -112,11 +113,11 @@ data ProbeTiming = ProbeTiming
 -- a precise message. Returns the value unchanged on success (mirrors 'mkTask').
 mkProbeTiming :: ProbeTiming -> Either Text ProbeTiming
 mkProbeTiming t
-  | initialDelay t < 0 = Left ("probe initialDelay must be >= 0, got: " <> tshow (initialDelay t))
-  | period t < 1 = Left ("probe period must be >= 1, got: " <> tshow (period t))
-  | timeout t < 1 = Left ("probe timeout must be >= 1, got: " <> tshow (timeout t))
-  | failureThreshold t < 1 =
-      Left ("probe failureThreshold must be >= 1, got: " <> tshow (failureThreshold t))
+  | t ^. #initialDelay < 0 = Left ("probe initialDelay must be >= 0, got: " <> tshow (t ^. #initialDelay))
+  | t ^. #period < 1 = Left ("probe period must be >= 1, got: " <> tshow (t ^. #period))
+  | t ^. #timeout < 1 = Left ("probe timeout must be >= 1, got: " <> tshow (t ^. #timeout))
+  | t ^. #failureThreshold < 1 =
+      Left ("probe failureThreshold must be >= 1, got: " <> tshow (t ^. #failureThreshold))
   | otherwise = Right t
 
 -- | The default probe timing: first probe immediately, every 10s, 1s timeout, 3

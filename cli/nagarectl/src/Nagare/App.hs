@@ -87,11 +87,11 @@ appIdentityOrDie file = do
 -- | What to stream logs for: a Service in a namespace, optionally pinned to one
 -- revision, optionally following, optionally tail-limited.
 data LogTarget = LogTarget
-  { ltNamespace :: !Text
-  , ltService :: !Text
-  , ltRevision :: !(Maybe Text)
-  , ltFollow :: !Bool
-  , ltTail :: !(Maybe Int)
+  { namespace :: !Text
+  , service :: !Text
+  , revision :: !(Maybe Text)
+  , follow :: !Bool
+  , tail :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -105,21 +105,21 @@ logArgs t =
   , "-l"
   , T.unpack (selector t)
   , "-n"
-  , T.unpack (ltNamespace t)
+  , T.unpack (t ^. #namespace)
   , "-c"
   , "user-container"
   ]
-    <> maybe [] (\n -> ["--tail", show n]) (ltTail t)
-    <> ["--follow" | ltFollow t]
+    <> maybe [] (\n -> ["--tail", show n]) (t ^. #tail)
+    <> ["--follow" | t ^. #follow]
   where
     selector x =
       "serving.knative.dev/service="
-        <> ltService x
-        <> maybe "" (\r -> ",serving.knative.dev/revision=" <> r) (ltRevision x)
+        <> x ^. #service
+        <> maybe "" (\r -> ",serving.knative.dev/revision=" <> r) (x ^. #revision)
 
 -- | Stream (or print) a Knative Service's user-container logs, inheriting the
 -- child's stdout/stderr so @--follow@ tails live. (IP2: the sibling
--- @deployments logs@ command reuses this by passing a 'ltRevision'.)
+-- @deployments logs@ command reuses this by passing a 'revision'.)
 streamServiceLogs :: LogTarget -> IO ()
 streamServiceLogs t = run_ $ cmd "kubectl" & addArgs (logArgs t)
 
@@ -128,11 +128,11 @@ streamServiceLogs t = run_ $ cmd "kubectl" & addArgs (logArgs t)
 
 -- | A one-line summary of a deployed app's live Knative state.
 data AppSummary = AppSummary
-  { asName :: !Text
-  , asUrl :: !(Maybe Text)
-  , asReady :: !(Maybe Bool)
-  , asLatestRevision :: !(Maybe Text)
-  , asImage :: !(Maybe Text)
+  { name :: !Text
+  , url :: !(Maybe Text)
+  , ready :: !(Maybe Bool)
+  , latestRevision :: !(Maybe Text)
+  , image :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -226,11 +226,11 @@ summaryFromValue v =
     Just name ->
       Right
         AppSummary
-          { asName = name
-          , asUrl = textAt ["status", "url"] v
-          , asReady = readyOf v
-          , asLatestRevision = textAt ["status", "latestReadyRevisionName"] v
-          , asImage = imageOf v
+          { name = name
+          , url = textAt ["status", "url"] v
+          , ready = readyOf v
+          , latestRevision = textAt ["status", "latestReadyRevisionName"] v
+          , image = imageOf v
           }
 
 -- | The first container's image, from @.spec.template.spec.containers[0].image@.
@@ -273,9 +273,9 @@ formatAppList apps = T.unlines (header : map row apps)
     row a =
       T.concat
         [ "  "
-        , pad 18 (asName a)
-        , pad 8 (maybe "?" boolText (asReady a))
-        , fromMaybe "-" (asUrl a)
+        , pad 18 (a ^. #name)
+        , pad 8 (maybe "?" boolText (a ^. #ready))
+        , fromMaybe "-" (a ^. #url)
         ]
     boolText True = "True"
     boolText False = "False"

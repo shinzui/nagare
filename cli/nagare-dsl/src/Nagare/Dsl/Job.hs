@@ -15,6 +15,7 @@ where
 
 import Data.Map (Map)
 import Data.Map qualified as Map
+import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Nagare.Dsl.Build (BuildSpec (..), mkTag)
 import Nagare.Dsl.Command (Command)
@@ -70,13 +71,13 @@ data Job = Job
 -- 'Nothing' asks the renderer for the hardened preset defaults.
 mkJob :: Job -> Either Text Job
 mkJob job
-  | backoffLimit job < 0 =
-      Left ("backoffLimit must be >= 0, got: " <> tshow (backoffLimit job))
-  | maybe False (<= 0) (activeDeadlineSeconds job) =
+  | job ^. #backoffLimit < 0 =
+      Left ("backoffLimit must be >= 0, got: " <> tshow (job ^. #backoffLimit))
+  | maybe False (<= 0) (job ^. #activeDeadlineSeconds) =
       Left "activeDeadlineSeconds must be > 0 when set"
-  | maybe False (<= 0) (ttlSecondsAfterFinished job) =
+  | maybe False (<= 0) (job ^. #ttlSecondsAfterFinished) =
       Left "ttlSecondsAfterFinished must be > 0 when set"
-  | otherwise = validateResources (resources job) >> Right job
+  | otherwise = validateResources (job ^. #resources) >> Right job
   where
     validateResources Nothing = Right ()
     validateResources (Just Resources {cpu = Nothing}) = Left "resources.cpuRequest must be set"

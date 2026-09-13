@@ -2,19 +2,23 @@
 
 module PlatformSpec (platformTests) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Exception (bracket, finally)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
+import Data.Generics.Labels ()
 import Data.IORef
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Platform.Paths
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
-import Nagare.Target (contextFilePath, mkContextName, readContextProfile, tpPlatformVersion, writeContextPlatformVersion)
+import Nagare.Target (contextFilePath, mkContextName, readContextProfile, writeContextPlatformVersion)
 import Nagare.Version (BuildVersion (..), Compatibility (..))
 import System.Directory
   ( createDirectoryIfMissing
@@ -36,9 +40,9 @@ platformTests =
         withFixture $ \root -> do
           result <- resolvePlatformPaths (Just root)
           paths <- either (assertFailure . show) pure result
-          ppRootSource paths @?= ExplicitRoot
-          ppPulumiDir paths @?= root </> "infra" </> "pulumi"
-          ppJustfile paths @?= root </> "justfile"
+          paths ^. #rootSource @?= ExplicitRoot
+          paths ^. #pulumiDir @?= root </> "infra" </> "pulumi"
+          paths ^. #justfile @?= root </> "justfile"
     , testCase "an explicit lookalike root fails and names missing assets" $
         withSystemTempDirectory "nagare-platform-lookalike" $ \root -> do
           BS.writeFile (root </> "justfile") ""
@@ -54,25 +58,25 @@ platformTests =
           original <- getCurrentDirectory
           result <- withClearedEnv "NAGARE_PLATFORM_ROOT" ((setCurrentDirectory nested >> resolvePlatformPaths Nothing) `finally` setCurrentDirectory original)
           paths <- either (assertFailure . show) pure result
-          ppRootSource paths @?= SourceRoot
-          ppRoot paths @?= root
+          paths ^. #rootSource @?= SourceRoot
+          paths ^. #root @?= root
     , testCase "workspace preparation is idempotent and content-addressed" $
         withFixture $ \root -> withSystemTempDirectory "nagare-platform-state" $ \stateRoot -> do
           paths <- validatePlatformRoot ExplicitRoot root >>= either (assertFailure . show) pure
           context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
           first <- preparePlatformWorkspace stateRoot context paths >>= either (assertFailure . show) pure
           second <- preparePlatformWorkspace stateRoot context paths >>= either (assertFailure . show) pure
-          pwRoot second @?= pwRoot first
-          pwDigest second @?= pwDigest first
-          dslPackage <- doesFileExist (pwRoot first </> "cli" </> "nagare-dsl" </> "nagare-dsl.cabal")
-          accessPackage <- doesFileExist (pwRoot first </> "cli" </> "nagare-access" </> "nagare-access.cabal")
+          second ^. #root @?= first ^. #root
+          second ^. #digest @?= first ^. #digest
+          dslPackage <- doesFileExist (first ^. #root </> "cli" </> "nagare-dsl" </> "nagare-dsl.cabal")
+          accessPackage <- doesFileExist (first ^. #root </> "cli" </> "nagare-access" </> "nagare-access.cabal")
           assertBool "the writable workspace contains the typed-config package" dslPackage
           assertBool "the writable workspace contains the access service package" accessPackage
-          leaked <- doesFileExist (pwPulumiDir first </> "Pulumi.prod.yaml")
+          leaked <- doesFileExist (first ^. #pulumiDir </> "Pulumi.prod.yaml")
           assertBool "generated source stack config is excluded" (not leaked)
           BS.appendFile (root </> "justfile") "\n# changed\n"
           changed <- preparePlatformWorkspace stateRoot context paths >>= either (assertFailure . show) pure
-          assertBool "changed payload gets a distinct workspace" (pwRoot changed /= pwRoot first)
+          assertBool "changed payload gets a distinct workspace" (changed ^. #root /= first ^. #root)
     , testCase "two contexts never share a mutable workspace" $
         withFixture $ \root -> withSystemTempDirectory "nagare-platform-state" $ \stateRoot -> do
           paths <- validatePlatformRoot ExplicitRoot root >>= either (assertFailure . show) pure
@@ -80,25 +84,25 @@ platformTests =
           staging <- either (assertFailure . T.unpack) pure (mkContextName "staging")
           prodWorkspace <- preparePlatformWorkspace stateRoot prod paths >>= either (assertFailure . show) pure
           stagingWorkspace <- preparePlatformWorkspace stateRoot staging paths >>= either (assertFailure . show) pure
-          assertBool "context workspace roots differ" (pwRoot prodWorkspace /= pwRoot stagingWorkspace)
+          assertBool "context workspace roots differ" (prodWorkspace ^. #root /= stagingWorkspace ^. #root)
     , testCase "platform status compares all five identities and fails closed on major skew" $ do
         let cli = identityFromBuild (BuildVersion "1.2.3" (Just "cli-rev"))
             payload = ReleaseIdentity (Just "1.2.3") (Just "payload-rev") (Just 1)
             context = ReleaseIdentity (Just "1.2.3") Nothing Nothing
             host = parseHostIdentity "# Nagare platform version: 1.2.3\n# Nagare source revision: payload-rev\n"
             clusterBytes = LBS.toStrict (Aeson.encode (clusterMarkerValue payload "2026-08-25T19:00:00Z"))
-            cluster = maybe (error "cluster marker did not parse") id (parseClusterIdentity clusterBytes)
+            cluster = fromMaybe (error "cluster marker did not parse") (parseClusterIdentity clusterBytes)
             exact = assessPlatformStatus cli payload context host cluster
             incompatible = assessPlatformStatus cli payload context host (ReleaseIdentity (Just "2.0.0") Nothing (Just 1))
-        statusCompatibility exact @?= Exact
+        exact ^. #compatibility @?= Exact
         guardPlatformMutation exact @?= Right ()
-        statusCompatibility incompatible @?= MajorIncompatible
+        incompatible ^. #compatibility @?= MajorIncompatible
         assertBool "major skew blocks mutation" (either (const True) (const False) (guardPlatformMutation incompatible))
     , testCase "missing host and cluster identities remain a non-blocking legacy warning" $ do
         let release = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
             unknown = ReleaseIdentity Nothing Nothing Nothing
             status = assessPlatformStatus release release release unknown unknown
-        statusCompatibility status @?= LegacyUnknown
+        status ^. #compatibility @?= LegacyUnknown
         guardPlatformMutation status @?= Right ()
     , testCase "status and legacy adoption distinguish exact, patch, major, and absent observations" $ do
         let exactIdentity = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
@@ -107,12 +111,14 @@ platformTests =
             patch = assessPlatformStatus exactIdentity exactIdentity (ReleaseIdentity (Just "1.2.4") Nothing Nothing) exactIdentity exactIdentity
             major = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity (ReleaseIdentity (Just "2.0.0") Nothing Nothing)
             absent = assessPlatformStatus exactIdentity exactIdentity legacyIdentity exactIdentity legacyIdentity
-        statusCompatibility exact @?= Exact
-        statusCompatibility patch @?= PatchSkew
-        statusCompatibility major @?= MajorIncompatible
-        statusCompatibility absent @?= LegacyUnknown
+        exact ^. #compatibility @?= Exact
+        patch ^. #compatibility @?= PatchSkew
+        major ^. #compatibility @?= MajorIncompatible
+        absent ^. #compatibility @?= LegacyUnknown
         validatePlatformAdoption "1.2.3" absent @?= Right ()
-        assertBool "known patch skew cannot be hidden by adoption" (either (const True) (const False) (validatePlatformAdoption "1.2.3" (absent {statusCli = ReleaseIdentity (Just "1.2.4") Nothing Nothing})))
+        assertBool
+          "known patch skew cannot be hidden by adoption"
+          (either (const True) (const False) (validatePlatformAdoption "1.2.3" (absent & #cli .~ ReleaseIdentity (Just "1.2.4") Nothing Nothing)))
         assertBool "an already versioned context must upgrade" (either (const True) (const False) (validatePlatformAdoption "1.2.3" exact))
     , testCase "adopting one of two contexts preserves the other context release" $
         withSystemTempDirectory "nagare-platform-contexts" $ \xdg ->
@@ -127,20 +133,20 @@ platformTests =
             writeContextPlatformVersion labs "1.2.0" >>= either (assertFailure . T.unpack) pure
             prodProfile <- readContextProfile prod >>= either (assertFailure . T.unpack) pure
             labsProfile <- readContextProfile labs >>= either (assertFailure . T.unpack) pure
-            tpPlatformVersion prodProfile @?= Just "1.1.0"
-            tpPlatformVersion labsProfile @?= Just "1.2.0"
+            prodProfile ^. #platformVersion @?= Just "1.1.0"
+            labsProfile ^. #platformVersion @?= Just "1.2.0"
     , testCase "upgrade planning and apply persist every phase in order" $ do
         events <- newIORef []
         saved <- newIORef Nothing
         let tx = newUpgradeTransaction "tx-1" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False "2026-08-25T19:00:00Z"
             ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) (const (pure False))
         planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
-        transactionState planned @?= Planned
+        planned ^. #state @?= Planned
         applied <- applyUpgrade False ops planned >>= either (assertFailure . T.unpack) pure
-        transactionState applied @?= Completed
+        applied ^. #state @?= Completed
         observed <- readIORef events
         observed @?= previewPhases <> applyPhases
-        assertBool "context commit is final" (last (transactionPhases applied) == PhaseRecord ContextCommit Succeeded (Just "ok") (Just fixtureNow))
+        assertBool "context commit is final" (last (applied ^. #phases) == PhaseRecord ContextCommit Succeeded (Just "ok") (Just fixtureNow))
         (Aeson.eitherDecode (Aeson.encode applied) :: Either String UpgradeTransaction) @?= Right applied
         reapplied <- applyUpgrade True ops applied >>= either (assertFailure . T.unpack) pure
         reapplied @?= applied
@@ -159,13 +165,13 @@ platformTests =
         failed <- applyUpgrade False ops planned
         assertBool "first apply fails" (either (const True) (const False) failed)
         Just persisted <- readIORef saved
-        transactionState persisted @?= TransactionFailed
+        persisted ^. #state @?= TransactionFailed
         observedAfterFailure <- readIORef events
         assertBool "context commit did not run" (ContextCommit `notElem` observedAfterFailure)
         writeIORef failHost False
         resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
-        transactionState resumed @?= Completed
-        assertBool "context commit ran after recovery" (phaseState (last (transactionPhases resumed)) == Succeeded)
+        resumed ^. #state @?= Completed
+        assertBool "context commit ran after recovery" (last (resumed ^. #phases) ^. #state == Succeeded)
     , testCase "failure at every apply phase leaves a resumable old-context commit point" $
         traverse_ checkFailure applyPhases
     ]
@@ -182,13 +188,13 @@ platformTests =
       planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
       applyUpgrade False ops planned >>= assertBool ("expected failure at " <> show failingPhase) . either (const True) (const False)
       Just persisted <- readIORef saved
-      transactionState persisted @?= TransactionFailed
-      let contextRecord = last (transactionPhases persisted)
-      whenBeforeContext failingPhase $ phaseState contextRecord @?= Pending
+      persisted ^. #state @?= TransactionFailed
+      let contextRecord = last (persisted ^. #phases)
+      whenBeforeContext failingPhase $ contextRecord ^. #state @?= Pending
       writeIORef failing False
       resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
-      transactionState resumed @?= Completed
-      phaseState (last (transactionPhases resumed)) @?= Succeeded
+      resumed ^. #state @?= Completed
+      last (resumed ^. #phases) ^. #state @?= Succeeded
     whenBeforeContext phase assertion = if phase == ContextCommit then pure () else assertion
 
 fixtureNow :: T.Text

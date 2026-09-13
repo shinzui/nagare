@@ -30,6 +30,7 @@ import Data.Aeson.Key qualified as Key
 import Data.ByteArray.Encoding (Base (Base64), convertFromBase, convertToBase)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
+import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -37,13 +38,13 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName, engineToken)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Network.HTTP.Types.URI (urlEncode)
 
--- | The pieces of a connection string. @cpHost@ is the in-cluster DNS name; the
+-- | The pieces of a connection string. @host@ is the in-cluster DNS name; the
 -- port is fixed per engine in 'composeConnectionUrl'.
 data ConnectionParts = ConnectionParts
-  { cpUser :: !Text
-  , cpPassword :: !Text
-  , cpHost :: !Text
-  , cpDb :: !Text
+  { user :: !Text
+  , password :: !Text
+  , host :: !Text
+  , database :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
@@ -75,22 +76,22 @@ percentEncode = TE.decodeUtf8 . urlEncode True . TE.encodeUtf8
 composeConnectionUrl :: Engine -> ConnectionParts -> Text
 composeConnectionUrl Postgres p =
   "postgresql://"
-    <> percentEncode (cpUser p)
+    <> percentEncode (p ^. #user)
     <> ":"
-    <> percentEncode (cpPassword p)
+    <> percentEncode (p ^. #password)
     <> "@"
-    <> cpHost p
+    <> p ^. #host
     <> ":5432/"
-    <> cpDb p
+    <> p ^. #database
 composeConnectionUrl Redis p =
-  "redis://:" <> percentEncode (cpPassword p) <> "@" <> cpHost p <> ":6379"
+  "redis://:" <> percentEncode (p ^. #password) <> "@" <> p ^. #host <> ":6379"
 composeConnectionUrl ClickHouse p =
   "clickhouse://"
-    <> percentEncode (cpUser p)
+    <> percentEncode (p ^. #user)
     <> ":"
-    <> percentEncode (cpPassword p)
+    <> percentEncode (p ^. #password)
     <> "@"
-    <> cpHost p
+    <> p ^. #host
     <> ":9000"
 
 -- | The engine-specific Secret key/value pairs (MasterPlan IP3), including the
@@ -98,27 +99,27 @@ composeConnectionUrl ClickHouse p =
 -- @Nagare.Dsl.Database.engineSecretKeys@.
 secretKeysFor :: Engine -> ConnectionParts -> [(Text, Text)]
 secretKeysFor Postgres p =
-  [ ("POSTGRES_PASSWORD", cpPassword p)
-  , ("POSTGRES_USER", cpUser p)
-  , ("POSTGRES_DB", cpDb p)
+  [ ("POSTGRES_PASSWORD", p ^. #password)
+  , ("POSTGRES_USER", p ^. #user)
+  , ("POSTGRES_DB", p ^. #database)
   , ("DATABASE_URL", composeConnectionUrl Postgres p)
   ]
 secretKeysFor Redis p =
-  [ ("REDIS_PASSWORD", cpPassword p)
+  [ ("REDIS_PASSWORD", p ^. #password)
   , ("REDIS_URL", composeConnectionUrl Redis p)
   ]
 secretKeysFor ClickHouse p =
-  [ ("CLICKHOUSE_PASSWORD", cpPassword p)
-  , ("CLICKHOUSE_USER", cpUser p)
+  [ ("CLICKHOUSE_PASSWORD", p ^. #password)
+  , ("CLICKHOUSE_USER", p ^. #user)
   , ("CLICKHOUSE_URL", composeConnectionUrl ClickHouse p)
   ]
 
 -- | Inputs to the managed-Secret renderer.
 data DbSecretInputs = DbSecretInputs
-  { dsiName :: !Text
-  , dsiNamespace :: !Text
-  , dsiEngine :: !Engine
-  , dsiKvs :: ![(Text, Text)]
+  { name :: !Text
+  , namespace :: !Text
+  , engine :: !Engine
+  , keyValues :: ![(Text, Text)]
   }
   deriving stock (Generic, Eq, Show)
 
@@ -135,16 +136,16 @@ renderDbSecret inp =
       , "type" .= ("Opaque" :: Text)
       , "metadata"
           .= object
-            [ "name" .= dbSecretName (dsiName inp)
-            , "namespace" .= dsiNamespace inp
+            [ "name" .= dbSecretName (inp ^. #name)
+            , "namespace" .= (inp ^. #namespace)
             , "labels"
                 .= object
                   [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-                  , "nagare.dev/database" .= dsiName inp
-                  , "nagare.dev/engine" .= engineToken (dsiEngine inp)
+                  , "nagare.dev/database" .= (inp ^. #name)
+                  , "nagare.dev/engine" .= engineToken (inp ^. #engine)
                   ]
             ]
-      , "data" .= dataObject (dsiKvs inp)
+      , "data" .= dataObject (inp ^. #keyValues)
       ]
   where
     dataObject kvs =

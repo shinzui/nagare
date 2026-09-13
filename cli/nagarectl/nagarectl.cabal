@@ -192,6 +192,7 @@ test-suite nagarectl-test
     crypton,
     directory,
     filepath,
+    generic-lens ^>=2.3,
     nagare-dsl,
     nagarectl,
     process,

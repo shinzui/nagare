@@ -8,6 +8,8 @@
 -- build/output-preparation state machine.
 module Main (main) where
 
+import Nagare.Dsl.Prelude hiding ((<.>))
+
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
@@ -24,6 +26,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -410,27 +413,27 @@ versionTests =
 initProfile :: TargetProfile
 initProfile =
   TargetProfile
-    { tpProject = "acme-prod"
-    , tpRegion = "us-west1"
-    , tpZone = "us-west1-a"
-    , tpRegistryHost = "us-west1-docker.pkg.dev"
-    , tpArtifactRegistryId = "nagare"
-    , tpImageBucket = "acme-prod-nagare-images"
-    , tpBackupBucket = "acme-prod-nagare-backups"
-    , tpBaseDomain = "apps.acme.com"
-    , tpInstanceName = "nagare-01"
-    , tpMachineType = "e2-standard-2"
-    , tpBootDiskType = "pd-balanced"
-    , tpBootDiskSizeGb = "100"
-    , tpDataDiskSizeGb = "100"
-    , tpTargetPlatform = "linux/amd64"
-    , tpMode = Cloud
-    , tpLocalObjectStore = ""
-    , tpPulumiBackend = PulumiBackendLocal
-    , tpPulumiBackendUrl = ""
-    , tpAcmeEmail = "ops@acme.example"
-    , tpAcmeDirectory = "production"
-    , tpPlatformVersion = Just "0.1.0"
+    { project = "acme-prod"
+    , region = "us-west1"
+    , zone = "us-west1-a"
+    , registryHost = "us-west1-docker.pkg.dev"
+    , artifactRegistryId = "nagare"
+    , imageBucket = "acme-prod-nagare-images"
+    , backupBucket = "acme-prod-nagare-backups"
+    , baseDomain = "apps.acme.com"
+    , instanceName = "nagare-01"
+    , machineType = "e2-standard-2"
+    , bootDiskType = "pd-balanced"
+    , bootDiskSizeGb = "100"
+    , dataDiskSizeGb = "100"
+    , targetPlatform = "linux/amd64"
+    , mode = Cloud
+    , localObjectStore = ""
+    , pulumiBackend = PulumiBackendLocal
+    , pulumiBackendUrl = ""
+    , acmeEmail = "ops@acme.example"
+    , acmeDirectory = "production"
+    , platformVersion = Just "0.1.0"
     }
 
 initTests :: TestTree
@@ -449,17 +452,16 @@ initTests =
         assertBool "local object store (empty for cloud)" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=" out)
         assertBool "platform version" (T.isInfixOf "export NAGARE_PLATFORM_VERSION=0.1.0" out)
     , testCase "renderTargetEnv emits an overridden target platform (EP-3)" $ do
-        let out = renderTargetEnv initProfile {tpTargetPlatform = "linux/arm64"}
+        let out = renderTargetEnv (initProfile & #targetPlatform .~ "linux/arm64")
         assertBool "target platform (override)" (T.isInfixOf "export NAGARE_TARGET_PLATFORM=linux/arm64" out)
     , testCase "renderTargetEnv emits local context fields for round-trip" $ do
         let out =
-              renderTargetEnv
+              renderTargetEnv $
                 initProfile
-                  { tpMode = Local
-                  , tpRegistryHost = "k3d-registry.localhost:5000"
-                  , tpBaseDomain = "127-0-0-1.sslip.io"
-                  , tpLocalObjectStore = "http://minio:9000/nagare-backups"
-                  }
+                  & #mode .~ Local
+                  & #registryHost .~ "k3d-registry.localhost:5000"
+                  & #baseDomain .~ "127-0-0-1.sslip.io"
+                  & #localObjectStore .~ "http://minio:9000/nagare-backups"
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
@@ -480,18 +482,18 @@ initTests =
               ]
     , testCase "validateVmShape accepts named and custom machine types" $ do
         validateVmShape defaultVmShape @?= Right defaultVmShape
-        let custom = defaultVmShape {vsMachineType = "custom-4-8192"}
+        let custom = defaultVmShape & #machineType .~ "custom-4-8192"
         validateVmShape custom @?= Right custom
     , testCase "validateVmShape reports every rejected field precisely" $ do
-        validateVmShape defaultVmShape {vsMachineType = ""}
+        validateVmShape (defaultVmShape & #machineType .~ "")
           @?= Left "NAGARE_MACHINE_TYPE must not be empty"
-        validateVmShape defaultVmShape {vsMachineType = "E2-standard-2"}
+        validateVmShape (defaultVmShape & #machineType .~ "E2-standard-2")
           @?= Left "NAGARE_MACHINE_TYPE='E2-standard-2' is invalid (expected <family>-<series> using lowercase letters/digits/hyphens, or custom-<cpus>-<mb>)"
-        validateVmShape defaultVmShape {vsBootDiskType = "pd-extreme"}
+        validateVmShape (defaultVmShape & #bootDiskType .~ "pd-extreme")
           @?= Left "NAGARE_BOOT_DISK_TYPE='pd-extreme' is invalid (accepted: pd-standard, pd-balanced, pd-ssd, hyperdisk-balanced)"
-        validateVmShape defaultVmShape {vsBootDiskSizeGb = "9"}
+        validateVmShape (defaultVmShape & #bootDiskSizeGb .~ "9")
           @?= Left "NAGARE_BOOT_DISK_SIZE_GB must be an integer of at least 10 GB"
-        validateVmShape defaultVmShape {vsDataDiskSizeGb = "many"}
+        validateVmShape (defaultVmShape & #dataDiskSizeGb .~ "many")
           @?= Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
     , testCase "pulumiConfigSetArgs targets the active context stack" $
         pulumiConfigSetArgs "/payload/infra/pulumi" "labs" "gcp:project" "acme-prod"
@@ -499,10 +501,10 @@ initTests =
     , testCase "pulumiEnvFor derives a per-context LOCAL backend, home, and stack" $
         pulumiEnvFor "/tmp/nagare-state" "labs" initProfile
           @?= PulumiEnv
-            { peHome = "/tmp/nagare-state/labs/home"
-            , peBackendUrl = "file:///tmp/nagare-state/labs/state"
-            , peStack = "labs"
-            , peKind = PulumiBackendLocal
+            { home = "/tmp/nagare-state/labs/home"
+            , backendUrl = "file:///tmp/nagare-state/labs/state"
+            , stack = "labs"
+            , kind = PulumiBackendLocal
             }
     , testCase "renderTargetEnv emits the Pulumi backend fields (default local, EP-93)" $ do
         let out = renderTargetEnv initProfile
@@ -518,28 +520,31 @@ initTests =
         defaultGcsPulumiBackendUrl "labs" initProfile
           @?= "gs://acme-prod-nagare-pulumi-state/nagare/labs"
     , testCase "pulumiEnvFor derives a GCS backend URL when kind=gcs and no explicit URL" $
-        pulumiEnvFor "/tmp/nagare-state" "labs" initProfile {tpPulumiBackend = PulumiBackendGcs}
+        pulumiEnvFor "/tmp/nagare-state" "labs" (initProfile & #pulumiBackend .~ PulumiBackendGcs)
           @?= PulumiEnv
-            { peHome = "/tmp/nagare-state/labs/home"
-            , peBackendUrl = "gs://acme-prod-nagare-pulumi-state/nagare/labs"
-            , peStack = "labs"
-            , peKind = PulumiBackendGcs
+            { home = "/tmp/nagare-state/labs/home"
+            , backendUrl = "gs://acme-prod-nagare-pulumi-state/nagare/labs"
+            , stack = "labs"
+            , kind = PulumiBackendGcs
             }
     , testCase "pulumiEnvFor honors an explicit GCS backend URL" $
-        peBackendUrl
+        (^. #backendUrl)
           ( pulumiEnvFor
               "/tmp/nagare-state"
               "labs"
-              initProfile {tpPulumiBackend = PulumiBackendGcs, tpPulumiBackendUrl = "gs://custom-bucket/state/labs"}
+              ( initProfile
+                  & #pulumiBackend .~ PulumiBackendGcs
+                  & #pulumiBackendUrl .~ "gs://custom-bucket/state/labs"
+              )
           )
           @?= "gs://custom-bucket/state/labs"
     , testCase "a local-mode context can never use GCS (downgraded to local)" $ do
-        let localGcs = initProfile {tpMode = Local, tpPulumiBackend = PulumiBackendGcs}
+        let localGcs = initProfile & #mode .~ Local & #pulumiBackend .~ PulumiBackendGcs
         effectivePulumiBackend localGcs @?= PulumiBackendLocal
-        peKind (pulumiEnvFor "/tmp/nagare-state" "labs" localGcs) @?= PulumiBackendLocal
+        pulumiEnvFor "/tmp/nagare-state" "labs" localGcs ^. #kind @?= PulumiBackendLocal
         assertBool
           "local-mode gcs falls back to a file:// backend"
-          (T.isPrefixOf "file://" (peBackendUrl (pulumiEnvFor "/tmp/nagare-state" "labs" localGcs)))
+          (T.isPrefixOf "file://" (pulumiEnvFor "/tmp/nagare-state" "labs" localGcs ^. #backendUrl))
     , testCase "profileFromContextMap parses NAGARE_PULUMI_BACKEND + URL (EP-93)" $ do
         let ctx =
               parseContextEnv $
@@ -550,8 +555,8 @@ initTests =
                   , "export NAGARE_PULUMI_BACKEND_URL=gs://acme-prod-nagare-pulumi-state/nagare/prod"
                   ]
             tp = profileFromContextMap ctx
-        tpPulumiBackend tp @?= PulumiBackendGcs
-        tpPulumiBackendUrl tp @?= "gs://acme-prod-nagare-pulumi-state/nagare/prod"
+        tp ^. #pulumiBackend @?= PulumiBackendGcs
+        tp ^. #pulumiBackendUrl @?= "gs://acme-prod-nagare-pulumi-state/nagare/prod"
     , -- EP-113: the launcher has no .envrc, so `nagarectl context env` must emit
       -- the whole contract, Pulumi selection included, safely quoted.
       testCase "renderContextShellEnv emits the local backend's per-context file URL" $ do
@@ -574,7 +579,7 @@ initTests =
           (T.isInfixOf "export PULUMI_CONFIG_PASSPHRASE_FILE='/tmp/nagare-state/labs/home/passphrase'\n" out)
     , testCase "renderContextShellEnv emits the gcs backend's remote URL" $ do
         let name = either (error . T.unpack) id (mkContextName "labs")
-            gcsProfile = initProfile {tpPulumiBackend = PulumiBackendGcs}
+            gcsProfile = initProfile & #pulumiBackend .~ PulumiBackendGcs
             penv = pulumiEnvFor "/tmp/nagare-state" "labs" gcsProfile
             out = renderContextShellEnv name gcsProfile penv
         assertBool
@@ -584,7 +589,7 @@ initTests =
         assertBool "pulumi home" (T.isInfixOf "export PULUMI_HOME='/tmp/nagare-state/labs/home'\n" out)
     , testCase "renderContextShellEnv round-trips a value containing a single quote" $ do
         let name = either (error . T.unpack) id (mkContextName "labs")
-            odd' = initProfile {tpBaseDomain = "it's.example.com"}
+            odd' = initProfile & #baseDomain .~ "it's.example.com"
             penv = pulumiEnvFor "/tmp/nagare-state" "labs" odd'
             out = renderContextShellEnv name odd' penv
         got <-
@@ -601,19 +606,19 @@ initTests =
         -- The absence of a contact must round-trip as an empty value: a context
         -- written without one has no contact, and the renderer refuses. No
         -- default may appear here.
-        let out = renderTargetEnv initProfile {tpAcmeEmail = ""}
+        let out = renderTargetEnv (initProfile & #acmeEmail .~ "")
         assertBool "empty contact line" (T.isInfixOf "export NAGARE_ACME_EMAIL=\n" out)
     , testCase "profileFromContextMap reads the ACME fields from a context (EP-112)" $ do
         let ctx =
               parseContextEnv
                 (T.unlines ["export NAGARE_ACME_EMAIL=ops@acme.example", "export NAGARE_ACME_DIRECTORY=staging"])
             tp = profileFromContextMap ctx
-        tpAcmeEmail tp @?= "ops@acme.example"
-        tpAcmeDirectory tp @?= "staging"
+        tp ^. #acmeEmail @?= "ops@acme.example"
+        tp ^. #acmeDirectory @?= "staging"
     , testCase "profileFromContextMap defaults the endpoint to production and the contact to empty" $ do
         let tp = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\n")
-        tpAcmeEmail tp @?= ""
-        tpAcmeDirectory tp @?= "production"
+        tp ^. #acmeEmail @?= ""
+        tp ^. #acmeDirectory @?= "production"
     , testCase "parseAcmeDirectory: an unrecognized token is an ERROR, not a fallback" $ do
         parseAcmeDirectory "" @?= Right AcmeProduction
         parseAcmeDirectory "production" @?= Right AcmeProduction
@@ -721,12 +726,12 @@ contextGuardTests =
   where
     guardInputs stackProject ambient configured =
       ProjectGuardInputs
-        { pgiContext = "labs"
-        , pgiDeclared = "acme-prod"
-        , pgiStack = "labs"
-        , pgiStackProject = stackProject
-        , pgiAmbient = ambient
-        , pgiConfigured = configured
+        { context = "labs"
+        , declared = "acme-prod"
+        , stack = "labs"
+        , stackProject = stackProject
+        , ambient = ambient
+        , configured = configured
         }
     assertRefusal needle pgi = case projectGuardVerdict pgi of
       Right () -> assertFailure ("expected a refusal mentioning " <> T.unpack needle)
@@ -745,12 +750,15 @@ pulumiBackendBootstrapTests =
         gcsBucketOfUrl "file:///tmp/x" @?= Nothing
         gcsBucketOfUrl "gs://" @?= Nothing
     , testCase "pulumiStateBucket uses the default state bucket for a gcs context" $
-        pulumiStateBucket "labs" initProfile {tpPulumiBackend = PulumiBackendGcs}
+        pulumiStateBucket "labs" (initProfile & #pulumiBackend .~ PulumiBackendGcs)
           @?= Just "acme-prod-nagare-pulumi-state"
     , testCase "pulumiStateBucket honors an explicit backend URL's bucket" $
         pulumiStateBucket
           "labs"
-          initProfile {tpPulumiBackend = PulumiBackendGcs, tpPulumiBackendUrl = "gs://custom-bucket/state/labs"}
+          ( initProfile
+              & #pulumiBackend .~ PulumiBackendGcs
+              & #pulumiBackendUrl .~ "gs://custom-bucket/state/labs"
+          )
           @?= Just "custom-bucket"
     , testCase "bucketCreateArgs sets location, uniform access, and public-access prevention" $
         bucketCreateArgs "acme-prod-nagare-pulumi-state" "acme-prod" "us-west1"
@@ -860,8 +868,8 @@ pulumiBackendBootstrapTests =
               ("projects" : "describe" : _) -> mTargetNumber
               _ -> Nothing
           execute _ args = record args >> pure (Right ())
-          ops = GcloudOps {gcloudCapture = capture, gcloudExec = execute}
-          gcsProfile = initProfile {tpPulumiBackend = PulumiBackendGcs}
+          ops = GcloudOps {capture = capture, execute = execute}
+          gcsProfile = initProfile & #pulumiBackend .~ PulumiBackendGcs
       result <-
         bootstrapPulumiStateBucketWith
           ops
@@ -891,15 +899,14 @@ qualifyImageTests =
   where
     acmeProfile =
       tnbProfile
-        { tpProject = "acme-prod"
-        , tpRegistryHost = "europe-west1-docker.pkg.dev"
-        }
+        & #project .~ "acme-prod"
+        & #registryHost .~ "europe-west1-docker.pkg.dev"
 
 -- ---------------------------------------------------------------------------
 -- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows the GCS
 -- backend's project (fail-before/pass-after evidence: before EP-62 the value was
 -- the literal @tan-nb-exp@ regardless of inputs). EP-84 carries the project on
--- 'bjiBackend' ('GcsBackend' project bucket) instead of a separate field.
+-- 'backend' ('GcsBackend' project bucket) instead of a separate field.
 
 backupProjectTests :: [TestTree]
 backupProjectTests =
@@ -913,7 +920,7 @@ backupProjectTests =
   ]
   where
     rendered project =
-      TE.decodeUtf8 (renderBackupJob (backupJobInputsPg {bjiBackend = GcsBackend project "tan-nb-exp-nagare-backups"}))
+      TE.decodeUtf8 (renderBackupJob (backupJobInputsPg & #backend .~ GcsBackend project "tan-nb-exp-nagare-backups"))
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Target (MasterPlan 12, EP-62): the single GCP-target resolution layer.
@@ -926,27 +933,27 @@ backupProjectTests =
 tnbProfile :: TargetProfile
 tnbProfile =
   TargetProfile
-    { tpProject = "tan-nb-exp"
-    , tpRegion = "us-west1"
-    , tpZone = "us-west1-a"
-    , tpRegistryHost = "us-west1-docker.pkg.dev"
-    , tpArtifactRegistryId = "nagare"
-    , tpImageBucket = "tan-nb-exp-nagare-images"
-    , tpBackupBucket = "tan-nb-exp-nagare-backups"
-    , tpBaseDomain = "apps.example.com"
-    , tpInstanceName = "nagare-01"
-    , tpMachineType = "e2-standard-2"
-    , tpBootDiskType = "pd-balanced"
-    , tpBootDiskSizeGb = "100"
-    , tpDataDiskSizeGb = "100"
-    , tpTargetPlatform = "linux/amd64"
-    , tpMode = Cloud
-    , tpLocalObjectStore = ""
-    , tpPulumiBackend = PulumiBackendLocal
-    , tpPulumiBackendUrl = ""
-    , tpAcmeEmail = ""
-    , tpAcmeDirectory = "production"
-    , tpPlatformVersion = Nothing
+    { project = "tan-nb-exp"
+    , region = "us-west1"
+    , zone = "us-west1-a"
+    , registryHost = "us-west1-docker.pkg.dev"
+    , artifactRegistryId = "nagare"
+    , imageBucket = "tan-nb-exp-nagare-images"
+    , backupBucket = "tan-nb-exp-nagare-backups"
+    , baseDomain = "apps.example.com"
+    , instanceName = "nagare-01"
+    , machineType = "e2-standard-2"
+    , bootDiskType = "pd-balanced"
+    , bootDiskSizeGb = "100"
+    , dataDiskSizeGb = "100"
+    , targetPlatform = "linux/amd64"
+    , mode = Cloud
+    , localObjectStore = ""
+    , pulumiBackend = PulumiBackendLocal
+    , pulumiBackendUrl = ""
+    , acmeEmail = ""
+    , acmeDirectory = "production"
+    , platformVersion = Nothing
     }
 
 targetProfileTests :: TestTree
@@ -967,25 +974,25 @@ targetProfileTests =
         -- (1) nothing set: defaults reproduce the tan-nb-exp worked example.
         clearTargetEnv
         tp0 <- resolveTargetProfile
-        tpProject tp0 @?= "tan-nb-exp"
-        tpRegion tp0 @?= "us-west1"
-        tpZone tp0 @?= "us-west1-a"
-        tpRegistryHost tp0 @?= "us-west1-docker.pkg.dev"
-        tpImageBucket tp0 @?= "tan-nb-exp-nagare-images"
-        tpBackupBucket tp0 @?= "tan-nb-exp-nagare-backups"
+        tp0 ^. #project @?= "tan-nb-exp"
+        tp0 ^. #region @?= "us-west1"
+        tp0 ^. #zone @?= "us-west1-a"
+        tp0 ^. #registryHost @?= "us-west1-docker.pkg.dev"
+        tp0 ^. #imageBucket @?= "tan-nb-exp-nagare-images"
+        tp0 ^. #backupBucket @?= "tan-nb-exp-nagare-backups"
         registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
-        tpTargetPlatform tp0 @?= "linux/amd64" -- EP-3: default is the node's arch
-        tpLocalObjectStore tp0 @?= "" -- EP-84: unset unless local profile sets it
-        tpMachineType tp0 @?= "e2-standard-2"
-        tpBootDiskType tp0 @?= "pd-balanced"
+        tp0 ^. #targetPlatform @?= "linux/amd64" -- EP-3: default is the node's arch
+        tp0 ^. #localObjectStore @?= "" -- EP-84: unset unless local profile sets it
+        tp0 ^. #machineType @?= "e2-standard-2"
+        tp0 ^. #bootDiskType @?= "pd-balanced"
         -- (2) project + region override; host derives from region, buckets from project.
         clearTargetEnv
         setEnv "CLOUDSDK_CORE_PROJECT" "acme-prod"
         setEnv "CLOUDSDK_COMPUTE_REGION" "europe-west1"
         tp1 <- resolveTargetProfile
-        tpProject tp1 @?= "acme-prod"
-        tpRegistryHost tp1 @?= "europe-west1-docker.pkg.dev"
-        tpBackupBucket tp1 @?= "acme-prod-nagare-backups"
+        tp1 ^. #project @?= "acme-prod"
+        tp1 ^. #registryHost @?= "europe-west1-docker.pkg.dev"
+        tp1 ^. #backupBucket @?= "acme-prod-nagare-backups"
         registryPrefix tp1 @?= "europe-west1-docker.pkg.dev/acme-prod/nagare"
         -- (3) explicit derived vars win over the derivation.
         clearTargetEnv
@@ -993,22 +1000,22 @@ targetProfileTests =
         setEnv "NAGARE_REGISTRY_HOST" "custom.registry.example"
         setEnv "NAGARE_BACKUP_BUCKET" "my-bucket"
         tp2 <- resolveTargetProfile
-        tpRegistryHost tp2 @?= "custom.registry.example"
-        tpBackupBucket tp2 @?= "my-bucket"
+        tp2 ^. #registryHost @?= "custom.registry.example"
+        tp2 ^. #backupBucket @?= "my-bucket"
         -- (4) EP-3: NAGARE_TARGET_PLATFORM override wins (env > profile > default),
         -- and an empty value falls back to the default (envOr's empty-is-unset rule).
         clearTargetEnv
         setEnv "NAGARE_TARGET_PLATFORM" "linux/arm64"
         tp3 <- resolveTargetProfile
-        tpTargetPlatform tp3 @?= "linux/arm64"
+        tp3 ^. #targetPlatform @?= "linux/arm64"
         setEnv "NAGARE_TARGET_PLATFORM" ""
         tp4 <- resolveTargetProfile
-        tpTargetPlatform tp4 @?= "linux/amd64"
+        tp4 ^. #targetPlatform @?= "linux/amd64"
         -- (5) EP-84: NAGARE_LOCAL_OBJECT_STORE resolves verbatim when set.
         clearTargetEnv
         setEnv "NAGARE_LOCAL_OBJECT_STORE" "http://minio:9000/nagare-backups"
         tp5 <- resolveTargetProfile
-        tpLocalObjectStore tp5 @?= "http://minio:9000/nagare-backups"
+        tp5 ^. #localObjectStore @?= "http://minio:9000/nagare-backups"
   where
     savedVars = targetFieldVars <> ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
     targetFieldVars =
@@ -1083,38 +1090,38 @@ contextResolutionTests =
               clearResolutionEnv
               setEnv "NAGARE_CONTEXT" "labs"
               tpLabs <- resolveActiveContext Nothing
-              tpProject tpLabs @?= "labs-proj"
-              tpRegistryHost tpLabs @?= "europe-west1-docker.pkg.dev"
-              tpImageBucket tpLabs @?= "labs-proj-nagare-images"
+              tpLabs ^. #project @?= "labs-proj"
+              tpLabs ^. #registryHost @?= "europe-west1-docker.pkg.dev"
+              tpLabs ^. #imageBucket @?= "labs-proj-nagare-images"
               atLabs <- resolveActiveTarget Nothing
-              contextNameText (atContextName atLabs) @?= "labs"
-              tpProject (atProfile atLabs) @?= "labs-proj"
+              contextNameText (atLabs ^. #contextName) @?= "labs"
+              atLabs ^. #profile . #project @?= "labs-proj"
 
               tpProd <- resolveActiveContext (Just "prod")
-              tpProject tpProd @?= "prod-proj"
+              tpProd ^. #project @?= "prod-proj"
 
               clearResolutionEnv
               writeFile (xdg </> "nagare" </> "current-context") "labs\n"
               tpPointer <- resolveActiveContext Nothing
-              tpProject tpPointer @?= "labs-proj"
+              tpPointer ^. #project @?= "labs-proj"
 
               clearResolutionEnv
               setEnv "NAGARE_CONTEXT" "labs"
               setEnv "CLOUDSDK_CORE_PROJECT" "override-proj"
               tpOverride <- resolveActiveContext Nothing
-              tpProject tpOverride @?= "override-proj"
-              tpRegion tpOverride @?= "europe-west1"
+              tpOverride ^. #project @?= "override-proj"
+              tpOverride ^. #region @?= "europe-west1"
 
               withSystemTempDirectory "nagare-empty-store" $ \emptyXdg -> do
                 clearResolutionEnv
                 setEnv "XDG_CONFIG_HOME" emptyXdg
                 tpDefault <- resolveActiveContext Nothing
-                tpProject tpDefault @?= "tan-nb-exp"
-                tpRegistryHost tpDefault @?= "us-west1-docker.pkg.dev"
+                tpDefault ^. #project @?= "tan-nb-exp"
+                tpDefault ^. #registryHost @?= "us-west1-docker.pkg.dev"
                 setEnv "NAGARE_CONTEXT" "default"
                 atDefault <- resolveActiveTarget Nothing
-                contextNameText (atContextName atDefault) @?= "default"
-                tpProject (atProfile atDefault) @?= "tan-nb-exp"
+                contextNameText (atDefault ^. #contextName) @?= "default"
+                atDefault ^. #profile . #project @?= "tan-nb-exp"
 
               clearResolutionEnv
               writeContext "local" $
@@ -1126,10 +1133,10 @@ contextResolutionTests =
                   ]
               setEnv "NAGARE_CONTEXT" "local"
               tpLocal <- resolveActiveContext Nothing
-              tpMode tpLocal @?= Local
-              tpRegistryHost tpLocal @?= "k3d-registry.localhost:5000"
-              tpBaseDomain tpLocal @?= "127-0-0-1.sslip.io"
-              case storeBackendFor tpLocal (tpBackupBucket tpLocal) of
+              tpLocal ^. #mode @?= Local
+              tpLocal ^. #registryHost @?= "k3d-registry.localhost:5000"
+              tpLocal ^. #baseDomain @?= "127-0-0-1.sslip.io"
+              case storeBackendFor tpLocal (tpLocal ^. #backupBucket) of
                 Right MinioBackend {} -> pure ()
                 other -> assertFailure ("expected MinioBackend, got " <> show other)
 
@@ -1153,14 +1160,14 @@ contextResolutionTests =
                 unsetEnv "NAGARE_MODE"
                 setEnv "NAGARE_CONTEXT" "empty"
                 tpEmpty <- resolveActiveContext Nothing
-                tpProject tpEmpty @?= "tan-nb-exp"
+                tpEmpty ^. #project @?= "tan-nb-exp"
 
               withSystemTempDirectory "nagare-repo-profile" $ \repoXdg -> do
                 clearResolutionEnv
                 setEnv "XDG_CONFIG_HOME" repoXdg
                 writeFile "nagare.target.env" "export CLOUDSDK_CORE_PROJECT=repo-proj\n"
                 tpRepo <- resolveActiveContext Nothing
-                tpProject tpRepo @?= "repo-proj"
+                tpRepo ^. #project @?= "repo-proj"
     , testCase "store helpers list, read, set current, clear, and delete contexts" $ do
         saved <- traverse (\v -> (,) v <$> lookupEnv v) savedVars
         let restore = mapM_ (\(v, m) -> maybe (unsetEnv v) (setEnv v) m) saved
@@ -1188,8 +1195,8 @@ contextResolutionTests =
             case eLabs of
               Left err -> assertFailure (T.unpack err)
               Right tp -> do
-                tpProject tp @?= "labs-proj"
-                tpBaseDomain tp @?= "labs.example.test"
+                tp ^. #project @?= "labs-proj"
+                tp ^. #baseDomain @?= "labs.example.test"
 
             setCurrentContext labs
             readCurrentContext >>= (@?= Just labs)
@@ -1202,8 +1209,8 @@ contextResolutionTests =
             let derived =
                   profileFromContextMap
                     (Map.fromList [("CLOUDSDK_CORE_PROJECT", "derived-proj"), ("CLOUDSDK_COMPUTE_REGION", "asia-northeast1")])
-            tpRegistryHost derived @?= "asia-northeast1-docker.pkg.dev"
-            tpImageBucket derived @?= "derived-proj-nagare-images"
+            derived ^. #registryHost @?= "asia-northeast1-docker.pkg.dev"
+            derived ^. #imageBucket @?= "derived-proj-nagare-images"
     ]
   where
     savedVars = targetFieldVars <> ["NAGARE_MODE", "NAGARE_CONTEXT", "XDG_CONFIG_HOME"]
@@ -1256,10 +1263,10 @@ modeResolutionTests =
             unsetEnv "NAGARE_CONTEXT"
             unsetEnv "NAGARE_MODE"
             tpC <- resolveTargetProfile
-            tpMode tpC @?= Cloud
+            tpC ^. #mode @?= Cloud
             setEnv "NAGARE_MODE" "local"
             tpL <- resolveTargetProfile
-            tpMode tpL @?= Local
+            tpL ^. #mode @?= Local
     ]
 
 -- ---------------------------------------------------------------------------
@@ -1296,18 +1303,18 @@ taskDiscoverTests fixture =
   , testCase "extractTaskRows parses both managed tasks" $
       case extractTaskRows fixture of
         Left e -> assertFailure (T.unpack e)
-        Right rows -> map trName rows @?= ["cleanup", "nightly-report"]
+        Right rows -> map (^. #name) rows @?= ["cleanup", "nightly-report"]
   , testCase "extractTaskRows reads schedule, app, and active count" $
       case extractTaskRows fixture of
         Left e -> assertFailure (T.unpack e)
         Right rows -> do
-          let byName n = head (filter ((== n) . trName) rows)
-          trApp (byName "cleanup") @?= "notes"
-          trSchedule (byName "cleanup") @?= "0 3 * * *"
-          trActive (byName "cleanup") @?= 0
-          trApp (byName "nightly-report") @?= "-"
-          trLastRun (byName "nightly-report") @?= "never"
-          trActive (byName "nightly-report") @?= 1
+          let byName n = head (filter ((== n) . (^. #name)) rows)
+          byName "cleanup" ^. #app @?= "notes"
+          byName "cleanup" ^. #schedule @?= "0 3 * * *"
+          byName "cleanup" ^. #active @?= 0
+          byName "nightly-report" ^. #app @?= "-"
+          byName "nightly-report" ^. #lastRun @?= "never"
+          byName "nightly-report" ^. #active @?= 1
   , testCase "extractTaskRows on empty shape is Right []" $
       extractTaskRows "{\"items\":[]}" @?= Right []
   , testCase "formatTaskTable empty prints the placeholder" $
@@ -1334,11 +1341,11 @@ taskRunTests =
   , testCase "taskLogArgs scopes by app and honours --tail/--follow" $
       taskLogArgs
         TaskLogTarget
-          { tltNamespace = "personal"
-          , tltTask = "cleanup"
-          , tltScope = App "notes"
-          , tltFollow = True
-          , tltTail = Just 20
+          { namespace = "personal"
+          , task = "cleanup"
+          , scope = App "notes"
+          , follow = True
+          , tail = Just 20
           }
         @?= [ "logs"
             , "-l"
@@ -1352,11 +1359,11 @@ taskRunTests =
   , testCase "taskLogArgs NoApp uses the not-exists term, no tail/follow" $
       taskLogArgs
         TaskLogTarget
-          { tltNamespace = "personal"
-          , tltTask = "nightly-report"
-          , tltScope = NoApp
-          , tltFollow = False
-          , tltTail = Nothing
+          { namespace = "personal"
+          , task = "nightly-report"
+          , scope = NoApp
+          , follow = False
+          , tail = Nothing
           }
         @?= [ "logs"
             , "-l"
@@ -1401,7 +1408,7 @@ taskResolveTests =
   where
     appImg = "gcr.io/myproject/notes:20260602-120000"
     tag = "20260602-120000"
-    withPredef tk = tk {env = mergeGenerated (predefinedTaskEnv tk) (env tk)}
+    withPredef tk = tk & #env .~ mergeGenerated (predefinedTaskEnv tk) (tk ^. #env)
     assertInfix needle hay =
       assertBool
         ("expected " <> show needle <> " in:\n" <> T.unpack (TE.decodeUtf8 hay))
@@ -1430,10 +1437,10 @@ taskResolveTests =
     ownImageTask =
       unsafe $
         mkTask
-          inheritTask
-            { image = Just (unsafe (mkImageRef "gcr.io/myproject/other"))
-            , app = Nothing
-            }
+          ( inheritTask
+              & #image .~ Just (unsafe (mkImageRef "gcr.io/myproject/other"))
+              & #app .~ Nothing
+          )
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops (MasterPlan 8, EP-38): the pure probe parsers and the formatter.
@@ -1460,15 +1467,15 @@ opsTests =
   , testCase "parseNodeExternalIp: Nothing when only InternalIP advertised" $
       parseNodeExternalIp nodeInternalOnlyJson @?= Nothing
   , testCase "gradeKourier: reachable (curl 404) -> OK" $
-      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") (Just "404") Nothing)) @?= StatusOk
+      (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") (Just "404") Nothing)) ^. #status @?= StatusOk
   , testCase "gradeKourier: no curl, node ExternalIP fronts publicIp -> OK" $
-      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "34.145.74.203"))) @?= StatusOk
+      (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "34.145.74.203"))) ^. #status @?= StatusOk
   , testCase "gradeKourier: no curl, node ExternalIP differs from publicIp -> FAIL" $
-      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "9.9.9.9"))) @?= StatusFail
+      (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing (Just "9.9.9.9"))) ^. #status @?= StatusFail
   , testCase "gradeKourier: inconclusive (no curl, no node ExternalIP) -> WARN not FAIL" $
-      probeStatus (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing Nothing)) @?= StatusWarn
+      (gradeKourier (KourierEvidence (Just "10.10.0.4") (Just "34.145.74.203") Nothing Nothing)) ^. #status @?= StatusWarn
   , testCase "gradeKourier: no LB EXTERNAL-IP -> FAIL" $
-      probeStatus (gradeKourier (KourierEvidence Nothing (Just "34.145.74.203") Nothing Nothing)) @?= StatusFail
+      (gradeKourier (KourierEvidence Nothing (Just "34.145.74.203") Nothing Nothing)) ^. #status @?= StatusFail
   , -- EP-4 M2: private-image-pull check
     testCase "parseSkipTagResolvingHosts: host present" $
       parseSkipTagResolvingHosts configDeploymentJson @?= Just ["kind.local", "ko.local", "dev.local", "us-west1-docker.pkg.dev"]
@@ -1482,11 +1489,11 @@ opsTests =
   , testCase "parseNodeArch: malformed JSON -> Nothing" $
       parseNodeArch "{not json" @?= Nothing
   , testCase "gradeArch: linux/amd64 on amd64 node -> OK" $
-      probeStatus (gradeArch "linux/amd64" "amd64") @?= StatusOk
+      (gradeArch "linux/amd64" "amd64") ^. #status @?= StatusOk
   , testCase "gradeArch: linux/arm64 on amd64 node -> WARN" $
-      probeStatus (gradeArch "linux/arm64" "amd64") @?= StatusWarn
+      (gradeArch "linux/arm64" "amd64") ^. #status @?= StatusWarn
   , testCase "gradeArch: linux/arm64/v8 on arm64 node -> OK (ignores variant)" $
-      probeStatus (gradeArch "linux/arm64/v8" "arm64") @?= StatusOk
+      (gradeArch "linux/arm64/v8" "arm64") ^. #status @?= StatusOk
   , testCase "parseConfigDomain: returns the domain key, skips _example" $
       parseConfigDomain configDomainJson @?= Just "apps.example.com"
   , testCase "parseClusterIssuerReady: Ready=True" $
@@ -1564,13 +1571,13 @@ cleanupTests =
   [ testCase "pruneReleases: 14-entry log, keep 10 -> 10 kept, 4 removed" $
       let logv = StaticReleaseLog (Just "r14") (map mkRel [14, 13 .. 1])
           (trimmed, removed) = pruneReleases 10 logv
-       in (length (releases trimmed), length removed) @?= (10, 4)
+       in (length (trimmed ^. #releases), length removed) @?= (10, 4)
   , testCase "pruneReleases: keeps current even when it is the oldest record" $
       let logv = StaticReleaseLog (Just "r1") (map mkRel [14, 13 .. 1])
           (trimmed, removed) = pruneReleases 3 logv
        in do
-            assertBool "current kept" ("r1" `elem` map releaseId (releases trimmed))
-            assertBool "current not removed" ("r1" `notElem` map releaseId removed)
+            assertBool "current kept" ("r1" `elem` map (^. #releaseId) (trimmed ^. #releases))
+            assertBool "current not removed" ("r1" `notElem` map (^. #releaseId) removed)
             length removed @?= 10
   , testCase "pruneReleases: nothing to trim when keep >= length" $
       let logv = StaticReleaseLog (Just "r3") (map mkRel [3, 2, 1])
@@ -1583,7 +1590,7 @@ cleanupTests =
             , mkPreview "site-pr-stale9" (fromGregorian 2026 5 31) -- 9d
             , mkPreview "site-pr-stale21" (fromGregorian 2026 5 19) -- 21d
             ]
-       in map previewName (selectStalePreviews now ttl ps) @?= ["site-pr-stale9", "site-pr-stale21"]
+       in map (^. #name) (selectStalePreviews now ttl ps) @?= ["site-pr-stale9", "site-pr-stale21"]
   , testCase "parseCrictlImages: parses rows, skips header/blank" $
       parseCrictlImages crictlFixture
         @?= [ ImagePlan "docker.io/library/nginx" 142000000
@@ -1626,10 +1633,10 @@ cleanupTests =
           ]
     dryReport confirmed =
       CleanupReport
-        { reportImages = Just (12, 3650722201)
-        , reportStalePreviews = [mkPreview "site-pr-old" (fromGregorian 2026 5 1)]
-        , reportTrimmedReleases = [("notes", [mkRel 1])]
-        , reportConfirmed = confirmed
+        { images = Just (12, 3650722201)
+        , stalePreviews = [mkPreview "site-pr-old" (fromGregorian 2026 5 1)]
+        , trimmedReleases = [("notes", [mkRel 1])]
+        , confirmed = confirmed
         }
 
 -- ---------------------------------------------------------------------------
@@ -1759,8 +1766,8 @@ doctorTests =
       assertBool "summary" ("1 failed, 0 warnings, 1 ok." `T.isInfixOf` out)
   ]
   where
-    cmdOf p = maybe "" remCommand (remediationFor tnbProfile p)
-    whyOf p = maybe "" remWhy (remediationFor tnbProfile p)
+    cmdOf p = maybe "" (^. #command) (remediationFor tnbProfile p)
+    whyOf p = maybe "" (^. #reason) (remediationFor tnbProfile p)
     containsT hay needle = assertBool (T.unpack needle) (needle `T.isInfixOf` hay)
     startsWithT hay needle = assertBool (T.unpack needle) (needle `T.isPrefixOf` hay)
 
@@ -1835,12 +1842,12 @@ storageDiscoverTests =
       extractPVCStatus (BC.pack pvcListJSON)
         @?= Right
           [ PVCRow
-              { prVolume = "data"
-              , prName = "nagare-vol-myapp-data"
-              , prSize = "1Gi"
-              , prStatus = "Bound"
-              , prPvName = "pvc-abc123"
-              , prNodePath = ""
+              { volume = "data"
+              , name = "nagare-vol-myapp-data"
+              , size = "1Gi"
+              , status = "Bound"
+              , persistentVolumeName = "pvc-abc123"
+              , nodePath = ""
               }
           ]
   , testCase "extractPVCStatus of empty items is []" $
@@ -1853,12 +1860,12 @@ storageDiscoverTests =
       let vols = [mkVol "data" "1Gi" "/data", mkVol "logs" "2Gi" "/logs"]
           rows =
             [ PVCRow
-                { prVolume = "data"
-                , prName = "nagare-vol-myapp-data"
-                , prSize = "1Gi"
-                , prStatus = "Bound"
-                , prPvName = "pvc-abc123"
-                , prNodePath = "/var/lib/nagare/local-path/pvc-abc123"
+                { volume = "data"
+                , name = "nagare-vol-myapp-data"
+                , size = "1Gi"
+                , status = "Bound"
+                , persistentVolumeName = "pvc-abc123"
+                , nodePath = "/var/lib/nagare/local-path/pvc-abc123"
                 }
             ]
           out = formatStorageTable "myapp" vols rows
@@ -1959,18 +1966,18 @@ appTests =
           extractAppSummary ksvcJSON
             @?= Right
               AppSummary
-                { asName = "notes"
-                , asUrl = Just "https://notes.personal.apps.example.com"
-                , asReady = Just True
-                , asLatestRevision = Just "notes-00003"
-                , asImage = Just "gcr.io/p/notes:20260610-120000"
+                { name = "notes"
+                , url = Just "https://notes.personal.apps.example.com"
+                , ready = Just True
+                , latestRevision = Just "notes-00003"
+                , image = Just "gcr.io/p/notes:20260610-120000"
                 }
       , testCase "missing .metadata.name is a Left" $
           case extractAppSummary "{\"status\":{}}" of
             Left _ -> pure ()
             Right s -> assertFailure ("expected Left, got: " <> show s)
       , testCase "a list response yields one summary per item" $
-          fmap (map asName) (extractAppSummaries ksvcListJSON) @?= Right ["notes"]
+          fmap (map (^. #name)) (extractAppSummaries ksvcListJSON) @?= Right ["notes"]
       ]
   , testGroup
       "extractDomainsFor"
@@ -2160,12 +2167,12 @@ generatedEnvTests =
       genLit m "NAGARE_RELEASE_ID" @?= Just "20260602-120000"
       genLit m "NAGARE_SOURCE" @?= Just "main"
   , testCase "omits NAGARE_SOURCE when source is Nothing" $ do
-      let m = generatedEnv sampleCtx {Gen.source = Nothing}
+      let m = generatedEnv (sampleCtx & #source .~ Nothing)
       genLit m "NAGARE_SOURCE" @?= Nothing
       length (Map.keys m) @?= 5
   , testCase "every generated entry is Runtime-scoped" $ do
       let m = generatedEnv sampleCtx
-      mapM_ (\sev -> scopes sev @?= scopes (runtimeScoped (EnvLiteral "x"))) (Map.elems m)
+      mapM_ (\sev -> sev ^. #scopes @?= runtimeScoped (EnvLiteral "x") ^. #scopes) (Map.elems m)
   , testCase "mergeGenerated overrides a user var of the same name" $ do
       let user =
             Map.singleton
@@ -2214,7 +2221,7 @@ brokerConnectionEnvTests =
       mergeBrokerConnectionEnvs [env, env] @?= Right env
   , testCase "different bootstrap targets are rejected" $ do
       let env1 = unsafe (brokerConnectionEnv eventsBinding eventsConn)
-          otherConn = eventsConn {bootstrapServers = "other.personal.svc.cluster.local:9092"}
+          otherConn = eventsConn & #bootstrapServers .~ "other.personal.svc.cluster.local:9092"
           env2 = unsafe (brokerConnectionEnv eventsBinding otherConn)
       assertBool "should be Left" (isLeft (mergeBrokerConnectionEnvs [env1, env2]))
   , testCase "topics that normalize to the same env key are rejected" $ do
@@ -2272,7 +2279,7 @@ renderDemonstrationTests =
       assertInfix "main" yaml
       assertInfix "API_BASE" yaml -- user var preserved
   , testCase "without --source, NAGARE_SOURCE is absent from the rendered Service" $ do
-      let gctx = sampleCtx {Gen.source = Nothing}
+      let gctx = sampleCtx & #source .~ Nothing
           dep' = mkDemoDep (mergeGenerated (generatedEnv gctx) demoEnv)
           yaml = renderService dep' "20260602-120000"
       assertBool "NAGARE_SOURCE absent" (not ("NAGARE_SOURCE" `BC.isInfixOf` yaml))
@@ -2460,21 +2467,21 @@ releaseTests =
       let logv =
             addRelease (release "b" t2) $
               addRelease (release "a" t1) emptyReleaseLog
-      current logv @?= Just "b"
-      map releaseId (releases logv) @?= ["b", "a"]
+      logv ^. #current @?= Just "b"
+      map (^. #releaseId) (logv ^. #releases) @?= ["b", "a"]
   , testCase "addRelease dedupes a re-deployed id (no duplicate, becomes current)" $ do
       let logv =
             addRelease (release "a" t3) $
               addRelease (release "b" t2) $
                 addRelease (release "a" t1) emptyReleaseLog
-      map releaseId (releases logv) @?= ["a", "b"]
-      current logv @?= Just "a"
+      map (^. #releaseId) (logv ^. #releases) @?= ["a", "b"]
+      logv ^. #current @?= Just "a"
   , testCase "addRelease caps history at historyCap" $ do
       let many' = foldr (\i l -> addRelease (release (T.pack (show i)) (tAt i)) l) emptyReleaseLog [1 .. historyCap + 10 :: Int]
-      length (releases many') @?= historyCap
+      length (many' ^. #releases) @?= historyCap
   , testCase "findRelease finds a recorded release" $ do
       let logv = addRelease (release "a" t1) emptyReleaseLog
-      fmap releaseId (findRelease "a" logv) @?= Just "a"
+      fmap (^. #releaseId) (findRelease "a" logv) @?= Just "a"
       findRelease "missing" logv @?= Nothing
   , testCase "extractReleaseLog reads the ConfigMap data key" $ do
       let logv = addRelease (release "a" t1) emptyReleaseLog
@@ -2621,7 +2628,7 @@ webhookTests =
         other -> assertFailure ("expected Ignored, got: " <> show other)
   , testCase "decideWebhook triggers production for a push to main" $
       case decideWebhook cfg (Just "push") (Just (sign "topsecret" pushMain)) pushMain of
-        Triggered (DeployProduction co) -> repoFullName co @?= "o/x"
+        Triggered (DeployProduction co) -> co ^. #repoFullName @?= "o/x"
         other -> assertFailure ("expected DeployProduction, got: " <> show other)
   , testCase "decideWebhook ignores a push to a non-production branch" $
       case decideWebhook cfg (Just "push") (Just (sign "topsecret" pushDev)) pushDev of
@@ -2639,7 +2646,7 @@ webhookTests =
       case parseGitHubEvent "push" pushMain of
         Right (PushEvent b co) -> do
           b @?= "main"
-          sha co @?= "deadbeef"
+          co ^. #sha @?= "deadbeef"
         other -> assertFailure ("expected PushEvent, got: " <> show other)
   , testCase "parseGitHubEvent of an unknown type is OtherEvent" $
       parseGitHubEvent "issues" "{}" @?= Right (OtherEvent "issues")
@@ -2671,7 +2678,7 @@ webhookTests =
       case parseGitHubEvent "pull_request" prForkOpened of
         Right PullRequestEvent {baseRepoFullName, checkout} -> do
           baseRepoFullName @?= "o/x"
-          repoFullName checkout @?= "attacker/x"
+          checkout ^. #repoFullName @?= "attacker/x"
         other -> assertFailure ("expected PullRequestEvent, got: " <> show other)
   , testCase "a PR payload without a base object is rejected 400" $
       case decideWebhook cfg (Just "pull_request") (Just (sign "topsecret" prNoBase)) prNoBase of
@@ -2877,7 +2884,7 @@ databaseTests =
       , testCase "percentEncode escapes reserved userinfo characters" $
           percentEncode "a+b/c=:@ ~" @?= "a%2Bb%2Fc%3D%3A%40%20~"
       , testCase "composeConnectionUrl percent-encodes hostile credentials" $ do
-          let hostile = parts {cpUser = "user:name@host", cpPassword = "a+b/c="}
+          let hostile = parts & #user .~ "user:name@host" & #password .~ "a+b/c="
           composeConnectionUrl Postgres hostile
             @?= "postgresql://user%3Aname%40host:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:5432/pg_main"
           composeConnectionUrl Redis hostile
@@ -2885,7 +2892,7 @@ databaseTests =
           composeConnectionUrl ClickHouse hostile
             @?= "clickhouse://user%3Aname%40host:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:9000"
       , testCase "secretKeysFor keeps the raw password alongside the encoded URL" $ do
-          let hostile = parts {cpPassword = "a+b/c="}
+          let hostile = parts & #password .~ "a+b/c="
           lookup "POSTGRES_PASSWORD" (secretKeysFor Postgres hostile) @?= Just "a+b/c="
           lookup "DATABASE_URL" (secretKeysFor Postgres hostile)
             @?= Just "postgresql://nagare:a%2Bb%2Fc%3D@pg-main.personal.svc.cluster.local:5432/pg_main"
@@ -2938,21 +2945,21 @@ databaseTests =
   where
     parts =
       ConnectionParts
-        { cpUser = "nagare"
-        , cpPassword = "pw"
-        , cpHost = "pg-main.personal.svc.cluster.local"
-        , cpDb = "pg_main"
+        { user = "nagare"
+        , password = "pw"
+        , host = "pg-main.personal.svc.cluster.local"
+        , database = "pg_main"
         }
     mkParams ver sz =
       DbCreateParams
-        { dcpNamespace = "personal"
-        , dcpVersion = ver
-        , dcpSize = sz
-        , dcpCpu = Nothing
-        , dcpMemory = Nothing
-        , dcpConfig = Nothing
-        , dcpDryRun = True
-        , dcpTargetProfile = tnbProfile
+        { namespace = "personal"
+        , version = ver
+        , size = sz
+        , cpu = Nothing
+        , memory = Nothing
+        , config = Nothing
+        , dryRun = True
+        , targetProfile = tnbProfile
         }
     stsListJson =
       BC.pack
@@ -3108,7 +3115,7 @@ connEnvTestPg =
     Postgres
     (unsafe (mkDatabaseName "notes-db"))
     (unsafe (mkNamespace "personal"))
-    (ConnIdentity {connUser = Just "app", connDb = Just "notes"})
+    (ConnIdentity {user = Just "app", database = Just "notes"})
 
 connEnvTestRedis :: Map.Map EnvName ScopedEnvVar
 connEnvTestRedis =
@@ -3116,7 +3123,7 @@ connEnvTestRedis =
     Redis
     (unsafe (mkDatabaseName "cache"))
     (unsafe (mkNamespace "personal"))
-    (ConnIdentity {connUser = Nothing, connDb = Nothing})
+    (ConnIdentity {user = Nothing, database = Nothing})
 
 -- | Classify a generated entry: Left literal-value, or Right secret-name.
 classifyConn :: Map.Map EnvName ScopedEnvVar -> Text -> Maybe (Either Text Text)
@@ -3148,7 +3155,7 @@ connectionEnvTests =
           classifyConn connEnvTestRedis "REDIS_PASSWORD" @?= Just (Right "nagare-db-cache")
           classifyConn connEnvTestRedis "REDIS_URL" @?= Just (Right "nagare-db-cache")
       , testCase "every entry is Runtime-scoped" $
-          mapM_ (\sev -> scopes sev @?= scopes (runtimeScoped (EnvLiteral "x"))) (Map.elems connEnvTestPg)
+          mapM_ (\sev -> sev ^. #scopes @?= runtimeScoped (EnvLiteral "x") ^. #scopes) (Map.elems connEnvTestPg)
       ]
   , testGroup
       "mergeConnectionEnvs"
@@ -3181,7 +3188,7 @@ connectionEnvTests =
         Postgres
         (unsafe (mkDatabaseName "other-db"))
         (unsafe (mkNamespace "personal"))
-        (ConnIdentity {connUser = Just "app", connDb = Just "other"})
+        (ConnIdentity {user = Just "app", database = Just "other"})
 
 -- ---------------------------------------------------------------------------
 -- EP-47: database backups, retention, restore.
@@ -3202,55 +3209,55 @@ localMinioBackend =
 backupJobInputsPg :: BackupJobInputs
 backupJobInputsPg =
   BackupJobInputs
-    { bjiNamespace = "personal"
-    , bjiJobName = "nagare-dbbackup-mydb-20260610t141503z"
-    , bjiEngine = Postgres
-    , bjiClientImage = "postgres:18"
-    , bjiSvcHost = "mydb"
-    , bjiSecretName = "nagare-db-mydb"
-    , bjiName = "mydb"
-    , bjiDest = BackupDestUrl "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
-    , bjiPrefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
-    , bjiKeep = 7
-    , bjiSelfPrune = False
-    , bjiBackend = tnbGcsBackend
+    { namespace = "personal"
+    , jobName = "nagare-dbbackup-mydb-20260610t141503z"
+    , engine = Postgres
+    , clientImage = "postgres:18"
+    , serviceHost = "mydb"
+    , secretName = "nagare-db-mydb"
+    , name = "mydb"
+    , destination = BackupDestUrl "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
+    , prefix = "gs://tan-nb-exp-nagare-backups/databases/mydb/"
+    , keep = 7
+    , selfPrune = False
+    , backend = tnbGcsBackend
     }
 
 restoreJobInputsPg :: RestoreJobInputs
 restoreJobInputsPg =
   RestoreJobInputs
-    { rjiNamespace = "personal"
-    , rjiJobName = "nagare-dbrestore-mydb-20260610t141503z"
-    , rjiEngine = Postgres
-    , rjiClientImage = "postgres:18"
-    , rjiSvcHost = "mydb"
-    , rjiSecretName = "nagare-db-mydb"
-    , rjiName = "mydb"
-    , rjiSrcUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
-    , rjiLiveTarget = False
-    , rjiBackend = tnbGcsBackend
+    { namespace = "personal"
+    , jobName = "nagare-dbrestore-mydb-20260610t141503z"
+    , engine = Postgres
+    , clientImage = "postgres:18"
+    , serviceHost = "mydb"
+    , secretName = "nagare-db-mydb"
+    , name = "mydb"
+    , sourceUrl = "gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz"
+    , liveTarget = False
+    , backend = tnbGcsBackend
     }
 
 snapshotJobInputs :: SnapshotJobInputs
 snapshotJobInputs =
   SnapshotJobInputs
-    { sjiNamespace = "personal"
-    , sjiJobName = "nagare-snapshot-myapp-data-20260610t141503z"
-    , sjiClaimName = "nagare-vol-myapp-data"
-    , sjiDestUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
-    , sjiMountPath = "/vol"
-    , sjiBackend = tnbGcsBackend
+    { namespace = "personal"
+    , jobName = "nagare-snapshot-myapp-data-20260610t141503z"
+    , claimName = "nagare-vol-myapp-data"
+    , destinationUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
+    , mountPath = "/vol"
+    , backend = tnbGcsBackend
     }
 
 storageRestoreJobInputs :: StorageRestoreJobInputs
 storageRestoreJobInputs =
   StorageRestoreJobInputs
-    { sriNamespace = "personal"
-    , sriJobName = "nagare-volrestore-myapp-data-20260610t141503z"
-    , sriClaimName = "nagare-vol-myapp-data-restore-scratch"
-    , sriSrcUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
-    , sriMountPath = "/restore"
-    , sriBackend = tnbGcsBackend
+    { namespace = "personal"
+    , jobName = "nagare-volrestore-myapp-data-20260610t141503z"
+    , claimName = "nagare-vol-myapp-data-restore-scratch"
+    , sourceUrl = "gs://tan-nb-exp-nagare-backups/volumes/myapp/data/20260610T141503Z.tar.gz"
+    , mountPath = "/restore"
+    , backend = tnbGcsBackend
     }
 
 -- | Recurrence guard (EP-1): every GCS data-movement Job renderer must emit the
@@ -3312,17 +3319,42 @@ storeBackendModeTests =
               assertBool "no metadata ip" (not ("169.254.169.254" `T.isInfixOf` y))
               assertBool "no metadata dns" (not ("metadata.google.internal" `T.isInfixOf` y))
       | (name, render) <-
-          [ ("db backup Job", \b -> renderBackupJob backupJobInputsPg {bjiBackend = b, bjiDest = BackupDestUrl (destFor b "databases/mydb/20260610T141503Z.sql.gz"), bjiPrefix = destFor b "databases/mydb/"})
-          , ("db restore Job", \b -> renderRestoreJob restoreJobInputsPg {rjiBackend = b, rjiSrcUrl = destFor b "databases/mydb/20260610T141503Z.sql.gz"})
-          , ("volume snapshot Job", \b -> renderSnapshotJob snapshotJobInputs {sjiBackend = b, sjiDestUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
-          , ("volume restore Job", \b -> renderStorageRestoreJob storageRestoreJobInputs {sriBackend = b, sriSrcUrl = destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"})
+          [ ( "db backup Job"
+            , \b ->
+                renderBackupJob $
+                  backupJobInputsPg
+                    & #backend .~ b
+                    & #destination .~ BackupDestUrl (destFor b "databases/mydb/20260610T141503Z.sql.gz")
+                    & #prefix .~ destFor b "databases/mydb/"
+            )
+          , ( "db restore Job"
+            , \b ->
+                renderRestoreJob $
+                  restoreJobInputsPg
+                    & #backend .~ b
+                    & #sourceUrl .~ destFor b "databases/mydb/20260610T141503Z.sql.gz"
+            )
+          , ( "volume snapshot Job"
+            , \b ->
+                renderSnapshotJob $
+                  snapshotJobInputs
+                    & #backend .~ b
+                    & #destinationUrl .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
+            )
+          , ( "volume restore Job"
+            , \b ->
+                renderStorageRestoreJob $
+                  storageRestoreJobInputs
+                    & #backend .~ b
+                    & #sourceUrl .~ destFor b "volumes/myapp/data/20260610T141503Z.tar.gz"
+            )
           ]
       , backend <- [tnbGcsBackend, localMinioBackend]
       ]
     -- The full object URL for a key under the backend's bucket, so each fixture's
     -- DEST/SRC carries the right scheme for the backend under test.
     destFor (GcsBackend _ bucket) key = "gs://" <> bucket <> "/" <> key
-    destFor (MinioBackend ref) key = "s3://" <> mrBucket ref <> "/" <> key
+    destFor (MinioBackend ref) key = "s3://" <> ref ^. #bucket <> "/" <> key
 
 -- | EP-6 M1: the GHC-env auto-resolver's testable core. 'findGhcEnvIn' returns
 -- the first @.ghc.environment.*@ across the given dirs (absolute), else Nothing.
@@ -3384,7 +3416,11 @@ backupRestoreTests =
           assertBool "hostAliases for metadata.google.internal" ("metadata.google.internal" `T.isInfixOf` y)
           assertBool "no self-prune for on-demand" (not ("pruning" `T.isInfixOf` y))
       , testCase "renderBackupCronJob wraps the body on a schedule and self-prunes" $ do
-          let cron = BackupCronInputs {bciSchedule = defaultBackupSchedule, bciBase = backupJobInputsPg {bjiSelfPrune = True}}
+          let cron =
+                BackupCronInputs
+                  { schedule = defaultBackupSchedule
+                  , base = backupJobInputsPg & #selfPrune .~ True
+                  }
               y = TE.decodeUtf8 (renderBackupCronJob cron)
           assertBool "kind CronJob" ("kind: CronJob" `T.isInfixOf` y)
           assertBool "schedule" ("17 3 * * *" `T.isInfixOf` y)
@@ -3422,7 +3458,7 @@ backupRestoreTests =
           assertBool "download init" ("gunzip" `T.isInfixOf` y)
           assertBool "scratch target" ("_restore_scratch" `T.isInfixOf` y)
       , testCase "renderRestoreJob into live drops the scratch suffix" $ do
-          let y = TE.decodeUtf8 (renderRestoreJob restoreJobInputsPg {rjiLiveTarget = True})
+          let y = TE.decodeUtf8 (renderRestoreJob (restoreJobInputsPg & #liveTarget .~ True))
           assertBool "live warning" ("LIVE database" `T.isInfixOf` y)
           assertBool "no scratch suffix" (not ("_restore_scratch" `T.isInfixOf` y))
       ]
@@ -3538,16 +3574,16 @@ cdnProvisionTests :: [TestTree]
 cdnProvisionTests =
   [ testCase "planCdn Cloudflare: DNS/OriginTls/Cache actions, no GcloudCmd" $ do
       let p = planCdn cfCdn cfTarget noRefs
-      planProvider p @?= CloudflareCdn
-      assertBool "no gcloud action" (not (any isGcloud (planActions p)))
-      assertBool "one DnsUpsert per host" (length [() | DnsUpsert {} <- planActions p] == 1)
+      p ^. #provider @?= CloudflareCdn
+      assertBool "no gcloud action" (not (any isGcloud (p ^. #actions)))
+      assertBool "one DnsUpsert per host" (length [() | DnsUpsert {} <- p ^. #actions] == 1)
   , testCase "planCdn Gcp: all GcloudCmd, every argv pins --project=tan-nb-exp" $ do
       let p = planCdn gcpCdn gcpTarget gcpRefs
-      planProvider p @?= GcpCloudCdn
-      assertBool "all actions are gcloud" (all isGcloud (planActions p))
+      p ^. #provider @?= GcpCloudCdn
+      assertBool "all actions are gcloud" (all isGcloud (p ^. #actions))
       assertBool
         "every gcloud argv has --project=tan-nb-exp"
-        (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- planActions p])
+        (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- p ^. #actions])
   , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
       gcloudDnsUpsertArgs "tan-nb-exp" "nagare-zone" "app.example.com" "203.0.113.20"
         @?= [ "dns"

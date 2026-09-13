@@ -52,6 +52,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find, sortOn)
@@ -81,14 +82,14 @@ data StaticRelease = StaticRelease
 instance ToJSON StaticRelease where
   toJSON r =
     object
-      [ "releaseId" .= releaseId r
-      , "siteName" .= siteName r
-      , "namespace" .= namespace r
-      , "image" .= image r
-      , "imageTag" .= imageTag r
-      , "url" .= url r
-      , "source" .= source r
-      , "createdAt" .= createdAt r
+      [ "releaseId" .= (r ^. #releaseId)
+      , "siteName" .= (r ^. #siteName)
+      , "namespace" .= (r ^. #namespace)
+      , "image" .= (r ^. #image)
+      , "imageTag" .= (r ^. #imageTag)
+      , "url" .= (r ^. #url)
+      , "source" .= (r ^. #source)
+      , "createdAt" .= (r ^. #createdAt)
       ]
 
 instance FromJSON StaticRelease where
@@ -112,7 +113,7 @@ data StaticReleaseLog = StaticReleaseLog
   deriving stock (Generic, Eq, Show)
 
 instance ToJSON StaticReleaseLog where
-  toJSON l = object ["current" .= current l, "releases" .= releases l]
+  toJSON l = object ["current" .= (l ^. #current), "releases" .= (l ^. #releases)]
 
 instance FromJSON StaticReleaseLog where
   parseJSON = withObject "StaticReleaseLog" $ \o ->
@@ -135,16 +136,16 @@ historyCap = 50
 addRelease :: StaticRelease -> StaticReleaseLog -> StaticReleaseLog
 addRelease rel logv =
   StaticReleaseLog
-    { current = Just (releaseId rel)
+    { current = Just (rel ^. #releaseId)
     , releases = take historyCap ordered
     }
   where
-    deduped = filter ((/= releaseId rel) . releaseId) (releases logv)
-    ordered = sortOn (Down . createdAt) (rel : deduped)
+    deduped = filter ((/= rel ^. #releaseId) . (^. #releaseId)) (logv ^. #releases)
+    ordered = sortOn (Down . (^. #createdAt)) (rel : deduped)
 
 -- | Find a release by id.
 findRelease :: Text -> StaticReleaseLog -> Maybe StaticRelease
-findRelease rid = find ((== rid) . releaseId) . releases
+findRelease rid = find ((== rid) . (^. #releaseId)) . (^. #releases)
 
 -- ---------------------------------------------------------------------------
 -- ConfigMap shape
@@ -222,17 +223,17 @@ keyLookup k = KeyMap.lookup (Key.fromText k)
 -- release (per @current@) is marked with @*@.
 formatReleasesTable :: StaticReleaseLog -> Text
 formatReleasesTable logv
-  | null (releases logv) = "(no releases recorded)"
-  | otherwise = T.unlines (header : map row (releases logv))
+  | null (logv ^. #releases) = "(no releases recorded)"
+  | otherwise = T.unlines (header : map row (logv ^. #releases))
   where
     header = "  RELEASE ID        CREATED                SOURCE      URL"
     row r =
       T.concat
-        [ if current logv == Just (releaseId r) then "* " else "  "
-        , pad 18 (releaseId r)
-        , pad 23 (T.pack (show (createdAt r)))
-        , pad 12 (fromMaybe "-" (source r))
-        , url r
+        [ if logv ^. #current == Just (r ^. #releaseId) then "* " else "  "
+        , pad 18 (r ^. #releaseId)
+        , pad 23 (T.pack (show (r ^. #createdAt)))
+        , pad 12 (fromMaybe "-" (r ^. #source))
+        , r ^. #url
         ]
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 

@@ -18,6 +18,8 @@ module Nagare.Deploy.Resolve
   )
 where
 
+import Nagare.Dsl.Prelude
+
 import Control.Monad (forM)
 import Data.Map (Map)
 import Data.Map qualified as Map

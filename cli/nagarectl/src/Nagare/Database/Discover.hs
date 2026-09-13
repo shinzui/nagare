@@ -32,6 +32,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Map qualified as Map
 import Data.Text qualified as T
@@ -49,13 +50,13 @@ dbLabelSelector = "nagare.dev/managed-by=nagarectl,nagare.dev/database"
 
 -- | One discovered managed database, read back from its StatefulSet.
 data DbRow = DbRow
-  { drName :: !Text
-  , drEngine :: !Text
-  , drVersion :: !Text
-  , drSize :: !Text
-  , drRetention :: !Text
-  , drHost :: !Text
-  , drReady :: !Bool
+  { name :: !Text
+  , engine :: !Text
+  , version :: !Text
+  , size :: !Text
+  , retention :: !Text
+  , host :: !Text
+  , ready :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -81,16 +82,16 @@ rowFromItem item = do
   let ns = fromMaybe "personal" (textAt ["metadata", "namespace"] item)
   pure
     DbRow
-      { drName = name
-      , drEngine = fromMaybe "?" (labelAt "nagare.dev/engine" item)
-      , drVersion =
+      { name = name
+      , engine = fromMaybe "?" (labelAt "nagare.dev/engine" item)
+      , version =
           fromMaybe
             (versionFromImage item)
             (annotationAt "nagare.dev/version" item)
-      , drSize = fromMaybe "?" (annotationAt "nagare.dev/size" item)
-      , drRetention = fromMaybe "Retain" (annotationAt "nagare.dev/retention" item)
-      , drHost = name <> "." <> ns <> ".svc.cluster.local"
-      , drReady = readyReplicas item >= 1
+      , size = fromMaybe "?" (annotationAt "nagare.dev/size" item)
+      , retention = fromMaybe "Retain" (annotationAt "nagare.dev/retention" item)
+      , host = name <> "." <> ns <> ".svc.cluster.local"
+      , ready = readyReplicas item >= 1
       }
 
 -- | Best-effort version from the first container's image tag (text after the
@@ -143,7 +144,7 @@ getDatabase ns name = do
   rows <- listDatabases ns
   pure $ case rows of
     Left e -> Left e
-    Right rs -> case find ((== name) . drName) rs of
+    Right rs -> case find (\row -> row ^. #name == name) rs of
       Just r -> Right r
       Nothing -> Left ("no managed database named '" <> name <> "' in namespace " <> ns)
 
@@ -167,8 +168,8 @@ lookupConnection ns name = do
                 <> "` first, or check the namespace)"
             )
         )
-    Right r -> case parseEngine (drEngine r) of
-      Nothing -> pure (Left ("database '" <> name <> "' has an unknown engine: " <> drEngine r))
+    Right r -> case parseEngine (r ^. #engine) of
+      Nothing -> pure (Left ("database '" <> name <> "' has an unknown engine: " <> r ^. #engine))
       Just eng -> do
         kvs <- readSecretMap ns name
         pure (Right (eng, identityFor eng kvs))
@@ -177,10 +178,10 @@ lookupConnection ns name = do
 -- map (absent keys fall back to 'Nothing').
 identityFor :: Engine -> Map.Map Text Text -> ConnIdentity
 identityFor Postgres kvs =
-  ConnIdentity {connUser = Map.lookup "POSTGRES_USER" kvs, connDb = Map.lookup "POSTGRES_DB" kvs}
-identityFor Redis _ = ConnIdentity {connUser = Nothing, connDb = Nothing}
+  ConnIdentity {user = Map.lookup "POSTGRES_USER" kvs, database = Map.lookup "POSTGRES_DB" kvs}
+identityFor Redis _ = ConnIdentity {user = Nothing, database = Nothing}
 identityFor ClickHouse kvs =
-  ConnIdentity {connUser = Map.lookup "CLICKHOUSE_USER" kvs, connDb = Nothing}
+  ConnIdentity {user = Map.lookup "CLICKHOUSE_USER" kvs, database = Nothing}
 
 -- | Read the managed Secret's decoded data map (empty on any failure).
 readSecretMap :: Text -> Text -> IO (Map.Map Text Text)
@@ -210,12 +211,12 @@ formatDbTable rows = T.unlines (header : map line rows)
     line r =
       T.concat
         [ "  "
-        , pad 16 (drName r)
-        , pad 12 (drEngine r)
-        , pad 10 (drVersion r)
-        , pad 8 (drSize r)
-        , pad 8 (if drReady r then "Ready" else "Pending")
-        , drHost r
+        , pad 16 (r ^. #name)
+        , pad 12 (r ^. #engine)
+        , pad 10 (r ^. #version)
+        , pad 8 (r ^. #size)
+        , pad 8 (if r ^. #ready then "Ready" else "Pending")
+        , r ^. #host
         ]
     pad n t = let t' = T.take n t in t' <> T.replicate (max 1 (n - T.length t')) " "
 

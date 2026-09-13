@@ -7,12 +7,15 @@
 -- the nagare-dsl loader tests do).
 module AppDeploySpec (appDeployTests) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
+import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Map qualified as Map
 import Data.Text (Text)
@@ -44,41 +47,41 @@ fixturePath = "test/fixtures/app/kizashi/Config.hs"
 testEnv :: RolloutEnv
 testEnv =
   RolloutEnv
-    { reAppName = "kizashi"
-    , reQualImage = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
-    , reImageTag = "20260619-120000"
-    , reEffTag = "20260619-120000"
-    , reAppImageTagged = "gcr.io/knative-samples/helloworld-go:20260619-120000"
-    , reAppEnv = Map.empty
-    , reNamespace = "personal"
-    , reBaseDomain = "apps.example.com"
-    , reTargetProfile = testProfile
+    { appName = "kizashi"
+    , qualifiedImage = unsafe (mkImageRef "gcr.io/knative-samples/helloworld-go")
+    , imageTag = "20260619-120000"
+    , effectiveTag = "20260619-120000"
+    , taggedAppImage = "gcr.io/knative-samples/helloworld-go:20260619-120000"
+    , appEnv = Map.empty
+    , namespace = "personal"
+    , baseDomain = "apps.example.com"
+    , targetProfile = testProfile
     }
 
 testProfile :: TargetProfile
 testProfile =
   TargetProfile
-    { tpProject = "tan-nb-exp"
-    , tpRegion = "us-west1"
-    , tpZone = "us-west1-a"
-    , tpRegistryHost = "us-west1-docker.pkg.dev"
-    , tpArtifactRegistryId = "nagare"
-    , tpImageBucket = "tan-nb-exp-nagare-images"
-    , tpBackupBucket = "tan-nb-exp-nagare-backups"
-    , tpBaseDomain = "apps.example.com"
-    , tpInstanceName = "nagare-01"
-    , tpMachineType = "e2-standard-2"
-    , tpBootDiskType = "pd-balanced"
-    , tpBootDiskSizeGb = "100"
-    , tpDataDiskSizeGb = "100"
-    , tpTargetPlatform = "linux/amd64"
-    , tpMode = Cloud
-    , tpLocalObjectStore = ""
-    , tpPulumiBackend = PulumiBackendLocal
-    , tpPulumiBackendUrl = ""
-    , tpAcmeEmail = "ops@example.com"
-    , tpAcmeDirectory = "production"
-    , tpPlatformVersion = Nothing
+    { project = "tan-nb-exp"
+    , region = "us-west1"
+    , zone = "us-west1-a"
+    , registryHost = "us-west1-docker.pkg.dev"
+    , artifactRegistryId = "nagare"
+    , imageBucket = "tan-nb-exp-nagare-images"
+    , backupBucket = "tan-nb-exp-nagare-backups"
+    , baseDomain = "apps.example.com"
+    , instanceName = "nagare-01"
+    , machineType = "e2-standard-2"
+    , bootDiskType = "pd-balanced"
+    , bootDiskSizeGb = "100"
+    , dataDiskSizeGb = "100"
+    , targetPlatform = "linux/amd64"
+    , mode = Cloud
+    , localObjectStore = ""
+    , pulumiBackend = PulumiBackendLocal
+    , pulumiBackendUrl = ""
+    , acmeEmail = "ops@example.com"
+    , acmeDirectory = "production"
+    , platformVersion = Nothing
     }
 
 renderTests :: [TestTree]
@@ -160,9 +163,9 @@ planTests =
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
           plan <- unwrapRender (renderPlan testEnv app)
-          adpApp plan @?= "kizashi"
-          adpImage plan @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
-          map roPhase (adpObjects plan)
+          plan ^. #app @?= "kizashi"
+          plan ^. #image @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
+          map (^. #phase) (plan ^. #objects)
             @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
   , testCase "every plan object's labels carry nagare.dev/app = the app" $ do
       result <- loadApplication fixturePath
@@ -170,8 +173,8 @@ planTests =
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
           plan <- unwrapRender (renderPlan testEnv app)
-          forM_ (adpObjects plan) $ \o ->
-            Map.lookup "nagare.dev/app" (roLabels o) @?= Just "kizashi"
+          forM_ (plan ^. #objects) $ \o ->
+            Map.lookup "nagare.dev/app" (o ^. #labels) @?= Just "kizashi"
   , testCase "the plan encodes to a single parseable JSON document" $ do
       result <- loadApplication fixturePath
       case result of

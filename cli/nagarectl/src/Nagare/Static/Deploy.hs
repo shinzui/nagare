@@ -74,21 +74,21 @@ productionManifests inputs =
     { nginxConf = renderNginxConfig s
     , service = renderStaticService s ctx
     , domainMappings = renderStaticDomainMappings s ctx
-    , url = staticUrl s (baseDomain inputs)
+    , url = staticUrl s (inputs ^. #baseDomain)
     , serviceName = siteNameText (s ^. #name)
     }
   where
-    s = site inputs
+    s = inputs ^. #site
     ctx = StaticDeployContext {imageTag = inputs ^. #imageTag, previewName = Nothing}
 
 -- | Render the preview artifacts for these inputs and a (raw) preview name, or a
 -- 'Left' for a naming or domain failure.
 previewManifests :: DeployInputs -> Text -> Either Text StaticManifests
 previewManifests inputs raw = do
-  let s = site inputs
+  let s = inputs ^. #site
       prodName = siteNameText (s ^. #name)
   svcName <- previewServiceName prodName raw
-  pdomText <- previewDomain prodName raw (baseDomain inputs)
+  pdomText <- previewDomain prodName raw (inputs ^. #baseDomain)
   pd <- mkDomain pdomText
   let previewSite = s & #domains .~ [pd]
       ctx = StaticDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
@@ -109,18 +109,18 @@ previewManifests inputs raw = do
 -- unrecordable (malformed) release history.
 deployStaticProduction :: DeployInputs -> Maybe Text -> IO (Either Text Text)
 deployStaticProduction inputs src = do
-  let s = site inputs
+  let s = inputs ^. #site
       m = productionManifests inputs
       ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
       ns = namespaceText (s ^. #namespace)
   withPreparedOutput inputs $ \out -> do
-    configureDockerAuthFor (targetProfile inputs)
+    configureDockerAuthFor (inputs ^. #targetProfile)
     withStaticImageContext s out (buildImage ref)
     pushImage ref
-    applyManifests (service m : domainMappings m)
-    waitForReady (serviceName m) ns
-      >>= requireWait ("site '" <> serviceName m <> "'")
-    recordRelease s (inputs ^. #imageTag) (m ^. #url) (serviceName m) ns src
+    applyManifests (m ^. #service : m ^. #domainMappings)
+    waitForReady (m ^. #serviceName) ns
+      >>= requireWait ("site '" <> m ^. #serviceName <> "'")
+    recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
 
 -- | Preview deploy: same build/push path under a derived preview Service name
 -- and domain; does not record a production release. Returns the preview URL or a
@@ -130,16 +130,16 @@ deployStaticPreview inputs raw =
   case previewManifests inputs raw of
     Left e -> pure (Left e)
     Right m -> do
-      let s = site inputs
+      let s = inputs ^. #site
           ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
           ns = namespaceText (s ^. #namespace)
       withPreparedOutput inputs $ \out -> do
-        configureDockerAuthFor (targetProfile inputs)
+        configureDockerAuthFor (inputs ^. #targetProfile)
         withStaticImageContext s out (buildImage ref)
         pushImage ref
-        applyManifests (service m : domainMappings m)
-        waitForReady (serviceName m) ns
-          >>= requireWait ("preview site '" <> serviceName m <> "'")
+        applyManifests (m ^. #service : m ^. #domainMappings)
+        waitForReady (m ^. #serviceName) ns
+          >>= requireWait ("preview site '" <> m ^. #serviceName <> "'")
         pure (Right (m ^. #url))
 
 -- | Run the build-preparation, then @k@ if it succeeded; thread a build-prep
@@ -147,7 +147,7 @@ deployStaticPreview inputs raw =
 withPreparedOutput ::
   DeployInputs -> (PreparedStaticOutput -> IO (Either Text Text)) -> IO (Either Text Text)
 withPreparedOutput inputs k = do
-  prep <- prepareStaticOutput (skipBuild inputs) (site inputs) (projectDir inputs)
+  prep <- prepareStaticOutput (inputs ^. #skipBuild) (inputs ^. #site) (inputs ^. #projectDir)
   case prep of
     Left err -> pure (Left (renderStaticBuildError err))
     Right out -> k out

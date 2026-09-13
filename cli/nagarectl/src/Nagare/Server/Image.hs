@@ -9,7 +9,10 @@ module Nagare.Server.Image
   ( withServerImageContext
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Cradle
+import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Server.Render (renderServerDockerfile)
@@ -27,7 +30,7 @@ withServerImageContext site prepared action =
   withSystemTempDirectory "nagare-server-ctx" $ \ctx -> do
     let appDir = ctx </> "app"
     createDirectoryIfMissing True appDir
-    mapM_ (copyOutput appDir) (NE.toList (outputs prepared))
+    mapM_ (copyOutput appDir) (NE.toList (prepared ^. #outputs))
     TIO.writeFile (ctx </> "Dockerfile") (renderServerDockerfile site)
     action ctx
   where

@@ -22,6 +22,8 @@ module Nagare.GhcEnv
   , resolveProjectGhcEnv
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Control.Exception (SomeException, try)
 import Data.List (isPrefixOf, nub, sort)
 import Data.Maybe (catMaybes, listToMaybe)

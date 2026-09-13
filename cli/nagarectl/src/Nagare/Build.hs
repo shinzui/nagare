@@ -23,6 +23,8 @@ module Nagare.Build
   , addBuildArgs
   ) where
 
+import Nagare.Dsl.Prelude
+
 import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T

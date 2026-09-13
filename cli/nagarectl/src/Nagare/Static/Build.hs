@@ -34,7 +34,7 @@ import System.FilePath ((</>))
 newtype PreparedStaticOutput = PreparedStaticOutput
   { outputDirectory :: FilePath
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | Everything that can go wrong while preparing static output.
 data StaticBuildError
