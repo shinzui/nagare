@@ -21,6 +21,14 @@
         esac
         exit 0
       '';
+      # EP-121: workspaces install the Pulumi program's locked dependencies with
+      # `npm ci`; the sandbox has no registry, so record the call and lay down
+      # the marker the installer checks for.
+      fakeNpm = pkgs.writeShellScriptBin "npm" ''
+        printf '%s\n' "npm $* in $PWD" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+        mkdir -p node_modules/@pulumi/pulumi
+        printf '{}\n' > node_modules/@pulumi/pulumi/package.json
+      '';
       fakeJsonTool = name: pkgs.writeShellScriptBin name ''
         printf '%s %s\n' "${name}" "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         printf '%s\n' '{"items":[]}'
@@ -35,7 +43,7 @@
       };
     in
     pkgs.runCommand "nagare-clone-free-platform"
-      { nativeBuildInputs = [ nagarePackages.nagare pkgs.jq fakeNix fakePulumi fakeTools ]; }
+      { nativeBuildInputs = [ nagarePackages.nagare pkgs.jq fakeNix fakeNpm fakePulumi fakeTools ]; }
       ''
         bash ${./scripts/nagare-clone-free-platform.sh}
       '';

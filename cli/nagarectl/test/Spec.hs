@@ -151,8 +151,9 @@ import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksB
 import Nagare.Infra.Plan
   ( PlanVerdict (..)
   , classifyPlan
-  , gceInstanceType
   , parsePreview
+  , previewErrors
+  , protectedResourceTypes
   , renderVerdict
   )
 import Nagare.Init
@@ -659,15 +660,15 @@ infraPlanTests =
     "Nagare.Infra.Plan"
     [ testCase "an instance replacement is refused" $ do
         steps <- parseFixture "replace-instance.json"
-        case classifyPlan gceInstanceType steps of
-          PlanReplacesInstance replacing -> length replacing @?= 1
+        case classifyPlan protectedResourceTypes steps of
+          PlanReplacesProtected replacing -> length replacing @?= 1
           PlanAllowed -> assertFailure "replacement fixture was allowed"
     , testCase "an in-place machine-type update is allowed" $ do
         steps <- parseFixture "update-machine-type.json"
-        classifyPlan gceInstanceType steps @?= PlanAllowed
+        classifyPlan protectedResourceTypes steps @?= PlanAllowed
     , testCase "a fresh instance creation is allowed" $ do
         steps <- parseFixture "create-fresh.json"
-        classifyPlan gceInstanceType steps @?= PlanAllowed
+        classifyPlan protectedResourceTypes steps @?= PlanAllowed
     , testCase "malformed JSON is refused" $
         assertBool "malformed preview rejected" (isLeft (parsePreview "{"))
     , testCase "an unknown operation is refused" $
@@ -676,13 +677,33 @@ infraPlanTests =
           (isLeft (parsePreview "{\"steps\":[{\"op\":\"mystery\",\"urn\":\"urn:test\"}]}"))
     , testCase "the refusal explains the full boot-disk loss" $ do
         steps <- parseFixture "replace-instance.json"
-        let rendered = renderVerdict "nagare-01" (classifyPlan gceInstanceType steps)
+        let rendered = renderVerdict "nagare-01" (classifyPlan protectedResourceTypes steps)
         assertBool "k3s datastore" (T.isInfixOf "/var/lib/rancher" rendered)
         assertBool "ACME key" (T.isInfixOf "ACME account key" rendered)
         assertBool "instance" (T.isInfixOf "nagare-01" rendered)
         assertBool "reason" (T.isInfixOf "bootDisk" rendered)
     , testCase "a preview with no steps is allowed" $
-        (parsePreview "{}" >>= Right . classifyPlan gceInstanceType) @?= Right PlanAllowed
+        (parsePreview "{}" >>= Right . classifyPlan protectedResourceTypes) @?= Right PlanAllowed
+    , testCase "EP-121: a DNS managed zone replacement is refused and explains the name servers" $ do
+        steps <- parseFixture "replace-dns-zone.json"
+        let verdict = classifyPlan protectedResourceTypes steps
+            rendered = renderVerdict "nagare-01" verdict
+        case verdict of
+          PlanReplacesProtected replacing -> length replacing @?= 1
+          PlanAllowed -> assertFailure "zone replacement fixture was allowed"
+        assertBool "name servers" (T.isInfixOf "new name servers" rendered)
+        assertBool "base domain" (T.isInfixOf "NAGARE_BASE_DOMAIN" rendered)
+        assertBool "no instance paragraph" (not (T.isInfixOf "/var/lib/rancher" rendered))
+    , testCase "EP-121: a bucket replacement is refused and explains the object loss" $ do
+        steps <- parseFixture "replace-bucket.json"
+        let verdict = classifyPlan protectedResourceTypes steps
+        assertBool "refused" (verdict /= PlanAllowed)
+        assertBool "objects" (T.isInfixOf "every object" (renderVerdict "nagare-01" verdict))
+    , testCase "EP-121: a failed preview's error diagnostics are surfaced" $ do
+        bytes <- BS.readFile "test/fixtures/pulumi-preview/program-error.json"
+        case previewErrors bytes of
+          [message] -> assertBool "SDK message" (T.isInfixOf "Pulumi SDK has not been installed" message)
+          other -> assertFailure ("expected one error diagnostic, got " <> show other)
     ]
   where
     parseFixture name = do

@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "op": "create-replacement",
+      "urn": "urn:pulumi:labs::nagare::nagare:components:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-backups",
+      "replaceReasons": ["name"]
+    }
+  ],
+  "changeSummary": {"replace": 1}
+}

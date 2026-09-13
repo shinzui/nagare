@@ -1,0 +1,7 @@
+{
+  "config": {"gcp:project": "labs"},
+  "diagnostics": [
+    {"severity": "warning"},
+    {"message": "error: an unhandled error occurred: It looks like the Pulumi SDK has not been installed. Have you run pulumi install?\n\n", "severity": "error"}
+  ]
+}

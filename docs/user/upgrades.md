@@ -95,6 +95,14 @@ nix run "${TARGET_NAGARE}#nagarectl" -- \
 nix run "${TARGET_NAGARE}#nagarectl" -- platform status
 ```
 
+Both Pulumi phases run `nagarectl context guard` and the protected-resource
+replacement check from `nagarectl infra guard` (since 0.2.1). A plan that would
+replace the GCE instance, the Cloud DNS zone, or a bucket fails the phase and
+leaves the transaction resumable; set `NAGARE_ALLOW_VM_REPLACEMENT=1` for the
+apply only after reviewing a deliberate rebuild. Do not run `platform upgrade`
+with Nagare 0.2.0 on a real cloud context: its Pulumi phases ran without the
+context's stack config and applied without a guarded preview.
+
 Apply runs Pulumi, switches and commits the staged host flake, reconciles the
 cluster, stamps its release ConfigMap, and atomically advances the context pin
 last. A failure preserves the transaction and the old context pin. Inspect and

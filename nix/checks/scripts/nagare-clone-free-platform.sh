@@ -138,6 +138,43 @@ if NAGARE_FAKE_STACK_PROJECT=some-other-project \
 fi
 grep -q 'some-other-project' guard-bad.err
 grep -q 'acme-prod' guard-bad.err
+
+# EP-121: the stack config is context-owned. Every Pulumi-running command links
+# the workspace's Pulumi.<context>.yaml to the canonical XDG file, adopts a
+# pre-0.2.1 workspace copy when no canonical file exists, and refuses rather
+# than choose between two different copies or read a dangling link as empty.
+canonical="$XDG_CONFIG_HOME/nagare/pulumi/Pulumi.guardcloud.yaml"
+guard_workspace="$(nagarectl --context guardcloud platform root --json | jq -er '.workspaceRoot')"
+entry="$guard_workspace/infra/pulumi/Pulumi.guardcloud.yaml"
+test -f "$canonical"
+test -L "$entry"
+test "$(readlink "$entry")" = "$canonical"
+test "$(grep -c "npm ci --no-audit --no-fund in $guard_workspace/infra/pulumi" "$NAGARE_FAKE_TOOL_LOG")" = 1
+
+rm "$entry" "$canonical"
+printf 'config:\n  nagare:legacy: kept\n' > "$entry"
+NAGARE_FAKE_STACK_PROJECT=acme-prod nagarectl --context guardcloud context guard > /dev/null
+test -L "$entry"
+grep -q 'nagare:legacy: kept' "$canonical"
+
+rm "$entry"
+printf 'config:\n  nagare:legacy: different\n' > "$entry"
+if NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud context guard > link-conflict.out 2> link-conflict.err; then
+  echo "context guard accepted a workspace stack config that differs from the canonical one" >&2
+  exit 1
+fi
+grep -q 'differs from the context-owned stack config' link-conflict.err
+grep -q 'nagare:legacy: kept' "$canonical"
+
+rm "$entry" "$canonical"
+ln -s "$XDG_CONFIG_HOME/nagare/operator-repo/missing.yaml" "$canonical"
+if NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud context guard > link-dangling.out 2> link-dangling.err; then
+  echo "context guard accepted a dangling context-owned stack config" >&2
+  exit 1
+fi
+grep -q 'is a symlink to missing' link-dangling.err
 unset CLOUDSDK_CORE_PROJECT
 
 touch "$out"

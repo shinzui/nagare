@@ -60,10 +60,17 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   (`shinzui/nagare-ops` commit `f8a2878`).
 - [x] (2026-09-13 21:45Z) Milestone 1: proved Pulumi's behavior with a symlinked stack configuration
   file (see Surprises & Discoveries).
-- [ ] Milestone 2: context-owned stack configuration linked into every Pulumi workspace.
-- [ ] Milestone 3: guarded upgrade Pulumi phases and correct host identity parsing.
-- [ ] Milestone 3b: `context create --force` merges onto the existing context, the ACME docs stop
-  recommending a partial overwrite, and the replacement guard also protects the DNS zone and buckets.
+- [x] (2026-09-13 22:40Z) Milestone 2: `Nagare.Platform.StackConfig` links workspaces and source
+  checkouts to the context-owned stack config; workspaces install locked Node dependencies; unit
+  tests and the clone-free Nix check cover link, adoption, conflict, and dangling refusals. Live:
+  the canonical link for `tan-nb-exp` points into `nagare-ops`, `context guard` is confined, and
+  `infra guard` finds no replacement.
+- [x] (2026-09-13 22:40Z) Milestone 3: the upgrade's Pulumi phases run the project and
+  protected-resource guards and apply without `--skip-preview`; `parseHostIdentity` strips
+  indentation. Live: `platform status` shows `Host: 0.1.0`.
+- [x] (2026-09-13 22:40Z) Milestone 3b: `context create --force` merges; the classifier protects the
+  instance, DNS zone, and buckets; docs, ADR 13 and 14 amendments, and ADR 18 written.
+- [ ] Run `nix flake check` on the Milestone 2-3b change and commit it.
 - [ ] Milestone 4: release Nagare 0.2.1.
 - [ ] Milestone 5: rehearse, then upgrade `tan-nb-exp` to 0.2.1 under one bounded approval.
 - [ ] ADR distillation and Outcomes & Retrospective.
@@ -155,6 +162,17 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   `classifyPlan` only protects `gcp:compute/instance:Instance`, so that replacement passes.
 
 
+- Observation (Milestone 2): with the stack config linked, `nagarectl infra guard` still failed in
+  a payload workspace. Pulumi reported the cause only in the JSON diagnostics, with empty stderr, so
+  the guard printed nothing after "refusing to apply:". Payloads exclude `node_modules`, and nothing
+  installed the program's dependencies.
+
+  ```text
+  "message": "error: an unhandled error occurred: It looks like the Pulumi SDK has not been installed. Have you run pulumi install?"
+  ```
+
+  After `npm ci` in the workspace (346 packages, about 3 seconds), the guard reported no replacement.
+
 ## Decision Log
 
 - Decision: the canonical stack configuration path is
@@ -191,6 +209,27 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   command silently rewrites recorded infrastructure identity), a documented procedure triggers it,
   and the zone's name servers and the buckets' contents are external contracts that a replacement
   destroys.
+  Date: 2026-09-13
+- Decision: install the Pulumi program's dependencies with `npm ci --no-audit --no-fund` from the
+  release's `package-lock.json` the first time a workspace lacks `node_modules/@pulumi/pulumi`,
+  inside `ensurePulumiInWorkspace`.
+  Rationale: discovered during Milestone 2 (see Surprises). Every real Pulumi command from an
+  installed release failed without it. The lock file pins exact versions and integrity hashes, Node
+  is already a documented operator prerequisite, and a Nix-built `node_modules` in the payload is a
+  larger change to the release closure better made in its own plan.
+  Date: 2026-09-13
+- Decision: the guarded upgrade phases are not unit-tested through `UpgradeOps`; the guard logic
+  lives in `cli/nagarectl/app/Main.hs` and is shared with `nagarectl infra guard` and `context guard`,
+  whose pure cores (`classifyPlan`, `projectGuardVerdict`, `previewErrors`) have fixture tests. The
+  wiring is verified live in Milestone 5's dry-run plan, whose `pulumi-preview` evidence must show
+  both verdicts.
+  Rationale: moving process execution into the library only to test the wiring would enlarge a
+  patch release; the shared implementation prevents drift between the command and the phase.
+  Date: 2026-09-13
+- Decision: `EntryLinksTo` carries whether the link resolves to the same real file as the canonical
+  path, and such a link counts as already linked.
+  Rationale: ADR 13's existing checkout symlink points directly into the private repository; it
+  reads the same file and must keep working without being rewritten.
   Date: 2026-09-13
 - Decision: ship as 0.2.1, a patch release.
   Rationale: the change fixes defects in 0.2.0 and adds no incompatible interface; existing
@@ -489,7 +528,7 @@ At the end of Milestone 2, `cli/nagarectl/src/Nagare/Platform/StackConfig.hs` ex
 
 ```haskell
 data CanonicalObservation = CanonicalAbsent | CanonicalPresent !ByteString | CanonicalDangling !FilePath
-data EntryObservation = EntryAbsent | EntryLinksTo !FilePath | EntryRegular !ByteString
+data EntryObservation = EntryAbsent | EntryLinksTo !FilePath !Bool | EntryRegular !ByteString
 data StackLinkAction
   = LinkOnly
   | ReplaceWithLink
@@ -498,16 +537,23 @@ data StackLinkAction
   | AlreadyLinked
   | RefuseStackLink !Text
 contextStackConfigPath :: ContextName -> IO FilePath
-planStackLink :: FilePath -> CanonicalObservation -> EntryObservation -> StackLinkAction
+stackConfigEntryPath :: ContextName -> FilePath -> FilePath
+planStackLink :: FilePath -> FilePath -> CanonicalObservation -> EntryObservation -> StackLinkAction
 linkContextStackConfig :: ContextName -> FilePath -> IO (Either Text FilePath)
 ```
 
-At the end of Milestone 3, `cli/nagarectl/app/Main.hs` defines:
+At the end of Milestone 3, `cli/nagarectl/app/Main.hs` defines the shared guard pieces, and
+`cli/nagarectl/src/Nagare/Infra/Plan.hs` exports `protectedResourceTypes`, `previewErrors`, and
+`PlanVerdict = PlanAllowed | PlanReplacesProtected [PlanStep]`:
 
 ```haskell
-contextProjectGuard :: ActiveTarget -> PlatformWorkspace -> IO (Either Text Text)
-instanceReplacementGuard :: TargetProfile -> PlatformWorkspace -> Text -> Bool -> IO (Either Text Text)
+projectGuardInputsFor :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ProjectGuardInputs
+instanceReplacementGuard :: TargetProfile -> PlatformWorkspace -> String -> Bool -> IO (Either Text Text)
+ensurePulumiProgramDependencies :: FilePath -> IO ()
 ```
+
+`cli/nagarectl/src/Nagare/Target.hs` exports
+`mergeContextOverrides :: Maybe (Map String Text) -> [(String, Text)] -> Text -> Map String Text`.
 
 No new library dependencies are needed: `directory` already provides `createFileLink`,
 `getSymbolicLinkTarget`, `pathIsSymbolicLink`, and `canonicalizePath`. External tools are the
@@ -519,3 +565,6 @@ recipes. Haskell style follows ADR 16 and must pass `just haskell-style-check`.
 - 2026-09-13: Recorded Milestone 1 evidence. Added Milestone 3b after the `tan-infrastructure`
   session reported, and this session verified, that `context create --force` resets omitted fields
   and that the replacement guard does not protect the DNS zone or buckets; both ship in 0.2.1.
+- 2026-09-13: Implemented Milestones 2, 3, and 3b. Added the npm dependency install discovered in
+  Milestone 2, recorded why the upgrade-phase wiring is verified live rather than unit-tested, and
+  aligned Interfaces and Dependencies with the implemented signatures.

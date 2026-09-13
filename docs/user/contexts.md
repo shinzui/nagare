@@ -238,8 +238,17 @@ trust, but its rate limits are far looser. It is the standard way to rehearse
 issuance on a new domain without burning the production quota:
 
 ```bash
-nagarectl context create labs --force --project your-labs-project   --acme-email you@example.com --acme-directory staging
+nagarectl context create labs --force --acme-directory staging
 ```
+
+With `--force`, `context create` changes only the fields you pass and keeps every
+other stored value, including the base domain, VM shape, and platform pin. It
+prints the lines that changed; confirm that only `NAGARE_ACME_DIRECTORY` moved.
+Nagare 0.2.0 and earlier reset every omitted field to its default instead, so on
+those versions edit the one line in the context file rather than running this
+command. A changed `NAGARE_BASE_DOMAIN` replaces the Cloud DNS zone, which gets
+new name servers and breaks the parent domain's delegation; `nagarectl infra guard`
+refuses that plan.
 
 `NAGARE_ACME_DIRECTORY` accepts `production` (the default), `staging`, or an
 absolute `https://` ACME directory URL. An unrecognized value is an **error**,
@@ -303,9 +312,32 @@ file only when it is absent and never truncates it. A non-empty
 empty one is unset, because Pulumi would otherwise prefer the empty variable over
 the file.
 
-The Pulumi stack name is the context name, and the generated stack config is
-`infra/pulumi/Pulumi.<context>.yaml`. Those files are git-ignored projections
-derived from the context; the tracked `Pulumi.dev.yaml` has been removed.
+The Pulumi stack name is the context name. Since 0.2.1 the stack config lives at
+one context-owned path,
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/pulumi/Pulumi.<context>.yaml`, next to
+the context file. Every directory Nagare runs Pulumi in (each release's payload
+workspace, and `infra/pulumi` in a source checkout) holds a symlink named
+`Pulumi.<context>.yaml` pointing at it, so `pulumi config set` and
+`just host-image` write to that one file and a new release keeps values such as
+`nagare:nagareImageSelfLink`. The first Pulumi command creates the link. It adopts
+an older workspace copy when no context-owned file exists yet. If two different
+copies exist, or the context-owned path is a symlink to a missing file (for
+example an operator repository that is not cloned), Nagare refuses and names both
+paths rather than guessing. Resolve that by keeping the authoritative content at
+the context-owned path.
+
+When the stack config lives in a private operator repository, link it into place
+once:
+
+```bash
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/nagare/pulumi"
+ln -s /path/to/ops/pulumi/Pulumi.<context>.yaml \
+  "${XDG_CONFIG_HOME:-$HOME/.config}/nagare/pulumi/Pulumi.<context>.yaml"
+```
+
+A payload workspace also needs the Pulumi program's Node dependencies. The first
+Pulumi command in a new workspace runs `npm ci` from the release's lock file, so
+Node.js and npm must be on `PATH`.
 
 `nagarectl init NAME`, `nagarectl context use NAME`, and `nagarectl context
 create NAME --use` select the context's backend/stack and regenerate its config.
