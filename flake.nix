@@ -197,6 +197,10 @@
                 grep -q -- '--acme-email' init-no-acme.err
                 nagarectl init trial --project example --acme-email ops@example.com \
                   --dry-run --skip-preflight > init.out
+                grep -q 'config set --stack trial nagare:machineType e2-standard-2' init.out
+                grep -q 'config set --stack trial nagare:bootDiskType pd-balanced' init.out
+                grep -q 'config set --stack trial nagare:bootDiskSizeGb 100' init.out
+                grep -q 'config set --stack trial nagare:dataDiskSizeGb 100' init.out
                 grep -q 'DRY RUN: would run:' init.out
                 grep -q "$XDG_STATE_HOME/nagare/trial/platform/" init.out
                 nagarectl server status --skip-vm > status.out
