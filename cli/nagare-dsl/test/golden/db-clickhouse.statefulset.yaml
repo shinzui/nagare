@@ -37,6 +37,13 @@ spec:
             secretKeyRef:
               name: nagare-db-analytics
               key: CLICKHOUSE_USER
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8123
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
         volumeMounts:
         - name: data
           mountPath: /var/lib/clickhouse

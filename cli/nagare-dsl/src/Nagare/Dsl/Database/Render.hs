@@ -148,11 +148,40 @@ containerValue db =
         <> ["ports" .= toJSON (map containerPort (enginePorts eng))]
         <> ["env" .= toJSON (credentialEnv db)]
         <> resourcesPairs (db ^. #resources)
+        <> ["readinessProbe" .= readinessProbe eng]
         <> ["volumeMounts" .= toJSON (volumeMounts db)]
     )
   where
     eng = db ^. #engine
     containerPort (_, p) = object ["containerPort" .= p]
+
+-- | Ready only once the server accepts connections, so consumers and backup Jobs
+-- are not handed a database that refuses them while it starts or recovers.
+-- Readiness only: a liveness probe could restart a slow crash recovery in a loop.
+readinessProbe :: Engine -> Value
+readinessProbe eng =
+  object
+    ( probeHandler eng
+        <> [ "periodSeconds" .= (5 :: Int)
+           , "timeoutSeconds" .= (5 :: Int)
+           , "failureThreshold" .= (3 :: Int)
+           ]
+    )
+
+-- | Postgres probes TCP on loopback: the image's first-boot init server listens
+-- only on the Unix socket, so it is not reported ready mid-initialisation. Redis
+-- answers @LOADING@ rather than @PONG@ while it reads its dump. ClickHouse's HTTP
+-- @/ping@ needs no client binary in the image.
+probeHandler :: Engine -> [Pair]
+probeHandler Postgres =
+  execProbe "pg_isready -q -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+probeHandler Redis =
+  execProbe "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"
+probeHandler ClickHouse =
+  ["httpGet" .= object ["path" .= txt "/ping", "port" .= (8123 :: Int)]]
+
+execProbe :: Text -> [Pair]
+execProbe script = ["exec" .= object ["command" .= toJSON (["sh", "-c", script] :: [Text])]]
 
 -- | Redis takes its password as the @--requirepass@ server flag (the image does
 -- not read a password env var on its own — EP-43). Postgres and ClickHouse read
@@ -335,7 +364,15 @@ keyCompare a b = compare (rank a, a) (rank b, b)
       , ("ports", 4)
       , ("env", 5)
       , ("resources", 6)
-      , ("volumeMounts", 7)
+      , ("readinessProbe", 7)
+      , ("volumeMounts", 8)
+      , -- probe
+        ("exec", 0)
+      , ("httpGet", 0)
+      , ("path", 0)
+      , ("periodSeconds", 3)
+      , ("timeoutSeconds", 4)
+      , ("failureThreshold", 5)
       , -- port entry
         ("containerPort", 1)
       , ("port", 2)

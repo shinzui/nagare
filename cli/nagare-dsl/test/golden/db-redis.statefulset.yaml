@@ -37,6 +37,15 @@ spec:
             secretKeyRef:
               name: nagare-db-redis-cache
               key: REDIS_PASSWORD
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
         volumeMounts:
         - name: data
           mountPath: /data
