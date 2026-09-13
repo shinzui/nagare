@@ -53,6 +53,7 @@ The core fields are:
 | ACME contact | `NAGARE_ACME_EMAIL` (no default — see [ACME identity](#acme-identity)) |
 | ACME endpoint | `NAGARE_ACME_DIRECTORY` (`production`, `staging`, or an `https://` URL) |
 | VM name | `NAGARE_INSTANCE_NAME` |
+| VM shape | `NAGARE_MACHINE_TYPE`, `NAGARE_BOOT_DISK_TYPE`, `NAGARE_BOOT_DISK_SIZE_GB`, `NAGARE_DATA_DISK_SIZE_GB` |
 | Build platform | `NAGARE_TARGET_PLATFORM` |
 | Mode | `NAGARE_MODE` (`cloud` or `local`) |
 | Local object store | `NAGARE_LOCAL_OBJECT_STORE` |

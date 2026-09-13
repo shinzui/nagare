@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-13
+* **Update**: Document the context-owned VM shape, the in-place versus replacement matrix, and the infra-up replacement guard.
+
 ## 2026-09-12
 * **Update**: Document growing the data disk: the preview to expect, the automatic grow on boot, the one-command online grow (systemctl restart, not start), that shrinking is impossible and when protect takes effect, that bootDiskSizeGb is create-time only, and the unsigned-path flag host-switch now passes to nix copy.
 * **Update**: Make the ACME identity context-owned: document NAGARE\_ACME\_EMAIL and NAGARE\_ACME\_DIRECTORY across contexts, reference, onboarding and cluster bootstrap, including the no-default refusal, the staging rehearsal, and recovering an account registered under a wrong address.

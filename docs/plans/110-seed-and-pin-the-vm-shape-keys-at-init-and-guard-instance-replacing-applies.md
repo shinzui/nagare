@@ -107,13 +107,13 @@ This section must always reflect the actual current state of the work.
   - [x] Add the `Nagare.Infra.Plan` test group to `cli/nagarectl/test/Spec.hs`.
   - [x] Add the `nagarectl infra guard` command in `cli/nagarectl/app/Main.hs`.
   - [x] Wire the guard into the `infra-up` recipe in `justfile` and assert it in the clone-free check.
-- [ ] M4: Documentation tells the operator which changes are safe and which rebuild the box.
-  - [ ] `docs/user/provisioning-with-pulumi.md`: the in-place-versus-replacement matrix and the guard.
-  - [ ] `docs/user/resizing-the-vm.md`: point at the context key, drop the stale `tan-nb-exp` instruction.
-  - [ ] `docs/user/gcp-prerequisites.md`: the recommended minimum shape with its scheduling evidence.
-  - [ ] `docs/user/onboarding-bring-your-own-project.md`, `docs/user/contexts.md`, `docs/user/config-reference.md`, `docs/user/reference.md`.
-  - [ ] `docs/runbooks/disaster-recovery.md`: the deliberate-rebuild override.
-  - [ ] `okf log add docs/user` entry and a green `just user-documentation-validate`.
+- [x] (2026-09-13 04:39Z) M4: Documentation tells the operator which changes are safe and which rebuild the box.
+  - [x] `docs/user/provisioning-with-pulumi.md`: the in-place-versus-replacement matrix and the guard.
+  - [x] `docs/user/resizing-the-vm.md`: point at the context key, drop the stale `tan-nb-exp` instruction.
+  - [x] `docs/user/gcp-prerequisites.md`: the recommended minimum shape with its scheduling evidence.
+  - [x] `docs/user/onboarding-bring-your-own-project.md`, `docs/user/contexts.md`, `docs/user/config-reference.md`, `docs/user/reference.md`.
+  - [x] `docs/runbooks/disaster-recovery.md`: the deliberate-rebuild override.
+  - [x] `okf log add docs/user` entry and a green `just user-documentation-validate`.
 - [ ] M5: Durable context recorded and the improvement request closed.
   - [ ] Write `docs/adr/0009-the-active-context-owns-the-vm-shape.md`.
   - [ ] Move `docs/improvement-requests/seed-vm-shape-keys-at-init.md` from `accepted` to `completed`, with `completedAt` and `resolution`, and log it.
