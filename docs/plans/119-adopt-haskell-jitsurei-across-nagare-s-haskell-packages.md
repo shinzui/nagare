@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T13:33:40Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-13T13:49:34Z
+      mode: "implement"
+      note: "Implemented the haskell-jitsurei migration and validation milestones"
 ---
 
 # Adopt haskell-jitsurei across Nagare's Haskell packages
@@ -38,7 +44,9 @@ still compile, `nix flake check` succeeds, and a new style check prevents the sa
 
 ## Progress
 
-- [ ] Milestone 1: record the decision and establish Cabal and Prelude foundations.
+- [x] (2026-09-13T13:51:26Z) Milestone 1: recorded ADR 16, normalized Cabal defaults and
+      dependency bounds, scoped `PackageImports` to Prelude modules, added
+      `Nagare.Access.Prelude`, and compiled all three workspaces successfully.
 - [ ] Milestone 2: migrate `nagare-dsl`, its tests, fixtures, and shipped examples.
 - [ ] Milestone 3: migrate the `nagarectl` library and focused tests.
 - [ ] Milestone 4: migrate the `nagarectl` and `nagared` entry points without changing their CLI.

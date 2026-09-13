@@ -16,7 +16,7 @@ import Nagare.Dsl.Broker.Render (brokerPvcName)
 import Nagare.Dsl.Prelude
 import System.Exit (exitFailure)
 import System.IO (stderr)
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 data BrokerDeleteParams = BrokerDeleteParams
   { name :: !Text

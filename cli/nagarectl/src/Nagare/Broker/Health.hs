@@ -23,7 +23,7 @@ import Nagare.Broker.Discover (BrokerRow (..))
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
 import Numeric (showHex)
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 data HealthStatus = HealthOk | HealthWarn | HealthUnknown | HealthFail
   deriving stock (Generic, Eq, Show)

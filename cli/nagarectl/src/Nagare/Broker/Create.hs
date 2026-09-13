@@ -28,7 +28,7 @@ import Nagare.Dsl.Types
   )
 import System.Exit (exitFailure)
 import System.IO (stderr)
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 data BrokerCreateParams = BrokerCreateParams
   { namespace :: !Text

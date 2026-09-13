@@ -115,3 +115,14 @@ recorded in that MasterPlan's Decision Log.
 
 - **No feature branches by default.** Commit directly to the current
   branch unless explicitly asked to create a new branch.
+
+## Haskell conventions
+
+Production Haskell follows [ADR 16](docs/adr/0016-adopt-haskell-jitsurei-for-production-haskell.md)
+and the canonical `haskell-jitsurei` standards at
+`mori://shinzui/haskell-jitsurei/docs/core-standards`,
+`mori://shinzui/haskell-jitsurei/docs/core-record-patterns`, and
+`mori://shinzui/haskell-jitsurei/docs/core-custom-prelude`. Use the package Prelude, postpositive
+`qualified`, strict unprefixed project-owned record fields, explicit deriving strategies, and
+generic-lens labels for project-owned record access and updates. Import `Data.Generics.Labels ()`
+only in modules that use those labels; `PackageImports` belongs only in package Prelude modules.

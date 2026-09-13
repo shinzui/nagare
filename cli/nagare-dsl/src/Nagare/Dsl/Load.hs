@@ -75,7 +75,7 @@ import System.Process (readProcessWithExitCode)
 -- (Nagare.Dsl.Worker) and 'HealthCheck' (Nagare.Dsl.Types), which are imported
 -- unqualified here.
 import System.Timeout qualified as Timeout
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- LoadError
