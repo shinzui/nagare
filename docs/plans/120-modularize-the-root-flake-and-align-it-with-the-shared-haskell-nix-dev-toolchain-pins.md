@@ -69,8 +69,9 @@ scope and must not change.
 - [x] (2026-09-13T16:40:41Z) Milestone 1: route the post-plan `haskell-style` check and the
       networked Hydra job through the same source so later wiring-only refactors preserve their
       derivations too.
-- [ ] Milestone 1: prove `nix flake check` passes and that a whitespace edit to `flake.nix` leaves
-      every `checks` derivation unchanged.
+- [x] (2026-09-13T16:56:49Z) Milestone 1: `nix flake check --print-build-logs` passed all 21 native
+      checks, including all 438 CLI tests; the committed-tree probe printed `wiring edits are
+      invisible to checks` after adding both a `flake.nix` comment and `nix/probe.nix`.
 - [ ] Milestone 2: split `flake.nix` into plain Nix functions under `nix/` and `nix/checks/`.
 - [ ] Milestone 2: pass the derivation-equivalence gate on `aarch64-darwin` and `x86_64-linux`.
 - [ ] Milestone 3: convert the wiring to flake-parts modules with a rev-pinned `flake-parts` input.
