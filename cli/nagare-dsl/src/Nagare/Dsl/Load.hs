@@ -373,6 +373,7 @@ toDeployment jd = do
 data JsonAccessPolicy = JsonAccessPolicy
   { japAudience :: !(Maybe Text)
   , japPermission :: !Text
+  , japRole :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
@@ -381,12 +382,17 @@ instance FromJSON JsonAccessPolicy where
     JsonAccessPolicy
       <$> o .:? "audience"
       <*> o .:? "permission" .!= "access"
+      <*> o .:? "role" .!= "protected"
 
 toAccessPolicy :: JsonAccessPolicy -> Either LoadError AccessPolicy
 toAccessPolicy j = do
   audience' <- traverse (first (MarshalError "access.audience") . mkAudience) (japAudience j)
   permission' <- first (MarshalError "access.permission") $ mkAccessPermission (japPermission j)
-  Right AccessPolicy {audience = audience', permission = permission'}
+  role' <- case japRole j of
+    "protected" -> Right ProtectedSite
+    "portal" -> Right AuthPortal
+    other -> Left (MarshalError "access.role" ("unknown access role: " <> other))
+  Right AccessPolicy {audience = audience', permission = permission', role = role'}
 
 -- | Re-validate a decoded @build@ sub-object back into a 'BuildSpec', dispatching
 -- on its @kind@ and re-running the smart constructors. A missing per-kind field
@@ -1549,8 +1555,11 @@ decodeStaticSite bs =
 -- | Compile-and-run a config-as-program source file with @runghc@ and capture
 -- the JSON it prints on stdout, mapping every failure mode to a 'LoadError'.
 --
--- The file is run with @runghc@ (the house @GHC2024@ edition, the local
--- @nagare-dsl@ package exposed, and the config's directory on the include path).
+-- The file is run with @runghc@ (the house @GHC2024@ edition, the exact
+-- @nagare-dsl@ package exposed by the caller's GHC environment, and the
+-- config's directory on the include path). Do not add a name-only @-package
+-- nagare-dsl@ flag here: it can expose a second installed version alongside the
+-- package-id selected by @GHC_ENVIRONMENT@.
 -- The config must print its JSON via one of the @Nagare.Dsl.Config.emit*@
 -- helpers; empty output means it never called one ('MissingBinding'). The
 -- decoder that reads the captured bytes is chosen by the caller
@@ -1581,7 +1590,7 @@ runConfigWith budget path = do
         Timeout.timeout (seconds * 1_000_000) . try @IOException $
           readProcessWithExitCode
             "runghc"
-            ["--ghc-arg=-XGHC2024", "--ghc-arg=-package", "--ghc-arg=nagare-dsl", "-i" <> configDir, path]
+            ["--ghc-arg=-XGHC2024", "-i" <> configDir, path]
             ""
       pure $ case result of
         Nothing -> Left (LoadTimedOut path seconds)

@@ -6,6 +6,7 @@
 -- YAML for this value; nagarectl resolves it later against the live cluster.
 module Nagare.Dsl.Access
   ( AccessPolicy (..)
+  , AccessRole (..)
   , Audience
   , mkAudience
   , audienceText
@@ -13,6 +14,7 @@ module Nagare.Dsl.Access
   , mkAccessPermission
   , accessPermissionText
   , requireLogin
+  , authPortal
   )
 where
 
@@ -22,9 +24,15 @@ import Nagare.Dsl.Prelude
 
 -- | A per-site access policy. 'Nothing' audience means the cluster default
 -- audience configured on the enforcer; the default permission is @"access"@.
+data AccessRole
+  = ProtectedSite
+  | AuthPortal
+  deriving stock (Generic, Eq, Show)
+
 data AccessPolicy = AccessPolicy
   { audience :: !(Maybe Audience)
   , permission :: !AccessPermission
+  , role :: !AccessRole
   }
   deriving stock (Generic, Eq, Show)
 
@@ -34,6 +42,16 @@ requireLogin =
   AccessPolicy
     { audience = Nothing
     , permission = AccessPermission "access"
+    , role = ProtectedSite
+    }
+
+-- | Mark this app as the cluster's single authentication portal.
+authPortal :: AccessPolicy
+authPortal =
+  AccessPolicy
+    { audience = Nothing
+    , permission = AccessPermission "access"
+    , role = AuthPortal
     }
 
 newtype Audience = Audience Text

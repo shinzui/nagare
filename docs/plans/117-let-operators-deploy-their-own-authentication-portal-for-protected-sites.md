@@ -98,14 +98,14 @@ contract, which is documented in `docs/user/auth-portal.md`.
   - [x] 403 and 503 document responses embed the portal's `/errors/403` and `/errors/503`
     HTML with a timeout and built-in fallback.
   - [x] Tests proving the no-portal responses are unchanged; all 128 tests pass.
-- [ ] Milestone 4: DSL and `nagarectl` wiring.
-  - [ ] `authPortal` in `Nagare.Dsl.Access` with a `role` field, JSON round trip in the
+- [x] (2026-09-13T05:16:52Z) Milestone 4: DSL and `nagarectl` wiring.
+  - [x] `authPortal` in `Nagare.Dsl.Access` with a `role` field, JSON round trip in the
     loader.
-  - [ ] `Nagare.Access.Resolve` writes a `portal` entry, refuses a second portal or a host
+  - [x] `Nagare.Access.Resolve` writes a `portal` entry, refuses a second portal or a host
     outside the base domain, and configures Shomei for the portal origin.
-  - [ ] `nagarectl app delete` removes the app's access wiring.
-  - [ ] `nagarectl access portal show` and `nagarectl access portal sync`.
-  - [ ] Tests in `cli/nagare-dsl` and `cli/nagarectl`.
+  - [x] `nagarectl app delete` removes the app's access wiring.
+  - [x] `nagarectl access portal show` and `nagarectl access portal sync`.
+  - [x] All 387 `nagare-dsl-test` and all 438 `nagarectl-test` tests pass.
 - [ ] Milestone 5: reference portal example.
   - [ ] `cluster/examples/auth-portal` Node app, Dockerfile, `nagare/Config.hs`, README.
   - [ ] Offline contract test script for the example.
@@ -176,6 +176,12 @@ These were found while researching the plan (2026-09-12), before any implementat
   pinned commit `6a96185f4f809e5e7a99095274caa6bd90e7a8d7` is the peeled target of the
   authoritative upstream tags `release-2026-08-27` and `shomei-core-0.2.0.0`, and
   `Shomei.Client.logout` sends the bearer token to `POST /v1/auth/logout`.
+- **A name-only `-package nagare-dsl` flag conflicts with the exact Cabal environment.**
+  Both CLI test suites inherited an environment that exposed the in-place package by
+  package ID, while the loader's extra name-only flag exposed another installed version.
+  Every config-as-program import then became ambiguous. Letting `runghc` use the exact
+  `GHC_ENVIRONMENT` package ID removed the ambiguity; all 825 tests across the two suites
+  then passed.
 
 
 ## Decision Log
@@ -314,6 +320,13 @@ These were found while researching the plan (2026-09-12), before any implementat
   Rationale: The plan requires the multi-step hand-off to be one `ExceptT` block;
   Cabal package visibility requires the owning package to be named directly even
   though it is already present in the compiler package set.
+  Date: 2026-09-13
+
+- Decision: `Nagare.Dsl.Load.runConfigWith` relies on the caller's exact GHC package
+  environment instead of adding a name-only `-package nagare-dsl` flag.
+  Rationale: `nagarectl` already provisions `GHC_ENVIRONMENT`, and Cabal tests expose the
+  in-place library there by package ID. Re-exposing a package by name can select another
+  installed version and make every `Nagare.Dsl.*` import ambiguous.
   Date: 2026-09-13
 
 

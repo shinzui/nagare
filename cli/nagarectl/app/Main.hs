@@ -37,7 +37,16 @@ import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
-import Nagare.Access.Resolve (resolveDeploymentAccess)
+import Nagare.Access.Resolve
+  ( AccessOps (applyShomeiPortal, loadBackends)
+  , BackendEntry (entryUpstream)
+  , ShomeiPortalChange (EnablePortal)
+  , kubectlAccessOps
+  , mkBaseDomain
+  , portalRegistration
+  , publicHostText
+  , resolveDeploymentAccess
+  )
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -383,6 +392,12 @@ data AccessCommand
   = AccessGrant AccessGrantOpts
   | AccessRevoke AccessGrantOpts
   | AccessList AccessListOpts
+  | AccessPortal PortalCommand
+  deriving stock (Generic, Show)
+
+data PortalCommand
+  = PortalShow
+  | PortalSync
   deriving stock (Generic, Show)
 
 data AccessGrantOpts = AccessGrantOpts
@@ -1792,6 +1807,21 @@ opts =
                   (AccessList <$> accessListOptsParser <**> helper)
                   (progDesc "List users who currently expand to access on a protected host")
               )
+            <> command
+              "portal"
+              ( info
+                  (AccessPortal <$> portalSubparser <**> helper)
+                  (progDesc "Inspect or synchronize the authentication portal")
+              )
+        )
+    portalSubparser =
+      subparser
+        ( command
+            "show"
+            (info (pure PortalShow <**> helper) (progDesc "Show the registered authentication portal"))
+            <> command
+              "sync"
+              (info (pure PortalSync <**> helper) (progDesc "Re-apply the registered portal configuration to Shomei"))
         )
     siteCmd =
       info
@@ -2267,7 +2297,7 @@ main =
     Db dcmd -> runDb mctx dcmd
     Task tcmd -> runTask tcmd
     Worker wcmd -> runWorker mctx wcmd
-    Access acmd -> runAccess acmd
+    Access acmd -> runAccess mctx acmd
     ServerStatus o -> runServerStatus mctx o
     Doctor o -> runDoctor mctx o
     ContextCmdGroup ccmd -> runContext mctx ccmd
@@ -4103,8 +4133,8 @@ runWorker mctx = \case
         , wdpTargetProfile = tp
         }
 
-runAccess :: AccessCommand -> IO ()
-runAccess = \case
+runAccess :: Maybe String -> AccessCommand -> IO ()
+runAccess mctx = \case
   AccessGrant o ->
     runAccessGrant
       AccessGrantParams
@@ -4129,6 +4159,21 @@ runAccess = \case
           , alpEnApiKey = T.pack <$> o ^. #enApiKey
           , alpHost = T.pack (o ^. #host)
           }
+  AccessPortal PortalShow -> do
+    backends <- loadBackends kubectlAccessOps
+    case portalRegistration backends of
+      Nothing -> TIO.putStrLn "portal: (none; protected sites use the built-in sign-in pages)"
+      Just (portalHost, entry) ->
+        TIO.putStrLn ("portal: " <> publicHostText portalHost <> " -> " <> entryUpstream entry)
+  AccessPortal PortalSync -> do
+    backends <- loadBackends kubectlAccessOps
+    case portalRegistration backends of
+      Nothing -> TIO.putStrLn "no portal registered"
+      Just (portalHost, _) -> do
+        rawBase <- resolveBaseDomain mctx Nothing
+        base <- either dieT pure (mkBaseDomain rawBase)
+        applyShomeiPortal kubectlAccessOps (EnablePortal portalHost base)
+        TIO.putStrLn ("synchronized portal: " <> publicHostText portalHost)
 
 -- | Dispatch the @task@ command group (MasterPlan 10, EP-51). Mirrors 'runDb'.
 -- The @APP@ positional becomes an 'AppScope': @-@ means app-less, anything else is
