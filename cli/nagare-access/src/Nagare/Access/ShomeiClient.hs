@@ -8,6 +8,9 @@ module Nagare.Access.ShomeiClient
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, catch)
 import Data.Text (Text)
@@ -21,15 +24,15 @@ import Shomei.Session.Dto qualified as DTO
 
 loginWithShomei :: Shomei.ClientEnv -> LoginCredentials -> IO LoginOutcome
 loginWithShomei env credentials =
-  case loginCredentialId credentials <|> loginCredentialEmail credentials of
+  case credentials ^. #credentialId <|> credentials ^. #email of
     Nothing -> pure (LoginFailed "invalid login")
     Just loginId -> do
-      result <- Shomei.login env (DTO.LoginRequest loginId (loginCredentialPassword credentials))
+      result <- Shomei.login env (DTO.LoginRequest loginId (credentials ^. #password))
       pure $ case result of
         Right (Shomei.ApplicationSuccess response) ->
           case Shomei.cookieBody response of
             DTO.LoginMfaRequiredResponse ceremonyId options _methods ->
-              LoginMfaRequired MfaChallenge {mfaCeremonyId = ceremonyId, mfaOptions = options}
+              LoginMfaRequired MfaChallenge {ceremonyId = ceremonyId, options = options}
             DTO.LoginCompleteResponse _ tokenPair ->
               tokenPairOutcome "invalid login" tokenPair
         -- Upstream now exposes RFC 7807 details on every non-success constructor.
@@ -42,8 +45,8 @@ completeMfaWithShomei env completion = do
     Shomei.mfaComplete
       env
       ( Mfa.MfaCompleteRequest
-          (mfaCompletionCeremonyId completion)
-          (Mfa.PasskeyProof (mfaCompletionAssertion completion))
+          (completion ^. #ceremonyId)
+          (Mfa.PasskeyProof (completion ^. #assertion))
       )
   pure $ case result of
     Right (Shomei.ApplicationSuccess response) ->
@@ -74,7 +77,7 @@ logoutWithShomei env (AccessToken token) =
 
 shomeiLoginEnvFromAuthPlane :: AuthPlaneConfig -> IO Shomei.ClientEnv
 shomeiLoginEnvFromAuthPlane cfg =
-  Shomei.shomeiClientEnv (Text.unpack (shomeiUrl cfg))
+  Shomei.shomeiClientEnv (Text.unpack (cfg ^. #shomeiUrl))
 
 tokenPairOutcome :: Text -> DTO.TokenPairResponse -> LoginOutcome
 tokenPairOutcome _ (DTO.TokenPairResponse (Just access) refresh expires) =

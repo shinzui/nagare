@@ -11,6 +11,9 @@ module Nagare.Access.Config
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -18,7 +21,7 @@ data Listen = Listen
   { host :: !(Maybe Text)
   , port :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data AuthPlaneConfig = AuthPlaneConfig
   { shomeiUrl :: !Text
@@ -29,15 +32,15 @@ data AuthPlaneConfig = AuthPlaneConfig
   , cookieDomain :: !Text
   , cookieKey :: !(Maybe Text)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data RuntimeConfig = RuntimeConfig
-  { runtimeListen :: !Listen
+  { listen :: !Listen
   , backendMapPath :: !(Maybe FilePath)
   , authPlaneConfig :: !(Maybe AuthPlaneConfig)
   , decisionTtlSeconds :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 defaultListen :: Listen
 defaultListen = Listen {host = Nothing, port = 8080}
@@ -62,16 +65,16 @@ parseListen raw
     trimmed = Text.strip raw
 
 listenPort :: Listen -> Int
-listenPort = port
+listenPort listen = listen ^. #port
 
 parseRuntimeConfig :: [(String, String)] -> Either Text RuntimeConfig
 parseRuntimeConfig env = do
-  runtimeListen <- parseListen (envText "NAGARE_ACCESS_LISTEN")
+  listen <- parseListen (envText "NAGARE_ACCESS_LISTEN")
   decisionTtlSeconds <- parseDecisionTtl (envText "NAGARE_ACCESS_DECISION_TTL")
   authPlaneConfig <- parseAuthPlane env
   pure
     RuntimeConfig
-      { runtimeListen
+      { listen
       , backendMapPath = envFilePath "NAGARE_ACCESS_BACKENDS"
       , authPlaneConfig
       , decisionTtlSeconds

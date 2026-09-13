@@ -3,6 +3,9 @@
 
 module Main (main) where
 
+import Nagare.Access.Prelude hiding ((.=))
+import Data.Generics.Labels ()
+
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
@@ -135,10 +138,10 @@ configTests =
         assertBool "expected Left" (isLeft (parseListen "nope"))
     , testCase "runtime config defaults auth plane off and decision cache to 30 seconds" $ do
         cfg <- assertRight (parseRuntimeConfig [])
-        runtimeListen cfg @?= defaultListen
-        authPlaneConfig cfg @?= Nothing
-        decisionTtlSeconds cfg @?= 30
-        backendMapPath cfg @?= Nothing
+        cfg ^. #listen @?= defaultListen
+        cfg ^. #authPlaneConfig @?= Nothing
+        cfg ^. #decisionTtlSeconds @?= 30
+        cfg ^. #backendMapPath @?= Nothing
     , testCase "runtime config reads backend map path and zero decision ttl" $ do
         cfg <-
           assertRight
@@ -147,11 +150,11 @@ configTests =
                 , ("NAGARE_ACCESS_DECISION_TTL", "0")
                 ]
             )
-        backendMapPath cfg @?= Just "/etc/nagare/backends.json"
-        decisionTtlSeconds cfg @?= 0
+        cfg ^. #backendMapPath @?= Just "/etc/nagare/backends.json"
+        cfg ^. #decisionTtlSeconds @?= 0
     , testCase "runtime config reads complete auth plane settings" $ do
         cfg <- assertRight (parseRuntimeConfig completeAuthEnv)
-        authPlaneConfig cfg
+        cfg ^. #authPlaneConfig
           @?= Just
             AuthPlaneConfig
               { shomeiUrl = "http://shomei.nagare-system.svc.cluster.local"
@@ -172,7 +175,7 @@ configTests =
           (isLeft (parseRuntimeConfig (replaceEnv "NAGARE_ACCESS_SHOMEI_URL" "shomei" completeAuthEnv)))
     , testCase "runtime config permits an unauthenticated en with no API key" $ do
         cfg <- assertRight (parseRuntimeConfig (removeEnv "NAGARE_ACCESS_EN_API_KEY" completeAuthEnv))
-        (enApiKey =<< authPlaneConfig cfg) @?= Nothing
+        (cfg ^. #authPlaneConfig >>= \authConfig -> authConfig ^. #enApiKey) @?= Nothing
     , testCase "runtime config rejects negative decision ttl" $
         assertBool
           "expected Left"
@@ -236,7 +239,7 @@ backendMapTests =
         lookupBackend "auth.example.com" backends
           @?= Just (BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
         portal <- maybe (assertFailure "expected portal") pure (findPortal backends)
-        publicHostText (portalHost portal) @?= "auth.example.com"
+        publicHostText (portal ^. #host) @?= "auth.example.com"
     , testCase "rejects a second portal and names its host" $
         case
             decodeBackendMap
@@ -380,7 +383,7 @@ shomeiTests =
     "shomei"
     [ testCase "shomei config is derived from auth-plane issuer and audience" $ do
         runtime <- assertRight (parseRuntimeConfig completeAuthEnv)
-        cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
+        cfg <- maybe (assertFailure "expected auth-plane config") pure (runtime ^. #authPlaneConfig)
         let shomeiCfg = shomeiConfigFromAuthPlane cfg
         issuer shomeiCfg @?= Issuer "https://auth.apps.example.com"
         audience shomeiCfg @?= Audience "nagare-access"
@@ -390,7 +393,7 @@ shomeiTests =
         tokenErrorToAuthFailure (TokenKeyNotFound (Just "rotated-key")) @?= InvalidCredential
     , testCase "malformed shomei token verifies as an invalid credential" $ do
         runtime <- assertRight (parseRuntimeConfig completeAuthEnv)
-        cfg <- maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
+        cfg <- maybe (assertFailure "expected auth-plane config") pure (runtime ^. #authPlaneConfig)
         verifyShomeiCredential (JWKSet []) cfg (BearerToken "not-a-jwt")
           >>= (@?= Left InvalidCredential)
     , testCase "login, refresh, and MFA adapters use shomei HTTP wire protocol" $
@@ -401,9 +404,9 @@ shomeiTests =
           loginWithShomei
             env
             LoginCredentials
-              { loginCredentialId = Just "alice"
-              , loginCredentialEmail = Nothing
-              , loginCredentialPassword = "secret"
+              { credentialId = Just "alice"
+              , email = Nothing
+              , password = "secret"
               }
             >>= ( @?=
                     LoginSucceeded
@@ -417,15 +420,15 @@ shomeiTests =
           loginWithShomei
             env
             LoginCredentials
-              { loginCredentialId = Just "mfa"
-              , loginCredentialEmail = Nothing
-              , loginCredentialPassword = "secret"
+              { credentialId = Just "mfa"
+              , email = Nothing
+              , password = "secret"
               }
             >>= ( @?=
                     LoginMfaRequired
                       MfaChallenge
-                        { mfaCeremonyId = "ceremony-1"
-                        , mfaOptions = object ["challenge" .= ("abc" :: Text)]
+                        { ceremonyId = "ceremony-1"
+                        , options = object ["challenge" .= ("abc" :: Text)]
                         }
                 )
 
@@ -439,7 +442,7 @@ shomeiTests =
                         }
                 )
 
-          completeMfaWithShomei env MfaCompletion {mfaCompletionCeremonyId = "ceremony-1", mfaCompletionAssertion = object ["id" .= ("credential-1" :: Text)]}
+          completeMfaWithShomei env MfaCompletion {ceremonyId = "ceremony-1", assertion = object ["id" .= ("credential-1" :: Text)]}
             >>= ( @?=
                     LoginSucceeded
                       SessionTokens
@@ -457,7 +460,7 @@ enTests =
   testGroup
     "en"
     [ testCase "builds the app access check for the authenticated user and host" $ do
-        let req = buildCheckRequest AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+        let req = buildCheckRequest AuthenticatedUser {subject = "alice"} "tools.example.com"
         req.consistency @?= MinimizeLatencyWire
         req.context @?= CaveatContextWire mempty
         req.subject @?= SubjectIdWire ObjectRefWire {objectType = "user", objectId = "alice"}
@@ -472,31 +475,31 @@ enTests =
         cfg <- completeAuthConfig
         env <- enClientEnvFromAuthPlane manager cfg
         assertBool "expected Right" (not (isLeft env))
-        badEnv <- enClientEnvFromAuthPlane manager (cfg {enUrl = "not a url"})
+        badEnv <- enClientEnvFromAuthPlane manager (cfg & #enUrl .~ "not a url")
         assertBool "expected Left" (isLeft badEnv)
     , testCase "authorizes through the real en HTTP client and servant app" $
         testWithApplication (pure (enAccessApp [grantAppAccessTuple "tools.example.com" "alice"])) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           cfg <- completeAuthConfig
-          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show port)})
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ Text.pack ("http://127.0.0.1:" <> show port))
 
-          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+          authorizeWithEn clientEnv AuthenticatedUser {subject = "alice"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessAllowed)
-          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "bob"} "tools.example.com"
+          authorizeWithEn clientEnv AuthenticatedUser {subject = "bob"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessDenied)
     , testCase "en client sends the configured bearer API key" $
         testWithApplication (pure (enAuthorizationStubApp (Just "Bearer en-read-only-key"))) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           cfg <- completeAuthConfig
-          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = localUrl port})
-          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ localUrl port)
+          authorizeWithEn clientEnv AuthenticatedUser {subject = "alice"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessAllowed)
     , testCase "en client omits Authorization when no API key is configured" $
         testWithApplication (pure (enAuthorizationStubApp Nothing)) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           cfg <- completeAuthConfig
-          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = localUrl port, enApiKey = Nothing})
-          authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+          clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ localUrl port & #enApiKey .~ Nothing)
+          authorizeWithEn clientEnv AuthenticatedUser {subject = "alice"} "tools.example.com"
             >>= (@?= AuthorizationDecision AccessAllowed)
     , -- en expresses a genuine refusal as EnOk DeniedWire. Every envelope and
       -- transport error is unavailability, never a decision.
@@ -515,8 +518,8 @@ enTests =
         manager <- HC.newManager HC.defaultManagerSettings
         cfg <- completeAuthConfig
         port <- closedPort
-        clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show port)})
-        result <- authorizeWithEn clientEnv AuthenticatedUser {userSubject = "alice"} "tools.example.com"
+        clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ Text.pack ("http://127.0.0.1:" <> show port))
+        result <- authorizeWithEn clientEnv AuthenticatedUser {subject = "alice"} "tools.example.com"
         case result of
           AuthorizationUnavailable _ -> pure ()
           other -> assertFailure ("expected AuthorizationUnavailable, got: " <> show other)
@@ -609,7 +612,7 @@ proxyTests =
                 { requestMethod = "POST"
                 , rawQueryString = "?v=1"
                 }
-            user = AuthenticatedUser {userSubject = "user:alice"}
+            user = AuthenticatedUser {subject = "user:alice"}
             target = BackendTarget "http://tools.personal.svc.cluster.local/base" ProtectedBackend
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         HC.method proxyReq @?= "POST"
@@ -625,7 +628,7 @@ proxyTests =
                   withHeader "Connection" "upgrade" $
                     withHeader hHost "tools.example.com" $
                       setPath defaultRequest "/"
-            user = AuthenticatedUser {userSubject = "user:alice"}
+            user = AuthenticatedUser {subject = "user:alice"}
             target = BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         lookup "X-Forwarded-User" (HC.requestHeaders proxyReq) @?= Just "user:alice"
@@ -638,7 +641,7 @@ proxyTests =
         let headers =
               hardenRequestHeaders
                 "tools.example.com"
-                AuthenticatedUser {userSubject = "user:alice"}
+                AuthenticatedUser {subject = "user:alice"}
                 [ ("Cookie", "theme=dark; nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z; lang=en")
                 ]
         lookup "Cookie" headers @?= Just "theme=dark; lang=en"
@@ -646,13 +649,13 @@ proxyTests =
         let headers =
               hardenRequestHeaders
                 "tools.example.com"
-                AuthenticatedUser {userSubject = "user:alice"}
+                AuthenticatedUser {subject = "user:alice"}
                 [("Cookie", "nagare_session=abc; nagare_refresh=v1.x.y; __Host-nagare_csrf=z")]
         lookup "Cookie" headers @?= Nothing
     , testCase "streams upstream response bodies through WAI" $
         testWithApplication (pure streamingUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
-          let user = AuthenticatedUser {userSubject = "user:alice"}
+          let user = AuthenticatedUser {subject = "user:alice"}
               target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
               proxyApp req respond =
                 proxyForwarder manager user "tools.example.com" target req >>= respond
@@ -664,7 +667,7 @@ proxyTests =
     , testCase "strips forged session-control headers from protected upstreams" $
         testWithApplication (pure forgedSessionUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
-          let user = AuthenticatedUser {userSubject = "user:alice"}
+          let user = AuthenticatedUser {subject = "user:alice"}
               target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
               proxyApp req respond = proxyForwarder manager user "app.example.test" target req >>= respond
           res <- runSession (request (setPath defaultRequest "/")) proxyApp
@@ -692,9 +695,9 @@ portalTests =
         decodeSessionHandoff (handoffHeader "initial-access" "initial-refresh" (Just "https://app.example.test/x"))
           @?= Right
             SessionHandoff
-              { handoffAccessToken = AccessToken "initial-access"
-              , handoffRefreshToken = RefreshToken "initial-refresh"
-              , handoffReturnTo = Just "https://app.example.test/x"
+              { accessToken = AccessToken "initial-access"
+              , refreshToken = RefreshToken "initial-refresh"
+              , returnTo = Just "https://app.example.test/x"
               }
     , testCase "return targets accept only routed https hosts and safe paths" $ do
         let accepted = parseReturnTarget portalBackends "https://app.example.test/x?y=1"
@@ -730,13 +733,13 @@ portalTests =
           result <- portalForwarder manager portal PortalAnonymous (setPath defaultRequest "/login")
           case result of
             PortalSessionEstablish handoff ->
-              handoffRefreshToken handoff @?= RefreshToken "portal-refresh"
+              handoff ^. #refreshToken @?= RefreshToken "portal-refresh"
             _ -> assertFailure "expected an intercepted session hand-off"
     , testCase "authenticated portal forwarding injects the bearer token" $
         testWithApplication (pure portalEchoUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           portal <- portalForPort port
-          let identity = PortalAuthenticated AuthenticatedUser {userSubject = "user:alice"} (AccessToken "access-token")
+          let identity = PortalAuthenticated AuthenticatedUser {subject = "user:alice"} (AccessToken "access-token")
               proxyApp request' respond = do
                 result <- portalForwarder manager portal identity request'
                 case result of
@@ -748,12 +751,12 @@ portalTests =
         refreshedWith <- newIORef []
         let services =
               testServices
-                { verifyCredential = \credential ->
+                & #verifyCredential .~ (\credential ->
                     pure $
                       if credentialToken credential `elem` ["portal-access", "refreshed-access"]
-                        then Right AuthenticatedUser {userSubject = "user:alice"}
-                        else Left InvalidCredential
-                , refreshUserSession = \token -> do
+                        then Right AuthenticatedUser {subject = "user:alice"}
+                        else Left InvalidCredential)
+                & #refreshUserSession .~ (\token -> do
                     modifyIORef' refreshedWith (token :)
                     pure
                       ( LoginSucceeded
@@ -763,17 +766,18 @@ portalTests =
                             , expiresIn = 900
                             }
                       )
-                , forwardPortal = \_ _ _ ->
+                  )
+                & #forwardPortal .~ (\_ _ _ ->
                     pure
                       ( PortalSessionEstablish
                           SessionHandoff
-                            { handoffAccessToken = AccessToken "portal-access"
-                            , handoffRefreshToken = RefreshToken "portal-refresh"
-                            , handoffReturnTo = Just "https://app.example.test/x?y=1"
+                            { accessToken = AccessToken "portal-access"
+                            , refreshToken = RefreshToken "portal-refresh"
+                            , returnTo = Just "https://app.example.test/x?y=1"
                             }
                       )
-                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
-                }
+                  )
+                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
         res <- runSession (request req) (appWithRuntime portalBackends services)
         simpleStatus res @?= status303
@@ -792,8 +796,7 @@ portalTests =
     , testCase "failed hand-off sets no cookies and redirects to the portal login" $ do
         let services =
               (successfulHandoffServices Nothing)
-                { verifyCredential = \_ -> pure (Left InvalidCredential)
-                }
+                & #verifyCredential .~ (\_ -> pure (Left InvalidCredential))
             req = withHeader hHost "auth.example.test" (setPath defaultRequest "/login")
         res <- runSession (request req) (appWithRuntime portalBackends services)
         simpleStatus res @?= status303
@@ -803,18 +806,18 @@ portalTests =
         revoked <- newIORef []
         let services =
               testServices
-                { revokeSession = \(AccessToken token) -> modifyIORef' revoked (token :)
-                , forwardPortal = \_ _ _ ->
+                & #revokeSession .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
+                & #forwardPortal .~ (\_ _ _ ->
                     pure
                       ( PortalSessionClear
                           CapturedResponse
-                            { capturedStatus = status204
-                            , capturedHeaders = []
-                            , capturedBody = ""
+                            { status = status204
+                            , headers = []
+                            , body = ""
                             }
                       )
-                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
-                }
+                  )
+                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req =
               withHeader hHost "auth.example.test" $
                 withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/logout")
@@ -826,9 +829,8 @@ portalTests =
         revoked <- newIORef []
         let services =
               testServices
-                { revokeSession = \(AccessToken token) -> modifyIORef' revoked (token :)
-                , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
-                }
+                & #revokeSession .~ (\(AccessToken token) -> modifyIORef' revoked (token :))
+                & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
             req =
               withHeader hHost "app.example.test" $
                 withHeader "Cookie" "nagare_session=current-access" (setPath defaultRequest "/_nagare/logout")
@@ -870,11 +872,11 @@ portalTests =
                 withHeader hAccept "text/html" $
                   withHeader hHost "app.example.test" $
                     withHeader "Cookie" "nagare_session=access" defaultRequest
-            denied = testServices {authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)}
+            denied = testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied))
         branded <-
           runSession
             request403
-            (appWithRuntime portalBackends (denied {fetchPortalPage = \_ _ -> pure (Just (PortalPage "<p>portal 403</p>"))}))
+            (appWithRuntime portalBackends (denied & #fetchPortalPage .~ (\_ _ -> pure (Just (PortalPage "<p>portal 403</p>")))))
         simpleStatus branded @?= status403
         simpleBody branded @?= "<p>portal 403</p>"
         lookup "Cache-Control" (simpleHeaders branded) @?= Just "no-store"
@@ -886,11 +888,11 @@ portalTests =
                 withHeader hAccept "text/html" $
                   withHeader hHost "app.example.test" $
                     withHeader "Cookie" "nagare_session=access" defaultRequest
-            unavailable = testServices {authorizeUser = \_ _ -> pure (AuthorizationUnavailable "down")}
+            unavailable = testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationUnavailable "down"))
         branded <-
           runSession
             request503
-            (appWithRuntime portalBackends (unavailable {fetchPortalPage = \_ _ -> pure (Just (PortalPage "<p>portal 503</p>"))}))
+            (appWithRuntime portalBackends (unavailable & #fetchPortalPage .~ (\_ _ -> pure (Just (PortalPage "<p>portal 503</p>")))))
         simpleStatus branded @?= status503
         simpleBody branded @?= "<p>portal 503</p>"
         fallback <- runSession request503 (appWithRuntime portalBackends unavailable)
@@ -944,7 +946,7 @@ appTests =
         res <-
           runSession
             (request (setPath defaultRequest "/_nagare/logout"))
-            (appWithRuntime emptyBackendMap (testServices {cookieSettings = Just (defaultCookieSettings ".apps.example.com")}))
+            (appWithRuntime emptyBackendMap (testServices & #cookieSettings .~ Just (defaultCookieSettings ".apps.example.com")))
         simpleStatus res @?= status302
         lookup hLocation (simpleHeaders res) @?= Just "/_nagare/login"
         lookup "Set-Cookie" (simpleHeaders res)
@@ -953,7 +955,7 @@ appTests =
         res <-
           runSession
             (request (setPath defaultRequest "/_nagare/login?rd=%2Ftools%3Ftab%3D1"))
-            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "csrf-token"))
         simpleStatus res @?= status200
         lookup "Set-Cookie" (simpleHeaders res)
           @?= Just "__Host-nagare_csrf=csrf-token; Path=/; Max-Age=600; Secure; SameSite=Lax"
@@ -963,7 +965,7 @@ appTests =
         res <-
           runSession
             (request (setPath defaultRequest "/_nagare/login?rd=https%3A%2F%2Fevil.example"))
-            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "csrf-token"))
         simpleStatus res @?= status200
         assertBool "expected root rd" (bodyContains "name=\"rd\" value=\"/\"" res)
     , -- %2F%5C is "/\" — a backslash redirect the browser would normalize to
@@ -973,7 +975,7 @@ appTests =
         res <-
           runSession
             (request (setPath defaultRequest "/_nagare/login?rd=%2F%5Cevil.com"))
-            (appWithRuntime emptyBackendMap (testServices {newCsrfToken = pure "csrf-token"}))
+            (appWithRuntime emptyBackendMap (testServices & #newCsrfToken .~ pure "csrf-token"))
         simpleStatus res @?= status200
         assertBool "expected root rd" (bodyContains "name=\"rd\" value=\"/\"" res)
         assertBool "must not echo the backslash destination" (not (bodyContains "evil.com" res))
@@ -990,11 +992,11 @@ appTests =
         seen <- newIORef []
         let services =
               testServices
-                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                , loginUser = \credentials -> do
+                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #loginUser .~ (\credentials -> do
                     modifyIORef' seen (<> [credentials])
                     pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
-                }
+                  )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1011,24 +1013,24 @@ appTests =
         readIORef seen
           >>= ( @?=
                   [ LoginCredentials
-                      { loginCredentialId = Just "alice"
-                      , loginCredentialEmail = Nothing
-                      , loginCredentialPassword = "secret"
+                      { credentialId = Just "alice"
+                      , email = Nothing
+                      , password = "secret"
                       }
                   ]
               )
     , testCase "login submit with MFA renders a passkey challenge page" $ do
         let services =
               testServices
-                { loginUser = \_ ->
+                & #loginUser .~ (\_ ->
                     pure
                       ( LoginMfaRequired
                           MfaChallenge
-                            { mfaCeremonyId = "ceremony-1"
-                            , mfaOptions = object ["challenge" .= ("abc" :: Text), "allowCredentials" .= ([] :: [Value])]
+                            { ceremonyId = "ceremony-1"
+                            , options = object ["challenge" .= ("abc" :: Text), "allowCredentials" .= ([] :: [Value])]
                             }
                       )
-                }
+                  )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1046,11 +1048,11 @@ appTests =
         let assertion = object ["id" .= ("credential-1" :: Text)]
             services =
               testServices
-                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                , completeMfa = \completion -> do
+                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #completeMfa .~ (\completion -> do
                     modifyIORef' seen (<> [completion])
                     pure (LoginSucceeded SessionTokens {accessToken = "access.jwt", refreshToken = Just "refresh.token", expiresIn = 900})
-                }
+                  )
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1067,8 +1069,8 @@ appTests =
         readIORef seen
           >>= ( @?=
                   [ MfaCompletion
-                      { mfaCompletionCeremonyId = "ceremony-1"
-                      , mfaCompletionAssertion = assertion
+                      { ceremonyId = "ceremony-1"
+                      , assertion = assertion
                       }
                   ]
               )
@@ -1076,8 +1078,7 @@ appTests =
         calls <- newIORef (0 :: Int)
         let services =
               testServices
-                { completeMfa = \_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run")
-                }
+                & #completeMfa .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1092,8 +1093,7 @@ appTests =
         calls <- newIORef (0 :: Int)
         let services =
               testServices
-                { loginUser = \_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run")
-                }
+                & #loginUser .~ (\_ -> modifyIORef' calls (+ 1) >> pure (LoginFailed "should not run"))
             req =
               SRequest
                 ( withHeader "Cookie" "__Host-nagare_csrf=csrf-token" $
@@ -1117,15 +1117,15 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                , verifyCredential = \credential ->
+                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #verifyCredential .~ (\credential ->
                     case credential of
-                      SessionCookie "access.new" -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
-                      _ -> pure (Left InvalidCredential)
-                , refreshUserSession = \token -> do
+                      SessionCookie "access.new" -> pure (Right AuthenticatedUser {subject = "user:alice"})
+                      _ -> pure (Left InvalidCredential))
+                & #refreshUserSession .~ (\token -> do
                     token @?= "refresh.old"
                     pure (LoginSucceeded SessionTokens {accessToken = "access.new", refreshToken = Just "refresh.new", expiresIn = 900})
-                }
+                  )
         res <-
           runSession
             (request (withHeader "Cookie" ("nagare_refresh=" <> refreshCookie) (withHeader hHost "tools.example.com" (setPath defaultRequest "/"))))
@@ -1140,10 +1140,9 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { cookieSettings = Just (signedCookieSettings ".apps.example.com" "cookie-secret")
-                , verifyCredential = \_ -> pure (Left ExpiredCredential)
-                , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
-                }
+                & #cookieSettings .~ Just (signedCookieSettings ".apps.example.com" "cookie-secret")
+                & #verifyCredential .~ (\_ -> pure (Left ExpiredCredential))
+                & #refreshUserSession .~ (\_ -> pure (LoginFailed "refresh failed"))
         res <-
           runSession
             ( request
@@ -1171,14 +1170,14 @@ appTests =
         res <-
           runSession
             (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer invalid" (withHeader hAccept "application/json" (setPath defaultRequest "/api")))))
-            (appWithRuntime backends (testServices {verifyCredential = \_ -> pure (Left InvalidCredential)}))
+            (appWithRuntime backends (testServices & #verifyCredential .~ (\_ -> pure (Left InvalidCredential))))
         simpleStatus res @?= status401
     , testCase "denied protected request returns 403" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <-
           runSession
             (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
-            (appWithRuntime backends (testServices {authorizeUser = \_ _ -> pure (AuthorizationDecision AccessDenied)}))
+            (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied))))
         simpleStatus res @?= status403
         simpleBody res @?= "Forbidden"
     , testCase "allowed protected request is forwarded" $ do
@@ -1195,9 +1194,8 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { decisionCache = cache
-                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
-                }
+                & #decisionCache .~ cache
+                & #authorizeUser .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed))
             req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
         runSession req (appWithRuntime backends services) >>= \res -> simpleStatus res @?= status200
@@ -1211,9 +1209,8 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { decisionCache = cache
-                , authorizeUser = \_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down")
-                }
+                & #decisionCache .~ cache
+                & #authorizeUser .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down"))
             req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> do
           simpleStatus res @?= status503
@@ -1227,8 +1224,7 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         let services =
               testServices
-                { authorizeUser = \_ host -> modifyIORef' seen (<> [host]) >> pure (AuthorizationDecision AccessAllowed)
-                }
+                & #authorizeUser .~ (\_ host -> modifyIORef' seen (<> [host]) >> pure (AuthorizationDecision AccessAllowed))
         res <-
           runSession
             (request (withHeader hHost "Tools.Example.com:443" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
@@ -1240,17 +1236,16 @@ appTests =
           testWithApplication (pure identityUpstreamApp) $ \upstreamPort -> do
             manager <- HC.newManager HC.defaultManagerSettings
             cfg <- completeAuthConfig
-            clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg {enUrl = Text.pack ("http://127.0.0.1:" <> show enPort)})
+            clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ Text.pack ("http://127.0.0.1:" <> show enPort))
             backends <- assertRight (backendMapFromList [("tools.example.com", "http://127.0.0.1:" <> Text.pack (show upstreamPort))])
             let services =
                   testServices
-                    { verifyCredential = \case
-                        BearerToken "alice-token" -> pure (Right AuthenticatedUser {userSubject = "alice"})
-                        BearerToken "bob-token" -> pure (Right AuthenticatedUser {userSubject = "bob"})
-                        _ -> pure (Left InvalidCredential)
-                    , authorizeUser = authorizeWithEn clientEnv
-                    , forwardAuthorized = proxyForwarder manager
-                    }
+                    & #verifyCredential .~ (\case
+                        BearerToken "alice-token" -> pure (Right AuthenticatedUser {subject = "alice"})
+                        BearerToken "bob-token" -> pure (Right AuthenticatedUser {subject = "bob"})
+                        _ -> pure (Left InvalidCredential))
+                    & #authorizeUser .~ authorizeWithEn clientEnv
+                    & #forwardAuthorized .~ proxyForwarder manager
                 authedReq token =
                   request $
                     withHeader hHost "tools.example.com" $
@@ -1399,7 +1394,7 @@ completeAuthConfig =
 authConfigFromEnv :: [(String, String)] -> IO AuthPlaneConfig
 authConfigFromEnv env = do
   runtime <- assertRight (parseRuntimeConfig env)
-  maybe (assertFailure "expected auth-plane config") pure (authPlaneConfig runtime)
+  maybe (assertFailure "expected auth-plane config") pure (runtime ^. #authPlaneConfig)
 
 withHeader :: HeaderName -> ByteString -> Request -> Request
 withHeader name value req =
@@ -1622,7 +1617,7 @@ identityUpstreamApp req respond =
 websocketProxyApp :: Int -> Wai.Application
 websocketProxyApp upstreamPort req respond = do
   manager <- HC.newManager HC.defaultManagerSettings
-  let user = AuthenticatedUser {userSubject = "user:alice"}
+  let user = AuthenticatedUser {subject = "user:alice"}
       target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort)) ProtectedBackend
   proxyForwarder manager user "tools.example.com" target req >>= respond
 
@@ -1701,8 +1696,8 @@ portalForPort port = do
   host <- assertRight (mkPublicHost "auth.example.test")
   pure
     Portal
-      { portalHost = host
-      , portalTarget = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) PortalBackend
+      { host = host
+      , target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) PortalBackend
       }
 
 handoffHeader :: Text -> Text -> Maybe Text -> ByteString
@@ -1745,9 +1740,9 @@ testPortalPageRequest kind = do
   path <- maybe (assertFailure "expected safe path") pure (mkSafePath "/private?tab=1")
   pure
     PortalPageRequest
-      { pageKind = kind
-      , pageTarget = ReturnTarget host path
-      , pageUser = Just AuthenticatedUser {userSubject = "user:alice"}
+      { kind = kind
+      , target = ReturnTarget host path
+      , user = Just AuthenticatedUser {subject = "user:alice"}
       }
 
 portalHtmlPageApp :: Wai.Application
@@ -1774,12 +1769,12 @@ portalSlowPageApp _req respond = do
 successfulHandoffServices :: Maybe Text -> AccessServices
 successfulHandoffServices returnTo =
   testServices
-    { verifyCredential = \credential ->
+    & #verifyCredential .~ (\credential ->
         pure $
           if credentialToken credential `elem` ["portal-access", "refreshed-access"]
-            then Right AuthenticatedUser {userSubject = "user:alice"}
-            else Left InvalidCredential
-    , refreshUserSession = \_ ->
+            then Right AuthenticatedUser {subject = "user:alice"}
+            else Left InvalidCredential)
+    & #refreshUserSession .~ (\_ ->
         pure
           ( LoginSucceeded
               SessionTokens
@@ -1788,22 +1783,23 @@ successfulHandoffServices returnTo =
                 , expiresIn = 900
                 }
           )
-    , forwardPortal = \_ _ _ ->
+      )
+    & #forwardPortal .~ (\_ _ _ ->
         pure
           ( PortalSessionEstablish
               SessionHandoff
-                { handoffAccessToken = AccessToken "portal-access"
-                , handoffRefreshToken = RefreshToken "portal-refresh"
-                , handoffReturnTo = returnTo
+                { accessToken = AccessToken "portal-access"
+                , refreshToken = RefreshToken "portal-refresh"
+                , returnTo = returnTo
                 }
           )
-    , cookieSettings = Just (signedCookieSettings ".example.test" "cookie-secret")
-    }
+      )
+    & #cookieSettings .~ Just (signedCookieSettings ".example.test" "cookie-secret")
 
 testServices :: AccessServices
 testServices =
   AccessServices
-    { verifyCredential = \_ -> pure (Right AuthenticatedUser {userSubject = "user:alice"})
+    { verifyCredential = \_ -> pure (Right AuthenticatedUser {subject = "user:alice"})
     , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessAllowed)
     , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
     , loginUser = \_ -> pure (LoginFailed "invalid login")

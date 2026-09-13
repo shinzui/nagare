@@ -7,6 +7,8 @@ module Nagare.Access.Response
   )
 where
 
+import Nagare.Access.Prelude hiding ((.=))
+
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
@@ -52,8 +54,8 @@ missingBackendResponse host =
 requestShapeFromWai :: Request -> RequestShape
 requestShapeFromWai req =
   RequestShape
-    { requestPath = TE.decodeUtf8 (rawPathInfo req <> rawQueryString req)
-    , requestHeaders = Wai.requestHeaders req
+    { path = TE.decodeUtf8 (rawPathInfo req <> rawQueryString req)
+    , headers = Wai.requestHeaders req
     }
 
 jsonResponse :: Status -> Value -> Response

@@ -11,6 +11,9 @@ module Nagare.Access.DecisionCache
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Data.IORef
   ( IORef
   , atomicModifyIORef'
@@ -25,7 +28,7 @@ data AccessDecision
   = AccessAllowed
   | AccessDenied
   | AccessConditional
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 -- | The outcome of asking the authorizer, which is not the same thing as a
 -- decision: either the authorizer answered (and its answer is an
@@ -40,13 +43,13 @@ data AuthorizationResult
   | -- | the authorizer could not be reached; the text is the transport-level
     -- diagnostic, for logs and 5xx bodies
     AuthorizationUnavailable !Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data DecisionKey = DecisionKey
   { subject :: !Text
   , host :: !Text
   }
-  deriving stock (Eq, Ord, Show)
+  deriving stock (Generic, Eq, Ord, Show)
 
 data DecisionCache
   = DecisionCacheDisabled
@@ -55,12 +58,13 @@ data DecisionCache
       , nowSeconds :: !(IO Int)
       , entriesRef :: !(IORef (Map DecisionKey CachedDecision))
       }
+  deriving stock (Generic)
 
 data CachedDecision = CachedDecision
-  { cachedAtSeconds :: !Int
-  , cachedDecision :: !AccessDecision
+  { atSeconds :: !Int
+  , decision :: !AccessDecision
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 newDecisionCache :: Int -> IO Int -> IO DecisionCache
 newDecisionCache ttl now
@@ -79,13 +83,13 @@ disabledDecisionCache = DecisionCacheDisabled
 cacheLookupOrLoad :: DecisionCache -> DecisionKey -> IO AuthorizationResult -> IO AuthorizationResult
 cacheLookupOrLoad DecisionCacheDisabled _ loadDecision =
   loadDecision
-cacheLookupOrLoad cache key loadDecision = do
-  now <- nowSeconds cache
-  entries <- readIORef (entriesRef cache)
+cacheLookupOrLoad cache@DecisionCache {nowSeconds, entriesRef} key loadDecision = do
+  now <- nowSeconds
+  entries <- readIORef entriesRef
   case Map.lookup key entries of
     Just cached
       | not (isExpired cache now cached) ->
-          pure (AuthorizationDecision (cachedDecision cached))
+          pure (AuthorizationDecision (cached ^. #decision))
     _ -> do
       result <- loadDecision
       case result of
@@ -97,12 +101,12 @@ cacheLookupOrLoad cache key loadDecision = do
 -- eviction is observable in tests without handing out the map.
 cacheSize :: DecisionCache -> IO Int
 cacheSize DecisionCacheDisabled = pure 0
-cacheSize cache = Map.size <$> readIORef (entriesRef cache)
+cacheSize DecisionCache {entriesRef} = Map.size <$> readIORef entriesRef
 
 isExpired :: DecisionCache -> Int -> CachedDecision -> Bool
 isExpired DecisionCacheDisabled _ _ = True
-isExpired cache now cached =
-  now - cachedAtSeconds cached >= ttlSeconds cache
+isExpired DecisionCache {ttlSeconds} now cached =
+  now - cached ^. #atSeconds >= ttlSeconds
 
 -- | Insert an entry, dropping every expired one on the way in.
 --
@@ -114,13 +118,13 @@ isExpired cache now cached =
 writeCache :: DecisionCache -> DecisionKey -> Int -> AccessDecision -> IO ()
 writeCache DecisionCacheDisabled _ _ _ =
   pure ()
-writeCache cache key now decision =
+writeCache cache@DecisionCache {entriesRef} key now decision =
   atomicModifyIORef'
-    (entriesRef cache)
+    entriesRef
     ( \entries ->
         ( Map.insert
             key
-            CachedDecision {cachedAtSeconds = now, cachedDecision = decision}
+            CachedDecision {atSeconds = now, decision = decision}
             (Map.filter (not . isExpired cache now) entries)
         , ()
         )

@@ -14,6 +14,8 @@ module Nagare.Access.Auth
   )
 where
 
+import Nagare.Access.Prelude
+
 import Data.Aeson (Value)
 import Data.Text (Text)
 import Nagare.Access.BackendMap (BackendTarget, Portal)
@@ -24,65 +26,66 @@ import Nagare.Access.Portal (AccessToken, CapturedResponse, PortalPage, PortalPa
 import Network.Wai (Request, Response)
 
 newtype AuthenticatedUser = AuthenticatedUser
-  { userSubject :: Text
+  { subject :: Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data AuthFailure
   = InvalidCredential
   | ExpiredCredential
   | VerificationUnavailable Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data LoginCredentials = LoginCredentials
-  { loginCredentialId :: !(Maybe Text)
-  , loginCredentialEmail :: !(Maybe Text)
-  , loginCredentialPassword :: !Text
+  { credentialId :: !(Maybe Text)
+  , email :: !(Maybe Text)
+  , password :: !Text
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data SessionTokens = SessionTokens
   { accessToken :: !Text
   , refreshToken :: !(Maybe Text)
   , expiresIn :: !Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data MfaChallenge = MfaChallenge
-  { mfaCeremonyId :: !Text
-  , mfaOptions :: !Value
+  { ceremonyId :: !Text
+  , options :: !Value
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data MfaCompletion = MfaCompletion
-  { mfaCompletionCeremonyId :: !Text
-  , mfaCompletionAssertion :: !Value
+  { ceremonyId :: !Text
+  , assertion :: !Value
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data LoginOutcome
   = LoginSucceeded !SessionTokens
   | LoginMfaRequired !MfaChallenge
   | LoginFailed !Text
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data PortalIdentity
   = PortalAnonymous
   | PortalAuthenticated !AuthenticatedUser !AccessToken
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data PortalUpstreamResult
   = PortalPassThrough !Response
   | PortalSessionEstablish !SessionHandoff
   | PortalHandoffMalformed !Text
   | PortalSessionClear !CapturedResponse
+  deriving stock (Generic)
 
 data PortalPageRequest = PortalPageRequest
-  { pageKind :: !PortalPageKind
-  , pageTarget :: !ReturnTarget
-  , pageUser :: !(Maybe AuthenticatedUser)
+  { kind :: !PortalPageKind
+  , target :: !ReturnTarget
+  , user :: !(Maybe AuthenticatedUser)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 data AccessServices = AccessServices
   { verifyCredential :: !(Credential -> IO (Either AuthFailure AuthenticatedUser))
@@ -100,3 +103,4 @@ data AccessServices = AccessServices
   , decisionCache :: !DecisionCache
   , cookieSettings :: !(Maybe CookieSettings)
   }
+  deriving stock (Generic)

@@ -7,6 +7,9 @@ module Nagare.Access.Shomei
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Crypto.JOSE.JWK (JWKSet)
 import Nagare.Access.Auth (AuthFailure (..), AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
@@ -36,8 +39,8 @@ verifyShomeiCredentialCached cache cfg credential = do
 shomeiConfigFromAuthPlane :: AuthPlaneConfig -> ShomeiConfig
 shomeiConfigFromAuthPlane cfg =
   defaultShomeiConfig
-    (Issuer (shomeiIssuer cfg))
-    (Audience (shomeiAudience cfg))
+    (Issuer (cfg ^. #shomeiIssuer))
+    (Audience (cfg ^. #shomeiAudience))
 
 tokenErrorToAuthFailure :: TokenError -> AuthFailure
 tokenErrorToAuthFailure TokenExpired = ExpiredCredential
@@ -50,4 +53,4 @@ tokenErrorToAuthFailure (TokenOtherError _) = InvalidCredential
 
 claimsToUser :: Claims.AuthClaims -> AuthenticatedUser
 claimsToUser claims =
-  AuthenticatedUser {userSubject = ShomeiId.idText (Claims.subject claims)}
+  AuthenticatedUser {subject = ShomeiId.idText (Claims.subject claims)}

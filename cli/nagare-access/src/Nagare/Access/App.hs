@@ -7,6 +7,9 @@ module Nagare.Access.App
   )
 where
 
+import Nagare.Access.Prelude hiding ((.=))
+import Data.Generics.Labels ()
+
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
 import Data.Aeson (FromJSON (parseJSON), Value, eitherDecode, encode, object, withObject, (.:), (.:?), (.=))
@@ -78,7 +81,7 @@ appWithBackends backends =
 data LoginPage
   = BuiltinLoginPage
   | PortalLoginPage !Portal
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 appWithRuntime :: BackendMap -> AccessServices -> Application
 appWithRuntime backends services req respond =
@@ -100,7 +103,7 @@ appWithRuntime backends services req respond =
         Nothing ->
           respond (maybe (textResponse status404 "not found") missingBackendResponse (lookupHost req))
         Just (host, target) ->
-          case backendRole target of
+          case target ^. #role of
             ProtectedBackend -> respond =<< handleProtected services (loginPageFor backends) host req target
             PortalBackend ->
               case findPortal backends of
@@ -116,12 +119,12 @@ handleProtected services loginPage host req target = do
     Right (user, responseHeaders) -> do
       outcome <-
         cacheLookupOrLoad
-          (decisionCache services)
-          DecisionKey {subject = userSubject user, host = hostText}
-          (authorizeUser services user hostText)
+          (services ^. #decisionCache)
+          DecisionKey {subject = user ^. #subject, host = hostText}
+          ((services ^. #authorizeUser) user hostText)
       case outcome of
         AuthorizationDecision AccessAllowed ->
-          addResponseHeaders responseHeaders <$> forwardAuthorized services user hostText target req
+          addResponseHeaders responseHeaders <$> (services ^. #forwardAuthorized) user hostText target req
         -- AccessDenied and AccessConditional are both a refusal: 403.
         AuthorizationDecision _ -> do
           denied <- portalDecisionResponse services loginPage ForbiddenPage status403 host requestShape user (forbiddenResponse requestShape)
@@ -167,13 +170,12 @@ portalDecisionResponse services loginPage kind status host requestShape user fal
         Nothing -> pure fallback
         Just path -> do
           page <-
-            fetchPortalPage
-              services
+            (services ^. #fetchPortalPage)
               portal
               PortalPageRequest
-                { pageKind = kind
-                , pageTarget = ReturnTarget host path
-                , pageUser = Just user
+                { kind = kind
+                , target = ReturnTarget host path
+                , user = Just user
                 }
           pure (maybe fallback (portalPageResponse status) page)
     _ -> pure fallback
@@ -181,9 +183,9 @@ portalDecisionResponse services loginPage kind status host requestShape user fal
 requestSafePath :: RequestShape -> Maybe SafePath
 requestSafePath requestShape =
   mkSafePath $
-    if Text.null (Challenge.requestPath requestShape)
+    if Text.null (requestShape ^. #path)
       then "/"
-      else Challenge.requestPath requestShape
+      else requestShape ^. #path
 
 loginGetResponse :: BackendMap -> AccessServices -> Request -> IO Response
 loginGetResponse backends services req =
@@ -203,7 +205,7 @@ loginGetResponse backends services req =
           rawHost <- lookupHost req
           host <- either (const Nothing) Just (mkPublicHost rawHost)
           path <- mkSafePath (maybe "/" id (queryTextValue "rd" (rawQueryString req)))
-          pure ReturnTarget {targetHost = host, targetPath = path}
+          pure ReturnTarget {host = host, path = path}
 
 authenticateRequest :: AccessServices -> Request -> ChallengeMode -> IO (Either Response (AuthenticatedUser, [Header]))
 authenticateRequest services req challenge =
@@ -211,7 +213,7 @@ authenticateRequest services req challenge =
     Nothing ->
       refreshOrChallenge services req challenge
     Just credential -> do
-      verified <- verifyCredential services credential
+      verified <- (services ^. #verifyCredential) credential
       case verified of
         Right user ->
           pure (Right (user, []))
@@ -224,10 +226,10 @@ refreshOrChallenge services req challenge =
     Nothing ->
       pure (Left (challengeResponse challenge))
     Just refreshToken -> do
-      outcome <- refreshUserSession services refreshToken
+      outcome <- (services ^. #refreshUserSession) refreshToken
       case outcome of
         LoginSucceeded tokens -> do
-          verified <- verifyCredential services (SessionCookie (accessToken tokens))
+          verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
               pure (Right (user, either (const []) id (sessionHeaders services tokens)))
@@ -241,7 +243,7 @@ refreshOrChallenge services req challenge =
 handlePortal :: BackendMap -> AccessServices -> Portal -> Request -> IO Response
 handlePortal backends services portal req = do
   (identity, authenticationHeaders) <- authenticatePortal services req
-  upstream <- forwardPortal services portal identity req
+  upstream <- (services ^. #forwardPortal) portal identity req
   case upstream of
     PortalPassThrough response ->
       pure (addResponseHeaders authenticationHeaders response)
@@ -258,13 +260,13 @@ handlePortal backends services portal req = do
       pure (handoffFailureResponse portal)
     PortalSessionClear captured -> do
       case identity of
-        PortalAuthenticated _ token -> revokeSession services token
+        PortalAuthenticated _ token -> (services ^. #revokeSession) token
         PortalAnonymous -> pure ()
       pure
         ( responseLBS
-            (capturedStatus captured)
-            (clearAuthCookieHeaders services <> capturedHeaders captured)
-            (capturedBody captured)
+            (captured ^. #status)
+            (clearAuthCookieHeaders services <> captured ^. #headers)
+            (captured ^. #body)
         )
 
 authenticatePortal :: AccessServices -> Request -> IO (PortalIdentity, [Header])
@@ -272,7 +274,7 @@ authenticatePortal services req =
   case extractCredential (requestHeaders req) of
     Nothing -> refreshPortalIdentity services req
     Just credential -> do
-      verified <- verifyCredential services credential
+      verified <- (services ^. #verifyCredential) credential
       case verified of
         Right user -> pure (PortalAuthenticated user (AccessToken (credentialToken credential)), [])
         Left _ -> refreshPortalIdentity services req
@@ -282,14 +284,14 @@ refreshPortalIdentity services req =
   case refreshTokenFromRequest services req of
     Nothing -> pure (PortalAnonymous, [])
     Just refresh -> do
-      outcome <- refreshUserSession services refresh
+      outcome <- (services ^. #refreshUserSession) refresh
       case outcome of
         LoginSucceeded tokens -> do
-          verified <- verifyCredential services (SessionCookie (accessToken tokens))
+          verified <- (services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken))
           case verified of
             Right user ->
               pure
-                ( PortalAuthenticated user (AccessToken (accessToken tokens))
+                ( PortalAuthenticated user (AccessToken (tokens ^. #accessToken))
                 , either (const []) id (sessionHeaders services tokens)
                 )
             Left _ -> pure (PortalAnonymous, clearAuthCookieHeaders services)
@@ -302,21 +304,21 @@ data HandoffFailure
   | HandoffRefreshFailed
   | HandoffRefreshedTokenRejected
   | HandoffCookieCreationFailed
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 establishSession :: AccessServices -> BackendMap -> Portal -> SessionHandoff -> ExceptT HandoffFailure IO (ReturnTarget, [Header])
 establishSession services backends portal handoff = do
-  let AccessToken initialAccess = handoffAccessToken handoff
-      RefreshToken initialRefresh = handoffRefreshToken handoff
-  initialVerified <- lift (verifyCredential services (SessionCookie initialAccess))
+  let AccessToken initialAccess = handoff ^. #accessToken
+      RefreshToken initialRefresh = handoff ^. #refreshToken
+  initialVerified <- lift ((services ^. #verifyCredential) (SessionCookie initialAccess))
   case initialVerified of
     Left _ -> throwE HandoffAccessTokenRejected
     Right _ -> pure ()
-  refreshed <- lift (refreshUserSession services initialRefresh)
+  refreshed <- lift ((services ^. #refreshUserSession) initialRefresh)
   tokens <- case refreshed of
-    LoginSucceeded sessionTokens | refreshToken sessionTokens /= Nothing -> pure sessionTokens
+    LoginSucceeded sessionTokens | sessionTokens ^. #refreshToken /= Nothing -> pure sessionTokens
     _ -> throwE HandoffRefreshFailed
-  refreshedVerified <- lift (verifyCredential services (SessionCookie (accessToken tokens)))
+  refreshedVerified <- lift ((services ^. #verifyCredential) (SessionCookie (tokens ^. #accessToken)))
   case refreshedVerified of
     Left _ -> throwE HandoffRefreshedTokenRejected
     Right _ -> pure ()
@@ -324,7 +326,7 @@ establishSession services backends portal handoff = do
   let target =
         fromMaybe
           (portalHome portal)
-          (handoffReturnTo handoff >>= parseReturnTarget backends)
+          (handoff ^. #returnTo >>= parseReturnTarget backends)
   pure (target, headers)
 
 handoffSuccessResponse :: Request -> ReturnTarget -> [Header] -> Response
@@ -377,12 +379,12 @@ userInfoResponse services req =
     Nothing ->
       pure unauthenticatedUserInfoResponse
     Just credential -> do
-      verified <- verifyCredential services credential
+      verified <- (services ^. #verifyCredential) credential
       pure $ case verified of
         Left _ ->
           unauthenticatedUserInfoResponse
         Right user ->
-          jsonResponse status200 (object ["authenticated" .= True, "user" .= userSubject user])
+          jsonResponse status200 (object ["authenticated" .= True, "user" .= (user ^. #subject)])
 
 unauthenticatedUserInfoResponse :: Response
 unauthenticatedUserInfoResponse =
@@ -393,9 +395,9 @@ logoutResponse backends services req = do
   case extractCredential (requestHeaders req) of
     Nothing -> pure ()
     Just credential -> do
-      verified <- verifyCredential services credential
+      verified <- (services ^. #verifyCredential) credential
       case verified of
-        Right _ -> revokeSession services (AccessToken (credentialToken credential))
+        Right _ -> (services ^. #revokeSession) (AccessToken (credentialToken credential))
         Left _ -> pure ()
   pure (responseLBS status302 headers "")
   where
@@ -418,7 +420,7 @@ jsonResponseWithHeaders status headers body =
 
 loginFormResponse :: AccessServices -> Request -> IO Response
 loginFormResponse services req = do
-  csrf <- newCsrfToken services
+  csrf <- services ^. #newCsrfToken
   pure $
     case csrfCookieHeader csrf 600 of
       Left err ->
@@ -452,7 +454,7 @@ submitLogin services form =
     Nothing ->
       pure (textResponse status400 "missing login credentials")
     Just credentials -> do
-      outcome <- loginUser services credentials
+      outcome <- (services ^. #loginUser) credentials
       pure $ case outcome of
         LoginSucceeded tokens ->
           loginSuccessResponse services tokens returnDestination
@@ -481,15 +483,14 @@ mfaCompleteResponse services req = do
       pure (jsonResponse status400 (object ["error" .= err]))
     Right payload -> do
       outcome <-
-        completeMfa
-          services
+        (services ^. #completeMfa)
           MfaCompletion
-            { mfaCompletionCeremonyId = mfaPayloadCeremonyId payload
-            , mfaCompletionAssertion = mfaPayloadAssertion payload
+            { ceremonyId = payload ^. #ceremonyId
+            , assertion = payload ^. #assertion
             }
       pure $ case outcome of
         LoginSucceeded tokens ->
-          mfaSuccessResponse services tokens (mfaPayloadReturnDestination payload)
+          mfaSuccessResponse services tokens (payload ^. #returnDestination)
         LoginMfaRequired _ ->
           jsonResponse status401 (object ["error" .= ("mfa_required" :: Text)])
         LoginFailed _ ->
@@ -510,11 +511,12 @@ mfaSuccessResponse services tokens returnDestination =
       jsonResponseWithHeaders status200 headers (object ["redirect" .= returnDestination])
 
 data MfaPayload = MfaPayload
-  { mfaPayloadCeremonyId :: !Text
-  , mfaPayloadAssertion :: !Value
-  , mfaPayloadCsrf :: !Text
-  , mfaPayloadReturnDestination :: !Text
+  { ceremonyId :: !Text
+  , assertion :: !Value
+  , csrf :: !Text
+  , returnDestination :: !Text
   }
+  deriving stock (Generic)
 
 instance FromJSON MfaPayload where
   parseJSON =
@@ -527,29 +529,29 @@ instance FromJSON MfaPayload where
           rawRd <- o .:? "rd"
           pure
             MfaPayload
-              { mfaPayloadCeremonyId = ceremonyId
-              , mfaPayloadAssertion = assertion
-              , mfaPayloadCsrf = csrf
-              , mfaPayloadReturnDestination = maybe "/" id (safeReturnDestination (maybe "/" id rawRd))
+              { ceremonyId = ceremonyId
+              , assertion = assertion
+              , csrf = csrf
+              , returnDestination = maybe "/" id (safeReturnDestination (maybe "/" id rawRd))
               }
       )
 
 validateMfaPayload :: AccessServices -> Request -> MfaPayload -> Either Text MfaPayload
 validateMfaPayload _services req payload =
   case cookieTextValue "__Host-nagare_csrf" (requestHeaders req) of
-    Just stored | stored == mfaPayloadCsrf payload -> Right payload
+    Just stored | stored == payload ^. #csrf -> Right payload
     _ -> Left "csrf validation failed"
 
 sessionHeaders :: AccessServices -> SessionTokens -> Either Text [Header]
 sessionHeaders services tokens = do
-  settings <- maybe (Left "login is not configured") Right (cookieSettings services)
-  sessionHeader <- sessionCookieHeader settings (accessToken tokens) (expiresIn tokens)
+  settings <- maybe (Left "login is not configured") Right (services ^. #cookieSettings)
+  sessionHeader <- sessionCookieHeader settings (tokens ^. #accessToken) (tokens ^. #expiresIn)
   refreshHeaders <-
-    case refreshToken tokens of
+    case tokens ^. #refreshToken of
       Nothing ->
         Right []
       Just refresh ->
-        case cookieKey settings of
+        case settings ^. #cookieKey of
           Nothing -> Right []
           Just _ -> do
             refreshHeader <- refreshCookieHeader settings refresh defaultRefreshCookieMaxAgeSeconds
@@ -558,8 +560,8 @@ sessionHeaders services tokens = do
 
 refreshTokenFromRequest :: AccessServices -> Request -> Maybe Text
 refreshTokenFromRequest services req = do
-  settings <- cookieSettings services
-  key <- cookieKey settings
+  settings <- services ^. #cookieSettings
+  key <- settings ^. #cookieKey
   value <- cookieTextValue "nagare_refresh" (requestHeaders req)
   decodeRefreshCookieValue key value
 
@@ -569,7 +571,7 @@ clearAuthCookies services =
 
 clearAuthCookieHeaders :: AccessServices -> [Header]
 clearAuthCookieHeaders services =
-  case cookieSettings services of
+  case services ^. #cookieSettings of
     Nothing -> []
     Just settings ->
       [header | Right header <- [clearSessionCookieHeader settings, clearRefreshCookieHeader settings]]
@@ -588,9 +590,9 @@ loginCredentialsFromForm form = do
     else
       Just
         LoginCredentials
-          { loginCredentialId = loginIdValue
-          , loginCredentialEmail = emailValue
-          , loginCredentialPassword = password
+          { credentialId = loginIdValue
+          , email = emailValue
+          , password = password
           }
 
 queryTextValue :: BS.ByteString -> BS.ByteString -> Maybe Text
@@ -666,13 +668,13 @@ mfaFormHtml challenge csrf returnDestination =
     , "<button id=\"start\" type=\"button\">Use passkey</button>"
     , "<script>"
     , "const ceremonyId="
-    , jsString (mfaCeremonyId challenge)
+    , jsString (challenge ^. #ceremonyId)
     , ";const csrf="
     , jsString csrf
     , ";const rd="
     , jsString returnDestination
     , ";const options="
-    , jsonText (mfaOptions challenge)
+    , jsonText (challenge ^. #options)
     , ";"
     , mfaJavaScript
     , "</script></main></body></html>"

@@ -12,6 +12,9 @@ module Nagare.Access.Cookie
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.ByteArray (convert)
@@ -31,7 +34,7 @@ data CookieSettings = CookieSettings
   , cookieSecure :: !Bool
   , cookieKey :: !(Maybe Text)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Generic, Eq, Show)
 
 defaultCookieSettings :: Text -> CookieSettings
 defaultCookieSettings domain =
@@ -51,7 +54,7 @@ signedCookieSettings domain key =
 
 sessionCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
 sessionCookieHeader settings token maxAgeSeconds = do
-  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
+  domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
   value <- safeCookiePart "session cookie value" token
   pure
     ( "Set-Cookie"
@@ -69,7 +72,7 @@ sessionCookieHeader settings token maxAgeSeconds = do
 
 clearSessionCookieHeader :: CookieSettings -> Either Text Header
 clearSessionCookieHeader settings = do
-  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
+  domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
   pure
     ( "Set-Cookie"
     , "nagare_session=; Domain="
@@ -81,8 +84,8 @@ clearSessionCookieHeader settings = do
 
 refreshCookieHeader :: CookieSettings -> Text -> Int -> Either Text Header
 refreshCookieHeader settings refreshToken maxAgeSeconds = do
-  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
-  key <- maybe (Left "NAGARE_ACCESS_COOKIE_KEY is required for refresh cookies") Right (cookieKey settings)
+  domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
+  key <- maybe (Left "NAGARE_ACCESS_COOKIE_KEY is required for refresh cookies") Right (settings ^. #cookieKey)
   value <- encodeRefreshCookieValue key refreshToken
   pure
     ( "Set-Cookie"
@@ -100,7 +103,7 @@ refreshCookieHeader settings refreshToken maxAgeSeconds = do
 
 clearRefreshCookieHeader :: CookieSettings -> Either Text Header
 clearRefreshCookieHeader settings = do
-  domain <- safeCookiePart "cookie domain" (cookieDomain settings)
+  domain <- safeCookiePart "cookie domain" (settings ^. #cookieDomain)
   pure
     ( "Set-Cookie"
     , "nagare_refresh=; Domain="
@@ -125,7 +128,7 @@ csrfCookieHeader token maxAgeSeconds = do
 
 securePart :: CookieSettings -> Builder.Builder
 securePart settings =
-  if cookieSecure settings
+  if settings ^. #cookieSecure
     then Builder.byteString "; Secure"
     else mempty
 

@@ -11,6 +11,9 @@ module Nagare.Access.En
   )
 where
 
+import Nagare.Access.Prelude
+import Data.Generics.Labels ()
+
 import Control.Exception (try)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -73,7 +76,7 @@ buildCheckRequest user host =
   CheckRequestWire
     { consistency = MinimizeLatencyWire
     , context = CaveatContextWire Map.empty
-    , subject = SubjectIdWire ObjectRefWire {objectType = "user", objectId = userSubject user}
+    , subject = SubjectIdWire ObjectRefWire {objectType = "user", objectId = user ^. #subject}
     , permission = "access"
     , object = ObjectRefWire {objectType = "app", objectId = host}
     }
@@ -87,12 +90,12 @@ checkResponseToDecision response =
 
 enClientEnvFromAuthPlane :: HC.Manager -> AuthPlaneConfig -> IO (Either Text ClientEnv)
 enClientEnvFromAuthPlane manager cfg = do
-  parsed <- try (parseBaseUrl (Text.unpack (enUrl cfg)) :: IO BaseUrl)
+  parsed <- try (parseBaseUrl (Text.unpack (cfg ^. #enUrl)) :: IO BaseUrl)
   pure $ case parsed of
     Left (err :: InvalidBaseUrlException) ->
       Left ("could not parse en URL: " <> Text.pack (show err))
     Right baseUrl ->
-      Right (addEnAuthorization (enApiKey cfg) (mkClientEnv manager baseUrl))
+      Right (addEnAuthorization (cfg ^. #enApiKey) (mkClientEnv manager baseUrl))
 
 addEnAuthorization :: Maybe Text -> ClientEnv -> ClientEnv
 addEnAuthorization Nothing env = env
