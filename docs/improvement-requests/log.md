@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-13
+* **Update**: Complete IR-4: init seeds the VM shape keys and infra-up refuses an instance-replacing plan.
+
 ## 2026-09-12
 * **Update**: Deliver IR-5: the data disk grows itself (ordering-cycle fix proven by a VM test), the procedure is documented with recorded previews and a live grow on nagare-01, and the DiskUsageHigh alert points at it.
 * **Update**: IR-5 is in progress: docs/plans/111-automate-and-document-growing-the-data-disk.md implements the data-disk grow.

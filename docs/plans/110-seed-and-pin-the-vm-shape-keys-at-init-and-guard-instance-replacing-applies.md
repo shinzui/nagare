@@ -114,10 +114,10 @@ This section must always reflect the actual current state of the work.
   - [x] `docs/user/onboarding-bring-your-own-project.md`, `docs/user/contexts.md`, `docs/user/config-reference.md`, `docs/user/reference.md`.
   - [x] `docs/runbooks/disaster-recovery.md`: the deliberate-rebuild override.
   - [x] `okf log add docs/user` entry and a green `just user-documentation-validate`.
-- [ ] M5: Durable context recorded and the improvement request closed.
-  - [ ] Write `docs/adr/0009-the-active-context-owns-the-vm-shape.md`.
-  - [ ] Move `docs/improvement-requests/seed-vm-shape-keys-at-init.md` from `accepted` to `completed`, with `completedAt` and `resolution`, and log it.
-  - [ ] Fill in Outcomes & Retrospective.
+- [x] (2026-09-13 04:43Z) M5: Durable context recorded and the improvement request closed.
+  - [x] (2026-09-13 04:40Z) Write `docs/adr/0014-the-active-context-owns-the-vm-shape.md` (ADR 9 was already allocated).
+  - [x] Move `docs/improvement-requests/seed-vm-shape-keys-at-init.md` from `accepted` to `completed`, with `completedAt` and `resolution`, and log it.
+  - [x] Fill in Outcomes & Retrospective.
 
 
 ## Surprises & Discoveries
@@ -178,6 +178,26 @@ it was found in multiple packages: nagare-dsl-0.1.0 nagare-dsl-0.1.0.0
 This is local package-environment contamination rather than a VM-shape regression; the final
 hermetic Nix check remains the acceptance source of truth.
 
+**The planned ADR number was stale by implementation time.** The plan named ADR 9, but
+`docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md` now exists and
+the corpus continues through ADR 13. The repository uses sequential plain Markdown records rather
+than a profiled OKF bundle, so the VM-shape decision was allocated as ADR 14 without changing any
+existing record.
+
+**The strict improvement-request validator treats the bundle's pre-existing missing `reviews`
+recommendations as errors.** The plan expected the strict command to print those four findings and
+exit 0, but the installed `okf` exits 1 when `--strict` and `--profile-enforce` are combined. The
+output contained only the four already-documented missing-`reviews` findings, including IR-4; the
+same profile and log validation without `--strict` exited 0 with `OK: 5 concepts (okf_version 0.2)`.
+No review provenance was invented to silence the strict check.
+
+**The hermetic suite cleared the ambient Cabal false negative.**
+`nix flake check --print-build-logs` built and ran the complete `nagarectl-test` suite in isolation,
+then passed all 15 compatible aarch64-darwin checks, including `infra-vm-shape`,
+`vm-shape-defaults-agree`, and `nagare-clone-free-platform`. This confirms that the eight local
+fixture failures recorded above came from the ambient two-version package environment rather than
+the implementation.
+
 
 ## Decision Log
 
@@ -236,6 +256,12 @@ Record every decision made while working on the plan.
   The work is a single self-contained change, so it stands alone.
   Date: 2026-09-12
 
+- Decision: Record the context-owned VM-shape decision as ADR 14 rather than the planned ADR 9.
+  Rationale: ADR 9 was allocated to project confinement after this plan was drafted, and the local
+  plain-file ADR corpus now runs through ADR 13. Preserving stable existing numbers and taking the
+  next sequential number follows the repository convention.
+  Date: 2026-09-12
+
 
 ## Outcomes & Retrospective
 
@@ -244,7 +270,32 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+ExecPlan 110 delivered the original request without changing Nagare's shipped VM-size default.
+Every target context now carries the machine type, boot-disk type, boot-disk size, and data-disk
+size; init and context creation validate them; and selecting a cloud context seeds all four into
+the matching Pulumi stack. The Pulumi resource consumes those values through one pure resolver,
+with tests proving explicit values win over deliberately changed fallbacks and a Nix check proving
+the Haskell and TypeScript defaults stay equal.
+
+Routine `infra-up` now runs a Pulumi JSON preview before apply. The pure classifier permits an
+in-place machine-type update, refuses every replacement operation for the GCE instance, and fails
+closed on preview failure, malformed JSON, or an unknown operation. Its refusal names the k3s,
+Knative, cert-manager, certificate, and ACME-key state on the boot disk and points to the deliberate,
+invocation-scoped override. The operator documentation now distinguishes in-place changes from
+instance replacement and recommends `e2-standard-4` for the observability workload while retaining
+`e2-standard-2` as the default.
+
+The required init-seeding, pinned-default, replacement, and in-place-update evidence is permanent:
+27 focused init tests and seven plan-classifier tests passed; both TypeScript/Nix resolver checks
+passed; the command-level guard scenario passed for refusal, override, and local mode; and
+`nix flake check --print-build-logs` passed the full hermetic repository suite. The user-documentation
+bundles also validate cleanly. IR-4 is completed and the durable ownership and safety policy is
+recorded in ADR 14.
+
+There are no implementation gaps. The only validation caveat is bundle-wide: strict OKF validation
+continues to exit 1 for the known absent `reviews` provenance on four September improvement
+requests. Non-strict profile and log enforcement passes, and no provenance was fabricated merely
+to make the strict invocation green.
 
 
 ## Context and Orientation
@@ -646,10 +697,15 @@ okf log add docs/improvement-requests --kind Update -m "Complete IR-4: init seed
 okf validate docs/improvement-requests --strict --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
 ```
 
-Expect the command to exit 0 while still printing one `missing profile-recommended field: reviews`
-line per request in the bundle. That warning is pre-existing on all four of the September 2026
-requests and must be left alone: `reviews` records real human or model review provenance, and
-inventing an entry to silence `--strict` would make the field a lie.
+The installed `okf` exits 1 because `--strict --profile-enforce` promotes each
+`missing profile-recommended field: reviews` finding to an error. Those findings are pre-existing
+on all four September 2026 requests and must be left alone: `reviews` records real human or model
+review provenance, and inventing an entry to silence `--strict` would make the field a lie. Confirm
+the remaining schema, profile, and log constraints independently with:
+
+```bash
+okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
+```
 
 Optionally, while editing the request, promote its "Required verification" prose into the
 profile's structured `acceptanceCriteria` list (`id` as `AC-N`, `statement`, `verification`).
