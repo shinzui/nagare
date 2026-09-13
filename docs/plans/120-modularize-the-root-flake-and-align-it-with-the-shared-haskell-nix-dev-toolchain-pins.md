@@ -74,7 +74,9 @@ scope and must not change.
       invisible to checks` after adding both a `flake.nix` comment and `nix/probe.nix`.
 - [x] (2026-09-13T16:53:04Z) Milestone 2: split `flake.nix` into plain Nix functions under `nix/`
       and `nix/checks/`; the root entry point is now 66 lines and `.envrc` watches the modules.
-- [ ] Milestone 2: pass the derivation-equivalence gate on `aarch64-darwin` and `x86_64-linux`.
+- [x] (2026-09-13T17:07:03Z) Milestone 2: the derivation-equivalence gate printed
+      `gate: aarch64-darwin identical` and `gate: x86_64-linux identical`; the committed split also
+      passed `nix flake check --print-build-logs`, including all 438 CLI tests.
 - [ ] Milestone 3: convert the wiring to flake-parts modules with a rev-pinned `flake-parts` input.
 - [ ] Milestone 3: pass the derivation-equivalence gate on both systems.
 - [ ] Milestone 4: record the current `nix-haskell-flake` pin in the Decision Log.
@@ -106,6 +108,13 @@ scope and must not change.
   Evidence: the exported `path:` flake failed while reading `devShells.default.drvPath`; the cause
   was `inherit (pulumi) pulumi` inside a recursive `let`. Referencing the bundle as
   `pulumi.pulumi` and `pulumi.pulumi-nodejs` removes the self-reference.
+
+- Observation: A clean-Git `nix flake check` rebuilds the Nagare Haskell packages after every
+  milestone commit even when the path-flake equivalence gate proves their unstamped recipes equal.
+  Evidence: the Milestone 2 check built `nagarectl` with revision
+  `8c05077ccb764b6010f1eb2dcd8630baf756f937`; `sourceRevision` is deliberately embedded in the
+  package and therefore changes with the commit. The gate avoids this by evaluating exported
+  `path:` flakes, where `sourceRevision` is null.
 
 
 ## Decision Log
