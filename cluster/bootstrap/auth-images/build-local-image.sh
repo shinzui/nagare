@@ -150,15 +150,45 @@ copy_tree() {
     "$src"/ "$dst"/
 }
 
+dependency_tag_from_project() {
+  local location="$1"
+  local project_file="$2"
+  awk -v location="$location" '
+    $1 == "location:" && $2 == location { matching = 1; next }
+    matching && $1 == "tag:" { print $2; exit }
+    matching && $1 == "source-repository-package" { matching = 0 }
+  ' "$project_file"
+}
+
+copy_tree_at_ref() {
+  local src="$1"
+  local ref="$2"
+  local dst="$3"
+  [[ -n "$ref" ]] || fail "dependency pin is empty for $src"
+  git -C "$src" cat-file -e "${ref}^{commit}" 2>/dev/null \
+    || fail "dependency pin $ref is unavailable in $src; refresh the Mori source checkout"
+  mkdir -p "$dst"
+  git -C "$src" archive "$ref" | tar -x -C "$dst"
+}
+
 mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
 cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
 copy_tree "$root" "$tmpdir/workspace/nagare"
-if [[ "$service" != "shomei" ]]; then
-  copy_tree "$en_src" "$tmpdir/workspace/en"
-fi
-if [[ "$service" != "en" ]]; then
-  copy_tree "$shomei_src" "$tmpdir/workspace/shomei"
-fi
+case "$service" in
+  nagare-access)
+    # Build the enforcer against the exact API revisions selected by its
+    # standalone Cabal project. The sibling checkouts are Mori source mirrors,
+    # but their working-tree HEADs can legitimately be newer than Nagare's pins.
+    # See mori://shinzui/en and mori://shinzui/shomei.
+    access_project="$root/cli/nagare-access/cabal.project"
+    en_ref="$(dependency_tag_from_project "https://github.com/shinzui/en.git" "$access_project")"
+    shomei_ref="$(dependency_tag_from_project "https://github.com/shinzui/shomei.git" "$access_project")"
+    copy_tree_at_ref "$en_src" "$en_ref" "$tmpdir/workspace/en"
+    copy_tree_at_ref "$shomei_src" "$shomei_ref" "$tmpdir/workspace/shomei"
+    ;;
+  en) copy_tree "$en_src" "$tmpdir/workspace/en" ;;
+  shomei) copy_tree "$shomei_src" "$tmpdir/workspace/shomei" ;;
+esac
 
 write_common_cabal_tail() {
   cat <<'EOF'
@@ -210,6 +240,12 @@ source-repository-package
   location: https://github.com/shinzui/biscuit-haskell.git
   tag: 8c0b3c5a13ce4a310737c0336f2ae167a1597588
   subdir: biscuit
+
+-- mori://shinzui/hs-opentelemetry-instrumentation-servant
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/hs-opentelemetry-instrumentation-servant.git
+  tag: 7a6f692e85295f965cd1827f9354c28af9e62742
 EOF
 }
 

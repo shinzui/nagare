@@ -73,9 +73,15 @@ else
   echo "==> Shomei key-encryption Secret already present (left as-is)"
 fi
 
-# 2) ConfigMaps: en authorization schema + the (initially empty) backends map.
+# 2) ConfigMaps: en authorization schema + the initially empty backends map.
+# nagarectl owns backend-map updates after bootstrap, so an auth-plane reinstall
+# must not replace an operator's protected routes or portal registration with {}.
 kubectl apply -f "$bootstrap_dir/en/configmap.yaml"
-kubectl apply -f "$bootstrap_dir/nagare-access/configmap.yaml"
+if ! kubectl -n "$ns" get configmap nagare-access-backends >/dev/null 2>&1; then
+  kubectl apply -f "$bootstrap_dir/nagare-access/configmap.yaml"
+else
+  echo "==> nagare-access backend map already present (left as-is)"
+fi
 
 # 3) Schema migrations run before either server starts.
 # Job spec.template is immutable and a completed Job never re-runs, so a new

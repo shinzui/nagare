@@ -49,11 +49,11 @@ spec:
             - containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: /health/ready
               port: 8080
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health/live
               port: 8080
           env:
             - name: PGHOST
