@@ -66,6 +66,12 @@ mkdir -p "$test_root/home" "$test_root/config" "$test_root/state" "$test_root/wo
 cp "$repo_root/cluster/examples/hello-knative-service/nagare/Config.hs" "$test_root/work/Config.hs"
 cp "$repo_root/cli/nagarectl/test/fixtures/operator.pub" "$test_root/work/operator.pub"
 
+# A shell entered through .envrc exports the operator's active context. Drop it so the
+# rehearsal sees only the isolated XDG tree, as a clean CI runner does.
+for name in ${!NAGARE_@} ${!CLOUDSDK_@} ${!PULUMI_@}; do
+  unset "$name"
+done
+
 export HOME="$test_root/home"
 export XDG_CONFIG_HOME="$test_root/config"
 export XDG_STATE_HOME="$test_root/state"
