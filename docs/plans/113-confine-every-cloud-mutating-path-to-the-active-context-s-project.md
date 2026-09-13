@@ -121,8 +121,9 @@ test that fails before the change and passes after it.
       `docs/user/log.md` has the `okf log add` entry and `just docs-validate` passes;
       `docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md` is
       written; `docs/plan-registry.md` has the EP-113 row. IR-2 was already accepted and
-      linked to this plan in commit `2cc6f12`, before implementation began, so that step
-      needed no change.
+      linked to this plan in commit `2cc6f12`, before implementation began. Closing it was
+      missed at the time; on 2026-09-13 IR-2 was set to `status: completed` with its
+      `resolution`, `completedAt` and an ADR 9 link, matching how IR-3 was closed.
 - [ ] Follow-up, outside EP-113: the `docs/improvement-requests` bundle fails strict
       profile validation for all four September-2026 IRs (missing the recommended `reviews`
       field). See Surprises & Discoveries; it predates this plan and must not be closed by
