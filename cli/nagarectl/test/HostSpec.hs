@@ -35,6 +35,13 @@ hostTests =
         assertBool "operator key is explicit" (fixtureKey `T.isInfixOf` hostModule)
         assertBool "sops file remains a relative flake path" ("sopsDefaultFile = ./secrets.yaml;" `T.isInfixOf` hostModule)
         assertBool "private data is absent" (not ("PRIVATE KEY" `T.isInfixOf` T.toUpper (flake <> hostModule)))
+    , testCase "IR-13: the rendered operator module matches the golden host.nix checked against the NixOS module" $ do
+        -- nix/checks/scripts/host-module-options-agree.sh fails the flake check when
+        -- this golden file sets an option nixos/modules/nagare-host.nix does not
+        -- declare, so a renamed Haskell field cannot silently rename a Nix option.
+        context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
+        golden <- TIO.readFile "test/fixtures/host/host.nix"
+        renderHostModule (fixtureConfig context) @?= golden
     , testCase "two contexts render isolated identities and registries" $ do
         prod <- either (assertFailure . T.unpack) pure (mkContextName "prod")
         labs <- either (assertFailure . T.unpack) pure (mkContextName "labs")

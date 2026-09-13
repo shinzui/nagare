@@ -12,6 +12,12 @@
       touch "$out"
     '';
 
+  host-module-options-agree = pkgs.runCommand "nagare-host-module-options-agree"
+    { nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ]; src = src; }
+    ''
+      bash ${./scripts/host-module-options-agree.sh}
+    '';
+
   vm-shape-defaults-agree = pkgs.runCommand "nagare-vm-shape-defaults-agree"
     { nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ]; src = src; }
     ''

@@ -132,7 +132,7 @@ renderHostModule config =
     , ""
     , "{"
     , "  nagare.host = {"
-    , "    name = " <> nixString (config ^. #name) <> ";"
+    , "    hostName = " <> nixString (config ^. #name) <> ";"
     , "    instanceName = " <> nixString (config ^. #instanceName) <> ";"
     , "    registryHost = " <> nixString (config ^. #registryHost) <> ";"
     , "    deployUser = " <> nixString (config ^. #deployUser) <> ";"
