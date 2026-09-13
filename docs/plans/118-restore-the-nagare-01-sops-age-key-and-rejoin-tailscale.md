@@ -53,8 +53,8 @@ see it working when three things hold:
 - [x] (2026-09-13T00:19Z) Milestone 0 (after operator turned off auto mode): age key ABSENT, `/run/secrets` absent, `tailscaled` active, `tailscaled-autoconnect` failed, `resolvconf` failed, Tailscale "Logged out", generation `8fgipxvf…`.
 - [x] (2026-09-13T00:20Z) Milestone 2: installed `/var/lib/sops-nix/age-key.txt` as `400 root:root`, 189 bytes, sha256 `a6b4d7ae…cc7f` equal to the workstation file.
 - [x] (2026-09-13T00:22Z) Milestone 3: `just host-switch` over an IAP tunnel with `NIX_SSHOPTS="-F <scratch ssh_config>"` (rehearsed login and sudo first). `ACTIVATE_RC=4` (resolvconf only), `fresh login and sudo verified (attempt 1)`, `COMMITTED new=/nix/store/ljf91688avdvicz2frwpdi03sy288xjh-nixos-system-nagare-01-google-compute-26.11.20260531.331800d`. Gates: `/run/secrets/tailscale/authkey` `400 root`; `tailscaled` active; `tailscaled-autoconnect` inactive (not failed); only `resolvconf.service` failed; `tailscale status` on host: `100.80.88.126 nagare-01 nadeem@ linux`.
-- [ ] Workstation-side gate: `ssh deploy@nagare-01` over Tailscale not yet observed. The workstation's Tailscale service was not running ("failed to connect to local Tailscale service"), so `100.80.88.126:22` timed out and `nagare-01` did not resolve.
-- [ ] Milestone 4: outcomes, docs, memory.
+- [x] (2026-09-13T00:30Z) Workstation-side gate: after the operator logged in to Tailscale on the Mac, `tailscale status` lists `100.80.88.126 nagare-01`, and `ssh deploy@nagare-01` over Tailscale printed `SSH over Tailscale OK: nagare-01`.
+- [x] Milestone 4: outcomes recorded; operator memory updated. `docs/user/secrets.md` already describes placing the host age key, so no doc change was needed.
 
 
 ## Surprises & Discoveries
@@ -91,7 +91,6 @@ see it working when three things hold:
 Host side complete (2026-09-13): `nagare-01` decrypts its sops secrets and is logged in to the tailnet
 as `100.80.88.126`. Every future switch loses the `tailscaled-autoconnect` failure. Remaining:
 
-- Confirm access from a workstation with Tailscale running.
 - `resolvconf.service` still fails, and Tailscale reports a DNS health warning because
   `/etc/resolv.conf` cannot be modified on this image. That is pre-existing and needs a follow-up.
 - The node is untagged, so its Tailscale node key expires on the tailnet's default schedule. Disable
