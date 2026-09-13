@@ -87,8 +87,12 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
   transaction `20260913T23042832920-0.2.1-fed38583` planned; guarded preview confined with no
   replacement; one Kubernetes object (the platform ConfigMap); staged toplevel identical to the
   running system; instance id `3250226760661474799`.
-- [ ] Milestone 5: operator approval, then apply the transaction and verify.
-- [ ] ADR distillation and Outcomes & Retrospective.
+- [x] (2026-09-13 23:45Z) Milestone 5: operator approved the bounded sequence; started
+  `nix-builder-x86`; applied transaction `20260913T23042832920-0.2.1-fed38583` (all eight phases
+  succeeded, apply-rc=0); verified; stopped the builder; committed the pins in `nagare-ops`
+  (`10b97ba`).
+- [x] (2026-09-13 23:50Z) ADR distillation (ADR 13 and 14 amendments, ADR 18) and Outcomes &
+  Retrospective.
 
 
 ## Surprises & Discoveries
@@ -302,7 +306,39 @@ upgrade, and after the upgrade every identity reads `0.2.1` with compatibility `
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Every part of the purpose was delivered. Nagare 0.2.1 is published at `v0.2.1` (`3644275`) with
+the context-owned stack config, guarded upgrade Pulumi phases, the wider replacement guard, the
+merging `context create --force`, and correct host identity parsing. `tan-nb-exp` was upgraded from
+a legacy context to 0.2.1 through the guarded transaction. The verification after the apply:
+
+```text
+CLI: 0.2.1  Payload: 0.2.1  Context: 0.2.1  Host: 0.2.1  Cluster: 0.2.1  Compatibility: exact
+instance id 3250226760661474799 RUNNING          (unchanged from the baseline)
+pulumi-apply: both guards passed; Resources: 31 unchanged; Duration: 8s
+running system == boot profile == zyrpc5ga...-26.11.20260911.eaad089; no pending rollback timer
+letsencrypt-dns True; nagare-access, hello, protected-hello Ready; controllers rolled out
+nagarectl doctor: 0 failed, 4 warnings, 18 ok
+```
+
+The four doctor warnings were not introduced by the upgrade. One is the documented
+external-domain TLS warning for the placeholder base domain `apps.example.com`. Three report no
+recent backup object, although the scheduled `nagare-dbbackup-*` jobs completed 18 hours before the
+upgrade. That mismatch between the doctor's backup probe and the jobs' output location is unexplained
+and should be investigated separately; this plan did not change backups.
+
+Remaining gaps: the guarded upgrade phases are verified live rather than by a unit test through
+`UpgradeOps`, and `host-apply` cannot select `host-switch --build-on-host`, so an upgrade from an
+`aarch64-darwin` workstation needs the remote builder running.
+
+Lessons. First, a guard is only as good as the file it reads: 0.2.0's project guard, replacement
+guard, and transaction all read a workspace that never had the operator's stack config, and only a
+live read-only audit exposed it. Second, the operator's shell is a hazard as real as the tooling:
+a stale direnv snapshot held an empty ACME contact and hid gcloud's own configured project, and a
+broken `&&` chain once let `kubectl` fall through to an unrelated cluster. Running every live
+command from `env -i` plus `nagarectl context env`, with the kube server and node asserted first,
+removed both classes of error. Third, readiness probes must use the same identity as the real
+operation: a builder SSH probe as the operator's user can never succeed against a daemon-only key.
+Durable context was promoted to ADR 13 and ADR 14 amendments and to ADR 18.
 
 
 ## Context and Orientation
@@ -643,3 +679,5 @@ recipes. Haskell style follows ADR 16 and must pass `just haskell-style-check`.
 - 2026-09-13: Implemented Milestones 2, 3, and 3b. Added the npm dependency install discovered in
   Milestone 2, recorded why the upgrade-phase wiring is verified live rather than unit-tested, and
   aligned Interfaces and Dependencies with the implemented signatures.
+- 2026-09-13: Completed Milestone 5 (live upgrade verified exact at 0.2.1) and wrote Outcomes &
+  Retrospective.
