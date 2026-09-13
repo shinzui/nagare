@@ -332,7 +332,7 @@ import System.Process
   , readCreateProcessWithExitCode
   , readProcessWithExitCode
   )
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 -- ---------------------------------------------------------------------------
 -- CLI options

@@ -24,7 +24,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (namespaceText)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 data TopicStatus = TopicStatus
   { name :: !Text

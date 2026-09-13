@@ -19,7 +19,6 @@ common common
     MultilineStrings
     OverloadedLabels
     OverloadedStrings
-    PackageImports
 
   ghc-options:        -Wall -Wno-unused-imports
 
@@ -65,7 +64,7 @@ library
     , containers
     , directory
     , filepath
-    , generic-lens  >=2.2 && <2.4
+    , generic-lens  ^>=2.3
     , lens          ^>=5.3
     , process
     , text
@@ -98,7 +97,7 @@ test-suite nagare-dsl-test
     , base
     , bytestring
     , containers
-    , generic-lens     >=2.2 && <2.4
+    , generic-lens     ^>=2.3
     , lens             ^>=5.3
     , nagare-dsl
     , tasty            >=1.4

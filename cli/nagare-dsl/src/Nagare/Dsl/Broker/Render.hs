@@ -23,7 +23,7 @@ import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (Resources, namespaceText, quantityText)
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 renderBroker :: Broker -> [ByteString]
 renderBroker broker =

@@ -32,7 +32,7 @@ import Nagare.Dsl.Types
   , namespaceText
   , runtimeScoped
   )
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 data BrokerConn = BrokerConn
   { provider :: !BrokerProvider

@@ -22,7 +22,7 @@ import Data.Vector qualified as V
 import Nagare.Dsl.Broker (TopicName, topicNameText)
 import Nagare.Dsl.Prelude
 import System.Exit (ExitCode (..))
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
 brokerLabelSelector :: Text
 brokerLabelSelector = "nagare.dev/managed-by=nagarectl,nagare.dev/broker"
