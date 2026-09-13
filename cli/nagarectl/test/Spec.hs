@@ -3312,9 +3312,9 @@ backupRestoreTests =
           assertBool "no scheduled- key prefix" (not ("scheduled-" `T.isInfixOf` y))
           assertBool "no DEST env var" (not ("name: DEST" `T.isInfixOf` y))
           assertBool "listing prefix" ("gs://tan-nb-exp-nagare-backups/databases/en-db/" `T.isInfixOf` y)
-      , testCase "backup Jobs wait for the Service name and retry" $ do
+      , testCase "backup Jobs wait for the server and retry" $ do
           let y = TE.decodeUtf8 (renderBackupJob backupJobInputsPg)
-          assertBool "waits for DNS before the dump" ("until getent hosts mydb" `T.isInfixOf` y)
+          assertBool "waits for the server before the dump" ("until pg_isready -q -h mydb" `T.isInfixOf` y)
           assertBool "retries" ("backoffLimit: 2" `T.isInfixOf` y)
           assertBool "on-demand keeps its fixed DEST" ("value: gs://tan-nb-exp-nagare-backups/databases/mydb/20260610T141503Z.sql.gz" `T.isInfixOf` y)
       , testCase "restore Jobs still never retry" $
