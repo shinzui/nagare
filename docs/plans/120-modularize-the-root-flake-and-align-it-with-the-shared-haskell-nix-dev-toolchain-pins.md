@@ -10,6 +10,17 @@ provenance:
     model: "claude-opus-5"
     harness: "claude-code"
     at: 2026-09-13T14:06:46Z
+  revisions:
+    - model: "claude-opus-5"
+      harness: "claude-code"
+      at: 2026-09-13T16:30:59Z
+      mode: "update"
+      note: "Disable Haddock for the flake's own Haskell packages in Milestone 4"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-13T16:40:41Z
+      mode: "implement"
+      note: "Implemented the root flake modularization and shared toolchain alignment"
 ---
 
 # Modularize the root flake and align it with the shared haskell-nix-dev toolchain pins
@@ -53,8 +64,11 @@ scope and must not change.
 
 ## Progress
 
-- [ ] Milestone 1: add `nix/source.nix` (a source tree that excludes Nix wiring) and use it for every
+- [x] (2026-09-13T16:40:41Z) Milestone 1: add `nix/source.nix` (a source tree that excludes Nix wiring) and use it for every
       check that currently uses `src = ./.` and for the platform payload filter.
+- [x] (2026-09-13T16:40:41Z) Milestone 1: route the post-plan `haskell-style` check and the
+      networked Hydra job through the same source so later wiring-only refactors preserve their
+      derivations too.
 - [ ] Milestone 1: prove `nix flake check` passes and that a whitespace edit to `flake.nix` leaves
       every `checks` derivation unchanged.
 - [ ] Milestone 2: split `flake.nix` into plain Nix functions under `nix/` and `nix/checks/`.
@@ -64,6 +78,8 @@ scope and must not change.
 - [ ] Milestone 4: record the current `nix-haskell-flake` pin in the Decision Log.
 - [ ] Milestone 4: follow `haskell-nix-dev` for nixpkgs and flake-parts; add the Cachix `nixConfig`.
 - [ ] Milestone 4: switch every `ghc912` reference to `ghc9124`.
+- [ ] Milestone 4: disable Haddock for nagare's own Haskell packages (`cradle`, `nagare-dsl`,
+      `nagarectl`) and confirm their derivations no longer have a `doc` output.
 - [ ] Milestone 4: resolve the Pulumi override (drop it or refresh its hashes).
 - [ ] Milestone 4: `nix flake check` passes on both systems; lock is immovable; `nixos/flake.lock`
       unchanged.
@@ -77,7 +93,11 @@ scope and must not change.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: ExecPlan 119 added the `haskell-style` check after this plan's source inventory was
+  written, and `hydraJobs.nagare-access-build-test` also used the whole repository as `src`.
+  Evidence: before Milestone 1, `rg -n 'src = \./\.;' flake.nix` found the new check at line 98 and
+  the Hydra job at line 556 in addition to the checks named below. Leaving the Hydra job unfiltered
+  would make Milestone 2's all-output derivation-equivalence gate fail when the Nix wiring moves.
 
 
 ## Decision Log
@@ -113,6 +133,13 @@ scope and must not change.
   also an improvement in itself: editing the flake no longer re-runs every check.
   Date: 2026-09-13
 
+- Decision: Apply `nagareSource.src` to every whole-repository source consumer in the root flake,
+  including `haskell-style` and `hydraJobs.nagare-access-build-test`, not only the check inventory
+  that existed when this plan was drafted.
+  Rationale: `haskell-style` is now part of `nix flake check`, and the derivation-equivalence gate
+  explicitly compares Hydra jobs. Both consumers only need project sources, not Nix wiring.
+  Date: 2026-09-13
+
 - Decision: Pin `flake-parts` in Milestone 3 to the exact revision that `haskell-nix-dev` locks
   (`31729ca8cbdb4fa927b34e5f4353e6a83f39e993` at `haskell-nix-dev` `206ecd2`), with
   `inputs.nixpkgs-lib.follows = "nixpkgs"`.
@@ -126,6 +153,21 @@ scope and must not change.
   these parameter names exactly"); the shape of `ghcVersions` is not promised.
   Date: 2026-09-13
 
+
+- Decision: Disable Haddock (Haskell API documentation generation) in Nix builds of the packages
+  this flake defines — `cradle`, `nagare-dsl`, and `nagarectl` — using
+  `pkgs.haskell.lib.dontHaddock`, and do it in Milestone 4. Do not disable it across the whole
+  Hackage package set.
+  Rationale: The operator does not need API documentation from Nix builds, and Haddock adds build
+  time to every CI and release run. Nothing in the flake, CI, or release workflow uses the `doc`
+  output (a `git grep` for `.doc` and `haddock` in `*.nix`, `justfile`, and `.github` found
+  nothing). Overriding every package in the set would give every dependency a new `drvPath`, so none
+  of them could be substituted from caches or shared with the other projects on the same
+  `haskell-nix-dev` toolchain, which is the point of Milestone 4; dependencies' docs are
+  substituted rather than built whenever they are cached, so their cost is small by comparison. It
+  lands in Milestone 4 rather than 2 or 3 because it changes derivations, which the equivalence gate
+  forbids, while Milestone 4 rebuilds the closure anyway.
+  Date: 2026-09-13
 
 ## Outcomes & Retrospective
 
@@ -156,8 +198,9 @@ version and `supportedSystems`, currently `x86_64-linux` and `aarch64-darwin`), 
 `nagare-clone-free-platform` (a ~170-line script with fake `pulumi`, `nix`, `curl`, `gcloud`,
 `gsutil`, and `kubectl` tools), `examples-compile`, `nagarectl-external-config`,
 `shellcheck-scripts`, `bucket-ownership-guard`, `image-build-guard`, `render-context-template`,
-`cluster-bootstrap-defaults`, `forge-credential-refresh`, `release-consistency-source`, and
-`github-actions`. `hydraJobs` (526–545) holds `nagare-access-build-test`, a networked Cabal build
+`cluster-bootstrap-defaults`, `forge-credential-refresh`, `release-consistency-source`,
+`github-actions`, and the Haskell formatting and house-style check `haskell-style`. `hydraJobs`
+(526–545) holds `nagare-access-build-test`, a networked Cabal build
 that needs `sandbox = relaxed` and a private-dependency token; CI builds it only on `x86_64-linux`.
 `devShells` (547–665) holds `default` (Pulumi 3.239.0 and pulumi-nodejs overridden with fixed
 `hash`/`vendorHash` values, nodejs 22, gcloud, kubectl, helm, k3d, sops, age, tailscale, jq, just,
@@ -173,11 +216,11 @@ rev-pinned non-flake input `github:garnix-io/cradle/711c441…`), `nagare-dsl`, 
 that excludes `cluster/secrets`, `.git`, build directories, and generated `Pulumi.<stack>.yaml`
 files.
 
-These checks currently take `src = ./.` (the whole flake source): `infra-vm-shape`,
-`vm-shape-defaults-agree`, `examples-compile`, `nagarectl-external-config`, `shellcheck-scripts`,
+These checks initially took `src = ./.` (the whole flake source): `haskell-style`,
+`infra-vm-shape`, `vm-shape-defaults-agree`, `examples-compile`, `nagarectl-external-config`, `shellcheck-scripts`,
 `bucket-ownership-guard`, `image-build-guard`, `render-context-template`,
 `cluster-bootstrap-defaults`, `forge-credential-refresh`, `release-consistency-source`, and
-`github-actions`. `cluster-bootstrap-defaults` greps the source for two Let's Encrypt URLs and
+`github-actions`; the Hydra job did too. `cluster-bootstrap-defaults` greps the source for two Let's Encrypt URLs and
 excludes `./flake.nix` from its "duplicated elsewhere" search because the check itself names them.
 
 CI (`.github/workflows/ci.yml`) runs `nix flake check --print-build-logs --max-jobs 1` on
@@ -368,7 +411,17 @@ nixConfig = {
 
 Replace `ghc912` with `ghc9124` in `nix/nagare-packages.nix`/`nix/haskell-packages.nix`
 (`pkgs.haskell.packages.ghc9124`), `nix/hydra-jobs.nix` (`pkgs.haskell.compiler.ghc9124`), and
-`nix/dev-shells.nix` (compiler, HLS, fourmolu, cabal-gild). Then resolve Pulumi. Evaluate the new
+`nix/dev-shells.nix` (compiler, HLS, fourmolu, cabal-gild).
+
+Disable Haddock for the three packages the flake defines. Haddock is GHC's API-documentation
+generator; nixpkgs runs it by default for every Haskell library and puts the result in a separate
+`doc` output, which nagare never uses. In the `overrides` of the Haskell package set (in
+`nix/haskell-packages.nix`, or wherever Milestones 2–3 left it), wrap `cradle`, `nagare-dsl`, and
+`nagarectl` in `pkgs.haskell.lib.dontHaddock`, composed with the existing `dontCheck`, for example
+`cradle = hl.dontHaddock (hl.dontCheck (hfinal.callCabal2nix "cradle" cradleSrc { }));` with
+`hl = pkgs.haskell.lib;`. `checkedNagareDsl` and `checkedNagarectl` are built from those overridden
+packages with `doCheck`, so they inherit the setting. Do not apply `dontHaddock` to the whole package
+set; see the Decision Log. Then resolve Pulumi. Evaluate the new
 nixpkgs' `pulumi.version`. If it is 3.239.0 or newer, delete `nix/pulumi.nix` and use
 `pkgs.pulumi` and `pkgs.pulumiPackages.pulumi-nodejs` directly (a newer Pulumi CLI is acceptable for
 existing state; an older one is not), and record the version in the Decision Log. If it is older, keep
@@ -385,7 +438,9 @@ Acceptance: `nix flake check` passes on `aarch64-darwin`; every `checks.x86_64-l
 Linux builder; `.#nagarectl`, `.#nagare`, and `.#nagare-platform` build on both systems and
 `nagarectl --version` runs; the lock has a single `nixpkgs` node whose revision equals
 `haskell-nix-dev`'s; `nix flake update` leaves `flake.lock` unchanged; `git diff --exit-code nixos/`
-is clean; and `nix develop -c ghc --version` prints 9.12.4. The `hydraJobs` networked check is left
+is clean; and `nix develop -c ghc --version` prints 9.12.4; and the `cradle`, `nagare-dsl`, and `nagarectl`
+derivations (including `checkedNagareDsl` and `checkedNagarectl`) list no `doc` output and their
+build logs contain no Haddock phase. The `hydraJobs` networked check is left
 to CI because it needs a private token and a relaxed sandbox.
 
 ### Milestone 5 (optional) — script files, cached HLS, docs, ADR
@@ -552,6 +607,22 @@ Pulumi hash refresh, after setting `vendorHash = pkgs.lib.fakeHash;`:
 nix build --no-link .#devShells.aarch64-darwin.default 2>&1 | grep -E 'specified:|got:'
 ```
 
+Confirm Haddock is off for the flake's own packages. Each command lists the derivation's outputs,
+which must not include `doc`:
+
+```bash
+for check in nagare-dsl-build-test nagarectl-build-test; do
+  nix eval --json ".#checks.aarch64-darwin.$check.outputs"
+done
+nix eval --json .#packages.aarch64-darwin.nagarectl --apply 'p: builtins.map (d: d.outputs or [ ]) p.paths'
+nix log .#checks.aarch64-darwin.nagarectl-build-test | grep -c 'haddockPhase' || true
+```
+
+Expected: both check `outputs` lists contain no `"doc"` (with Haddock enabled nixpkgs adds `"doc"`
+next to `"out"`), the `nagarectl` wrapper's underlying package likewise has no `"doc"`, and the log
+search prints `0`. `nix log` only works after the check has been built on this machine; run it after
+`nix flake check`.
+
 Then validate:
 
 ```bash
@@ -650,3 +721,12 @@ each file in `nix/checks/` other than `default.nix` is a function
 `{ pkgs, nagarePackages, src }: { <check-name> = <derivation>; … }`. From Milestone 5, `nix/dev-shells.nix`
 depends on `inputs.haskell-nix-dev.lib.<system>.mkDevShell` with the parameters `ghc`,
 `extraNativeBuildInputs`, `withHls`, and `shellHook`.
+
+
+## Revision Notes
+
+- 2026-09-13: Milestone 4 now disables Haddock for the flake's own Haskell packages (`cradle`,
+  `nagare-dsl`, `nagarectl`) with `pkgs.haskell.lib.dontHaddock`, with a Progress item, a Decision
+  Log entry explaining why it is scoped to those packages and placed in Milestone 4, verification
+  commands, and acceptance criteria. Requested by the operator to keep Nix builds fast, since Nix
+  builds do not need API documentation.
