@@ -93,7 +93,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
-| EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | In Progress |
+| EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Not Started |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Not Started |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Not Started |
@@ -159,7 +159,7 @@ Track milestone-level progress across all child plans. Each entry names the chil
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
 - [x] (2026-09-14T05:29:57Z) EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
-- [ ] EP-2: validate ADC and represent/re-pin an undeployed context safely.
+- [x] (2026-09-14T13:18:00Z) EP-2: validate ADC and represent/re-pin an undeployed context safely.
 - [ ] EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: serialize blank-disk formatting before fsck and prove first-boot k3s readiness.
 - [ ] EP-5: separate internal issuers and opt app namespaces into public wildcard certificates.
@@ -179,6 +179,14 @@ interactions between child plans. Provide concise evidence.
 - The final native check compiles both normal and profiled Haskell outputs. EP-1 passed every
   buildable `aarch64-darwin` check and all 496 Haskell tests; Nix omitted the incompatible
   `x86_64-linux` outputs, which remain CI/native-runner evidence under ADR 7.
+
+- EP-2 found that a Kubernetes marker lookup cannot distinguish true absence from an unreachable or
+  unversioned cluster. A project-scoped GCE NotFound for the context-owned single host is the
+  authoritative absence boundary; every other probe result remains unknown and blocks re-pin.
+
+- Moving ADC validation ahead of Pulumi intentionally changed a missing-Pulumi integration fixture:
+  it now needs matching ADC evidence to reach the diagnostic it was designed to test. This confirms
+  the shared guard fails in the intended order instead of starting workspace or Pulumi work first.
 
 
 ## Decision Log
@@ -225,11 +233,23 @@ ADRs 4 and 7 now own the durable credential-state and release-profile boundaries
 implementation passed all native repository gates. The integrated live GCP proof remains assigned
 to EP-6 after the other children establish their parts of the bootstrap path.
 
-EP-2 is the next registry-ordered child with no hard dependencies. It can now make fresh contexts'
-ADC evidence and undeployed release state truthful before EP-3 consumes those interfaces.
+EP-2 is complete. Init and every cloud context guard now validate token-safe ADC evidence before
+Pulumi; foreign quota attribution refuses while principal uncertainty stays visible. Status
+distinguishes authoritative absence from legacy or unreachable state. The guarded command
+`nagarectl platform repin` advances only a never-deployed context and recognized generated host
+metadata.
+IR-12 and IR-16 are completed, with durable rules recorded in ADRs 9 and 6. All 505 focused tests,
+strict OKF validation, the clone-free packaged scenario, and the complete native flake gate pass.
+
+EP-3 is now the next registry-ordered child with no hard dependencies. Its soft dependency is
+satisfied: the shared project guard exposes the ADC verdict that reviewed Pulumi application and
+remote-builder confinement can consume.
 
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.
 
 Revision note (2026-09-14): Started EP-2 after confirming it has no unmet hard dependencies.
+
+Revision note (2026-09-14): Completed EP-2, closed IR-12 and IR-16, amended ADRs 9 and 6, and
+satisfied EP-3's soft dependency with shared ADC guard evidence.
