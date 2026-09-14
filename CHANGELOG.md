@@ -5,6 +5,9 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Reliable first cluster bootstrap (IR-21).** Cloud and local bootstrap now wait with explicit
+  deadlines for Knative admission webhooks before changing dependent ConfigMaps, and convergent
+  Knative ConfigMap merge patches retry briefly so a fresh cluster succeeds without a second run.
 - **Distinct context host names (IR-14).** `nagarectl host init` now defaults the NixOS and
   Tailscale name to `<context>-nagare` independently of the project-scoped VM instance name. It
   refuses an implicit name already recorded by a sibling context while preserving `--host-name` as

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Complete IR-21. Cloud and local bootstrap now wait for Knative admission webhooks with explicit deadlines, retry idempotent ConfigMap merge patches within a bounded window, and pass the first invocation on a new disposable k3d cluster.
 * **Update**: Accept IR-21 and record its target plan: docs/plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md.
 * **Update**: Accept IR-18 and target it at docs/plans/133-deliver-the-host-age-key-after-first-boot.md.
 * **Add**: Record IR-22 and IR-23 as proposed, from proving staging and production TLS on tan-ng-labs with v0.2.2: config-certmanager sets only issuerRef, so Knative's system-internal routing-serving-certs is sent to Let's Encrypt and rejected on every bootstrap (IR-22); and namespace-wildcard-cert-selector {} issues public wildcards for every namespace, including kube-system and kube-node-lease (IR-23).
