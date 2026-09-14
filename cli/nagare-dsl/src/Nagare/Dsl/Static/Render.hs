@@ -20,6 +20,7 @@ module Nagare.Dsl.Static.Render
 where
 
 import Data.Aeson (Value, object, toJSON, (.=))
+import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
@@ -28,7 +29,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml.Pretty qualified as YP
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (Domain, domainText, imageRefText, namespaceText)
+import Nagare.Dsl.Types (DomainSpec, DomainTls (..), domainText, imageRefText, namespaceText, secretNameText)
 
 -- | What a deploy knows beyond the 'StaticSite' itself: the resolved image tag
 -- (e.g. @"20260607-120000"@) and an optional preview name. When @previewName@ is
@@ -179,23 +180,47 @@ containerValue site ctx =
     , "ports" .= toJSON [object ["containerPort" .= (8080 :: Int)]]
     ]
 
-domainMappingValue :: StaticSite -> StaticDeployContext -> Domain -> Value
-domainMappingValue site ctx d =
+domainMappingValue :: StaticSite -> StaticDeployContext -> DomainSpec -> Value
+domainMappingValue site ctx domainSpec =
   object
     [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
     , "kind" .= ("DomainMapping" :: Text)
     , "metadata"
-        .= namespacedMeta (domainText d) (namespaceText (site ^. #namespace))
+        .= domainMappingMeta
+          (domainText (domainSpec ^. #domain))
+          (namespaceText (site ^. #namespace))
+          (serviceNameFor site ctx)
+          (domainSpec ^. #canonical)
     , "spec"
         .= object
-          [ "ref"
-              .= object
-                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                , "kind" .= ("Service" :: Text)
-                , "name" .= serviceNameFor site ctx
-                ]
+          ( [ "ref"
+                .= object
+                  [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                  , "kind" .= ("Service" :: Text)
+                  , "name" .= serviceNameFor site ctx
+                  ]
+            ]
+              <> domainTlsPairs (domainSpec ^. #tls)
+          )
+    ]
+
+domainMappingMeta :: Text -> Text -> Text -> Bool -> Value
+domainMappingMeta host namespace service isCanonical =
+  object
+    [ "name" .= host
+    , "namespace" .= namespace
+    , "labels"
+        .= object
+          [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+          , "nagare.dev/service" .= service
+          , "nagare.dev/canonical" .= if isCanonical then ("true" :: Text) else "false"
           ]
     ]
+
+domainTlsPairs :: DomainTls -> [Pair]
+domainTlsPairs AutomaticTls = []
+domainTlsPairs (SuppliedTlsSecret secret) =
+  ["tls" .= object ["secretName" .= secretNameText secret]]
 
 namespacedMeta :: Text -> Text -> Value
 namespacedMeta n ns = object ["name" .= n, "namespace" .= ns]

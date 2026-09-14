@@ -15,7 +15,7 @@ import Data.Bifunctor (first)
 import Nagare.Dsl.Cdn.Types (cloudflareCdn, withCacheRule, withDefaultTtl)
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)
+import Nagare.Dsl.Types (mkDomains, mkImageRef, mkNamespace)
 
 staticSite :: Either String StaticSite
 staticSite = do
@@ -23,7 +23,7 @@ staticSite = do
   ns' <- first show (mkNamespace "personal")
   img' <- first show (mkImageRef "static-cdn-site")
   dir' <- first show (mkFilePathText "public")
-  blog <- first show (mkDomain "blog.apps.example.com")
+  domains' <- first show (mkDomains [("blog.apps.example.com", True)])
   header' <- first show (mkHeaderRule "/assets/" "X-Content-Type-Options" "nosniff")
   cache' <- first show (mkCachePolicy True (Just 600))
   notFound' <- first show (mkFilePathText "404.html")
@@ -32,7 +32,8 @@ staticSite = do
   -- per-path TTL, so it is threaded in the Either do-block (=<<); withDefaultTtl
   -- is total. Nothing TTL = "never cache this path".
   cdn' <-
-    first show
+    first
+      show
       ( withCacheRule "/api/" Nothing
           =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
       )
@@ -42,7 +43,7 @@ staticSite = do
       , namespace = ns'
       , image = img'
       , build = NoBuild dir'
-      , domains = [blog]
+      , domains = domains'
       , redirects = []
       , headers = [header']
       , cache = cache'

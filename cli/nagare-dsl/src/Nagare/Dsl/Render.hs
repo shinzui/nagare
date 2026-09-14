@@ -64,7 +64,7 @@ renderService dep tag = YP.encodePretty knativeConfig (serviceValue dep tag)
 -- ('Nagare.Deploy.serviceUrl'), not which mappings are rendered.
 renderDomainMappings :: Deployment -> [ByteString]
 renderDomainMappings dep =
-  map (YP.encodePretty knativeConfig . domainMappingValue dep . (^. #domain)) (dep ^. #domains)
+  map (YP.encodePretty knativeConfig . domainMappingValue dep) (dep ^. #domains)
 
 -- ---------------------------------------------------------------------------
 -- Managed-resource naming helpers (MasterPlan IP2)
@@ -296,9 +296,6 @@ serviceValue dep tag =
     , "spec" .= object ["template" .= templateValue dep tag]
     ]
 
-namespacedMeta :: Text -> Text -> Value
-namespacedMeta n ns = object ["name" .= n, "namespace" .= ns]
-
 templateValue :: Deployment -> Text -> Value
 templateValue dep tag =
   case annotationPairs dep of
@@ -441,20 +438,44 @@ probesField (Just hc) containerPort =
         , "failureThreshold" .= (hc ^. #failureThreshold)
         ]
 
-domainMappingValue :: Deployment -> Domain -> Value
-domainMappingValue dep d =
+domainMappingValue :: Deployment -> DomainSpec -> Value
+domainMappingValue dep domainSpec =
   object
     [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
     , "kind" .= ("DomainMapping" :: Text)
     , "metadata"
-        .= namespacedMeta (domainText d) (namespaceText (dep ^. #namespace))
+        .= domainMappingMeta
+          (domainText (domainSpec ^. #domain))
+          (namespaceText (dep ^. #namespace))
+          (serviceNameText (dep ^. #name))
+          (domainSpec ^. #canonical)
     , "spec"
         .= object
-          [ "ref"
-              .= object
-                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                , "kind" .= ("Service" :: Text)
-                , "name" .= serviceNameText (dep ^. #name)
-                ]
+          ( [ "ref"
+                .= object
+                  [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                  , "kind" .= ("Service" :: Text)
+                  , "name" .= serviceNameText (dep ^. #name)
+                  ]
+            ]
+              <> domainTlsPairs (domainSpec ^. #tls)
+          )
+    ]
+
+domainMappingMeta :: Text -> Text -> Text -> Bool -> Value
+domainMappingMeta host namespace service isCanonical =
+  object
+    [ "name" .= host
+    , "namespace" .= namespace
+    , "labels"
+        .= object
+          [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+          , "nagare.dev/service" .= service
+          , "nagare.dev/canonical" .= if isCanonical then ("true" :: Text) else "false"
           ]
     ]
+
+domainTlsPairs :: DomainTls -> [Pair]
+domainTlsPairs AutomaticTls = []
+domainTlsPairs (SuppliedTlsSecret secret) =
+  ["tls" .= object ["secretName" .= secretNameText secret]]

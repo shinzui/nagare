@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T02:27:03Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T20:01:10Z
+      mode: "implement"
+      note: "Implemented strict shared domain model and began milestone execution"
 ---
 
 # Make apex and multi-domain routing production-ready
@@ -56,7 +62,7 @@ change implementable and make the supported combinations explicit rather than si
 
 ## Progress
 
-- [ ] M1: Make one strict, canonical domain model serve `Deployment`, `StaticSite`, and `ServerSite`, with backward-compatible JSON decoding and migration documentation.
+- [x] (2026-09-14T20:01Z) M1: Made one strict, canonical domain model serve `Deployment`, `StaticSite`, and `ServerSite`, with backward-compatible JSON decoding and migration documentation. `nagare-dsl` passed 401 tests, `nagarectl` passed 527 tests, documentation validation passed, Haskell style passed in the Nix shell, and all 33 compatible `nix flake check` checks passed.
 - [ ] M2: Add fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths.
 - [ ] M3: Provision the exact base-domain apex record and make the Pulumi origin/CDN DNS target model testable and observable.
 - [ ] M4: Replace computed-only domain inventory with actual DNS, route, and certificate observations, and add a machine-checkable `domains check` command.
@@ -109,6 +115,14 @@ change implementable and make the supported combinations explicit rather than si
   was consequently verified against the checked-in bootstrap documents and current official
   Knative and Google Cloud documentation. No new dependency version or compatibility bound is
   chosen by this plan. Date: 2026-09-13.
+
+- The host `cabal` selected a GHC that cannot parse the repository's `MultilineStrings`
+  extension, while `nix develop --command cabal ...` selected the supported GHC 9.12.4 and ran
+  both suites successfully. Also, `nix fmt` fails because this flake does not expose
+  `formatter.aarch64-darwin`; the explicit Fourmolu command and
+  `nix develop --command just haskell-style-check` are the working format and style paths.
+  Evidence: the host build returned Cabal-7107; the Nix-shell suites passed 401 and 527 tests,
+  and the full flake check passed all 33 compatible checks. Date: 2026-09-14.
 
 
 ## Decision Log
@@ -177,6 +191,14 @@ change implementable and make the supported combinations explicit rather than si
   automatic service URLs, wildcard certificates, auth cookie scope, and context identity. Neither
   is necessary to make the apex and current multi-domain contract correct.
   Date: 2026-09-13
+
+- Decision: Serialize `DomainTls` as a required nested `tls` object with mode `automatic` or
+  `supplied-secret`; tolerate an absent object when reading the previous deployment object shape,
+  and tolerate whole legacy string arrays for static/server configs.
+  Rationale: One explicit shared wire shape makes TLS intent inspectable without overloading the
+  hostname or canonical fields. Rejecting mixed string/object arrays avoids ambiguous canonical
+  migration semantics, while the two historical homogeneous shapes continue to decode.
+  Date: 2026-09-14
 
 
 ## Outcomes & Retrospective
@@ -721,3 +743,8 @@ The work creates no cross-repository durable references. Repository-local plan a
 remain relative Markdown links. If implementation discovers a cross-repository dependency or
 decision, it must use the owning project's canonical `mori://` URI discovered with the Mori
 registry, never a bare path or plan number.
+
+
+Revision note (2026-09-14): Recorded Milestone 1 implementation, validation evidence, the shared
+domain TLS JSON contract, and the Darwin formatter/toolchain discovery so the next milestone can
+resume from the checked ownership-preflight item.

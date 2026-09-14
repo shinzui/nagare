@@ -20,7 +20,7 @@ serverSite = do
   name' <- first show (mkSiteName "notes-app")
   ns' <- first show (mkNamespace "personal")
   img' <- first show (mkImageRef "notes-app")
-  dom' <- first show (mkDomain "notes-app.example.com")
+  domains' <- first show (mkDomains [("notes-app.example.com", True)])
   host <- first show (mkEnvName "HOSTNAME")
   apiBase <- first show (mkEnvName "API_BASE")
   sc <- first show (mkScale 1 3)
@@ -41,7 +41,7 @@ serverSite = do
             ]
       , resources = Just Resources {cpu = Just cpuQ, memory = Just memQ, cpuLimit = Nothing, memoryLimit = Nothing}
       , scale = Just sc
-      , domains = [dom']
+      , domains = domains'
       , volumes = []
       , -- Front the origin with Google Cloud CDN (a global HTTP(S) load
         -- balancer) with a 10-minute default edge TTL.

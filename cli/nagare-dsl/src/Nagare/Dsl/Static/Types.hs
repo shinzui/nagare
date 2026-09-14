@@ -56,7 +56,7 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (Domain, ImageRef, Namespace)
+import Nagare.Dsl.Types (DomainSpec, ImageRef, Namespace)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the static site's Knative Service
 -- name. Same rules as 'Nagare.Dsl.Types.ServiceName'. Constructor hidden; use
@@ -189,7 +189,7 @@ data StaticSite = StaticSite
   , namespace :: !Namespace
   , image :: !ImageRef
   , build :: !StaticBuild
-  , domains :: ![Domain]
+  , domains :: ![DomainSpec]
   , redirects :: ![RedirectRule]
   , headers :: ![HeaderRule]
   , cache :: !CachePolicy

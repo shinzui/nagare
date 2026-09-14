@@ -27,11 +27,12 @@ serverSite = do
   ns' <- first show (mkNamespace "personal")
   img' <- first show (mkImageRef "tanstack-start-cdn")
   host <- first show (mkEnvName "HOSTNAME")
-  app <- first show (mkDomain "app.apps.example.com")
+  domains' <- first show (mkDomains [("app.apps.example.com", True)])
   -- Google Cloud CDN: a 10-minute default edge TTL, a 1-year cache for
   -- fingerprinted assets, never cache /api/.
   cdn' <-
-    first show
+    first
+      show
       ( withCacheRule "/api/" Nothing
           =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 600 gcpCloudCdn)
       )
@@ -46,7 +47,7 @@ serverSite = do
       , env = Map.fromList [(host, runtimeScoped (EnvLiteral "0.0.0.0"))]
       , resources = Nothing
       , scale = Nothing
-      , domains = [app]
+      , domains = domains'
       , volumes = []
       , cdn = Just cdn'
       }

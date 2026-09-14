@@ -42,7 +42,8 @@ import Nagare.Dsl.Render
 import Nagare.Dsl.Server.Types
 import Nagare.Dsl.Static.Types (siteNameText)
 import Nagare.Dsl.Types
-  ( Domain
+  ( DomainSpec
+  , DomainTls (..)
   , EnvName
   , EnvScope (..)
   , EnvVar (..)
@@ -220,23 +221,47 @@ resourcesField (Just res) =
     cpuF = maybe [] (\q -> ["cpu" .= quantityText q]) (res ^. #cpu)
     memF = maybe [] (\q -> ["memory" .= quantityText q]) (res ^. #memory)
 
-domainMappingValue :: ServerSite -> ServerDeployContext -> Domain -> Value
-domainMappingValue site ctx d =
+domainMappingValue :: ServerSite -> ServerDeployContext -> DomainSpec -> Value
+domainMappingValue site ctx domainSpec =
   object
     [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
     , "kind" .= ("DomainMapping" :: Text)
     , "metadata"
-        .= namespacedMeta (domainText d) (namespaceText (site ^. #namespace))
+        .= domainMappingMeta
+          (domainText (domainSpec ^. #domain))
+          (namespaceText (site ^. #namespace))
+          (serviceNameFor site ctx)
+          (domainSpec ^. #canonical)
     , "spec"
         .= object
-          [ "ref"
-              .= object
-                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                , "kind" .= ("Service" :: Text)
-                , "name" .= serviceNameFor site ctx
-                ]
+          ( [ "ref"
+                .= object
+                  [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                  , "kind" .= ("Service" :: Text)
+                  , "name" .= serviceNameFor site ctx
+                  ]
+            ]
+              <> domainTlsPairs (domainSpec ^. #tls)
+          )
+    ]
+
+domainMappingMeta :: Text -> Text -> Text -> Bool -> Value
+domainMappingMeta host namespace service isCanonical =
+  object
+    [ "name" .= host
+    , "namespace" .= namespace
+    , "labels"
+        .= object
+          [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+          , "nagare.dev/service" .= service
+          , "nagare.dev/canonical" .= if isCanonical then ("true" :: Text) else "false"
           ]
     ]
+
+domainTlsPairs :: DomainTls -> [Pair]
+domainTlsPairs AutomaticTls = []
+domainTlsPairs (SuppliedTlsSecret secret) =
+  ["tls" .= object ["secretName" .= secretNameText secret]]
 
 namespacedMeta :: Text -> Text -> Value
 namespacedMeta n ns = object ["name" .= n, "namespace" .= ns]

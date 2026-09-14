@@ -29,7 +29,7 @@ import Nagare.Dsl.Server.Render
   )
 import Nagare.Dsl.Server.Types (ServerSite)
 import Nagare.Dsl.Static.Types (siteNameText)
-import Nagare.Dsl.Types (domainText, imageRefText, namespaceText)
+import Nagare.Dsl.Types (canonicalDomain, domainText, imageRefText, namespaceText)
 import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
 import Nagare.Server.Build (prepareServerOutput)
 import Nagare.Server.Image (withServerImageContext)
@@ -105,13 +105,13 @@ deployServerProduction inputs src = do
               src
           pure (m ^. #url <$ recorded)
 
--- | The server site's public URL: the first configured custom domain if any,
+-- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
 serverUrl :: ServerSite -> Text -> Text
 serverUrl s baseDomain =
-  case s ^. #domains of
-    (d : _) -> "https://" <> domainText d
-    [] ->
+  case canonicalDomain (s ^. #domains) of
+    Just d -> "https://" <> domainText d
+    Nothing ->
       "https://"
         <> siteNameText (s ^. #name)
         <> "."

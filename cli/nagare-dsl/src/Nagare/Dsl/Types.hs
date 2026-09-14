@@ -76,8 +76,10 @@ module Nagare.Dsl.Types
   , domainText
 
     -- * DomainSpec
+  , DomainTls (..)
   , DomainSpec (..)
   , mkDomains
+  , withTlsSecret
   , canonicalDomain
 
     -- * VolumeName
@@ -109,7 +111,7 @@ module Nagare.Dsl.Types
   )
 where
 
-import Data.Char (isDigit, isLower)
+import Data.Char (isAscii, isDigit, isLower, isSpace)
 import Data.Generics.Labels ()
 import Data.Map (Map)
 import Data.Set (Set)
@@ -441,24 +443,70 @@ mkScale mn mx
 newtype Domain = Domain Text
   deriving stock (Generic, Eq, Ord, Show)
 
--- | Validate and construct a 'Domain': non-empty, no spaces, no URI scheme.
+-- | Validate and construct a normalized RFC 1123 hostname. One terminal dot is
+-- accepted and removed, ASCII letters are lowercased, and the result must have
+-- at least two labels. Wildcards, IP literals, Unicode input, empty labels, and
+-- labels with leading/trailing hyphens are rejected.
 mkDomain :: Text -> Either Text Domain
-mkDomain t
-  | Text.null t = Left "domain must not be empty"
-  | Text.elem ' ' t = Left ("domain must not contain spaces: " <> t)
-  | "://" `Text.isInfixOf` t =
-      Left ("domain must not include a URI scheme (http://, https://): " <> t)
-  | otherwise = Right (Domain t)
+mkDomain raw
+  | Text.null raw = Left "domain must not be empty"
+  | not (Text.all isAscii raw) =
+      Left "domain must contain only ASCII; supply internationalized names as IDNA A-labels (punycode)"
+  | Text.any isSpace raw = Left ("domain must not contain spaces: " <> raw)
+  | "://" `Text.isInfixOf` raw =
+      Left ("domain must not include a URI scheme (http://, https://): " <> raw)
+  | "*" `Text.isInfixOf` raw = Left ("domain must not be a wildcard: " <> raw)
+  | ":" `Text.isInfixOf` raw = Left ("domain must not be an IPv6 literal: " <> raw)
+  | Text.null normalized = Left "domain must not be empty"
+  | Text.length normalized > 253 =
+      Left ("domain too long (" <> tshow (Text.length normalized) <> " bytes, max 253)")
+  | length labels < 2 = Left ("domain must contain at least two labels: " <> normalized)
+  | any Text.null labels = Left ("domain must not contain empty labels: " <> normalized)
+  | isIpv4Literal labels = Left ("domain must not be an IPv4 literal: " <> normalized)
+  | Just err <- firstLabelError labels = Left err
+  | otherwise = Right (Domain normalized)
+  where
+    withoutTerminalDot = fromMaybe raw (Text.stripSuffix "." raw)
+    normalized = Text.toLower withoutTerminalDot
+    labels = Text.splitOn "." normalized
+
+    firstLabelError = foldr (\label rest -> labelError label <|> rest) Nothing
+
+    labelError label
+      | Text.length label > 63 =
+          Just ("domain label too long (" <> tshow (Text.length label) <> " bytes, max 63): " <> label)
+      | Text.isPrefixOf "-" label = Just ("domain label must not start with a hyphen: " <> label)
+      | Text.isSuffixOf "-" label = Just ("domain label must not end with a hyphen: " <> label)
+      | not (Text.all validLabelChar label) =
+          Just ("domain contains invalid characters (allowed: a-z, 0-9, -, .): " <> normalized)
+      | otherwise = Nothing
+
+    isIpv4Literal domainLabels = length domainLabels == 4 && all validOctet domainLabels
+    validOctet part =
+      not (Text.null part)
+        && Text.all isDigit part
+        && Text.length part <= 3
+        && maybe False (<= (255 :: Int)) (readMaybeInt part)
+    readMaybeInt part = case reads (Text.unpack part) of
+      [(n, "")] -> Just n
+      _ -> Nothing
 
 domainText :: Domain -> Text
 domainText (Domain t) = t
 
--- | A custom domain plus whether it is the canonical (advertised) one. Used in
--- 'Deployment.domains'. Construct lists through 'mkDomains', which enforces the
--- "exactly one canonical" invariant for a non-empty list.
+-- | How origin TLS is provided for a custom domain.
+data DomainTls
+  = AutomaticTls
+  | SuppliedTlsSecret !SecretName
+  deriving stock (Generic, Eq, Show)
+
+-- | A custom domain, its canonical (advertised) marker, and its origin TLS
+-- policy. Construct lists through 'mkDomains', which enforces the "exactly one
+-- canonical" invariant for a non-empty list and defaults TLS to automatic.
 data DomainSpec = DomainSpec
   { domain :: !Domain
   , canonical :: !Bool
+  , tls :: !DomainTls
   }
   deriving stock (Generic, Eq, Show)
 
@@ -469,18 +517,30 @@ mkDomains :: [(Text, Bool)] -> Either Text [DomainSpec]
 mkDomains [] = Right []
 mkDomains pairs = do
   specs <- traverse toSpec pairs
-  let canonicalCount = length (filter (^. #canonical) specs)
-  if canonicalCount == 1
-    then Right specs
-    else
-      Left
-        ( "a non-empty domain list must mark exactly one domain canonical, found "
-            <> tshow canonicalCount
-        )
+  case firstDuplicate (map (domainText . (^. #domain)) specs) of
+    Just duplicate -> Left ("duplicate domain after normalization: " <> duplicate)
+    Nothing -> do
+      let canonicalCount = length (filter (^. #canonical) specs)
+      if canonicalCount == 1
+        then Right specs
+        else
+          Left
+            ( "a non-empty domain list must mark exactly one domain canonical, found "
+                <> tshow canonicalCount
+            )
   where
     toSpec (host, isCanon) = do
       d <- mkDomain host
-      Right (DomainSpec {domain = d, canonical = isCanon})
+      Right (DomainSpec {domain = d, canonical = isCanon, tls = AutomaticTls})
+    firstDuplicate = go Set.empty
+    go _ [] = Nothing
+    go seen (x : xs)
+      | x `Set.member` seen = Just x
+      | otherwise = go (Set.insert x seen) xs
+
+-- | Select a namespace-local Kubernetes TLS Secret for one domain.
+withTlsSecret :: SecretName -> DomainSpec -> DomainSpec
+withTlsSecret secret spec = spec {tls = SuppliedTlsSecret secret}
 
 -- | The canonical entry's domain, or 'Nothing' for an empty list. For a list
 -- built by 'mkDomains' there is at most one canonical entry.

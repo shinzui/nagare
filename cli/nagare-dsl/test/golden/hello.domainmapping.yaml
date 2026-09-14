@@ -3,6 +3,10 @@ kind: DomainMapping
 metadata:
   name: hello.example.com
   namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/canonical: 'true'
+    nagare.dev/service: hello
 spec:
   ref:
     apiVersion: serving.knative.dev/v1

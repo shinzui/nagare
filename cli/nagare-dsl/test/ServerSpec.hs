@@ -58,7 +58,7 @@ notesApp =
     , resources =
         Just Resources {cpu = Just (unsafe (mkQuantity "500m")), memory = Just (unsafe (mkQuantity "256Mi")), cpuLimit = Nothing, memoryLimit = Nothing}
     , scale = Just (unsafe (mkScale 1 3))
-    , domains = [unsafe (mkDomain "notes-app.example.com")]
+    , domains = unsafe (mkDomains [("notes-app.example.com", True)])
     , volumes = []
     , cdn = Just (withDefaultTtl 600 gcpCloudCdn)
     }
@@ -134,6 +134,10 @@ decodeFailureTests =
       case decodeServerSite (BC.pack (serverJSON validParts)) of
         Right _ -> pure ()
         other -> assertFailure ("expected Right, got: " <> show other)
+  , testCase "legacy string domains keep the first entry canonical" $
+      case decodeServerSite (BC.pack legacyDomainsJSON) of
+        Right site -> fmap domainText (canonicalDomain (site ^. #domains)) @?= Just "first.example.com"
+        other -> assertFailure ("expected Right, got: " <> show other)
   , testCase "absolute output dir returns MarshalError build.outputDirs" $
       assertMarshal "build.outputDirs" (serverJSON (validParts & #pOutputDirs .~ "[\"/abs\"]"))
   , testCase "parent-dir output dir returns MarshalError build.outputDirs" $
@@ -162,6 +166,10 @@ decodeFailureTests =
 deploymentJSON :: String
 deploymentJSON =
   "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"port\":8080,\"env\":[]}"
+
+legacyDomainsJSON :: String
+legacyDomainsJSON =
+  "{\"kind\":\"ServerSite\",\"name\":\"app\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"build\":{\"command\":\"npm run build\",\"outputDirs\":[\".output\"]},\"runtime\":{\"baseImage\":\"node:22-alpine\",\"startCommand\":[\"node\",\".output/server/index.mjs\"]},\"port\":8080,\"env\":[],\"domains\":[\"first.example.com\",\"second.example.com\"]}"
 
 data ServerParts = ServerParts
   { pKind :: !String

@@ -34,7 +34,7 @@ import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (FilePathText, SiteName, mkFilePathText)
 import Nagare.Dsl.Types
-  ( Domain
+  ( DomainSpec
   , EnvName
   , EnvVar
   , ImageRef
@@ -119,7 +119,7 @@ data ServerSite = ServerSite
   , env :: !(Map EnvName ScopedEnvVar)
   , resources :: !(Maybe Resources)
   , scale :: !(Maybe Scale)
-  , domains :: ![Domain]
+  , domains :: ![DomainSpec]
   , volumes :: ![Volume]
   -- ^ Durable disks attached to the site (same model as
   -- 'Nagare.Dsl.Types.Deployment'). Empty means a stateless site.
