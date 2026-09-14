@@ -280,3 +280,12 @@ The VM appears only after the next section.
 
 Build and register the NixOS image, then re-run `pulumi up` to boot the VM:
 **[Host image and first boot →](host-image-and-boot.md)**
+
+## Replacement ownership boundary
+
+A future replacement transaction may temporarily own a candidate slot and, after promotion, a
+stopped former-active slot. Do not delete either through an ad hoc Pulumi edit. Cutover must journal
+and observe the direct reserved-address handoff, then reconcile Pulumi to the promoted slot. Finalize
+may delete only exact resource IDs recorded with the former-active transaction role; it preserves
+the reserved address, DNS zone, ordinary backups, and every unrecorded resource. See the
+[replacement drill](../runbooks/replacement-cutover-drill.md) for the readiness gate.

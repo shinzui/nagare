@@ -278,3 +278,17 @@ lock or pin commit and re-run its convergent apply command.
 
 Never combine host and cluster pin changes in one maintenance session. A quiet
 quarter is a valid outcome when the reviewed releases do not justify the risk.
+
+## Replacement cutovers
+
+Replacement upgrades use a second host and an independent copy of state. Their cutover executor
+starts a monotonic downtime clock when production writes are first denied, reserves recovery time
+before the total budget expires, and keeps candidate writes fenced until public verification and
+context promotion succeed. Write-gate observation—not command exit status—is the irreversible commit
+point. The old host is stopped and retained until explicit guarded cleanup.
+
+The provider-independent executor is implemented, but the operator command remains gated on the
+candidate, rehearsal, state-transfer, and disposable address-handoff prerequisites. Until a
+replacement transaction can reach `ready`, continue using the supported in-place workflow above and
+do not assemble a cutover from hand-written cloud commands. The complete acceptance and recovery
+procedure is in [Replacement cutover and rollback drill](../runbooks/replacement-cutover-drill.md).

@@ -348,3 +348,11 @@ hourly aggregation — declare a [scheduled task](scheduled-tasks.md) on the app
 references the database. The task inherits the app's image and its injected
 `DATABASE_URL`, so it reaches the same database; see the
 [`app-cleanup-task`](../../cluster/examples/app-cleanup-task/) example.
+
+## Replacement-transfer boundary
+
+A database is eligible for a replacement cutover only when a transaction has a complete, rehearsed
+logical-transfer adapter, fresh timing evidence, explicit quiesce and read-only verification
+contracts, and an independent candidate destination. Unknown engines, missing extensions, or
+incompatible collations block cutover before production writes are denied. The source database
+remains the rollback authority until candidate writes are admitted.

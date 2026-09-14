@@ -191,3 +191,11 @@ value if it's boring *and* true.
 
 When something goes wrong during any of the above:
 **[Troubleshooting →](troubleshooting.md)**
+
+## Replacement-cutover retention
+
+Transaction seed and final-transfer objects are not ordinary backups and do not replace this
+recovery policy. Keep a recent independent backup through cutover and former-host retention. Before
+candidate write admission, the old host and its storage remain authoritative; afterwards, recovery
+must preserve any candidate-only writes. Replacement finalization verifies backup and evidence
+retention and never prunes ordinary backup objects.

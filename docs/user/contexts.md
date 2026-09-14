@@ -516,3 +516,11 @@ the command catalogue is in [Reference](reference.md), and workstation setup is
 in [Getting started](getting-started.md). For the end-to-end topology and
 operator workflow, see
 [Running multiple Nagare clusters](../guides/running-multiple-clusters.md).
+
+## Replacement transaction ownership
+
+Replacement transactions belong to one context and record its exact GCP project, zone, host IDs,
+reserved address, payload identity, and drift token. Cutover and cleanup require the confirmation
+token `<context>/<transaction-suffix>` and re-read actual state before mutation. Copying a
+transaction to another context or changing a recorded identity makes it invalid; never edit the JSON
+to bypass that guard.

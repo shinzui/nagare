@@ -268,3 +268,11 @@ is `nagarectl storage restore APP VOLUME <timestamp>` (scratch-first by default;
   — a web app that stores uploads on a durable volume at `/uploads`. The README
   uploads a file, rolls the app, confirms it is still served, then runs
   `nagarectl storage snapshot` and walks a restore drill.
+
+## Replacement-transfer boundary
+
+Retained volumes are never assumed safe to copy while hot. A replacement transaction must inventory
+every retained PVC and host path, rehearse an explicit adapter into independent candidate storage,
+and capture quiesce and verification hooks. An unmatched path or a hot SQLite-style volume without
+an application consistency contract blocks cutover. Finalize deletes only former-active disks
+recorded by the transaction and never prunes ordinary backups.
