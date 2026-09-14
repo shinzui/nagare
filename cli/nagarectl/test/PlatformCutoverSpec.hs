@@ -4,9 +4,9 @@ module PlatformCutoverSpec (platformCutoverTests) where
 
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
+import Data.Foldable (traverse_)
 import Data.IORef
 import Data.List (elemIndex)
-import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime, addUTCTime, defaultTimeLocale, parseTimeOrError)
@@ -102,7 +102,8 @@ testPostAttachFailure = do
 
 testPreCommitFailureMatrix :: Assertion
 testPreCommitFailureMatrix =
-  traverse_ check
+  traverse_
+    check
     [ "quiesce-old"
     , "finalize-state"
     , "prepare-ingress"
@@ -354,14 +355,14 @@ assertBefore first second events =
     (Just a, Just b) -> assertBool (T.unpack first <> " must precede " <> T.unpack second) (a < b)
     _ -> assertFailure ("missing ordered events: " <> show events)
 
-assertRight :: Show a => Either a b -> IO b
+assertRight :: (Show a) => Either a b -> IO b
 assertRight = either (assertFailure . show) pure
 
-assertLeft :: Show b => Either a b -> IO a
+assertLeft :: (Show b) => Either a b -> IO a
 assertLeft = either pure (assertFailure . ("expected failure, got " <>) . show)
 
 assertRightCleanup :: Either CleanupError a -> IO a
 assertRightCleanup = either (assertFailure . show) pure
 
-assertLeftCleanup :: Show a => Either CleanupError a -> IO CleanupError
+assertLeftCleanup :: (Show a) => Either CleanupError a -> IO CleanupError
 assertLeftCleanup = either pure (assertFailure . ("expected cleanup failure, got " <>) . show)
