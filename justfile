@@ -145,23 +145,25 @@ cluster-bootstrap:
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
-    kubectl -n cert-manager rollout status deploy/cert-manager-webhook
+    kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
       cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer" && \
       kubectl apply -f "$issuer"
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
+    kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
-    kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
+    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
     BASE_DOMAIN="$(pulumi -C infra/pulumi stack output baseDomain)"; \
       : "${BASE_DOMAIN:?empty baseDomain — run 'pulumi -C infra/pulumi up' (or 'pulumi config set baseDomain …') before cluster-bootstrap}"; \
-      kubectl -n knative-serving patch configmap config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
+      scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
-    kubectl -n knative-serving patch configmap config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
-    kubectl -n knative-serving patch configmap config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
+    kubectl -n knative-serving rollout status deploy/net-certmanager-webhook --timeout=5m
+    scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
+    scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
-      kubectl -n knative-serving patch configmap config-deployment --type merge \
+      scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
 
@@ -248,24 +250,25 @@ local-bootstrap:
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
-    kubectl -n cert-manager rollout status deploy/cert-manager-webhook
+    kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     # NOTE: cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl is
     # intentionally NOT applied — it renders a GCP project and needs ambient GCE
     # creds. Local TLS issuer is EP-85's job (MasterPlan 16 IP-5).
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
+    kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
     kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
-    kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
+    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
     BASE_DOMAIN="${NAGARE_BASE_DOMAIN:?set NAGARE_MODE=local and copy nagare.local.env.example to nagare.local.env}"; \
-      kubectl -n knative-serving patch configmap config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
+      scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
     # NOTE: config-certmanager patch is intentionally skipped — it points Knative at
     # the letsencrypt-dns ClusterIssuer this bootstrap does not install (EP-85 wires
     # the local issuer). external-domain-tls stays off, so apps serve over HTTP.
-    kubectl -n knative-serving patch configmap config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
+    scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-k3d-registry.localhost:5000}"; \
-      kubectl -n knative-serving patch configmap config-deployment --type merge \
+      scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
 

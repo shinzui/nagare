@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T03:39:09Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T04:20:01Z
+      mode: "implement"
+      note: "Implemented bounded Knative webhook readiness and patch retry checks"
 ---
 
 # Make cluster bootstrap wait for Knative webhooks
@@ -38,10 +44,10 @@ the expected ConfigMap values are present, and no second invocation is needed.
 
 ## Progress
 
-- [ ] Add a bounded Knative ConfigMap patch helper and hermetic tests for successful retry,
-  exhaustion, and bootstrap command ordering.
-- [ ] Put explicit Knative Serving and net-certmanager webhook waits in the cloud recipe, and the
-  Knative Serving wait in the local recipe, before their dependent patches.
+- [x] (2026-09-14 04:20Z) Added a bounded Knative ConfigMap patch helper and hermetic tests for
+  successful retry, exhaustion, and bootstrap command ordering.
+- [x] (2026-09-14 04:20Z) Put explicit Knative Serving and net-certmanager webhook waits in the
+  cloud recipe, and the Knative Serving wait in the local recipe, before their dependent patches.
 - [ ] Prove one-shot success on a newly created disposable k3d cluster and record the observed
   rollout, endpoint, ConfigMap, and exit-status evidence here.
 - [ ] Update bootstrap documentation, the changelog, IR-21, and the improvement-request bundle log;
@@ -50,7 +56,12 @@ the expected ConfigMap values are present, and no second invocation is needed.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: A flake build does not include a newly created untracked test script in its source
+  snapshot, even though the direct test can execute it from the working tree. Staging the two new
+  scripts is therefore required before the new derivation can validate them.
+  Evidence: the first readiness build exited 1 with
+  `bash: scripts/test-knative-bootstrap-readiness.sh: No such file or directory`; the separately
+  evaluated `shellcheck-scripts` derivation exited 0.
 
 
 ## Decision Log
