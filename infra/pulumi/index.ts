@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { buildSshCommand } from "./src/outputs";
+import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
 
 const cfg = new pulumi.Config();
@@ -33,6 +34,7 @@ const imageSelfLink = cfg.get("nagareImageSelfLink");
 // balancer. Default false so existing `pulumi up` runs are byte-for-byte
 // unchanged and the billable load balancer is never created implicitly.
 const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
+const cdnCertificateModeCfg = parseCdnCertificateMode(cfg.get("cdnCertificateMode"));
 
 // EP-99: GCP-level deletion protection for the VM. Default true — the API then
 // refuses to delete the instance at all. The platform's *intended* rebuild path
@@ -61,6 +63,7 @@ const requiredApis = [
     "dns.googleapis.com",
     "storage.googleapis.com",
     "artifactregistry.googleapis.com",
+    "certificatemanager.googleapis.com",
     "iam.googleapis.com",
     "servicenetworking.googleapis.com",
 ];
@@ -89,6 +92,7 @@ const perimeter = new NagarePerimeter(
         imageBucketName: imageBucketNameCfg,
         imageSelfLink,
         enableCdn: enableCdnCfg,
+        cdnCertificateMode: cdnCertificateModeCfg,
         vmDeletionProtection: vmDeletionProtectionCfg,
         bootDiskSizeGb: bootDiskSizeGbCfg,
         bootDiskType: bootDiskTypeCfg,
@@ -117,3 +121,6 @@ export const sshCommand = buildSshCommand(perimeter.instanceName, zone, gcpProje
 export const cdnGlobalIp = perimeter.cdnGlobalIp;
 export const cdnBackendService = perimeter.cdnBackendService;
 export const cdnUrlMap = perimeter.cdnUrlMap;
+export const cdnCertificate = perimeter.cdnCertificate;
+export const cdnCertificateMap = perimeter.cdnCertificateMap;
+export const cdnCertificateMode = perimeter.cdnCertificateMode;

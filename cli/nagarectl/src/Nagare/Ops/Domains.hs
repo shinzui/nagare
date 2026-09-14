@@ -243,8 +243,8 @@ certificateStateFor TlsGloballyDisabled _ _ _ = TlsDisabled
 certificateStateFor TlsEnabled issuer certificates hostname =
   case issuer of
     Unavailable detail -> CertificateUnknown detail
-    NotFound -> CertificateFailed "ClusterIssuer letsencrypt-dns was not found"
-    Observed False -> CertificateFailed "ClusterIssuer letsencrypt-dns is not Ready"
+    NotFound -> CertificateFailed "configured ClusterIssuer was not found"
+    Observed False -> CertificateFailed "configured ClusterIssuer is not Ready"
     Observed True -> case certificates of
       Unavailable detail -> CertificateUnknown detail
       NotFound -> CertificatePending "no certificate objects were found"
@@ -326,7 +326,11 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
     NotFound -> pure NotFound
     Observed domainMappings -> do
       tlsMode <- observeParsed parseTlsMode =<< kube ["-n", "knative-serving", "get", "configmap", "config-network", "-o", "json"]
-      issuer <- observeNestedParsed parseClusterIssuerObservation =<< kube ["get", "clusterissuer", "letsencrypt-dns", "-o", "json"]
+      configuredIssuer <- observeParsed parseConfiguredIssuerName =<< kube ["-n", "knative-serving", "get", "configmap", "config-certmanager", "-o", "json"]
+      issuer <- case configuredIssuer of
+        Observed issuerName -> observeNestedParsed parseClusterIssuerObservation =<< kube ["get", "clusterissuer", T.unpack issuerName, "-o", "json"]
+        NotFound -> pure NotFound
+        Unavailable detail -> pure (Unavailable detail)
       certManager <- observeParsed extractCertificateEvidence =<< kube ["get", "certificates.cert-manager.io", "-n", ns, "-o", "json"]
       knative <- observeParsed extractCertificateEvidence =<< kube ["get", "certificates.networking.internal.knative.dev", "-n", ns, "-o", "json"]
       let certificates = mergeCertificateObservations certManager knative
@@ -348,6 +352,19 @@ queryDomainRowsWith runner base publicIp apexIp cdnGlobalIp namespace = do
               NotFound -> TlsDisabled
               Unavailable detail -> CertificateUnknown detail
           }
+
+parseConfiguredIssuerName :: ByteString -> Either Text Text
+parseConfiguredIssuerName bytes = do
+  value <- first (T.pack . ("could not decode config-certmanager JSON: " <>)) (eitherDecodeStrict bytes)
+  case textAt ["data", "issuerRef"] value >>= issuerName of
+    Just name -> Right name
+    Nothing -> Left "config-certmanager issuerRef has no name"
+  where
+    issuerName =
+      fmap (T.strip . T.drop 5)
+        . find ("name:" `T.isPrefixOf`)
+        . map T.strip
+        . T.lines
 
 observeParsed :: (ByteString -> Either Text a) -> Observation ByteString -> IO (Observation a)
 observeParsed parser =

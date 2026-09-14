@@ -332,6 +332,14 @@ their first entry is treated as canonical and all entries use automatic TLS.
 > HTTP-redirected to the canonical one — that hard redirect remains deferred
 > future work. All listed domains serve the app directly.
 
+`AutomaticTls` is preflighted before any workload object is applied. Under the
+platform base zone it requires Knative external-domain TLS and the configured
+`ClusterIssuer` to be Ready. For another Cloud DNS zone, that zone must be in
+the active context's project. For DNS authority elsewhere, either configure a
+cert-manager solver for that authority or use `withTlsSecret`; the Secret must
+already exist in the workload namespace with `tls.crt` and `tls.key` keys.
+Nagare reads only the key names and never prints Secret data.
+
 ## Build modes
 
 The `build` field (type `BuildSpec`, from `Nagare.Dsl.Build`) says **how** the

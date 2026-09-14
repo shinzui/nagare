@@ -79,11 +79,20 @@ import Nagare.Cdn.Provision
   ( CdnResult (..)
   , CdnTarget (..)
   , GcpStackRefs (..)
+  , googleCdnHostname
   , planCdn
   , provisionCdn
   , renderCdnPlan
   )
-import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
+import Nagare.Cdn.Status
+  ( CdnDnsTarget (..)
+  , CdnRow (..)
+  , formatCdnList
+  , formatCdnStatus
+  , formatCertificateManagerStatus
+  , parseCertificateManagerState
+  , queryCdnRows
+  )
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Cluster.Kubeconfig
   ( KubeconfigIdentity (..)
@@ -110,6 +119,7 @@ import Nagare.Domain.Binding
   , renderBindingTarget
   , waitForDomainBindings
   )
+import Nagare.Domain.Tls (preflightDomainTls, renderDomainTlsCheck, verifyDomainTlsReady)
 import Nagare.Dsl.Broker (BrokerProvider (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
@@ -4356,10 +4366,15 @@ runDomainsCheck mctx o = void (runDomainsInventory True mctx o)
 runDomainsInventory :: Bool -> Maybe String -> DomainsListOpts -> IO [DomainRow]
 runDomainsInventory checking mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
+  tp <- activeProfile mctx
   base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
-  publicIp <- stackOutput (workspace ^. #pulumiDir) "publicIp"
-  apexIp <- stackOutput (workspace ^. #pulumiDir) "apexIp"
-  cdnGlobalIp <- stackOutput (workspace ^. #pulumiDir) "cdnGlobalIp"
+  (publicIp, apexIp, cdnGlobalIp) <- case tp ^. #mode of
+    Local -> pure (Just "127.0.0.1", Just "127.0.0.1", Nothing)
+    Cloud ->
+      (,,)
+        <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
+        <*> stackOutput (workspace ^. #pulumiDir) "apexIp"
+        <*> stackOutput (workspace ^. #pulumiDir) "cdnGlobalIp"
   namespaceObservation <-
     if o ^. #allNamespaces
       then observeNamespaces
@@ -4430,7 +4445,8 @@ runCdnList mctx o = do
 -- discovered" block when the live discovery cannot run yet.
 runCdnStatus :: Maybe String -> CdnStatusOpts -> IO ()
 runCdnStatus mctx o = do
-  (_, workspace) <- ensurePulumiForActiveContext mctx
+  (context, workspace) <- ensurePulumiForActiveContext mctx
+  tp <- activeProfile mctx
   base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
   ip <- fromMaybe "(unknown)" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   let ns = appNamespace (o ^. #namespace)
@@ -4439,6 +4455,34 @@ runCdnStatus mctx o = do
   case filter ((== host) . (^. #host)) rows of
     (r : _) -> TIO.putStr (formatCdnStatus r)
     [] -> TIO.putStr (formatCdnStatus (CdnRow host "unknown" DnsUnknown "(not discovered)" False))
+  certificate <- stackOutput (workspace ^. #pulumiDir) "cdnCertificate"
+  mode <- fromMaybe "legacy" <$> stackOutput (workspace ^. #pulumiDir) "cdnCertificateMode"
+  forM_ certificate $ \name ->
+    unless ("(" `T.isPrefixOf` name) $ do
+      observed <-
+        captureTool
+          "gcloud"
+          [ "certificate-manager"
+          , "certificates"
+          , "describe"
+          , T.unpack name
+          , "--location=global"
+          , "--format=json"
+          , "--project=" <> T.unpack (tp ^. #project)
+          ]
+      let state = case observed of
+            Nothing -> "unavailable"
+            Just bytes -> either ("invalid: " <>) (\stateText -> stateText) (parseCertificateManagerState bytes)
+          activation =
+            T.unwords
+              [ "pulumi"
+              , "-C"
+              , T.pack (workspace ^. #pulumiDir)
+              , "config set --stack"
+              , contextNameText context
+              , "nagare:cdnCertificateMode certificate-map"
+              ]
+      TIO.putStr (formatCertificateManagerStatus name mode state activation)
 
 -- | @cdn purge HOST [--path P]...@: purge the Cloudflare edge cache. @--dry-run@
 -- prints the planned purge; live needs @CF_API_TOKEN@.
@@ -4468,6 +4512,14 @@ runCdnDisable mctx o = do
   let host = T.pack (o ^. #host)
   (_, workspace) <- ensurePulumiForActiveContext mctx
   tp <- activeProfile mctx
+  base <- resolveDomainsBaseAt mctx workspace Nothing
+  when (host == base) $
+    dieT
+      ( "cdn disable will not delete the Pulumi-owned apex record for "
+          <> base
+          <> "; change nagare:enableCdn and preview the standing infrastructure instead"
+      )
+  either (dieT . ("cdn disable: " <>)) pure (googleCdnHostname base host)
   refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) tp
   let gArgs =
         [ "dns"
@@ -4606,6 +4658,8 @@ runDeploy mctx dopts = do
         BC.putStr dm
       forM_ bindingTargets $ \target ->
         TIO.putStrLn ("Would check domain binding: " <> renderBindingTarget target)
+      forM_ (dep' ^. #domains) $ \domainSpec ->
+        TIO.putStrLn ("Would check domain TLS: " <> renderDomainTlsCheck domainSpec)
       forM_ taskBytes $ \tb -> do
         BC.putStrLn "--- Task CronJob manifest ---"
         BC.putStr tb
@@ -4628,6 +4682,7 @@ runDeploy mctx dopts = do
       -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a
       -- pre-Service Bound wait (local-path is WaitForFirstConsumer; that deadlocks).
       preflightDomainBindings bindingTargets >>= orDie
+      preflightDomainTls tp bd ns (dep' ^. #domains) >>= orDie
       applyPVCs pvcBytes
       applyManifests (svcBytes : dmBytes)
       -- EP-52: provision each co-located task's resolved CronJob in the same
@@ -4637,6 +4692,7 @@ runDeploy mctx dopts = do
         TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
       waitForReady name ns >>= requireWait ("service '" <> name <> "'")
       waitForDomainBindings 300 bindingTargets >>= orDie
+      verifyDomainTlsReady tp bd ns (dep' ^. #domains) >>= orDie
       resolveDeploymentAccess bd dep'
       reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The
@@ -4703,6 +4759,7 @@ deployStatic mctx tp sopts site bd = do
       printNamespaceAction cdnNs
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       printBindingChecks (siteBindingTargets (site ^. #domains) cdnNs cdnSvc)
+      printTlsChecks (site ^. #domains)
       TIO.putStrLn ("Release: " <> imageTag)
       cdnDeployStep mctx True (site ^. #cdn) cdnHosts cdnNs cdnSvc
     else do
@@ -4756,6 +4813,7 @@ deployServer mctx tp sopts site0 bd = do
             (namespaceText (site ^. #namespace))
             (siteNameText (site ^. #name))
         )
+      printTlsChecks (site ^. #domains)
       TIO.putStrLn ("URL: " <> (m ^. #url))
       TIO.putStrLn ("Release: " <> imageTag)
       cdnDeployStep mctx True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
@@ -4781,9 +4839,16 @@ cdnDeployStep mctx dry (Just c) hostnames ns service = do
   originIp <- fromMaybe "<publicIp>" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
   tp <- activeProfile mctx
   refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) tp
-  let target = CdnTarget {hostnames = hostnames, originIp = originIp, namespace = ns, service = service}
+  let target =
+        CdnTarget
+          { hostnames = hostnames
+          , originIp = originIp
+          , namespace = ns
+          , service = service
+          , baseDomain = tp ^. #baseDomain
+          }
   if dry
-    then TIO.putStr (renderCdnPlan (planCdn c target refs))
+    then either dieT (TIO.putStr . renderCdnPlan) (planCdn c target refs)
     else do
       res <- provisionCdn c target refs
       case res of
@@ -4820,6 +4885,10 @@ siteBindingTargets domains namespace service =
 printBindingChecks :: [BindingTarget] -> IO ()
 printBindingChecks =
   mapM_ (TIO.putStrLn . ("Would check domain binding: " <>) . renderBindingTarget)
+
+printTlsChecks :: [DomainSpec] -> IO ()
+printTlsChecks =
+  mapM_ (TIO.putStrLn . ("Would check domain TLS: " <>) . renderDomainTlsCheck)
 
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).

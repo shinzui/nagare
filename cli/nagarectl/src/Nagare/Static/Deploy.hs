@@ -26,6 +26,7 @@ import Data.Time (getCurrentTime)
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
 import Nagare.Domain.Binding (BindingTarget (..), preflightDomainBindings, waitForDomainBindings)
+import Nagare.Domain.Tls (preflightDomainTls, verifyDomainTlsReady)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
   ( StaticDeployContext (..)
@@ -128,13 +129,21 @@ deployStaticProduction inputs src = do
         case checked of
           Left err -> pure (Left err)
           Right () -> do
-            applyManifests (m ^. #service : m ^. #domainMappings)
-            waitForReady (m ^. #serviceName) ns
-              >>= requireWait ("site '" <> m ^. #serviceName <> "'")
-            domainsReady <- waitForDomainBindings 300 targets
-            case domainsReady of
+            tlsChecked <- preflightDomainTls (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
+            case tlsChecked of
               Left err -> pure (Left err)
-              Right () -> recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
+              Right () -> do
+                applyManifests (m ^. #service : m ^. #domainMappings)
+                waitForReady (m ^. #serviceName) ns
+                  >>= requireWait ("site '" <> m ^. #serviceName <> "'")
+                domainsReady <- waitForDomainBindings 300 targets
+                case domainsReady of
+                  Left err -> pure (Left err)
+                  Right () -> do
+                    tlsReady <- verifyDomainTlsReady (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
+                    case tlsReady of
+                      Left err -> pure (Left err)
+                      Right () -> recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
 
 -- | Preview deploy: same build/push path under a derived preview Service name
 -- and domain; does not record a production release. Returns the preview URL or a

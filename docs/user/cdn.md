@@ -195,7 +195,10 @@ From the EP-54 substrate spike:
   steady state once the origin presents its real Let's Encrypt wildcard on port
   443 (the edge encrypts *and* verifies the origin certificate).
 - **Google Cloud CDN.** The edge terminates client TLS with a Google-managed
-  certificate; the origin hop runs over HTTPS once origin TLS is enabled.
+  Certificate Manager certificate covering the exact base domain and one-label
+  names through `*.<baseDomain>`; the origin hop runs over HTTPS once origin TLS
+  is enabled. Deeper or unrelated Google-CDN hostnames are rejected. Cloudflare
+  remains the edge option for unrelated zones.
 
 ### The cert-manager DNS-authority caveat (Cloudflare only)
 
@@ -221,8 +224,45 @@ ways before moving to `Full`/`Full (strict)`:
   capability, and **Zone › Zone Settings › Edit**. Optionally set `CF_ZONE_ID`;
   otherwise the zone is discovered from the hostname's registrable domain.
 - **Google Cloud CDN.** Provision the standing load balancer once with `pulumi -C
-  infra/pulumi config set nagare:enableCdn true && pulumi -C infra/pulumi up` (it
-  is billable, so it is opt-in and never created implicitly).
+  infra/pulumi config set nagare:enableCdn true` (it is billable, so it is
+  opt-in). Certificate migration is deliberately staged:
+
+  ```bash
+  # Existing stacks begin in legacy mode; new CDN setups should start prepare.
+  pulumi -C infra/pulumi config set nagare:cdnCertificateMode prepare
+  just infra-preview
+  just infra-up
+
+  # Wait until this prints ACTIVE and an exact activation command.
+  nagarectl cdn status apps.example.com
+
+  # Run the printed command, preview, then apply the proxy switch.
+  pulumi -C infra/pulumi config set --stack <context> \
+    nagare:cdnCertificateMode certificate-map
+  just infra-preview
+  just infra-up
+  ```
+
+  `prepare` publishes Certificate Manager's DNS-authorization CNAME, requests
+  one certificate for `<baseDomain>` and `*.<baseDomain>`, and creates exact and
+  wildcard map entries while the proxy keeps its legacy certificate.
+  `certificate-map` attaches the map and removes `sslCertificates` from the
+  proxy. `cdn status` never prints the activation command before the replacement
+  certificate is `ACTIVE`, making the sequence safely retriable.
+
+### Supported DNS and TLS combinations
+
+| Hostname / provider | DNS authority | Origin TLS | Edge TLS |
+| --- | --- | --- | --- |
+| Platform base zone, direct | Context Cloud DNS | Automatic cert-manager | — |
+| External direct hostname | Owner-managed | Supplied TLS Secret, or an explicitly configured solver | — |
+| Unrelated Cloudflare CDN zone | Cloudflare | Supplied Secret or Cloudflare-capable solver | Cloudflare |
+| Google CDN apex / first-level name | Context Cloud DNS | Automatic cert-manager | Google Certificate Manager |
+
+Google deploy-time DNS changes describe the exact A record first, then create,
+skip, or update it as needed, with every command pinned to the active project.
+`cdn disable` deletes only a supported first-level exact record so wildcard
+resolution returns to the VM; it refuses to delete the Pulumi-owned apex record.
 
 ## See also
 

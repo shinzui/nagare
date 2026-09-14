@@ -102,12 +102,11 @@ just local-up
 just local-bootstrap
 ```
 
-`local-bootstrap` installs cert-manager, Knative, Kourier, and net-certmanager,
-but intentionally does not apply the GCP DNS-01 issuer or enable external-domain
-TLS. It reads `NAGARE_BASE_DOMAIN` and `NAGARE_REGISTRY_HOST` from the active
-local context. It uses the same bounded cert-manager and Knative Serving webhook waits and the same
-bounded ConfigMap retry behavior; the cloud-only net-certmanager webhook gate protects the
-cloud-only `config-certmanager` patch.
+`local-bootstrap` installs cert-manager, Knative, Kourier, net-certmanager, and
+the `nagare-local-ca` issuer, then enables external-domain TLS against that CA.
+It never installs the GCP DNS-01 issuer or invokes `gcloud`. It reads
+`NAGARE_BASE_DOMAIN` and `NAGARE_REGISTRY_HOST` from the active local context and
+uses bounded webhook, issuer, and ConfigMap waits.
 
 ## DNS and TLS model
 
@@ -120,8 +119,9 @@ Automatic internal app domains:   service.namespace.<baseDomain>
 Manual public domains (per app):  notes.example.com   (via Knative DomainMapping)
 ```
 
-The wildcard `*.<baseDomain>` `A` record (created by Pulumi) points at the
-static IP. For **wildcard TLS**, Nagare uses cert-manager with a Let's Encrypt
+The wildcard `*.<baseDomain>` and exact `<baseDomain>` `A` records (created by
+Pulumi) point at the VM unless the apex is assigned to Google CDN. For
+**wildcard TLS**, Nagare uses cert-manager with a Let's Encrypt
 **DNS-01** challenge — HTTP-01 cannot issue wildcard certs. The DNS-01 solver
 uses a **Google Cloud DNS** solver authorized by the VM's `roles/dns.admin`
 zone grant and project-level `roles/dns.reader`, and the wildcard is wired into
@@ -134,6 +134,13 @@ same label before creating namespaced resources. Control-plane and observability
 namespaces are refused by that reconciler. The public `letsencrypt-dns` issuer
 handles only external-domain certificates; cluster-local and system-internal
 certificates explicitly use `knative-selfsigned-issuer`.
+
+Explicit DomainMappings can cause exact certificates in addition to the
+namespace wildcard that covers automatic Service URLs. Deploy success requires
+the certificate appropriate to every `DomainTls` policy. Automatic TLS is
+supported for the platform Cloud DNS zone and other authoritative zones in the
+active project; external DNS authority needs its own solver or a supplied
+namespace-local TLS Secret.
 
 This boundary matters beyond readiness. Each unnecessary production wildcard
 spends the registered domain's issuance budget, and every publicly trusted

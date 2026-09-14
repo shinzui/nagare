@@ -4,6 +4,7 @@ import { NagareNetwork } from "./NagareNetwork";
 import { NagareInstance } from "./NagareInstance";
 import { NagareCdn } from "./NagareCdn";
 import { resolveDomainTopology } from "../domainTopology";
+import { CdnCertificateMode } from "../cdnCertificateMode";
 
 export interface NagarePerimeterArgs {
     gcpProject: string;
@@ -22,6 +23,8 @@ export interface NagarePerimeterArgs {
     /** MasterPlan 11 / EP-56: opt-in for the standing Google Cloud CDN load
      *  balancer (default false; billable, so never created implicitly). */
     enableCdn: boolean;
+    /** Staged migration from the legacy Compute certificate to Certificate Manager. */
+    cdnCertificateMode: CdnCertificateMode;
     /** EP-99: GCP-level deletion protection on the VM (default true). */
     vmDeletionProtection: boolean;
     /** EP-99: boot disk size in GB (default 100). */
@@ -46,6 +49,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
     public readonly cdnGlobalIp: pulumi.Output<string>;
     public readonly cdnBackendService: pulumi.Output<string>;
     public readonly cdnUrlMap: pulumi.Output<string>;
+    public readonly cdnCertificate: pulumi.Output<string>;
+    public readonly cdnCertificateMap: pulumi.Output<string>;
+    public readonly cdnCertificateMode: pulumi.Output<string>;
 
     constructor(name: string, args: NagarePerimeterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:env:NagarePerimeter", name, {}, opts);
@@ -234,14 +240,22 @@ export class NagarePerimeter extends pulumi.ComponentResource {
                 instanceSelfLink: instance.instance.selfLink,
                 network: net.network.id,
                 publicIp: address.address,
+                dnsZone: dnsZone.name,
+                certificateMode: args.cdnCertificateMode,
             }, { parent: this });
             this.cdnGlobalIp = cdn.cdnGlobalIp;
             this.cdnBackendService = cdn.cdnBackendService;
             this.cdnUrlMap = cdn.cdnUrlMap;
+            this.cdnCertificate = cdn.cdnCertificate;
+            this.cdnCertificateMap = cdn.cdnCertificateMap;
+            this.cdnCertificateMode = pulumi.output(args.cdnCertificateMode);
         } else {
             this.cdnGlobalIp = pulumi.output(CDN_DISABLED);
             this.cdnBackendService = pulumi.output(CDN_DISABLED);
             this.cdnUrlMap = pulumi.output(CDN_DISABLED);
+            this.cdnCertificate = pulumi.output(CDN_DISABLED);
+            this.cdnCertificateMap = pulumi.output(CDN_DISABLED);
+            this.cdnCertificateMode = pulumi.output(args.cdnCertificateMode);
         }
 
         // The wildcard always routes directly to the VM. The exact apex uses
@@ -293,6 +307,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             cdnGlobalIp: this.cdnGlobalIp,
             cdnBackendService: this.cdnBackendService,
             cdnUrlMap: this.cdnUrlMap,
+            cdnCertificate: this.cdnCertificate,
+            cdnCertificateMap: this.cdnCertificateMap,
+            cdnCertificateMode: this.cdnCertificateMode,
         });
     }
 }

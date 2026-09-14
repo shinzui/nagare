@@ -21,6 +21,7 @@ import Data.Text (Text)
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
 import Nagare.Domain.Binding (BindingTarget (..), preflightDomainBindings, waitForDomainBindings)
+import Nagare.Domain.Tls (preflightDomainTls, verifyDomainTlsReady)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
   ( ServerDeployContext (..)
@@ -98,22 +99,30 @@ deployServerProduction inputs src = do
           case checked of
             Left err -> pure (Left err)
             Right () -> do
-              applyManifests (m ^. #service : m ^. #domainMappings)
-              waitForReady (m ^. #serviceName) ns
-                >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
-              domainsReady <- waitForDomainBindings 300 targets
-              case domainsReady of
+              tlsChecked <- preflightDomainTls (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
+              case tlsChecked of
                 Left err -> pure (Left err)
                 Right () -> do
-                  recorded <-
-                    recordReleaseFor
-                      (imageRefText (s ^. #image))
-                      (inputs ^. #imageTag)
-                      (m ^. #url)
-                      (m ^. #serviceName)
-                      ns
-                      src
-                  pure (m ^. #url <$ recorded)
+                  applyManifests (m ^. #service : m ^. #domainMappings)
+                  waitForReady (m ^. #serviceName) ns
+                    >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
+                  domainsReady <- waitForDomainBindings 300 targets
+                  case domainsReady of
+                    Left err -> pure (Left err)
+                    Right () -> do
+                      tlsReady <- verifyDomainTlsReady (inputs ^. #targetProfile) (inputs ^. #baseDomain) ns (s ^. #domains)
+                      case tlsReady of
+                        Left err -> pure (Left err)
+                        Right () -> do
+                          recorded <-
+                            recordReleaseFor
+                              (imageRefText (s ^. #image))
+                              (inputs ^. #imageTag)
+                              (m ^. #url)
+                              (m ^. #serviceName)
+                              ns
+                              src
+                          pure (m ^. #url <$ recorded)
 
 -- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.

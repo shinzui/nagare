@@ -1,5 +1,11 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
+import {
+    activatesCertificateMap,
+    CdnCertificateMode,
+    preparesCertificateMap,
+    requireActiveCertificateState,
+} from "../cdnCertificateMode";
 
 /**
  * MasterPlan 11 (CDN) / EP-56 — the STANDING Google Cloud CDN capability: a
@@ -27,12 +33,18 @@ export interface NagareCdnArgs {
     network: pulumi.Input<string>;
     /** The VM's existing regional static IP, passed for reference/diagnostics. */
     publicIp: pulumi.Input<string>;
+    /** Platform Cloud DNS zone that owns baseDomain. */
+    dnsZone: pulumi.Input<string>;
+    /** Explicit staged migration state for the edge certificate. */
+    certificateMode: CdnCertificateMode;
 }
 
 export class NagareCdn extends pulumi.ComponentResource {
     public readonly cdnGlobalIp: pulumi.Output<string>;
     public readonly cdnBackendService: pulumi.Output<string>;
     public readonly cdnUrlMap: pulumi.Output<string>;
+    public readonly cdnCertificate: pulumi.Output<string>;
+    public readonly cdnCertificateMap: pulumi.Output<string>;
 
     constructor(name: string, args: NagareCdnArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:cdn:NagareCdn", name, {}, opts);
@@ -112,22 +124,86 @@ export class NagareCdn extends pulumi.ComponentResource {
             defaultService: backend.selfLink,
         }, { parent: this });
 
-        // 6. Edge TLS termination with a Google-managed certificate. This is the
-        //    single-hostname path (EP-54's simpler option): the managed cert's
-        //    domains are fixed at creation. For multiple CDN hostnames or a
-        //    wildcard, migrate to Certificate Manager (gcp.certificatemanager.*),
-        //    the wildcard path EP-54 also records. Until `baseDomain` is
-        //    delegated and a hostname resolves to the anycast IP, the cert sits
-        //    in PROVISIONING — expected and non-blocking (see Idempotence).
-        const cert = new gcp.compute.ManagedSslCertificate(`${name}-cert`, {
+        // 6. Keep the legacy certificate resource throughout the staged
+        //    migration. `legacy` and `prepare` attach it to the proxy;
+        //    `certificate-map` detaches it only after the operator has observed
+        //    the replacement as ACTIVE and selected that mode explicitly.
+        const legacyCert = new gcp.compute.ManagedSslCertificate(`${name}-cert`, {
             managed: {
                 domains: [args.baseDomain],
             },
         }, { parent: this });
 
+        let certificate: gcp.certificatemanager.Certificate | undefined;
+        let certificateMap: gcp.certificatemanager.CertificateMap | undefined;
+        if (preparesCertificateMap(args.certificateMode)) {
+            const authorization = new gcp.certificatemanager.DnsAuthorization(`${name}-dns-auth`, {
+                project: args.gcpProject,
+                location: "global",
+                domain: args.baseDomain,
+                type: "FIXED_RECORD",
+            }, { parent: this });
+
+            const authorizationRecord = authorization.dnsResourceRecords.apply((records) => {
+                if (records.length !== 1) {
+                    throw new Error(`Certificate Manager returned ${records.length} DNS authorization records; expected one`);
+                }
+                return records[0];
+            });
+            new gcp.dns.RecordSet(`${name}-dns-auth-record`, {
+                project: args.gcpProject,
+                managedZone: args.dnsZone,
+                name: authorizationRecord.apply((record) => record.name),
+                type: authorizationRecord.apply((record) => record.type),
+                ttl: 300,
+                rrdatas: [authorizationRecord.apply((record) => record.data)],
+            }, { parent: this });
+
+            certificate = new gcp.certificatemanager.Certificate(`${name}-certificate`, {
+                project: args.gcpProject,
+                location: "global",
+                scope: "DEFAULT",
+                managed: {
+                    domains: [args.baseDomain, `*.${args.baseDomain}`],
+                    dnsAuthorizations: [authorization.id],
+                },
+            }, { parent: this });
+
+            certificateMap = new gcp.certificatemanager.CertificateMap(`${name}-certificate-map`, {
+                project: args.gcpProject,
+            }, { parent: this });
+            new gcp.certificatemanager.CertificateMapEntry(`${name}-certificate-map-apex`, {
+                project: args.gcpProject,
+                map: certificateMap.name,
+                hostname: args.baseDomain,
+                certificates: [certificate.id],
+            }, { parent: certificateMap });
+            new gcp.certificatemanager.CertificateMapEntry(`${name}-certificate-map-wildcard`, {
+                project: args.gcpProject,
+                map: certificateMap.name,
+                hostname: `*.${args.baseDomain}`,
+                certificates: [certificate.id],
+            }, { parent: certificateMap });
+        }
+
+        let proxyCertificateArgs: {
+            certificateMap?: pulumi.Input<string>;
+            sslCertificates?: pulumi.Input<pulumi.Input<string>[]>;
+        };
+        if (activatesCertificateMap(args.certificateMode)) {
+            const activeCertificateMap = certificate!.managed.apply((managed) => {
+                requireActiveCertificateState(managed?.state);
+                return certificateMap!.name;
+            });
+            proxyCertificateArgs = {
+                certificateMap: pulumi.interpolate`//certificatemanager.googleapis.com/projects/${args.gcpProject}/locations/global/certificateMaps/${activeCertificateMap}`,
+            };
+        } else {
+            proxyCertificateArgs = { sslCertificates: [legacyCert.id] };
+        }
         const httpsProxy = new gcp.compute.TargetHttpsProxy(`${name}-https-proxy`, {
             urlMap: urlMap.id,
-            sslCertificates: [cert.id],
+            ...proxyCertificateArgs,
         }, { parent: this });
 
         // 7. HTTP -> HTTPS redirect. A tiny separate URL map whose default action
@@ -163,11 +239,15 @@ export class NagareCdn extends pulumi.ComponentResource {
         this.cdnGlobalIp = globalIp.address;
         this.cdnBackendService = backend.name;
         this.cdnUrlMap = urlMap.name;
+        this.cdnCertificate = certificate?.name ?? pulumi.output("(legacy certificate)");
+        this.cdnCertificateMap = certificateMap?.name ?? pulumi.output("(legacy certificate)");
 
         this.registerOutputs({
             cdnGlobalIp: this.cdnGlobalIp,
             cdnBackendService: this.cdnBackendService,
             cdnUrlMap: this.cdnUrlMap,
+            cdnCertificate: this.cdnCertificate,
+            cdnCertificateMap: this.cdnCertificateMap,
         });
     }
 }

@@ -72,6 +72,7 @@ library
     Nagare.Deploy
     Nagare.Deploy.Resolve
     Nagare.Domain.Binding
+    Nagare.Domain.Tls
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated

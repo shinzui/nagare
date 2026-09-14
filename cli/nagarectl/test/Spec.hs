@@ -23,7 +23,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf, isSuffixOf, sort)
@@ -104,6 +104,14 @@ import Nagare.Database.Secret
   , percentEncode
   , secretKeysFor
   )
+import Nagare.Domain.Tls
+  ( TlsPreflightOps (..)
+  , parseIssuerName
+  , parseManagedZoneNames
+  , preflightDomainTlsWith
+  , secretHasTlsKeys
+  , verifyDomainTlsReadyWith
+  )
 import Nagare.Dsl.Broker
   ( Broker (..)
   , BrokerBinding (..)
@@ -134,6 +142,7 @@ import Nagare.Dsl.Task
 import Nagare.Dsl.Types
   ( AccessMode (..)
   , Deployment (..)
+  , DomainSpec
   , EnvName
   , EnvScope (..)
   , EnvVar (..)
@@ -142,6 +151,7 @@ import Nagare.Dsl.Types
   , Volume (..)
   , defaultPort
   , envNameText
+  , mkDomains
   , mkEnvName
   , mkImageRef
   , mkMountPath
@@ -154,6 +164,7 @@ import Nagare.Dsl.Types
   , runtimeScoped
   , scopedEnv
   , secretNameText
+  , withTlsSecret
   )
 import Nagare.Env.BuildArgs (BuildArgWarning (..), assembleBuildArgs)
 import Nagare.Env.Dotenv (parseDotenv)
@@ -449,6 +460,7 @@ main = do
         , adcTests
         , clusterGuardTests
         , domainBindingTests
+        , testGroup "Nagare.Domain.Tls" domainTlsTests
         , accessGrantsTests
         , accessResolveTests
         , appDeployTests
@@ -2343,6 +2355,8 @@ domainsTests =
           "{\"items\":[{\"metadata\":{\"name\":\"blog.apps.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
         ("kubectl", ["-n", "knative-serving", "get", "configmap", "config-network", "-o", "json"]) ->
           "{\"data\":{\"external-domain-tls\":\"Enabled\"}}"
+        ("kubectl", ["-n", "knative-serving", "get", "configmap", "config-certmanager", "-o", "json"]) ->
+          "{\"data\":{\"issuerRef\":\"kind: ClusterIssuer\\nname: letsencrypt-dns\\n\"}}"
         ("kubectl", ["get", "clusterissuer", "letsencrypt-dns", "-o", "json"]) ->
           "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
         ("kubectl", ["get", "certificates.cert-manager.io", "-n", "personal", "-o", "json"]) ->
@@ -2352,6 +2366,97 @@ domainsTests =
         ("dig", ["+short", "A", _]) -> TE.encodeUtf8 (vmIp <> "\n")
         ("dig", ["+short", "NS", _]) -> "ns-cloud-a.example.\n"
         _ -> ""
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Domain.Tls: read-only automatic/supplied origin-TLS enforcement.
+
+domainTlsTests :: [TestTree]
+domainTlsTests =
+  [ testCase "issuerRef parser follows the configured local issuer" $
+      parseIssuerName configCertManagerLocal @?= Right "nagare-local-ca"
+  , testCase "Cloud DNS parser normalizes terminal dots" $
+      parseManagedZoneNames "[{\"dnsName\":\"example.net.\"},{\"dnsName\":\"apps.example.com.\"}]"
+        @?= Right ["example.net", "apps.example.com"]
+  , testCase "supplied TLS Secret requires both standard keys" $ do
+      secretHasTlsKeys "{\"data\":{\"tls.crt\":\"YQ==\",\"tls.key\":\"Yg==\"}}" @?= Right ()
+      assertBool "missing key rejected" (isLeft (secretHasTlsKeys "{\"data\":{\"tls.crt\":\"YQ==\"}}"))
+  , testCase "local automatic TLS accepts the configured CA without gcloud" $ do
+      calls <- newIORef []
+      result <- preflightDomainTlsWith (ops calls configCertManagerLocal "[]" validSecret) (tnbProfile & #mode .~ Local) base "personal" (domains "outside.example.net")
+      result @?= Right ()
+      commands <- readIORef calls
+      assertBool "no gcloud" (all ((/= "gcloud") . fst) commands)
+      assertBool "local issuer checked" (("kubectl", ["get", "clusterissuer", "nagare-local-ca", "-o", "json"]) `elem` commands)
+  , testCase "cloud automatic TLS under the platform zone needs no zone lookup" $ do
+      calls <- newIORef []
+      result <- preflightDomainTlsWith (ops calls configCertManager "[]" validSecret) tnbProfile base "personal" (domains "blog.apps.example.com")
+      result @?= Right ()
+      commands <- readIORef calls
+      assertBool "no gcloud" (all ((/= "gcloud") . fst) commands)
+  , testCase "cloud automatic TLS accepts an authoritative project zone" $ do
+      calls <- newIORef []
+      result <- preflightDomainTlsWith (ops calls configCertManager "[{\"dnsName\":\"example.net.\"}]" validSecret) tnbProfile base "personal" (domains "outside.example.net")
+      result @?= Right ()
+      commands <- readIORef calls
+      assertBool
+        "project-pinned zone read"
+        ( ( "gcloud"
+          , ["dns", "managed-zones", "list", "--format=json", "--project=tan-nb-exp"]
+          )
+            `elem` commands
+        )
+  , testCase "unsupported DNS authority fails before apply and names supplied-secret escape hatch" $ do
+      calls <- newIORef []
+      result <- preflightDomainTlsWith (ops calls configCertManager "[]" validSecret) tnbProfile base "personal" (domains "outside.example.net")
+      case result of
+        Left err -> do
+          assertBool "authority" ("no authoritative Cloud DNS parent zone" `T.isInfixOf` err)
+          assertBool "escape hatch" ("supplied Kubernetes TLS Secret" `T.isInfixOf` err)
+        Right () -> assertFailure "unsupported automatic TLS was accepted"
+      commands <- readIORef calls
+      assertBool "no apply" (all (notElem "apply" . snd) commands)
+  , testCase "unusable supplied Secret fails without querying automatic TLS" $ do
+      calls <- newIORef []
+      let supplied = [withTlsSecret (unsafe (mkSecretName "external-tls")) (oneDomain "outside.example.net")]
+      result <- preflightDomainTlsWith (ops calls configCertManager "[]" "{\"data\":{\"tls.crt\":\"YQ==\"}}") tnbProfile base "personal" supplied
+      case result of
+        Left err -> assertBool "keys named" ("tls.crt and tls.key" `T.isInfixOf` err)
+        Right () -> assertFailure "incomplete TLS Secret was accepted"
+      commands <- readIORef calls
+      assertBool "only supplied-secret query" (all (\(_, args) -> "config-network" `notElem` args) commands)
+  , testCase "post-route verification requires a ready covering certificate" $ do
+      calls <- newIORef []
+      ready <- verifyDomainTlsReadyWith (ops calls configCertManager "[]" validSecret) tnbProfile base "personal" (domains "blog.apps.example.com")
+      ready @?= Right ()
+  ]
+  where
+    base = "apps.example.com"
+    validSecret = "{\"data\":{\"tls.crt\":\"YQ==\",\"tls.key\":\"Yg==\"}}"
+    configNetwork = "{\"data\":{\"external-domain-tls\":\"Enabled\"}}"
+    configCertManager = "{\"data\":{\"issuerRef\":\"kind: ClusterIssuer\\nname: letsencrypt-dns\\n\"}}"
+    configCertManagerLocal = "{\"data\":{\"issuerRef\":\"kind: ClusterIssuer\\nname: nagare-local-ca\\n\"}}"
+    issuerReady = "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
+    certificateReady =
+      "{\"items\":[{\"metadata\":{\"name\":\"blog-cert\"},\"spec\":{\"dnsNames\":[\"blog.apps.example.com\"]},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
+    domains :: Text -> [DomainSpec]
+    domains hostname = unsafe (mkDomains [(hostname, True)])
+    oneDomain :: Text -> DomainSpec
+    oneDomain hostname = case domains hostname of
+      [domain] -> domain
+      _ -> error "mkDomains did not return exactly one test domain"
+    ops calls issuerConfig zones secret =
+      TlsPreflightOps $ \executable args -> do
+        modifyIORef' calls (<> [(executable, args)])
+        pure $ case (executable, args) of
+          ("kubectl", ["-n", "knative-serving", "get", "configmap", "config-network", "-o", "json"]) -> Right configNetwork
+          ("kubectl", ["-n", "knative-serving", "get", "configmap", "config-certmanager", "-o", "json"]) -> Right issuerConfig
+          ("kubectl", ["get", "clusterissuer", "nagare-local-ca", "-o", "json"]) -> Right issuerReady
+          ("kubectl", ["get", "clusterissuer", "letsencrypt-dns", "-o", "json"]) -> Right issuerReady
+          ("gcloud", ["dns", "managed-zones", "list", "--format=json", "--project=tan-nb-exp"]) -> Right zones
+          ("kubectl", ["get", "secret", "external-tls", "-n", "personal", "-o", "json"]) -> Right secret
+          ("kubectl", ["get", "certificates.cert-manager.io", "-n", "personal", "-o", "json"]) -> Right certificateReady
+          ("kubectl", ["get", "certificates.networking.internal.knative.dev", "-n", "personal", "-o", "json"]) -> Right "{\"items\":[]}"
+          _ -> Left ("unexpected command: " <> T.pack executable <> " " <> T.unwords (map T.pack args))
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops.Doctor (MasterPlan 8, EP-39): the pure remediation knowledge base,
@@ -4343,22 +4448,30 @@ cloudflareTests =
 cdnProvisionTests :: [TestTree]
 cdnProvisionTests =
   [ testCase "planCdn Cloudflare: DNS/OriginTls/Cache actions, no GcloudCmd" $ do
-      let p = planCdn cfCdn cfTarget noRefs
+      let p = unsafe (planCdn cfCdn cfTarget noRefs)
       p ^. #provider @?= CloudflareCdn
       assertBool "no gcloud action" (not (any isGcloud (p ^. #actions)))
       assertBool "one DnsUpsert per host" (length [() | DnsUpsert {} <- p ^. #actions] == 1)
-  , testCase "planCdn Gcp: all GcloudCmd, every argv pins --project=tan-nb-exp" $ do
-      let p = planCdn gcpCdn gcpTarget gcpRefs
+  , testCase "planCdn Gcp: DNS upsert plus project-pinned backend command" $ do
+      let p = unsafe (planCdn gcpCdn gcpTarget gcpRefs)
       p ^. #provider @?= GcpCloudCdn
-      assertBool "all actions are gcloud" (all isGcloud (p ^. #actions))
+      assertBool "one convergent DNS upsert" (length [() | DnsUpsert {} <- p ^. #actions] == 1)
       assertBool
         "every gcloud argv has --project=tan-nb-exp"
         (all (\a -> "--project=tan-nb-exp" `elem` a) [args | GcloudCmd args <- p ^. #actions])
+  , testCase "Google CDN accepts only apex and one-label base-domain hosts" $ do
+      googleCdnHostname "apps.example.com" "apps.example.com" @?= Right ()
+      googleCdnHostname "apps.example.com" "www.apps.example.com" @?= Right ()
+      assertBool "nested host rejected" (isLeft (googleCdnHostname "apps.example.com" "deep.www.apps.example.com"))
+      assertBool "unrelated host rejected" (isLeft (googleCdnHostname "apps.example.com" "www.example.net"))
+      assertBool
+        "Cloudflare remains unrestricted"
+        (isRight (planCdn cfCdn (cfTarget & #hostnames .~ ["deep.unrelated.example.net"]) noRefs))
   , testCase "gcloudDnsUpsertArgs: exact argv (more-specific A record to the global IP)" $
       gcloudDnsUpsertArgs "tan-nb-exp" "nagare-zone" "app.example.com" "203.0.113.20"
         @?= [ "dns"
             , "record-sets"
-            , "create"
+            , "update"
             , "app.example.com."
             , "--type=A"
             , "--ttl=300"
@@ -4370,6 +4483,13 @@ cdnProvisionTests =
       assertBool
         "--project follows the supplied project"
         ("--project=acme-prod" `elem` gcloudDnsUpsertArgs "acme-prod" "z" "h" "ip")
+  , testCase "every convergent Cloud DNS operation is project-pinned" $
+      forM_
+        [ gcloudDnsDescribeArgs "acme-prod" "z" "h"
+        , gcloudDnsCreateArgs "acme-prod" "z" "h" "ip"
+        , gcloudDnsUpdateArgs "acme-prod" "z" "h" "ip"
+        ]
+        (assertBool "--project follows the supplied project" . elem "--project=acme-prod")
   , testCase "gcloudBackendCacheArgs: exact argv (cache mode + default ttl + project)" $
       gcloudBackendCacheArgs "tan-nb-exp" "nagare-cdn-backend" gcpCdn
         @?= [ "compute"
@@ -4381,7 +4501,7 @@ cdnProvisionTests =
             , "--project=tan-nb-exp"
             ]
   , testCase "renderCdnPlan: Cloudflare dry-run block" $
-      renderCdnPlan (planCdn cfCdn cfTarget noRefs)
+      renderCdnPlan (unsafe (planCdn cfCdn cfTarget noRefs))
         @?= T.unlines
           [ "--- CDN plan (Cloudflare) ---"
           , "DNS: blog.example.com -> 203.0.113.10 (proxied)"
@@ -4391,10 +4511,10 @@ cdnProvisionTests =
           , "Cache: (default) -> 3600s"
           ]
   , testCase "renderCdnPlan: Google dry-run block (gcloud lines pinned to the project)" $
-      renderCdnPlan (planCdn gcpCdn gcpTarget gcpRefs)
+      renderCdnPlan (unsafe (planCdn gcpCdn gcpTarget gcpRefs))
         @?= T.unlines
           [ "--- CDN plan (GcpCloudCdn) ---"
-          , "gcloud dns record-sets create app.example.com. --type=A --ttl=300 --rrdatas=203.0.113.20 --zone=nagare-zone --project=tan-nb-exp"
+          , "DNS: app.apps.example.com -> 203.0.113.20 (Cloud DNS A-record)"
           , "gcloud compute backend-services update nagare-cdn-backend --cache-mode=USE_ORIGIN_HEADERS --default-ttl=3600 --project=tan-nb-exp"
           ]
   ]
@@ -4408,7 +4528,7 @@ cdnProvisionTests =
         , cacheStaticAssets = False
         , cacheRules = [CdnCacheRule "/assets/" (Just 31536000), CdnCacheRule "/api/" Nothing]
         }
-    cfTarget = CdnTarget ["blog.example.com"] "203.0.113.10" "personal" "blog"
+    cfTarget = CdnTarget ["blog.example.com"] "203.0.113.10" "personal" "blog" "apps.example.com"
     gcpCdn =
       Cdn
         { provider = GcpCloudCdn
@@ -4416,7 +4536,7 @@ cdnProvisionTests =
         , cacheStaticAssets = False
         , cacheRules = []
         }
-    gcpTarget = CdnTarget ["app.example.com"] "203.0.113.20" "personal" "app"
+    gcpTarget = CdnTarget ["app.apps.example.com"] "203.0.113.20" "personal" "app" "apps.example.com"
     gcpRefs = GcpStackRefs "203.0.113.20" "nagare-cdn-backend" "nagare-cdn-urlmap" "nagare-zone" "tan-nb-exp"
     noRefs = GcpStackRefs "" "" "" "" "tan-nb-exp"
 
@@ -4442,6 +4562,14 @@ cdnStatusTests =
           , "Cache:    default 3600s, 2 rules"
           , "Ready:    ready"
           ]
+  , testCase "Certificate Manager status parser reads the managed lifecycle" $
+      parseCertificateManagerState "{\"managed\":{\"state\":\"ACTIVE\"}}" @?= Right "ACTIVE"
+  , testCase "certificate-map activation is printed only for an ACTIVE prepared certificate" $ do
+      let command = "pulumi -C /payload/infra/pulumi config set --stack prod nagare:cdnCertificateMode certificate-map"
+          active = formatCertificateManagerStatus "nagare-cdn" "prepare" "ACTIVE" command
+          pending = formatCertificateManagerStatus "nagare-cdn" "prepare" "PROVISIONING" command
+      assertBool "active has exact command" (command `T.isInfixOf` active)
+      assertBool "pending has no command" (not (command `T.isInfixOf` pending))
   ]
   where
     edgeRow = CdnRow "blog.example.com" "Cloudflare" (PointsAtEdge "203.0.113.30") "default 3600s, 2 rules" True

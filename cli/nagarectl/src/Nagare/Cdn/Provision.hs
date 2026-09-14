@@ -16,7 +16,11 @@ module Nagare.Cdn.Provision
   , CdnPlan (..)
   , CdnAction (..)
   , planCdn
+  , googleCdnHostname
   , renderCdnPlan
+  , gcloudDnsDescribeArgs
+  , gcloudDnsCreateArgs
+  , gcloudDnsUpdateArgs
   , gcloudDnsUpsertArgs
   , gcloudBackendCacheArgs
 
@@ -25,8 +29,15 @@ module Nagare.Cdn.Provision
   )
 where
 
+import Control.Exception (IOException, try)
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Cdn.Cloudflare
   ( OriginTlsMode (Flexible)
   , applyCacheRules
@@ -37,6 +48,8 @@ import Nagare.Cdn.Cloudflare
 import Nagare.Dsl.Cdn.Types (Cdn (..), CdnCacheRule (..), CdnProvider (..))
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
+import System.Exit (ExitCode (..))
+import System.Process (readProcessWithExitCode)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -52,6 +65,8 @@ data CdnTarget = CdnTarget
   -- ^ the Knative namespace
   , service :: !Text
   -- ^ the Knative Service name
+  , baseDomain :: !Text
+  -- ^ the context-owned platform zone used to constrain Google CDN names
   }
   deriving stock (Generic, Eq, Show)
 
@@ -100,11 +115,31 @@ data CdnAction
 -- Cloud DNS A record at the anycast IP (so the hostname wins over the wildcard)
 -- and updates the backend service's cache behaviour — both as @gcloud@ argv that
 -- already carry @--project=\<target-project>@ (EP-62: from 'project').
-planCdn :: Cdn -> CdnTarget -> GcpStackRefs -> CdnPlan
+planCdn :: Cdn -> CdnTarget -> GcpStackRefs -> Either Text CdnPlan
 planCdn cdn target refs =
   case cdn ^. #provider of
-    CloudflareCdn -> CdnPlan CloudflareCdn (cloudflareActions cdn target)
-    GcpCloudCdn -> CdnPlan GcpCloudCdn (gcpActions cdn target refs)
+    CloudflareCdn -> Right (CdnPlan CloudflareCdn (cloudflareActions cdn target))
+    GcpCloudCdn -> do
+      mapM_ (googleCdnHostname (target ^. #baseDomain)) (target ^. #hostnames)
+      Right (CdnPlan GcpCloudCdn (gcpActions cdn target refs))
+
+-- | The standing Google certificate covers the exact base apex and one label
+-- below it. Cloudflare has no such restriction because it owns edge TLS in the
+-- hostname's independent authority.
+googleCdnHostname :: Text -> Text -> Either Text ()
+googleCdnHostname base hostname
+  | hostname == base = Right ()
+  | Just label <- T.stripSuffix ("." <> base) hostname
+  , not (T.null label)
+  , not (T.any (== '.') label) =
+      Right ()
+  | otherwise =
+      Left
+        ( hostname
+            <> " is not covered by the Google CDN certificate; use the exact base domain "
+            <> base
+            <> " or one label below it, or select Cloudflare for an unrelated zone"
+        )
 
 cloudflareActions :: Cdn -> CdnTarget -> [CdnAction]
 cloudflareActions cdn target =
@@ -116,7 +151,7 @@ cloudflareActions cdn target =
 
 gcpActions :: Cdn -> CdnTarget -> GcpStackRefs -> [CdnAction]
 gcpActions cdn target refs =
-  [ GcloudCmd (gcloudDnsUpsertArgs (refs ^. #project) (refs ^. #dnsZone) h (refs ^. #globalIp))
+  [ DnsUpsert h (refs ^. #globalIp) "Cloud DNS A-record"
   | h <- target ^. #hostnames
   ]
     ++ [GcloudCmd (gcloudBackendCacheArgs (refs ^. #project) (refs ^. #backendService) cdn)]
@@ -127,15 +162,41 @@ ttlDesc :: Maybe Int -> Text
 ttlDesc Nothing = "never"
 ttlDesc (Just n) = tshow n <> "s"
 
--- | The exact @gcloud dns record-sets create@ argv for a more-specific A record
--- pointing @hostname@ at @ip@ in @zone@. Carries @--project=\<project>@ per the
--- repo isolation policy (EP-62). @disable@ later deletes this exact record so the
--- hostname falls back to the @*.<baseDomain>@ wildcard / VM.
+-- | The exact idempotent update argv. Live provisioning first describes the
+-- record, skips an exact match, creates an absent record, or runs this update.
 gcloudDnsUpsertArgs :: Text -> Text -> Text -> Text -> [Text]
-gcloudDnsUpsertArgs project zone hostname ip =
+gcloudDnsUpsertArgs = gcloudDnsUpdateArgs
+
+gcloudDnsDescribeArgs :: Text -> Text -> Text -> [Text]
+gcloudDnsDescribeArgs project zone hostname =
+  [ "dns"
+  , "record-sets"
+  , "describe"
+  , hostname <> "."
+  , "--type=A"
+  , "--zone=" <> zone
+  , "--format=json"
+  , "--project=" <> project
+  ]
+
+gcloudDnsCreateArgs :: Text -> Text -> Text -> Text -> [Text]
+gcloudDnsCreateArgs project zone hostname ip =
   [ "dns"
   , "record-sets"
   , "create"
+  , hostname <> "."
+  , "--type=A"
+  , "--ttl=300"
+  , "--rrdatas=" <> ip
+  , "--zone=" <> zone
+  , "--project=" <> project
+  ]
+
+gcloudDnsUpdateArgs :: Text -> Text -> Text -> Text -> [Text]
+gcloudDnsUpdateArgs project zone hostname ip =
+  [ "dns"
+  , "record-sets"
+  , "update"
   , hostname <> "."
   , "--type=A"
   , "--ttl=300"
@@ -189,7 +250,9 @@ provisionCdn :: Cdn -> CdnTarget -> GcpStackRefs -> IO (Either Text CdnResult)
 provisionCdn cdn target refs =
   case cdn ^. #provider of
     CloudflareCdn -> provisionCloudflare cdn target
-    GcpCloudCdn -> provisionGcp (planCdn cdn target refs) target
+    GcpCloudCdn -> case planCdn cdn target refs of
+      Left err -> pure (Left err)
+      Right plan -> provisionGcp refs plan target
 
 provisionCloudflare :: Cdn -> CdnTarget -> IO (Either Text CdnResult)
 provisionCloudflare cdn target = do
@@ -217,8 +280,8 @@ provisionCloudflare cdn target = do
                 ("Cloudflare edge: " <> tshow (length hosts) <> " hostname(s) proxied")
             )
 
-provisionGcp :: CdnPlan -> CdnTarget -> IO (Either Text CdnResult)
-provisionGcp plan target = go (plan ^. #actions)
+provisionGcp :: GcpStackRefs -> CdnPlan -> CdnTarget -> IO (Either Text CdnResult)
+provisionGcp refs plan target = go (plan ^. #actions)
   where
     hosts = target ^. #hostnames
     done =
@@ -228,12 +291,70 @@ provisionGcp plan target = go (plan ^. #actions)
             ("Google Cloud CDN: " <> tshow (length hosts) <> " hostname(s) routed to the load balancer")
         )
     go [] = pure done
+    go (DnsUpsert hostname ip _ : rest) = do
+      result <- upsertGcpDns refs hostname ip
+      case result of
+        Left err -> pure (Left err)
+        Right () -> go rest
     go (GcloudCmd args : rest) = do
       m <- captureTool "gcloud" (map T.unpack args)
       case m of
         Nothing -> pure (Left ("gcloud failed: gcloud " <> T.unwords args))
         Just _ -> go rest
     go (_ : rest) = go rest
+
+upsertGcpDns :: GcpStackRefs -> Text -> Text -> IO (Either Text ())
+upsertGcpDns refs hostname ip = do
+  described <- runGcloud (gcloudDnsDescribeArgs project zone hostname)
+  case described of
+    Right out -> case parseRecordSet out of
+      Right ([current], 300) | current == ip -> pure (Right ())
+      Right _ -> mutate (gcloudDnsUpdateArgs project zone hostname ip)
+      Left err -> pure (Left (hostname <> ": cannot inspect the existing Cloud DNS A record: " <> err))
+    Left diagnostic
+      | isNotFound diagnostic -> mutate (gcloudDnsCreateArgs project zone hostname ip)
+      | otherwise -> pure (Left (hostname <> ": Cloud DNS describe failed: " <> diagnostic))
+  where
+    project = refs ^. #project
+    zone = refs ^. #dnsZone
+    mutate args = do
+      result <- runGcloud args
+      pure $ case result of
+        Right _ -> Right ()
+        Left diagnostic -> Left ("gcloud failed: gcloud " <> T.unwords args <> ": " <> diagnostic)
+    isNotFound diagnostic =
+      let lower = T.toLower diagnostic
+       in any (`T.isInfixOf` lower) ["not found", "not_found", "does not exist", "404"]
+
+runGcloud :: [Text] -> IO (Either Text BC.ByteString)
+runGcloud args = do
+  result <- try (readProcessWithExitCode "gcloud" (map T.unpack args) "")
+  pure $ case result of
+    Left (err :: IOException) -> Left (T.pack (show err))
+    Right (ExitSuccess, out, _) -> Right (TE.encodeUtf8 (T.pack out))
+    Right (ExitFailure code, out, err) ->
+      Left
+        ( "exit "
+            <> tshow code
+            <> ": "
+            <> T.strip (T.pack (if null err then out else err))
+        )
+
+parseRecordSet :: BC.ByteString -> Either Text ([Text], Int)
+parseRecordSet bytes =
+  case eitherDecodeStrict bytes of
+    Left err -> Left (T.pack err)
+    Right (Object object) -> do
+      rrdatas <- field "rrdatas" object
+      ttl <- field "ttl" object
+      Right (rrdatas, ttl)
+    Right _ -> Left "response is not an object"
+  where
+    field key object = case KeyMap.lookup (Key.fromText key) object of
+      Nothing -> Left ("response has no " <> key)
+      Just value -> case Aeson.fromJSON value of
+        Aeson.Error err -> Left (key <> " is invalid: " <> T.pack err)
+        Aeson.Success result -> Right result
 
 -- | Run a sequence of @IO (Either Text ())@ steps, short-circuiting on the first
 -- 'Left'.

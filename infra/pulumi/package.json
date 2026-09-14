@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "tsc --outDir .test-build && node .test-build/test/domainTopology.test.js && node .test-build/test/perimeterDomainRecords.test.js"
+    "test": "tsc --outDir .test-build && node .test-build/test/domainTopology.test.js && node .test-build/test/cdnCertificateMode.test.js && node .test-build/test/perimeterDomainRecords.test.js && node .test-build/test/cdnCertificateResources.test.js"
   },
   "dependencies": {
     "@pulumi/pulumi": "^3.140.0",
