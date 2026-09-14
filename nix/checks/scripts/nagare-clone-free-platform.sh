@@ -173,6 +173,32 @@ grep -q 'scripts/local-smoke.sh' local-smoke-dry-run.out
 nagare --dry-run cluster-bootstrap > cluster-bootstrap-dry-run.out 2>&1
 grep -q 'render-context-template.sh' cluster-bootstrap-dry-run.out
 grep -q 'kubectl apply -f "$issuer"' cluster-bootstrap-dry-run.out
+
+# EP-134 / IR-20: every cloud recipe that mutates Kubernetes proves the ambient
+# kubeconfig belongs to the selected Nagare host before its first write. Local
+# recipes deliberately retain their k3d-only preflight.
+assert_cluster_guard_before() {
+  recipe="$1"
+  first_mutation="$2"
+  output="${recipe}-guard-order.out"
+  nagare --dry-run "$recipe" > "$output" 2>&1
+  guard_line="$(grep -n -m1 'nagarectl cluster guard' "$output")"
+  mutation_line="$(grep -n -m1 -- "$first_mutation" "$output")"
+  guard_number="${guard_line%%:*}"
+  mutation_number="${mutation_line%%:*}"
+  test "$guard_number" -lt "$mutation_number"
+}
+assert_cluster_guard_before cluster-bootstrap 'kubectl create namespace'
+assert_cluster_guard_before job-runs-bootstrap 'kubectl create namespace'
+assert_cluster_guard_before cluster-enable-tls 'kubectl -n knative-serving patch'
+assert_cluster_guard_before observability 'cluster/observability/install.sh'
+assert_cluster_guard_before deploy-hello 'kubectl apply -f cluster/examples/hello-knative-service/service.yaml'
+nagare --dry-run local-bootstrap > local-bootstrap-guard-order.out 2>&1
+nagare --dry-run local-minio > local-minio-guard-order.out 2>&1
+if grep -q 'nagarectl cluster guard' local-bootstrap-guard-order.out local-minio-guard-order.out; then
+  echo "local Kubernetes recipe unexpectedly uses the cloud cluster guard" >&2
+  exit 1
+fi
 grep -q -- '-C.*nagare/local/platform/' "$NAGARE_FAKE_TOOL_LOG"
 
 # A legacy context must be adopted explicitly. The command

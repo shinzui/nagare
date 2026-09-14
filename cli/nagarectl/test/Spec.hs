@@ -181,6 +181,14 @@ import Nagare.Ops.Cleanup
   , selectStalePreviews
   , sumReclaimableBytes
   )
+import Nagare.Ops.ClusterGuard
+  ( ClusterGuardInputs (..)
+  , ClusterGuardOps (..)
+  , clusterGuardVerdict
+  , observeClusterGuard
+  , parseServerNodes
+  , renderClusterGuard
+  )
 import Nagare.Ops.ContextGuard
   ( ProjectGuardInputs (..)
   , PulumiProjectObservation (..)
@@ -329,6 +337,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure))
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import System.Process (readProcess)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
@@ -392,6 +401,7 @@ main = do
         , infraPlanTests
         , pulumiBackendBootstrapTests
         , contextGuardTests
+        , clusterGuardTests
         , accessGrantsTests
         , accessResolveTests
         , appDeployTests
@@ -988,6 +998,86 @@ contextGuardTests =
     probeField field pgi = case topField "stackProjectProbe" pgi of
       Just (Aeson.Object value) -> KeyMap.lookup (Key.fromText field) value
       _ -> Nothing
+
+clusterGuardTests :: TestTree
+clusterGuardTests =
+  testGroup
+    "Nagare.Ops.ClusterGuard (EP-134)"
+    [ testCase "matching context and sole server node are accepted" $ do
+        clusterGuardVerdict (inputs "labs" ["labs-nagare"]) @?= Right ()
+        assertBool "success evidence names every identity" $
+          all (`T.isInfixOf` renderClusterGuard (inputs "labs" ["labs-nagare"])) ["labs", "labs-nagare"]
+    , testCase "wrong kube context refuses with the fetch remedy" $
+        assertClusterRefusal "active Kubernetes context" (inputs "prod" ["labs-nagare"])
+    , testCase "wrong, empty, and ambiguous server-node observations refuse" $ do
+        assertClusterRefusal "prod-nagare" (inputs "labs" ["prod-nagare"])
+        assertClusterRefusal "no server nodes" (inputs "labs" [])
+        assertClusterRefusal "[labs-nagare, old-nagare]" (inputs "labs" ["labs-nagare", "old-nagare"])
+    , testCase "node-list parser selects only Kubernetes server roles" $ do
+        parseServerNodes clusterNodeFixture @?= Right ["labs-nagare"]
+        assertBool "malformed JSON fails closed" (isLeft (parseServerNodes "{"))
+        assertBool "missing items fails closed" (isLeft (parseServerNodes "{}"))
+    , testCase "fake kubectl integration records both read-only observations and reports outages" $
+        withSystemTempDirectory "nagare-cluster-guard" $ \root -> do
+          let fakeKubectl = root </> "kubectl"
+              nodesPath = root </> "nodes.json"
+              callsPath = root </> "calls.log"
+              ops = ClusterGuardOps fakeKubectl
+          BS.writeFile nodesPath clusterNodeFixture
+          BS.writeFile callsPath ""
+          writeFile
+            fakeKubectl
+            ( unlines
+                [ "#!/bin/sh"
+                , "printf '%s\\n' \"$*\" >> \"$NAGARE_CLUSTER_GUARD_CALLS\""
+                , "if [ \"$1 $2\" = 'config current-context' ]; then printf '%s\\n' labs; exit 0; fi"
+                , "if [ \"${NAGARE_CLUSTER_GUARD_FAIL:-0}\" = 1 ]; then echo 'fixture API unavailable' >&2; exit 23; fi"
+                , "cat \"$NAGARE_CLUSTER_GUARD_NODES\""
+                ]
+            )
+          setFileMode fakeKubectl 0o755
+          withTestEnv
+            [("NAGARE_CLUSTER_GUARD_CALLS", Just callsPath), ("NAGARE_CLUSTER_GUARD_NODES", Just nodesPath)]
+            $ do
+              observed <- observeClusterGuard ops "labs" "labs-nagare" >>= either (assertFailure . T.unpack) pure
+              observed @?= inputs "labs" ["labs-nagare"]
+              calls <- TIO.readFile callsPath
+              assertBool "reads current context" ("config current-context" `T.isInfixOf` calls)
+              assertBool "lists nodes with a deadline" ("get nodes -o json --request-timeout=10s" `T.isInfixOf` calls)
+              withTestEnv [("NAGARE_CLUSTER_GUARD_FAIL", Just "1")] $ do
+                failed <- observeClusterGuard ops "labs" "labs-nagare"
+                case failed of
+                  Right _ -> assertFailure "expected fake Kubernetes outage to fail closed"
+                  Left err -> do
+                    assertBool "preserves command diagnostic" ("fixture API unavailable" `T.isInfixOf` err)
+                    assertBool "names remediation" ("nagarectl kubeconfig fetch --context labs" `T.isInfixOf` err)
+    ]
+  where
+    inputs kube servers =
+      ClusterGuardInputs
+        { nagareContext = "labs"
+        , kubeContext = kube
+        , expectedNode = "labs-nagare"
+        , observedNodes = servers
+        }
+    assertClusterRefusal needle value = case clusterGuardVerdict value of
+      Right () -> assertFailure ("expected cluster guard refusal mentioning " <> T.unpack needle)
+      Left err -> do
+        assertBool ("refusal should mention " <> T.unpack needle) (needle `T.isInfixOf` err)
+        assertBool "refusal should name the expected node" ("labs-nagare" `T.isInfixOf` err)
+        assertBool "refusal should name the fetch remedy" ("nagarectl kubeconfig fetch --context labs" `T.isInfixOf` err)
+
+clusterNodeFixture :: ByteString
+clusterNodeFixture =
+  "{\"items\":[{\"metadata\":{\"name\":\"labs-nagare\",\"labels\":{\"node-role.kubernetes.io/control-plane\":\"true\"}}},{\"metadata\":{\"name\":\"worker-1\",\"labels\":{}}}]}"
+
+withTestEnv :: [(String, Maybe String)] -> IO a -> IO a
+withTestEnv changes action = do
+  saved <- traverse (\(name, _) -> (,) name <$> lookupEnv name) changes
+  let apply (name, Just value) = setEnv name value
+      apply (name, Nothing) = unsetEnv name
+  mapM_ apply changes
+  action `finally` mapM_ apply saved
 
 pulumiBackendBootstrapTests :: TestTree
 pulumiBackendBootstrapTests =
