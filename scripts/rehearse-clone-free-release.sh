@@ -61,7 +61,15 @@ if [[ -z "$flake_ref" ]]; then
 fi
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/nagare-clone-free.XXXXXX")"
-trap 'rm -rf -- "$test_root"' EXIT
+cleanup() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    rm -rf -- "$test_root" 2>/dev/null && return 0
+    sleep 1
+  done
+  rm -rf -- "$test_root"
+}
+trap cleanup EXIT
 mkdir -p "$test_root/home" "$test_root/config" "$test_root/state" "$test_root/work"
 cp "$repo_root/cluster/examples/hello-knative-service/nagare/Config.hs" "$test_root/work/Config.hs"
 cp "$repo_root/cli/nagarectl/test/fixtures/operator.pub" "$test_root/work/operator.pub"
@@ -154,8 +162,10 @@ grep -q "^export NAGARE_PULUMI_STACK='rehearsal-cloud'$" context-env.sh
 grep -q "^export PULUMI_BACKEND_URL='file://${test_root}/state/nagare/rehearsal-cloud/state'$" context-env.sh
 grep -q "^export CLOUDSDK_CORE_PROJECT='nagare-release-rehearsal'$" context-env.sh
 run_operator --dry-run infra-preview > infra-preview.out 2>&1
-# The recipe's project preflight must be part of the printed plan, ahead of Pulumi.
-grep -q 'nagarectl context guard' infra-preview.out
+# The public recipe must enter the context-bound preview command. That command
+# owns the project guard and runs it before Pulumi; the hermetic clone-free
+# platform check proves the internal ordering with fake tools.
+grep -q 'nagarectl infra preview' infra-preview.out
 
 current_system="$(nix eval --raw --impure --expr builtins.currentSystem)"
 supported_systems="$(nix eval "${flake_ref}#lib.release.supportedSystems" --json)"
