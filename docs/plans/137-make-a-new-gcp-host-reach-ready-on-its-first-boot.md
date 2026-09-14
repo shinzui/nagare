@@ -45,10 +45,12 @@ This section must always reflect the actual current state of the work.
   dependency chain.
 - [x] (2026-09-14T14:42:25Z) Add evaluation assertions and five independent blank-disk first-boot
   VM samples behind one aggregate check.
-- [ ] Run the five-sample aggregate and existing online-growth VM checks on an available
-  x86_64-linux NixOS-test builder; evaluation passes, but the configured builder is unreachable.
+- [x] (2026-09-14T15:22:44Z) Run the five-sample aggregate and existing online-growth VM checks on
+  an x86_64-linux NixOS-test builder.
 - [ ] Reconcile with ExecPlan 133 and prove the complete new-host service sequence.
-- [ ] Update host boot docs, complete IR-19, and run nested plus root flake gates.
+- [x] (2026-09-14T15:22:49Z) Update the storage/Ready portions of the host boot docs, complete
+  IR-19, and run nested plus root flake gates. Keep the age-key instructions unchanged until
+  ExecPlan 133 supplies its post-boot handoff.
 
 
 ## Surprises & Discoveries
@@ -56,12 +58,19 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-- Observation: neither the legacy `ssh://builder@nix-gcp-builder` route nor the active context's
-  project-confined builder route can currently execute an x86_64-linux check from this workstation.
-  Evidence: `nix flake check ./nixos --no-build --all-systems` passed every nested output. The
-  legacy build failed to connect, and the guarded `tan-ng-labs/us-west1-a/nix-builder-x86` route
-  then refused before starting the VM because gcloud could not refresh credentials non-interactively
-  and requested `gcloud auth login`.
+- Observation: the initial builder block was transient, but the active `labs` context and the
+  workstation's legacy Nix builder are different resources.
+  Evidence: after interactive gcloud login, `scripts/upload-images.sh --dry-run` correctly selected
+  `tan-ng-labs/us-west1-a/nix-builder-x86`, which does not exist. The existing
+  `tan-nb-exp/us-west1-a/nix-builder-x86` daemon route ran the NixOS tests. Its idle shutdown
+  interrupted the first online-growth attempt; restarting that instance and retrying produced a
+  passing test rather than an assertion failure.
+
+- Observation: `systemd-analyze verify` needs the generated unit fragment paths in a NixOS VM, not
+  the four bare unit names.
+  Evidence: the first aggregate attempt reached a Ready node and then reported
+  `Unit var-lib-nagare.mount not found` from the verifier. Resolving every `FragmentPath` through
+  `systemctl show` made the verifier pass in all five samples.
 
 
 ## Decision Log
@@ -108,7 +117,20 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The isolated EP-4 outcome is complete. The formatter is serialized ahead of the exact fsck
+instance and the mount, while the mount can reconstruct the hard layout/k3s dependency chain after
+a transient failure. Exact evaluation checks pass. Five independent blank-disk VM derivations each
+created ext4 on the intended device, created the layout on that mount, reached exactly one Ready
+node, rejected the original busy error and relevant failed units, and recovered from a mount-only
+restart without changing boot ID. The existing online-growth regression and the nested/root flake
+gates pass, and IR-19 is completed.
+
+The ExecPlan remains In Progress because Milestone 3 is intentionally owned jointly with external
+[ExecPlan 133](133-deliver-the-host-age-key-after-first-boot.md), which is still Not Started under a
+different intention. Its host-side secret activation and age-key delivery must exist before this
+plan can run the composed service-sequence check or replace the current pre-first-boot age-key
+instructions. ADR 12 remains unchanged because filesystem type, growth, and forward-only capacity
+policy did not change.
 
 
 ## Context and Orientation
@@ -255,3 +277,7 @@ integration dependency; EP-6 consumes the Ready-node behavior.
 Revision note (2026-09-14): Added the format-before-fsck edge, declarative mount-triggered k3s
 recovery, exact graph assertions, and a five-sample first-boot VM aggregate. Nested flake evaluation
 passes; executing the Linux VM checks awaits an available x86_64-linux builder.
+
+Revision note (2026-09-14): Completed the isolated storage and k3s work, closed IR-19, and passed
+five blank-disk first-boot samples, the online-growth regression, strict OKF validation, and nested
+plus root flake gates. The plan remains open solely for composition with external ExecPlan 133.

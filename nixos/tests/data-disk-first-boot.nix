@@ -61,8 +61,11 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"test -d /var/lib/nagare/{directory}")
 
     machine.succeed(
-        "systemd-analyze verify format-nagare-data.service var-lib-nagare.mount "
-        "nagare-data-layout.service k3s.service"
+        "systemd-analyze verify "
+        "$(systemctl show --property=FragmentPath --value format-nagare-data.service) "
+        "$(systemctl show --property=FragmentPath --value var-lib-nagare.mount) "
+        "$(systemctl show --property=FragmentPath --value nagare-data-layout.service) "
+        "$(systemctl show --property=FragmentPath --value k3s.service)"
     )
     machine.fail("journalctl -b --no-pager | grep -F 'Device or resource busy'")
     machine.fail(

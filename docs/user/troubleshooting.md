@@ -85,6 +85,25 @@ has a filesystem, so the format step is skipped (see
 
 ---
 
+## First boot reports `Device or resource busy` and k3s stays failed
+
+**Symptom.** On a brand-new host, `mkfs.ext4` reports `Device or resource busy`,
+`var-lib-nagare.mount` fails, and layout and k3s remain dependency-failed even
+if the disk mounts on a later retry.
+
+**Cause.** systemd-fsck and `format-nagare-data` opened the same blank device
+concurrently. The later successful mount did not create a new transaction for
+the already-failed dependent units.
+
+**Fix (committed, `storage.nix` and `k3s.nix`).** The formatter is explicitly
+ordered before the generated fsck unit as well as the mount. The mount wants
+k3s while k3s retains hard mount and layout requirements, so retrying only the
+mount recovers the dependency chain without allowing k3s to write through to
+the boot filesystem. The repeated first-boot VM check rejects the original
+busy message, failed units, a non-Ready node, or a changed boot ID.
+
+---
+
 ## `/var/lib/nagare` has only `lost+found` — the subdirectories vanished
 
 **Symptom.** After boot, `/var/lib/nagare` is missing its expected subdirs

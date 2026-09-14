@@ -11,12 +11,13 @@ generated:
 
 # Host image and first boot
 
-> **Status:** 🟡 In progress (EP-3)
+> **Status:** 🟡 In progress (EP-4)
 >
 > The NixOS flake, the `nagare-01` host config, and the image build/upload
 > pipeline exist; `nagare-01` has been booted from a baked image and the data
-> disk auto-formats on first boot. What's still being firmed up is reliable
-> cluster readiness right after boot — see [Troubleshooting](troubleshooting.md).
+> disk auto-formats on first boot. The blank-disk service graph is covered by
+> repeated VM tests through an exactly-one-node `Ready` result without a reboot.
+> Post-boot host age-key delivery remains separate follow-up work.
 
 This page covers turning the NixOS configuration into a bootable GCE image and
 bringing `nagare-01` up from it. Because your workstation is `aarch64-darwin`
@@ -66,8 +67,10 @@ Nagare's packaged modules under `nixos/` configure:
   storage at `/var/lib/nagare/local-path`.
   Ordered after the data-disk mount and the directory-layout unit.
 - **Storage** (`storage.nix`) — auto-formats the blank data disk to ext4 on
-  first boot (idempotent), mounts it `nofail` at `/var/lib/nagare`, then creates
-  the subdirectory layout *after* the mount.
+  first boot (idempotent), before either systemd-fsck or the mount can open it;
+  mounts it `nofail` at `/var/lib/nagare`; then creates the subdirectory layout
+  *after* the mount. A recovered mount transaction also pulls layout and k3s
+  back in, so a transient failure does not require a reboot.
 - **Networking** (`networking.nix`) — context-supplied hostname, public DNS resolvers
   (`8.8.8.8`/`8.8.4.4` — the GCE metadata resolver is unreachable on this VM),
   firewall (`22`/`80`/`443`, trust `tailscale0`).
@@ -185,11 +188,17 @@ pulumi -C infra/pulumi stack output publicIp     # VM has its static IP
 #     kubectl get nodes           # nagare-01  Ready
 ```
 
-> **Known gap (EP-3):** confirming `kubectl get nodes` = `Ready` end-to-end was
-> initially blocked by an sshd host-access issue and the blank-disk/mount
-> ordering. Those fixes are committed (DNS resolver, auto-format, post-mount
-> layout, `PerSourcePenalties`/OS Login). If a fresh boot still misbehaves,
-> work through [Troubleshooting](troubleshooting.md) before assuming new breakage.
+The first-boot VM acceptance suite starts five independent blank data disks. In
+every sample, formatting completes before fsck and mount, the layout is created
+on the mounted ext4 filesystem, k3s reports exactly one `Ready` node, and the
+boot ID remains unchanged. It also stops the mount dependency chain and proves
+that starting only the mount recovers layout and k3s without a reboot. If a
+fresh cloud boot still misbehaves, work through
+[Troubleshooting](troubleshooting.md) before assuming new breakage.
+
+This evidence covers storage and k3s readiness. Until the independent host
+age-key delivery work is complete, the age private key remains a pre-first-boot
+prerequisite as documented above.
 
 ## Next
 

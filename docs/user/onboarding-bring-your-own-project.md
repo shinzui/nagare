@@ -232,7 +232,7 @@ gcloud auth configure-docker us-west1-docker.pkg.dev    # use YOUR NAGARE_REGIST
 (On the deploy path `nagarectl` configures this for you, but doing it once by hand removes
 a first-deploy surprise.)
 
-## Step 8 — Build + register the NixOS image, then boot the VM  🟡  *(EP-3)*
+## Step 8 — Build + register the NixOS image, then boot the VM  🟡  *(EP-3 / EP-4)*
 
 ```bash
 nagare host-image --dry-run
@@ -251,7 +251,13 @@ project. Dry-run must show this context's project as the builder project. A deli
 builder in another project requires the matching `--allow-shared-builder PROJECT` acknowledgement;
 otherwise the build refuses before starting a VM.
 
-## Step 9 — Get on the host, confirm the node is Ready  🟡  *(EP-3, verified live)*
+On a new VM, the blank data disk is formatted before fsck can inspect it, then
+mounted and populated before k3s starts. The first-boot acceptance suite repeats
+that path with five independent disks and reaches one `Ready` node without a
+reboot. The host age private key is still required before this boot until the
+separate post-boot key-delivery work is complete.
+
+## Step 9 — Get on the host, confirm the node is Ready  🟡  *(EP-3 / EP-4, verified live and in VM tests)*
 
 Use Tailscale SSH (primary) or `nagare iap-ssh` (break-glass on macOS), then fetch the selected
 context's credentials—see [accessing the host](accessing-the-host.md). Observable check:
@@ -262,6 +268,10 @@ export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/<name>.y
 nagarectl cluster guard --context <name>
 kubectl get nodes      # <name>-nagare should be Ready
 ```
+
+No reboot or manual layout/k3s restart belongs in this path. If the data-disk
+mount is retried after a transient failure, its systemd transaction pulls both
+units back in declaratively.
 
 Do not reuse another context's kubeconfig or rename a manually copied `default` context. The fetch
 selects the GCE instance through the context's project, addresses the API by its context-owned host
