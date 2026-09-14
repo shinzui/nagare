@@ -67,6 +67,18 @@ machine-readable JSON object.
   The guard now suppresses that informational notice in JSON mode while still performing the
   installation and retaining errors.
 
+- Observation: `docs/adr/` is not a Mori/OKF bundle in this checkout: `mori show --full` lists six
+  bundles but no architecture-decisions bundle, and the directory has neither `profile.dhall` nor
+  `log.md`.
+  Evidence: `ls docs/adr` shows only the numbered Markdown records. Under `ADR.md`, ADR 9 therefore
+  follows the established filesystem convention rather than the plan's anticipated profiled flow.
+
+- Observation: strict improvement-request validation is not green at the repository baseline.
+  Evidence: `okf validate docs/improvement-requests --strict --profile-enforce --log-enforce`
+  reports the profile-recommended `reviews` field missing from all 20 requests, including requests
+  untouched by this plan. Non-strict profile/log enforcement and the repository gate remain the
+  meaningful validations for this change; the unrelated corpus-wide migration is out of scope.
+
 
 ## Decision Log
 
@@ -112,6 +124,12 @@ machine-readable JSON object.
   Rationale: workspace preparation can legitimately install dependencies before probing Pulumi,
   but an informational prefix makes the promised JSON failure stream unparsable. Human commands
   retain the progress line, and installation failures remain visible.
+  Date: 2026-09-14.
+
+- Decision: Amend ADR 9 in place without OKF metadata or a bundle log.
+  Rationale: the repository has no profiled `docs/adr` bundle, so `ADR.md` requires preserving its
+  established local-filesystem convention. The improvement-request bundle remains profile-governed
+  and receives its required timestamp and log update.
   Date: 2026-09-14.
 
 

@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
+  - docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
 ---
@@ -176,3 +177,17 @@ rule to an effective GCS Pulumi backend inherited from the named context; an exp
 backend URL remains a deliberate operator choice. This prevents a context from being born with
 another project's resource names, complementing the mutation-time ownership checks recorded above.
 The rule shipped in signed release `v0.2.2`.
+
+## Amendment — 2026-09-14: unknown stack projects retain their cause
+
+[ExecPlan 129](../plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md)
+clarifies the fail-closed context-guard contract: an unknown stack project is a typed observation,
+not an absent value. A missing Pulumi executable, a start failure, a non-zero command with captured
+stderr, invalid successful output, and a valid config object without `gcp:project` are distinct
+outcomes. Every one refuses; only the last recommends regenerating the context-owned projection.
+
+The guard reads the complete successful config as JSON because Pulumi's single-key command uses a
+non-zero exit for both absent configuration and backend/process failures. It never infers absence
+from human stderr text. Human and JSON diagnostics identify the exact selected stack and resolved
+backend URL they protected. JSON failures are one independently parseable object, retain the
+nullable `stackProject` compatibility member, and add a typed `stackProjectProbe` object.

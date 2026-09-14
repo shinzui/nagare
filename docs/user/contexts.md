@@ -93,24 +93,33 @@ on any disagreement. When it accepts, it prints one line:
 context guard: labs confined to project acme-prod (stack labs)
 ```
 
-When it refuses, it exits non-zero and names both compared values. Search for these:
+When it refuses, it exits non-zero and always names the selected stack and resolved backend. The
+stack probe has three primary failure classes with different remedies:
 
 ```text
-refusing to run: Pulumi stack 'labs' targets project 'some-other-project', not the active context's project 'acme-prod'.
-refusing to run: Pulumi stack 'labs' declares no gcp:project, so the next Pulumi operation's target project is unknown.
-refusing to run: the ambient CLOUDSDK_CORE_PROJECT is 'some-production-project', not the active context's project 'acme-prod' (context: labs).
-refusing to run: gcloud's configured project is 'some-production-project', not the active context's project 'acme-prod' (context: labs).
+pulumi was not found on PATH while reading gcp:project for stack 'labs' at backend 'file://...'
+pulumi config --json exited with status 23 while reading gcp:project for stack 'labs' at backend 'gs://...'
+Pulumi stack 'labs' at backend 'file://...' declares no gcp:project
 ```
 
-The first two are fixed by re-projecting the stack config with
-`nagarectl context use <name>`, or by selecting the context that owns the project the stack
-names. The third is fixed by unsetting the ambient override. The fourth by
-`gcloud config set project <project>` — or, again, by selecting the right context. A
-`mode=local` context has no project to confine, so the guard prints
+For a missing executable, use the Nagare operator package and confirm the packaged tool with
+`nagarectl version --tools`. For a non-zero exit, keep the selected context and fix the captured
+Pulumi error under the environment printed by `nagarectl context env`; a backend authentication or
+state-access failure is not evidence that the config key is absent. Only the third message means
+the successful config listing proved `gcp:project` is missing; repair that projection with
+`nagarectl context use <name>`. A foreign stack project uses the same projection remedy, an ambient
+`CLOUDSDK_CORE_PROJECT` mismatch is fixed by unsetting that override, and a configured-project
+mismatch is fixed with `gcloud config set project <project>` or by selecting the right context. A
+successful Pulumi command whose output is invalid JSON or has the wrong shape also refuses and
+identifies that parse failure. A `mode=local` context has no project to confine, so the guard prints
 `context guard: local mode; no GCP project to confine` and exits 0 without calling `gcloud`.
 
-`--json` emits the same verdict with every compared value under `observations`, so a failing
-recipe can be diagnosed from its output alone.
+`--json` emits the same verdict with every compared value under `observations`. A refusal is exactly
+one JSON object on stderr and no stdout, so the complete stream is accepted by `jq`. The existing
+nullable `observations.stackProject` remains for compatibility; `observations.pulumiBackendUrl`
+names the resolved backend and `observations.stackProjectProbe.status` is one of `found`, `missing`,
+`tool-not-found`, `command-failed`, or `invalid-output`. Applicable details appear as `project`,
+`exitCode`, `stderr`, or `error` in that probe object.
 
 ### `nagarectl context env`
 

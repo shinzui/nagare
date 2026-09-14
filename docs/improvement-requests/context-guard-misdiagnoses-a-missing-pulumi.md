@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Make the context guard report a missing or failing pulumi instead of an unprojected stack
 description: With pulumi absent from PATH the guard refuses with "declares no gcp:project" and advises context use, even though the stack config declares the right project.
-timestamp: "2026-09-14T02:10:44Z"
+timestamp: "2026-09-14T02:39:24Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-9
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T02:10:44Z"
+completedAt: "2026-09-14T02:39:24Z"
+resolution: "ExecPlan 129 replaced the nullable stack-project probe with typed found, missing, tool-not-found, command-failed, start-failed, and invalid-output observations. The guard now runs pulumi config --json, preserves exit status and stderr, names the resolved stack/backend in every refusal, emits standalone JSON failures, and has 15 focused unit cases plus passing hermetic missing-tool and fake-Pulumi command checks. ADR 9 records the durable diagnostic contract."
 targetPlan: docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
 origin: mori://shinzui/nagare
 ---
@@ -19,7 +21,9 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for [ExecPlan 129](../plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md).
+**Status:** completed by [ExecPlan 129](../plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md);
+the durable diagnostic contract is recorded in
+[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
 **Created:** 2026-09-13.
 
 
