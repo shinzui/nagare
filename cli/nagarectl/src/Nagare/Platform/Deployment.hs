@@ -13,6 +13,7 @@ where
 
 import Control.Exception (IOException, catch)
 import Data.Aeson qualified as Aeson
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
