@@ -5,6 +5,7 @@ module Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
   , defaultHostName
+  , findHostNameCollision
   , hostConfigDir
   , installHostFlake
   , readAuthorizedKeys
@@ -22,19 +23,21 @@ import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isAsciiLower, isDigit)
 import Data.Generics.Labels ()
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
-import Nagare.Target (ContextName, contextNameText, nagareConfigDir)
+import Nagare.Target (ContextName, contextNameText, mkContextName, nagareConfigDir)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
   ( copyFile
   , createDirectoryIfMissing
   , doesDirectoryExist
   , doesFileExist
+  , listDirectory
   , makeAbsolute
   , removePathForcibly
   , renameDirectory
@@ -88,6 +91,49 @@ defaultHostName context
             <> reason
             <> "; pass --host-name with a distinct valid NixOS host name"
         )
+
+-- | Find another context whose generated host module already owns a proposed
+-- implicit host name. The generated assignment is deliberately matched as one
+-- exact stripped line rather than by partially parsing arbitrary Nix.
+findHostNameCollision :: ContextName -> Text -> IO (Either Text (Maybe (ContextName, FilePath)))
+findHostNameCollision currentContext proposedName = do
+  currentDirectory <- hostConfigDir currentContext
+  let hostsRoot = takeDirectory currentDirectory
+  rootExists <- doesDirectoryExist hostsRoot
+  if not rootExists
+    then pure (Right Nothing)
+    else do
+      entriesResult <- try (sort <$> listDirectory hostsRoot) :: IO (Either IOException [FilePath])
+      case entriesResult of
+        Left err -> pure (Left (readError hostsRoot err))
+        Right entries -> inspectEntries hostsRoot entries
+  where
+    currentName = contextNameText currentContext
+    expectedAssignment = "hostName = " <> nixString proposedName <> ";"
+
+    inspectEntries _ [] = pure (Right Nothing)
+    inspectEntries hostsRoot (entry : remaining)
+      | T.pack entry == currentName = inspectEntries hostsRoot remaining
+      | otherwise =
+          case mkContextName (T.pack entry) of
+            Left _ -> inspectEntries hostsRoot remaining
+            Right siblingContext -> do
+              let siblingDirectory = hostsRoot </> entry
+                  modulePath = siblingDirectory </> "host.nix"
+              directoryExists <- doesDirectoryExist siblingDirectory
+              moduleExists <- doesFileExist modulePath
+              if not directoryExists || not moduleExists
+                then inspectEntries hostsRoot remaining
+                else do
+                  moduleResult <- try (TIO.readFile modulePath) :: IO (Either IOException Text)
+                  case moduleResult of
+                    Left err -> pure (Left (readError modulePath err))
+                    Right moduleText
+                      | any ((== expectedAssignment) . T.strip) (T.lines moduleText) ->
+                          pure (Right (Just (siblingContext, modulePath)))
+                      | otherwise -> inspectEntries hostsRoot remaining
+
+    readError path err = "could not read host configuration at " <> T.pack path <> ": " <> T.pack (show err)
 
 validateSshPublicKey :: Text -> Either Text Text
 validateSshPublicKey raw

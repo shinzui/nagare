@@ -140,6 +140,7 @@ import Nagare.Host.Config
   , HostInstallResult (..)
   , commitStagedHostFlake
   , defaultHostName
+  , findHostNameCollision
   , hostConfigDir
   , installHostFlake
   , readAuthorizedKeys
@@ -2780,13 +2781,27 @@ runHost globalContext = \case
     TIO.readFile modulePath >>= TIO.putStr
   HostInit options -> do
     active <- activeTarget (options ^. #context <|> globalContext)
-    keys <- readAuthorizedKeys (options ^. #sshPublicKeyFiles) >>= either dieT pure
-    (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-    nixosSource <- makeAbsolute (paths ^. #nixosDir)
     resolvedHostName <-
       case options ^. #hostName of
         Just explicitHostName -> pure (T.pack explicitHostName)
-        Nothing -> defaultHostName (active ^. #contextName) & either dieT pure
+        Nothing -> do
+          implicitHostName <- defaultHostName (active ^. #contextName) & either dieT pure
+          collision <- findHostNameCollision (active ^. #contextName) implicitHostName >>= either dieT pure
+          case collision of
+            Nothing -> pure implicitHostName
+            Just (owningContext, modulePath) ->
+              dieT
+                ( "default host name '"
+                    <> implicitHostName
+                    <> "' is already used by context '"
+                    <> contextNameText owningContext
+                    <> "' at "
+                    <> T.pack modulePath
+                    <> "; choose a distinct --host-name"
+                )
+    keys <- readAuthorizedKeys (options ^. #sshPublicKeyFiles) >>= either dieT pure
+    (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    nixosSource <- makeAbsolute (paths ^. #nixosDir)
     let payloadBuild = BuildVersion (workspace ^. #platformVersion) (workspace ^. #sourceRevision)
     let profile = active ^. #profile
         defaultInstance = profile ^. #instanceName

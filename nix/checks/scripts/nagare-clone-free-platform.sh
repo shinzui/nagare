@@ -108,6 +108,52 @@ grep -q 'NAGARE_IMAGE_BUCKET' init-foreign-project.err
 grep -q 'NAGARE_BACKUP_BUCKET' init-foreign-project.err
 printf '%s\n' local > "$XDG_CONFIG_HOME/nagare/current-context"
 
+# EP-130 / IR-14: tailnet-visible host identity defaults from the context,
+# independently of the project-scoped VM instance name. An implicit duplicate
+# already present in a sibling host flake is refused, while an explicit choice
+# remains the deliberate recovery path.
+nagarectl context create prod \
+  --mode local \
+  --registry-host localhost:5000 \
+  --base-domain 127-0-0-1.sslip.io \
+  --local-object-store http://minio:9000/nagare-backups
+nagarectl context create labs \
+  --mode local \
+  --registry-host localhost:5000 \
+  --base-domain 127-0-0-1.sslip.io \
+  --local-object-store http://minio:9000/nagare-backups
+printf '%s\n' \
+  'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly operator@example' \
+  > operator.pub
+nagarectl host init --context prod --ssh-public-key-file operator.pub --dry-run > host-prod.out
+nagarectl host init --context labs --ssh-public-key-file operator.pub --dry-run > host-labs.out
+grep -q '^name: prod-nagare$' host-prod.out
+grep -q 'hostName = "prod-nagare";' host-prod.out
+grep -q 'instanceName = "nagare-01";' host-prod.out
+grep -q '^name: labs-nagare$' host-labs.out
+grep -q 'hostName = "labs-nagare";' host-labs.out
+grep -q 'instanceName = "nagare-01";' host-labs.out
+if grep -q 'labs-nagare' host-prod.out || grep -q 'prod-nagare' host-labs.out; then
+  echo "context-derived host names crossed dry-run output" >&2
+  exit 1
+fi
+legacy_host="$XDG_CONFIG_HOME/nagare/hosts/legacy"
+mkdir -p "$legacy_host"
+printf '%s\n' '{ ... }:' '{' '  nagare.host.hostName = "ignored";' '  hostName = "prod-nagare";' '}' \
+  > "$legacy_host/host.nix"
+if nagarectl host init --context prod --ssh-public-key-file operator.pub --dry-run \
+  > host-collision.out 2> host-collision.err; then
+  echo "host init accepted an implicit name already owned by a sibling context" >&2
+  exit 1
+fi
+test ! -s host-collision.out
+grep -q "default host name 'prod-nagare' is already used by context 'legacy'" host-collision.err
+grep -q "$legacy_host/host.nix" host-collision.err
+grep -q -- '--host-name' host-collision.err
+nagarectl host init --context prod --host-name prod2-nagare \
+  --ssh-public-key-file operator.pub --dry-run > host-explicit.out
+grep -q '^name: prod2-nagare$' host-explicit.out
+
 nagarectl server status --skip-vm > status.out
 nagare --list > recipes.out
 grep -q 'infra-preview' recipes.out

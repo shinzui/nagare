@@ -2,15 +2,18 @@
 
 module HostSpec (hostTests) where
 
+import Control.Exception (finally)
+import Data.ByteString qualified as BS
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config
-import Nagare.Target (ContextName, mkContextName)
+import Nagare.Target (ContextName, contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, createDirectoryLink)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
@@ -38,6 +41,44 @@ hostTests =
         mapM_ assertRejected ["Prod", "prod_ops", "prod.ops", "-prod", "prod-", T.replicate 57 "a"]
         longestValid <- mkTestContext (T.replicate 56 "a")
         defaultHostName longestValid @?= Right (T.replicate 56 "a" <> "-nagare")
+    , testCase "IR-14: discovers an implicit host-name collision across context-owned flakes" $
+        withSystemTempDirectory "nagare-host-collision" $ \root ->
+          withXdgConfigHome (root </> "missing-config") $ do
+            prod <- mkTestContext "prod"
+            labs <- mkTestContext "labs"
+            legacy <- mkTestContext "legacy"
+            findHostNameCollision prod "prod-nagare" >>= (@?= Right Nothing)
+
+            let regularXdg = root </> "regular-config"
+                regularHosts = regularXdg </> "nagare" </> "hosts"
+            setEnv "XDG_CONFIG_HOME" regularXdg
+            writeHostModule regularHosts prod "prod-nagare"
+            writeHostModule regularHosts labs "labs-nagare"
+            BS.writeFile (regularHosts </> "README.md") "not a context directory\n"
+            findHostNameCollision prod "prod-nagare" >>= (@?= Right Nothing)
+            writeHostModule regularHosts legacy "prod-nagare"
+            findHostNameCollision prod "prod-nagare"
+              >>= (@?= Right (Just (legacy, regularHosts </> "legacy" </> "host.nix")))
+            findHostNameCollision prod "explicit-nagare" >>= (@?= Right Nothing)
+
+            let linkedXdg = root </> "linked-config"
+                linkedHosts = linkedXdg </> "nagare" </> "hosts"
+                operatorHosts = root </> "operator-repository" </> "hosts"
+            createDirectoryIfMissing True (linkedXdg </> "nagare")
+            writeHostModule operatorHosts legacy "prod-nagare"
+            createDirectoryLink operatorHosts linkedHosts
+            setEnv "XDG_CONFIG_HOME" linkedXdg
+            findHostNameCollision prod "prod-nagare"
+              >>= (@?= Right (Just (legacy, linkedHosts </> "legacy" </> "host.nix")))
+
+            let unreadableXdg = root </> "unreadable-config"
+                unreadableModule = unreadableXdg </> "nagare" </> "hosts" </> "legacy" </> "host.nix"
+            createDirectoryIfMissing True (unreadableXdg </> "nagare" </> "hosts" </> "legacy")
+            BS.writeFile unreadableModule (BS.pack [0xFF])
+            setEnv "XDG_CONFIG_HOME" unreadableXdg
+            unreadable <- findHostNameCollision prod "prod-nagare"
+            assertBool "an unreadable sibling fails closed and names its path" $
+              either (T.isInfixOf (T.pack unreadableModule)) (const False) unreadable
     , testCase "renders a deterministic generated flake and operator module" $ do
         context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
         let config = fixtureConfig context
@@ -117,3 +158,15 @@ assertRejected :: Text -> Assertion
 assertRejected raw = do
   value <- mkTestContext raw
   assertBool ("expected default derivation to reject " <> T.unpack raw) (either (const True) (const False) (defaultHostName value))
+
+writeHostModule :: FilePath -> ContextName -> Text -> IO ()
+writeHostModule hostsRoot hostContext hostName = do
+  let directory = hostsRoot </> T.unpack (contextNameText hostContext)
+  createDirectoryIfMissing True directory
+  TIO.writeFile (directory </> "host.nix") ("{ ... }: { nagare.host.hostName = \"ignored\"; }\n  hostName = \"" <> hostName <> "\";\n")
+
+withXdgConfigHome :: FilePath -> IO a -> IO a
+withXdgConfigHome xdg action = do
+  saved <- lookupEnv "XDG_CONFIG_HOME"
+  setEnv "XDG_CONFIG_HOME" xdg
+  action `finally` maybe (unsetEnv "XDG_CONFIG_HOME") (setEnv "XDG_CONFIG_HOME") saved
