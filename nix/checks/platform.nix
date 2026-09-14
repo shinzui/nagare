@@ -51,13 +51,37 @@ in
         printf '%s %s\n' "${name}" "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         printf '%s\n' '{"items":[]}'
       '';
+      fakeGcloud = pkgs.writeShellScriptBin "gcloud" ''
+        printf 'gcloud %s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+        case " $* " in
+          *" compute instances describe "*)
+            case "''${NAGARE_FAKE_GCE_DESCRIBE_RESULT:-exists}" in
+              exists) printf '%s\n' '{}' ;;
+              not-found)
+                printf '%s\n' 'ERROR: The resource was not found' >&2
+                exit 1
+                ;;
+              failed)
+                printf '%s\n' 'ERROR: permission denied while reading instance' >&2
+                exit 17
+                ;;
+              network)
+                printf '%s\n' 'ERROR: network unavailable while reading instance' >&2
+                exit 18
+                ;;
+              malformed) printf '%s\n' 'not-json' ;;
+            esac
+            ;;
+          *) printf '%s\n' '{"items":[]}' ;;
+        esac
+      '';
       fakeNix = pkgs.writeShellScriptBin "nix" ''
         printf '%s\n' "nix $*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         printf '%s\n' "/nix/store/fake-nagare-upgrade-result"
       '';
       fakeTools = pkgs.symlinkJoin {
         name = "nagare-fake-platform-tools";
-        paths = map fakeJsonTool [ "curl" "gcloud" "gsutil" "kubectl" ];
+        paths = [ fakeGcloud ] ++ map fakeJsonTool [ "curl" "gsutil" "kubectl" ];
       };
     in
     pkgs.runCommand "nagare-clone-free-platform"

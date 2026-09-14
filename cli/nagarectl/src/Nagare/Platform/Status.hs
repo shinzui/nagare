@@ -15,6 +15,7 @@ module Nagare.Platform.Status
   , platformProbe
   , guardPlatformMutation
   , validatePlatformAdoption
+  , validatePlatformRepin
   , clusterMarkerValue
   )
 where
@@ -28,6 +29,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
+import Nagare.Platform.Deployment (DeploymentState (..), deploymentStateToken)
 import Nagare.Platform.Workspace (PayloadManifest (..))
 import Nagare.Target (TargetProfile (..))
 import Nagare.Version
@@ -50,7 +52,9 @@ data PlatformStatus = PlatformStatus
   , payload :: !ReleaseIdentity
   , context :: !ReleaseIdentity
   , host :: !ReleaseIdentity
+  , hostDeployment :: !DeploymentState
   , cluster :: !ReleaseIdentity
+  , clusterDeployment :: !DeploymentState
   , compatibility :: !Compatibility
   }
   deriving stock (Generic, Eq, Show)
@@ -96,15 +100,18 @@ parseClusterIdentity bytes = do
       [(number, "")] -> Just number
       _ -> Nothing
 
-assessPlatformStatus :: ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> PlatformStatus
-assessPlatformStatus cli payload context host cluster =
-  PlatformStatus cli payload context host cluster aggregate
+assessPlatformStatus :: ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> ReleaseIdentity -> DeploymentState -> ReleaseIdentity -> DeploymentState -> PlatformStatus
+assessPlatformStatus cli payload context host hostDeployment cluster clusterDeployment =
+  PlatformStatus cli payload context host hostDeployment cluster clusterDeployment aggregate
   where
     expected = payload ^. #version >>= either (const Nothing) Just . parsePlatformVersion
     compareOne identity = case expected of
       Nothing -> LegacyUnknown
       Just expectedVersion -> comparePlatformVersions expectedVersion (identity ^. #version >>= either (const Nothing) Just . parsePlatformVersion)
-    comparisons = map compareOne [cli, context, host, cluster]
+    comparisons =
+      map compareOne [cli, context]
+        <> [compareOne host | hostDeployment /= NotDeployed]
+        <> [compareOne cluster | clusterDeployment /= NotDeployed]
     aggregate
       | MajorIncompatible `elem` comparisons = MajorIncompatible
       | MinorUpgradeRequired `elem` comparisons = MinorUpgradeRequired
@@ -121,6 +128,11 @@ platformStatusValue status =
     , "host" Aeson..= (status ^. #host . #version)
     , "cluster" Aeson..= (status ^. #cluster . #version)
     , "compatibility" Aeson..= compatibilityToken (status ^. #compatibility)
+    , "deployment"
+        Aeson..= Aeson.object
+          [ "host" Aeson..= deploymentValue (status ^. #hostDeployment)
+          , "cluster" Aeson..= deploymentValue (status ^. #clusterDeployment)
+          ]
     , "identities"
         Aeson..= Aeson.object
           [ "cli" Aeson..= identityValue (status ^. #cli)
@@ -137,6 +149,13 @@ platformStatusValue status =
         , "revision" Aeson..= (identity ^. #revision)
         , "payloadSchema" Aeson..= (identity ^. #payloadSchema)
         ]
+    deploymentValue deployment =
+      Aeson.object
+        [ "state" Aeson..= deploymentStateToken deployment
+        , "error" Aeson..= deploymentError deployment
+        ]
+    deploymentError (DeploymentUnknown err) = Just err
+    deploymentError _ = Nothing
 
 renderPlatformStatus :: Text -> PlatformStatus -> Text
 renderPlatformStatus contextName status =
@@ -145,12 +164,14 @@ renderPlatformStatus contextName status =
     , renderLine "CLI" (status ^. #cli)
     , renderLine "Payload" (status ^. #payload)
     , renderLine "Context" (status ^. #context)
-    , renderLine "Host" (status ^. #host)
-    , renderLine "Cluster" (status ^. #cluster)
+    , renderResourceLine "Host" (status ^. #host) (status ^. #hostDeployment)
+    , renderResourceLine "Cluster" (status ^. #cluster) (status ^. #clusterDeployment)
     , "Compatibility: " <> compatibilityToken (status ^. #compatibility)
     ]
   where
     renderLine label identity = pad 12 (label <> ":") <> maybe "legacy / unknown" (\value -> value) (identity ^. #version)
+    renderResourceLine label _ NotDeployed = pad 12 (label <> ":") <> "not deployed"
+    renderResourceLine label identity _ = renderLine label identity
     pad width value = value <> T.replicate (max 1 (width - T.length value)) " "
 
 platformProbe :: PlatformStatus -> Probe
@@ -190,6 +211,22 @@ validatePlatformAdoption target status
       | identity ^. #version == Just target = Right ()
       | otherwise = Left ("observed " <> label <> " version " <> observed identity <> " does not match requested adoption " <> target)
     observed identity = maybe "legacy / unknown" (\value -> value) (identity ^. #version)
+
+-- | A release pin may be rewritten only while authoritative cloud evidence says
+-- the context's single host, and therefore its cluster, have never been deployed.
+validatePlatformRepin :: Text -> PlatformStatus -> Either Text ()
+validatePlatformRepin target status
+  | status ^. #context . #version == Nothing =
+      Left "the selected context is legacy and has no release pin; use `nagarectl platform adopt`"
+  | status ^. #payload . #version /= Just target =
+      Left ("the active payload does not match requested re-pin " <> target)
+  | status ^. #hostDeployment /= NotDeployed =
+      Left "refusing to re-pin: the context's GCE instance exists or its absence could not be proven"
+  | status ^. #clusterDeployment /= NotDeployed =
+      Left "refusing to re-pin: cluster absence could not be proven"
+  | status ^. #cluster . #version /= Nothing =
+      Left "refusing to re-pin: a cluster release identity was observed"
+  | otherwise = Right ()
 
 clusterMarkerValue :: ReleaseIdentity -> Text -> Aeson.Value
 clusterMarkerValue identity installedAt =

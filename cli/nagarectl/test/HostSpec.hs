@@ -108,6 +108,10 @@ hostTests =
         assertBool "operator key is explicit" (fixtureKey `T.isInfixOf` hostModule)
         assertBool "sops file remains a relative flake path" ("sopsDefaultFile = ./secrets.yaml;" `T.isInfixOf` hostModule)
         assertBool "private data is absent" (not ("PRIVATE KEY" `T.isInfixOf` T.toUpper (flake <> hostModule)))
+        validateRetargetableHostFlake flake @?= Right ()
+        assertBool
+          "arbitrary flake is not retargetable"
+          (either (const True) (const False) (validateRetargetableHostFlake "{ inputs.nagare.url = builtins.throw \"edited\"; }"))
     , testCase "IR-13: the rendered operator module matches the golden host.nix checked against the NixOS module" $ do
         -- nix/checks/scripts/host-module-options-agree.sh fails the flake check when
         -- this golden file sets an option nixos/modules/nagare-host.nix does not

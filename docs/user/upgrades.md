@@ -47,8 +47,10 @@ compatibility result has these meanings:
 | `legacy-unknown` | At least one identity is absent, old, or unreachable; inspect it before adoption or upgrade. |
 
 Status and doctor remain read-only and useful when Kubernetes is unreachable.
-An absent `nagare-platform-version` ConfigMap is reported as unknown rather
-than inferred from currently running workloads.
+For a cloud context, a project- and zone-scoped GCE lookup that explicitly returns NotFound renders
+both `Host: not deployed` and `Cluster: not deployed`; those absent identities do not hide real
+CLI/context patch skew. An existing unversioned host, an unreachable cluster, and every failed GCE
+lookup remain `legacy-unknown` rather than being inferred as absent.
 
 ## Adopt a legacy context
 
@@ -67,6 +69,25 @@ accepts an unversioned context, requires the requested version to equal the
 active payload, and rejects every known CLI, host, or cluster mismatch. An
 absent cluster marker is created before the context pin is committed. If that
 write fails, the context remains legacy and the command can safely be retried.
+
+## Re-pin a context before its first deployment
+
+If you initialized a versioned context with an older patch but have not created its VM, select the
+current release's CLI and re-pin the context before provisioning:
+
+```bash
+export TARGET_NAGARE_VERSION=0.2.2
+nix run "github:shinzui/nagare/v${TARGET_NAGARE_VERSION}#nagarectl" -- \
+  platform repin --version "$TARGET_NAGARE_VERSION" --yes
+```
+
+Re-pin is narrower than adoption or upgrade. It requires the requested version to match the active
+immutable payload, runs the platform, ADC, and project guards, and proceeds only when an explicit
+GCE NotFound proves the context's named instance does not exist. Authentication, permission,
+network, or malformed-output failures refuse. If a generated context-owned host flake exists, its
+Nagare input and release comments advance with the context while `host.nix` and `secrets.yaml`
+remain untouched. Unrecognized generated files refuse before either pin changes. Once the instance
+exists, use the normal upgrade workflow; there is no force option.
 
 ## Plan and apply a release upgrade
 
