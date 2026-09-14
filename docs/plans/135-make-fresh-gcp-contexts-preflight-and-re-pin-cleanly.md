@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:14Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T12:33:05Z
+      mode: "implement"
+      note: "Started ADC and undeployed-context implementation"
 ---
 
 # Make fresh GCP contexts preflight and re-pin cleanly

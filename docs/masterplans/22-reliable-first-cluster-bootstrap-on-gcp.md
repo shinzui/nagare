@@ -93,7 +93,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
-| EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Not Started |
+| EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | In Progress |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Not Started |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Not Started |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Not Started |
@@ -231,3 +231,5 @@ ADC evidence and undeployed release state truthful before EP-3 consumes those in
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.
+
+Revision note (2026-09-14): Started EP-2 after confirming it has no unmet hard dependencies.
