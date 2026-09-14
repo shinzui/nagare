@@ -1,0 +1,77 @@
+---
+type: Improvement Request
+title: Keep Knative's system-internal certificate off the public ACME issuer
+description: cluster-bootstrap sets only config-certmanager's issuerRef, so Knative's routing-serving-certs (kn-routing, data-plane.knative.dev) is re-issued through letsencrypt-dns, and every run sends Let's Encrypt an order it rejects.
+timestamp: "2026-09-14T02:50:00Z"
+generated:
+  by: process:claude-code
+  at: "2026-09-14T02:50:00Z"
+requestId: IR-22
+status: proposed
+origin: mori://shinzui/nagare
+---
+
+# Improvement Request: pin the internal Knative issuers to the self-signed issuer
+
+**Authored by:** a `claude-code` session implementing the `tan-ng-labs` rollout
+(`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
+artifact-level plan URI is pending).
+**Addressed to:** `shinzui/nagare` agents.
+**Status:** proposed.
+**Created:** 2026-09-14.
+
+
+## Why
+
+On the `labs` cluster (`v0.2.2`: Knative `knative-v1.22.0`, net-certmanager `v1.14.0`), the
+cert-manager `Certificate` `knative-serving/routing-serving-certs` never becomes ready:
+
+```text
+Reason:   IncorrectIssuer
+Message:  Issuing certificate as Secret was previously issued by "ClusterIssuer.cert-manager.io/knative-selfsigned-issuer"
+```
+
+Its request `routing-serving-certs-2` names issuer `letsencrypt-dns` and failed with:
+
+```text
+Failed to create Order: 400 urn:ietf:params:acme:error:rejectedIdentifier: Invalid identifiers requested :: Cannot issue for "kn-routing": Domain name needs at least one dot
+```
+
+The Knative certificate behind it carries `networking.knative.dev/certificate-type: system-internal`
+and `dnsNames: ["kn-routing", "data-plane.knative.dev"]`. It was first issued by
+`knative-selfsigned-issuer`. After `cluster-bootstrap` patched `config-certmanager` with
+`cluster/bootstrap/knative-serving/config-certmanager.yaml`, it was reissued through the public DNS-01
+issuer. That patch sets only `issuerRef`. The `systemInternalIssuerRef` and `clusterLocalIssuerRef`
+keys appear only inside the ConfigMap's `_example` block, so they are not set, and net-certmanager
+used `issuerRef` for this certificate. A later `cluster-bootstrap` run created a fresh request against
+the **production** Let's Encrypt directory, which was rejected the same way. `system-internal-tls` is
+`Disabled`, so nothing is served with this certificate today. It is still a permanently not-ready
+object and a stream of rejected orders against a shared ACME account, and it would break as soon as
+internal TLS is enabled.
+
+
+## Requested change
+
+- Set `systemInternalIssuerRef` and `clusterLocalIssuerRef` explicitly to
+  `knative-selfsigned-issuer` in `config-certmanager.yaml`, next to `issuerRef`.
+- Have `cluster-bootstrap` (or a status check) flag any cert-manager `Certificate` whose issuer is
+  the ACME issuer and whose `dnsNames` include a name without a dot.
+- Re-check the net-certmanager pin: `v1.14.0` against Knative Serving `v1.22.0` is the skew the
+  justfile already notes, and the issuer-fallback behaviour may be part of it.
+
+
+## Required verification
+
+- A render or kind/k3d test that, after bootstrap with external-domain TLS enabled, every
+  `system-internal` and `cluster-local` certificate names the self-signed issuer and is `Ready`.
+
+
+## Acceptance
+
+After `cluster-bootstrap` and `cluster-enable-tls` on a fresh cluster, `kubectl get certificate -A`
+shows no not-ready certificates, and no ACME order is created for a non-public name.
+
+
+## Non-goals
+
+Enabling `system-internal-tls` or `cluster-local-domain-tls`.
