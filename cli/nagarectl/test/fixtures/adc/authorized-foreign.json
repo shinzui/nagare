@@ -1,0 +1,8 @@
+{
+  "type": "authorized_user",
+  "account": "operator@example.com",
+  "quota_project_id": "production-project",
+  "client_id": "foreign-client-id-sentinel",
+  "client_secret": "foreign-client-secret-sentinel",
+  "refresh_token": "foreign-refresh-token-sentinel"
+}
