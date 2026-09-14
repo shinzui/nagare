@@ -5,6 +5,10 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Distinct context host names (IR-14).** `nagarectl host init` now defaults the NixOS and
+  Tailscale name to `<context>-nagare` independently of the project-scoped VM instance name. It
+  refuses an implicit name already recorded by a sibling context while preserving `--host-name` as
+  an explicit override, and the access guides distinguish Tailscale names from GCE/IAP names.
 - **Context guard diagnostics (IR-9).** `nagarectl context guard` now distinguishes a missing
   Pulumi executable, a failed command with captured stderr, invalid JSON, and a genuinely absent
   `gcp:project`; every refusal names the selected stack/backend, and `--json` failures are standalone

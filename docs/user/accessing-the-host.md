@@ -17,12 +17,14 @@ generated:
 > exists specifically because plain `gcloud … --tunnel-through-iap` is broken on
 > macOS OpenSSH 10.x (see below).
 
-There are two SSH paths onto `nagare-01`, by design. Tailscale is the day-to-day
-path; the IAP tunnel works even if Tailscale is down. Both use the same operator
-key, so neither helps if a configuration removed that key. For that case there is
-a break-glass path that needs no SSH key (the serial console boot menu), and a
-last resort (the rescue disk). Port 22 is **never** open to the public internet —
-the firewall only admits SSH from Google's IAP range (`35.235.240.0/20`).
+There are two SSH paths onto a Nagare host, and they intentionally use different names. Tailscale
+uses the NixOS host name, which defaults from the context (`prod-nagare` for context `prod`). The
+IAP tunnel uses the GCE instance name, which may remain `nagare-01` in each separate project.
+Tailscale is the day-to-day path; IAP works even if Tailscale is down. Both use the same operator
+key, so neither helps if a configuration removed that key. For that case there is a break-glass
+path that needs no SSH key (the serial console boot menu), and a last resort (the rescue disk).
+Port 22 is **never** open to the public internet — the firewall only admits SSH from Google's IAP
+range (`35.235.240.0/20`).
 
 GCE startup scripts (`startup-script` metadata) **do not run** on Nagare's NixOS
 image. They are not a recovery tool; do not use them.
@@ -31,12 +33,11 @@ image. They are not a recovery tool; do not use them.
 
 ## Path 1: Tailscale SSH (primary)
 
-`nagare-01` joins your tailnet at boot (`tailscale.nix`, with `--ssh`), so once
-it's up you can reach it by its tailnet name from any device on the same
-tailnet:
+The `prod` context's host joins your tailnet at boot (`tailscale.nix`, with `--ssh`), so once it is
+up you can reach it by its context-derived tailnet name from any device on the same tailnet:
 
 ```bash
-ssh deploy@nagare-01           # via Tailscale MagicDNS
+ssh deploy@prod-nagare         # via Tailscale MagicDNS
 ```
 
 The firewall trusts the `tailscale0` interface, so node-local services (like the
@@ -44,10 +45,19 @@ kube-apiserver on `:6443`) are reachable over the tailnet without being exposed
 publicly. This is what makes `kubectl` and `nixos-rebuild --target-host`
 convenient — they ride the tailnet.
 
-> Set up a host alias so `nagare-01` resolves. With Tailscale MagicDNS this is
-> automatic; otherwise add an entry to `~/.ssh/config` pointing the context's instance name at
-> its tailnet IP. The deploy user and operator keys come from the context-owned flake created by
-> `nagarectl host init`.
+`nagarectl host init --context prod` defaults the OS and Tailscale name to `prod-nagare` while
+leaving the GCE instance name independent. If the context name cannot become a lowercase DNS label,
+or if you deliberately need another name, pass `--host-name NAME`. An implicit default already
+recorded by a sibling context is refused. Check the effective public host configuration at any time:
+
+```bash
+nagarectl host show --context prod | rg 'hostName'
+#     hostName = "prod-nagare";
+```
+
+With Tailscale MagicDNS the name resolves automatically; otherwise add an entry to
+`~/.ssh/config` pointing `prod-nagare` at its tailnet IP. The deploy user and operator keys come
+from the same context-owned host flake.
 
 ## Path 2: IAP tunnel
 
@@ -131,9 +141,10 @@ the platform down for a few minutes, so only do this when you have no other way 
 
 5. Within ten seconds, in the serial console, choose **NixOS - All configurations**, then the
    newest generation that is *older* than the bad one, and press Enter.
-6. Once it has booted, confirm `ssh deploy@nagare-01 true` (or the IAP path) works. Then fix the
-   configuration and run `just host-switch`, which makes a verified generation the boot default
-   again. The generation you picked in the menu is only booted once.
+6. Once it has booted, confirm `ssh deploy@prod-nagare true` over Tailscale or
+   `scripts/iap-ssh.sh ssh nagare-01 -- true` over IAP. Then fix the configuration and run
+   `just host-switch`, which makes a verified generation the boot default again. The generation
+   you picked in the menu is only booted once.
 7. Disable the serial port again:
 
    ```bash
@@ -162,18 +173,18 @@ from your workstation:
    Or over Tailscale:
 
    ```bash
-   ssh deploy@nagare-01 sudo cat /etc/rancher/k3s/k3s.yaml > ./k3s.yaml
+   ssh deploy@prod-nagare sudo cat /etc/rancher/k3s/k3s.yaml > ./k3s.yaml
    ```
 
 2. Edit the `server:` field from `https://127.0.0.1:6443` to the host's tailnet
-   address (`https://nagare-01:6443`), since you trust `tailscale0` in the
+   address (`https://prod-nagare:6443`), since you trust `tailscale0` in the
    firewall.
 
 3. Point `kubectl` at it:
 
    ```bash
    export KUBECONFIG=$PWD/k3s.yaml
-   kubectl get nodes        # nagare-01  Ready
+   kubectl get nodes        # prod-nagare  Ready
    just status              # pods + Knative services across namespaces
    ```
 
@@ -184,9 +195,9 @@ from your workstation:
 
 You have access when:
 
-- `ssh deploy@nagare-01 true` (Tailscale) or
+- `ssh deploy@prod-nagare true` (Tailscale) or
   `scripts/iap-ssh.sh ssh nagare-01 -- true` (IAP) succeeds, and
-- `kubectl get nodes` shows `nagare-01  Ready`.
+- `kubectl get nodes` shows `prod-nagare  Ready`.
 
 If SSH connects and then drops *"connection closed at userauth"*, that's the
 documented sshd-penalties / OS-Login issue — see

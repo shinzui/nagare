@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Give each cloud cluster a distinct default host name so tailnet names do not collide
 description: host init defaults the NixOS and Tailscale host name to the instance name, which is nagare-01 in every project, so a second cluster on the same tailnet is renamed and ssh deploy@nagare-01 becomes ambiguous.
-timestamp: "2026-09-14T02:03:30Z"
+timestamp: "2026-09-14T03:05:26Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:54:44Z"
 requestId: IR-14
-status: accepted
+status: completed
+completedAt: "2026-09-14T03:05:26Z"
+resolution: "ExecPlan 130 made <context>-nagare the validated implicit NixOS and Tailscale host name while retaining the independent GCE instance name. host init now scans sibling generated host.nix files, refuses an implicit collision with an actionable owner and path, follows operator-repository symlinks, fails closed on unreadable files, and preserves explicit --host-name recovery. The installed-command check proves prod-nagare and labs-nagare with shared instance nagare-01 plus collision refusal; all 472 Haskell tests, documentation and style gates, focused Nix checks, and the full native flake check pass. ADR 5 records the durable contract."
 targetPlan: docs/plans/130-give-every-context-a-distinct-default-host-name.md
 origin: mori://shinzui/nagare
 ---
@@ -18,8 +20,10 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; planned as
-[ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md).
+**Status:** completed by
+[ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md); the durable host
+identity and collision policy is recorded in
+[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md).
 **Created:** 2026-09-13.
 
 
