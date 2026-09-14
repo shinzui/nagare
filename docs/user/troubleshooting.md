@@ -337,3 +337,16 @@ EP-3 **Surprises & Discoveries** and **Decision Log** in
 [`docs/masterplans/1-bootstrap-nagare-personal-paas.md`](../masterplans/1-bootstrap-nagare-personal-paas.md)
 — that's kept current as the build proceeds, and new findings are recorded there
 first.
+
+## A replacement cutover stops or reports `rolling-back`
+
+Do not manually repeat the last `gcloud` operation. A cutover persists intent before mutation and
+must reconcile the reserved-address attachment, both instance interfaces, power state, context
+commit, and candidate write gate. Before candidate write admission, resume rollback and let it
+restore old service. After admission, automatic rollback is deliberately disabled: fence new writes
+and plan a reverse state transfer so candidate-only writes are not lost.
+
+`sloBreached: true` means provider recovery exceeded the selected downtime budget; it does not mean
+recovery should stop. Preserve the transaction and evidence files and continue until public old
+service is verified. Use the
+[replacement drill](../runbooks/replacement-cutover-drill.md) for phase and commit boundaries.

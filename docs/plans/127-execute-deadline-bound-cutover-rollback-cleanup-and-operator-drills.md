@@ -53,16 +53,22 @@ This section must always reflect the actual current state of the work.
       surface to this execution rather than pretending those APIs already exist.
 - [x] (2026-09-13 20:58 PDT) Implemented the minimal replacement transaction, deadline, and state-transfer contract
       surface required by this executor without claiming the prerequisite plans complete.
-- [ ] Implement pre-cutover arming, freshness/drift reconciliation, confirmation, and
-      maintenance/quiesce contracts.
-- [ ] Implement the monotonic deadline executor and exact static-IP handoff sequence.
-- [ ] Implement automatic/manual rollback reconciliation for every interruption point.
-- [ ] Implement atomic promotion, write admission, stopped-old retention, and guarded cleanup.
+- [x] (2026-09-13 21:28 PDT) Implemented pre-cutover readiness, freshness/drift reconciliation,
+      exact confirmation, arming orchestration, and fail-closed maintenance/quiesce contracts.
+- [x] (2026-09-13 21:28 PDT) Implemented the monotonic deadline executor and the journalled,
+      observable static-IP handoff sequence behind injected provider operations.
+- [x] (2026-09-13 21:28 PDT) Implemented automatic/manual rollback reconciliation for every
+      pre-commit interruption point, plus the post-commit manual-recovery fence.
+- [x] (2026-09-13 21:28 PDT) Implemented atomic promotion ordering, observed write admission,
+      stopped-old retention state, and exact-manifest guarded cleanup.
+- [ ] Wire the executor to concrete GCE, Kubernetes, Pulumi, and state-transfer adapters after
+      ExecPlans 122 through 126 provide their owned implementations and evidence.
 - [x] (2026-09-13 21:04 PDT) Added deterministic before/after fault-injection coverage and local
       integrated tests for every pre-commit external-operation boundary.
 - [ ] Run forward/rollback live drills that satisfy the selected budget after ExecPlan 122
       supplies a disposable environment and measured address-handoff contract.
-- [ ] Complete operator runbooks and distill durable decisions into the replacement ADR.
+- [x] (2026-09-13 21:28 PDT) Completed the operator drill/recovery guidance and distilled durable
+      deadline, commit-point, rollback, and cleanup decisions into ADR 0019.
 
 
 ## Surprises & Discoveries
@@ -130,6 +136,12 @@ Record every decision made while working on the plan.
   types. Supplying the pure shared boundary here permits deterministic executor work without
   falsely marking ExecPlans 122 through 126 complete or performing their cloud mutations.
   Date: 2026-09-13
+- Decision: Do not expose a mutating `platform replacement cutover` command until its provider,
+  quiesce, rehearsal, and state-transfer adapters exist and have live evidence.
+  Rationale: A command assembled from guessed `gcloud` or generic `kubectl` operations could deny
+  production writes without a proven final-transfer or recovery path. ADR 0019 requires the command
+  to remain unavailable or fail closed at this boundary.
+  Date: 2026-09-13
 
 
 ## Outcomes & Retrospective
@@ -140,6 +152,14 @@ distill durable project context from the Decision Log, Surprises & Discoveries, 
 this section into docs/adr/. Keep task-local execution details here.
 
 (To be filled during and after implementation.)
+
+The provider-independent safety core is implemented and locally proven: transactions persist
+intent and observation, forward work stops before rollback reserve, every pre-commit failpoint
+restores old service, write admission is observed as the irreversible boundary, and cleanup accepts
+only transaction-owned resource IDs. Operator-facing documentation and ADR 0019 now preserve these
+rules. Concrete cloud/cluster adapters and both live drills remain blocked by the entirely
+unimplemented prerequisite ExecPlans 122 through 126, so this plan is not complete and no production
+cutover command is advertised as available.
 
 
 ## Context and Orientation
@@ -398,3 +418,6 @@ Revision note (2026-09-13): Recorded completion of the prerequisite contract sli
 
 Revision note (2026-09-13): Expanded the deterministic suite to exercise both sides of every
 pre-commit mutation boundary and separated that completed local proof from the blocked live drills.
+
+Revision note (2026-09-13): Recorded completion of the provider-independent executor, documentation,
+and ADR distillation, and made the remaining adapter/live-drill dependency explicit and fail closed.
