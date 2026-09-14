@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Make the context guard report a missing or failing pulumi instead of an unprojected stack
 description: With pulumi absent from PATH the guard refuses with "declares no gcp:project" and advises context use, even though the stack config declares the right project.
-timestamp: "2026-09-13T23:42:08Z"
+timestamp: "2026-09-14T02:10:44Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-9
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T02:10:44Z"
+targetPlan: docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,7 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for [ExecPlan 129](../plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md).
 **Created:** 2026-09-13.
 
 
