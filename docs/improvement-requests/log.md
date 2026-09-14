@@ -1,6 +1,8 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Move IR-19 to in-progress to match MasterPlan 22 and ExecPlan 137 implementation coordination; completion remains pending first-boot acceptance evidence.
+* **Update**: Audit all 23 requests against project scope, linked plans, implementation evidence, and lifecycle state; record approving content-and-metadata review provenance and OKF verification for each current revision.
 * **Update**: Complete IR-15 and IR-17. Infrastructure apply now consumes an immutable context-bound reviewed plan without a second preview, upgrades retain it across resume, teardown is guarded, and host-image explicitly selects a visible context-owned builder with named foreign-project opt-in. ADRs 18 and 9 record the durable boundaries.
 * **Update**: Complete IR-12 and IR-16. Init and every cloud guard now validate token-safe ADC quota evidence before Pulumi, and status plus a guarded re-pin distinguish confirmed absence from legacy or unreachable deployments. ADR 9 records the credential boundary; ADR 6 records deployment-state and pre-deployment pin semantics.
 * **Update**: Complete IR-10 and IR-20. Public operator packages now exclude Haskell `lib/links`, the full package carries `socat`, a project-confined command atomically installs normalized per-context kubeconfigs, and a reusable Kubernetes identity guard runs before cloud cluster mutation recipes. ADRs 4 and 7 record the durable state and package boundaries.

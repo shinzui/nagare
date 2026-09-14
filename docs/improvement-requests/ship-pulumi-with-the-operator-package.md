@@ -12,6 +12,23 @@ completedAt: "2026-09-14T01:56:48Z"
 resolution: "Commit 73a2f4a added Pulumi and pulumi-language-nodejs from the locked nixpkgs to the operator-only nagare package with an appended PATH, added a pre-side-effect gcloud/pulumi/npm tool check, totalized missing-Pulumi failures, corrected partial-run recovery and installed-root next steps, and added version --tools. The 462-test suite, nagare-operator-tools, nagare-clone-free-platform, full local flake check, normal CI, and native release rehearsals passed. The behavior is published in the signed v0.2.2 tag at commit 248e5f9."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T01:56:48Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 128's signed-release evidence and the
+      current operator package, tool preflight, version reporting, clone-free tests,
+      recovery guidance, and ADR surfaces; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: ship Pulumi with the operator package, and preflight `init`'s tools

@@ -12,6 +12,23 @@ completedAt: "2026-09-14T03:05:26Z"
 resolution: "ExecPlan 130 made <context>-nagare the validated implicit NixOS and Tailscale host name while retaining the independent GCE instance name. host init now scans sibling generated host.nix files, refuses an implicit collision with an actionable owner and path, follows operator-repository symlinks, fails closed on unreadable files, and preserves explicit --host-name recovery. The installed-command check proves prod-nagare and labs-nagare with shared instance nagare-01 plus collision refusal; all 472 Haskell tests, documentation and style gates, focused Nix checks, and the full native flake check pass. ADR 5 records the durable contract."
 targetPlan: docs/plans/130-give-every-context-a-distinct-default-host-name.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T03:05:26Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 130's completed milestones and the
+      current context-derived host-name policy, collision detection, host tests,
+      operator guidance, and ADR evidence; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: derive the default host name from the context

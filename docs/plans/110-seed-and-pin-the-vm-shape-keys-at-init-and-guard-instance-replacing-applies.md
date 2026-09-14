@@ -21,6 +21,11 @@ provenance:
       at: 2026-09-13T04:29:00Z
       mode: "implement"
       note: "Implemented VM-shape seeding, resolver, guard, documentation, and closure milestones"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:53:19Z
+      mode: "update"
+      note: "Record resolved improvement-request review validation follow-up"
 ---
 
 # Seed and pin the VM shape keys at init and guard instance-replacing applies
@@ -292,10 +297,10 @@ passed; the command-level guard scenario passed for refusal, override, and local
 bundles also validate cleanly. IR-4 is completed and the durable ownership and safety policy is
 recorded in ADR 14.
 
-There are no implementation gaps. The only validation caveat is bundle-wide: strict OKF validation
-continues to exit 1 for the known absent `reviews` provenance on four September improvement
-requests. Non-strict profile and log enforcement passes, and no provenance was fabricated merely
-to make the strict invocation green.
+There are no implementation gaps. At implementation completion, the only validation caveat was
+bundle-wide: strict OKF validation exited 1 for absent `reviews` provenance on four September
+improvement requests. A 2026-09-14 content-and-metadata audit subsequently reviewed every request,
+recorded truthful review provenance, and made the 23-concept strict validation pass.
 
 
 ## Context and Orientation
@@ -697,9 +702,9 @@ okf log add docs/improvement-requests --kind Update -m "Complete IR-4: init seed
 okf validate docs/improvement-requests --strict --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
 ```
 
-The installed `okf` exits 1 because `--strict --profile-enforce` promotes each
+At implementation time, the installed `okf` exited 1 because `--strict --profile-enforce` promoted each
 `missing profile-recommended field: reviews` finding to an error. Those findings are pre-existing
-on all four September 2026 requests and must be left alone: `reviews` records real human or model
+on all four September 2026 requests and had to be left alone: `reviews` records real human or model
 review provenance, and inventing an entry to silence `--strict` would make the field a lie. Confirm
 the remaining schema, profile, and log constraints independently with:
 
@@ -905,3 +910,10 @@ implementer to discover the profile's delivered-work status value; that value se
 from the `shinzui/okf-profiles` source and written down, along with the `completedAt` and
 `resolution` fields that become due at completion, so the closing step no longer requires
 research. The Progress checklist and Decision Log were updated to match.
+
+
+## Revision note — 2026-09-14
+
+Recorded that the separate improvement-request audit has now performed the previously missing
+reviews and made strict bundle validation pass. The original implementation-time failure remains
+documented as historical evidence rather than a current caveat.

@@ -12,6 +12,23 @@ completedAt: "2026-09-14T01:56:48Z"
 resolution: "Commit 3a107d3 restored the declared nagare.host.hostName option and added the HostSpec golden plus host-module-options-agree contract check. ExecPlan 128 re-ran those checks, all 462 nagarectl tests, an isolated host init --dry-run, the full local and native release gates, and published the fix in the signed v0.2.2 tag at commit 248e5f9. The check compares every rendered nagare.host option with the packaged module rather than evaluating a fresh full NixOS system; nixos/flake.nix CI coverage remains a documented gap."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T01:56:48Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 128's release evidence and the current
+      HostSpec golden, host renderer, declared NixOS module option, packaged checks,
+      and release record; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: make `nagarectl host init` render `nagare.host.hostName`
