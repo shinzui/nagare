@@ -5,6 +5,21 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-14
+
+- **Production domain routing and TLS.** Ordinary applications, static sites, and server sites now
+  share one normalized multi-domain model with an explicit canonical hostname and automatic or
+  supplied-Secret origin TLS. Deploys refuse conflicting hostname ownership before apply, wait for
+  every route and certificate, and expose observed DNS, routing, and certificate health through
+  `nagarectl domains list --json` and the strict `nagarectl domains check` gate. Pulumi owns an exact
+  base-domain apex record in addition to the wildcard, and Google CDN gains a guarded
+  `legacy` → `prepare` → `certificate-map` migration covering the apex and first-level hostnames.
+- **Replacement cutover safety core.** Provider-independent replacement transactions now journal
+  intent and observation around every operation, reserve rollback time before write admission,
+  reconcile interrupted handoffs, and guard cleanup by exact resource identity. No production
+  replacement command is exposed until the remaining GCE, Kubernetes, state-transfer, and live
+  rehearsal plans supply their adapters and evidence.
+
 - **One-pass GCP onboarding rehearsal (IR-11).** The canonical onboarding path now has a hermetic
   state-machine rehearsal for command ordering and refusal behavior. Operator help and guides state
   that changing boot-disk size replaces the VM and its boot-resident k3s state, distinguish that
@@ -59,6 +74,8 @@ immutable `v<major>.<minor>.<patch>` Git tags.
   Pulumi executable, a failed command with captured stderr, invalid JSON, and a genuinely absent
   `gcp:project`; every refusal names the selected stack/backend, and `--json` failures are standalone
   parseable objects.
+
+See [the 0.3.0 release notes](docs/releases/v0.3.0.md).
 
 ## [0.2.2] - 2026-09-13
 
