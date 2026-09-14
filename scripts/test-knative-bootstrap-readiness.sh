@@ -8,8 +8,8 @@ trap 'rm -rf -- "$test_root"' EXIT
 fake_bin="$test_root/bin"
 mkdir -p "$fake_bin"
 
-cat > "$fake_bin/kubectl" <<'FAKE_KUBECTL'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" > "$fake_bin/kubectl" <<'FAKE_KUBECTL'
+#!@BASH@
 set -euo pipefail
 
 count=0
@@ -41,7 +41,7 @@ reset_fake
 export FAKE_KUBECTL_FAIL_UNTIL=2
 NAGARE_KNATIVE_PATCH_MAX_ATTEMPTS=5 \
 NAGARE_KNATIVE_PATCH_RETRY_DELAY_SECONDS=0 \
-  "$repo_root/scripts/retry-knative-configmap-patch.sh" \
+  bash "$repo_root/scripts/retry-knative-configmap-patch.sh" \
     config-network --type merge --patch '{"data":{"ingress.class":"kourier"}}'
 [ "$(cat "$FAKE_KUBECTL_COUNT")" -eq 3 ]
 [ "$(wc -l < "$FAKE_KUBECTL_LOG")" -eq 3 ]
@@ -54,7 +54,7 @@ export FAKE_KUBECTL_ALWAYS_FAIL=1
 failure_stderr="$test_root/permanent-failure-stderr"
 if NAGARE_KNATIVE_PATCH_MAX_ATTEMPTS=3 \
    NAGARE_KNATIVE_PATCH_RETRY_DELAY_SECONDS=0 \
-     "$repo_root/scripts/retry-knative-configmap-patch.sh" \
+     bash "$repo_root/scripts/retry-knative-configmap-patch.sh" \
        config-features --type merge --patch '{"data":{"kubernetes.podspec-persistent-volume-claim":"enabled"}}' \
        2> "$failure_stderr"; then
   echo "FAIL: permanently failing kubectl unexpectedly succeeded" >&2

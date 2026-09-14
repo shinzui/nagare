@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-14T04:20:01Z
       mode: "implement"
       note: "Implemented bounded Knative webhook readiness and patch retry checks"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T23:06:40Z
+      mode: "implement"
+      note: "Hardened v0.3.0 readiness fixture after Linux CI evidence"
 ---
 
 # Make cluster bootstrap wait for Knative webhooks
@@ -85,6 +90,12 @@ the expected ConfigMap values are present, and no second invocation is needed.
   live-test: PASS
   ```
 
+- Observation: A test can be launched with Nix-provided Bash while still escaping the pure Linux
+  closure through a directly executed helper or fake executable. Evidence: v0.3.0 release CI reached
+  `knative-bootstrap-readiness`, then failed on the helper's `/usr/bin/env` shebang; invoking the
+  helper through Bash and rendering the same Bash path into fake kubectl made the focused pure-build
+  check pass without changing runtime behavior.
+
 
 ## Decision Log
 
@@ -142,6 +153,9 @@ dry-run ordering. A new k3d cluster then proved the user-visible result: the fir
 `just local-bootstrap` exited 0, the webhook rolled out with endpoint `10.42.0.11`, the four expected
 ConfigMaps contained their desired values, the original no-endpoints error was absent, and an
 idempotence rerun also exited 0. The test cluster was deleted by its trap.
+
+The v0.3.0 release audit additionally made the hermetic fixture self-contained in the pure Linux
+builder by using the check-provided Bash for both the helper and fake kubectl.
 
 Documentation and `CHANGELOG.md` describe the actual waits and retries, and IR-21 is completed with
 its target-plan link intact. `okf validate` accepted all 23 improvement requests. The direct and
@@ -424,3 +438,6 @@ bounded readiness wait; no new library dependency is introduced.
 Revision note (2026-09-14): Implemented all three milestones, recorded focused and disposable-cluster
 evidence, published the readiness behavior, completed IR-21, and closed the plan after the full
 native flake gate and ADR distillation pass succeeded.
+
+Revision note (2026-09-14): Hardened the completed plan's release evidence after Linux CI exposed
+direct helper execution outside the pure-builder closure.
