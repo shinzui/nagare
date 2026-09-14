@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Accept IR-21 and record its target plan: docs/plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md.
 * **Update**: Accept IR-18 and target it at docs/plans/133-deliver-the-host-age-key-after-first-boot.md.
 * **Add**: Record IR-22 and IR-23 as proposed, from proving staging and production TLS on tan-ng-labs with v0.2.2: config-certmanager sets only issuerRef, so Knative's system-internal routing-serving-certs is sent to Let's Encrypt and rejected on every bootstrap (IR-22); and namespace-wildcard-cert-selector {} issues public wildcards for every namespace, including kube-system and kube-node-lease (IR-23).
 * **Update**: Complete IR-14. Host init now derives the NixOS and Tailscale name as `<context>-nagare`, keeps the project-scoped VM instance name independent, refuses implicit collisions found in sibling generated flakes, preserves explicit recovery, and documents the two identities. Decision amended in ADR 5.
