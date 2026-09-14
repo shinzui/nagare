@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Complete IR-13, IR-7 and IR-8 in signed Nagare v0.2.2 at 248e5f9. Host init again renders the declared hostName option; named init is isolated from the active context and refuses foreign derived buckets; and the operator package carries its tested Pulumi with pre-side-effect tool checks and clone-free recovery guidance. Decisions amended in ADR 9 and ADR 7.
 * **Update**: Accept IR-13, IR-7 and IR-8 for Nagare 0.2.2 and record their target plan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md. IR-13's fix is already in 3a107d3.
 
 ## 2026-09-13

@@ -5,6 +5,7 @@ date: 2026-08-25
 authors: [shinzui]
 related:
   - docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md
+  - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
@@ -59,3 +60,15 @@ Maintainers must update all version sources and release notes before tagging. Ev
 system needs a native or trusted remote runner and release-gate coverage. A broken release is marked
 deprecated and superseded by a new semantic version; reproducibility requires retaining its tag and
 attachments.
+
+## Amendment — 2026-09-14
+
+The installable operator package `#nagare` carries the Pulumi CLI and the Node.js language plugin
+from the same locked nixpkgs revision used by its release checks. Their binaries are appended to the
+operator wrapper and launcher `PATH`, so an intentional operator override or a test double earlier on
+`PATH` still wins. `nagarectl version --tools` makes the resolved binaries visible.
+
+This packaging rule applies only to the operator distribution. The smaller app-developer
+`#nagarectl` output remains unchanged, and Node.js with npm plus the Google Cloud SDK remain explicit
+external prerequisites. [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md)
+introduced and validated the rule in signed release `v0.2.2`.

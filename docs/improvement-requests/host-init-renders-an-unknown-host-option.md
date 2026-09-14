@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Make nagarectl host init render the host option the NixOS module declares
 description: Since the semantic-record-label refactor, host init writes nagare.host.name, which the packaged module does not declare, so v0.2.0 and v0.2.1 cannot generate any new host flake.
-timestamp: "2026-09-14T00:12:08Z"
+timestamp: "2026-09-14T01:56:48Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:54:44Z"
 requestId: IR-13
-status: accepted
+status: completed
+completedAt: "2026-09-14T01:56:48Z"
+resolution: "Commit 3a107d3 restored the declared nagare.host.hostName option and added the HostSpec golden plus host-module-options-agree contract check. ExecPlan 128 re-ran those checks, all 462 nagarectl tests, an isolated host init --dry-run, the full local and native release gates, and published the fix in the signed v0.2.2 tag at commit 248e5f9. The check compares every rendered nagare.host option with the packaged module rather than evaluating a fresh full NixOS system; nixos/flake.nix CI coverage remains a documented gap."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
 ---
@@ -18,7 +20,7 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; the fix is in `3a107d3` and ships in 0.2.2, planned as [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md).
+**Status:** completed by [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md); the fix from `3a107d3` is published in signed tag `v0.2.2` at `248e5f9`.
 **Created:** 2026-09-13.
 
 
