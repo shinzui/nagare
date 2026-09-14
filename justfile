@@ -146,6 +146,7 @@ k3s_image := "rancher/k3s:v1.34.6-k3s1"
 [group('cluster')]
 cluster-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
     for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
@@ -176,6 +177,8 @@ cluster-bootstrap:
 # Create/update the personal namespace and bounded Job-run quota.
 [group('cluster')]
 job-runs-bootstrap:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
     kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
     kubectl apply -f cluster/bootstrap/job-runs/resourcequota.yaml
 
@@ -201,6 +204,8 @@ context-show:
 # Enable automatic per-namespace wildcard HTTPS (run after baseDomain delegated).
 [group('cluster')]
 cluster-enable-tls:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
     @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
 
@@ -302,6 +307,8 @@ local-minio:
 # Install the VictoriaMetrics/Logs/Traces + OTel + Grafana stack.
 [group('cluster')]
 observability:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
     cluster/observability/install.sh
 
 # EP-4 ships the sample app; this applies it as a smoke test. Apply the
@@ -311,6 +318,8 @@ observability:
 # Apply the hello Knative sample app as a smoke test.
 [group('apps')]
 deploy-hello:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
     kubectl apply -f cluster/examples/hello-knative-service/service.yaml
     kubectl apply -f cluster/examples/hello-knative-service/domainmapping.yaml
 

@@ -80,6 +80,7 @@ library
     Nagare.Infra.Plan
     Nagare.Init
     Nagare.Ops.Cleanup
+    Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
     Nagare.Ops.Doctor
     Nagare.Ops.Domains

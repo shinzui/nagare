@@ -43,7 +43,7 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-09-14T04:51:29Z) Restrict the user-facing Nix joins, ship `socat`, and add installed-package checks.
 - [x] (2026-09-14T05:08:33Z) Expose IAP SSH and implement an atomic, context-specific `kubeconfig fetch` command.
-- [ ] Implement one reusable cluster identity guard and put it before cluster-mutating recipes.
+- [x] (2026-09-14T05:24:01Z) Implement one reusable cluster identity guard and put it before cluster-mutating recipes.
 - [ ] Update access and installation docs, validate both IRs, and run repository gates.
 
 
@@ -110,6 +110,12 @@ Record every decision made while working on the plan.
   Rationale: `host init --host-name` may deliberately override the derived default, while IAP must
   continue targeting the profile's project and instance identity. Mixing the names would produce a
   kubeconfig whose API endpoint is absent from the k3s certificate.
+  Date: 2026-09-14.
+
+- Decision: Define observed Nagare server nodes as nodes labelled control-plane, master, or etcd,
+  ignore worker-only nodes, and require the server-node set to contain exactly the expected host.
+  Rationale: Worker expansion must not block normal operation, while zero servers or any additional
+  server identity makes the selected cluster ambiguous and must fail closed before mutation.
   Date: 2026-09-14.
 
 

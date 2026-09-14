@@ -197,6 +197,13 @@ import Nagare.Ops.Cleanup
   , executeCleanup
   , formatCleanupReport
   )
+import Nagare.Ops.ClusterGuard
+  ( clusterGuardObservationsValue
+  , clusterGuardVerdict
+  , defaultClusterGuardOps
+  , observeClusterGuard
+  , renderClusterGuard
+  )
 import Nagare.Ops.ContextGuard
   ( ProjectGuardInputs (..)
   , PulumiProjectObservation (..)
@@ -543,6 +550,7 @@ data Command
   | PlatformUpgradeRollback String Bool Bool
   | Host HostCommand
   | Kubeconfig KubeconfigCommand
+  | Cluster ClusterCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
@@ -596,6 +604,16 @@ data KubeconfigCommand
 data KubeconfigFetchOpts = KubeconfigFetchOpts
   { context :: !(Maybe String)
   , output :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+data ClusterCommand
+  = ClusterGuard ClusterGuardOpts
+  deriving stock (Generic, Show)
+
+data ClusterGuardOpts = ClusterGuardOpts
+  { context :: !(Maybe String)
+  , json :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1609,6 +1627,7 @@ opts =
             <> command "platform" platformCmd
             <> command "host" hostCmd
             <> command "kubeconfig" kubeconfigCmd
+            <> command "cluster" clusterCmd
             <> command "deploy" deployCmd
             <> command "site" siteCmd
             <> command "env" envCmd
@@ -1739,6 +1758,25 @@ opts =
                       <**> helper
                 )
                 (progDesc "Fetch k3s credentials over project-confined IAP and install them atomically")
+            )
+        )
+    clusterCmd =
+      info
+        (Cluster <$> clusterSubparser <**> helper)
+        (fullDesc <> progDesc "Inspect and guard the selected Kubernetes cluster")
+    clusterSubparser =
+      subparser
+        ( command
+            "guard"
+            ( info
+                ( ClusterGuard
+                    <$> ( ClusterGuardOpts
+                            <$> optional (strOption (long "context" <> metavar "NAME" <> help "Nagare context expected to own the active Kubernetes cluster"))
+                            <*> switch (long "json" <> help "Emit the expected and observed identities as JSON")
+                        )
+                      <**> helper
+                )
+                (progDesc "Refuse unless the active kube context has the selected context's sole server node")
             )
         )
     doctorCmd =
@@ -2341,6 +2379,7 @@ main =
     PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
     Host hcmd -> runHost mctx hcmd
     Kubeconfig kcmd -> runKubeconfig mctx kcmd
+    Cluster ccmd -> runCluster mctx ccmd
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts
@@ -2895,6 +2934,38 @@ runKubeconfig globalContext = \case
           <> hostName
           <> ":6443)"
       )
+
+runCluster :: Maybe String -> ClusterCommand -> IO ()
+runCluster globalContext = \case
+  ClusterGuard options -> do
+    active <- activeTarget (options ^. #context <|> globalContext)
+    let profile = active ^. #profile
+        context = active ^. #contextName
+        contextText = contextNameText context
+    when (profile ^. #mode == Local) $
+      dieT "cluster guard is a cloud-cluster identity check and is unavailable for local contexts"
+    expectedNode <- readContextHostName context >>= either dieT pure
+    observed <- observeClusterGuard defaultClusterGuardOps contextText expectedNode
+    case observed of
+      Left err ->
+        if options ^. #json
+          then do
+            LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["guarded" Aeson..= False, "refusal" Aeson..= err]))
+            exitFailure
+          else dieT err
+      Right inputs -> do
+        let evidence = clusterGuardObservationsValue inputs
+        case clusterGuardVerdict inputs of
+          Left err ->
+            if options ^. #json
+              then do
+                LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["guarded" Aeson..= False, "refusal" Aeson..= err, "observations" Aeson..= evidence]))
+                exitFailure
+              else dieT err
+          Right () ->
+            if options ^. #json
+              then LBC.putStrLn (Aeson.encode (Aeson.object ["guarded" Aeson..= True, "observations" Aeson..= evidence]))
+              else TIO.putStrLn (renderClusterGuard inputs)
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext = ensurePulumiForContextWithInstallNotice True
