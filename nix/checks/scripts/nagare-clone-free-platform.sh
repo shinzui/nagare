@@ -66,6 +66,48 @@ grep -q 'config set --stack trial nagare:bootDiskSizeGb 100' init.out
 grep -q 'config set --stack trial nagare:dataDiskSizeGb 100' init.out
 grep -q 'DRY RUN: would run:' init.out
 grep -q "$XDG_STATE_HOME/nagare/trial/platform/" init.out
+
+# EP-128 / IR-7: named init never inherits another current context or ambient
+# target value. A forced re-init reads only its own stored context and keeps its
+# backend, while a project change that leaves foreign derived buckets refuses
+# before preflight or writes.
+mkdir -p "$XDG_CONFIG_HOME/nagare/contexts"
+printf '%s\n' \
+  'export CLOUDSDK_CORE_PROJECT=other' \
+  'export NAGARE_IMAGE_BUCKET=other-nagare-images' \
+  'export NAGARE_BACKUP_BUCKET=other-nagare-backups' \
+  'export NAGARE_TARGET_PLATFORM=linux/arm64' \
+  > "$XDG_CONFIG_HOME/nagare/contexts/foreign.env"
+printf '%s\n' foreign > "$XDG_CONFIG_HOME/nagare/current-context"
+export NAGARE_IMAGE_BUCKET=ambient-nagare-images
+nagarectl init fresh --project p --acme-email ops@example.com \
+  --dry-run --skip-preflight > init-fresh.out
+grep -q "Derived names for context 'fresh':" init-fresh.out
+grep -q 'export NAGARE_IMAGE_BUCKET=p-nagare-images' init-fresh.out
+grep -q 'export NAGARE_BACKUP_BUCKET=p-nagare-backups' init-fresh.out
+grep -q 'export NAGARE_TARGET_PLATFORM=linux/amd64' init-fresh.out
+if grep -q 'other-nagare\|ambient-nagare' init-fresh.out; then
+  echo "named init inherited a foreign target value" >&2
+  cat init-fresh.out >&2
+  exit 1
+fi
+unset NAGARE_IMAGE_BUCKET
+
+nagarectl context create kept --project p --pulumi-backend gcs
+nagarectl init kept --force --acme-email ops@example.com \
+  --dry-run --skip-preflight --skip-seed > init-kept.out
+grep -q 'export NAGARE_PULUMI_BACKEND=gcs' init-kept.out
+grep -q 'export NAGARE_IMAGE_BUCKET=p-nagare-images' init-kept.out
+if nagarectl init kept --force --project q --acme-email ops@example.com \
+  --dry-run --skip-preflight > init-foreign-project.out 2> init-foreign-project.err; then
+  echo "named init accepted stored buckets from another project" >&2
+  cat init-foreign-project.out init-foreign-project.err >&2
+  exit 1
+fi
+grep -q 'NAGARE_IMAGE_BUCKET' init-foreign-project.err
+grep -q 'NAGARE_BACKUP_BUCKET' init-foreign-project.err
+printf '%s\n' local > "$XDG_CONFIG_HOME/nagare/current-context"
+
 nagarectl server status --skip-vm > status.out
 nagare --list > recipes.out
 grep -q 'infra-preview' recipes.out

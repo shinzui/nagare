@@ -157,11 +157,18 @@ import Nagare.Infra.Plan
   , renderVerdict
   )
 import Nagare.Init
-  ( nextStepsText
+  ( InitOpts (..)
+  , checkInitOwnership
+  , findMissingTools
+  , initContextMap
+  , nextStepsText
   , operatorRoles
   , pulumiConfigSetArgs
+  , renderInitSummary
   , renderTargetEnv
+  , requiredInitTools
   , seedKeys
+  , seedPulumiConfig
   )
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
@@ -229,6 +236,7 @@ import Nagare.Ops.PulumiBackend
   , projectNumberArgs
   , pulumiStateBucket
   )
+import Nagare.Platform.Paths (PlatformRootSource (InstalledRoot, SourceRoot))
 import Nagare.Server.Build
 import Nagare.Static.Build
 import Nagare.Static.Image (staticDockerfile)
@@ -306,12 +314,14 @@ import Nagare.Version
   , comparePlatformVersions
   , parsePlatformVersion
   , renderBuildVersionJson
+  , renderBuildVersionJsonWithTools
   , renderBuildVersionText
   , renderPlatformVersion
   )
 import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (ExitFailure))
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcess)
@@ -388,6 +398,25 @@ versionTests =
   , testCase "JSON rendering preserves optional revision metadata" $
       (eitherDecodeStrict (renderBuildVersionJson (BuildVersion "1.2.3" (Just "abc123"))) :: Either String Aeson.Value)
         @?= Right (Aeson.object ["version" Aeson..= ("1.2.3" :: Text), "platformVersion" Aeson..= ("1.2.3" :: Text), "revision" Aeson..= ("abc123" :: Text)])
+  , testCase "tool JSON reports resolved paths and explicit nulls" $
+      ( eitherDecodeStrict
+          ( renderBuildVersionJsonWithTools
+              (BuildVersion "1.2.3" Nothing)
+              [("pulumi", Just "/opt/bin/pulumi"), ("npm", Nothing)]
+          ) ::
+          Either String Aeson.Value
+      )
+        @?= Right
+          ( Aeson.object
+              [ "version" Aeson..= ("1.2.3" :: Text)
+              , "platformVersion" Aeson..= ("1.2.3" :: Text)
+              , "tools"
+                  Aeson..= Aeson.object
+                    [ "pulumi" Aeson..= (Just "/opt/bin/pulumi" :: Maybe FilePath)
+                    , "npm" Aeson..= (Nothing :: Maybe FilePath)
+                    ]
+              ]
+          )
   , testCase "platform versions round-trip releases and prereleases" $ do
       let release = PlatformVersion 2 4 7 Nothing
           candidate = PlatformVersion 2 4 7 (Just "rc.1")
@@ -499,6 +528,95 @@ initTests =
           @?= Left "NAGARE_BOOT_DISK_SIZE_GB must be an integer of at least 10 GB"
         validateVmShape (defaultVmShape & #dataDiskSizeGb .~ "many")
           @?= Left "NAGARE_DATA_DISK_SIZE_GB must be an integer of at least 10 GB"
+    , testCase "a new init context derives names without an active-context base" $ do
+        let contextMap =
+              initContextMap
+                Nothing
+                [ ("CLOUDSDK_CORE_PROJECT", "p")
+                , ("NAGARE_ACME_EMAIL", "ops@example.com")
+                ]
+                "0.2.2"
+            tp = profileFromContextMap contextMap
+        tp ^. #imageBucket @?= "p-nagare-images"
+        tp ^. #backupBucket @?= "p-nagare-backups"
+        tp ^. #registryHost @?= "us-west1-docker.pkg.dev"
+        tp ^. #instanceName @?= "nagare-01"
+        tp ^. #targetPlatform @?= "linux/amd64"
+        tp ^. #mode @?= Cloud
+        tp ^. #pulumiBackend @?= PulumiBackendLocal
+        tp ^. #platformVersion @?= Just "0.2.2"
+    , testCase "forced init keeps omitted values from its own stored context" $ do
+        let stored =
+              Map.fromList
+                [ ("CLOUDSDK_CORE_PROJECT", "p")
+                , ("NAGARE_IMAGE_BUCKET", "p-custom-images")
+                , ("NAGARE_PULUMI_BACKEND", "gcs")
+                , ("NAGARE_PLATFORM_VERSION", "0.2.1")
+                ]
+            contextMap = initContextMap (Just stored) [("NAGARE_ACME_DIRECTORY", "staging")] "0.2.2"
+            tp = profileFromContextMap contextMap
+        tp ^. #imageBucket @?= "p-custom-images"
+        tp ^. #pulumiBackend @?= PulumiBackendGcs
+        tp ^. #platformVersion @?= Just "0.2.1"
+        tp ^. #acmeDirectory @?= "staging"
+    , testCase "init ownership refuses foreign derived buckets and backend URLs" $ do
+        let foreignBuckets =
+              initProfile
+                & #project
+                .~ "tan-ng-labs"
+                & #imageBucket
+                .~ "tan-nb-exp-nagare-images"
+                & #backupBucket
+                .~ "tan-nb-exp-nagare-backups"
+            foreignBackend =
+              initProfile
+                & #pulumiBackend
+                .~ PulumiBackendGcs
+                & #pulumiBackendUrl
+                .~ "gs://other-nagare-pulumi-state/nagare/labs"
+        case checkInitOwnership False "labs" foreignBuckets of
+          Left message -> do
+            assertBool "image bucket named" (T.isInfixOf "NAGARE_IMAGE_BUCKET" message)
+            assertBool "backup bucket named" (T.isInfixOf "NAGARE_BACKUP_BUCKET" message)
+          Right () -> assertFailure "foreign buckets were accepted"
+        checkInitOwnership False "labs" initProfile @?= Right ()
+        assertBool "stored foreign GCS URL refused" (isLeft (checkInitOwnership False "labs" foreignBackend))
+        checkInitOwnership True "labs" foreignBackend @?= Right ()
+    , testCase "init summary shows both buckets and the effective GCS URL" $ do
+        let out = renderInitSummary "labs" (initProfile & #pulumiBackend .~ PulumiBackendGcs)
+        assertBool "heading" (T.isInfixOf "Derived names for context 'labs':" out)
+        assertBool "image bucket" (T.isInfixOf "acme-prod-nagare-images" out)
+        assertBool "backup bucket" (T.isInfixOf "acme-prod-nagare-backups" out)
+        assertBool "default GCS URL" (T.isInfixOf "gs://acme-prod-nagare-pulumi-state/nagare/labs" out)
+    , testCase "init tool requirements match the enabled phases" $ do
+        requiredInitTools defaultInitOpts PulumiBackendLocal @?= ["gcloud", "pulumi", "npm"]
+        requiredInitTools
+          ( defaultInitOpts
+              & #skipPreflight
+              .~ True
+              & #skipEnable
+              .~ True
+              & #skipSeed
+              .~ True
+          )
+          PulumiBackendLocal
+          @?= []
+        requiredInitTools
+          (defaultInitOpts & #skipPreflight .~ True & #skipEnable .~ True)
+          PulumiBackendGcs
+          @?= ["gcloud", "pulumi", "npm"]
+    , testCase "missing Pulumi is reported instead of throwing" $ do
+        withSystemTempDirectory "nagare-empty-path" $ \emptyPath -> do
+          oldPath <- lookupEnv "PATH"
+          let restorePath = maybe (unsetEnv "PATH") (setEnv "PATH") oldPath
+          result <-
+            ( do
+                setEnv "PATH" emptyPath
+                findMissingTools ["pulumi"] >>= (@?= ["pulumi"])
+                seedPulumiConfig "/tmp/unused" False "labs" initProfile
+            )
+              `finally` restorePath
+          result @?= Left ("gcp:project", ExitFailure 127)
     , testCase "pulumiConfigSetArgs targets the active context stack" $
         pulumiConfigSetArgs "/payload/infra/pulumi" "labs" "gcp:project" "acme-prod"
           @?= ["-C", "/payload/infra/pulumi", "config", "set", "--stack", "labs", "gcp:project", "acme-prod"]
@@ -649,10 +767,40 @@ initTests =
         assertBool "two at-signs rejected" (isLeft (validateAcmeEmail "a@b@c.example"))
     , testCase "operatorRoles includes serviceUsageAdmin for the enable step" $
         assertBool "serviceUsageAdmin" ("roles/serviceusage.serviceUsageAdmin" `elem` operatorRoles)
-    , testCase "nextStepsText names the ordered just targets" $ do
-        assertBool "infra-up" (T.isInfixOf "just infra-up" nextStepsText)
-        assertBool "host-image" (T.isInfixOf "just host-image" nextStepsText)
+    , testCase "nextStepsText matches source and installed payloads" $ do
+        let source = nextStepsText SourceRoot
+            installed = nextStepsText InstalledRoot
+        assertBool "source infra-up" (T.isInfixOf "just infra-up" source)
+        assertBool "source host-image" (T.isInfixOf "just host-image" source)
+        assertBool "installed infra-up" (T.isInfixOf "nagare infra-up" installed)
+        assertBool "installed host-image" (T.isInfixOf "nagare host-image" installed)
+        assertBool "installed has no just command" (not (T.isInfixOf "just " installed))
+        assertBool "installed has no masterplan pointer" (not (T.isInfixOf "masterplans" installed))
     ]
+
+defaultInitOpts :: InitOpts
+defaultInitOpts =
+  InitOpts
+    { contextName = Just "labs"
+    , project = Nothing
+    , region = Nothing
+    , zone = Nothing
+    , baseDomain = Nothing
+    , machineType = Nothing
+    , bootDiskType = Nothing
+    , bootDiskSizeGb = Nothing
+    , dataDiskSizeGb = Nothing
+    , pulumiBackend = Nothing
+    , pulumiBackendUrl = Nothing
+    , pulumiBackendMember = Nothing
+    , acmeEmail = Nothing
+    , acmeDirectory = Nothing
+    , force = False
+    , skipPreflight = False
+    , skipEnable = False
+    , skipSeed = False
+    , dryRun = False
+    }
 
 infraPlanTests :: TestTree
 infraPlanTests =

@@ -10,11 +10,13 @@ module Nagare.Version
   , comparePlatformVersions
   , compatibilityToken
   , renderBuildVersionJson
+  , renderBuildVersionJsonWithTools
   , renderBuildVersionText
   )
 where
 
 import Data.Aeson (encode, object, (.=))
+import Data.Aeson.Key qualified as Key
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
@@ -132,3 +134,14 @@ renderBuildVersionJson (BuildVersion version revision) =
   LBS.toStrict . encode . object $
     ["version" .= version, "platformVersion" .= version]
       <> maybe [] (\revision -> ["revision" .= revision]) revision
+
+-- | Render build identity plus the executable paths selected from the invoking
+-- process's PATH. Missing tools remain explicit JSON nulls. Plain
+-- 'renderBuildVersionJson' intentionally stays path-independent for release
+-- evidence that must be byte-stable across machines.
+renderBuildVersionJsonWithTools :: BuildVersion -> [(Text, Maybe FilePath)] -> ByteString
+renderBuildVersionJsonWithTools (BuildVersion version revision) tools =
+  LBS.toStrict . encode . object $
+    ["version" .= version, "platformVersion" .= version]
+      <> maybe [] (\sourceRevision -> ["revision" .= sourceRevision]) revision
+      <> ["tools" .= object [Key.fromText name .= path | (name, path) <- tools]]

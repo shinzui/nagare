@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5"
     harness: "claude-code"
     at: 2026-09-14T00:06:12Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T00:22:36Z
+      mode: "implement"
+      note: "Validated Milestone 1 and began the init isolation implementation"
 ---
 
 # Isolate init from the active context, ship Pulumi with the operator package, and release Nagare 0.2.2
@@ -65,28 +71,32 @@ tailnet) are related but out of scope. The Decision Log records why.
 - [x] (2026-09-13, before this plan) IR-13 code fix landed in `3a107d3`. `nix flake check` passed
   on aarch64-darwin with 29 checks, including `host-module-options-agree`. The result was relayed
   by the session that made the fix.
-- [ ] Milestone 1: confirm IR-13 on the current tree (HostSpec, `host-module-options-agree`, and
-  a `host init --dry-run` transcript), and commit the IR bundle acceptance.
-- [ ] Milestone 2: pure `init` base resolution (`initContextMap`, `resolveInitBase`) in
+- [x] (2026-09-14 00:22Z) Milestone 1: the IR bundle acceptance is committed at `15754d8`;
+  all 454 `nagarectl-test` cases, including the IR-13 HostSpec golden, pass; and
+  `host-module-options-agree` builds successfully.
+- [x] (2026-09-14 00:24Z) Milestone 1 remaining: the isolated `host init --dry-run` transcript
+  prints only `hostName = "ir13-host";` for the host-name option.
+- [x] (2026-09-14 00:53Z) Milestone 2: pure `init` base resolution (`initContextMap`, `resolveInitBase`) in
   `cli/nagarectl/src/Nagare/Init.hs`, with unit tests.
-- [ ] Milestone 2: derived-name ownership check (`checkInitOwnership`) and the derived-field
+- [x] (2026-09-14 00:53Z) Milestone 2: derived-name ownership check (`checkInitOwnership`) and the derived-field
   summary (`renderInitSummary`), with unit tests.
-- [ ] Milestone 2: rewire `runInit` in `cli/nagarectl/app/Main.hs` for named contexts. Prompt
+- [x] (2026-09-14 00:53Z) Milestone 2: rewire `runInit` in `cli/nagarectl/app/Main.hs` for named contexts. Prompt
   defaults come from the base, the child-process environment is exported from the new profile,
   and the dry-run API enable is printed from Haskell.
-- [ ] Milestone 2: hermetic command scenario in `nix/checks/scripts/nagare-clone-free-platform.sh`
-  (foreign current context, then `init new` and `init existing --force`).
-- [ ] Milestone 3: add `pulumi` and `pulumi-language-nodejs` to an operator-only `nagarectl`
+- [x] (2026-09-14 00:53Z) Milestone 2: the hermetic foreign-current-context, fresh-init,
+  forced-init, and ownership-refusal scenarios pass in `nagare-clone-free-platform`.
+- [x] (2026-09-14 00:53Z) Milestone 3: add `pulumi` and `pulumi-language-nodejs` to an operator-only `nagarectl`
   wrapper (`--suffix`) and to the `nagare` launcher (appended PATH) in `nix/haskell-packages.nix`,
   leaving the app-developer `#nagarectl` output unchanged.
-- [ ] Milestone 3: tool preflight (`requiredInitTools`, `findMissingTools`) before the first side
+- [x] (2026-09-14 00:53Z) Milestone 3: tool preflight (`requiredInitTools`, `findMissingTools`) before the first side
   effect. `seedPulumiConfig` must not throw on a missing binary.
-- [ ] Milestone 3: recovery hints name `nagarectl context use NAME` or a safe
+- [x] (2026-09-14 00:53Z) Milestone 3: recovery hints name `nagarectl context use NAME` or a safe
   `init NAME --force`, and `nextStepsText` renders `nagare <recipe>` for installed payloads.
-- [ ] Milestone 3: `nagarectl version --tools` reports resolved tool paths. Add the new check
-  `nagare-operator-tools`, which covers the installed-package-only PATH and a pulumi-absent refusal.
-- [ ] Milestone 3: update `docs/user/installation.md`, `docs/user/getting-started.md`, and
-  `CHANGELOG.md` `[Unreleased]`.
+- [x] (2026-09-14 00:53Z) Milestone 3: `nagarectl version --tools` reports resolved tool paths;
+  `nagare-operator-tools` passes its installed-package-only PATH and Pulumi-absent scenarios.
+- [x] (2026-09-14 00:53Z) Milestone 3: updated `docs/user/installation.md`,
+  `docs/user/getting-started.md`, and `CHANGELOG.md` `[Unreleased]`; all 462 Haskell tests, the
+  Haskell style gate, and strict user-documentation validation pass.
 - [ ] Milestone 4: release 0.2.2 (version sources, notes, gates, push, dispatch, signed tag,
   publish, verification).
 - [ ] Milestone 5: mark IR-13, IR-7, and IR-8 completed with resolutions, distill ADR context,
@@ -121,6 +131,29 @@ tailnet) are related but out of scope. The Decision Log records why.
 
 - Observation: `docs/user/getting-started.md` line 36 already lists `pulumi` and `node` as
   operator clients. `docs/user/installation.md`, the page IR-8 followed, lists neither.
+
+- Observation: the Milestone 1 Cabal command must run from `cli/nagarectl`; the repository has
+  one `cabal.project` per Haskell package and no root `cabal.project`. From the package directory,
+  `nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct` passed all 454 tests.
+  Evidence: running the plan's root-relative command first exited with `No cabal.project file or
+  cabal file matching the default glob './*.cabal' was found.`
+
+- Observation: strict improvement-request validation still fails only on the bundle-wide absence
+  of truthful review provenance. `--strict --profile-enforce` reported `missing
+  profile-recommended field: reviews` for all 14 concepts. This is the same known behavior recorded
+  by ExecPlan 110; no review entries were invented. The enforceable schema, profile, and log gate
+  without `--strict` passed with `OK: 14 concepts (okf_version 0.2)`.
+
+- Observation: the first extended clone-free run left the fixture's synthetic `foreign` context
+  current, so the later pre-existing status assertion inspected the wrong context. Restoring the
+  original `local` current-context pointer after the IR-7 scenario made the complete check pass;
+  the product behavior was correct in the failing run.
+
+- Observation: `nagare --list` used to call `nagarectl context env`, which installs locked Pulumi
+  Node dependencies and therefore required npm merely to list recipes. The package-only PATH check
+  exposed this hidden side effect. The launcher now resolves the immutable workspace and executes
+  `just --list` before context/Pulumi initialization; operational recipes still take the guarded
+  context path.
 
 
 ## Decision Log
@@ -690,7 +723,7 @@ All commands run from the repository root `/Users/shinzui/Keikaku/bokuno/nagare`
 Milestone 1:
 
 ```bash
-nix develop -c cabal test nagarectl-test --test-show-details=direct
+(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct)
 nix build .#checks.aarch64-darwin.host-module-options-agree --print-build-logs
 scratch="$(mktemp -d)"
 env -i HOME="$scratch" XDG_CONFIG_HOME="$scratch/config" XDG_STATE_HOME="$scratch/state" \
@@ -731,8 +764,8 @@ Intention: intention_01m2ekfg61edmbtnvv0tbkhprd
 Milestones 2 and 3 use this development loop:
 
 ```bash
-nix develop -c cabal build nagarectl
-nix develop -c cabal test nagarectl-test --test-show-details=direct
+(cd cli/nagarectl && nix develop ../.. -c cabal build exe:nagarectl)
+(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct)
 just haskell-style-check
 nix build .#checks.aarch64-darwin.nagare-clone-free-platform --print-build-logs
 nix build .#checks.aarch64-darwin.nagare-operator-tools --print-build-logs
@@ -877,3 +910,14 @@ flake output is byte-for-byte the same derivation as before. `nix/checks/platfor
 Follow ADR 16's Haskell conventions in new code: the package Prelude, postpositive `qualified`,
 strict record fields, explicit deriving strategies, and generic-lens labels (`tp ^. #imageBucket`).
 Prefer standard library functions (for example `Data.Bifunctor.first`) over local helpers.
+
+
+Revision note (2026-09-14): Implementation began by validating the already-committed Milestone 1
+IR acceptance and IR-13 fix. The Progress and Surprises sections now record the correct per-package
+Cabal working directory and the pre-existing strict OKF review-provenance deviation so the plan can
+be resumed from observed results rather than the original command assumptions.
+
+Revision note (2026-09-14 00:53Z): Milestones 2 and 3 are implemented and their focused acceptance
+checks pass. Progress now records the 462-test suite, clone-free init isolation, operator-tool
+packaging, documentation validation, and the launcher-listing discovery before the release
+milestone begins.

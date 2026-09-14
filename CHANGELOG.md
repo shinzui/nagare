@@ -5,6 +5,17 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Host initialization (IR-13).** Generated host modules once again set the declared
+  `nagare.host.hostName` option, so new host flakes evaluate.
+- **Context isolation (IR-7).** `init NAME` derives a new context without reading the active
+  context or ambient target variables, prints the derived names before mutation, and refuses
+  stored bucket names owned by another project. Under `--force`, omitted Pulumi backend fields now
+  keep the named context's stored values instead of resetting to `local`.
+- **Operator tools (IR-8).** The full `nagare` package includes Pulumi and its Node.js language
+  plugin. `init` preflights every required tool before side effects, missing Pulumi becomes a
+  recoverable error, installed next steps use the `nagare` launcher, and `version --tools` reports
+  the binaries selected from `PATH`.
+
 ## [0.2.1] - 2026-09-13
 
 A safety release for cloud contexts; do not run `nagarectl platform upgrade` with 0.2.0.

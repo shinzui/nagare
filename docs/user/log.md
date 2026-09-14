@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-14
+* **Update**: Document bundled Pulumi, separate Node.js and Google Cloud SDK prerequisites, and the version --tools report.
+
 ## 2026-09-13
 * **Update**: Document the context-owned Pulumi stack config and its workspace links, the npm dependency install for payload workspaces, the merging context create --force, the DNS zone and bucket replacement guard, and the guarded Pulumi phases of platform upgrade.
 * **Update**: Add a resumable macOS runbook for trusting and removing the local CA and completing the three real-browser passkey ceremonies.

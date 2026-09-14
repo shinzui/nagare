@@ -36,6 +36,7 @@ let
   };
 
   typedConfigRuntime = haskellPackages.ghcWithPackages (hp: [ hp.nagare-dsl ]);
+  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs ];
 
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
@@ -71,14 +72,35 @@ let
     meta.mainProgram = "nagarectl";
   };
 
+  operatorNagarectl = pkgs.symlinkJoin {
+    name = "nagare-operator-nagarectl-${haskellPackages.nagarectl.version}";
+    paths = [ nagarectl ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      # Deliberately append the tested Pulumi tools: an operator-provided binary
+      # and the clone-free check's recording fake must remain able to win.
+      wrapProgram "$out/bin/nagarectl" \
+        --suffix PATH : ${lib.makeBinPath operatorTools}
+    '';
+    meta.mainProgram = "nagarectl";
+  };
+
   nagareLauncher = pkgs.writeShellApplication {
     name = "nagare";
-    runtimeInputs = [ nagarectl pkgs.jq pkgs.just ];
+    runtimeInputs = [ operatorNagarectl pkgs.jq pkgs.just ];
     text = ''
+      # Keep Pulumi behind the caller's PATH for the same reason as the
+      # operatorNagarectl suffix above. Recipes invoke Pulumi directly.
+      export PATH="$PATH:${lib.makeBinPath operatorTools}"
       export NAGARE_PLATFORM_ROOT="${platformPackage}/share/nagare"
       workspace_json="$(nagarectl platform root --json)"
       workspace_root="$(printf '%s' "$workspace_json" | jq -er '.workspaceRoot')"
       export NAGARE_WORKSPACE_ROOT="$workspace_root"
+      # Listing recipes is read-only and must not require npm or initialize a
+      # Pulumi context merely to inspect the installed operator interface.
+      if [[ "''${1:-}" == "--list" ]]; then
+        exec just --justfile "$workspace_root/justfile" --working-directory "$workspace_root" "$@"
+      fi
       # EP-113: a clone-free install has no .envrc, so the launcher must export the
       # active context's CLOUDSDK_* / NAGARE_* / PULUMI_* contract itself. Without
       # this, `nagare infra-up` inherits whatever Pulumi state the invoking shell
@@ -93,11 +115,11 @@ let
 
   nagare = pkgs.symlinkJoin {
     name = "nagare-${haskellPackages.nagarectl.version}";
-    paths = [ nagarectl nagareLauncher ];
+    paths = [ operatorNagarectl nagareLauncher ];
     meta.mainProgram = "nagare";
   };
 in
 {
-  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl typedConfigRuntime;
+  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }

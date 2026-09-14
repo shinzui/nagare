@@ -14,12 +14,13 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
+import Nagare.Init (resolveInitBase)
 import Nagare.Platform.Paths
 import Nagare.Platform.StackConfig
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
-import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, writeContextPlatformVersion)
+import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, setCurrentContext, writeContextPlatformVersion)
 import Nagare.Version (BuildVersion (..), Compatibility (..))
 import System.Directory
   ( createDirectoryIfMissing
@@ -41,6 +42,22 @@ platformTests =
   testGroup
     "Nagare.Platform (EP-106)"
     [ stackConfigTests
+    , testCase "named init base ignores the active context and ambient target variables" $
+        withSystemTempDirectory "nagare-init-base" $ \root ->
+          withTemporaryEnv "XDG_CONFIG_HOME" (root </> "config") $
+            withTemporaryEnv "NAGARE_CONTEXT" "other" $
+              withTemporaryEnv "NAGARE_IMAGE_BUCKET" "env-nagare-images" $ do
+                other <- either (assertFailure . T.unpack) pure (mkContextName "other")
+                fresh <- either (assertFailure . T.unpack) pure (mkContextName "fresh")
+                path <- contextFilePath other
+                createDirectoryIfMissing True (takeDirectory path)
+                let stored = Map.fromList [("CLOUDSDK_CORE_PROJECT", "other"), ("NAGARE_IMAGE_BUCKET", "other-nagare-images")]
+                TIO.writeFile path "export CLOUDSDK_CORE_PROJECT=other\nexport NAGARE_IMAGE_BUCKET=other-nagare-images\n"
+                setCurrentContext other
+                resolveInitBase fresh False >>= (@?= Right Nothing)
+                result <- resolveInitBase other False
+                assertBool "existing context refused without --force" (either (T.isInfixOf "already exists") (const False) result)
+                resolveInitBase other True >>= (@?= Right (Just stored))
     , testCase "EP-121: a forced context create changes only the fields it was given" $ do
         let stored =
               Map.fromList
