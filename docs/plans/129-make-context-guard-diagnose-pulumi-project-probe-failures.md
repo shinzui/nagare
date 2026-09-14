@@ -49,8 +49,9 @@ machine-readable JSON object.
   used the resolved backend URL, and made JSON failures independently parseable.
 - [x] (2026-09-14 02:42Z) Extended the hermetic operator-tools and clone-free-platform checks
   across missing, absent, failed, foreign, and agreeing Pulumi outcomes; both Nix derivations pass.
-- [ ] Update operator documentation, the changelog, IR-9, and ADR 9 as implementation evidence
-  becomes available; run focused and repository-wide validation.
+- [x] (2026-09-14 02:44Z) Updated operator documentation, the changelog, IR-9, and ADR 9; all 15
+  focused and 469 full-suite Haskell tests pass, both affected Nix checks pass, and all 18
+  applicable aarch64-darwin checks in the repository gate pass.
 
 
 ## Surprises & Discoveries
@@ -78,6 +79,11 @@ machine-readable JSON object.
   reports the profile-recommended `reviews` field missing from all 20 requests, including requests
   untouched by this plan. Non-strict profile/log enforcement and the repository gate remain the
   meaningful validations for this change; the unrelated corpus-wide migration is out of scope.
+
+- Observation: the repository gate evaluates the current host system by default, not every system
+  exposed by the flake.
+  Evidence: `nix flake check --print-build-logs` passed all 18 applicable aarch64-darwin checks and
+  reported that x86_64-linux checks were omitted as incompatible unless `--all-systems` is used.
 
 
 ## Decision Log
@@ -135,7 +141,26 @@ machine-readable JSON object.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The context guard now preserves why the Pulumi project probe did not yield a project. Missing
+configuration, a missing executable, a start-time failure, a non-zero Pulumi exit, malformed output,
+and a found project are distinct typed observations with cause-specific remedies. Every refusal
+identifies the resolved stack and backend, and JSON callers receive exactly one parseable object
+whose additive `stackProjectProbe` field carries the same distinction while the original nullable
+`stackProject` remains compatible.
+
+The focused suite passed 15 tests and the full nagarectl suite passed 469 tests. The hermetic
+`nagare-operator-tools` and `nagare-clone-free-platform` derivations passed their missing-tool,
+missing-key, command-failure, foreign-project, agreement, and JSON-stream assertions. `nix flake
+check --print-build-logs` passed all 18 checks applicable to aarch64-darwin; it did not evaluate the
+incompatible x86_64-linux outputs. Strict user-documentation validation passed with 37 concepts,
+and profile/log-enforced improvement-request validation passed with 21 concepts.
+
+The only unmet command exactly as anticipated by the original plan is strict improvement-request
+validation: the repository baseline has no profile-recommended `reviews` field on 20 existing
+requests. ADR 9 also could not use the anticipated strict bundle workflow because `docs/adr/` is a
+plain filesystem collection, not a registered OKF bundle. Both discoveries were documented and
+validated with the repository's actual conventions; neither represents an implementation defect
+or remaining work for IR-9.
 
 
 ## Context and Orientation
@@ -228,12 +253,12 @@ unchanged.
 Add `projectGuardObservationsValue`, or an equivalently named explicit JSON renderer, in the same
 module. Its object keeps `context`, `declaredProject`, `stack`, `stackProject`, `ambientProject`, and
 `configuredProject`; adds `pulumiBackendUrl`; and adds a `stackProjectProbe` object with a stable
-`status` token. Use `found`, `missing`, `tool-not-found`, `command-failed`, and `invalid-output`.
-Only applicable details are non-null: `project` for `found`, `exitCode` and `stderr` for
-`command-failed`, and `error` for invalid output or startup failure. `stackProject` remains the found
-text or JSON null for compatibility.
+`status` token. Use `found`, `missing`, `tool-not-found`, `tool-start-failed`, `command-failed`, and
+`invalid-output`. Only applicable details are non-null: `project` for `found`, `exitCode` and
+`stderr` for `command-failed`, and `error` for invalid output or startup failure. `stackProject`
+remains the found text or JSON null for compatibility.
 
-Expand `contextGuardTests` in `cli/nagarectl/test/Spec.hs`. Test all five observation cases, the
+Expand `contextGuardTests` in `cli/nagarectl/test/Spec.hs`. Test every observation case, the
 exact remediation distinction among missing tool, command failure, and absent key, inclusion of
 stack/backend in every refusal family, parser behavior for found/absent/malformed JSON, and JSON
 status/details. Existing agreement and disagreement tests remain.
@@ -315,8 +340,9 @@ ExecPlan: docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failur
 Intention: intention_01m2et8vb8e8va10xx0my86psf
 ```
 
-At the end of this milestone the focused tests, both affected Nix checks, strict OKF validations,
-and the full flake check pass, and the plan records the observed totals and outcomes.
+At the end of this milestone the focused tests, both affected Nix checks, the applicable OKF
+validations, and the full current-system flake check pass, and the plan records the observed totals,
+outcomes, and any baseline or platform limitations.
 
 
 ## Concrete Steps
@@ -380,16 +406,16 @@ jq -e '
 ' --arg backend "$expected_backend" guard-missing.json
 ```
 
-After documentation and ADR edits, enforce the two profiled bundles:
+After documentation and ADR edits, strictly enforce the user-documentation bundle and enforce the
+improvement-request profile and log. `docs/adr/` has no profile or bundle log in this checkout, so
+validate ADR 9 by the repository's documented filesystem convention instead of inventing either:
 
 ```bash
-okf validate docs/adr \
+okf validate docs/user \
   --strict \
-  --profile docs/adr/profile.dhall \
-  --profile-enforce \
-  --log-enforce
+  --profile mori/user-documentation-profile.dhall \
+  --profile-enforce
 okf validate docs/improvement-requests \
-  --strict \
   --profile docs/improvement-requests/profile.dhall \
   --profile-enforce \
   --log-enforce
@@ -433,8 +459,10 @@ Pulumi preview/apply phases receive the same detailed refusal because they share
 `projectGuardInputsFor`. No test or implementation adds an override.
 
 The focused Haskell group, full nagarectl suite, `nagare-operator-tools`,
-`nagare-clone-free-platform`, both strict OKF bundle validations, and `nix flake check
---print-build-logs` all exit zero.
+`nagare-clone-free-platform`, strict user-documentation validation, profile/log-enforced
+improvement-request validation, and the current-system `nix flake check --print-build-logs` all exit
+zero. Any unavailable strict bundle validation or system omitted by the flake evaluator is recorded
+under Surprises & Discoveries and Outcomes & Retrospective.
 
 
 ## Idempotence and Recovery
@@ -513,3 +541,12 @@ The external Pulumi CLI contract is the pinned 3.255.0 behavior checked during p
 `gcp:project` entry has a textual `value` member. The implementation must treat every non-zero exit
 as process failure before parsing stdout. The context’s resolved `PulumiEnv.backendUrl` and
 `PulumiEnv.stack` remain authoritative; raw ambient values must not be substituted for them.
+
+
+## Revision Note — 2026-09-14
+
+Updated this living plan after implementation to record the delivered probe states, exact test and
+flake-check totals, documentation and governance evidence, and the discovered ADR-bundle,
+improvement-request baseline, and host-platform validation limitations. The acceptance and command
+sections now describe the repository workflows that were actually available without weakening the
+feature's fail-closed behavior.
