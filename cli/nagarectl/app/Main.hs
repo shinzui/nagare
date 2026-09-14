@@ -233,6 +233,11 @@ import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
 import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
+import Nagare.Platform.Deployment
+  ( DeploymentState (..)
+  , defaultDeploymentOps
+  , observeHostDeployment
+  )
 import Nagare.Platform.Paths
   ( PlatformPaths (..)
   , PlatformRootSource (..)
@@ -257,6 +262,7 @@ import Nagare.Platform.Status
   , platformStatusValue
   , renderPlatformStatus
   , validatePlatformAdoption
+  , validatePlatformRepin
   )
 import Nagare.Platform.Upgrade
   ( TransactionState (..)
@@ -368,6 +374,7 @@ import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
+import System.IO.Temp (withSystemTempDirectory)
 import System.Process
   ( CreateProcess (cwd, env)
   , proc
@@ -553,6 +560,7 @@ data Command
   | PlatformGuard
   | PlatformStamp
   | PlatformAdopt String Bool Bool
+  | PlatformRepin String Bool
   | PlatformUpgrade UpgradeOpts
   | PlatformUpgradeStatus (Maybe String) Bool
   | PlatformUpgradeRollback String Bool Bool
@@ -1695,6 +1703,12 @@ opts =
                       (progDesc "Explicitly adopt the observed payload release for a legacy context")
                   )
                 <> command
+                  "repin"
+                  ( info
+                      (PlatformRepin <$> strOption (long "version" <> metavar "VERSION" <> help "Current payload release to assign before first deployment") <*> switch (long "yes" <> help "Confirm the displayed absence evidence") <**> helper)
+                      (progDesc "Re-pin a versioned context whose GCE host has never been deployed")
+                  )
+                <> command
                   "upgrade"
                   (info (upgradeCommandParser <**> helper) (progDesc "Plan, apply, resume, or inspect a per-context platform upgrade"))
             )
@@ -2382,6 +2396,7 @@ main =
     PlatformGuard -> runPlatformGuard mctx
     PlatformStamp -> runPlatformStamp mctx
     PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
+    PlatformRepin version yes -> runPlatformRepin mctx version yes
     PlatformUpgrade options -> runPlatformUpgrade mctx options
     PlatformUpgradeStatus txId asJson -> runPlatformUpgradeStatus mctx txId asJson
     PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
@@ -2498,15 +2513,25 @@ gatherPlatformStatus mctx = do
   let hostFlake = hostRoot </> "flake.nix"
   hostExists <- doesFileExist hostFlake
   hostIdentity <- if hostExists then parseHostIdentity <$> TIO.readFile hostFlake else pure unknownIdentity
-  clusterBytes <- captureTool "kubectl" ["get", "configmap", "nagare-platform-version", "-n", "nagare-system", "-o", "json", "--request-timeout=5s"]
-  let clusterIdentity = fromMaybe unknownIdentity (clusterBytes >>= parseClusterIdentity)
-      status =
+  hostDeployment <- case active ^. #profile . #mode of
+    Cloud -> observeHostDeployment defaultDeploymentOps (active ^. #profile)
+    Local -> pure (DeploymentUnknown "local contexts do not have a GCE deployment")
+  (clusterIdentity, clusterDeployment) <- case hostDeployment of
+    NotDeployed -> pure (unknownIdentity, NotDeployed)
+    _ -> do
+      clusterBytes <- captureTool "kubectl" ["get", "configmap", "nagare-platform-version", "-n", "nagare-system", "-o", "json", "--request-timeout=5s"]
+      pure $ case clusterBytes >>= parseClusterIdentity of
+        Just identity -> (identity, Deployed)
+        Nothing -> (unknownIdentity, DeploymentUnknown "cluster release identity is unreachable or absent")
+  let status =
         assessPlatformStatus
           (identityFromBuild currentBuildVersion)
           (identityFromPayload manifest)
           (identityFromContext (active ^. #profile))
           hostIdentity
+          hostDeployment
           clusterIdentity
+          clusterDeployment
   pure (active, status)
   where
     unknownIdentity = ReleaseIdentity Nothing Nothing Nothing
@@ -2548,6 +2573,64 @@ runPlatformAdopt mctx rawVersion yes asJson = do
   if asJson
     then LBC.putStrLn (Aeson.encode (Aeson.object ["adopted" Aeson..= True, "context" Aeson..= contextNameText (active ^. #contextName), "platformVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
     else TIO.putStrLn ("adopted Nagare platform " <> target <> " for context '" <> contextNameText (active ^. #contextName) <> "'")
+
+runPlatformRepin :: Maybe String -> String -> Bool -> IO ()
+runPlatformRepin mctx rawVersion yes = do
+  target <- either (dieT . ("invalid --version: " <>) . renderVersionError) (pure . renderPlatformVersion) (parsePlatformVersion (T.pack rawVersion))
+  (active, status) <- gatherPlatformStatus mctx
+  let contextName = active ^. #contextName
+      profile = active ^. #profile
+      contextText = contextNameText contextName
+      previousVersion = status ^. #context . #version
+  when (profile ^. #mode == Local) $
+    dieT "platform re-pin is available only for cloud contexts"
+  TIO.putStr (renderPlatformStatus contextText status)
+  either dieT pure (guardPlatformMutation status)
+  either dieT pure (validatePlatformRepin target status)
+  (gcloudAccount, adc) <- observeAdcForProject
+  warnings <- either dieT pure (validateAdc (profile ^. #project) gcloudAccount adc)
+  printPreflightWarnings warnings
+  workspace <- ensurePulumiForContext contextName profile
+  projectInputs <- projectGuardInputsFor contextName profile workspace
+  either dieT pure (projectGuardVerdict projectInputs)
+  TIO.putStrLn (renderProjectGuard projectInputs)
+  unless yes (dieT "refusing to re-pin an undeployed context without --yes after reviewing the observations above")
+  hostRoot <- hostConfigDir contextName
+  let hostAlreadyMatches = status ^. #host . #version == Just target
+      contextAlreadyMatches = previousVersion == Just target
+  hostExists <- doesFileExist (hostRoot </> "flake.nix")
+  if contextAlreadyMatches && (not hostExists || hostAlreadyMatches)
+    then TIO.putStrLn ("context '" <> contextText <> "' is already pinned to Nagare platform " <> target)
+    else do
+      (paths, _) <- resolvePlatformWorkspace contextName
+      manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+      stagedHost <-
+        if hostExists
+          then withSystemTempDirectory "nagare-platform-repin" $ \temporary -> do
+            staged <- stageHostFlake hostRoot temporary (paths ^. #nixosDir) (BuildVersion target (manifest ^. #sourceRevision)) >>= either dieT pure
+            -- Commit the context first; if the already-validated host commit fails,
+            -- restore the old context pin before returning the error.
+            writeContextPlatformVersion contextName target >>= either dieT pure
+            committed <- commitStagedHostFlake staged hostRoot
+            case committed of
+              Right () -> pure True
+              Left err -> do
+                forM_ previousVersion $ \oldVersion -> void (writeContextPlatformVersion contextName oldVersion)
+                dieT err
+          else do
+            writeContextPlatformVersion contextName target >>= either dieT pure
+            pure False
+      (_, finalStatus) <- gatherPlatformStatus mctx
+      unless (finalStatus ^. #context . #version == finalStatus ^. #payload . #version) $
+        dieT "re-pin wrote inconsistent context and payload release identities"
+      TIO.putStr (renderPlatformStatus contextText finalStatus)
+      TIO.putStrLn
+        ( "re-pinned context '"
+            <> contextText
+            <> "' to Nagare platform "
+            <> target
+            <> if stagedHost then " and updated its generated host flake" else ""
+        )
 
 upgradeTransactionsDir :: ContextName -> IO FilePath
 upgradeTransactionsDir context = do

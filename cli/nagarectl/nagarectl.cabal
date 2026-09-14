@@ -90,6 +90,7 @@ library
     Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
     Nagare.Platform.Cutover
+    Nagare.Platform.Deployment
     Nagare.Platform.Paths
     Nagare.Platform.Replacement
     Nagare.Platform.StackConfig
@@ -163,6 +164,7 @@ executable nagarectl
     nagarectl,
     optparse-applicative,
     process,
+    temporary,
     text,
     time,
 

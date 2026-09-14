@@ -4,6 +4,8 @@ module PlatformSpec (platformTests) where
 
 import Control.Exception (bracket, finally)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (traverse_)
@@ -15,6 +17,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Init (resolveInitBase)
+import Nagare.Platform.Deployment
 import Nagare.Platform.Paths
 import Nagare.Platform.StackConfig
 import Nagare.Platform.Status
@@ -32,6 +35,7 @@ import System.Directory
   , setCurrentDirectory
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
@@ -148,8 +152,8 @@ platformTests =
             host = parseHostIdentity "# Nagare platform version: 1.2.3\n# Nagare source revision: payload-rev\n"
             clusterBytes = LBS.toStrict (Aeson.encode (clusterMarkerValue payload "2026-08-25T19:00:00Z"))
             cluster = fromMaybe (error "cluster marker did not parse") (parseClusterIdentity clusterBytes)
-            exact = assessPlatformStatus cli payload context host cluster
-            incompatible = assessPlatformStatus cli payload context host (ReleaseIdentity (Just "2.0.0") Nothing (Just 1))
+            exact = assessPlatformStatus cli payload context host Deployed cluster Deployed
+            incompatible = assessPlatformStatus cli payload context host Deployed (ReleaseIdentity (Just "2.0.0") Nothing (Just 1)) Deployed
         exact ^. #compatibility @?= Exact
         guardPlatformMutation exact @?= Right ()
         incompatible ^. #compatibility @?= MajorIncompatible
@@ -157,16 +161,16 @@ platformTests =
     , testCase "missing host and cluster identities remain a non-blocking legacy warning" $ do
         let release = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
             unknown = ReleaseIdentity Nothing Nothing Nothing
-            status = assessPlatformStatus release release release unknown unknown
+            status = assessPlatformStatus release release release unknown (DeploymentUnknown "host identity unavailable") unknown (DeploymentUnknown "cluster identity unavailable")
         status ^. #compatibility @?= LegacyUnknown
         guardPlatformMutation status @?= Right ()
     , testCase "status and legacy adoption distinguish exact, patch, major, and absent observations" $ do
         let exactIdentity = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
             legacyIdentity = ReleaseIdentity Nothing Nothing Nothing
-            exact = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity exactIdentity
-            patch = assessPlatformStatus exactIdentity exactIdentity (ReleaseIdentity (Just "1.2.4") Nothing Nothing) exactIdentity exactIdentity
-            major = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity (ReleaseIdentity (Just "2.0.0") Nothing Nothing)
-            absent = assessPlatformStatus exactIdentity exactIdentity legacyIdentity exactIdentity legacyIdentity
+            exact = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity Deployed exactIdentity Deployed
+            patch = assessPlatformStatus exactIdentity exactIdentity (ReleaseIdentity (Just "1.2.4") Nothing Nothing) exactIdentity Deployed exactIdentity Deployed
+            major = assessPlatformStatus exactIdentity exactIdentity exactIdentity exactIdentity Deployed (ReleaseIdentity (Just "2.0.0") Nothing Nothing) Deployed
+            absent = assessPlatformStatus exactIdentity exactIdentity legacyIdentity exactIdentity Deployed legacyIdentity (DeploymentUnknown "unreachable")
         exact ^. #compatibility @?= Exact
         patch ^. #compatibility @?= PatchSkew
         major ^. #compatibility @?= MajorIncompatible
@@ -176,6 +180,46 @@ platformTests =
           "known patch skew cannot be hidden by adoption"
           (either (const True) (const False) (validatePlatformAdoption "1.2.3" (absent & #cli .~ ReleaseIdentity (Just "1.2.4") Nothing Nothing)))
         assertBool "an already versioned context must upgrade" (either (const True) (const False) (validatePlatformAdoption "1.2.3" exact))
+    , testCase "confirmed-absent resources do not hide a patch-behind context" $ do
+        let current = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
+            pinned = ReleaseIdentity (Just "1.2.2") Nothing Nothing
+            unknown = ReleaseIdentity Nothing Nothing Nothing
+            status = assessPlatformStatus current current pinned unknown NotDeployed unknown NotDeployed
+        status ^. #compatibility @?= PatchSkew
+        validatePlatformRepin "1.2.3" status @?= Right ()
+        assertBool
+          "deployed host refuses re-pin"
+          (either (const True) (const False) (validatePlatformRepin "1.2.3" (status & #hostDeployment .~ Deployed)))
+        assertBool
+          "unknown host refuses re-pin"
+          (either (const True) (const False) (validatePlatformRepin "1.2.3" (status & #hostDeployment .~ DeploymentUnknown "permission denied")))
+        assertBool "human host state" ("Host:       not deployed" `T.isInfixOf` renderPlatformStatus "labs" status)
+        assertBool "human cluster state" ("Cluster:    not deployed" `T.isInfixOf` renderPlatformStatus "labs" status)
+        case platformStatusValue status of
+          Aeson.Object root -> case KeyMap.lookup "deployment" root of
+            Just (Aeson.Object deployment) -> do
+              deploymentState "host" deployment @?= Just (Aeson.String "not-deployed")
+              deploymentState "cluster" deployment @?= Just (Aeson.String "not-deployed")
+            other -> assertFailure ("missing deployment evidence: " <> show other)
+          other -> assertFailure ("expected status object, got " <> show other)
+    , testCase "existing unversioned and uncertain resources remain legacy unknown" $ do
+        let current = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
+            unknown = ReleaseIdentity Nothing Nothing Nothing
+            existing = assessPlatformStatus current current current unknown Deployed unknown (DeploymentUnknown "unreachable")
+            uncertain = assessPlatformStatus current current current unknown (DeploymentUnknown "permission denied") unknown (DeploymentUnknown "unreachable")
+        existing ^. #compatibility @?= LegacyUnknown
+        uncertain ^. #compatibility @?= LegacyUnknown
+    , testCase "GCE describe classifies only an explicit not-found diagnostic as absence" $ do
+        classifyHostDescribe ExitSuccess "{}" "" @?= Deployed
+        classifyHostDescribe (ExitFailure 1) "" "ERROR: The resource was not found" @?= NotDeployed
+        classifyHostDescribe ExitSuccess "not-json" "" @?= DeploymentUnknown "gcloud compute instances describe returned invalid JSON"
+        case classifyHostDescribe (ExitFailure 1) "" "ERROR: permission denied" of
+          DeploymentUnknown err -> assertBool "diagnostic retained" ("permission denied" `T.isInfixOf` err)
+          other -> assertFailure ("lookup failure was misclassified: " <> show other)
+        let unavailable = DeploymentOps (\_ _ _ -> pure (Left "gcloud unavailable"))
+            cloudProfile = profileFromContextMap (Map.fromList [("CLOUDSDK_CORE_PROJECT", "acme-prod")])
+        observed <- observeHostDeployment unavailable cloudProfile
+        observed @?= DeploymentUnknown "gcloud unavailable"
     , testCase "adopting one of two contexts preserves the other context release" $
         withSystemTempDirectory "nagare-platform-contexts" $ \xdg ->
           withTemporaryEnv "XDG_CONFIG_HOME" xdg $ do
@@ -255,6 +299,11 @@ platformTests =
 
 fixtureNow :: T.Text
 fixtureNow = "2026-08-25T19:00:00Z"
+
+deploymentState :: Key -> KeyMap.KeyMap Aeson.Value -> Maybe Aeson.Value
+deploymentState key deployment = case KeyMap.lookup key deployment of
+  Just (Aeson.Object evidence) -> KeyMap.lookup "state" evidence
+  _ -> Nothing
 
 fixtureUpgradeOps :: IORef [UpgradePhase] -> IORef (Maybe UpgradeTransaction) -> (UpgradePhase -> IO (Either T.Text T.Text)) -> (UpgradePhase -> IO Bool) -> UpgradeOps
 fixtureUpgradeOps events saved run satisfied =

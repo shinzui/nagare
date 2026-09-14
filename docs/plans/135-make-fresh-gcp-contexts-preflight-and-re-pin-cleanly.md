@@ -44,7 +44,7 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-09-14 12:40Z) Model and test ADC discovery, principal evidence, and quota-project policy.
 - [x] (2026-09-14 12:49Z) Add the shared ADC observation to initialization and the context guard.
-- [ ] Represent not-deployed host/cluster identities and add a guarded re-pin command.
+- [x] (2026-09-14 13:10Z) Represent not-deployed host/cluster identities and add a guarded re-pin command.
 - [ ] Update setup/upgrade docs, complete the IRs, and run all focused and repository checks.
 
 
@@ -62,6 +62,12 @@ implementation. Provide concise evidence.
   focused gate is the flake-provided `nagarectl-build-test` check.
   Evidence: `nix build .#checks.aarch64-darwin.nagarectl-build-test --print-build-logs` compiled the
   normal and profiled executables and passed all 501 tests.
+
+- Observation: A missing Kubernetes release marker cannot distinguish an absent cluster from an
+  unreachable or unversioned deployed cluster.
+  Evidence: deriving cluster `NotDeployed` only after a project-scoped GCE NotFound lets status skip
+  kubectl for a host that cannot contain the single-host cluster, while all other lookup outcomes
+  retain `DeploymentUnknown` and `legacy-unknown`.
 
 
 ## Decision Log
@@ -124,6 +130,33 @@ Record every decision made while working on the plan.
   and a top-level structured `observations.warnings` array in context-guard JSON.
   Rationale: Principal absence or disagreement and missing quota attribution must be visible without
   being conflated with the deterministic foreign-quota refusal.
+  Date: 2026-09-14.
+
+- Decision: Classify only an explicit GCE resource-not-found diagnostic as `NotDeployed`; treat a
+  successful malformed response, permission or network failure, and process startup failure as
+  `DeploymentUnknown`.
+  Rationale: Re-pin destroys no cloud state only when absence is positively established. Ambiguous
+  observations must fail closed instead of becoming an absence bypass.
+  Date: 2026-09-14.
+
+- Decision: Derive cluster `NotDeployed` only from host `NotDeployed` and omit both absent identities
+  from compatibility aggregation.
+  Rationale: The current cluster lives exclusively on the context-owned host. This preserves real
+  context patch skew while existing or uncertain resources without identities remain
+  `legacy-unknown`.
+  Date: 2026-09-14.
+
+- Decision: Limit re-pin to the current packaged payload, cloud contexts, confirmed absence, normal
+  context and ADC guards, and an explicit `--yes` confirmation.
+  Rationale: Re-pin is a pre-deployment pin correction, not a general release selector or an
+  alternative to upgrade/adoption.
+  Date: 2026-09-14.
+
+- Decision: Update a recognized generated host flake and its context pin as one guarded operation,
+  preserve `host.nix` and `secrets.yaml`, and restore the previous context pin if the host commit
+  fails.
+  Rationale: ADR 5 requires one release identity across context-owned host inputs, while refusing
+  unrecognized flakes prevents a narrow command from rewriting operator-owned structure.
   Date: 2026-09-14.
 
 
@@ -319,3 +352,8 @@ public preflight and re-pin path.
   setup, and proving in the clone-free packaged-operator gate that a foreign quota project starts
   no Pulumi process and exposes no credential sentinel. The unit gate passes all 502 tests and the
   clone-free platform gate passes.
+- 2026-09-14: Completed milestone 3 with explicit host and cluster deployment evidence and a guarded
+  `platform repin` transaction. The focused gate passes all 505 tests; the clone-free packaged
+  integration proves patch-skew status for confirmed absence, consistent context/host re-pinning,
+  preservation of operator files, refusal for an existing instance, and fail-closed handling of
+  permission, network, malformed, and unavailable probes.
