@@ -7,8 +7,10 @@ generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-11
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T19:15:20Z"
+resolution: "ExecPlan 139 corrected every user-facing boot-disk-size claim and both init/context-create help surfaces: any live size change replaces the instance and its boot-resident k3s state, shrinking is unsupported, and operators should size the disk for the VM lifetime. The gcp-bootstrap-rehearsal native check scans the packaged help and user tables for regressions while retaining the distinct supported in-place data-disk growth guidance; its full hermetic state-machine rehearsal passes."
 targetPlan: docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md
 origin: mori://shinzui/nagare
 reviews:
@@ -36,8 +38,8 @@ verified:
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for implementation by
-[ExecPlan 139](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md).
+**Status:** completed by
+[ExecPlan 139](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) on 2026-09-14.
 **Created:** 2026-09-13.
 
 
@@ -86,6 +88,11 @@ text for `--boot-disk-size-gb` gives no warning either, while `--boot-disk-type`
 ## Acceptance
 
 No user-facing document or help text describes a boot-disk size change as in-place.
+
+Completed: packaged `nagarectl init --help` and `nagarectl context create --help` name instance
+replacement; the provisioning, reference, prerequisites, onboarding, and resizing guides agree.
+The native `gcp-bootstrap-rehearsal` check rejects the former claim and explicitly preserves the
+separate online data-disk-growth contract.
 
 
 ## Non-goals

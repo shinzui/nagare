@@ -212,11 +212,11 @@ room to schedule workloads, and Kubernetes reported
 `0/1 nodes are available: Insufficient cpu`; the evidence is recorded in
 [`docs/plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md`](../plans/66-declarative-private-image-pull-and-cluster-capacity-hardening.md).
 
-The machine type can be raised later with an in-place stop/start resize. The
-boot-disk type cannot be converted in place: changing it replaces the instance
-and its boot disk. `nagarectl init` records both choices in the target context,
-and `infra-up` refuses an instance-replacing plan unless you explicitly allow a
-deliberate rebuild.
+The machine type can be raised later with an in-place stop/start resize. Choose the boot-disk type
+and size for the VM's lifetime: changing either value on a live VM replaces the instance and its
+boot disk, including its k3s state, and shrinking is unsupported. `nagarectl init` records these
+choices in the target context, and `infra-up` refuses an instance-replacing plan unless you
+explicitly allow a deliberate rebuild.
 
 ## Where to next
 

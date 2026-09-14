@@ -5,6 +5,10 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **One-pass GCP onboarding rehearsal (IR-11).** The canonical onboarding path now has a hermetic
+  state-machine rehearsal for command ordering and refusal behavior. Operator help and guides state
+  that changing boot-disk size replaces the VM and its boot-resident k3s state, distinguish that
+  from online data-disk growth, and recommend sizing the boot disk for the VM lifetime.
 - **Post-boot host age-key delivery (IR-18).** New cloud hosts now boot from secret-free images and
   accept an operator-held age identity through `nagarectl host place-age-key` over context-confined
   IAP SSH stdin. The host verifies metadata and SHA-256, retries sops-nix activation, starts

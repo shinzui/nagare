@@ -11,6 +11,22 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:15Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T19:02:03Z
+      mode: "implement"
+      note: "Started EP-6 after all child and external dependencies completed"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T19:20:17Z
+      mode: "implement"
+      note: "Completed hermetic, documentation, IR-11, and repository gates; retained live authorization boundary"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T19:28:34Z
+      mode: "implement"
+      note: "Audited live evidence, release identity, TLS readiness, cleanup, and installed-workspace documentation"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -36,10 +52,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Define one canonical bootstrap state machine and a hermetic rehearsal harness.
-- [ ] Consolidate onboarding/help, including truthful boot-disk replacement guidance.
+- [x] (2026-09-14T19:15:20Z) Define one canonical bootstrap state machine and a hermetic rehearsal
+  harness with focused refusal cases and a native flake check.
+- [x] (2026-09-14T19:15:20Z) Consolidate onboarding/help, including truthful boot-disk replacement
+  guidance and immutable reviewed-release placeholders.
 - [ ] Run an explicitly authorized empty-project GCP rehearsal and verify cleanup/evidence.
-- [ ] Close IR-11, reconcile all cross-plan docs/ADRs, and run the final repository gate.
+- [x] (2026-09-14T19:20:00Z) Close IR-11, reconcile all cross-plan docs/ADRs, and run the final
+  repository gate.
 
 
 ## Surprises & Discoveries
@@ -47,7 +66,16 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The latest published Nagare tag is `v0.2.2`, but it predates the completed bootstrap interfaces
+  this plan composes. Hard-coding it would make the new runbook internally inconsistent, so the
+  guide uses a reviewed immutable release placeholder and live mode verifies the installed version.
+
+- Even `nagarectl init --dry-run` checks the external operator toolchain before rendering its public
+  command sequence. The hermetic check therefore supplies a recording `npm` alongside cloud and
+  cluster fakes; this is part of testing the packaged interface rather than bypassing it.
+
+- Nix flake source filtering omits a new untracked rehearsal script. Staging that file before the
+  first packaged build made the source closure accurate; subsequent packaged and root checks pass.
 
 
 ## Decision Log
@@ -76,6 +104,12 @@ Record every decision made while working on the plan.
   by IR-11. The safe initial path is to size the boot disk for the VM lifetime.
   Date: 2026-09-14.
 
+- Decision: Keep the plan In Progress after hermetic and repository acceptance pass.
+  Rationale: The plan explicitly requires a billable disposable-project run from an installed
+  release. No project, delegated domain, protected-project list, secret inputs, acknowledgement, or
+  interactive authorization was supplied, and hermetic evidence cannot substitute for that run.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
@@ -84,7 +118,23 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Hermetic and documentation outcomes are complete. `scripts/rehearse-gcp-bootstrap.sh --hermetic`
+drives the packaged public command surfaces and an explicit fake state machine from empty state. It
+passes the happy path with exactly two reviewed applies and one bootstrap invocation, and proves
+refusals for foreign project/ADC identity, stale plan, foreign builder, non-Ready VM, missing age
+key, wrong kubeconfig node, absent webhooks, and leaked certificate scope. The native
+`gcp-bootstrap-rehearsal` and `shellcheck-scripts` checks pass.
+
+The canonical onboarding guide now identifies release, project, context/stack, builder, and cluster
+targets; its boot-disk guidance agrees with packaged help and focused references. IR-11 is completed.
+All 527 Haskell tests, strict user/improvement-request OKF validation, NixOS all-system evaluation,
+and all 29 buildable native root-flake checks pass.
+
+The authorized live rehearsal remains outstanding. Live mode is implemented, requires a clean
+installed release and empty stack, validates gcloud plus ADC confinement, prints its inventory,
+records release revision and saved-plan digests, invokes bootstrap once, requires a Ready staging
+certificate, and separately confirms guarded teardown without deleting the project. Until an
+operator supplies its explicit inputs and runs it, this plan is not complete.
 
 
 ## Context and Orientation
@@ -214,6 +264,16 @@ The live command is intentionally not copy-pasteable until the operator supplies
 project, context, domain, protected-project list, and acknowledgement:
 
 ```bash
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_PROJECT=DISPOSABLE_PROJECT_ID
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_CONTEXT=DISPOSABLE_CONTEXT
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_BASE_DOMAIN=DELEGATED_STAGING_DOMAIN
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_PROTECTED_PROJECTS=PROD_PROJECT_ID,OTHER_PROTECTED_PROJECT_ID
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_RELEASE=CURRENT_REVIEWED_RELEASE_TAG
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_ACME_EMAIL=OPERATOR_EMAIL
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_SSH_PUBLIC_KEY_FILE=/secure/path/operator.pub
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_SOPS_FILE=/secure/path/host-secrets.yaml
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_AGE_KEY_FILE=/secure/path/host.agekey
+export NAGARE_GCP_BOOTSTRAP_REHEARSAL_ACK=I-understand-this-creates-billable-resources
 scripts/rehearse-gcp-bootstrap.sh --live
 ```
 

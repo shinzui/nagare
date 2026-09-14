@@ -63,6 +63,29 @@
       touch "$out"
     '';
 
+  # MP-22 EP-139 / IR-11: rehearse the complete public GCP bootstrap ordering
+  # and its focused refusals without cloud access. The check also locks the
+  # truthful boot-disk replacement wording in rendered CLI help and user docs.
+  gcp-bootstrap-rehearsal = pkgs.runCommand "nagare-gcp-bootstrap-rehearsal"
+    {
+      nativeBuildInputs = [
+        nagarePackages.nagare
+        pkgs.bash
+        pkgs.coreutils
+        pkgs.gawk
+        pkgs.gnugrep
+        pkgs.gnused
+        pkgs.jq
+        pkgs.ripgrep
+      ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/rehearse-gcp-bootstrap.sh --hermetic
+      touch "$out"
+    '';
+
   # EP-112: the cert-manager ClusterIssuer's ACME identity comes from the
   # active context, and the renderer refuses — with EMPTY stdout — rather
   # than inventing one.

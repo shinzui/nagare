@@ -41,6 +41,16 @@ provenance:
       at: 2026-09-14T18:55:58Z
       mode: "implement"
       note: "Cleared external prerequisites and completed EP-4 composition"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T19:20:17Z
+      mode: "implement"
+      note: "Recorded EP-6 repository completion and outstanding authorized live rehearsal"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T19:28:34Z
+      mode: "implement"
+      note: "Audited the live runner and reconciled installed-workspace and TLS acceptance steps"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -122,7 +132,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Complete |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Complete |
-| EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
+| EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -190,7 +200,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
   sops activation, and Tailscale recovery in one unchanged boot.
 - [x] (2026-09-14T17:49:14Z) EP-5: confine public wildcards to app namespaces, preserve self-signed
   internal roles, and ship the latest archived controller with a payload-owned source patch.
-- [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
+- [ ] EP-6: boot-disk guidance, IR-11, hermetic rehearsal, and repository gates pass; the explicitly
+  authorized disposable-project rehearsal remains outstanding.
 - [x] (2026-09-14T18:55:31Z) External: ExecPlans 132 and 133 are complete and reconciled for EP-6.
 
 
@@ -254,6 +265,16 @@ interactions between child plans. Provide concise evidence.
   real host module is imported. Restoring the evaluated shipped data mount in ExecPlan 133's
   existing VM check produced the missing cross-plan evidence: the blank disk and k3s became Ready
   before key delivery, then sops and Tailscale recovered under the same boot ID.
+
+- EP-6 verified that `v0.2.2` is still the latest published Nagare tag, but it predates the complete
+  integrated interface. The canonical guide therefore selects a reviewed immutable release by
+  placeholder instead of falsely claiming that the currently published tag contains unreleased
+  commands; live mode independently verifies its installed version and payload source.
+
+- EP-6's hermetic state machine and packaged public-command checks pass every planned mismatch and
+  the exact two-apply/one-bootstrap path. The only remaining acceptance is intentionally external:
+  no disposable project, delegated domain, protected-project list, secrets, acknowledgement, or
+  interactive authorization has been supplied for the billable live run.
 
 
 ## Decision Log
@@ -355,6 +376,15 @@ fixture produced zero ACME Orders. IR-22 and IR-23 are complete; ADR 10 records 
 and patch-lifecycle boundaries. All 520 Haskell tests, strict documentation/IR validation, the
 native Linux upstream regression, and all 29 buildable native flake checks pass.
 
+EP-6's repository-owned work is complete, but the child remains In Progress at its explicit cloud
+boundary. The packaged hermetic state machine proves the public command order, all eight focused
+refusals, two reviewed applies, one original-boot Ready node, one bootstrap invocation, and scoped
+TLS policy. The canonical guide now names every release and target boundary, IR-11 is completed,
+and all 527 Haskell tests plus all 29 buildable native checks pass. The live runner requires a clean
+installed release, disposable project/domain, protected-project denylist, secret inputs, exact
+acknowledgement, and interactive creation/teardown confirmations. None of those authorizations were
+supplied, so neither EP-6 nor this MasterPlan claims the final live outcome.
+
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.
@@ -396,3 +426,10 @@ hard dependencies are not yet satisfied.
 
 Revision note (2026-09-14): Reconciled completed external ExecPlans 132 and 133, strengthened the
 age-key VM into the composed first-boot host proof, completed EP-4, and unblocked EP-6.
+
+Revision note (2026-09-14): Started EP-6 after confirming all five child dependencies and both
+external completion prerequisites are satisfied.
+
+Revision note (2026-09-14): Completed EP-6's hermetic state machine, canonical onboarding rewrite,
+boot-disk help/docs regression, IR-11 closure, and repository gates. The child and initiative remain
+In Progress pending the explicitly authorized disposable-project rehearsal and cleanup evidence.

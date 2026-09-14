@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Make the canonical GCP onboarding sequence use reviewed-release and target placeholders, identify billable targets and observable success, and document boot-disk replacement versus online data-disk growth.
 * **Update**: Document supported post-boot host age-key delivery over IAP.
 * **Update**: Document opt-in public wildcard namespaces, self-signed internal issuer roles, payload-bundled patched net-certmanager delivery, certificate-policy verification, and reviewed stale-certificate cleanup.
 * **Update**: Document context-bound reviewed Pulumi plans, guarded non-interactive apply and teardown, upgrade resume semantics, and explicit per-context image builders with named shared-project exceptions.
