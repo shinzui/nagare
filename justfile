@@ -94,9 +94,9 @@ vm-start:
 # the details.
 # Build + upload + register the NixOS GCE image.
 [group('host')]
-host-image:
+host-image *args:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    scripts/upload-images.sh
+    scripts/upload-images.sh {{args}}
 
 # Show the registry host now carried by the generated context host flake.
 [group('host')]

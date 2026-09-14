@@ -10,11 +10,24 @@
 set -euo pipefail
 
 DRY_RUN=0
-case "${1:-}" in
-  "") ;;
-  --dry-run) DRY_RUN=1 ;;
-  *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;;
-esac
+ALLOW_SHARED_BUILDER=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --allow-shared-builder)
+      [ "$#" -ge 2 ] || { echo "--allow-shared-builder requires a project" >&2; exit 2; }
+      ALLOW_SHARED_BUILDER="$2"
+      shift 2
+      ;;
+    *)
+      echo "usage: $0 [--dry-run] [--allow-shared-builder PROJECT]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 # Load the target profile and run the configurable, fail-closed project-isolation
 # preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
@@ -26,18 +39,101 @@ _nagare_resolve_host_flake
 
 REPO_ROOT="${NAGARE_REPO_ROOT}"
 PULUMI_DIR="${REPO_ROOT}/infra/pulumi"
-IAP_SSH="${REPO_ROOT}/scripts/iap-ssh.sh"
 PROJECT="$TARGET_PROJECT"
 REGION="${TARGET_REGION}"
-BUILDER_INSTANCE="${BUILDER_INSTANCE:-nix-builder-x86}"
+BUILDER_PROJECT="${NAGARE_BUILDER_PROJECT}"
+BUILDER_ZONE="${NAGARE_BUILDER_ZONE}"
+BUILDER_INSTANCE="${NAGARE_BUILDER_INSTANCE}"
+TARGET_SYSTEM="x86_64-linux"
 OUTPUT="nagare-image"
 ATTR="packages.x86_64-linux.${OUTPUT}"
 
 log() { printf '[upload-images] %s\n' "$*" >&2; }
 
-if [ "${DRY_RUN}" -eq 1 ]; then
+for builder_value in "${BUILDER_PROJECT}" "${BUILDER_ZONE}" "${BUILDER_INSTANCE}"; do
+  case "${builder_value}" in
+    ""|*[!A-Za-z0-9._:-]*)
+      echo "refusing invalid builder project/zone/instance value: '${builder_value}'" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ "${BUILDER_PROJECT}" != "${PROJECT}" ]; then
+  if [ "${ALLOW_SHARED_BUILDER}" != "${BUILDER_PROJECT}" ]; then
+    echo "refusing shared builder: context '${NAGARE_CONTEXT}' targets project '${PROJECT}', but its builder project is '${BUILDER_PROJECT}'." >&2
+    echo "repeat with --allow-shared-builder '${BUILDER_PROJECT}' to acknowledge that named project." >&2
+    exit 2
+  fi
+  SHARED_BUILDER_EXCEPTION="yes (${ALLOW_SHARED_BUILDER})"
+elif [ -n "${ALLOW_SHARED_BUILDER}" ] && [ "${ALLOW_SHARED_BUILDER}" != "${PROJECT}" ]; then
+  echo "refusing shared builder acknowledgement '${ALLOW_SHARED_BUILDER}': effective builder project is '${BUILDER_PROJECT}'." >&2
+  exit 2
+else
+  SHARED_BUILDER_EXCEPTION="no"
+fi
+
+context_alias="$(printf '%s' "${NAGARE_CONTEXT}" | tr '[:upper:]' '[:lower:]' | tr -c '[:alnum:]_-' '-')"
+BUILDER_ALIAS="nagare-builder-${context_alias}"
+BUILDER_STATE_DIR="$(_nagare_state_dir)/${NAGARE_CONTEXT}/nix-builder"
+SSH_CONFIG="${BUILDER_STATE_DIR}/ssh_config"
+BUILDERS_FILE="${BUILDER_STATE_DIR}/builders"
+BUILDER_KEY="${NIX_BUILDER_SSH_KEY:-/etc/nix/builder_ed25519}"
+PROXY_BIN="$(command -v nagare-nix-builder-proxy || true)"
+[ -n "${PROXY_BIN}" ] || PROXY_BIN="${REPO_ROOT}/scripts/nix-builder-proxy.sh"
+[ -x "${PROXY_BIN}" ] || { echo "builder proxy is not executable: ${PROXY_BIN}" >&2; exit 2; }
+for builder_path in "${SSH_CONFIG}" "${PROXY_BIN}" "${BUILDER_KEY}"; do
+  case "${builder_path}" in
+    *[[:space:]]*) echo "builder paths may not contain whitespace: ${builder_path}" >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "${BUILDER_STATE_DIR}"
+chmod 0700 "${BUILDER_STATE_DIR}"
+ssh_tmp="${SSH_CONFIG}.tmp.$$"
+builders_tmp="${BUILDERS_FILE}.tmp.$$"
+trap 'rm -f "${ssh_tmp:-}" "${builders_tmp:-}" "${NIX_BUILD_ERR:-}"' EXIT
+printf '%s\n' \
+  "Host ${BUILDER_ALIAS}" \
+  "  HostName ${BUILDER_ALIAS}" \
+  "  User builder" \
+  "  IdentityFile \"${BUILDER_KEY}\"" \
+  "  IdentitiesOnly yes" \
+  "  StrictHostKeyChecking no" \
+  "  UserKnownHostsFile /dev/null" \
+  "  GlobalKnownHostsFile /dev/null" \
+  "  LogLevel ERROR" \
+  "  ServerAliveInterval 15" \
+  "  ServerAliveCountMax 3" \
+  "  ProxyCommand \"${PROXY_BIN}\" \"${BUILDER_PROJECT}\" \"${BUILDER_ZONE}\" \"${BUILDER_INSTANCE}\"" \
+  >"${ssh_tmp}"
+BUILDER_URI="ssh-ng://builder@${BUILDER_ALIAS}"
+BUILDERS_SPEC="${BUILDER_URI} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark"
+printf '%s\n' "${BUILDERS_SPEC}" >"${builders_tmp}"
+chmod 0600 "${ssh_tmp}" "${builders_tmp}"
+mv "${ssh_tmp}" "${SSH_CONFIG}"
+mv "${builders_tmp}" "${BUILDERS_FILE}"
+
+local_system="$(nix config show system 2>/dev/null || true)"
+local_system="${local_system#system = }"
+[ -n "${local_system}" ] || local_system="unknown"
+
+show_builder_selection() {
   printf 'context: %s\n' "${NAGARE_CONTEXT}"
   printf 'project: %s\n' "${PROJECT}"
+  printf 'local system: %s\n' "${local_system}"
+  printf 'target system: %s\n' "${TARGET_SYSTEM}"
+  printf 'builder URI: %s\n' "${BUILDER_URI}"
+  printf 'builder project: %s\n' "${BUILDER_PROJECT}"
+  printf 'builder zone: %s\n' "${BUILDER_ZONE}"
+  printf 'builder instance: %s\n' "${BUILDER_INSTANCE}"
+  printf 'shared builder exception: %s\n' "${SHARED_BUILDER_EXCEPTION}"
+  printf 'builder spec: %s\n' "${BUILDERS_SPEC}"
+  printf 'builder SSH config: %s\n' "${SSH_CONFIG}"
+}
+
+if [ "${DRY_RUN}" -eq 1 ]; then
+  show_builder_selection
   printf 'registry: %s\n' "${NAGARE_REGISTRY_HOST}"
   printf 'host flake: %s\n' "${NAGARE_HOST_FLAKE}"
   printf 'image attribute: %s\n' "${ATTR}"
@@ -46,6 +142,7 @@ if [ "${DRY_RUN}" -eq 1 ]; then
 fi
 
 _require_target_project
+show_builder_selection >&2
 
 # Private scratch file for nix build's stderr. A fixed /tmp path is
 # world-predictable and shared between concurrent runs and users.
@@ -73,13 +170,14 @@ _require_bucket_in_target_project "${BUCKET}" \
 # and checking it exists on the builder.
 build_image() {
   local out_path
-  if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && nix build --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
+  if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && NIX_SSHOPTS="-F${SSH_CONFIG}" \
+    nix build --builders "${BUILDERS_SPEC}" --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
     echo "${out_path}"; return 0
   fi
   out_path=$(cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
     log "nix build failed and nix eval could not resolve the output path:"; cat "${NIX_BUILD_ERR}" >&2; return 1; }
   local q; q="$(printf '%q' "${out_path}")"
-  if [ -n "${BUILDER_INSTANCE}" ] && "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "test -d ${q}" 2>/dev/null; then
+  if ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "test -d ${q}" 2>/dev/null; then
     log "Local copy-back failed but build is on builder at ${out_path} — using builder upload"
     echo "${out_path}"; return 0
   fi
@@ -92,9 +190,9 @@ locate_tarball() {
   local store_path="$1" tarball
   if [ -d "${store_path}" ]; then
     tarball="$(find "${store_path}" -maxdepth 1 -name '*.raw.tar.gz' -print -quit)"
-  elif [ -n "${BUILDER_INSTANCE}" ]; then
+  else
     local q; q="$(printf '%q' "${store_path}")"
-    tarball="$("${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "find ${q} -maxdepth 1 -type f -name '*.raw.tar.gz' -print -quit")"
+    tarball="$(ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "find ${q} -maxdepth 1 -type f -name '*.raw.tar.gz' -print -quit")"
   fi
   [ -n "${tarball}" ] || { echo "no *.raw.tar.gz in ${store_path}" >&2; return 1; }
   echo "${tarball}"
@@ -112,7 +210,7 @@ upload_if_missing() {
     log "Uploading ${src} -> ${uri}"; gsutil cp "${src}" "${uri}"
   else
     log "Uploading from builder: ${src} -> ${uri}"
-    "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "sudo -u builder gsutil cp '${src}' '${uri}'"
+    ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "gsutil cp '${src}' '${uri}'"
   fi
 }
 
@@ -144,7 +242,7 @@ verify_tarball() {
     fi
   else
     local q; q="$(printf '%q' "${path}")"
-    if ! "${IAP_SSH}" ssh "${BUILDER_INSTANCE}" -- "gzip -t ${q}" 2>/dev/null; then
+    if ! ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "gzip -t ${q}" 2>/dev/null; then
       echo "refusing to upload: builder tarball ${path} is a truncated/corrupt gzip" >&2
       return 1
     fi

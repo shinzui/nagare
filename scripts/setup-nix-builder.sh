@@ -13,9 +13,8 @@
 #      (Determinate Nix installer + cache.nixos.org substitutes).
 #   4. Waits for the startup script to finish provisioning (Determinate
 #      Nix installed, builder user created, idle-shutdown watchdog armed).
-#   5. Stops the VM so it costs only the boot disk while idle. The host's
-#      ssh ProxyCommand (managed in dotfiles.nix) will start it again on
-#      the next `nix build`.
+#   5. Stops the VM so it costs only the boot disk while idle. Nagare's
+#      context-owned SSH ProxyCommand starts it on the next host-image build.
 #
 # Idempotent: re-running this script only creates resources that are
 # missing. Editing the startup template after the VM exists has no effect
@@ -164,4 +163,4 @@ fi
 log "Stopping VM (idle cost = boot disk only; first build will start it again)"
 gcloud --project="$PROJECT" compute instances stop "$INSTANCE" --zone="$ZONE" --quiet
 
-log "Done. Try: nix build --builders 'ssh://nix-gcp-builder x86_64-linux' nixpkgs#hello"
+log "Done. Verify the context-owned route with: nagare host-image --dry-run"

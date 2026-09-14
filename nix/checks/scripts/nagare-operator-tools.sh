@@ -28,6 +28,7 @@ test ! -e "$cli_package/lib/links"
 pulumi_bin="$("$jq_bin" -er '.tools.pulumi' tools.json)"
 "$pulumi_bin" version >/dev/null
 "$operator_package/bin/nagare" --list >/dev/null
+test -x "$operator_package/bin/nagare-nix-builder-proxy"
 
 cd ../..
 export PATH="$coreutils_bin/bin"

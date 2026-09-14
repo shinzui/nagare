@@ -50,6 +50,19 @@
       touch "$out"
     '';
 
+  # EP-136 / IR-17: host-image renders and passes one context-owned builder,
+  # refuses a foreign project by default, and records an explicit exception.
+  upload-images-builder-confinement = pkgs.runCommand "nagare-upload-images-builder-confinement-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gnugrep pkgs.gzip ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-upload-images.sh
+      touch "$out"
+    '';
+
   # EP-112: the cert-manager ClusterIssuer's ACME identity comes from the
   # active context, and the renderer refuses — with EMPTY stdout — rather
   # than inventing one.
