@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-14T14:18:39Z
       mode: "implement"
       note: "Completed EP-3 implementation and validation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T22:59:26Z
+      mode: "implement"
+      note: "Hardened v0.3.0 release fixtures after Linux CI evidence"
 ---
 
 # Apply reviewed infrastructure and confine remote builders
@@ -68,6 +73,12 @@ implementation. Provide concise evidence.
   existing records. This is bundle-wide pre-existing provenance debt, not a schema or log failure;
   adding invented reviews to unrelated records would make the history less truthful.
 
+- Observation: The native Darwin gate did not expose fixture executables whose
+  `#!/usr/bin/env bash` shebangs are unavailable in a pure Linux Nix builder. Evidence: the
+  v0.3.0 candidate's first Linux CI run passed all 552 Haskell tests, then failed before exercising
+  the upload logic; invoking the repository script with the check-provided Bash and rendering that
+  exact Bash path into every fake tool made the focused pure-build check pass.
+
 
 ## Decision Log
 
@@ -113,6 +124,11 @@ Host-image now renders a private per-context SSH route and explicit `--builders`
 builder is in the target project; a different `NAGARE_BUILDER_PROJECT` is refused unless the command
 names that exact project with `--allow-shared-builder`. Hermetic confinement, packaged-proxy, and
 shellcheck gates pass without consulting ambient builder configuration.
+
+The v0.3.0 release audit also aligned the standalone clone-free rehearsal with the public reviewed
+preview boundary, made its isolated Homebrew cleanup tolerate short-lived cache writers, and made
+the upload-images confinement fixture portable to the pure Linux builder. The focused native Nix
+checks pass with those release-hardening corrections.
 
 IR-15 and IR-17 are completed, ADR 18 owns the retained constrained-plan boundary, and ADR 9 owns
 builder project selection. The five focused operator guides, disaster-recovery teardown, reference,
@@ -323,3 +339,6 @@ complete gate remain.
 
 Revision note (2026-09-14): Completed EP-3. Documented the saved-plan and builder lifecycle, closed
 IR-15 and IR-17, amended ADRs 18 and 9, and passed the full native flake gate.
+
+Revision note (2026-09-14): Hardened the v0.3.0 release evidence after Linux CI exposed a fixture
+shebang outside the pure-builder closure; the fixture now uses only the Nix-provided Bash.

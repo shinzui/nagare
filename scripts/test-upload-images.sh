@@ -18,8 +18,8 @@ export NAGARE_ARTIFACT_REGISTRY_ID='nagare'
 export NAGARE_BASE_DOMAIN='apps.example.test'
 EOF
 
-cat >"$work/bin/nix" <<'EOF'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/nix" <<'EOF'
+#!@BASH@
 set -eu
 printf 'nix NIX_SSHOPTS=%s argv=%s\n' "${NIX_SSHOPTS:-}" "$*" >>"$NAGARE_TEST_LOG"
 if [ "${1:-}" = config ]; then
@@ -31,8 +31,8 @@ else
 fi
 EOF
 
-cat >"$work/bin/pulumi" <<'EOF'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/pulumi" <<'EOF'
+#!@BASH@
 set -eu
 printf 'pulumi %s\n' "$*" >>"$NAGARE_TEST_LOG"
 case " $* " in
@@ -40,8 +40,8 @@ case " $* " in
 esac
 EOF
 
-cat >"$work/bin/gsutil" <<'EOF'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/gsutil" <<'EOF'
+#!@BASH@
 set -eu
 printf 'gsutil %s\n' "$*" >>"$NAGARE_TEST_LOG"
 if [ "${1:-}" = -q ] && [ "${2:-}" = stat ]; then
@@ -49,8 +49,8 @@ if [ "${1:-}" = -q ] && [ "${2:-}" = stat ]; then
 fi
 EOF
 
-cat >"$work/bin/gcloud" <<'EOF'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/gcloud" <<'EOF'
+#!@BASH@
 set -eu
 printf 'gcloud %s\n' "$*" >>"$NAGARE_TEST_LOG"
 case " $* " in
@@ -63,8 +63,8 @@ case " $* " in
 esac
 EOF
 
-cat >"$work/bin/ssh" <<'EOF'
-#!/usr/bin/env bash
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/ssh" <<'EOF'
+#!@BASH@
 echo "unexpected ssh fallback: $*" >&2
 exit 97
 EOF
@@ -81,7 +81,7 @@ export NAGARE_HOST_FLAKE="$work/host"
 export NAGARE_TEST_LOG="$work/tools.log"
 export NAGARE_TEST_STORE_PATH="$work/store/image"
 
-same_output="$(scripts/upload-images.sh --dry-run)"
+same_output="$(bash scripts/upload-images.sh --dry-run)"
 grep -q '^context: labs$' <<<"$same_output"
 grep -q '^local system: aarch64-darwin$' <<<"$same_output"
 grep -q '^target system: x86_64-linux$' <<<"$same_output"
@@ -98,7 +98,7 @@ test "$(stat -c '%a' "$builder_dir/builders")" = 600
 grep -q 'ProxyCommand.*"labs-project".*"us-west1-a".*"nix-builder-x86"' "$builder_dir/ssh_config"
 grep -q '^ssh-ng://builder@nagare-builder-labs x86_64-linux ' "$builder_dir/builders"
 
-if NAGARE_BUILDER_PROJECT=shared-project scripts/upload-images.sh --dry-run \
+if NAGARE_BUILDER_PROJECT=shared-project bash scripts/upload-images.sh --dry-run \
   >"$work/foreign.out" 2>"$work/foreign.err"; then
   echo "foreign builder unexpectedly passed without acknowledgement" >&2
   exit 1
@@ -106,13 +106,13 @@ fi
 grep -q "repeat with --allow-shared-builder 'shared-project'" "$work/foreign.err"
 
 shared_output="$(NAGARE_BUILDER_PROJECT=shared-project \
-  scripts/upload-images.sh --allow-shared-builder shared-project --dry-run)"
+  bash scripts/upload-images.sh --allow-shared-builder shared-project --dry-run)"
 grep -q '^builder project: shared-project$' <<<"$shared_output"
 grep -q '^shared builder exception: yes (shared-project)$' <<<"$shared_output"
 grep -q 'ProxyCommand.*"shared-project".*"us-west1-a".*"nix-builder-x86"' "$builder_dir/ssh_config"
 
 : >"$work/tools.log"
-scripts/upload-images.sh >"$work/real.out" 2>"$work/real.err"
+bash scripts/upload-images.sh >"$work/real.out" 2>"$work/real.err"
 grep -q '^builder project: labs-project$' "$work/real.err"
 grep -q 'nix NIX_SSHOPTS=-F.*/nagare/labs/nix-builder/ssh_config argv=build --builders ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
 if grep -q '/etc/nix/machines' "$work/tools.log"; then
