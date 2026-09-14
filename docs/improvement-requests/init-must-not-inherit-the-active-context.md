@@ -12,6 +12,23 @@ completedAt: "2026-09-14T01:56:48Z"
 resolution: "Commit 73a2f4a made named init resolve only from flags, built-in defaults, and the named context's own stored values under --force; it also prints derived names and refuses foreign derived buckets before any side effect. The unit suite and nagare-clone-free-platform check cover a foreign current context, fresh and forced init, stored Pulumi backend preservation, and ownership refusal. Full local and native release gates passed, and the behavior is published in the signed v0.2.2 tag at commit 248e5f9."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T01:56:48Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 128's release evidence and the current
+      init-base isolation, ownership checks, packaged regression scenarios,
+      documentation, and ADR surfaces; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: stop `nagarectl init` from inheriting the active context

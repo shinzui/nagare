@@ -12,6 +12,23 @@ completedAt: "2026-09-12T15:12:35Z"
 resolution: "EP-113 added _require_bucket_in_target_project to scripts/lib/target.sh and called it from scripts/migrate-pulumi-backend.sh and scripts/upload-images.sh, made Nagare.Ops.PulumiBackend refuse a state bucket whose owning project number is not the target's and made that bootstrap failure fatal to nagarectl init, put both cluster/bootstrap image-build scripts under _require_target_project with the gcloud config fallback removed, added nagarectl context guard as the infra-up / infra-preview preflight, and made the nagare launcher export the active context's Pulumi environment via nagarectl context env. All four requested verifications are held by nix flake check (bucket-ownership-guard, image-build-guard, the extended nagare-clone-free-platform, the Nagare.Ops.PulumiBackend and Nagare.Ops.ContextGuard unit tests) and scripts/rehearse-clone-free-release.sh. Recorded as ADR 9."
 targetPlan: docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-12T15:12:35Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 113's progress and acceptance
+      evidence plus the current project, bucket, image-build, Pulumi, launcher,
+      and regression-check surfaces; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: confine every cloud-mutating path to the active context's project

@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-12T14:37:24Z
       mode: "implement"
       note: "Implementing EP-113 milestones 1-6"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:53:19Z
+      mode: "update"
+      note: "Close the audited improvement-request review provenance follow-up"
 ---
 
 # Confine every cloud-mutating path to the active context's project
@@ -124,10 +129,9 @@ test that fails before the change and passes after it.
       linked to this plan in commit `2cc6f12`, before implementation began. Closing it was
       missed at the time; on 2026-09-13 IR-2 was set to `status: completed` with its
       `resolution`, `completedAt` and an ADR 9 link, matching how IR-3 was closed.
-- [ ] Follow-up, outside EP-113: the `docs/improvement-requests` bundle fails strict
-      profile validation for all four September-2026 IRs (missing the recommended `reviews`
-      field). See Surprises & Discoveries; it predates this plan and must not be closed by
-      writing review records that did not happen.
+- [x] (2026-09-14) Follow-up, outside EP-113: audited all 23 improvement requests against project
+      scope, linked plans, lifecycle state, and implementation evidence; recorded truthful
+      content-and-metadata review provenance and OKF verification; strict profile validation passes.
 
 
 ## Surprises & Discoveries
@@ -285,10 +289,10 @@ three automated assertions: case four of `scripts/test-bucket-ownership-guard.sh
 no-push build never invokes `gcloud`), and the `nagare-clone-free-platform` check, which
 exercises the new launcher `eval` against a `mode=local` context end to end. Running
 `just local-smoke` once with a cluster available would close the last of it. Separately, the
-`docs/improvement-requests` strict validation named in Milestone 6's acceptance still exits
-1; it did so identically before this plan, for all four September-2026 requests, and the
-only way to make it pass is to write review provenance for reviews that did not happen. It
-is left open as a follow-up in Progress.
+`docs/improvement-requests` strict validation named in Milestone 6's acceptance exited 1 at
+implementation time, identically before and after this plan, for all four September-2026
+requests. The 2026-09-14 corpus audit later performed those reviews rather than inventing them;
+the 23-concept strict validation now passes and the follow-up in Progress is closed.
 
 **Lessons.** Two are worth carrying forward and are recorded in
 [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
@@ -1651,3 +1655,9 @@ used by `runGcloud` and `Nagare.Ops.Probe.captureTool`), and for the tests `tast
 `tasty-hunit` and `Data.IORef` from `base`. All are already
 dependencies of `nagarectl` or `nagarectl-test` in `cli/nagarectl/nagarectl.cabal`; no new
 dependency is added.
+
+
+## Revision note — 2026-09-14
+
+Closed the plan's only remaining follow-up after a separate audit reviewed all improvement requests,
+recorded provenance and verification, and proved the strict 23-concept bundle validation green.

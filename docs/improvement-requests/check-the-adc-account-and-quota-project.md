@@ -13,6 +13,23 @@ completedAt: "2026-09-14T13:11:22Z"
 resolution: "ExecPlan 135 added token-safe ADC discovery with explicit environment precedence to initialization and every cloud project guard before Pulumi. Missing, invalid, unreadable, or foreign-quota credentials refuse with safe structured evidence and the exact quota-project repair; absent or mismatched principal evidence is visible as a warning. GCP onboarding and context documentation now explains ADC login, quota attribution, and context switching. Fixture, policy, redaction, command-order, and clone-free packaged tests pass as part of the 505-test focused gate. ADR 9 records the durable credential boundary."
 targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T13:11:22Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 135 and MasterPlan 22 completion evidence
+      plus the current ADC discovery, quota policy, command ordering, redaction,
+      fixtures, documentation, and ADR surfaces; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: check the ADC account and quota project against the context

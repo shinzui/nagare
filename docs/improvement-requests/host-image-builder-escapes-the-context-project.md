@@ -13,6 +13,23 @@ completedAt: "2026-09-14T14:12:41Z"
 resolution: "ExecPlan 136 made the target project and zone the default builder identity, rendered private per-context SSH and Nix builders files, shipped a positional GCP/IAP proxy, printed the effective builder before dry-run and build, and passed the builder explicitly to nix build. A known foreign NAGARE_BUILDER_PROJECT now refuses unless --allow-shared-builder names the exact project. Hermetic tests cover rendering, file modes, refusal, opt-in, and exact build argv; the installed-tool check requires the proxy. ADR 9 records builder project ownership."
 targetPlan: docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T14:12:41Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 136 and MasterPlan 22 completion evidence
+      plus the current per-context builder selection, visible foreign-project refusal
+      and opt-in, regression tests, documentation, and ADR surfaces; the completed status and fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: confine or at least surface the host-image builder's project

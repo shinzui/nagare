@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-12T15:38:34Z
       mode: "implement"
       note: "Implementing milestones 1-5: context-owned ACME identity"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:53:19Z
+      mode: "update"
+      note: "Record resolved improvement-request review validation follow-up"
 ---
 
 # Make the ACME identity context-owned and remove the personal fallback defaults
@@ -369,10 +374,11 @@ tests. `just user-documentation-validate` reports no findings (36 + 2 concepts).
   Validation and Acceptance need a real cluster and a delegated domain; this work was done
   without either. Everything below that line is proven hermetically. The first operator to run
   `nagare cluster-bootstrap` after this change closes that gap.
-- **`okf validate docs/improvement-requests --strict` still exits non-zero**, with four
-  pre-existing `missing profile-recommended field: reviews` findings — the same four, verbatim,
-  on the unmodified tree. Two of them belong to requests this plan never touches. They were
-  left alone rather than papered over; see the Decision Log.
+- **At implementation completion, `okf validate docs/improvement-requests --strict` exited
+  non-zero**, with four pre-existing `missing profile-recommended field: reviews` findings — the
+  same four, verbatim, on the unmodified tree. They were left alone rather than papered over. A
+  2026-09-14 audit later performed the reviews, recorded their provenance, and made strict
+  validation pass for all 23 requests.
 - **`cabal run test:nagarectl-test` on a developer's machine has 8 unrelated failures** from a
   stale `.ghc.environment.*` registering two `nagare-dsl` versions. See Surprises & Discoveries.
 
@@ -1502,3 +1508,9 @@ temporary file and applies it only on success.
 `gcloud`, no `pulumi`, no cluster. It exits 0 on success and prints one `ok:` line per scenario.
 `flake.nix` exposes `checks.<system>.render-context-template` and
 `checks.<system>.cluster-bootstrap-defaults`.
+
+
+## Revision note — 2026-09-14
+
+Updated the retrospective to distinguish the historical missing-review failure from current state:
+the separate request audit has now reviewed the corpus and strict validation passes.

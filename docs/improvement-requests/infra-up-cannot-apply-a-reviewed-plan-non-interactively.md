@@ -13,6 +13,23 @@ completedAt: "2026-09-14T14:12:41Z"
 resolution: "ExecPlan 136 added a private immutable bundle containing Pulumi's saved plan, a redacted operation review, and Nagare context/project/stack/backend/payload/program/config/version bindings. Guarded apply verifies every member and binding before pulumi up --plan --yes --non-interactive, with no second preview; upgrades retain the same bundle across resume. A separate guarded destroy command owns teardown. Pure and clone-free fake-Pulumi tests cover mismatches, tampering, exact argv, and no-preview apply. ADR 18 records the constrained-not-atomic execution boundary."
 targetPlan: docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
 origin: mori://shinzui/nagare
+reviews:
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T14:45:36Z"
+    document_timestamp: "2026-09-14T14:12:41Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Audited the request against ExecPlan 136 and MasterPlan 22 completion evidence
+      plus the current saved-plan identity, digest, review, apply, upgrade, teardown,
+      test, documentation, and ADR surfaces; the completed status and Nagare fit remain accurate.
+verified:
+  by: process:openai-codex
+  at: "2026-09-14T14:45:36Z"
 ---
 
 # Improvement Request: a non-interactive infra-up that applies the reviewed plan

@@ -2,6 +2,8 @@
 
 Last reconciled: 2026-08-23
 
+Improvement-request-linked standalone statuses reconciled: 2026-09-14
+
 This index closes the discovery gaps that are not represented by a MasterPlan child table. A
 MasterPlan's own Exec-Plan Registry remains authoritative for its children; this file registers
 standalone plans, cross-project lineage, and retired-plan successors without inventing ownership
@@ -25,9 +27,9 @@ the count balance.
 |---|---|---|---|
 | [EP-71 — Kubernetes Deployment workloads for long-running workers](plans/71-kubernetes-deployment-workloads-for-long-running-workers.md) | `intention_01kvce00njestav4ejj7dbfwea` | Complete | Independent extension of the typed workload model. |
 | [EP-81 — identity-aware access for Nagare sites](plans/81-identity-aware-access-for-nagare-sites-via-a-shared-shomei-en-forward-auth-enforcer.md) | `intention_01kvxg3mdke08s9pk87a3dqj1b` | Complete | Independent integration of the shared Shomei/En forward-auth path. |
-| [EP-110 — Seed and pin the VM shape keys at init](plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md) | `intention_01m2atvnagebcstgee18sjcyck` | Not started | Implements IR-4 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
-| [EP-111 — Automate and document growing the data disk](plans/111-automate-and-document-growing-the-data-disk.md) | `intention_01m2av9m0ge8sbwjy4arw5svf9` | Not started | Implements IR-5 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
-| [EP-112 — Make the ACME identity context-owned](plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md) | `intention_01m2awrqs2ektseh5wrvbrr07n` | Not started | Implements IR-3 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
+| [EP-110 — Seed and pin the VM shape keys at init](plans/110-seed-and-pin-the-vm-shape-keys-at-init-and-guard-instance-replacing-applies.md) | `intention_01m2atvnagebcstgee18sjcyck` | Complete | Implements IR-4 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
+| [EP-111 — Automate and document growing the data disk](plans/111-automate-and-document-growing-the-data-disk.md) | `intention_01m2av9m0ge8sbwjy4arw5svf9` | Complete | Implements IR-5 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
+| [EP-112 — Make the ACME identity context-owned](plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md) | `intention_01m2awrqs2ektseh5wrvbrr07n` | Complete | Implements IR-3 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
 | [EP-113 — Confine every cloud-mutating path to the active context's project](plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md) | `intention_01m2az59r0ejqtvw1mgvhe4d7f` | Complete | Implements IR-2 from the September 2026 pre-flight review of `v0.1.0`, which is outside MP-19's July 2026 review scope. |
 
 ## Cross-Project Plan Lineage
