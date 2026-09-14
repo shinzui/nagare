@@ -25,7 +25,6 @@ module Nagare.Platform.Cutover
   )
 where
 
-import Control.Exception (SomeException, displayException, try)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
@@ -140,7 +139,10 @@ runCutover ops initial
   | cutoverConfirmation ops /= replacementConfirmation initial = pure (Left (plainError Nothing "confirmation token does not match context/transaction" initial))
   | replacementState initial /= Ready = pure (Left (plainError Nothing "replacement transaction is not ready" initial))
   | replacementWritesAdmitted initial = pure (Left (plainError Nothing "candidate writes were already admitted; automatic cutover replay is unsafe" initial))
-  | otherwise = protect initial $ do
+  | Left message <- validateStateTransferPlan (cutoverStatePlan ops) = pure (Left (plainError Nothing message initial))
+  | stateTransferDriftToken (cutoverStatePlan ops) /= replacementExpectedDriftToken initial = pure (Left (plainError Nothing "state-transfer plan drift token does not match the transaction" initial))
+  | stateTransferPredictedSeconds (cutoverStatePlan ops) /= replacementPredictedStateSeconds initial = pure (Left (plainError Nothing "state-transfer prediction does not match the transaction budget input" initial))
+  | otherwise = do
       checked <- runRevalidation ops initial
       case checked of
         Left err -> pure (Left err)
@@ -245,26 +247,49 @@ verifyAndCommit ops deadline tx = do
       | otherwise = Left "public verification evidence is incomplete"
 
 runRollback :: CutoverOps -> ReplacementTransaction -> IO (Either CutoverError ReplacementTransaction)
-runRollback ops tx = protect tx (rollbackInternal ops tx)
+runRollback = rollbackInternal
 
 rollbackInternal :: CutoverOps -> ReplacementTransaction -> IO (Either CutoverError ReplacementTransaction)
-rollbackInternal ops initial
-  | replacementWritesAdmitted initial = do
-      _ <- setWriteGate ops (replacementCandidateHost initial) WritesFenced
+rollbackInternal ops initial = do
+  observed <- observeCutover ops initial
+  case observed of
+    Left message -> rollbackFailure ops FenceCandidate ("could not observe write admission before rollback: " <> message) initial
+    Right actual
+      | replacementWritesAdmitted initial || observedCandidateWritesAdmitted actual -> fenceForManualRecovery actual
+      | otherwise -> rollbackPreCommit actual
+  where
+    fenceForManualRecovery actual = do
+      gateResult <- setWriteGate ops (replacementCandidateHost initial) WritesFenced
+      afterFence <- observeCutover ops initial
       now <- wallNow ops
+      let actuallyFenced = either (const False) observedCandidateFenced afterFence
+          detail = case gateResult of
+            Left message -> "automatic rollback is disabled after candidate write admission; fencing also failed: " <> message
+            Right () | actuallyFenced -> "automatic rollback is disabled after candidate write admission; candidate writes were fenced for manual recovery"
+            Right () -> "automatic rollback is disabled after candidate write admission; the candidate write gate could not be observed fenced"
       let fenced =
             initial
-              { replacementCandidateFenced = True
+              { replacementCandidateFenced = actuallyFenced
+              , replacementWritesAdmitted = observedCandidateWritesAdmitted actual
               , replacementState = ReplacementFailed
-              , replacementLastError = Just "automatic rollback is disabled after candidate write admission; candidate writes were fenced for manual recovery"
+              , replacementLastError = Just detail
               , replacementUpdatedAt = now
               }
       persistCutover ops fenced
-      pure (Left (plainError (Just FenceCandidate) "automatic rollback is disabled after candidate write admission; manual state recovery is required" fenced))
-  | otherwise = do
+      pure (Left (plainError (Just FenceCandidate) detail fenced))
+    rollbackPreCommit actual = do
       cancelForwardWork ops
       now <- wallNow ops
-      let rolling = initial {replacementState = RollingBack, replacementRollbackEligible = True, replacementUpdatedAt = now}
+      let rolling =
+            initial
+              { replacementState = RollingBack
+              , replacementRollbackEligible = True
+              , replacementAddressOwner = observedAddressOwner actual
+              , replacementOldPower = observedOldPower actual
+              , replacementCandidateFenced = observedCandidateFenced actual
+              , replacementContextCommitted = observedContextCommitted actual
+              , replacementUpdatedAt = now
+              }
       persistCutover ops rolling
       fencedResult <- runSimpleStep ops Nothing FenceCandidate (unitEvidence "candidate fenced" (setWriteGate ops (replacementCandidateHost rolling) WritesFenced)) rolling
       case fencedResult of
@@ -273,19 +298,18 @@ rollbackInternal ops initial
           observed <- observeCutover ops fenced
           case observed of
             Left message -> rollbackFailure ops RestoreOldAddress message fenced
-            Right actual ->
+            Right afterFence ->
               let observedTx =
                     fenced
-                      { replacementAddressOwner = observedAddressOwner actual
-                      , replacementOldPower = observedOldPower actual
-                      , replacementCandidateFenced = observedCandidateFenced actual
-                      , replacementContextCommitted = observedContextCommitted actual
-                      , replacementWritesAdmitted = observedCandidateWritesAdmitted actual
+                      { replacementAddressOwner = observedAddressOwner afterFence
+                      , replacementOldPower = observedOldPower afterFence
+                      , replacementCandidateFenced = observedCandidateFenced afterFence
+                      , replacementContextCommitted = observedContextCommitted afterFence
+                      , replacementWritesAdmitted = observedCandidateWritesAdmitted afterFence
                       }
-               in if observedCandidateWritesAdmitted actual
-                    then rollbackInternal ops observedTx
-                    else restoreAddress ops observedTx actual
-  where
+               in if observedCandidateWritesAdmitted afterFence
+                    then fenceForManualRecovery afterFence
+                    else restoreAddress ops observedTx afterFence
     restoreAddress localOps tx actual = do
       addressResult <- case observedAddressOwner actual of
         AddressOnOld -> pure (Right tx)
@@ -340,11 +364,11 @@ finishRollback ops tx = do
                   pure (Right rolledBack)
   where
     validateOld evidence
-      | and [publicDnsUnchanged evidence, publicTlsValid evidence, publicRoutingValid evidence, publicDataValid evidence] = Right (publicEvidenceToken evidence)
+      | and [publicDnsUnchanged evidence, publicTlsValid evidence, publicAuthValid evidence, publicRoutingValid evidence, publicDataValid evidence] = Right (publicEvidenceToken evidence)
       | otherwise = Left "old public service did not pass rollback verification"
 
 reconcileCutover :: CutoverOps -> ReplacementTransaction -> IO (Either CutoverError Reconciliation)
-reconcileCutover ops tx = protect tx $ do
+reconcileCutover ops tx = do
   observation <- observeCutover ops tx
   case observation of
     Left message -> pure (Left (plainError (replacementPhase tx) ("could not reconcile actual cutover state: " <> message) tx))
@@ -374,9 +398,9 @@ reconcileCutover ops tx = protect tx $ do
 finalizeReplacement :: Bool -> CleanupOps -> ReplacementTransaction -> IO (Either CleanupError ReplacementTransaction)
 finalizeReplacement nowOverride ops initial
   | cleanupConfirmation ops /= replacementConfirmation initial = pure (Left (cleanupFailure "confirmation token does not match context/transaction" initial))
-  | replacementState initial /= Committed = pure (Left (cleanupFailure "only a committed replacement can be finalized" initial))
-  | null (replacementRetainedResources initial) = pure (Left (cleanupFailure "transaction records no former-active resources to finalize" initial))
-  | otherwise = protectCleanup initial $ do
+  | replacementState initial `notElem` [Committed, Finalizing] = pure (Left (cleanupFailure "only a committed or partially finalizing replacement can be finalized" initial))
+  | replacementState initial == Committed && null (replacementRetainedResources initial) = pure (Left (cleanupFailure "transaction records no former-active resources to finalize" initial))
+  | otherwise = do
       now <- cleanupNow ops
       case replacementRetentionUntil initial of
         Just retention | not nowOverride && now < retention -> pure (Left (cleanupFailure "former-active retention period has not elapsed; pass --now only after explicit acceptance" initial))
@@ -573,17 +597,3 @@ plainError phase message tx = CutoverError phase message False Nothing tx
 
 cleanupFailure :: Text -> ReplacementTransaction -> CleanupError
 cleanupFailure = CleanupError
-
-protect :: ReplacementTransaction -> IO (Either CutoverError a) -> IO (Either CutoverError a)
-protect tx action = do
-  result <- try action
-  pure $ case result of
-    Left (err :: SomeException) -> Left (plainError (replacementPhase tx) ("cutover operation raised an exception: " <> T.pack (displayException err)) tx)
-    Right value -> value
-
-protectCleanup :: ReplacementTransaction -> IO (Either CleanupError a) -> IO (Either CleanupError a)
-protectCleanup tx action = do
-  result <- try action
-  pure $ case result of
-    Left (err :: SomeException) -> Left (cleanupFailure ("cleanup operation raised an exception: " <> T.pack (displayException err)) tx)
-    Right value -> value
