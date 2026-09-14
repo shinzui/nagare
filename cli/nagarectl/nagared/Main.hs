@@ -70,7 +70,7 @@ import Options.Applicative
 import System.Directory (makeAbsolute)
 import System.Environment (lookupEnv, setEnv)
 import System.FilePath ((</>))
-import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
+import System.IO (BufferMode (LineBuffering), hSetBuffering, hSetEncoding, stderr, stdout, utf8)
 
 -- ---------------------------------------------------------------------------
 -- Options / environment
@@ -129,6 +129,8 @@ data Env = Env
 
 main :: IO ()
 main = do
+  hSetEncoding stdout utf8
+  hSetEncoding stderr utf8
   hSetBuffering stdout LineBuffering
   o <- execParser parserInfo
   secret <- resolveSecret (o ^. #secretFile)

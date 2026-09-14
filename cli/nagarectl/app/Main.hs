@@ -407,7 +407,7 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileE
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeDirectory, takeExtension, (</>))
-import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
+import System.IO (hFlush, hIsTerminalDevice, hSetEcho, hSetEncoding, stderr, stdin, stdout, utf8)
 import System.IO.Temp (createTempDirectory, withSystemTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Process
@@ -2507,7 +2507,9 @@ opts =
 -- Main
 
 main :: IO ()
-main =
+main = do
+  hSetEncoding stdout utf8
+  hSetEncoding stderr utf8
   execParser opts >>= \(mctx, cmd0) -> case cmd0 of
     Version versionOpts -> runVersion versionOpts
     PlatformRoot asJson -> runPlatformRoot mctx asJson

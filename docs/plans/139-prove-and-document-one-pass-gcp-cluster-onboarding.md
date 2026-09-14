@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-14T19:28:34Z
       mode: "implement"
       note: "Audited live evidence, release identity, TLS readiness, cleanup, and installed-workspace documentation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T23:19:22Z
+      mode: "implement"
+      note: "Made v0.3.0 CLI output deterministic under the Linux release locale"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -77,6 +82,12 @@ implementation. Provide concise evidence.
 - Nix flake source filtering omits a new untracked rehearsal script. Staging that file before the
   first packaged build made the source closure accurate; subsequent packaged and root checks pass.
 
+- The Linux release builder has an ASCII default text encoding, while several public CLI
+  diagnostics intentionally contain Unicode punctuation. The v0.3.0 candidate passed all 552
+  Haskell tests and reached the final GCP rehearsal before `nagarectl init --dry-run` failed while
+  encoding its em dash. Explicit UTF-8 stdout/stderr encodings make the packaged interface stable
+  independently of the caller's locale.
+
 
 ## Decision Log
 
@@ -110,6 +121,11 @@ Record every decision made while working on the plan.
   interactive authorization was supplied, and hermetic evidence cannot substitute for that run.
   Date: 2026-09-14.
 
+- Decision: Set UTF-8 explicitly on both public Haskell executables' stdout and stderr handles.
+  Rationale: Nagare owns Unicode diagnostics and JSON text, so their encodability must not depend on
+  whether a pure builder or minimal operator environment happens to export a UTF-8 locale.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
@@ -124,6 +140,9 @@ passes the happy path with exactly two reviewed applies and one bootstrap invoca
 refusals for foreign project/ADC identity, stale plan, foreign builder, non-Ready VM, missing age
 key, wrong kubeconfig node, absent webhooks, and leaked certificate scope. The native
 `gcp-bootstrap-rehearsal` and `shellcheck-scripts` checks pass.
+
+The v0.3.0 release audit made that hermetic evidence portable across native systems: both Haskell
+executables now select UTF-8 output before option parsing, including help and dry-run diagnostics.
 
 The canonical onboarding guide now identifies release, project, context/stack, builder, and cluster
 targets; its boot-disk guidance agrees with packaged help and focused references. IR-11 is completed.
@@ -335,3 +354,7 @@ mode additionally depends on the installed operator toolchain, gcloud/ADC, Pulum
 remote builder, k3s/kubectl, DNS, cert-manager, Knative, and an explicitly delegated domain. It must
 consume, not reimplement, interfaces from ExecPlans 132–138. All five MasterPlan children are hard
 dependencies; ExecPlans 132 and 133 are external completion prerequisites.
+
+
+Revision note (2026-09-14): Hardened v0.3.0's hermetic GCP rehearsal after Linux CI demonstrated
+that public Unicode diagnostics must not inherit a pure builder's ASCII encoding.
