@@ -1,4 +1,12 @@
-{ pkgs, sourceRoot, isNixWiring, releaseVersion, sourceRevision ? null }:
+{
+  pkgs,
+  sourceRoot,
+  isNixWiring,
+  releaseVersion,
+  netCertManagerImage,
+  netCertManagerImageReference,
+  sourceRevision ? null,
+}:
 
 let
   clusterSecretsRoot = toString (sourceRoot + /cluster/secrets);
@@ -20,6 +28,7 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
 {
   inherit src;
   nativeBuildInputs = [ pkgs.jq ];
+  inherit netCertManagerImage;
   revision = if sourceRevision == null then "" else sourceRevision;
 } ''
   payload="$out/share/nagare"
@@ -42,6 +51,11 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
   cp -R "$src/cli/nagare-access" "$payload/cli/nagare-access"
   cp -R "$src/infra/pulumi" "$payload/infra/pulumi"
   cp -R "$src/cluster" "$payload/cluster"
+  chmod u+w "$payload/cluster/bootstrap/net-certmanager"
+  cp "$netCertManagerImage" \
+    "$payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
+  test "$(tr -d '[:space:]' < "$payload/cluster/bootstrap/net-certmanager/image-reference")" = \
+    '${netCertManagerImageReference}'
   cp -R "$src/scripts" "$payload/scripts"
   cp -R "$src/nixos" "$payload/nixos"
   cp -R "$src/docs/user" "$payload/docs/user"

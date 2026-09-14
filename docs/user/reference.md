@@ -188,7 +188,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just host-image [--dry-run] [--allow-shared-builder PROJECT]` | Build + upload + register the NixOS GCE image with an explicit context-owned builder (`scripts/upload-images.sh`) | MP-22 EP-136 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
 | `just host-switch` | Apply the active context's generated NixOS configuration | MP-20 EP-107 |
-| `just cluster-bootstrap` | Guard the selected cluster, then apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ / MP-22 EP-134 |
+| `just cluster-bootstrap` | Guard the selected cluster; apply cert-manager, Knative, Kourier, and config-domain; import the payload's patched latest net-certmanager controller; verify certificate policy | EP-4 ✅ / MP-22 EP-134, EP-138 |
 | `just cluster-enable-tls` | Guard the selected cluster, then enable Knative external-domain TLS after DNS delegation | EP-4 / MP-22 EP-134 |
 | `just job-runs-bootstrap` | Guard the selected cluster, then apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ / MP-22 EP-134 |
 | `just job-runs-status` | Show bounded-run quota use, admitted Pods, and `FailedCreate` backpressure events | MP-18 EP-95 ✅ |
@@ -498,6 +498,7 @@ See [CDN (edge caching)](cdn.md).
 | --- | --- |
 | `nagarectl server status [--skip-vm]` | Print one-screen VM, disk, Kubernetes, ingress, observability, app, database, and backup inventory. `--skip-vm` avoids the IAP/SSH disk probe. |
 | `nagarectl doctor [--skip-vm]` | Run platform health checks with remediation hints; exits 1 if any check is `FAIL`. |
+| `nagarectl cluster certificate-policy` | Fail if a public ACME certificate contains an internal name or a public wildcard belongs to an unlabeled namespace. |
 | `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN]` | Compare the base domain and app DomainMappings with DNS and certificate state. |
 | `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`. |
 
@@ -535,7 +536,9 @@ Public  (optional):    <your-host>                      e.g. notes.example.com  
 ```
 
 Wildcard `*.<baseDomain>` `A` record → static IP, created by Pulumi. Wildcard
-TLS via cert-manager DNS-01 (HTTP-01 can't issue wildcards).
+TLS via cert-manager DNS-01 (HTTP-01 can't issue wildcards). Only namespaces
+labeled `nagare.dev/app-namespace=true` are eligible; internal and cluster-local
+certificates remain on `knative-selfsigned-issuer`.
 
 Local mode uses `*.127-0-0-1.sslip.io` over HTTP by default.
 

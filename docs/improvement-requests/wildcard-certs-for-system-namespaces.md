@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Scope namespace wildcard certificates to app namespaces instead of every namespace
 description: cluster-enable-tls sets namespace-wildcard-cert-selector to {}, so Knative requests a public Let's Encrypt wildcard for kube-system, kube-node-lease, cert-manager and every other namespace, spending the registered domain's weekly certificate limit on names that never serve traffic.
-timestamp: "2026-09-14T04:26:09Z"
+timestamp: "2026-09-14T17:49:14Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:50:00Z"
 requestId: IR-23
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T17:49:14Z"
+resolution: "ExecPlan 138 replaces the all-namespace wildcard selector with the opt-in nagare.dev/app-namespace=true label, labels personal during bootstrap, and reconciles the label across every Nagare application workload path while refusing fixed platform namespaces. Parsed diagnostics reject internal ACME names, public wildcards in unlabeled namespaces, and public wildcards on the wrong issuer. A fresh disposable cluster issued the personal wildcard only through letsencrypt-dns and none for unlabeled namespaces; all 520 Haskell tests, strict bundle validation, and the full native flake gate passed. The operator guides document rate-budget and Certificate Transparency consequences plus reviewed stale-object cleanup, and ADR 10 records the label as a security boundary."
 targetPlan: docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
 origin: mori://shinzui/nagare
 reviews:
@@ -36,7 +38,7 @@ verified:
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for implementation by
+**Status:** completed by
 [ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
 **Created:** 2026-09-14.
 

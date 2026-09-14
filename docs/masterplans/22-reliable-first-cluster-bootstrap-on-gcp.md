@@ -116,7 +116,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | In Progress |
-| EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | In Progress |
+| EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Complete |
 | EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -183,9 +183,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: isolated blank-disk and Ready-node behavior is proven; compose it with external
   ExecPlan 133's post-boot age-key handoff before completing the child.
-- [ ] EP-5 (In Progress): namespace selection and fail-closed diagnostics are implemented, but the
-  latest released net-certmanager aliases its three issuer references; completion needs a decision
-  on shipping a patched controller or changing the controller boundary.
+- [x] (2026-09-14T17:49:14Z) EP-5: confine public wildcards to app namespaces, preserve self-signed
+  internal roles, and ship the latest archived controller with a payload-owned source patch.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
 - [ ] External: complete ExecPlans 132 and 133 before EP-6's live cloud acceptance.
 
@@ -236,6 +235,16 @@ interactions between child plans. Provide concise evidence.
   object, so parsing the final internal setting overwrites the public issuer too. Upstream `main`
   retains the defect; configuration alone cannot deliver the required split.
 
+- EP-5 found that the final upstream release is v1.14.0, source tag v0.41.0 at
+  `dcff3644e7037215a084af52905fb0e9e78bab52`, and the archived repository's `main` still has the
+  defect. One upstream test also depended on the shared mutation by writing the wrong role key.
+  Nagare's patch corrects both and passes natively on Linux.
+
+- EP-5's immutable delivery proof exposed one container boundary before passing: a scratch image
+  must declare a numeric non-root user to satisfy the unchanged upstream Deployment security
+  context. With UID/GID 65532 declared, the exact bundled Linux/amd64 archive rolled out on a fresh
+  arm64 k3d cluster and produced the intended three-role certificate inventory.
+
 
 ## Decision Log
 
@@ -271,6 +280,13 @@ plan.
   Rationale: EP-5 has no hard dependency on EP-4 and produces independently verifiable TLS policy.
   Keeping EP-4 In Progress preserves its remaining composed acceptance without blocking unrelated
   MasterPlan work or changing ExecPlan 133's ownership.
+  Date: 2026-09-14.
+
+- Decision: Carry the exact net-certmanager correction as a repository patch and embed its
+  reproducible image archive in every immutable platform payload.
+  Rationale: the user selected the in-repository patch; upstream is archived at its latest release
+  and retains the defect. Direct import into the selected k3s store avoids a separately hosted fork
+  and mutable registry dependency while remaining inside ADR 7's tagged release closure.
   Date: 2026-09-14.
 
 
@@ -312,13 +328,16 @@ different intention, so its composed host-sequence milestone cannot yet run. EP-
 because it has no hard dependency on EP-4 and can deliver independently verifiable TLS policy while
 that external work remains outstanding.
 
-EP-5 has implemented the opt-in app-namespace boundary, reconciled that label across Nagare workload
-creation, and added a fail-closed parsed certificate-policy probe. Its hermetic checks and focused
-tests pass. The required live issuer split is blocked by a defect in the latest released and current
-upstream net-certmanager parser: explicit internal settings force the public wildcard onto the
-self-signed issuer. Completing EP-5 therefore needs an explicit decision to add immutable patched
-controller distribution or to replace that integration boundary; final docs, ADR, and IR closure
-remain deferred until the runtime proof passes.
+EP-5 is complete. The opt-in app-namespace boundary is reconciled across all Nagare workload paths,
+internal roles explicitly remain self-signed, and the parsed diagnostic fails closed before a
+bootstrap stamp. Nagare carries a focused patch over the exact latest/final net-certmanager v1.14.0
+source, builds a non-root Linux/amd64 controller with Nix, embeds it in every immutable platform
+payload, and imports it directly into the selected k3s store. A fresh disposable cluster proved the
+exact archive: both internal fixtures used `knative-selfsigned-issuer`, the labeled app wildcard
+used `letsencrypt-dns`, no unlabeled namespace received a public wildcard, and the deterministic
+fixture produced zero ACME Orders. IR-22 and IR-23 are complete; ADR 10 records the durable security
+and patch-lifecycle boundaries. All 520 Haskell tests, strict documentation/IR validation, the
+native Linux upstream regression, and all 29 buildable native flake checks pass.
 
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
@@ -353,3 +372,8 @@ Revision note (2026-09-14): EP-5's disposable-cluster proof found an upstream sh
 that collapses all issuer roles to the last configured value. Kept the child In Progress and made
 its diagnostic reject the resulting self-signed public wildcard pending a controller-delivery
 scope decision.
+
+Revision note (2026-09-14): Completed EP-5 and closed IR-22/IR-23 with a repository-owned patch over
+the exact final upstream release, immutable payload-bundled controller delivery, native regression
+coverage, and a passing fresh-cluster proof. EP-4 still waits for external ExecPlan 133, so EP-6's
+hard dependencies are not yet satisfied.

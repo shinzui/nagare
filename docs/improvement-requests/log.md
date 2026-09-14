@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Complete IR-22 and IR-23: keep internal Knative certificates on the self-signed issuer, scope public wildcards to labeled app namespaces, and ship a reproducibly patched latest net-certmanager controller inside the immutable platform payload.
 * **Update**: Complete IR-19. The formatter is ordered before the generated fsck unit, a recovered mount pulls layout and k3s back in without weakening their hard dependencies, five independent blank-disk VMs reach one Ready node under the original boot ID, and the online-growth regression remains green.
 * **Update**: Move IR-19 to in-progress to match MasterPlan 22 and ExecPlan 137 implementation coordination; completion remains pending first-boot acceptance evidence.
 * **Update**: Audit all 23 requests against project scope, linked plans, implementation evidence, and lifecycle state; record approving content-and-metadata review provenance and OKF verification for each current revision.

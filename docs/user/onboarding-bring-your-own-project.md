@@ -293,6 +293,15 @@ registers a Let's Encrypt account under an address you did not choose. Set it
 with `nagarectl context create <name> --force --acme-email you@yourdomain.com`
 and re-run.
 
+Bootstrap imports Nagare's patched build of the latest archived
+net-certmanager v1.14.0 controller from the immutable platform payload. Public
+wildcards are opt-in: `personal` and namespaces reconciled by application
+deployment carry `nagare.dev/app-namespace=true`; Kubernetes and platform
+namespaces do not. Before switching a new domain to production ACME, run
+`nagarectl cluster certificate-policy` and keep staging selected until it exits
+zero. This avoids spending the registered-domain rate budget or exposing
+control-plane namespace names in Certificate Transparency.
+
 See [cluster bootstrap](cluster-bootstrap.md) and [observability](observability.md).
 The HTTPS smoke test (a hello service answering over a valid Let's Encrypt cert
 under your wildcard) depends on Step 6's DNS delegation having propagated.

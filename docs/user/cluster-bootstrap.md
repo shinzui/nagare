@@ -30,7 +30,7 @@ wired together so apps get automatic wildcard HTTPS URLs.
 | **Knative Serving** | The serverless app runtime (Revisions, scale-to-zero, traffic routing). ~v1.22. |
 | **Kourier** (`net-kourier`) | Knative's lightweight Envoy-based ingress gateway. |
 | **`config-domain` / `config-network`** | ConfigMaps wiring the base domain, the Kourier ingress class, and `external-domain-tls`. |
-| **`net-certmanager`** | The bridge that lets Knative request certs from cert-manager. |
+| **`net-certmanager`** | The latest v1.14 bridge, with Nagare's issuer-isolation patch, that lets Knative request certs from cert-manager. |
 
 On a single k3s node, Kourier's gateway `Service` is `type: LoadBalancer`, and
 k3s's built-in **ServiceLB** binds host ports `80`/`443` directly to it — which
@@ -80,6 +80,7 @@ cluster/bootstrap/knative-serving/config-network.yaml
 config-domain from `pulumi stack output baseDomain`
 net-certmanager
 wait up to 5m for the net-certmanager webhook
+import the payload's patched controller image directly into k3s and wait for its rollout
 cluster/bootstrap/knative-serving/config-certmanager.yaml
 cluster/bootstrap/knative-serving/config-features.yaml
 cluster/bootstrap/knative-serving/config-deployment.yaml
@@ -90,6 +91,9 @@ deadlines, so an unhealthy installation stops before the platform is stamped com
 idempotent Knative ConfigMap merge patch is also attempted at most five times with two seconds
 between attempts. This absorbs the brief gap between a successful Deployment rollout and its
 Service publishing an endpoint while still failing promptly when a patch is genuinely invalid.
+The controller archive is part of the immutable release payload: cloud bootstrap copies it through
+the selected context's project-confined IAP transport and imports it with k3s; local bootstrap uses
+`k3d image import`. Bootstrap never pulls a Nagare fork or a mutable patch tag from a registry.
 
 For laptop development, use:
 
@@ -122,6 +126,19 @@ static IP. For **wildcard TLS**, Nagare uses cert-manager with a Let's Encrypt
 uses a **Google Cloud DNS** solver authorized by the VM's `roles/dns.admin`
 zone grant and project-level `roles/dns.reader`, and the wildcard is wired into
 Knative via `net-certmanager` with `external-domain-tls: Enabled`.
+
+Public wildcard eligibility is opt-in. A namespace must carry
+`nagare.dev/app-namespace=true`; bootstrap labels `personal`, and Nagare's app,
+worker, database, broker, task, and static-site deployment paths reconcile the
+same label before creating namespaced resources. Control-plane and observability
+namespaces are refused by that reconciler. The public `letsencrypt-dns` issuer
+handles only external-domain certificates; cluster-local and system-internal
+certificates explicitly use `knative-selfsigned-issuer`.
+
+This boundary matters beyond readiness. Each unnecessary production wildcard
+spends the registered domain's issuance budget, and every publicly trusted
+certificate can expose its DNS names through Certificate Transparency. Do not
+label a namespace merely to make a certificate appear.
 
 > This is a deliberate override of the spec's "start with host-level Caddy"
 > suggestion: Nagare chose the Kubernetes-native cert-manager + Kourier path.
@@ -199,6 +216,24 @@ The bootstrap is done when:
 - That URL serves over **HTTPS** with a valid Let's Encrypt certificate.
 - A second app at a different name resolves under the same wildcard without any
   per-app DNS work.
+- `nagarectl cluster certificate-policy` exits zero: public wildcards exist only
+  in labeled app namespaces, and no public ACME certificate contains a short,
+  `.svc`, or `.svc.cluster.local` name. `nagarectl doctor` reports the same probe.
+
+If a cluster previously used the broad selector, inventory stale objects before
+deleting anything:
+
+```bash
+kubectl get certificate,certificaterequest,order -A \
+  -o custom-columns='KIND:.kind,NAMESPACE:.metadata.namespace,NAME:.metadata.name,ISSUER:.spec.issuerRef.name'
+kubectl get secret -A -l networking.knative.dev/certificate-type
+```
+
+Review owners and exact names, then delete only the obsolete Certificate,
+CertificateRequest, Order, and matching Secret. Selector convergence does not
+guarantee deletion of already-issued resources. Keep the context on Let's
+Encrypt staging until the inventory and `certificate-policy` check are clean;
+Nagare deliberately does not automate bulk certificate deletion.
 
 ## Next
 
