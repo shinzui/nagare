@@ -72,6 +72,7 @@
         host-age-key-delivery = import ./tests/host-age-key-delivery.nix {
           inherit nagareHostModule;
           pkgs = nixpkgs.legacyPackages.${system};
+          dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";
         };
 
         # ExecPlan 115: the in-repo fixture refuses activation by any tool, an
