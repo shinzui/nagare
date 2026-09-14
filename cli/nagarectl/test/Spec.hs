@@ -35,6 +35,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
+import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import Nagare.App
   ( AppSummary (..)
@@ -437,6 +438,7 @@ main = do
         , contextGuardTests
         , adcTests
         , clusterGuardTests
+        , domainBindingTests
         , accessGrantsTests
         , accessResolveTests
         , appDeployTests

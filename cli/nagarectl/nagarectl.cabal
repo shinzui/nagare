@@ -71,6 +71,7 @@ library
     Nagare.Database.Shell
     Nagare.Deploy
     Nagare.Deploy.Resolve
+    Nagare.Domain.Binding
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated
@@ -200,6 +201,7 @@ test-suite nagarectl-test
     AccessGrantsSpec
     AccessResolveSpec
     AppDeploySpec
+    DomainBindingSpec
     HostSpec
     PlatformCutoverSpec
     PlatformSpec

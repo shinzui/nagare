@@ -20,6 +20,7 @@ import Data.Generics.Labels ()
 import Data.Text (Text)
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
+import Nagare.Domain.Binding (BindingTarget (..), preflightDomainBindings, waitForDomainBindings)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
   ( ServerDeployContext (..)
@@ -92,18 +93,27 @@ deployServerProduction inputs src = do
           configureDockerAuthFor (inputs ^. #targetProfile)
           withServerImageContext s out (buildImage ref)
           pushImage ref
-          applyManifests (m ^. #service : m ^. #domainMappings)
-          waitForReady (m ^. #serviceName) ns
-            >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
-          recorded <-
-            recordReleaseFor
-              (imageRefText (s ^. #image))
-              (inputs ^. #imageTag)
-              (m ^. #url)
-              (m ^. #serviceName)
-              ns
-              src
-          pure (m ^. #url <$ recorded)
+          let targets = bindingTargets s (m ^. #serviceName) ns
+          checked <- preflightDomainBindings targets
+          case checked of
+            Left err -> pure (Left err)
+            Right () -> do
+              applyManifests (m ^. #service : m ^. #domainMappings)
+              waitForReady (m ^. #serviceName) ns
+                >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
+              domainsReady <- waitForDomainBindings 300 targets
+              case domainsReady of
+                Left err -> pure (Left err)
+                Right () -> do
+                  recorded <-
+                    recordReleaseFor
+                      (imageRefText (s ^. #image))
+                      (inputs ^. #imageTag)
+                      (m ^. #url)
+                      (m ^. #serviceName)
+                      ns
+                      src
+                  pure (m ^. #url <$ recorded)
 
 -- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
@@ -118,3 +128,13 @@ serverUrl s baseDomain =
         <> namespaceText (s ^. #namespace)
         <> "."
         <> baseDomain
+
+bindingTargets :: ServerSite -> Text -> Text -> [BindingTarget]
+bindingTargets site serviceName namespace =
+  [ BindingTarget
+      { host = domainText (domainSpec ^. #domain)
+      , namespace = namespace
+      , service = serviceName
+      }
+  | domainSpec <- site ^. #domains
+  ]
