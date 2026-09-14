@@ -33,8 +33,9 @@ With `external-domain-tls` disabled it creates no certificates, so any latent
 skew is inert until TLS is enabled.
 
 It is configured by the `config-certmanager` ConfigMap patch in
-`../knative-serving/config-certmanager.yaml` (which points `issuerRef` at the
-`letsencrypt-dns` ClusterIssuer). Bootstrap waits up to five minutes for
+`../knative-serving/config-certmanager.yaml`. External-domain certificates use the context-owned
+`letsencrypt-dns` ClusterIssuer; cluster-local and system-internal certificates explicitly use
+`knative-selfsigned-issuer`. Bootstrap waits up to five minutes for
 `deploy/net-certmanager-webhook` before applying that patch, then submits the merge patch through
 the same five-attempt, two-second retry helper used for the other Knative ConfigMaps.
 

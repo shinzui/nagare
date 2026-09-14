@@ -4,9 +4,8 @@
 # the Cloud DNS zone's nameservers (see cluster/bootstrap/cert-manager/README.md).
 #
 #   - external-domain-tls: Enabled        -> turn on automatic public-domain certs
-#   - namespace-wildcard-cert-selector {} -> one wildcard cert PER NAMESPACE
-#                                            (*.<namespace>.<baseDomain>), matching
-#                                            every namespace (empty selector).
+#   - namespace-wildcard-cert-selector -> one wildcard certificate only for a
+#     namespace explicitly labeled nagare.dev/app-namespace=true.
 #
 # This is a merge patch layered on top of config-network.yaml's ingress-class:
 #   kubectl -n knative-serving patch configmap config-network \
@@ -16,4 +15,6 @@
 # wildcards), which the letsencrypt-dns ClusterIssuer provides.
 data:
   external-domain-tls: Enabled
-  namespace-wildcard-cert-selector: "{}"
+  namespace-wildcard-cert-selector: |
+    matchLabels:
+      nagare.dev/app-namespace: "true"

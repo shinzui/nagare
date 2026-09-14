@@ -12,6 +12,7 @@
 module Nagare.Ops.Status
   ( gatherInventory
   , inventoryOptsFor
+  , probeCertificatePolicy
   )
 where
 
@@ -25,6 +26,12 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
+import Nagare.Cluster.CertificatePolicy
+  ( certificatePolicyViolations
+  , parseCertificateObservations
+  , parseLabeledNamespaces
+  , renderCertificateViolations
+  )
 import Nagare.Database.Discover (DbRow (..), listDatabases)
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe
@@ -69,6 +76,7 @@ gatherInventory tp o = do
         , probeKourierIp publicIp
         , probeBaseDomain baseDomain
         , probeTls
+        , probeCertificatePolicy
         , probeRegistryAuth tp
         , probePrivateImagePull tp
         , probeArch tp
@@ -175,16 +183,40 @@ probeBaseDomain baseDomain = do
         | otherwise -> Probe "base domain" StatusWarn (live <> " != Pulumi " <> want)
       Nothing -> Probe "base domain" StatusWarn (live <> " (Pulumi baseDomain unknown)")
 
--- | Knative @config-network-tls@'s @external-domain-tls@ setting, surfaced as
+-- | Knative @config-network@'s @external-domain-tls@ setting, surfaced as
 -- informational (the platform is HTTP-first while the base domain is the
 -- placeholder), never a failure.
 probeTls :: IO Probe
 probeTls = do
-  m <- captureTool "kubectl" ["get", "configmap", "config-network-tls", "-n", "knative-serving", "-o", "json"]
-  runMaybe "external-domain-tls" "config-network-tls not reachable" (m >>= \bs -> dataValue bs "external-domain-tls") $ \val ->
+  m <- captureTool "kubectl" ["get", "configmap", "config-network", "-n", "knative-serving", "-o", "json"]
+  runMaybe "external-domain-tls" "config-network not reachable" (m >>= \bs -> dataValue bs "external-domain-tls") $ \val ->
     if val == "Enabled"
       then Probe "external-domain-tls" StatusOk "Enabled"
       else Probe "external-domain-tls" StatusWarn (val <> " (HTTP-first until base domain is real)")
+
+-- | Fail closed when a cert-manager Certificate routes an internal name to the
+-- public ACME issuer, or when a public wildcard appears outside an opted-in app
+-- namespace. Transport and parse failures remain UNKNOWN so doctor does not
+-- claim a policy violation without evidence.
+probeCertificatePolicy :: IO Probe
+probeCertificatePolicy = do
+  certificates <- captureTool "kubectl" ["get", "certificates", "-A", "-o", "json"]
+  namespaces <-
+    captureTool
+      "kubectl"
+      [ "get"
+      , "namespaces"
+      , "-l"
+      , "nagare.dev/app-namespace=true"
+      , "-o"
+      , "json"
+      ]
+  pure $ case (certificates >>= parseCertificateObservations, namespaces >>= parseLabeledNamespaces) of
+    (Just observations, Just labeled) ->
+      case certificatePolicyViolations labeled observations of
+        [] -> Probe "certificate policy" StatusOk "public ACME names are confined to labeled app namespaces"
+        violations -> Probe "certificate policy" StatusFail (renderCertificateViolations violations)
+    _ -> Probe "certificate policy" StatusUnknown "certificate or namespace inventory not reachable"
 
 -- | Artifact Registry push auth via @gcloud artifacts repositories describe@,
 -- against the resolved profile's registry id and region (EP-62).

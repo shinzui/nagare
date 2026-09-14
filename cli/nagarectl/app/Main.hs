@@ -91,6 +91,7 @@ import Nagare.Cluster.Kubeconfig
   , fetchKubeconfig
   , kubeconfigPath
   )
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
@@ -240,10 +241,10 @@ import Nagare.Ops.Domains
   , listNamespaces
   , queryDomainRows
   )
-import Nagare.Ops.Probe (InventoryOpts (..), captureTool, renderInventory)
+import Nagare.Ops.Probe (InventoryOpts (..), Probe (..), ProbeStatus (..), captureTool, renderInventory)
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Ops.PulumiBackend (bootstrapPulumiStateBucket)
-import Nagare.Ops.Status (gatherInventory, inventoryOptsFor)
+import Nagare.Ops.Status (gatherInventory, inventoryOptsFor, probeCertificatePolicy)
 import Nagare.Platform.Deployment
   ( DeploymentState (..)
   , defaultDeploymentOps
@@ -637,6 +638,7 @@ data KubeconfigFetchOpts = KubeconfigFetchOpts
 
 data ClusterCommand
   = ClusterGuard ClusterGuardOpts
+  | ClusterCertificatePolicy
   deriving stock (Generic, Show)
 
 data ClusterGuardOpts = ClusterGuardOpts
@@ -1829,6 +1831,12 @@ opts =
                 )
                 (progDesc "Refuse unless the active kube context has the selected context's sole server node")
             )
+            <> command
+              "certificate-policy"
+              ( info
+                  (pure ClusterCertificatePolicy <**> helper)
+                  (progDesc "Refuse when public ACME certificates contain internal names or unlabeled wildcards")
+              )
         )
     doctorCmd =
       info
@@ -3132,6 +3140,12 @@ runCluster globalContext = \case
             if options ^. #json
               then LBC.putStrLn (Aeson.encode (Aeson.object ["guarded" Aeson..= True, "observations" Aeson..= evidence]))
               else TIO.putStrLn (renderClusterGuard inputs)
+  ClusterCertificatePolicy -> do
+    probe <- probeCertificatePolicy
+    TIO.putStr (renderInventory [probe])
+    case probe ^. #status of
+      StatusOk -> pure ()
+      _ -> exitFailure
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext = ensurePulumiForContextWithInstallNotice True
@@ -4398,6 +4412,13 @@ runCleanup mctx o = do
   report <- executeCleanup (workspace ^. #scriptsDir </> "iap-ssh.sh") (active ^. #profile . #instanceName) o
   TIO.putStr (formatCleanupReport report)
 
+-- | Print the exact convergent Namespace action used by live workload deploys.
+printNamespaceAction :: Text -> IO ()
+printNamespaceAction namespace = do
+  manifest <- orDie (renderNamespace ApplicationNamespace namespace)
+  BC.putStrLn "--- Namespace manifest ---"
+  BC.putStrLn manifest
+
 runDeploy :: Maybe String -> DeployOpts -> IO ()
 runDeploy mctx dopts = do
   bd <- resolveBaseDomain mctx (dopts ^. #baseDomain)
@@ -4472,6 +4493,7 @@ runDeploy mctx dopts = do
 
   if dopts ^. #dryRun
     then do
+      printNamespaceAction ns
       -- EP-35: PVCs are created before the Service, so they print first in dry-run.
       forM_ pvcBytes $ \pvc -> do
         BC.putStrLn "--- PersistentVolumeClaim manifest ---"
@@ -4488,6 +4510,7 @@ runDeploy mctx dopts = do
       TIO.putStrLn ("URL: " <> url)
       cdnDeployStep mctx True (dep' ^. #cdn) [domainText (ds ^. #domain) | ds <- dep' ^. #domains] ns name
     else do
+      ensureNamespace ApplicationNamespace ns >>= orDie
       if requiresBuild spec
         then do
           -- EP-27: gather the app's Build-scoped env (inline {Build} + the managed
@@ -4572,6 +4595,7 @@ deployStatic mctx tp sopts site bd = do
       cdnSvc = siteNameText (site ^. #name)
   if sopts ^. #dryRun
     then do
+      printNamespaceAction cdnNs
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       TIO.putStrLn ("Release: " <> imageTag)
       cdnDeployStep mctx True (site ^. #cdn) cdnHosts cdnNs cdnSvc
@@ -4612,6 +4636,7 @@ deployServer mctx tp sopts site0 bd = do
       m = serverManifests inputs
   if sopts ^. #dryRun
     then do
+      printNamespaceAction (namespaceText (site ^. #namespace))
       BC.putStrLn "--- Generated Dockerfile ---"
       TIO.putStr (m ^. #dockerfile)
       BC.putStrLn "--- Knative Service manifest ---"
@@ -4703,6 +4728,7 @@ runSiteRollback mctx copts rid = do
         Nothing -> dieT ("no such release: " <> rid)
         Just rel -> do
           let (svc, dms) = rollbackManifests tp sc bd (rel ^. #imageTag)
+          ensureNamespace ApplicationNamespace ns >>= orDie
           applyManifests (svc : dms)
           waitForReady name ns >>= requireWait ("service '" <> name <> "'")
           writeReleaseLog name ns (logv & #current .~ Just (rel ^. #releaseId))
@@ -4748,6 +4774,7 @@ runPreviewDeploy mctx sopts pname = do
 
   if sopts ^. #dryRun
     then do
+      printNamespaceAction (namespaceText (site ^. #namespace))
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
       TIO.putStrLn ("Preview service: " <> (m ^. #serviceName))
     else do

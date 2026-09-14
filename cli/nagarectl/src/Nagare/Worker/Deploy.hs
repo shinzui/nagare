@@ -22,6 +22,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Build (addBuildArgs, applyBuildOverrides, describeBuild, performBuild)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Deploy (applyManifests, applyPVCs, requireWait, waitForWorkerRollout)
 import Nagare.Deploy.Resolve (resolveBrokerEnv)
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
@@ -84,6 +85,10 @@ runWorkerDeploy params = do
 
   if params ^. #dryRun
     then do
+      namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
+      TIO.putStrLn "--- Namespace manifest ---"
+      TIO.putStr (TE.decodeUtf8 namespaceManifest)
+      TIO.putStrLn ""
       forM_ pvcBytes $ \pvc -> do
         TIO.putStrLn "--- PersistentVolumeClaim manifest ---"
         TIO.putStr (TE.decodeUtf8 pvc)
@@ -100,6 +105,7 @@ runWorkerDeploy params = do
             <> " replicas)"
         )
     else do
+      ensureNamespace ApplicationNamespace ns >>= orDie
       if requiresBuild spec
         then buildAndPush tp worker' name ns spec ref
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."

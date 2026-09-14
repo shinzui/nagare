@@ -90,6 +90,19 @@
       touch "$out"
     '';
 
+  # EP-138 / IR-22 / IR-23: public ACME issuance is external-domain-only and
+  # wildcard certificates are limited to explicitly opted-in app namespaces.
+  cluster-certificate-policy = pkgs.runCommand "nagare-cluster-certificate-policy-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.gawk pkgs.gnugrep pkgs.just pkgs.yq-go ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-cluster-certificate-policy.sh
+      touch "$out"
+    '';
+
   # EP-112: no personal address and no specific project id may reappear as
   # a default under cluster/bootstrap/, and the two Let's Encrypt directory
   # URLs — which are deliberately duplicated between the shell resolver and

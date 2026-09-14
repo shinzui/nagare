@@ -92,14 +92,25 @@ renderTests =
         Right app -> do
           objects <- unwrapRender (renderAppObjects testEnv app)
           map fst objects
-            @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
-  , testCase "every rendered object carries the shared nagare.dev/app label" $ do
+            @?= ["namespace", "hook", "database", "database", "database", "service", "worker", "worker", "worker"]
+  , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
           objects <- unwrapRender (renderAppObjects testEnv app)
-          forM_ objects $ \(ph, bs) ->
+          case objects of
+            (("namespace", manifest) : _) -> do
+              assertBool "is a Namespace" (BS.isInfixOf "\"kind\":\"Namespace\"" manifest)
+              assertBool "opts into wildcard TLS" (BS.isInfixOf "\"nagare.dev/app-namespace\":\"true\"" manifest)
+            _ -> assertFailure "namespace action was not first"
+  , testCase "every rendered workload object carries the shared nagare.dev/app label" $ do
+      result <- loadApplication fixturePath
+      case result of
+        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
+        Right app -> do
+          objects <- unwrapRender (renderAppObjects testEnv app)
+          forM_ (filter ((/= "namespace") . fst) objects) $ \(ph, bs) ->
             assertBool
               ("object in phase '" <> T.unpack ph <> "' is missing nagare.dev/app: kizashi")
               (BS.isInfixOf "nagare.dev/app: kizashi" bs)
@@ -165,14 +176,14 @@ planTests =
           plan ^. #app @?= "kizashi"
           plan ^. #image @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
           map (^. #phase) (plan ^. #objects)
-            @?= ["hook", "database", "database", "database", "service", "worker", "worker", "worker"]
+            @?= ["namespace", "hook", "database", "database", "database", "service", "worker", "worker", "worker"]
   , testCase "every plan object's labels carry nagare.dev/app = the app" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
           plan <- unwrapRender (renderPlan testEnv app)
-          forM_ (plan ^. #objects) $ \o ->
+          forM_ (filter ((/= "namespace") . (^. #phase)) (plan ^. #objects)) $ \o ->
             Map.lookup "nagare.dev/app" (o ^. #labels) @?= Just "kizashi"
   , testCase "the plan encodes to a single parseable JSON document" $ do
       result <- loadApplication fixturePath

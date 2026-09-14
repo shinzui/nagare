@@ -24,6 +24,7 @@ import Data.Map qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Database.Secret
 import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
@@ -139,6 +140,10 @@ runDbCreate eng nameT params = do
   let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
   if params ^. #dryRun
     then do
+      namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
+      TIO.putStrLn "--- Namespace manifest ---"
+      TIO.putStr (TE.decodeUtf8 namespaceManifest)
+      TIO.putStrLn ""
       pw <- generatePassword
       let kvs = secretKeysFor engine' (mkParts pw)
           secret = renderDbSecret (DbSecretInputs name ns engine' kvs)
@@ -153,6 +158,7 @@ runDbCreate eng nameT params = do
       TIO.putStrLn
         ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
     else do
+      ensureNamespace ApplicationNamespace ns >>= orDie
       pw <- readOrGeneratePassword ns name engine'
       let kvs = secretKeysFor engine' (mkParts pw)
           secret = renderDbSecret (DbSecretInputs name ns engine' kvs)

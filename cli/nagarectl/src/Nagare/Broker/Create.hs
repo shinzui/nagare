@@ -15,6 +15,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Broker.Topic (reconcileBrokerTopics, renderTopicPlan)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForRollout)
 import Nagare.Dsl.Broker
 import Nagare.Dsl.Broker.Render (brokerBootstrapServers, brokerStatefulSetName, renderBroker)
@@ -99,12 +100,17 @@ runBrokerCreate provider nameT params = do
       bootstrap = brokerBootstrapServers broker
   if params ^. #dryRun
     then do
+      namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
+      TIO.putStrLn "--- Namespace manifest ---"
+      TIO.putStr (TE.decodeUtf8 namespaceManifest)
+      TIO.putStrLn ""
       mapM_ printManifest manifests
       TIO.putStr (renderTopicPlan broker)
       TIO.putStrLn ("Would create broker " <> name <> " (" <> brokerProviderToken (broker ^. #provider) <> ")")
       TIO.putStrLn ("Bootstrap servers: " <> bootstrap)
       TIO.putStrLn "No cluster changes were applied."
     else do
+      ensureNamespace ApplicationNamespace ns >>= orDie
       applyManifests manifests
       stampMetadata ns name broker
       waitForRollout ns (brokerStatefulSetName name)
