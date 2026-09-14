@@ -52,8 +52,9 @@ the expected ConfigMap values are present, and no second invocation is needed.
   `nagare-webhook-readiness-49505`: the first bootstrap exited 0, the webhook rolled out with an
   endpoint, all four local ConfigMaps held the expected values, the original error was absent, the
   second idempotence run exited 0, and the trap deleted the cluster.
-- [ ] Update bootstrap documentation, the changelog, IR-21, and the improvement-request bundle log;
-  run the focused checks and the repository gate.
+- [x] (2026-09-14 04:35Z) Updated bootstrap documentation, the changelog, IR-21, and the
+  improvement-request bundle log; the direct test, focused Nix checks, 23-concept OKF validation,
+  and all 23 native flake checks passed, including 486 `nagarectl` tests.
 
 
 ## Surprises & Discoveries
@@ -118,10 +119,36 @@ the expected ConfigMap values are present, and no second invocation is needed.
   a new architectural boundary. No cross-repository ADR is needed.
   Date: 2026-09-14.
 
+- Decision: Complete the plan without amending ADR 6 or creating another ADR after the final
+  distillation pass.
+  Rationale: implementation preserved ADR 6 exactly: every new failure gate remains before
+  `nagarectl platform stamp`, while the retry counts, delays, and rollout deadlines are narrow
+  operational tuning documented in the recipes, helper, tests, and runbooks. No durable interface
+  ownership or architectural boundary changed.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Cloud and local bootstrap now wait up to five minutes for the validating webhooks that guard their
+next ConfigMap changes. Cloud bootstrap additionally gates `config-certmanager` on the
+net-certmanager webhook. All convergent Knative ConfigMap merge patches use one bounded helper with
+five attempts and two-second delays, while the already-best-effort JSON key removal remains direct.
+The final platform stamp is still later than every gate and patch.
+
+The hermetic regression test proved success after two transient failures, exact exhaustion after
+three permanent failures with the final kubectl status preserved, and the complete cloud/local
+dry-run ordering. A new k3d cluster then proved the user-visible result: the first
+`just local-bootstrap` exited 0, the webhook rolled out with endpoint `10.42.0.11`, the four expected
+ConfigMaps contained their desired values, the original no-endpoints error was absent, and an
+idempotence rerun also exited 0. The test cluster was deleted by its trap.
+
+Documentation and `CHANGELOG.md` describe the actual waits and retries, and IR-21 is completed with
+its target-plan link intact. `okf validate` accepted all 23 improvement requests. The direct and
+focused Nix checks passed, and `nix flake check --print-build-logs` passed all 23 native checks,
+including all 486 `nagarectl` tests. No cloud cluster was consumed; the plan intentionally treats
+fresh-cloud evidence as optional because local integration plus deterministic cloud ordering covers
+the regression without a billable environment.
 
 
 ## Context and Orientation
@@ -392,3 +419,8 @@ net-certmanager v1.14.0 supplies `deployment/net-certmanager-webhook` and
 registry has no Knative project, so those exact release artifacts were inspected upstream after the
 required registry lookup. kubectl's existing `rollout status ... --timeout=5m` interface supplies the
 bounded readiness wait; no new library dependency is introduced.
+
+
+Revision note (2026-09-14): Implemented all three milestones, recorded focused and disposable-cluster
+evidence, published the readiness behavior, completed IR-21, and closed the plan after the full
+native flake gate and ADR distillation pass succeeded.

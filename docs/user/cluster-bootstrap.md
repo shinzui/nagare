@@ -62,16 +62,25 @@ which (per the `justfile`) creates namespaces and applies, in order:
 
 ```bash
 cert-manager
+wait up to 5m for cert-manager-webhook
 rendered cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl
 Knative Serving CRDs and core
+wait up to 5m for the Knative Serving webhook
 Kourier
 cluster/bootstrap/knative-serving/config-network.yaml
 config-domain from `pulumi stack output baseDomain`
 net-certmanager
+wait up to 5m for the net-certmanager webhook
 cluster/bootstrap/knative-serving/config-certmanager.yaml
 cluster/bootstrap/knative-serving/config-features.yaml
 cluster/bootstrap/knative-serving/config-deployment.yaml
 ```
+
+The webhook waits happen before their dependent ConfigMap patches and have explicit five-minute
+deadlines, so an unhealthy installation stops before the platform is stamped complete. Each
+idempotent Knative ConfigMap merge patch is also attempted at most five times with two seconds
+between attempts. This absorbs the brief gap between a successful Deployment rollout and its
+Service publishing an endpoint while still failing promptly when a patch is genuinely invalid.
 
 For laptop development, use:
 
@@ -83,7 +92,9 @@ just local-bootstrap
 `local-bootstrap` installs cert-manager, Knative, Kourier, and net-certmanager,
 but intentionally does not apply the GCP DNS-01 issuer or enable external-domain
 TLS. It reads `NAGARE_BASE_DOMAIN` and `NAGARE_REGISTRY_HOST` from the active
-local context.
+local context. It uses the same bounded cert-manager and Knative Serving webhook waits and the same
+bounded ConfigMap retry behavior; the cloud-only net-certmanager webhook gate protects the
+cloud-only `config-certmanager` patch.
 
 ## DNS and TLS model
 
