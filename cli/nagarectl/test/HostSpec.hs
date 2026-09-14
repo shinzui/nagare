@@ -24,6 +24,20 @@ hostTests =
         validateSshPublicKey fixtureKey @?= Right fixtureKey
         assertBool "private key is rejected" (either (const True) (const False) (validateSshPublicKey "-----BEGIN OPENSSH PRIVATE KEY-----"))
         assertBool "unknown key type is rejected" (either (const True) (const False) (validateSshPublicKey "ssh-dss AAAAB3NzaC1kc3MAAACBAexample"))
+    , testCase "IR-14: derives distinct default host names without changing the instance name" $ do
+        prod <- mkTestContext "prod"
+        labs <- mkTestContext "labs"
+        defaultHostName prod @?= Right "prod-nagare"
+        defaultHostName labs @?= Right "labs-nagare"
+        let prodConfig = (fixtureConfig prod) {name = either (const "unreachable") id (defaultHostName prod), instanceName = "nagare-01"}
+            labsConfig = (fixtureConfig labs) {name = either (const "unreachable") id (defaultHostName labs), instanceName = "nagare-01"}
+        assertBool "host identities differ" (prodConfig ^. #name /= labsConfig ^. #name)
+        prodConfig ^. #instanceName @?= "nagare-01"
+        labsConfig ^. #instanceName @?= "nagare-01"
+    , testCase "IR-14: rejects lossy or overlong default host-name derivation" $ do
+        mapM_ assertRejected ["Prod", "prod_ops", "prod.ops", "-prod", "prod-", T.replicate 57 "a"]
+        longestValid <- mkTestContext (T.replicate 56 "a")
+        defaultHostName longestValid @?= Right (T.replicate 56 "a" <> "-nagare")
     , testCase "renders a deterministic generated flake and operator module" $ do
         context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
         let config = fixtureConfig context
@@ -95,3 +109,11 @@ fixtureConfig context =
 
 fixtureKey :: Text
 fixtureKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly operator@example"
+
+mkTestContext :: Text -> IO ContextName
+mkTestContext = either (assertFailure . T.unpack) pure . mkContextName
+
+assertRejected :: Text -> Assertion
+assertRejected raw = do
+  value <- mkTestContext raw
+  assertBool ("expected default derivation to reject " <> T.unpack raw) (either (const True) (const False) (defaultHostName value))

@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T02:03:09Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T02:53:19Z
+      mode: "implement"
+      note: "Implemented and validated Milestone 1 host-name derivation"
 ---
 
 # Give every context a distinct default host name
@@ -44,8 +50,9 @@ context already owning the proposed host name. The multi-cluster and host-access
 
 ## Progress
 
-- [ ] Milestone 1: add and unit-test a deterministic, validated default host-name policy in
-  `Nagare.Host.Config`, then route `nagarectl host init` through it.
+- [x] (2026-09-14 02:53Z) Milestone 1: added and unit-tested the deterministic, validated
+  `<context>-nagare` default policy in `Nagare.Host.Config`, routed `nagarectl host init` through
+  it, updated CLI help, and passed all 471 `nagarectl-test` tests.
 - [ ] Milestone 2: detect an implicitly resolved host name already used by a sibling context and
   prove both the refusal and explicit override behavior.
 - [ ] Milestone 3: update the operator documentation and ADR 5, run the focused and repository-wide
@@ -107,7 +114,10 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Milestone 1 established an injective default for contexts that are already lowercase DNS labels.
+The `prod` and `labs` fixtures both retain instance name `nagare-01` while rendering distinct host
+names, and the focused package command passed all 471 tests. Collision discovery, installed-command
+coverage, documentation, ADR/IR lifecycle work, and repository-wide validation remain.
 
 
 ## Context and Orientation
@@ -355,3 +365,7 @@ modules, or the NixOS option namespace.
 record. `docs/improvement-requests/default-host-name-collides-across-clusters.md` is the lifecycle
 record and points to this plan through `targetPlan`; it is accepted now and completed only after
 implementation evidence exists.
+
+
+Revision note (2026-09-14): Recorded Milestone 1 implementation and its passing 471-test evidence;
+the remaining milestones are unchanged.

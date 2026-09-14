@@ -139,6 +139,7 @@ import Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
   , commitStagedHostFlake
+  , defaultHostName
   , hostConfigDir
   , installHostFlake
   , readAuthorizedKeys
@@ -1695,7 +1696,7 @@ opts =
         <*> many (strOption (long "ssh-public-key-file" <> metavar "PATH" <> help "Operator SSH public-key file; repeat for multiple keys"))
         <*> optional (strOption (long "sops-file" <> metavar "PATH" <> help "Existing sops-encrypted host secrets YAML; required for a new host"))
         <*> strOption (long "age-key-file" <> metavar "HOST_PATH" <> value "/var/lib/sops-nix/age-key.txt" <> showDefault <> help "Private age-key path on the host (the key is never read or copied)")
-        <*> optional (strOption (long "host-name" <> metavar "NAME" <> help "NixOS hostname (defaults to the context instance name)"))
+        <*> optional (strOption (long "host-name" <> metavar "NAME" <> help "NixOS and tailnet hostname (defaults to <context>-nagare)"))
         <*> optional (strOption (long "instance-name" <> metavar "NAME" <> help "Cloud instance identity (defaults to the context instance name)"))
         <*> optional (strOption (long "registry-host" <> metavar "HOST" <> help "Artifact Registry host (defaults to the context registry)"))
         <*> strOption (long "deploy-user" <> metavar "USER" <> value "deploy" <> showDefault <> help "Operator account created on the host")
@@ -2782,13 +2783,17 @@ runHost globalContext = \case
     keys <- readAuthorizedKeys (options ^. #sshPublicKeyFiles) >>= either dieT pure
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     nixosSource <- makeAbsolute (paths ^. #nixosDir)
+    resolvedHostName <-
+      case options ^. #hostName of
+        Just explicitHostName -> pure (T.pack explicitHostName)
+        Nothing -> defaultHostName (active ^. #contextName) & either dieT pure
     let payloadBuild = BuildVersion (workspace ^. #platformVersion) (workspace ^. #sourceRevision)
     let profile = active ^. #profile
         defaultInstance = profile ^. #instanceName
         config =
           HostConfig
             { context = active ^. #contextName
-            , name = T.pack (fromMaybe (T.unpack defaultInstance) (options ^. #hostName))
+            , name = resolvedHostName
             , instanceName = T.pack (fromMaybe (T.unpack defaultInstance) (options ^. #instanceName))
             , registryHost = T.pack (fromMaybe (T.unpack (profile ^. #registryHost)) (options ^. #registryHost))
             , deployUser = T.pack (options ^. #deployUser)
