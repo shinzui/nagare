@@ -15,6 +15,7 @@ where
 import Data.Aeson qualified as Aeson
 import Data.Text (Text)
 import GHC.Generics (Generic)
+import Nagare.Dsl.Prelude
 import Numeric.Natural (Natural)
 
 data StateTransferItem = StateTransferItem
