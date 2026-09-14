@@ -308,11 +308,12 @@ writeReplacementTransaction path tx = do
   bracketOnError
     (openBinaryTempFile (takeDirectory path) ".replacement-transaction.tmp")
     (\(temporary, handle) -> hClose handle >> pure temporary)
-    (\(temporary, handle) -> do
-      LBS.hPut handle (Aeson.encode tx)
-      hFlush handle
-      hClose handle
-      renameFile temporary path)
+    ( \(temporary, handle) -> do
+        LBS.hPut handle (Aeson.encode tx)
+        hFlush handle
+        hClose handle
+        renameFile temporary path
+    )
 
 readReplacementTransaction :: FilePath -> IO (Either Text ReplacementTransaction)
 readReplacementTransaction path = do
@@ -344,31 +345,55 @@ renderReplacementTransaction now tx =
     yesNo False = "no"
 
 instance Aeson.ToJSON MonotonicTime where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON MonotonicTime where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON DowntimeBudget where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON DowntimeBudget where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON Deadline where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON Deadline where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON PhaseCheckpoint where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON PhaseCheckpoint where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON HostIdentity where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON HostIdentity where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON RetainedResource where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON RetainedResource where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON Readiness where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON Readiness where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON ReplacementTransaction where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON ReplacementTransaction where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
 
 instance Aeson.ToJSON ReplacementState where toJSON = Aeson.String . stateToken
+
 instance Aeson.FromJSON ReplacementState where parseJSON = Aeson.withText "ReplacementState" (parseToken "replacement state" stateTokens)
+
 instance Aeson.ToJSON CutoverPhase where toJSON = Aeson.String . phaseToken
+
 instance Aeson.FromJSON CutoverPhase where parseJSON = Aeson.withText "CutoverPhase" (parseToken "cutover phase" phaseTokens)
+
 instance Aeson.ToJSON PhaseStatus where toJSON = Aeson.String . phaseStatusToken
+
 instance Aeson.FromJSON PhaseStatus where parseJSON = Aeson.withText "PhaseStatus" (parseToken "phase status" phaseStatusTokens)
+
 instance Aeson.ToJSON AddressOwner where toJSON = Aeson.String . addressOwnerToken
+
 instance Aeson.FromJSON AddressOwner where parseJSON = Aeson.withText "AddressOwner" (parseToken "address owner" addressOwnerTokens)
+
 instance Aeson.ToJSON InstancePower where toJSON = Aeson.String . powerToken
+
 instance Aeson.FromJSON InstancePower where parseJSON = Aeson.withText "InstancePower" (parseToken "instance power" powerTokens)
 
 parseToken :: String -> [(Text, a)] -> Text -> Parser a
@@ -377,10 +402,18 @@ parseToken label values token =
 
 stateTokens :: [(Text, ReplacementState)]
 stateTokens =
-  [ ("planning", Planning), ("preparing", Preparing), ("rehearsing", Rehearsing)
-  , ("ready", Ready), ("cutting-over", CuttingOver), ("rolling-back", RollingBack)
-  , ("rolled-back", RolledBack), ("committed", Committed), ("finalizing", Finalizing)
-  , ("complete", Complete), ("abandoned", Abandoned), ("failed", ReplacementFailed)
+  [ ("planning", Planning)
+  , ("preparing", Preparing)
+  , ("rehearsing", Rehearsing)
+  , ("ready", Ready)
+  , ("cutting-over", CuttingOver)
+  , ("rolling-back", RollingBack)
+  , ("rolled-back", RolledBack)
+  , ("committed", Committed)
+  , ("finalizing", Finalizing)
+  , ("complete", Complete)
+  , ("abandoned", Abandoned)
+  , ("failed", ReplacementFailed)
   ]
 
 stateToken :: ReplacementState -> Text
@@ -388,13 +421,21 @@ stateToken value = maybe "unknown" fst (find ((== value) . snd) stateTokens)
 
 phaseTokens :: [(Text, CutoverPhase)]
 phaseTokens =
-  [ ("arm-candidate", ArmCandidate), ("revalidate", Revalidate), ("quiesce-old", QuiesceOld)
-  , ("finalize-state", FinalizeState), ("prepare-candidate-ingress", PrepareCandidateIngress)
-  , ("detach-old-address", DetachOldAddress), ("attach-candidate-address", AttachCandidateAddress)
-  , ("verify-public", VerifyPublic), ("commit-context", CommitContext)
-  , ("admit-candidate-writes", AdmitCandidateWrites), ("stop-old", StopOld)
-  , ("fence-candidate", FenceCandidate), ("restore-old-address", RestoreOldAddress)
-  , ("restore-old-workloads", RestoreOldWorkloads), ("verify-rollback", VerifyRollback)
+  [ ("arm-candidate", ArmCandidate)
+  , ("revalidate", Revalidate)
+  , ("quiesce-old", QuiesceOld)
+  , ("finalize-state", FinalizeState)
+  , ("prepare-candidate-ingress", PrepareCandidateIngress)
+  , ("detach-old-address", DetachOldAddress)
+  , ("attach-candidate-address", AttachCandidateAddress)
+  , ("verify-public", VerifyPublic)
+  , ("commit-context", CommitContext)
+  , ("admit-candidate-writes", AdmitCandidateWrites)
+  , ("stop-old", StopOld)
+  , ("fence-candidate", FenceCandidate)
+  , ("restore-old-address", RestoreOldAddress)
+  , ("restore-old-workloads", RestoreOldWorkloads)
+  , ("verify-rollback", VerifyRollback)
   , ("cleanup-former-active", CleanupFormerActive)
   ]
 

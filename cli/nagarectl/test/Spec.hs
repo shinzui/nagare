@@ -322,8 +322,8 @@ import Nagare.Version
   , renderBuildVersionText
   , renderPlatformVersion
   )
-import PlatformSpec (platformTests)
 import PlatformCutoverSpec (platformCutoverTests)
+import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure))

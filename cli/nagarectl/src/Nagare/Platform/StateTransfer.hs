@@ -49,8 +49,13 @@ validateStateTransferPlan plan
   | otherwise = Right ()
 
 instance Aeson.ToJSON StateTransferItem where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON StateTransferItem where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON StateTransferPlan where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON StateTransferPlan where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
 instance Aeson.ToJSON FinalStateEvidence where toJSON = Aeson.genericToJSON Aeson.defaultOptions
+
 instance Aeson.FromJSON FinalStateEvidence where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
