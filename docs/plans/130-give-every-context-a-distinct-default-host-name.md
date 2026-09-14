@@ -53,8 +53,10 @@ context already owning the proposed host name. The multi-cluster and host-access
 - [x] (2026-09-14 02:53Z) Milestone 1: added and unit-tested the deterministic, validated
   `<context>-nagare` default policy in `Nagare.Host.Config`, routed `nagarectl host init` through
   it, updated CLI help, and passed all 471 `nagarectl-test` tests.
-- [ ] Milestone 2: detect an implicitly resolved host name already used by a sibling context and
-  prove both the refusal and explicit override behavior.
+- [x] (2026-09-14 03:02Z) Milestone 2: added deterministic sibling-flake collision discovery,
+  current-context exclusion, symlink and unreadable-file coverage, and installed-command proof of
+  refusal plus explicit recovery. All 472 Haskell tests and both `nagare-clone-free-platform` and
+  `host-module-options-agree` passed.
 - [ ] Milestone 3: update the operator documentation and ADR 5, run the focused and repository-wide
   validations, and close IR-14 with evidence.
 
@@ -106,6 +108,12 @@ implementation. Provide concise evidence.
   and generator safety properties. The new default and sibling check refine that contract.
   Date: 2026-09-14
 
+- Decision: Inspect sibling context directories in sorted order and report the first collision.
+  Rationale: More than one pre-existing flake can already contain the same host name. Sorting makes
+  the owning context named by the refusal stable across filesystems without weakening the hard
+  error or inventing a second host registry.
+  Date: 2026-09-14
+
 
 ## Outcomes & Retrospective
 
@@ -114,10 +122,12 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-Milestone 1 established an injective default for contexts that are already lowercase DNS labels.
-The `prod` and `labs` fixtures both retain instance name `nagare-01` while rendering distinct host
-names, and the focused package command passed all 471 tests. Collision discovery, installed-command
-coverage, documentation, ADR/IR lifecycle work, and repository-wide validation remain.
+Milestones 1 and 2 established an injective default for contexts that are already lowercase DNS
+labels and a local collision guard for implicit defaults. The `prod` and `labs` installed-command
+fixtures both retain instance name `nagare-01` while rendering distinct host names; a seeded
+`legacy` owner prevents implicit `prod-nagare`, and `--host-name prod2-nagare` succeeds. All 472
+Haskell tests and both focused Nix checks pass. Documentation, ADR/IR lifecycle work, and
+repository-wide validation remain.
 
 
 ## Context and Orientation
@@ -369,3 +379,6 @@ implementation evidence exists.
 
 Revision note (2026-09-14): Recorded Milestone 1 implementation and its passing 471-test evidence;
 the remaining milestones are unchanged.
+
+Revision note (2026-09-14): Recorded Milestone 2 collision enforcement, deterministic scan order,
+and passing Haskell plus installed-command checks.
