@@ -5,6 +5,7 @@ date: 2026-09-13
 authors: [shinzui]
 related:
   - docs/plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md
+  - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
   - docs/adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md
@@ -55,3 +56,24 @@ failed, resumable transaction and the old context pin. `platform upgrade` in 0.2
 used on real cloud contexts; the 0.2.1 release notes and the 0.2.0 release description say so.
 The guards are implemented once in `cli/nagarectl/app/Main.hs` and shared by the subcommands and
 the transaction, so their behavior cannot drift between the two paths.
+
+## Amendment — 2026-09-14: apply the retained reviewed plan
+
+[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) strengthens
+the Pulumi boundary. Preview and apply no longer compute separate plans. The preview phase invokes
+Pulumi once with `--save-plan` and retains a directory bundle containing Pulumi's plan, Nagare's
+redacted operation review, and metadata binding both to the context, GCP project, stack, backend,
+immutable payload, program/config digest, and Pulumi version. The private bundle is part of the
+transaction state, and resume verifies it rather than recomputing it.
+
+The apply phase reruns the platform, ADC, and project guards, verifies all bundle members and
+bindings, then invokes `pulumi up --plan ... --yes --non-interactive`. Tampering, changing inputs,
+switching context/backend/stack, or changing Pulumi makes the retained plan stale and refuses before
+an update. Protected replacement approval is recorded during review and acknowledged again at
+apply.
+
+This is a constrained execution boundary, not an atomic transaction. Pulumi may perform a safer
+operation than planned and cloud calls still occur over time; a failed update can leave partial
+progress. Recovery keeps the unchanged bundle for inspection and retry while its bindings remain
+valid. If they do not, the operator creates a new review or upgrade transaction. Deliberate teardown
+is a separate guarded command and is never inferred as rollback or recovery.

@@ -21,6 +21,11 @@ provenance:
       at: 2026-09-14T13:38:21Z
       mode: "implement"
       note: "Started EP-3 implementation and coordination"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:18:39Z
+      mode: "implement"
+      note: "Completed EP-3 and selected EP-4 as the next implementable child"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -99,7 +104,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
-| EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | In Progress |
+| EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Not Started |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Not Started |
 | EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
@@ -165,7 +170,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 
 - [x] (2026-09-14T05:29:57Z) EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
 - [x] (2026-09-14T13:18:00Z) EP-2: validate ADC and represent/re-pin an undeployed context safely.
-- [ ] EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
+- [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: serialize blank-disk formatting before fsck and prove first-boot k3s readiness.
 - [ ] EP-5: separate internal issuers and opt app namespaces into public wildcard certificates.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
@@ -192,6 +197,14 @@ interactions between child plans. Provide concise evidence.
 - Moving ADC validation ahead of Pulumi intentionally changed a missing-Pulumi integration fixture:
   it now needs matching ADC evidence to reach the diagnostic it was designed to test. This confirms
   the shared guard fails in the intended order instead of starting workspace or Pulumi work first.
+
+- EP-3 confirmed that Pulumi's saved plan constrains provider operations but does not bind Nagare's
+  context identity. A private sidecar supplies the context/project/stack/backend/payload/program
+  boundary, while apply remains explicitly constrained rather than atomic.
+
+- EP-3 found that Nix flake evaluation ignores new untracked proxy/test files until they are staged.
+  It also exposed a pre-existing improvement-request profile advisory: 22 records lack the newly
+  recommended `reviews` field, while strict structure and log validation still pass.
 
 
 ## Decision Log
@@ -246,9 +259,12 @@ metadata.
 IR-12 and IR-16 are completed, with durable rules recorded in ADRs 9 and 6. All 505 focused tests,
 strict OKF validation, the clone-free packaged scenario, and the complete native flake gate pass.
 
-EP-3 is now the next registry-ordered child with no hard dependencies. Its soft dependency is
-satisfied: the shared project guard exposes the ADC verdict that reviewed Pulumi application and
-remote-builder confinement can consume.
+EP-3 is complete. Operators and upgrade transactions can apply the exact saved Pulumi plan they
+reviewed without a TTY; stale or cross-context bundles refuse before update. Host-image bypasses
+ambient Nix builder selection, displays a context-owned GCP builder, and requires a named exception
+for another project. IR-15 and IR-17 are completed, and ADRs 18 and 9 record these durable rules.
+All 508 Haskell tests and every buildable native flake check pass. EP-4 is the next registry-ordered
+implementable child; it has no hard dependencies.
 
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
@@ -261,3 +277,6 @@ satisfied EP-3's soft dependency with shared ADC guard evidence.
 
 Revision note (2026-09-14): Started EP-3 after confirming it has no hard dependencies and its
 soft dependency on EP-2 is satisfied.
+
+Revision note (2026-09-14): Completed EP-3, closed IR-15 and IR-17, amended ADRs 18 and 9, and
+identified EP-4 as the next implementable child.

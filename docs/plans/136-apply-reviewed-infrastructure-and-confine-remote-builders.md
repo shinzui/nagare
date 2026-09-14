@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-14T13:38:21Z
       mode: "implement"
       note: "Started EP-3 implementation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:18:39Z
+      mode: "implement"
+      note: "Completed EP-3 implementation and validation"
 ---
 
 # Apply reviewed infrastructure and confine remote builders
@@ -45,7 +50,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-14T13:51Z) Define a context-bound saved-plan bundle and classify its reviewed operations.
 - [x] (2026-09-14T13:51Z) Implement guarded preview/apply and reuse it in the upgrade transaction.
 - [x] (2026-09-14T14:05Z) Generate and select a per-context GCP builder, with visible cross-project refusal/opt-in.
-- [ ] Cover teardown and non-interactive operation in docs, close the IRs, and run all gates.
+- [x] (2026-09-14T14:18Z) Cover teardown and non-interactive operation in docs, close the IRs, and run all gates.
 
 
 ## Surprises & Discoveries
@@ -57,6 +62,11 @@ implementation. Provide concise evidence.
   even though ordinary shell tests see the worktree file. Evidence: the first operator-tools build
   refused the untracked `scripts/nix-builder-proxy.sh`; staging the two new scripts made the same
   three-check build proceed and pass.
+
+- Observation: The strict improvement-request structure and log pass, but the optional
+  `--profile-enforce` audit now reports the same missing recommended `reviews` field on 22 of the 23
+  existing records. This is bundle-wide pre-existing provenance debt, not a schema or log failure;
+  adding invented reviews to unrelated records would make the history less truthful.
 
 
 ## Decision Log
@@ -103,6 +113,13 @@ Host-image now renders a private per-context SSH route and explicit `--builders`
 builder is in the target project; a different `NAGARE_BUILDER_PROJECT` is refused unless the command
 names that exact project with `--allow-shared-builder`. Hermetic confinement, packaged-proxy, and
 shellcheck gates pass without consulting ambient builder configuration.
+
+IR-15 and IR-17 are completed, ADR 18 owns the retained constrained-plan boundary, and ADR 9 owns
+builder project selection. The five focused operator guides, disaster-recovery teardown, reference,
+and changelog now use the public commands. `just docs-validate`, strict/logged improvement-request
+validation, all 508 Haskell tests, clone-free integration, and every buildable native flake check
+pass. The optional profile-enforcement audit retains the bundle-wide review-provenance advisory
+described above; no live disposable-project mutation was authorized in this implementation run.
 
 
 ## Context and Orientation
@@ -303,3 +320,6 @@ that EP-3 has no hard dependencies and EP-2's shared ADC guard evidence is avail
 Revision note (2026-09-14): Completed the reviewed-plan, upgrade-reuse, and context-owned builder
 milestones. Added focused and packaged regression evidence; documentation, ADRs, IR closure, and the
 complete gate remain.
+
+Revision note (2026-09-14): Completed EP-3. Documented the saved-plan and builder lifecycle, closed
+IR-15 and IR-17, amended ADRs 18 and 9, and passed the full native flake gate.

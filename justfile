@@ -72,7 +72,7 @@ infra-destroy *args:
 # reserved static IP keep their small storage/reservation cost. Targets the
 # instance/zone/project from the target profile (.envrc / nagare.target.env),
 # defaulting to nagare-01 / us-west1-a / tan-nb-exp. For a FULL teardown instead,
-# use `pulumi destroy` in infra/pulumi (see docs/runbooks/disaster-recovery.md).
+# use `nagare infra-destroy --yes` (see docs/user/provisioning-with-pulumi.md).
 # Stop the VM (reversible; restart with `just vm-start`).
 [group('infra')]
 vm-stop:

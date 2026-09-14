@@ -124,16 +124,34 @@ pointing Pulumi at the old local state.
 
 ## Preview and apply
 
-From the dev shell:
+Create a new private review bundle, inspect its `review.json`, and apply that exact bundle:
 
 ```bash
-just infra-preview     # nagarectl context guard; cd infra/pulumi && pulumi preview
-just infra-up          # platform guard; context guard; infra guard; pulumi up
+plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/$(date +%Y%m%dT%H%M%S)"
+nagare infra-preview --save-plan "$plan_dir"
+jq . "$plan_dir/review.json"
+nagare infra-up --plan "$plan_dir" --yes
 ```
+
+Preview invokes Pulumi once with `--save-plan`. The bundle contains Pulumi's `pulumi-plan.json`, a
+redacted operation classification in `review.json`, and Nagare's `metadata.json`. Metadata binds the
+review to the context, GCP project, stack, backend, immutable payload, Pulumi program and config,
+Pulumi version, and both file digests. The directory is mode `0700`; its three files are mode `0600`.
+Treat the whole directory as confidential operator state: Pulumi's plan may contain configuration
+and provider inputs even though Nagare's review is redacted. Do not commit, publish, or edit it.
+
+Apply reruns the platform, ADC, and project guards, verifies every binding and digest, then invokes
+`pulumi up --plan ... --yes --non-interactive`. It performs no second preview. This is a
+**constrained**, not atomic, apply: Pulumi cannot introduce operations beyond the reviewed plan, but
+cloud operations still happen over time and a failure can leave partial progress. Keep the bundle,
+inspect the stack, and retry the same command only while its bindings still verify. A changed
+payload, program, config, context, backend, stack, Pulumi version, or bundle member makes the plan
+stale and refuses before update; create and review a new directory instead. Existing destinations
+are never overwritten.
 
 ### The project preflight
 
-Both recipes run `nagarectl context guard` **before** Pulumi is invoked at all. It refuses
+Both commands run `nagarectl context guard` **before** Pulumi is invoked at all. It refuses
 when the selected stack's `gcp:project`, the ambient `CLOUDSDK_CORE_PROJECT`, or `gcloud`'s
 configured project disagrees with the active context's project, and it has no escape hatch —
 unlike `nagarectl platform guard`, which checks release compatibility and can be skipped
@@ -145,7 +163,7 @@ When it accepts you see one line before Pulumi's output:
 context guard: labs confined to project acme-prod (stack labs)
 ```
 
-When it refuses, the recipe stops before preview or apply. Every refusal names the selected stack
+When it refuses, the command stops before preview or apply. Every refusal names the selected stack
 and resolved backend:
 
 ```text
@@ -188,7 +206,7 @@ after [building the image](host-image-and-boot.md) to bring up the VM.
 
 ### Review replacements and protected resources
 
-Always read `just infra-preview` before applying. The program deliberately
+Always read the saved `review.json` before applying. The program deliberately
 fails closed around stateful resources:
 
 - the data disk and backup bucket have Pulumi `protect: true`, so a deletion or
@@ -208,14 +226,14 @@ The VM-shape fields have different live-update behavior:
 | `NAGARE_DATA_DISK_SIZE_GB` | In-place growth only; the mounted filesystem grows online. |
 | `NAGARE_BOOT_DISK_TYPE` | **Replaces the instance and its boot disk.** |
 
-Changing the image self-link or zone also replaces the instance. Before every
-`infra-up`, `nagarectl infra guard` runs a Pulumi preview and refuses any such
-replacement. Its message names the boot-disk state that would be lost. Since 0.2.1
+Changing the image self-link or zone also replaces the instance. `infra preview` classifies the
+single saved Pulumi plan and refuses any such replacement unless the operator records approval
+with `--allow-replacement`. Its message names the boot-disk state that would be lost. Since 0.2.1
 the guard also refuses replacing the Cloud DNS managed zone (new name servers break
 the parent delegation; a `NAGARE_BASE_DOMAIN` change causes it) and any storage
-bucket (its objects are deleted), and `nagarectl platform upgrade` runs the same
-guard in its Pulumi phases. `NAGARE_ALLOW_VM_REPLACEMENT=1` overrides all three
-for one run. This is
+bucket (its objects are deleted), and `nagarectl platform upgrade` classifies its retained plan the
+same way. A protected replacement requires `--allow-replacement` at preview and again at apply.
+This is
 separate from deletion protection: the guard stops the apply before it starts,
 while deletion protection is the Compute API's last backstop.
 
@@ -226,18 +244,36 @@ protection:
 
 ```bash
 pulumi -C infra/pulumi config set nagare:vmDeletionProtection false
-just infra-up                  # protection-only update on the existing VM
+plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/protection-off"
+nagare infra-preview --save-plan "$plan_dir"
+nagare infra-up --plan "$plan_dir" --yes
 
-# now run just host-image, or change the replacement-causing boot-disk setting
-just infra-preview             # replacement must preserve nagare-data
-NAGARE_ALLOW_VM_REPLACEMENT=1 just infra-up  # deliberate VM replacement
+# now run nagare host-image, or change the replacement-causing boot-disk setting
+replacement_plan="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/vm-replacement"
+nagare infra-preview --save-plan "$replacement_plan" --allow-replacement
+nagare infra-up --plan "$replacement_plan" --yes --allow-replacement
 
 pulumi -C infra/pulumi config set nagare:vmDeletionProtection true
-just infra-up
+restore_plan="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/protection-on"
+nagare infra-preview --save-plan "$restore_plan"
+nagare infra-up --plan "$restore_plan" --yes
 ```
 
 Do not use this sequence to force through an unexpected data-disk or
 backup-bucket replacement. Stop and reconcile the preview first.
+
+### Deliberate teardown
+
+Complete teardown is separate from apply and never inferred as recovery:
+
+```bash
+nagare infra-destroy --yes
+```
+
+The command repeats the platform, ADC, and context/project guards immediately before
+`pulumi destroy --yes --non-interactive`. It destroys only the selected stack; Pulumi-protected
+resources and GCE deletion protection still refuse until deliberately removed. There is no saved
+plan-bundle workflow for teardown, and omitting `--yes` refuses before Pulumi.
 
 ## Stack outputs (the integration contract)
 
