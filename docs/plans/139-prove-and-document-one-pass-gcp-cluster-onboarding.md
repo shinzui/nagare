@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-14T23:19:22Z
       mode: "implement"
       note: "Made v0.3.0 CLI output deterministic under the Linux release locale"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T23:42:10Z
+      mode: "implement"
+      note: "Made hermetic rehearsal assertion failures identify their command and source line"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -88,6 +93,11 @@ implementation. Provide concise evidence.
   encoding its em dash. Explicit UTF-8 stdout/stderr encodings make the packaged interface stable
   independently of the caller's locale.
 
+- A later Linux release run still returned a bare status 1 from the hermetic rehearsal after all
+  552 Haskell tests passed, but the Nix log could identify only the derivation because several
+  assertions intentionally use quiet `grep`. The rehearsal now reports the failed command and
+  source line from its own temporary, secret-free hermetic environment.
+
 
 ## Decision Log
 
@@ -126,6 +136,11 @@ Record every decision made while working on the plan.
   whether a pure builder or minimal operator environment happens to export a UTF-8 locale.
   Date: 2026-09-14.
 
+- Decision: Keep an ERR diagnostic active in hermetic mode only.
+  Rationale: A failed release assertion must be actionable on a remote native builder, while live
+  mode may handle operator inputs and therefore must not gain an indiscriminate command dump.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
@@ -143,6 +158,8 @@ key, wrong kubeconfig node, absent webhooks, and leaked certificate scope. The n
 
 The v0.3.0 release audit made that hermetic evidence portable across native systems: both Haskell
 executables now select UTF-8 output before option parsing, including help and dry-run diagnostics.
+Hermetic failures also identify the exact failed command and source line without weakening any
+assertion or exposing live operator values.
 
 The canonical onboarding guide now identifies release, project, context/stack, builder, and cluster
 targets; its boot-disk guidance agrees with packaged help and focused references. IR-11 is completed.
@@ -357,4 +374,5 @@ dependencies; ExecPlans 132 and 133 are external completion prerequisites.
 
 
 Revision note (2026-09-14): Hardened v0.3.0's hermetic GCP rehearsal after Linux CI demonstrated
-that public Unicode diagnostics must not inherit a pure builder's ASCII encoding.
+that public Unicode diagnostics must not inherit a pure builder's ASCII encoding, then made any
+remaining hermetic assertion failure identify its command and source line on a remote builder.

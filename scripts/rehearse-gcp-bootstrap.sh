@@ -307,6 +307,7 @@ assert_public_interfaces() {
 }
 
 run_hermetic() {
+  trap 'status=$?; printf "hermetic rehearsal failed at %s:%s: %s (status %s)\n" "${BASH_SOURCE[0]}" "${BASH_LINENO[0]}" "$BASH_COMMAND" "$status" >&2' ERR
   command -v nagarectl >/dev/null || die 'nagarectl is required (enter the Nagare dev shell)'
   command -v nagare >/dev/null || die 'nagare is required (enter the Nagare dev shell)'
   command -v rg >/dev/null || die 'rg is required'
