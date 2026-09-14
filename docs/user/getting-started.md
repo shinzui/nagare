@@ -57,7 +57,7 @@ Choose a reviewed version from the [release page](https://github.com/shinzui/nag
 install its full operator output. No checkout or `direnv` session is required:
 
 ```bash
-export NAGARE_VERSION=0.1.0
+export NAGARE_VERSION=0.2.2
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
 nagarectl version --json
 nagarectl version --tools

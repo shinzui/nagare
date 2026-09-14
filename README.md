@@ -112,7 +112,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.2.1
+export NAGARE_VERSION=0.2.2
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
