@@ -46,6 +46,7 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
 import Nagare.Dsl.Prelude
+import Nagare.Gcp.Adc (adcEnvFromProcess, observeAdc, validateAdc)
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
@@ -422,9 +423,9 @@ seedPulumiConfig pulumiDir dryRun stack tp = go (seedKeys tp)
             Right code@(ExitFailure _) -> pure (Left (k, code))
 
 -- | Preflight: confirm gcloud has an active authenticated account and that it
--- holds (or owns) the operator roles on @project@. Returns @Right ()@ on pass, or
+-- holds (or owns) the operator roles on @project@. Returns ADC warnings on pass, or
 -- @Left msg@ with a precise remediation on failure. Read-only: it only queries.
-runPreflight :: Text -> IO (Either Text ())
+runPreflight :: Text -> IO (Either Text [Text])
 runPreflight project = do
   mAcct <-
     captureTool
@@ -435,22 +436,27 @@ runPreflight project = do
     Just acct
       | T.null acct -> pure (Left authRemediation)
       | otherwise -> do
-          mPolicy <-
-            captureTool
-              "gcloud"
-              [ "projects"
-              , "get-iam-policy"
-              , T.unpack project
-              , "--flatten=bindings[].members"
-              , "--filter=bindings.members:user:" <> T.unpack acct
-              , "--format=value(bindings.role)"
-              ]
-          let held = maybe [] (T.lines . T.strip . decodeUtf8) mPolicy
-              isOwner = "roles/owner" `elem` held
-              missing = filter (`notElem` held) operatorRoles
-          if isOwner || null missing
-            then pure (Right ())
-            else pure (Left (iamRemediation acct project missing))
+          adcEnv <- adcEnvFromProcess
+          adc <- observeAdc adcEnv
+          case validateAdc project (Just acct) adc of
+            Left refusal -> pure (Left ("nagarectl init preflight FAILED:\n" <> refusal <> "\n"))
+            Right warnings -> do
+              mPolicy <-
+                captureTool
+                  "gcloud"
+                  [ "projects"
+                  , "get-iam-policy"
+                  , T.unpack project
+                  , "--flatten=bindings[].members"
+                  , "--filter=bindings.members:user:" <> T.unpack acct
+                  , "--format=value(bindings.role)"
+                  ]
+              let held = maybe [] (T.lines . T.strip . decodeUtf8) mPolicy
+                  isOwner = "roles/owner" `elem` held
+                  missing = filter (`notElem` held) operatorRoles
+              if isOwner || null missing
+                then pure (Right warnings)
+                else pure (Left (iamRemediation acct project missing))
   where
     authRemediation =
       T.unlines

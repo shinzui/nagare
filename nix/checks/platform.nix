@@ -16,7 +16,7 @@ in
   nagare-clone-free-platform =
     let
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''
-        printf '%s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+        printf 'pulumi %s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         case " $* " in
           *" config --json "*)
             # EP-129 / IR-9: a successful config listing can prove either that

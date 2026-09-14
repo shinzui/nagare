@@ -52,6 +52,19 @@ Follow [GCP prerequisites](gcp-prerequisites.md) once. In short: an authenticate
 billing; the service APIs enabled (or let `nagarectl init` enable them); and a domain
 ready to delegate. Don't repeat the detail here — follow the linked page.
 
+Before initialization, explicitly bind both interactive gcloud and ADC quota attribution to the
+project you are bringing:
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+```
+
+Nagare context selection does not switch ADC. `nagarectl init` checks the selected ADC file before
+writing the context and refuses if its `quota_project_id` names another project.
+
 ## Step 2 — `nagarectl init`  ✅
 
 This is the centerpiece. It is the **one** command that writes a target context

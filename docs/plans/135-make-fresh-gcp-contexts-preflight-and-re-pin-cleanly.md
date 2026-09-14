@@ -43,7 +43,7 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] (2026-09-14 12:40Z) Model and test ADC discovery, principal evidence, and quota-project policy.
-- [ ] Add the shared ADC observation to initialization and the context guard.
+- [x] (2026-09-14 12:49Z) Add the shared ADC observation to initialization and the context guard.
 - [ ] Represent not-deployed host/cluster identities and add a guarded re-pin command.
 - [ ] Update setup/upgrade docs, complete the IRs, and run all focused and repository checks.
 
@@ -111,6 +111,19 @@ Record every decision made while working on the plan.
   the typed ADC observation; do not include JSON parser details in malformed-file errors.
   Rationale: Token-bearing input must never enter `Show`, structured evidence, or repair output,
   including through parser excerpts.
+  Date: 2026-09-14.
+
+- Decision: Run a dedicated ADC refusal check before context-guard workspace preparation, and make
+  `projectGuardInputsFor` independently validate ADC before its Pulumi config probe.
+  Rationale: Workspace preparation can install dependencies and invoke Pulumi. The outer check
+  protects the literal first Pulumi process, while the collector's own ordering preserves the
+  invariant for upgrade and future callers.
+  Date: 2026-09-14.
+
+- Decision: Return non-fatal ADC findings from initialization and render them as both human warnings
+  and a top-level structured `observations.warnings` array in context-guard JSON.
+  Rationale: Principal absence or disagreement and missing quota attribution must be visible without
+  being conflated with the deterministic foreign-quota refusal.
   Date: 2026-09-14.
 
 
@@ -301,3 +314,8 @@ public preflight and re-pin path.
 - 2026-09-14: Completed milestone 1 with a shared, token-safe ADC observer and policy model. Added
   path-precedence, credential-kind, principal, quota-project, malformed-input, missing-file, and
   output-redaction tests; the focused Nix gate passes all 501 tests.
+- 2026-09-14: Completed milestone 2 by applying the shared ADC policy to both init variants and all
+  project-guard collection, adding structured evidence and warnings, documenting explicit ADC
+  setup, and proving in the clone-free packaged-operator gate that a foreign quota project starts
+  no Pulumi process and exposes no credential sentinel. The unit gate passes all 502 tests and the
+  clone-free platform gate passes.

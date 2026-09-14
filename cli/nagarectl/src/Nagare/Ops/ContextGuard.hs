@@ -22,6 +22,7 @@ module Nagare.Ops.ContextGuard
   ( PulumiProjectObservation (..)
   , ProjectGuardInputs (..)
   , parsePulumiProjectConfig
+  , projectGuardWarnings
   , projectGuardVerdict
   , projectGuardObservationsValue
   , renderProjectGuard
@@ -35,6 +36,7 @@ import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Gcp.Adc (AdcError, AdcObservation, adcEvidenceValue, validateAdc)
 
 -- | The result of asking Pulumi for the selected stack's complete config.
 -- Keeping process and decoding failures distinct prevents the safety guard from
@@ -46,6 +48,7 @@ data PulumiProjectObservation
   | PulumiToolStartFailed !Text
   | PulumiCommandFailed !Int !Text
   | PulumiProjectInvalidOutput !Text
+  | PulumiProbeSkipped
   deriving stock (Eq, Show)
 
 -- | What the guard compared and what it concluded. Rendered for humans and for
@@ -68,6 +71,10 @@ data ProjectGuardInputs = ProjectGuardInputs
   -- the environment. Stripping matters for the same reason it does in
   -- @scripts\/lib\/target.sh@: @gcloud@ lets that variable shadow its own
   -- configuration, so reading it unstripped would compare a value against itself.
+  , gcloudAccount :: !(Maybe Text)
+  -- ^ active gcloud account, used to compare any principal exposed by ADC
+  , adc :: !(Either AdcError AdcObservation)
+  -- ^ the credential source Google client libraries will use
   }
   deriving stock (Generic, Eq, Show)
 
@@ -101,7 +108,14 @@ parsePulumiProjectConfig bytes =
 -- A 'Nothing' 'configured' alongside a set 'ambient' is __not__ a refusal:
 -- @gcloud@ need not be installed on a machine that only previews.
 projectGuardVerdict :: ProjectGuardInputs -> Either Text ()
-projectGuardVerdict pgi = case pgi ^. #stackProject of
+projectGuardVerdict pgi = do
+  _ <- validateAdc (pgi ^. #declared) (pgi ^. #gcloudAccount) (pgi ^. #adc)
+  stackProjectVerdict pgi
+
+stackProjectVerdict :: ProjectGuardInputs -> Either Text ()
+stackProjectVerdict pgi = case pgi ^. #stackProject of
+  PulumiProbeSkipped ->
+    Left "refusing to run: Pulumi inspection was skipped because an earlier project guard failed"
   PulumiProjectMissing ->
     Left $
       "refusing to run: Pulumi stack '"
@@ -198,6 +212,11 @@ projectGuardVerdict pgi = case pgi ^. #stackProject of
                 <> "'."
       _ -> Right ()
 
+-- | Non-fatal ADC findings shown in both human and structured guard output.
+projectGuardWarnings :: ProjectGuardInputs -> [Text]
+projectGuardWarnings pgi =
+  either (const []) id (validateAdc (pgi ^. #declared) (pgi ^. #gcloudAccount) (pgi ^. #adc))
+
 -- | Stable machine-readable observations used by both successful and refused
 -- @--json@ responses.
 projectGuardObservationsValue :: ProjectGuardInputs -> Aeson.Value
@@ -211,6 +230,9 @@ projectGuardObservationsValue pgi =
     , "stackProjectProbe" Aeson..= probeValue (pgi ^. #stackProject)
     , "ambientProject" Aeson..= (pgi ^. #ambient)
     , "configuredProject" Aeson..= (pgi ^. #configured)
+    , "gcloudAccount" Aeson..= (pgi ^. #gcloudAccount)
+    , "adc" Aeson..= adcEvidenceValue (pgi ^. #declared) (pgi ^. #gcloudAccount) (pgi ^. #adc)
+    , "warnings" Aeson..= projectGuardWarnings pgi
     ]
   where
     foundProject (PulumiProjectFound project) = Just project
@@ -230,6 +252,7 @@ projectGuardObservationsValue pgi =
     probeFields (PulumiToolStartFailed err) = ("tool-start-failed", Nothing, Nothing, Nothing, Just err)
     probeFields (PulumiCommandFailed exitCode stderrText) = ("command-failed", Nothing, Just exitCode, Just stderrText, Nothing)
     probeFields (PulumiProjectInvalidOutput err) = ("invalid-output", Nothing, Nothing, Nothing, Just err)
+    probeFields PulumiProbeSkipped = ("skipped", Nothing, Nothing, Nothing, Nothing)
 
 protectedTarget :: ProjectGuardInputs -> Text
 protectedTarget pgi =
@@ -242,10 +265,13 @@ protectedTarget pgi =
 -- | The one-line confirmation printed when the guard accepts.
 renderProjectGuard :: ProjectGuardInputs -> Text
 renderProjectGuard pgi =
-  "context guard: "
-    <> pgi ^. #context
-    <> " confined to project "
-    <> pgi ^. #declared
-    <> " (stack "
-    <> pgi ^. #stack
-    <> ")"
+  T.intercalate "\n" (confirmation : map ("warning: " <>) (projectGuardWarnings pgi))
+  where
+    confirmation =
+      "context guard: "
+        <> pgi ^. #context
+        <> " confined to project "
+        <> pgi ^. #declared
+        <> " (stack "
+        <> pgi ^. #stack
+        <> ")"
