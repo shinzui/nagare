@@ -36,6 +36,7 @@ async function main(): Promise<void> {
         backupBucketName: "example-project-nagare-backups",
         imageBucketName: "example-project-nagare-images",
         enableCdn: false,
+        cdnCertificateMode: "legacy",
         vmDeletionProtection: true,
         bootDiskSizeGb: 100,
         bootDiskType: "pd-balanced",

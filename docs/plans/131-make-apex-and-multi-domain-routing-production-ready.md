@@ -66,9 +66,9 @@ change implementable and make the supported combinations explicit rather than si
 - [x] (2026-09-14T20:12Z) M2: Added fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths. Hermetic tests prove conflicts and unreadable ownership perform zero applies while same-owner redeploys proceed; `nagarectl` passed 534 tests, `nagare-dsl` passed 401 tests, all executables built, documentation/style checks passed, and every compatible flake check passed.
 - [x] (2026-09-14T20:28Z) M3: Added a pure, fully truth-tabled apex/wildcard target resolver; two Pulumi-owned RRsets; exported `apexIp`; a TCP Kourier health check; and an executable Pulumi mock proving the distinct records. `npm test`, the `infra-domain-topology` Nix check, documentation/style validation, all 535 `nagarectl` tests, and every compatible flake check passed; the infrastructure guard still refuses zone replacement but permits an apex RRset target update.
 - [x] (2026-09-14T20:49Z) M4: Replaced guessed status with typed DNS, route, TLS-mode, issuer, and certificate observations; added real `dig` probes, `domains list --json` schema version 1, and the non-zero `domains check` gate. Recording fixtures cover NXDOMAIN, missing/failed tools, apex mismatch, wildcard and CDN success, disabled TLS, pending/failed ACME, and a fully ready inventory. All 539 tests, all executables, docs/style validation, and every compatible flake check passed.
-- [ ] M5: Make automatic and supplied-secret origin TLS explicit in the domain model and prove multi-domain certificate behavior locally and in a staging ACME run.
-- [ ] M6: Replace Google CDN's single-host edge certificate with a staged Certificate Manager map covering the apex and first-level base-domain hosts.
-- [ ] M7: Complete documentation, migration notes, end-to-end evidence, and ADR distillation; run the full repository validation suite.
+- [x] (2026-09-14T21:35Z) M5: Added fail-closed origin-TLS preflight and readiness polling for automatic and supplied-secret modes, a three-host fixture, and local/cloud acceptance runners. The local runner proved trusted TLS for the apex, `www`, and `alternate` hosts, an exact apex canonical URL, and a green `domains check`; the environment-changing staging ACME runner remains intentionally gated until an authorized cloud context is supplied.
+- [x] (2026-09-14T21:35Z) M6: Added the explicit `legacy`/`prepare`/`certificate-map` migration, Certificate Manager DNS authorization, apex and wildcard certificate-map entries, an ACTIVE-state activation guard, constrained Google CDN hostname planning, and convergent project-pinned Cloud DNS mutation. Pulumi compilation and all four hermetic TypeScript tests passed.
+- [x] (2026-09-14T21:35Z) M7: Added the operator documentation, migration procedures, production runbook guidance, cloud acceptance runner, and ADR 20. The final matrix passed 401 `nagare-dsl` tests, 552 `nagarectl` tests, Pulumi compilation/tests, Haskell style, documentation validation, focused infrastructure and shell checks, and all 32 compatible `nix flake check` checks on `aarch64-darwin`.
 
 
 ## Surprises & Discoveries
@@ -143,6 +143,23 @@ change implementable and make the supported combinations explicit rather than si
   only through command diagnostics, so the System.Process adapter classifies server “not found” /
   unknown-resource responses as `NotFound` and keeps other non-zero exits as `Unavailable`.
   Date: 2026-09-14.
+
+- Local bootstrap documented TLS but previously enabled neither the local CA ClusterIssuer nor
+  Knative external-domain TLS. The first end-to-end run also showed that domain status assumed
+  Pulumi cloud outputs and a hard-coded cloud issuer even in local mode. Installing and waiting
+  for the local CA, configuring Knative with that issuer, and using the loopback address as local
+  DNS evidence made the documented local contract executable. Date: 2026-09-14.
+
+- A Certificate Manager map can be created before its certificate is usable, so an operator-only
+  two-step procedure is not sufficient protection against a premature edge switch. The target
+  proxy input now depends on the managed certificate state and refuses `certificate-map` mode
+  unless the observed state is exactly `ACTIVE`; hermetic Pulumi mocks cover both refusal and
+  activation. Date: 2026-09-14.
+
+- Cloud DNS `record-sets describe` does not have one stable absence spelling across gcloud error
+  paths. Convergent provisioning recognizes `not found`, `NOT_FOUND`, “does not exist,” and HTTP
+  404 diagnostics, while treating every other failed read as an error instead of risking an
+  incorrect create. Date: 2026-09-14.
 
 
 ## Decision Log
@@ -247,13 +264,39 @@ change implementable and make the supported combinations explicit rather than si
   enabled TLS fails the operational gate.
   Date: 2026-09-14
 
+- Decision: Read the configured Knative issuer and TLS mode before every custom-domain apply,
+  verify supplied Secrets by key name only, and poll certificate evidence after route readiness.
+  In local mode, use the configured local CA and loopback DNS evidence without invoking gcloud.
+  Rationale: The same deploy path must fail before mutation when issuance is impossible, avoid
+  exposing Secret data, and report success only when every automatic hostname has a covering Ready
+  certificate. Reading configuration rather than assuming issuer names keeps local and cloud
+  behavior aligned.
+  Date: 2026-09-14
+
+- Decision: Retain the legacy Compute certificate in all CDN migration modes, create Certificate
+  Manager resources in `prepare`, and attach the certificate map only when an explicit
+  `certificate-map` selection observes the managed certificate as `ACTIVE`.
+  Rationale: A Pulumi state transition is safer than resource replacement: existing stacks remain
+  unchanged by default, preparation cannot interrupt traffic, and both operator intent and live
+  certificate evidence are required before the serving proxy changes.
+  Date: 2026-09-14
+
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. Milestones 1–4 now provide one strict domain contract, fail-closed
-route ownership, readiness diagnostics, standing apex DNS with a hermetically tested origin/CDN
-selection policy, and observable DNS/route/certificate inventory with a machine gate. At completion, summarize the operator-visible outcomes and distill
-durable decisions into `docs/adr` before marking M7 complete.
+Implementation is complete. All three web workload kinds now share one strict domain/TLS contract,
+fail closed on route or certificate ownership ambiguity, and expose an exact canonical URL without
+inventing redirects. Pulumi owns both apex and wildcard DNS, domain inventory reports observed DNS,
+route, issuer, and certificate health, and `domains check` provides a machine gate. Origin TLS works
+for automatic certificates and supplied Secrets; the local three-host fixture proved trusted TLS
+end to end. Google CDN now has a non-disruptive Certificate Manager prepare/activate migration,
+rejects hostnames its wildcard cannot cover, and updates supported records convergently.
+
+ADR 20 records the durable ownership and TLS boundaries, while the user guides and runbook describe
+landing pages, multi-domain configuration, supplied-certificate escape hatches, CDN migration, and
+failure recovery. The repository-wide validation matrix passed. A real staging ACME/CDN exercise is
+available through `scripts/test-cloud-multi-domain-tls.sh` but was not run because no authorized
+cloud context was supplied; the runner requires an explicit opt-in and records no secret material.
 
 
 ## Context and Orientation

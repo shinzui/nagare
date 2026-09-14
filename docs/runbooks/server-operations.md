@@ -185,6 +185,12 @@ CI and operational gates: it prints the same rows and exits non-zero for a missi
 answer, an unavailable or unready route, or a pending/failed/unknown certificate while TLS is
 enabled. Globally disabled TLS is an HTTP-only warning and does not fail the gate.
 
+Certificate observations follow the issuer named by Knative's live
+`config-certmanager`; local mode therefore reports `nagare-local-ca`, not the
+cloud `letsencrypt-dns` issuer. A supplied-secret domain is healthy only when
+the namespace-local Secret exists with `tls.crt` and `tls.key`; the command
+does not print either value.
+
 ```text
 $ nagarectl domains check --all-namespaces
 Domain check failed:

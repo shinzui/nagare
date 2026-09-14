@@ -8,10 +8,15 @@ module Nagare.Cdn.Status
   , CdnDnsTarget (..)
   , formatCdnList
   , formatCdnStatus
+  , parseCertificateManagerState
+  , formatCertificateManagerStatus
   , queryCdnRows
   )
 where
 
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
@@ -78,6 +83,32 @@ dnsCell DnsUnknown = "unknown"
 readyCell :: Bool -> Text
 readyCell True = "ready"
 readyCell False = "pending"
+
+-- | Extract the Certificate Manager managed-certificate lifecycle state from
+-- `gcloud ... --format=json` without retaining authorization details.
+parseCertificateManagerState :: ByteString -> Either Text Text
+parseCertificateManagerState bytes =
+  case eitherDecodeStrict bytes of
+    Left err -> Left ("invalid Certificate Manager JSON: " <> T.pack err)
+    Right (Object certificate) -> case KeyMap.lookup "managed" certificate of
+      Just (Object managed) -> case KeyMap.lookup "state" managed of
+        Just (String state) -> Right state
+        _ -> Left "managed certificate has no state"
+      _ -> Left "certificate has no managed status"
+    Right _ -> Left "Certificate Manager response is not an object"
+
+-- | Show the staged migration state. The activation command is deliberately
+-- absent until Google reports ACTIVE, so normal operator guidance cannot
+-- detach the serving legacy certificate prematurely.
+formatCertificateManagerStatus :: Text -> Text -> Text -> Text -> Text
+formatCertificateManagerStatus certificate mode state activationCommand =
+  T.unlines
+    ( [ "Certificate Manager certificate: " <> certificate
+      , "Certificate Manager state:       " <> state
+      , "Certificate mode:                " <> mode
+      ]
+        <> ["Activate certificate map:      " <> activationCommand | mode == "prepare" && state == "ACTIVE"]
+    )
 
 -- | Thin discovery for @cdn list@ / @cdn status@. Enumerating which hostnames are
 -- CDN-fronted, their provider, and whether DNS currently resolves to the edge or

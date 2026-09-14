@@ -87,6 +87,7 @@ profile files.
 | `nagare:artifactRegistryId` | no | `nagare` | |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
 | `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN resources. |
+| `nagare:cdnCertificateMode` | no | `legacy` | Staged Google edge TLS: `legacy`, `prepare`, then `certificate-map` after `nagarectl cdn status` reports `ACTIVE`. |
 
 Set a value with, e.g.:
 

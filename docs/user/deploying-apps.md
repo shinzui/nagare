@@ -133,6 +133,52 @@ The shape never changes:
 For the meaning and rules of every type and constructor, see
 **[Config reference](config-reference.md)**.
 
+### Apex landing page and three-domain routing
+
+The exact context base domain is an ordinary custom hostname. A landing page
+can therefore declare `apps.example.com` as its sole canonical domain:
+
+```haskell
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Lens ((&), (.~))
+import Data.Bifunctor (first)
+import Data.Generics.Labels ()
+import Nagare.Dsl.Build (BuildSpec (PrebuiltImage), mkTag)
+import Nagare.Dsl.Config (emitDeployment)
+import Nagare.Dsl.Presets (webService)
+import Nagare.Dsl.Types (Deployment, mkDomains)
+
+landing :: Either String Deployment
+landing = do
+  base <- first show (webService "landing" "gcr.io/example/landing")
+  tag <- first show (mkTag "2026-09-14")
+  doms <- first show (mkDomains [("apps.example.com", True)])
+  Right (base & #build .~ PrebuiltImage tag & #domains .~ doms)
+
+main :: IO ()
+main = either (ioError . userError) emitDeployment landing
+```
+
+A multi-domain workload marks one advertised URL explicitly; list order does
+not decide it:
+
+```haskell
+doms <- first show (mkDomains
+  [ ("apps.example.com", True)
+  , ("www.apps.example.com", False)
+  , ("alternate.apps.example.com", False)
+  ])
+```
+
+All three names route to the same Service. `nagarectl` reports
+`https://apps.example.com`, but it does not redirect the other two names.
+Production deploys preflight ownership and TLS before apply, then wait for each
+DomainMapping and its covering origin certificate.
+
 ## Less boilerplate: presets
 
 Hand-writing every field is fine for one app, but most services share a shape.
@@ -424,10 +470,14 @@ nagare status                                # ksvc Ready with a URL
 curl https://notes.personal.<baseDomain>     # the app answers over HTTPS
 ```
 
-In local mode, the bootstrap is HTTP-first:
+In local mode, bootstrap installs the local CA; use its public certificate when
+checking HTTPS from the host:
 
 ```bash
-curl http://notes.personal.127-0-0-1.sslip.io
+kubectl -n cert-manager get secret nagare-local-ca \
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/nagare-local-ca.pem
+curl --cacert /tmp/nagare-local-ca.pem \
+  https://notes.personal.127-0-0-1.sslip.io
 ```
 
 ## Next

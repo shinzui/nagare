@@ -245,6 +245,7 @@ requiredApis =
   , "dns.googleapis.com"
   , "storage.googleapis.com"
   , "artifactregistry.googleapis.com"
+  , "certificatemanager.googleapis.com"
   , "iam.googleapis.com"
   , "servicenetworking.googleapis.com"
   ]

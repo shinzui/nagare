@@ -250,18 +250,18 @@ local-down:
 
 # EP-82: install the SAME ingress stack the cloud uses (cert-manager + Knative
 # Serving + Kourier + net-certmanager, at the pins above) onto the local k3d
-# cluster, but HTTP-first for laptop use. This is `cluster-bootstrap` minus the
+# cluster, with a laptop-local CA for HTTPS. This is `cluster-bootstrap` minus the
 # three cloud-coupled steps:
 #   - SKIP cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl (renders a GCP
 #     project + needs ambient GCE creds); local TLS issuer is EP-85's job (IP-5).
-#   - SKIP the config-certmanager patch (it points Knative at that letsencrypt-dns
-#     issuer); external-domain-tls stays OFF so apps serve over HTTP.
+#   - REPLACE the public config-certmanager patch with the `nagare-local-ca`
+#     issuer and enable external-domain TLS without contacting ACME.
 #   - read the apps domain from NAGARE_BASE_DOMAIN (profile) instead of `pulumi
 #     stack output baseDomain`, and put the LOCAL registry host into
 #     registriesSkippingTagResolving.
 # Requires the cluster (`just local-up`) and local mode active in the shell
 # (NAGARE_MODE=local; copy nagare.local.env.example to nagare.local.env).
-# Install Knative + Kourier + cert-manager on the local cluster (HTTP-first).
+# Install Knative + Kourier + cert-manager on the local cluster with local TLS.
 [group('local')]
 local-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
@@ -271,9 +271,10 @@ local-bootstrap:
     kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
-    # NOTE: cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl is
-    # intentionally NOT applied — it renders a GCP project and needs ambient GCE
-    # creds. Local TLS issuer is EP-85's job (MasterPlan 16 IP-5).
+    # The public DNS-01 issuer is intentionally skipped. Install the local CA
+    # counterpart so explicit DomainMappings can be exercised over trusted TLS.
+    kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml
+    kubectl -n cert-manager wait --for=condition=Ready certificate/nagare-local-ca --timeout=120s
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
     kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
     kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
@@ -284,9 +285,8 @@ local-bootstrap:
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
     scripts/install-net-certmanager-controller.sh
-    # NOTE: config-certmanager patch is intentionally skipped — it points Knative at
-    # the letsencrypt-dns ClusterIssuer this bootstrap does not install (EP-85 wires
-    # the local issuer). external-domain-tls stays off, so apps serve over HTTP.
+    scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/local-tls/config-certmanager-local.yaml)"
+    scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
     scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-k3d-registry.localhost:5000}"; \
       scripts/retry-knative-configmap-patch.sh config-deployment --type merge \

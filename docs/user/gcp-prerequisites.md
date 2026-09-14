@@ -109,17 +109,18 @@ Nagare codifies the API set two ways, both wired up by `nagarectl init`:
 - **`scripts/enable-apis.sh`** — the tracked script `init` runs for you. It sources the
   guardrail, asserts the effective project agrees with the declared target (or
   gcloud's stored configuration when no target declares one), then enables the
-  six APIs with an explicit `--project`.
+  seven APIs with an explicit `--project`.
 - **`gcp.projects.Service` resources** in `infra/pulumi/index.ts` — so every later
   `pulumi up` keeps the APIs on.
 
-The six APIs:
+The seven APIs:
 
 ```text
 compute.googleapis.com
 dns.googleapis.com
 storage.googleapis.com
 artifactregistry.googleapis.com
+certificatemanager.googleapis.com
 iam.googleapis.com
 servicenetworking.googleapis.com
 ```
@@ -128,7 +129,8 @@ If you are not yet running `nagarectl init`, enable them by hand:
 
 ```bash
 gcloud services enable compute.googleapis.com dns.googleapis.com storage.googleapis.com \
-  artifactregistry.googleapis.com iam.googleapis.com servicenetworking.googleapis.com \
+  artifactregistry.googleapis.com certificatemanager.googleapis.com \
+  iam.googleapis.com servicenetworking.googleapis.com \
   --project=YOUR_PROJECT_ID
 ```
 

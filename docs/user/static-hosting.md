@@ -387,9 +387,14 @@ the release.
 | `runghc` cannot find `nagare-dsl` | Pass `--ghc-env /path/to/.ghc.environment.<arch>-<ghc>` (or set `NAGARE_GHC_ENVIRONMENT`), as with `nagarectl deploy`. |
 | Server app returns 502 / never ready | The framework must bind `0.0.0.0` and read `PORT`. Set `HOSTNAME=0.0.0.0` in `env` for Next.js. |
 
-Custom domains and TLS follow the cluster's wildcard DNS + cert-manager wiring;
-see [Cluster bootstrap](cluster-bootstrap.md). Until `nagare-01` is up and the
-base domain is real, the `apps.example.com` URLs above are placeholders.
+Custom domains use the same `DomainSpec` and origin-TLS policy as ordinary
+deployments. Source configs that previously assigned `[Domain]` must migrate to
+`mkDomains [(host, True)]`; emitted legacy string-array JSON remains readable.
+Automatic certificates follow the cluster's cert-manager wiring, while an
+external authority can use `withTlsSecret`. See [Cluster bootstrap](cluster-bootstrap.md).
+Until `nagare-01` is up and the base domain is real, the `apps.example.com` URLs
+above are placeholders. The canonical marker selects the reported URL; it does
+not install redirects.
 
 ---
 

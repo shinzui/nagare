@@ -151,7 +151,8 @@ the back-compatible form of a `mode=local` context.
 | `NAGARE_LOCAL_OBJECT_STORE` | `http://minio.nagare-system.svc.cluster.local:9000/nagare-backups` | MinIO endpoint + bucket for local backups |
 
 Local mode uses neither `NAGARE_ACME_EMAIL` nor `NAGARE_ACME_DIRECTORY`: it never
-contacts Let's Encrypt, and `just local-bootstrap` installs no `ClusterIssuer`.
+contacts Let's Encrypt. `just local-bootstrap` installs the `nagare-local-ca`
+ClusterIssuer and configures Knative external-domain TLS to use it.
 
 ## `nagarectl context` commands
 
@@ -195,7 +196,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just job-runs-status` | Show bounded-run quota use, admitted Pods, and `FailedCreate` backpressure events | MP-18 EP-95 ✅ |
 | `just context-show` | Print the selected kubectl context and API server without contacting the cluster | MP-8 |
 | `just local-up` | Create local k3d cluster + local registry | MP-16 EP-82 |
-| `just local-bootstrap` | Install Knative/Kourier locally, HTTP-first | MP-16 EP-82 |
+| `just local-bootstrap` | Install Knative/Kourier locally with the `nagare-local-ca` TLS issuer | MP-16 EP-82 / EP-85 |
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
 | `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: deploy → volume/database backup+restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 / MP-19 EP-101 |
@@ -239,12 +240,14 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:artifactRegistryId` | no | `nagare` | |
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
 | `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN load balancer. |
+| `nagare:cdnCertificateMode` | no | `legacy` | Google edge-certificate migration: `legacy`, `prepare`, or `certificate-map`. Invalid text fails the Pulumi program. Existing stacks stay legacy until explicitly prepared and activated. |
 
 ## Pulumi stack outputs (the integration contract — names are stable)
 
 `publicIp`, `apexIp`, `sshCommand`, `baseDomain`, `instanceName`, `serviceAccountEmail`,
 `dataDiskName`, `dnsZoneName`, `artifactRegistry`, `backupBucket`, `cdnGlobalIp`,
-`cdnBackendService`, `cdnUrlMap`.
+`cdnBackendService`, `cdnUrlMap`, `cdnCertificate`, `cdnCertificateMap`,
+`cdnCertificateMode`.
 
 `publicIp` is the VM and wildcard-DNS target. `apexIp` is the exact base-domain target: it equals
 `cdnGlobalIp` when the opt-in CDN component exists and otherwise equals `publicIp`.
@@ -491,9 +494,9 @@ env at deploy time. Backups land at
 | Command | Does |
 | --- | --- |
 | `nagarectl cdn list [-n NS] [--all-namespaces]` | List CDN-fronted hostnames, providers, and edge state. |
-| `nagarectl cdn status HOST` | Show provider, DNS target, cache config, and readiness for one hostname. |
+| `nagarectl cdn status HOST` | Show provider, DNS target, cache config, readiness, and Certificate Manager state. In `prepare`, print the exact map-activation command only after the certificate is `ACTIVE`. |
 | `nagarectl cdn purge HOST [--path PATH ...] [--dry-run]` | Purge everything or selected paths from the edge cache. |
-| `nagarectl cdn disable HOST [--dry-run]` | Revert the hostname's DNS to the VM/origin and remove its active edge mapping. |
+| `nagarectl cdn disable HOST [--dry-run]` | Delete a supported first-level exact record so wildcard DNS restores the VM/origin. Refuses the Pulumi-owned apex and unsupported Google hostname shapes. |
 
 See [CDN (edge caching)](cdn.md).
 
@@ -546,7 +549,9 @@ TLS via cert-manager DNS-01 (HTTP-01 can't issue wildcards). Only namespaces
 labeled `nagare.dev/app-namespace=true` are eligible; internal and cluster-local
 certificates remain on `knative-selfsigned-issuer`.
 
-Local mode uses `*.127-0-0-1.sslip.io` over HTTP by default.
+Local bootstrap enables HTTPS for `*.127-0-0-1.sslip.io` and exact
+DomainMappings with the `nagare-local-ca` issuer. Automated checks export only
+the public CA certificate and use `curl --cacert`.
 
 ## Related docs
 
