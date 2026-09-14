@@ -65,7 +65,7 @@ change implementable and make the supported combinations explicit rather than si
 - [x] (2026-09-14T20:01Z) M1: Made one strict, canonical domain model serve `Deployment`, `StaticSite`, and `ServerSite`, with backward-compatible JSON decoding and migration documentation. `nagare-dsl` passed 401 tests, `nagarectl` passed 527 tests, documentation validation passed, Haskell style passed in the Nix shell, and all 33 compatible `nix flake check` checks passed.
 - [x] (2026-09-14T20:12Z) M2: Added fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths. Hermetic tests prove conflicts and unreadable ownership perform zero applies while same-owner redeploys proceed; `nagarectl` passed 534 tests, `nagare-dsl` passed 401 tests, all executables built, documentation/style checks passed, and every compatible flake check passed.
 - [x] (2026-09-14T20:28Z) M3: Added a pure, fully truth-tabled apex/wildcard target resolver; two Pulumi-owned RRsets; exported `apexIp`; a TCP Kourier health check; and an executable Pulumi mock proving the distinct records. `npm test`, the `infra-domain-topology` Nix check, documentation/style validation, all 535 `nagarectl` tests, and every compatible flake check passed; the infrastructure guard still refuses zone replacement but permits an apex RRset target update.
-- [ ] M4: Replace computed-only domain inventory with actual DNS, route, and certificate observations, and add a machine-checkable `domains check` command.
+- [x] (2026-09-14T20:49Z) M4: Replaced guessed status with typed DNS, route, TLS-mode, issuer, and certificate observations; added real `dig` probes, `domains list --json` schema version 1, and the non-zero `domains check` gate. Recording fixtures cover NXDOMAIN, missing/failed tools, apex mismatch, wildcard and CDN success, disabled TLS, pending/failed ACME, and a fully ready inventory. All 539 tests, all executables, docs/style validation, and every compatible flake check passed.
 - [ ] M5: Make automatic and supplied-secret origin TLS explicit in the domain model and prove multi-domain certificate behavior locally and in a staging ACME run.
 - [ ] M6: Replace Google CDN's single-host edge certificate with a staged Certificate Manager map covering the apex and first-level base-domain hosts.
 - [ ] M7: Complete documentation, migration notes, end-to-end evidence, and ADR distillation; run the full repository validation suite.
@@ -136,6 +136,13 @@ change implementable and make the supported combinations explicit rather than si
   `gcp.compute.HealthCheck` accepts `tcpHealthCheck` with a `port`. The installed Pulumi mock
   runtime requires waiting for its RPC queue to drain before asserting on all asynchronously
   registered child resources. Date: 2026-09-14.
+
+- The development and packaged operator environments did not contain `dig`; adding
+  `pkgs.bind.dnsutils` to the default shell and the base `nagarectl` wrapper makes the observation
+  dependency explicit. A Kubernetes API can also distinguish an absent optional certificate CRD
+  only through command diagnostics, so the System.Process adapter classifies server “not found” /
+  unknown-resource responses as `NotFound` and keeps other non-zero exits as `Unavailable`.
+  Date: 2026-09-14.
 
 
 ## Decision Log
@@ -230,12 +237,22 @@ change implementable and make the supported combinations explicit rather than si
   unavailable target, while the explicit impossible-state failure keeps future refactors honest.
   Date: 2026-09-14
 
+- Decision: Model actual DNS, route, and certificate evidence independently from the expected DNS
+  targets, and keep `domains list` tolerant while making `domains check` strict.
+  Rationale: Absence and probe failure demand different remedies, and an expected record is not
+  evidence that public resolvers serve it. The apex accepts only `apexIp`; a first-level hostname
+  accepts either `publicIp` or the live CDN IP; unrelated/deeper names require an address but have
+  no platform-owned target. Schema-versioned JSON exposes the same distinctions without column
+  scraping. Globally disabled TLS remains a truthful HTTP-only state, while pending/failed/unknown
+  enabled TLS fails the operational gate.
+  Date: 2026-09-14
+
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. Milestones 1–3 now provide one strict domain contract, fail-closed
-route ownership, readiness diagnostics, and standing apex DNS with a hermetically tested
-origin/CDN selection policy. At completion, summarize the operator-visible outcomes and distill
+Implementation is in progress. Milestones 1–4 now provide one strict domain contract, fail-closed
+route ownership, readiness diagnostics, standing apex DNS with a hermetically tested origin/CDN
+selection policy, and observable DNS/route/certificate inventory with a machine gate. At completion, summarize the operator-visible outcomes and distill
 durable decisions into `docs/adr` before marking M7 complete.
 
 
@@ -788,3 +805,7 @@ source discovery. The next unchecked work is exact apex DNS topology.
 Revision note (2026-09-14): Recorded Milestone 3 exact apex DNS, the pure topology truth table,
 the Pulumi two-record mock, the TCP origin health invariant, exported `apexIp`, and the additive
 preview-guard contract. The next unchecked work is truthful domain inventory.
+
+Revision note (2026-09-14): Recorded Milestone 4 observation types, real DNS probes, route and
+certificate diagnostics, JSON schema, strict check command, packaged `dig`, fixture coverage, and
+repository-wide validation. The next unchecked work is explicit and verified origin TLS.

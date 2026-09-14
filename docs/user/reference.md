@@ -504,7 +504,8 @@ See [CDN (edge caching)](cdn.md).
 | `nagarectl server status [--skip-vm]` | Print one-screen VM, host age-key, disk, Kubernetes, ingress, observability, app, database, and backup inventory. Ready is `OK`; confirmed missing/invalid is `FAIL`; an old or unreachable host is `UNKNOWN`. `--skip-vm` avoids the shared IAP/SSH host probe. |
 | `nagarectl doctor [--skip-vm]` | Run platform health checks with remediation hints; a confirmed host age-key failure points to `nagarectl host place-age-key --key-file <private-key-file>` and exits 1. `UNKNOWN` remains a warning. |
 | `nagarectl cluster certificate-policy` | Fail if a public ACME certificate contains an internal name or a public wildcard belongs to an unlabeled namespace. |
-| `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN]` | Compare the base domain and app DomainMappings with DNS and certificate state. |
+| `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN] [--json]` | Show live public DNS, route, and certificate observations. Partial/unavailable observations still exit successfully; JSON schema version is 1. |
+| `nagarectl domains check [-n NS] [--all-namespaces] [--base-domain DOMAIN] [--json]` | Print the same inventory and exit non-zero for missing/mismatched DNS, unavailable or unready routes, or non-ready certificates while TLS is enabled. |
 | `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`. |
 
 > **Known status-probe gap:** the current `server status`/`doctor` backup rows

@@ -32,6 +32,8 @@
             pkgs.socat
             pkgs.kubectl
             pkgs.kubernetes-helm
+            # Public DNS observations for `nagarectl domains list/check`.
+            pkgs.bind.dnsutils
             pkgs.sops
             pkgs.age
             pkgs.tailscale

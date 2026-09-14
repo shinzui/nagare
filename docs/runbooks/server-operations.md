@@ -26,8 +26,10 @@ nagarectl server status     One-screen inventory: VM, k3s, Knative, Kourier,
                             backup freshness. Read-only; degrades gracefully.
 nagarectl doctor            The same probes re-graded as an OK/WARN/FAIL checklist,
                             each non-OK line carrying a fix command. Exits 1 on any FAIL.
-nagarectl domains list      The base domain + every per-app DomainMapping, with the
-                            expected DNS record and certificate readiness.
+nagarectl domains list      Live DNS, DomainMapping, and certificate observations;
+                            --json emits schema version 1. Partial data still exits 0.
+nagarectl domains check     The same report as an operations/CI gate. Exits 1 when
+                            DNS, routing, or enabled TLS is unavailable or unhealthy.
 nagarectl cleanup           Reclaim disk: prune unused images, stale previews, old
                             releases. Dry-run by default; --confirm to act.
 ```
@@ -145,13 +147,15 @@ nagare doctor — 18 checks
 ## What is my DNS/TLS state? — `nagarectl domains list`
 
 The platform base domain plus every Knative `DomainMapping`, each with its owning
-Service, the DNS record it is expected to match (computed from the Pulumi wildcard +
-reserved IP — not a live `dig`), and its certificate readiness. Read-only.
+Service, live public DNS answers from `dig`, route condition, and certificate state. The exact
+base row expects `apexIp`; a first-level hostname accepts the wildcard VM target or an exact CDN
+target. Deeper and unrelated names have no platform-owned target but must still have a public
+address answer.
 
 ```text
 $ nagarectl domains list --help
 Usage: nagarectl domains list [-n|--namespace NS] [--all-namespaces]
-                              [--base-domain DOMAIN]
+                              [--base-domain DOMAIN] [--json]
 
   List the base domain and per-app DomainMappings with DNS and cert state
 
@@ -160,29 +164,31 @@ Available options:
   --all-namespaces         List domains across all namespaces
   --base-domain DOMAIN     Apps base domain (overrides NAGARE_BASE_DOMAIN,
                            default apps.example.com)
+  --json                   Emit versioned JSON instead of the human table
   -h,--help                Show this help text
 ```
 
-The first row is the base domain (the wildcard apex); each subsequent row is a
-`DomainMapping`. **TLS is HTTP-first today** — the placeholder `apps.example.com` cannot
-complete an ACME DNS-01 challenge, so no `Certificate` objects exist and the `CERT`
-column reads `disabled`. Wildcard Let's Encrypt TLS is opt-in via `just
-cluster-enable-tls` once a real `baseDomain` is delegated (see
-[`disaster-recovery.md`](disaster-recovery.md) step 4); after that the `CERT` column
-reads `Ready` (or `pending` while the challenge is in flight).
+The first row is the exact base domain; each subsequent row is a `DomainMapping`. `ROUTE`, `DNS`,
+and `CERT` distinguish confirmed absence from an unavailable probe. When external-domain TLS is
+globally off, `CERT` reads `disabled` rather than pretending a certificate is missing. Once TLS is
+enabled, pending and failed ACME conditions include the Kubernetes reason/message.
 
 ```text
-  DOMAIN                          SERVICE         DNS                               CERT
-  apps.example.com                (base)          *.apps.example.com A -> 34.83.0.1 disabled
-  blog.apps.example.com           blog            *.apps.example.com A -> 34.83.0.1 disabled
+  DOMAIN                          SERVICE         ROUTE       DNS                                                       CERT
+  apps.example.com                (base)          (none)      34.83.0.2 (expected 34.83.0.2)                            disabled
+  blog.apps.example.com           blog            Ready       34.83.0.1 (expected 34.83.0.1 or 34.83.0.2)              Ready: blog-cert
 ```
 
-**Captured with no cluster reachable** — the base row still prints with the IP as
-`(unknown)`, exit 0:
+`domains list` remains read-only and exits 0 with partial observations; its stderr explains which
+tool/query was unavailable. Use `--json` for schema-versioned automation. Use `domains check` for
+CI and operational gates: it prints the same rows and exits non-zero for a missing/mismatched DNS
+answer, an unavailable or unready route, or a pending/failed/unknown certificate while TLS is
+enabled. Globally disabled TLS is an HTTP-only warning and does not fail the gate.
 
 ```text
-  DOMAIN                          SERVICE         DNS                               CERT
-  apps.example.com                (base)          *.apps.example.com A -> (unknown) disabled
+$ nagarectl domains check --all-namespaces
+Domain check failed:
+  blog.apps.example.com: DNS resolves to 203.0.113.44, expected 34.83.0.1 or 34.83.0.2
 ```
 
 ## Reclaim disk — `nagarectl cleanup`

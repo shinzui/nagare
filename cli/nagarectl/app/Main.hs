@@ -241,11 +241,16 @@ import Nagare.Ops.ContextGuard
   )
 import Nagare.Ops.Doctor (doctorExitOk, formatDoctor, gradeChecksAt)
 import Nagare.Ops.Domains
-  ( CertState (..)
+  ( CertificateState (..)
   , DnsExpectation (..)
   , DomainRow (..)
+  , Observation (..)
+  , domainCheckFailures
+  , domainReportValue
   , formatDomainList
   , listNamespaces
+  , observeNamespaces
+  , queryBaseDomainRow
   , queryDomainRows
   )
 import Nagare.Ops.Probe (InventoryOpts (..), Probe (..), ProbeStatus (..), captureTool, renderInventory)
@@ -1068,9 +1073,9 @@ contextCreateOptsParser =
     <*> switch (long "force" <> help "Update an existing context: passed flags change, every other stored field is kept")
     <*> switch (long "use" <> help "Also set this context as the current context")
 
--- | The @domains@ group (MasterPlan 8, EP-40). Only @list@ exists today; the
--- group leaves room for future @domains add@/@remove@.
-newtype DomainsCommand = DomainsList DomainsListOpts
+data DomainsCommand
+  = DomainsList DomainsListOpts
+  | DomainsCheck DomainsListOpts
   deriving stock (Generic, Show)
 
 -- | Options for @domains list@: namespace selection and an optional base-domain
@@ -1079,6 +1084,7 @@ data DomainsListOpts = DomainsListOpts
   { namespace :: !(Maybe String)
   , allNamespaces :: !Bool
   , baseDomain :: !(Maybe String)
+  , json :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1088,6 +1094,7 @@ domainsListOptsParser =
     <$> namespaceOpt
     <*> switch (long "all-namespaces" <> help "List domains across all namespaces")
     <*> baseDomainOpt
+    <*> switch (long "json" <> help "Emit versioned JSON instead of the human table")
 
 -- | MasterPlan 11 / EP-58: the @cdn@ command group. The constructor is named
 -- 'CdnCmd' (not @Cdn@) to avoid clashing with the 'Cdn' type from
@@ -1945,6 +1952,12 @@ opts =
                 (Domains . DomainsList <$> domainsListOptsParser <**> helper)
                 (progDesc "List the base domain and per-app DomainMappings with DNS and cert state")
             )
+            <> command
+              "check"
+              ( info
+                  (Domains . DomainsCheck <$> domainsListOptsParser <**> helper)
+                  (progDesc "Check public DNS, route ownership/readiness, and certificate state")
+              )
         )
     cdnCmd =
       info
@@ -2535,6 +2548,7 @@ main =
     Infra (InfraApply options) -> runInfraApply mctx options
     Infra (InfraDestroy yes) -> runInfraDestroy mctx yes
     Domains (DomainsList o) -> runDomainsList mctx o
+    Domains (DomainsCheck o) -> runDomainsCheck mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
 
@@ -4330,22 +4344,55 @@ formatContextList cur rows =
       let t' = T.take n t
        in t' <> T.replicate (max 1 (n - T.length t')) " "
 
--- | @domains list@: print the base domain plus every per-app DomainMapping with
--- its owning Service, computed DNS expectation, and certificate readiness.
--- Read-only; degrades gracefully when Pulumi/kubectl are unreachable (base row
--- still prints, per-app rows empty, cert column @disabled@).
+-- | @domains list@: show partial evidence successfully. @domains check@ uses
+-- the same inventory, but treats unavailable probes and unhealthy configured
+-- routes as a non-zero operations/CI gate.
 runDomainsList :: Maybe String -> DomainsListOpts -> IO ()
-runDomainsList mctx o = do
+runDomainsList mctx o = void (runDomainsInventory False mctx o)
+
+runDomainsCheck :: Maybe String -> DomainsListOpts -> IO ()
+runDomainsCheck mctx o = void (runDomainsInventory True mctx o)
+
+runDomainsInventory :: Bool -> Maybe String -> DomainsListOpts -> IO [DomainRow]
+runDomainsInventory checking mctx o = do
   (_, workspace) <- ensurePulumiForActiveContext mctx
   base <- resolveDomainsBaseAt mctx workspace (o ^. #baseDomain)
-  ip <- fromMaybe "(unknown)" <$> stackOutput (workspace ^. #pulumiDir) "publicIp"
-  nss <-
+  publicIp <- stackOutput (workspace ^. #pulumiDir) "publicIp"
+  apexIp <- stackOutput (workspace ^. #pulumiDir) "apexIp"
+  cdnGlobalIp <- stackOutput (workspace ^. #pulumiDir) "cdnGlobalIp"
+  namespaceObservation <-
     if o ^. #allNamespaces
-      then listNamespaces
-      else pure [appNamespace (o ^. #namespace)]
-  rows <- concat <$> traverse (queryDomainRows base ip) nss
-  let baseRow = DomainRow base Nothing Nothing (UnderWildcard ip) CertDisabled
-  TIO.putStr (formatDomainList (baseRow : rows))
+      then observeNamespaces
+      else pure (Observed [appNamespace (o ^. #namespace)])
+  let nss = case namespaceObservation of
+        Observed namespaces -> namespaces
+        _ -> []
+  baseRow <- queryBaseDomainRow base apexIp
+  observations <- traverse (queryDomainRows base publicIp apexIp cdnGlobalIp) nss
+  let rows = baseRow : concat [found | Observed found <- observations]
+      namespaceFailures = case namespaceObservation of
+        Observed _ -> []
+        NotFound -> ["namespace inventory was not found"]
+        Unavailable detail -> ["namespace inventory unavailable: " <> detail]
+      inventoryFailures =
+        namespaceFailures
+          <> [ namespace <> ": DomainMapping inventory was not found"
+             | (namespace, NotFound) <- zip nss observations
+             ]
+          <> [namespace <> ": " <> detail | (namespace, Unavailable detail) <- zip nss observations]
+      failures = inventoryFailures <> domainCheckFailures rows
+  if o ^. #json
+    then LBC.putStrLn (Aeson.encode (domainReportValue inventoryFailures rows))
+    else TIO.putStr (formatDomainList rows)
+  unless (checking || null inventoryFailures) $ do
+    TIO.hPutStrLn stderr "Domain inventory is partial:"
+    mapM_ (TIO.hPutStrLn stderr . ("  " <>)) inventoryFailures
+  if checking && not (null failures)
+    then do
+      TIO.hPutStrLn stderr "Domain check failed:"
+      mapM_ (TIO.hPutStrLn stderr . ("  " <>)) failures
+      exitFailure
+    else pure rows
 
 resolveDomainsBaseAt :: Maybe String -> PlatformWorkspace -> Maybe String -> IO Text
 resolveDomainsBaseAt _ _ (Just b) = pure (T.pack b)
