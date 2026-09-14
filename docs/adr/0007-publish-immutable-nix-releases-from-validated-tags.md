@@ -72,3 +72,16 @@ This packaging rule applies only to the operator distribution. The smaller app-d
 `#nagarectl` output remains unchanged, and Node.js with npm plus the Google Cloud SDK remain explicit
 external prerequisites. [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md)
 introduced and validated the rule in signed release `v0.2.2`.
+
+## Amendment — 2026-09-14: intentional operator profile surface
+
+Public `#nagarectl` and `#nagare` outputs expose only their intentional `bin`, `share`, and
+`nix-support` trees. Build-time Haskell `lib/links` farms are not part of the distribution contract
+and must not enter an operator's Nix profile. The full `#nagare` operator environment additionally
+carries `socat`, because its packaged IAP SSH transport requires it; the smaller app-developer
+package does not.
+
+Release checks exercise the installed commands, reject either public output when `lib/links` is
+present, require `socat` on the operator PATH, and prove the package can share a Darwin profile with
+another output that owns the former collision path. [ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md)
+introduced and validated this boundary.
