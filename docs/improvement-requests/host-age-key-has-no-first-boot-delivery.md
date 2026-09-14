@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Give the host age key a supported delivery path, since a GCE image cannot hold it before first boot
 description: The docs require the private age key on the VM before first boot, but infra-up creates and boots the VM from an image that must not contain it, so every new host first boots without secrets and needs a manual copy and reboot.
-timestamp: "2026-09-14T02:40:00Z"
+timestamp: "2026-09-14T03:45:51Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-18
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T03:45:51Z"
+targetPlan: docs/plans/133-deliver-the-host-age-key-after-first-boot.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted; planned as
+[ExecPlan 133](../plans/133-deliver-the-host-age-key-after-first-boot.md).
 **Created:** 2026-09-14.
 
 
