@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Stop the first-boot data-disk format from racing systemd-fsck and leaving k3s failed
 description: On a fresh v0.2.2 host, format-nagare-data's mkfs hit "Device or resource busy" because systemd-fsck opened the same device, so the first mount failed and k3s stayed dead even though a retry one second later formatted and mounted the disk.
-timestamp: "2026-09-14T02:40:00Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-19
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 137](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md).
 **Created:** 2026-09-14.
 
 

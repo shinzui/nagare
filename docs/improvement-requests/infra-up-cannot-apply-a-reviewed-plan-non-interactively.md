@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Let infra-up apply a reviewed plan non-interactively, behind the guards
 description: The infra-up recipe ends in a bare pulumi up, so a non-TTY shell stops at Pulumi's prompt, and the only workaround, PULUMI_SKIP_CONFIRMATIONS, applies a recomputed plan rather than the one the operator reviewed.
-timestamp: "2026-09-14T02:04:28Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:04:28Z"
 requestId: IR-15
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md).
 **Created:** 2026-09-14.
 
 

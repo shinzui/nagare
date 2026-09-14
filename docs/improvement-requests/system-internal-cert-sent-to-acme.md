@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Keep Knative's system-internal certificate off the public ACME issuer
 description: cluster-bootstrap sets only config-certmanager's issuerRef, so Knative's routing-serving-certs (kn-routing, data-plane.knative.dev) is re-issued through letsencrypt-dns, and every run sends Let's Encrypt an order it rejects.
-timestamp: "2026-09-14T02:50:00Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:50:00Z"
 requestId: IR-22
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
 **Created:** 2026-09-14.
 
 

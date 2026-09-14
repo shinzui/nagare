@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Report a context with no host or cluster yet as not deployed, not legacy-unknown, and let it be re-pinned
 description: A freshly initialised cloud context used from the next patch release shows Compatibility legacy-unknown only because its host and cluster do not exist yet, and neither adopt nor the documented upgrade flow can move its pin.
-timestamp: "2026-09-14T02:04:28Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:04:28Z"
 requestId: IR-16
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md).
 **Created:** 2026-09-14.
 
 
