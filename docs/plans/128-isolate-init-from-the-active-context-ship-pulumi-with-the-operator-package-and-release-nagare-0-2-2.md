@@ -97,8 +97,15 @@ tailnet) are related but out of scope. The Decision Log records why.
 - [x] (2026-09-14 00:53Z) Milestone 3: updated `docs/user/installation.md`,
   `docs/user/getting-started.md`, and `CHANGELOG.md` `[Unreleased]`; all 462 Haskell tests, the
   Haskell style gate, and strict user-documentation validation pass.
-- [ ] Milestone 4: release 0.2.2 (version sources, notes, gates, push, dispatch, signed tag,
-  publish, verification).
+- [x] (2026-09-14 00:59Z) Pre-release gate: `nix flake check --print-build-logs` passes all 24
+  aarch64-darwin checks from committed implementation checkpoint `73a2f4a`.
+- [x] (2026-09-14 01:02Z) Milestone 4 candidate preparation: version sources, installation pins,
+  changelog, workflow default, compatibility fixture, and `docs/releases/v0.2.2.md` agree on
+  0.2.2. The source-only release check, documentation validators, capability profile and graph,
+  and `mori validate` pass.
+- [ ] Milestone 4 remaining: commit the candidate; run the clean candidate gates; then, after the
+  plan's bounded operator approval, push, dispatch native CI, sign and push the tag, publish, and
+  verify 0.2.2.
 - [ ] Milestone 5: mark IR-13, IR-7, and IR-8 completed with resolutions, distill ADR context,
   and notify the `labs-tan` session.
 
@@ -154,6 +161,11 @@ tailnet) are related but out of scope. The Decision Log records why.
   exposed this hidden side effect. The launcher now resolves the immutable workspace and executes
   `just --list` before context/Pulumi initialization; operational recipes still take the guarded
   context path.
+
+- Observation: the release-candidate `mori validate` gate succeeds but warns that `mori.dhall`'s
+  recorded schema hash predates the semantic hash embedded in the current Mori binary. The
+  configuration is valid and this release does not change Mori configuration, so the unrelated
+  schema-upgrade rewrite remains outside this candidate.
 
 
 ## Decision Log
@@ -921,3 +933,8 @@ Revision note (2026-09-14 00:53Z): Milestones 2 and 3 are implemented and their 
 checks pass. Progress now records the 462-test suite, clone-free init isolation, operator-tool
 packaging, documentation validation, and the launcher-listing discovery before the release
 milestone begins.
+
+Revision note (2026-09-14 01:02Z): The 0.2.2 candidate sources and operator notes are prepared after
+the committed implementation passed the full local flake gate. Progress and Surprises now record
+the exact candidate validators and the non-blocking Mori schema-hash warning before the clean
+candidate rehearsal.

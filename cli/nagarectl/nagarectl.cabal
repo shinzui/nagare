@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: nagarectl
-version: 0.2.1
+version: 0.2.2
 synopsis: Deploy a typed-config Nagare app to Knative with one command.
 description:
   nagarectl is the Nagare deploy CLI. It loads a typed configuration file
