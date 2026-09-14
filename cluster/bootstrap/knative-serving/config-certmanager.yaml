@@ -10,3 +10,9 @@ data:
   issuerRef: |
     kind: ClusterIssuer
     name: letsencrypt-dns
+  clusterLocalIssuerRef: |
+    kind: ClusterIssuer
+    name: knative-selfsigned-issuer
+  systemInternalIssuerRef: |
+    kind: ClusterIssuer
+    name: knative-selfsigned-issuer

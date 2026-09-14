@@ -60,6 +60,7 @@ import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Yaml
 import Nagare.Access.Resolve (resolveDeploymentAccess)
 import Nagare.Build (addBuildArgs, performBuild)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace, renderNamespace)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
 import Nagare.Deploy (applyManifests, waitForReady, waitForWorkerRollout)
 import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveTag)
@@ -214,8 +215,10 @@ waitResult what (ExitFailure code) =
 -- machine-readable @--json@ plan (EP-2 M3). Database manifests are rendered by
 -- the database phase in M3; M1 renders hooks, service, and workers.
 renderAppObjects :: RolloutEnv -> Application -> Either Text [(Text, ByteString)]
-renderAppObjects env app =
-  concat <$> traverse (renderPhaseObjects env) (planPhases app)
+renderAppObjects env app = do
+  namespace <- renderNamespace ApplicationNamespace (env ^. #namespace)
+  objects <- concat <$> traverse (renderPhaseObjects env) (planPhases app)
+  pure (("namespace", namespace) : objects)
 
 -- | The stamped, phase-tagged manifests for one phase.
 renderPhaseObjects :: RolloutEnv -> Phase -> Either Text [(Text, ByteString)]
@@ -466,6 +469,7 @@ runAppDeploy p = do
 -- (they need a cluster to resolve); the dry-run and live paths render identically.
 liveDeploy :: AppDeployParams -> TargetProfile -> RolloutEnv -> Application -> IO ()
 liveDeploy p tp env app = do
+  ensureNamespace ApplicationNamespace (env ^. #namespace) >>= requireRendered
   buildAndPushShared p tp env app
   result <- runPhases (livePhaseExec env) (planPhases app)
   case result of

@@ -18,6 +18,7 @@ where
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
@@ -80,25 +81,29 @@ deployServerProduction inputs src = do
       m = serverManifests inputs
       ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
       ns = namespaceText (s ^. #namespace)
-  prep <- prepareServerOutput (inputs ^. #skipBuild) s (inputs ^. #projectDir)
-  case prep of
+  namespaceReady <- ensureNamespace ApplicationNamespace ns
+  case namespaceReady of
     Left err -> pure (Left err)
-    Right out -> do
-      configureDockerAuthFor (inputs ^. #targetProfile)
-      withServerImageContext s out (buildImage ref)
-      pushImage ref
-      applyManifests (m ^. #service : m ^. #domainMappings)
-      waitForReady (m ^. #serviceName) ns
-        >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
-      recorded <-
-        recordReleaseFor
-          (imageRefText (s ^. #image))
-          (inputs ^. #imageTag)
-          (m ^. #url)
-          (m ^. #serviceName)
-          ns
-          src
-      pure (m ^. #url <$ recorded)
+    Right () -> do
+      prep <- prepareServerOutput (inputs ^. #skipBuild) s (inputs ^. #projectDir)
+      case prep of
+        Left err -> pure (Left err)
+        Right out -> do
+          configureDockerAuthFor (inputs ^. #targetProfile)
+          withServerImageContext s out (buildImage ref)
+          pushImage ref
+          applyManifests (m ^. #service : m ^. #domainMappings)
+          waitForReady (m ^. #serviceName) ns
+            >>= requireWait ("server '" <> (m ^. #serviceName) <> "'")
+          recorded <-
+            recordReleaseFor
+              (imageRefText (s ^. #image))
+              (inputs ^. #imageTag)
+              (m ^. #url)
+              (m ^. #serviceName)
+              ns
+              src
+          pure (m ^. #url <$ recorded)
 
 -- | The server site's public URL: the first configured custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.

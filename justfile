@@ -151,6 +151,7 @@ cluster-bootstrap:
     for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
+    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
@@ -172,6 +173,7 @@ cluster-bootstrap:
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
       scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
+    nagarectl cluster certificate-policy
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
 
 # EP-95: install the two-slot ResourceQuota for deadline-bounded one-shot Jobs.
@@ -181,6 +183,7 @@ job-runs-bootstrap:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     nagarectl cluster guard
     kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
+    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f cluster/bootstrap/job-runs/resourcequota.yaml
 
 # EP-95: show current quota usage and the admission events used as backpressure.
@@ -208,6 +211,8 @@ cluster-enable-tls:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     nagarectl cluster guard
     kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
+    nagarectl cluster certificate-policy
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
     @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
 
 # EP-82 (docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md):
@@ -260,6 +265,7 @@ local-bootstrap:
     for ns in cert-manager knative-serving kourier-system personal nagare-system; do \
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
+    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     # NOTE: cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl is
@@ -296,6 +302,7 @@ local-minio:
     # Ensure the default app/db namespace exists so the seeded credentials Secret
     # applies even if local-minio is run before local-bootstrap.
     kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
+    kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f cluster/local/minio/minio.yaml
     kubectl -n nagare-system rollout status deploy/minio
     kubectl -n nagare-system wait --for=condition=complete --timeout=120s job/minio-make-bucket

@@ -61,10 +61,23 @@ import Nagare.Build (applyBuildOverrides, describeBuild)
 import Nagare.Cdn.Cloudflare
 import Nagare.Cdn.Provision
 import Nagare.Cdn.Status
+import Nagare.Cluster.CertificatePolicy
+  ( CertificateObservation (..)
+  , CertificateViolation (..)
+  , certificatePolicyViolations
+  , parseCertificateObservations
+  , parseLabeledNamespaces
+  , renderCertificateViolations
+  )
 import Nagare.Cluster.GcsJob
   ( MinioRef (..)
   , StoreBackend (..)
   , parseLocalObjectStore
+  )
+import Nagare.Cluster.Namespace
+  ( NamespacePurpose (..)
+  , applicationNamespaceLabel
+  , renderNamespace
   )
 import Nagare.Database.Backup
   ( BackupCronInputs (..)
@@ -395,6 +408,8 @@ main = do
         , testGroup "Nagare.Storage.Discover" storageDiscoverTests
         , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
         , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
+        , testGroup "Nagare.Cluster.Namespace" namespaceTests
+        , testGroup "Nagare.Cluster.CertificatePolicy" certificatePolicyTests
         , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
         , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
         , testGroup "Nagare.Version" versionTests
@@ -2262,6 +2277,9 @@ doctorTests =
   , testCase "remediationFor: base domain WARN -> re-render config-domain" $
       cmdOf (Probe "base domain" StatusWarn "x != Pulumi y")
         `containsT` "stack output baseDomain"
+  , testCase "remediationFor: certificate policy FAIL -> focused inventory" $
+      cmdOf (Probe "certificate policy" StatusFail "kube-system/wildcard: public wildcard is in an unlabeled namespace")
+        `containsT` "kubectl get certificate -A -o yaml"
   , testCase "remediationFor: Artifact Registry -> configure-docker" $
       cmdOf (Probe "Artifact Registry" StatusUnknown "gcloud unavailable")
         `containsT` "gcloud auth configure-docker us-west1-docker.pkg.dev"
@@ -2294,6 +2312,91 @@ doctorTests =
     whyOf p = maybe "" (^. #reason) (remediationFor tnbProfile p)
     containsT hay needle = assertBool (T.unpack needle) (needle `T.isInfixOf` hay)
     startsWithT hay needle = assertBool (T.unpack needle) (needle `T.isPrefixOf` hay)
+
+-- ---------------------------------------------------------------------------
+-- Nagare.Cluster.Namespace (EP-138): only application namespaces opt into
+-- public Knative wildcard certificates.
+
+namespaceTests :: [TestTree]
+namespaceTests =
+  [ testCase "renders a managed application namespace with the opt-in label" $ do
+      manifest <- either (assertFailure . T.unpack) pure (renderNamespace ApplicationNamespace "personal")
+      case eitherDecodeStrict manifest of
+        Left err -> assertFailure err
+        Right (Aeson.Object root) -> do
+          case KeyMap.lookup "metadata" root of
+            Just (Aeson.Object metadata) -> do
+              KeyMap.lookup "name" metadata @?= Just (Aeson.String "personal")
+              case KeyMap.lookup "labels" metadata of
+                Just (Aeson.Object labels) ->
+                  KeyMap.lookup (Key.fromText applicationNamespaceLabel) labels
+                    @?= Just (Aeson.String "true")
+                _ -> assertFailure "namespace metadata has no labels object"
+            _ -> assertFailure "namespace manifest has no metadata object"
+        Right _ -> assertFailure "namespace manifest is not an object"
+  , testCase "render is idempotent" $
+      renderNamespace ApplicationNamespace "team-a"
+        @?= renderNamespace ApplicationNamespace "team-a"
+  , testCase "refuses Kubernetes, platform, and observability namespaces" $
+      forM_
+        [ "default"
+        , "kube-system"
+        , "kube-public"
+        , "kube-node-lease"
+        , "cert-manager"
+        , "knative-serving"
+        , "kourier-system"
+        , "nagare-system"
+        , "monitoring"
+        , "observability"
+        , "logging"
+        ]
+        (assertBool "reserved namespace was accepted" . isLeft . renderNamespace ApplicationNamespace)
+  ]
+
+certificatePolicyTests :: [TestTree]
+certificatePolicyTests =
+  [ testCase "parses certificate and selected-namespace inventories" $ do
+      let certificates =
+            "{\"items\":[{\"metadata\":{\"name\":\"wildcard\",\"namespace\":\"personal\"},\"spec\":{\"issuerRef\":{\"name\":\"letsencrypt-dns\"},\"dnsNames\":[\"*.personal.apps.example.com\"]}}]}"
+          namespaces = "{\"items\":[{\"metadata\":{\"name\":\"personal\"}}]}"
+      parseCertificateObservations certificates
+        @?= Just [cert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
+      parseLabeledNamespaces namespaces @?= Just (Set.singleton "personal")
+  , testCase "accepts a public wildcard in a labeled app namespace" $
+      certificatePolicyViolations
+        (Set.singleton "personal")
+        [cert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
+        @?= []
+  , testCase "ignores internal names on the self-signed issuer" $
+      certificatePolicyViolations
+        Set.empty
+        [cert "knative-serving" "routing-serving-certs" "knative-selfsigned-issuer" ["kn-routing", "data-plane.knative.dev"]]
+        @?= []
+  , testCase "rejects short and cluster-local names on public ACME" $ do
+      let violations =
+            certificatePolicyViolations
+              (Set.singleton "knative-serving")
+              [cert "knative-serving" "routing-serving-certs" "letsencrypt-dns" ["kn-routing", "api.personal.svc", "api.personal.svc.cluster.local"]]
+          details = renderCertificateViolations violations
+      length violations @?= 3
+      assertBool "short name" ("kn-routing" `T.isInfixOf` details)
+      assertBool ".svc name" ("api.personal.svc" `T.isInfixOf` details)
+      assertBool "cluster-local name" ("api.personal.svc.cluster.local" `T.isInfixOf` details)
+  , testCase "rejects a public wildcard in an unlabeled namespace" $
+      certificatePolicyViolations
+        Set.empty
+        [cert "kube-system" "wildcard" "letsencrypt-dns" ["*.kube-system.apps.example.com"]]
+        @?= [CertificateViolation "kube-system" "wildcard" "public wildcard is in an unlabeled namespace"]
+  ]
+  where
+    cert namespace name issuerName dnsNames =
+      CertificateObservation
+        { namespace = namespace
+        , name = name
+        , issuerName = issuerName
+        , dnsNames = dnsNames
+        }
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Storage.Snapshot (EP-36)

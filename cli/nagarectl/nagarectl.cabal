@@ -54,8 +54,10 @@ library
     Nagare.Cdn.Cloudflare
     Nagare.Cdn.Provision
     Nagare.Cdn.Status
+    Nagare.Cluster.CertificatePolicy
     Nagare.Cluster.GcsJob
     Nagare.Cluster.Kubeconfig
+    Nagare.Cluster.Namespace
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create

@@ -31,6 +31,11 @@ provenance:
       at: 2026-09-14T14:35:18Z
       mode: "implement"
       note: "Started EP-4 implementation and coordination"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T16:26:57Z
+      mode: "implement"
+      note: "Selected EP-5 while EP-4 awaits external ExecPlan 133"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -111,7 +116,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | In Progress |
-| EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Not Started |
+| EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | In Progress |
 | EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -178,7 +183,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: isolated blank-disk and Ready-node behavior is proven; compose it with external
   ExecPlan 133's post-boot age-key handoff before completing the child.
-- [ ] EP-5: separate internal issuers and opt app namespaces into public wildcard certificates.
+- [ ] EP-5 (In Progress): separate internal issuers and opt app namespaces into public wildcard
+  certificates.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
 - [ ] External: complete ExecPlans 132 and 133 before EP-6's live cloud acceptance.
 
@@ -222,6 +228,11 @@ interactions between child plans. Provide concise evidence.
   all four generated `FragmentPath` values fixed verification, and all five independent samples
   then passed the full same-boot recovery scenario.
 
+- EP-5 found no registered Knative dependency in Mori, so authoritative upstream inspection was
+  required. The repository's net-certmanager v1.14.0 pin is still the latest upstream tag and its
+  source explicitly supports separate external, cluster-local, and system-internal issuer roles;
+  the safety fix needs configuration and diagnostics, not a compatibility pin change.
+
 
 ## Decision Log
 
@@ -250,6 +261,13 @@ plan.
 - Decision: Reserve the end-to-end onboarding narrative and live rehearsal for EP-6.
   Rationale: One plan must verify the integrated sequence after all independently testable changes,
   including external ExecPlans 132 and 133, without duplicating their implementation ownership.
+  Date: 2026-09-14.
+
+- Decision: Continue with EP-5 while EP-4 waits for external ExecPlan 133 rather than absorbing that
+  separately intentioned plan into this initiative.
+  Rationale: EP-5 has no hard dependency on EP-4 and produces independently verifiable TLS policy.
+  Keeping EP-4 In Progress preserves its remaining composed acceptance without blocking unrelated
+  MasterPlan work or changing ExecPlan 133's ownership.
   Date: 2026-09-14.
 
 
@@ -287,8 +305,9 @@ serialized before fsck; exact graph checks and five blank-disk VMs prove one Rea
 mount-only recovery under the original boot ID; the prior online-growth behavior remains green.
 Focused boot docs now describe that behavior without claiming the still-unimplemented post-boot
 age-key flow. EP-4 remains In Progress because external ExecPlan 133 is Not Started under a
-different intention, so its composed host-sequence milestone cannot yet run and EP-5 is not selected
-ahead of the registry's existing In Progress child.
+different intention, so its composed host-sequence milestone cannot yet run. EP-5 is now In Progress
+because it has no hard dependency on EP-4 and can deliver independently verifiable TLS policy while
+that external work remains outstanding.
 
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
@@ -314,3 +333,7 @@ gcloud authentication for the context-owned builder.
 Revision note (2026-09-14): EP-4's isolated work now passes five independent first-boot samples,
 the online-growth regression, strict OKF validation, and nested/root gates; IR-19 is complete. EP-4
 remains In Progress pending composition with external ExecPlan 133.
+
+Revision note (2026-09-14): Started EP-5 while EP-4 waits for external ExecPlan 133; verified the
+pinned certificate-controller schema and implemented the issuer, app-namespace, and diagnostic
+policy through its hermetic gates.

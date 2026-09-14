@@ -23,6 +23,7 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
+import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
@@ -113,14 +114,18 @@ deployStaticProduction inputs src = do
       m = productionManifests inputs
       ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
       ns = namespaceText (s ^. #namespace)
-  withPreparedOutput inputs $ \out -> do
-    configureDockerAuthFor (inputs ^. #targetProfile)
-    withStaticImageContext s out (buildImage ref)
-    pushImage ref
-    applyManifests (m ^. #service : m ^. #domainMappings)
-    waitForReady (m ^. #serviceName) ns
-      >>= requireWait ("site '" <> m ^. #serviceName <> "'")
-    recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
+  namespaceReady <- ensureNamespace ApplicationNamespace ns
+  case namespaceReady of
+    Left err -> pure (Left err)
+    Right () ->
+      withPreparedOutput inputs $ \out -> do
+        configureDockerAuthFor (inputs ^. #targetProfile)
+        withStaticImageContext s out (buildImage ref)
+        pushImage ref
+        applyManifests (m ^. #service : m ^. #domainMappings)
+        waitForReady (m ^. #serviceName) ns
+          >>= requireWait ("site '" <> m ^. #serviceName <> "'")
+        recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
 
 -- | Preview deploy: same build/push path under a derived preview Service name
 -- and domain; does not record a production release. Returns the preview URL or a
@@ -133,14 +138,18 @@ deployStaticPreview inputs raw =
       let s = inputs ^. #site
           ref = taggedImageRef (s ^. #image) (inputs ^. #imageTag)
           ns = namespaceText (s ^. #namespace)
-      withPreparedOutput inputs $ \out -> do
-        configureDockerAuthFor (inputs ^. #targetProfile)
-        withStaticImageContext s out (buildImage ref)
-        pushImage ref
-        applyManifests (m ^. #service : m ^. #domainMappings)
-        waitForReady (m ^. #serviceName) ns
-          >>= requireWait ("preview site '" <> m ^. #serviceName <> "'")
-        pure (Right (m ^. #url))
+      namespaceReady <- ensureNamespace ApplicationNamespace ns
+      case namespaceReady of
+        Left err -> pure (Left err)
+        Right () ->
+          withPreparedOutput inputs $ \out -> do
+            configureDockerAuthFor (inputs ^. #targetProfile)
+            withStaticImageContext s out (buildImage ref)
+            pushImage ref
+            applyManifests (m ^. #service : m ^. #domainMappings)
+            waitForReady (m ^. #serviceName) ns
+              >>= requireWait ("preview site '" <> m ^. #serviceName <> "'")
+            pure (Right (m ^. #url))
 
 -- | Run the build-preparation, then @k@ if it succeeded; thread a build-prep
 -- error out as @Left@.

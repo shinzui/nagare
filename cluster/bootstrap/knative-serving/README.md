@@ -26,10 +26,12 @@ Then install Kourier (see `../kourier/README.md`) and net-certmanager (see
   the HTTP-first bootstrap.
 - `config-domain.yaml` — sets the public base domain (key=domain, value empty).
   Render the real `baseDomain` before applying (see the file header).
-- `config-network-tls.yaml` — enables automatic per-namespace wildcard TLS.
-  **Deferred** — apply only after a real domain is delegated.
-- `config-certmanager.yaml` — points the net-certmanager bridge at the
-  `letsencrypt-dns` ClusterIssuer. Applied (inert until TLS is enabled).
+- `config-network-tls.yaml` — enables automatic wildcard TLS only for namespaces labeled
+  `nagare.dev/app-namespace=true`. **Deferred** — apply only after a real domain is delegated.
+- `config-certmanager.yaml` — routes external-domain certificates to the context-owned
+  `letsencrypt-dns` ClusterIssuer and routes cluster-local and system-internal certificates to
+  `knative-selfsigned-issuer`. Applied during bootstrap (external issuance remains inert until TLS
+  is enabled).
 - `config-features.yaml` — enables PVC volume + read-write mounts (EP-33).
   **Applied** to allow Nagare apps to mount durable `local-path` storage.
 - `config-deployment.yaml` — adds the Artifact Registry host to
@@ -76,6 +78,11 @@ Once a real `baseDomain` is set and delegated (see
 ```bash
 kubectl -n knative-serving patch configmap config-network \
   --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
-# Knative then requests *.<namespace>.<baseDomain> certs; cert-manager fulfils
-# them via DNS-01. Watch: kubectl get certificate -A -w
+# Knative then requests *.<namespace>.<baseDomain> only for namespaces labeled
+# nagare.dev/app-namespace=true; cert-manager fulfils them via DNS-01.
+# Watch: kubectl get certificate -A -w
 ```
+
+Nagare workload commands reconcile that opt-in label before creating application resources. Do not
+label control-plane or observability namespaces: each public wildcard consumes certificate-authority
+rate budget and publishes the namespace-derived name to Certificate Transparency logs.

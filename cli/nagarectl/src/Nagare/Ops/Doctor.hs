@@ -101,6 +101,7 @@ why tp name detail
   | name == "Kourier ingress" = "The gateway is not reachable on the reserved public IP (and could not be confirmed fronting the node)."
   | name == "base domain" = "The cluster's configured base domain disagrees with infrastructure."
   | name == "external-domain-tls" = "External-domain TLS is disabled (HTTP-first)."
+  | name == "certificate policy" = "A public ACME certificate contains an internal name or belongs to an unlabeled namespace."
   | name == "Artifact Registry" = "Image push auth is not configured."
   | name == "private image pull" = "The cluster is not configured to pull private images from the project Artifact Registry."
   | name == "build platform" = "The configured build platform does not match the cluster node architecture; images built here will not run on the node."
@@ -153,6 +154,9 @@ commandAt root pulumiDir iapSsh tp name
         <> "enable once a real DNS-01-capable domain is set ("
         <> asset "cluster/bootstrap/net-certmanager/README.md"
         <> ")"
+  | name == "certificate policy" =
+      "inspect: kubectl get certificate -A -o yaml; restore the issuer and namespace selector policy per "
+        <> asset "cluster/bootstrap/knative-serving/README.md"
   | name == "Artifact Registry" =
       "gcloud auth configure-docker "
         <> tp ^. #registryHost

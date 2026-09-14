@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:15Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T16:26:57Z
+      mode: "implement"
+      note: "Started EP-5 TLS issuer and namespace policy implementation"
 ---
 
 # Keep bootstrap TLS issuance within intended names
@@ -36,9 +42,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Verify Knative/net-certmanager compatibility and pin explicit internal issuer references.
-- [ ] Define the app-namespace label contract and scope wildcard issuance to that selector.
-- [ ] Add certificate-policy diagnostics plus hermetic and disposable-cluster verification.
+- [x] (2026-09-14T16:40:54Z) Verify Knative/net-certmanager compatibility and pin explicit
+  internal issuer references.
+- [x] (2026-09-14T16:40:54Z) Define the app-namespace label contract and scope wildcard issuance
+  to that selector across bootstrap and workload creation paths.
+- [x] (2026-09-14T16:40:54Z) Add the focused certificate-policy command, doctor probe/remediation,
+  parsed manifest gate, and pure inventory coverage.
+- [ ] Run the disposable k3d certificate-controller verification; Docker is currently stopped.
 - [ ] Reconcile bootstrap ordering, update docs/ADR, complete both IRs, and run gates.
 
 
@@ -47,7 +57,18 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: net-certmanager v1.14.0 is both the repository's pinned version and the latest tag in
+  the authoritative `knative-extensions/net-certmanager` repository.
+  Evidence: Mori has no registered Knative project, so the fallback upstream tag inspection resolved
+  `knative-v1.14.0` to commit `dcff3644e7037215a084af52905fb0e9e78bab52`. That source parses
+  `issuerRef`, `clusterLocalIssuerRef`, and `systemInternalIssuerRef` separately and selects them by
+  Knative certificate type. The pin does not need to move.
+
+- Observation: the ambient shell lacks `k3d` and its configured Colima Docker socket is absent, but
+  the project development shell provides k3d v5.9.0.
+  Evidence: `docker info` could not connect to `~/.colima/docker.sock`; `k3d` was absent from the
+  ambient `PATH`, while `nix develop -c k3d version` succeeded. The controller-level disposable
+  verification therefore remains a distinct environment-dependent step.
 
 
 ## Decision Log
@@ -75,6 +96,25 @@ Record every decision made while working on the plan.
 - Decision: Amend ADR 10 if the label and public-name boundary survive implementation.
   Rationale: Public certificate eligibility and Certificate Transparency exposure are durable
   platform policy, not merely manifest syntax.
+  Date: 2026-09-14.
+
+- Decision: Keep net-certmanager v1.14.0 and encode all three issuer roles explicitly.
+  Rationale: the pinned/latest controller source supports the exact keys and type dispatch required
+  by this plan. A version change would add unrelated compatibility risk without changing behavior.
+  Date: 2026-09-14.
+
+- Decision: Reconcile application namespaces by applying a Namespace object containing only
+  Nagare's opt-in label, and reject fixed Kubernetes, control-plane, and observability namespaces.
+  Rationale: `kubectl apply` creates a missing namespace or merges the one Nagare-owned label onto an
+  existing namespace without deleting unrelated labels. A deny-list at this API boundary prevents
+  accidental public wildcard issuance even when a caller selects a platform namespace.
+  Date: 2026-09-14.
+
+- Decision: Expose the focused check as `nagarectl cluster certificate-policy` and also include its
+  probe in server status and doctor.
+  Rationale: bootstrap needs a fail-closed command that checks only this policy before stamping,
+  while day-two diagnostics should show the same parsed evidence and remediation with the rest of
+  the platform inventory.
   Date: 2026-09-14.
 
 
@@ -252,3 +292,9 @@ Depend on the pinned Knative Serving/net-certmanager manifests, cert-manager CRD
 Aeson/process helpers, the context-owned `letsencrypt-dns` issuer, and
 `knative-selfsigned-issuer`. ExecPlan 132 owns webhook readiness; EP-1 owns cluster identity guard;
 EP-6 owns the final live rehearsal.
+
+
+Revision note (2026-09-14): Verified the pinned controller schema, made issuer roles and wildcard
+namespace eligibility explicit, reconciled the app-namespace label across workload creation paths,
+and added fail-closed parsed certificate diagnostics. Disposable-controller verification and final
+publication remain.
