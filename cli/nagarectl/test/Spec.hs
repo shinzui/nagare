@@ -12,6 +12,7 @@ import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
 import Control.Exception (IOException, finally, try)
+import Control.Monad (forM_)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (eitherDecodeStrict, encode)
@@ -182,6 +183,9 @@ import Nagare.Ops.Cleanup
   )
 import Nagare.Ops.ContextGuard
   ( ProjectGuardInputs (..)
+  , PulumiProjectObservation (..)
+  , parsePulumiProjectConfig
+  , projectGuardObservationsValue
   , projectGuardVerdict
   , renderProjectGuard
   )
@@ -870,32 +874,85 @@ contextGuardTests =
   testGroup
     "Nagare.Ops.ContextGuard (EP-113)"
     [ testCase "all three sources agreeing is accepted" $
-        projectGuardVerdict (guardInputs (Just "acme-prod") (Just "acme-prod") (Just "acme-prod"))
+        projectGuardVerdict (guardInputs (PulumiProjectFound "acme-prod") (Just "acme-prod") (Just "acme-prod"))
           @?= Right ()
     , testCase "an unset stack gcp:project refuses" $
         assertRefusal
           "gcp:project"
-          (guardInputs Nothing (Just "acme-prod") (Just "acme-prod"))
+          (guardInputs PulumiProjectMissing (Just "acme-prod") (Just "acme-prod"))
+    , testCase "a missing Pulumi executable has a tool remedy, not a projection remedy" $ do
+        let pgi = guardInputs PulumiToolNotFound (Just "acme-prod") (Just "acme-prod")
+        assertRefusal "pulumi was not found on PATH" pgi
+        assertRefusal "nagarectl version --tools" pgi
+        assertNoRefusal "declares no gcp:project" pgi
+        assertNoRefusal "nagarectl context use" pgi
+    , testCase "a failed Pulumi command preserves its status and stderr" $ do
+        let pgi = guardInputs (PulumiCommandFailed 42 "backend authentication failed") (Just "acme-prod") (Just "acme-prod")
+        assertRefusal "status 42" pgi
+        assertRefusal "backend authentication failed" pgi
+        assertRefusal "nagarectl context env" pgi
+        assertNoRefusal "declares no gcp:project" pgi
+        assertNoRefusal "nagarectl context use" pgi
+    , testCase "invalid Pulumi JSON is diagnosed distinctly" $ do
+        let pgi = guardInputs (PulumiProjectInvalidOutput "invalid JSON") (Just "acme-prod") (Just "acme-prod")
+        assertRefusal "could not be interpreted" pgi
+        assertRefusal "invalid JSON" pgi
+        assertNoRefusal "declares no gcp:project" pgi
+    , testCase "a Pulumi startup failure preserves the exception" $
+        assertRefusal
+          "permission denied"
+          (guardInputs (PulumiToolStartFailed "permission denied") (Just "acme-prod") (Just "acme-prod"))
     , testCase "a stack targeting another project refuses, naming both" $ do
-        let pgi = guardInputs (Just "some-other-project") (Just "acme-prod") (Just "acme-prod")
+        let pgi = guardInputs (PulumiProjectFound "some-other-project") (Just "acme-prod") (Just "acme-prod")
         assertRefusal "some-other-project" pgi
         assertRefusal "acme-prod" pgi
     , testCase "an ambient CLOUDSDK_CORE_PROJECT override refuses" $
         assertRefusal
           "CLOUDSDK_CORE_PROJECT"
-          (guardInputs (Just "acme-prod") (Just "some-production-project") (Just "acme-prod"))
+          (guardInputs (PulumiProjectFound "acme-prod") (Just "some-production-project") (Just "acme-prod"))
     , testCase "with no ambient override, a disagreeing gcloud config refuses" $
         assertRefusal
           "gcloud's configured project"
-          (guardInputs (Just "acme-prod") Nothing (Just "some-production-project"))
+          (guardInputs (PulumiProjectFound "acme-prod") Nothing (Just "some-production-project"))
     , testCase "with no ambient override and no gcloud, the stack alone decides" $
-        projectGuardVerdict (guardInputs (Just "acme-prod") Nothing Nothing) @?= Right ()
+        projectGuardVerdict (guardInputs (PulumiProjectFound "acme-prod") Nothing Nothing) @?= Right ()
     , testCase "a missing gcloud alongside a correct ambient value is not a refusal" $
         -- gcloud need not be installed on a machine that only previews.
-        projectGuardVerdict (guardInputs (Just "acme-prod") (Just "acme-prod") Nothing) @?= Right ()
+        projectGuardVerdict (guardInputs (PulumiProjectFound "acme-prod") (Just "acme-prod") Nothing) @?= Right ()
     , testCase "the success line names the context, project and stack" $
-        renderProjectGuard (guardInputs (Just "acme-prod") (Just "acme-prod") (Just "acme-prod"))
+        renderProjectGuard (guardInputs (PulumiProjectFound "acme-prod") (Just "acme-prod") (Just "acme-prod"))
           @?= "context guard: labs confined to project acme-prod (stack labs)"
+    , testCase "the parser distinguishes found and genuinely absent projects" $ do
+        parsePulumiProjectConfig "{\"gcp:project\":{\"value\":\" acme-prod \",\"secret\":false}}"
+          @?= Right (PulumiProjectFound "acme-prod")
+        parsePulumiProjectConfig "{\"nagare:machineType\":{\"value\":\"e2-standard-2\"}}"
+          @?= Right PulumiProjectMissing
+    , testCase "the parser rejects malformed JSON and invalid config shapes" $ do
+        assertBool "malformed JSON" (isLeft (parsePulumiProjectConfig "{"))
+        assertBool "non-object top level" (isLeft (parsePulumiProjectConfig "[]"))
+        assertBool "non-object entry" (isLeft (parsePulumiProjectConfig "{\"gcp:project\":\"acme-prod\"}"))
+        assertBool "missing value" (isLeft (parsePulumiProjectConfig "{\"gcp:project\":{}}"))
+        assertBool "non-text value" (isLeft (parsePulumiProjectConfig "{\"gcp:project\":{\"value\":7}}"))
+        assertBool "blank value" (isLeft (parsePulumiProjectConfig "{\"gcp:project\":{\"value\":\"  \"}}"))
+    , testCase "JSON observations preserve compatibility and report every probe status" $ do
+        let cases =
+              [ (PulumiProjectFound "acme-prod", "found", Just (Aeson.String "acme-prod"))
+              , (PulumiProjectMissing, "missing", Nothing)
+              , (PulumiToolNotFound, "tool-not-found", Nothing)
+              , (PulumiCommandFailed 23 "sentinel stderr", "command-failed", Nothing)
+              , (PulumiProjectInvalidOutput "bad shape", "invalid-output", Nothing)
+              ]
+        forM_ cases $ \(observation, status, found) -> do
+          let pgi = guardInputs observation (Just "acme-prod") (Just "acme-prod")
+          topField "stack" pgi @?= Just (Aeson.String "labs")
+          topField "pulumiBackendUrl" pgi @?= Just (Aeson.String "file:///state/labs")
+          topField "stackProject" pgi @?= maybe (Just Aeson.Null) Just found
+          probeField "status" pgi @?= Just (Aeson.String status)
+        let failed = guardInputs (PulumiCommandFailed 23 "sentinel stderr") Nothing Nothing
+        probeField "exitCode" failed @?= Just (Aeson.Number 23)
+        probeField "stderr" failed @?= Just (Aeson.String "sentinel stderr")
+        let invalid = guardInputs (PulumiProjectInvalidOutput "bad shape") Nothing Nothing
+        probeField "error" invalid @?= Just (Aeson.String "bad shape")
     ]
   where
     guardInputs stackProject ambient configured =
@@ -903,6 +960,7 @@ contextGuardTests =
         { context = "labs"
         , declared = "acme-prod"
         , stack = "labs"
+        , pulumiBackendUrl = "file:///state/labs"
         , stackProject = stackProject
         , ambient = ambient
         , configured = configured
@@ -910,9 +968,24 @@ contextGuardTests =
     assertRefusal needle pgi = case projectGuardVerdict pgi of
       Right () -> assertFailure ("expected a refusal mentioning " <> T.unpack needle)
       Left msg ->
+        do
+          assertBool
+            ("refusal should mention " <> T.unpack needle <> "; got: " <> T.unpack msg)
+            (needle `T.isInfixOf` msg)
+          assertBool "refusal should name the stack" ("labs" `T.isInfixOf` msg)
+          assertBool "refusal should name the backend" ("file:///state/labs" `T.isInfixOf` msg)
+    assertNoRefusal needle pgi = case projectGuardVerdict pgi of
+      Right () -> assertFailure ("expected a refusal without " <> T.unpack needle)
+      Left msg ->
         assertBool
-          ("refusal should mention " <> T.unpack needle <> "; got: " <> T.unpack msg)
-          (needle `T.isInfixOf` msg)
+          ("refusal should not mention " <> T.unpack needle <> "; got: " <> T.unpack msg)
+          (not (needle `T.isInfixOf` msg))
+    topField field pgi = case projectGuardObservationsValue pgi of
+      Aeson.Object value -> KeyMap.lookup (Key.fromText field) value
+      _ -> Nothing
+    probeField field pgi = case topField "stackProjectProbe" pgi of
+      Just (Aeson.Object value) -> KeyMap.lookup (Key.fromText field) value
+      _ -> Nothing
 
 pulumiBackendBootstrapTests :: TestTree
 pulumiBackendBootstrapTests =

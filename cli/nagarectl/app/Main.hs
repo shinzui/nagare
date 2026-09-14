@@ -190,6 +190,9 @@ import Nagare.Ops.Cleanup
   )
 import Nagare.Ops.ContextGuard
   ( ProjectGuardInputs (..)
+  , PulumiProjectObservation (..)
+  , parsePulumiProjectConfig
+  , projectGuardObservationsValue
   , projectGuardVerdict
   , renderProjectGuard
   )
@@ -3449,20 +3452,14 @@ runContextGuard mctx asJson = do
       -- shell entry already.
       workspace <- ensurePulumiForContext name tp
       pgi <- projectGuardInputsFor name tp workspace
-      let observed =
-            Aeson.object
-              [ "context" Aeson..= (pgi ^. #context)
-              , "declaredProject" Aeson..= (pgi ^. #declared)
-              , "stack" Aeson..= (pgi ^. #stack)
-              , "stackProject" Aeson..= (pgi ^. #stackProject)
-              , "ambientProject" Aeson..= (pgi ^. #ambient)
-              , "configuredProject" Aeson..= (pgi ^. #configured)
-              ]
+      let observed = projectGuardObservationsValue pgi
       case projectGuardVerdict pgi of
-        Left msg -> do
-          when asJson $
-            LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= observed]))
-          dieT msg
+        Left msg ->
+          if asJson
+            then do
+              LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= observed]))
+              exitFailure
+            else dieT msg
         Right () ->
           if asJson
             then LBC.putStrLn (Aeson.encode (Aeson.object ["confined" Aeson..= True, "observations" Aeson..= observed]))
@@ -3476,10 +3473,7 @@ projectGuardInputsFor name tp workspace = do
   let ctx = contextNameText name
       penv = pulumiEnvFor stateRoot ctx tp
       stack = penv ^. #stack
-  stackProject <-
-    captureTrimmed
-      "pulumi"
-      ["-C", workspace ^. #pulumiDir, "config", "get", "gcp:project", "--stack", T.unpack stack]
+  stackProject <- probePulumiProject (workspace ^. #pulumiDir) stack
   ambient <- fmap T.pack <$> lookupEnv "CLOUDSDK_CORE_PROJECT"
   configured <- gcloudConfiguredProject
   pure
@@ -3487,13 +3481,13 @@ projectGuardInputsFor name tp workspace = do
       { context = ctx
       , declared = tp ^. #project
       , stack = stack
+      , pulumiBackendUrl = penv ^. #backendUrl
       , stackProject = stackProject
       , ambient = nonBlank =<< ambient
       , configured = configured
       }
   where
     nonBlank t = if T.null (T.strip t) then Nothing else Just (T.strip t)
-    captureTrimmed exe args = (nonBlank . TE.decodeUtf8Lenient =<<) <$> captureTool exe args
     -- gcloud lets CLOUDSDK_CORE_PROJECT shadow its own configuration, so read the
     -- configured value with that variable stripped from the child's environment —
     -- otherwise the comparison would be a tautology. Modify the inherited
@@ -3513,6 +3507,44 @@ projectGuardInputsFor name tp workspace = do
       pure $ case code of
         ExitSuccess -> Just (T.pack out)
         ExitFailure _ -> Nothing
+
+-- | Collect the evidence required by the project guard without collapsing a
+-- missing tool, a failed command, invalid output, and an absent config key.
+probePulumiProject :: FilePath -> Text -> IO PulumiProjectObservation
+probePulumiProject pulumiDir stack = do
+  executable <- findExecutable "pulumi"
+  case executable of
+    Nothing -> pure PulumiToolNotFound
+    Just path -> do
+      result <-
+        catch
+          ( Right
+              <$> readProcessWithExitCode
+                path
+                [ "-C"
+                , pulumiDir
+                , "config"
+                , "--json"
+                , "--stack"
+                , T.unpack stack
+                , "--non-interactive"
+                ]
+                ""
+          )
+          (pure . Left . T.pack . displayExceptionText)
+      pure $ case result of
+        Left err -> PulumiToolStartFailed err
+        Right (ExitFailure exitCode, out, err) ->
+          PulumiCommandFailed exitCode (commandDiagnostic out err)
+        Right (ExitSuccess, out, _) ->
+          either PulumiProjectInvalidOutput (\observation -> observation) (parsePulumiProjectConfig (TE.encodeUtf8 (T.pack out)))
+  where
+    displayExceptionText :: IOException -> String
+    displayExceptionText = show
+    commandDiagnostic out err =
+      case filter (not . T.null) [T.strip (T.pack err), T.strip (T.pack out)] of
+        diagnostic : _ -> diagnostic
+        [] -> "(no stderr)"
 
 parseContextNameOrDie :: String -> IO ContextName
 parseContextNameOrDie raw =
