@@ -86,8 +86,8 @@ library
     Nagare.Ops.Pulumi
     Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
-    Nagare.Platform.Paths
     Nagare.Platform.Cutover
+    Nagare.Platform.Paths
     Nagare.Platform.Replacement
     Nagare.Platform.StackConfig
     Nagare.Platform.StateTransfer
