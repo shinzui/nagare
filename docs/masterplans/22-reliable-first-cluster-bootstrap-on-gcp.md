@@ -36,6 +36,11 @@ provenance:
       at: 2026-09-14T16:26:57Z
       mode: "implement"
       note: "Selected EP-5 while EP-4 awaits external ExecPlan 133"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T18:55:58Z
+      mode: "implement"
+      note: "Cleared external prerequisites and completed EP-4 composition"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -115,7 +120,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 | EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Complete |
-| EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | In Progress |
+| EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Complete |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Complete |
 | EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
 
@@ -181,12 +186,12 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-09-14T05:29:57Z) EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
 - [x] (2026-09-14T13:18:00Z) EP-2: validate ADC and represent/re-pin an undeployed context safely.
 - [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
-- [ ] EP-4: isolated blank-disk and Ready-node behavior is proven; compose it with external
-  ExecPlan 133's post-boot age-key handoff before completing the child.
+- [x] (2026-09-14T18:55:31Z) EP-4: prove blank-disk mount, Ready k3s, post-boot age-key delivery,
+  sops activation, and Tailscale recovery in one unchanged boot.
 - [x] (2026-09-14T17:49:14Z) EP-5: confine public wildcards to app namespaces, preserve self-signed
   internal roles, and ship the latest archived controller with a payload-owned source patch.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
-- [ ] External: complete ExecPlans 132 and 133 before EP-6's live cloud acceptance.
+- [x] (2026-09-14T18:55:31Z) External: ExecPlans 132 and 133 are complete and reconciled for EP-6.
 
 
 ## Surprises & Discoveries
@@ -245,6 +250,11 @@ interactions between child plans. Provide concise evidence.
   context. With UID/GID 65532 declared, the exact bundled Linux/amd64 archive rolled out on a fresh
   arm64 k3d cluster and produced the intended three-role certificate inventory.
 
+- EP-4's final composition exposed that the NixOS VM harness replaces `fileSystems`, even when the
+  real host module is imported. Restoring the evaluated shipped data mount in ExecPlan 133's
+  existing VM check produced the missing cross-plan evidence: the blank disk and k3s became Ready
+  before key delivery, then sops and Tailscale recovered under the same boot ID.
+
 
 ## Decision Log
 
@@ -289,6 +299,13 @@ plan.
   and mutable registry dependency while remaining inside ADR 7's tagged release closure.
   Date: 2026-09-14.
 
+- Decision: close EP-4 by extending ExecPlan 133's existing age-key VM into the composed host proof,
+  then make EP-6 the next implementable child.
+  Rationale: ExecPlans 132 and 133 are now complete, the strengthened VM covers the only outstanding
+  EP-4 integration boundary without duplicating fixtures, and all five EP-6 hard dependencies are
+  satisfied.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
@@ -319,14 +336,13 @@ for another project. IR-15 and IR-17 are completed, and ADRs 18 and 9 record the
 All 508 Haskell tests and every buildable native flake check pass. EP-4 is the next registry-ordered
 implementable child; it has no hard dependencies.
 
-EP-4 has completed its independently executable storage work and closed IR-19. Formatting is
-serialized before fsck; exact graph checks and five blank-disk VMs prove one Ready node and
-mount-only recovery under the original boot ID; the prior online-growth behavior remains green.
-Focused boot docs now describe that behavior without claiming the still-unimplemented post-boot
-age-key flow. EP-4 remains In Progress because external ExecPlan 133 is Not Started under a
-different intention, so its composed host-sequence milestone cannot yet run. EP-5 is now In Progress
-because it has no hard dependency on EP-4 and can deliver independently verifiable TLS policy while
-that external work remains outstanding.
+EP-4 is complete and IR-19 remains closed. Formatting is serialized before fsck; exact graph checks
+and five blank-disk VMs prove one Ready node and mount-only recovery under the original boot ID; the
+prior online-growth behavior remains green. With independent ExecPlan 133 complete, its strengthened
+VM check now proves the composed service sequence: blank-disk mount and k3s Ready precede age-key
+delivery, then sops and Tailscale recover without a reboot. This removes EP-4 and the external plans
+as blockers; EP-6 is the next implementable child. The closing pass completed all 527 Haskell tests
+and all 29 buildable native flake checks.
 
 EP-5 is complete. The opt-in app-namespace boundary is reconciled across all Nagare workload paths,
 internal roles explicitly remain self-signed, and the parsed diagnostic fails closed before a
@@ -377,3 +393,6 @@ Revision note (2026-09-14): Completed EP-5 and closed IR-22/IR-23 with a reposit
 the exact final upstream release, immutable payload-bundled controller delivery, native regression
 coverage, and a passing fresh-cluster proof. EP-4 still waits for external ExecPlan 133, so EP-6's
 hard dependencies are not yet satisfied.
+
+Revision note (2026-09-14): Reconciled completed external ExecPlans 132 and 133, strengthened the
+age-key VM into the composed first-boot host proof, completed EP-4, and unblocked EP-6.

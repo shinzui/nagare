@@ -1,4 +1,4 @@
-{ nagareHostModule, pkgs }:
+{ nagareHostModule, pkgs, dataFs }:
 
 pkgs.testers.runNixOSTest {
   name = "nagare-host-age-key-delivery";
@@ -20,6 +20,21 @@ pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.age pkgs.sops ];
     sops.validateSopsFiles = false;
 
+    # Compose the post-boot key handoff with the real first-boot storage and
+    # k3s graph imported by nagareHostModule. QEMU exposes the blank scratch
+    # disk as /dev/vdb; the udev link also creates the .device unit expected by
+    # storage.nix.
+    services.udev.extraRules = ''
+      SUBSYSTEM=="block", KERNEL=="vdb", SYMLINK+="disk/by-id/google-nagare-data"
+    '';
+    virtualisation.emptyDiskImages = [ 2048 ];
+    # qemu-vm.nix replaces fileSystems with virtualisation.fileSystems. Restore
+    # the evaluated shipped definition so this test exercises the real mount
+    # options and auto-grow behavior rather than silently dropping the disk.
+    virtualisation.fileSystems."/var/lib/nagare" = {
+      inherit (dataFs) device fsType options autoResize;
+    };
+
     systemd.services.tailscaled-autoconnect.serviceConfig = {
       Type = lib.mkForce "oneshot";
       RemainAfterExit = true;
@@ -33,7 +48,21 @@ pkgs.testers.runNixOSTest {
   };
 
   testScript = ''
+    boot_id = machine.succeed("cat /proc/sys/kernel/random/boot_id").strip()
+    machine.wait_until_succeeds("test -e /dev/disk/by-id/google-nagare-data", timeout=120)
     machine.wait_for_unit("multi-user.target")
+    machine.wait_for_unit("var-lib-nagare.mount")
+    machine.wait_for_unit("nagare-data-layout.service")
+    machine.wait_for_unit("k3s.service")
+    machine.wait_until_succeeds(
+        "test \"$(k3s kubectl get nodes --no-headers | wc -l)\" -eq 1 "
+        "&& k3s kubectl get nodes --no-headers | awk '$2 == \"Ready\" { ready = 1 } END { exit !ready }'",
+        timeout=300,
+    )
+    machine.succeed("test \"$(findmnt -n -o FSTYPE /var/lib/nagare)\" = ext4")
+    machine.succeed("test -d /var/lib/nagare/local-path")
+    print("storage phase: blank disk mounted and k3s reached Ready before age-key delivery")
+
     machine.wait_until_fails("systemctl is-active --quiet tailscaled-autoconnect.service")
 
     missing_status = machine.succeed("nagare-host-age-key status")
@@ -66,6 +95,8 @@ pkgs.testers.runNixOSTest {
     machine.succeed("cmp /root/nagare-test-canary /run/secrets/tailscale/authkey")
     machine.succeed("test -e /run/nagare-test-autoconnected")
     machine.wait_for_unit("tailscaled-autoconnect.service")
+    machine.succeed(f"test \"$(cat /proc/sys/kernel/random/boot_id)\" = {boot_id}")
+    machine.wait_for_unit("k3s.service")
     print("ready phase: /run/secrets/tailscale/authkey present; autoconnect succeeded")
 
     machine.succeed("touch -d @1 /var/lib/sops-nix/age-key.txt")
