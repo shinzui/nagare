@@ -182,9 +182,9 @@ Same stop/start window, same preserved disks and IP.
   [Backups and disaster recovery](backups-and-disaster-recovery.md), not this
   page.
 - **Resizing the disks.** Growing `/var/lib/nagare` is covered below in
-  [Growing the data disk](#growing-the-data-disk). Growing the **boot** disk is
-  an in-place disk change, but growing the root filesystem to use that space is
-  a separate operation. Neither disk can shrink.
+  [Growing the data disk](#growing-the-data-disk). Changing the **boot**-disk size replaces the VM
+  and its boot-resident k3s state, so size it for the VM lifetime and follow the deliberate rebuild
+  procedure if a replacement is unavoidable. Neither disk can shrink.
 
 ---
 

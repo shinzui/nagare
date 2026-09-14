@@ -124,7 +124,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_INSTANCE_NAME` | `nagare-01` | the VM instance name |
 | `NAGARE_MACHINE_TYPE` | `e2-standard-2` | GCE machine type; live changes are in-place stop/start resizes |
 | `NAGARE_BOOT_DISK_TYPE` | `pd-balanced` | boot-disk type; changing a live VM replaces the instance |
-| `NAGARE_BOOT_DISK_SIZE_GB` | `100` | boot-disk size in GB; growth is in place, filesystem growth is separate |
+| `NAGARE_BOOT_DISK_SIZE_GB` | `100` | boot-disk size in GB; changing a live value replaces the instance and its boot-resident k3s state; shrinking is unsupported |
 | `NAGARE_DATA_DISK_SIZE_GB` | `100` | protected data-disk size in GB; growth only |
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
 | `NAGARE_BUILDER_PROJECT` | target project | GCP project of the context's x86_64 Nix builder; a different value also requires `--allow-shared-builder PROJECT`. |
@@ -233,7 +233,7 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:instanceName` | no | `nagare-01` | |
 | `nagare:machineType` | no | `e2-standard-2` | |
 | `nagare:dataDiskSizeGb` | no | `100` | Data-disk (`/var/lib/nagare`) size in GiB. An increase is an in-place update and the filesystem grows online; shrinking is refused (`protect: true`). See [Growing the data disk](resizing-the-vm.md#growing-the-data-disk). |
-| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB. Growth is in place; filesystem growth is separate. Shrinking is impossible. |
+| `nagare:bootDiskSizeGb` | no | `100` | Boot-disk size in GiB. Any live change replaces the instance and loses its boot-resident k3s state; shrinking is unsupported. Size it for the VM lifetime. |
 | `nagare:bootDiskType` | no | `pd-balanced` | Changing a live VM's disk type forces instance replacement; pin the current type until a deliberate rebuild. |
 | `nagare:vmDeletionProtection` | no | `true` | GCE refuses instance deletion/replacement while true. Disable only for the deliberate rebuild window, then re-enable. |
 | `nagare:artifactRegistryId` | no | `nagare` | |

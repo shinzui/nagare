@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Completed**: Correct boot-disk-size guidance and CLI help, and add a packaged regression check that rejects future in-place claims while preserving data-disk growth guidance.
 * **Update**: Complete IR-18 with verified post-boot host age-key delivery.
 * **Update**: Complete IR-22 and IR-23: keep internal Knative certificates on the self-signed issuer, scope public wildcards to labeled app namespaces, and ship a reproducibly patched latest net-certmanager controller inside the immutable platform payload.
 * **Update**: Complete IR-19. The formatter is ordered before the generated fsck unit, a recovered mount pulls layout and k3s back in without weakening their hard dependencies, five independent blank-disk VMs reach one Ready node under the original boot ID, and the online-growth regression remains green.

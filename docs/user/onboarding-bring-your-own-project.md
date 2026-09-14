@@ -11,17 +11,17 @@ generated:
 
 # Bring-your-own-project onboarding
 
-> **Status:** ✅ Working — this is the consolidated zero-to-running runbook. Each
+> **Status:** 🟡 Built and hermetically rehearsed — this is the consolidated zero-to-running
+> runbook. A disposable-project rehearsal of the complete sequence is still required. Each
 > numbered step carries its own real status badge inline, so you are never misled
 > about what is built. For laptop-only testing without GCP, use
 > [Local development](local-development.md) instead.
 
-From an empty GCP project and a domain you own to a running nagare, using only this
-page and the pages it links. The default worked example targets project `tan-nb-exp`,
-region `us-west1`, zone `us-west1-a`, base domain `apps.example.com` — **every one of
-those is substitutable** for your own values via the target context.
-For new setups, put those values in a named [target context](contexts.md), such
-as `prod` or `labs`.
+From an empty GCP project and a domain you own to a running Nagare cluster, using only this
+page and the pages it links. Commands use the placeholders `CURRENT_RELEASE_TAG`,
+`CONTEXT_NAME`, `PROJECT_ID`, and `BASE_DOMAIN`; replace every placeholder before running it.
+For new setups, put those values in a named [target context](contexts.md), such as `prod` or
+`labs`.
 
 **Before you begin:**
 
@@ -32,12 +32,14 @@ as `prod` or `labs`.
 
 ## Step 0 — Workstation + pinned release  ✅
 
-Install [Nix](https://nixos.org/download), select the reviewed release, and install its operator
-package:
+Install [Nix](https://nixos.org/download), select the newest release you have reviewed from
+[Nagare releases](https://github.com/shinzui/nagare/releases), and install its operator package.
+Replace `CURRENT_RELEASE_TAG` with that immutable tag (including the leading `v`) and confirm its
+release notes include the bootstrap interfaces used below:
 
 ```bash
-export NAGARE_VERSION=0.1.0
-nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
+export NAGARE_RELEASE=CURRENT_RELEASE_TAG
+nix profile install "github:shinzui/nagare/${NAGARE_RELEASE}#nagare"
 nagarectl version --json
 ```
 
@@ -58,8 +60,11 @@ project you are bringing:
 ```bash
 gcloud auth login
 gcloud auth application-default login
-gcloud config set project YOUR_PROJECT_ID
-gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+export PROJECT_ID=YOUR_DISPOSABLE_OR_TARGET_PROJECT_ID
+export CONTEXT_NAME=YOUR_CONTEXT_NAME
+export BASE_DOMAIN=apps.yourdomain.example
+gcloud config set project "$PROJECT_ID"
+gcloud auth application-default set-quota-project "$PROJECT_ID"
 ```
 
 Nagare context selection does not switch ADC. `nagarectl init` checks the selected ADC file before
@@ -72,11 +77,12 @@ and drives that context's Pulumi config projection — you do not hand-edit eith
 for onboarding.
 
 ```bash
-nagarectl init prod --project YOUR_PROJECT_ID --base-domain apps.yourdomain.com \
+nagarectl init "$CONTEXT_NAME" --project "$PROJECT_ID" --base-domain "$BASE_DOMAIN" \
   --machine-type e2-standard-4 --boot-disk-type pd-balanced \
   --boot-disk-size-gb 100 --data-disk-size-gb 100 \
   --acme-email you@yourdomain.com
 # On a TTY it also prompts for the four VM-shape values.
+export NAGARE_WORKSPACE_ROOT="$(nagarectl platform root --json | jq -er '.workspaceRoot')"
 ```
 
 Flags (exactly as shipped):
@@ -89,7 +95,7 @@ Flags (exactly as shipped):
 | `--base-domain` | Apps base domain (default `apps.example.com`). |
 | `--machine-type` | GCE machine type (default `e2-standard-2`; use `e2-standard-4` when installing observability). |
 | `--boot-disk-type` | Boot disk type (default `pd-balanced`; changing it later replaces the VM). |
-| `--boot-disk-size-gb` | Boot disk size in GB (default `100`). |
+| `--boot-disk-size-gb` | Boot disk size in GB (default `100`; changing it on a live VM replaces the instance and its boot-resident k3s state). Size it for the VM lifetime. |
 | `--data-disk-size-gb` | Protected data disk size in GB (default `100`). |
 | `--acme-email` | **Required.** The Let's Encrypt contact address for this context's cluster. There is no default — any default would be somebody's real mailbox. On a TTY you are prompted; without a TTY and without the flag the run exits non-zero naming it. See [ACME identity](contexts.md#acme-identity). |
 | `--acme-directory` | ACME service: `production` (default), `staging` (untrusted certificates, far looser rate limits — use it to rehearse issuance on a new domain), or an absolute `https://` directory URL. |
@@ -112,18 +118,18 @@ current → **enable** the six APIs →
 `nagare:instanceName`, `nagare:machineType`, `nagare:bootDiskType`,
 `nagare:bootDiskSizeGb`, `nagare:dataDiskSizeGb`) → print next steps.
 
-The generated context is your single source of truth. `nagarectl context show prod`
+The generated context is your single source of truth. `nagarectl context show "$CONTEXT_NAME"`
 prints it in the same flat format:
 
 ```bash
-export CLOUDSDK_CORE_PROJECT=tan-nb-exp                 # YOUR project
+export CLOUDSDK_CORE_PROJECT=YOUR_PROJECT_ID
 export CLOUDSDK_COMPUTE_REGION=us-west1
 export CLOUDSDK_COMPUTE_ZONE=us-west1-a
 export NAGARE_REGISTRY_HOST=us-west1-docker.pkg.dev      # derived as <region>-docker.pkg.dev
 export NAGARE_ARTIFACT_REGISTRY_ID=nagare
-export NAGARE_IMAGE_BUCKET=tan-nb-exp-nagare-images       # derived as <project>-nagare-images
-export NAGARE_BACKUP_BUCKET=tan-nb-exp-nagare-backups     # derived as <project>-nagare-backups
-export NAGARE_BASE_DOMAIN=apps.example.com
+export NAGARE_IMAGE_BUCKET=YOUR_PROJECT_ID-nagare-images   # derived as <project>-nagare-images
+export NAGARE_BACKUP_BUCKET=YOUR_PROJECT_ID-nagare-backups # derived as <project>-nagare-backups
+export NAGARE_BASE_DOMAIN=apps.yourdomain.example
 export NAGARE_ACME_EMAIL=you@yourdomain.com               # YOUR Let's Encrypt contact; no default
 export NAGARE_ACME_DIRECTORY=production                   # or `staging` while rehearsing issuance
 export NAGARE_INSTANCE_NAME=nagare-01
@@ -151,7 +157,7 @@ material. Do not edit the packaged NixOS modules:
 
 ```bash
 test -f "$HOME/.ssh/id_ed25519.pub"
-nagarectl host init --context prod \
+nagarectl host init --context "$CONTEXT_NAME" \
   --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" --dry-run
 ```
 
@@ -181,11 +187,11 @@ age-keygen -o /secure/path/prod-host.agekey
 age-keygen -y /secure/path/prod-host.agekey   # put this public age1… recipient in .sops.yaml
 sops /secure/path/prod-host-secrets.yaml      # add tailscale/authkey and save encrypted
 
-nagarectl host init --context prod \
+nagarectl host init --context "$CONTEXT_NAME" \
   --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
   --sops-file /secure/path/prod-host-secrets.yaml
-nagarectl host path --context prod
-nagarectl host show --context prod
+nagarectl host path --context "$CONTEXT_NAME"
+nagarectl host show --context "$CONTEXT_NAME"
 ```
 
 The resulting directory is
@@ -200,7 +206,12 @@ states only *that* and *when*.
 
 ## Step 5 — Provision the cloud perimeter (first `nagare infra-up`)  🟡  *(EP-2)*
 
+This first billable mutation targets project `$PROJECT_ID` and Pulumi stack `$CONTEXT_NAME`.
+`nagarectl context guard` prints both identities before the saved preview, and this apply must not
+contain a VM because no image self-link exists yet.
+
 ```bash
+nagarectl --context "$CONTEXT_NAME" context guard
 plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/perimeter"
 nagare infra-preview --save-plan "$plan_dir"
 jq . "$plan_dir/review.json"
@@ -213,7 +224,7 @@ The first apply creates everything **except the VM**, because
 static IP exists:
 
 ```bash
-pulumi -C infra/pulumi stack output publicIp
+pulumi -C "$NAGARE_WORKSPACE_ROOT/infra/pulumi" stack output publicIp
 ```
 
 ## Step 6 — Delegate DNS now that the zone exists  🟡
@@ -223,8 +234,9 @@ and set NS records at your registrar (this must happen **after** Step 5 and **be
 HTTPS can be issued in Step 10):
 
 ```bash
-pulumi -C infra/pulumi stack output dnsZoneName
-gcloud dns managed-zones describe "$(pulumi -C infra/pulumi stack output dnsZoneName)"
+pulumi -C "$NAGARE_WORKSPACE_ROOT/infra/pulumi" stack output dnsZoneName
+gcloud dns managed-zones describe \
+  "$(pulumi -C "$NAGARE_WORKSPACE_ROOT/infra/pulumi" stack output dnsZoneName)"
 ```
 
 ## Step 7 — Authenticate Docker to your registry  🟡  *(manual; before first deploy)*
@@ -240,6 +252,10 @@ gcloud auth configure-docker us-west1-docker.pkg.dev    # use YOUR NAGARE_REGIST
 a first-deploy surprise.)
 
 ## Step 8 — Build + register the NixOS image, then boot the VM  🟡  *(EP-3 / EP-4)*
+
+This stage starts the context builder in `$PROJECT_ID`, writes an image into that project's image
+bucket, then applies stack `$CONTEXT_NAME` to create its single cluster VM. The dry run must print
+the exact builder project, zone, and instance; stop if any differ from the selected context.
 
 ```bash
 nagare host-image --dry-run
@@ -266,8 +282,8 @@ reboot. This first boot is intentionally secretless: Tailscale autoconnect stops
 then verify secret activation before relying on the tailnet:
 
 ```bash
-nagarectl host place-age-key --context prod --key-file /secure/path/prod-host.agekey
-nagarectl --context prod server status
+nagarectl host place-age-key --context "$CONTEXT_NAME" --key-file /secure/path/host.agekey
+nagarectl --context "$CONTEXT_NAME" server status
 nagare iap-ssh ssh nagare-01 -- sudo -- test -s /run/secrets/tailscale/authkey
 nagare iap-ssh ssh nagare-01 -- sudo -- tailscale status
 ```
@@ -284,10 +300,10 @@ After Step 8 reports the host age key ready and Tailscale joined, use Tailscale 
 context's credentials—see [accessing the host](accessing-the-host.md). Observable check:
 
 ```bash
-nagarectl kubeconfig fetch --context <name>
-export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/<name>.yaml"
-nagarectl cluster guard --context <name>
-kubectl get nodes      # <name>-nagare should be Ready
+nagarectl kubeconfig fetch --context "$CONTEXT_NAME"
+export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/${CONTEXT_NAME}.yaml"
+nagarectl cluster guard --context "$CONTEXT_NAME"
+kubectl get nodes      # ${CONTEXT_NAME}-nagare should be Ready
 ```
 
 No reboot or manual layout/k3s restart belongs in this path. If the data-disk
@@ -299,10 +315,16 @@ selects the GCE instance through the context's project, addresses the API by its
 name, and installs a distinct mode-`0600` file. Every cloud cluster mutation below repeats the
 identity guard before its first `kubectl` write.
 
-## Step 10 — Bootstrap the cluster + observability  ✅  *(EP-4 / EP-5, verified live)*
+## Step 10 — Bootstrap the cluster + observability  🟡  *(components verified; one-pass live rehearsal pending)*
+
+These commands mutate only the cluster accepted by `nagarectl cluster guard`: its API endpoint and
+sole node must identify `$CONTEXT_NAME`. A successful first invocation reaches ready cert-manager
+and Knative webhooks without a retry, then certificate policy reports only opted-in app namespaces.
 
 ```bash
 nagare cluster-bootstrap   # cert-manager + letsencrypt-dns issuer, Knative Serving, Kourier
+nagare cluster-enable-tls  # enable external-domain TLS only after Step 6 delegation
+kubectl -n personal wait --for=condition=Ready certificate --all --timeout=10m
 nagare observability       # VictoriaMetrics/Logs/Traces + OTel Collector + Grafana
 ```
 
@@ -337,8 +359,10 @@ public image) is used as-is.
 ## Step 12 — Backups and recovery  🟡  *(DB/volume backups built; full DR drill deferred)*
 
 See [backups and disaster recovery](backups-and-disaster-recovery.md) and the
-[runbooks](../runbooks/disaster-recovery.md). Keep two things off-machine: the host **age
-private key** and a copy of this repo (including Pulumi state under `infra/pulumi/`).
+[runbooks](../runbooks/disaster-recovery.md). Keep the host **age private key** off-machine and
+back up the context configuration plus Pulumi state. An installed release keeps its writable
+context under the XDG configuration/state roots shown by `nagarectl context path` and
+`nagarectl platform root --json`; a remote Pulumi backend needs its own tested recovery path.
 
 ---
 
@@ -348,7 +372,8 @@ To point the same installed release at a different GCP project, create or initia
 second context:
 
 ```bash
-nagarectl init labs --project LABS_PROJECT_ID --base-domain labs.example.com
+nagarectl init labs --project LABS_PROJECT_ID --base-domain labs.example.com \
+  --acme-email you@example.com
 nagarectl context use labs
 nagarectl --context prod deploy -f nagare/Config.hs    # one-command override
 ```
