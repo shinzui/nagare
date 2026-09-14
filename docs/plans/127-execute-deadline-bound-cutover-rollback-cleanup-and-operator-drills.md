@@ -69,6 +69,9 @@ This section must always reflect the actual current state of the work.
       supplies a disposable environment and measured address-handoff contract.
 - [x] (2026-09-13 21:28 PDT) Completed the operator drill/recovery guidance and distilled durable
       deadline, commit-point, rollback, and cleanup decisions into ADR 0019.
+- [x] (2026-09-13 21:02 PDT) Validated the stopping point with 14 focused cutover tests, all 486
+      `nagarectl` tests, the Pulumi TypeScript build, strict user-documentation OKF validation,
+      and the full native-system `nix flake check`.
 
 
 ## Surprises & Discoveries
@@ -172,7 +175,9 @@ restores old service, write admission is observed as the irreversible boundary, 
 only transaction-owned resource IDs. Operator-facing documentation and ADR 0019 now preserve these
 rules. Concrete cloud/cluster adapters and both live drills remain blocked by the entirely
 unimplemented prerequisite ExecPlans 122 through 126, so this plan is not complete and no production
-cutover command is advertised as available.
+cutover command is advertised as available. The completed slice passes all 486 `nagarectl` tests,
+the Pulumi TypeScript build, strict user-documentation OKF validation, and the repository's full
+native-system flake check.
 
 
 ## Context and Orientation
@@ -440,3 +445,6 @@ observation and resumable partial cleanup; the focused suite now contains 14 pas
 
 Revision note (2026-09-13): Recorded the flake-only custom-prelude style discovery and applied the
 required imports before rerunning repository validation.
+
+Revision note (2026-09-13): Recorded the successful full validation pass and retained the two
+provider-dependent adapter and live-drill items as explicit incomplete work.
