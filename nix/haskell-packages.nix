@@ -41,7 +41,12 @@ let
     runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.socat ];
     text = builtins.readFile ../scripts/nix-builder-proxy.sh;
   };
-  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs pkgs.socat nixBuilderProxy ];
+  operatorTools = [
+    pkgs.pulumi
+    pkgs.pulumiPackages.pulumi-nodejs
+    pkgs.socat
+    nixBuilderProxy
+  ];
 
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
@@ -72,7 +77,7 @@ let
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
-        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime ]} \
+        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils ]} \
         --set NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare
     '';
     meta.mainProgram = "nagarectl";

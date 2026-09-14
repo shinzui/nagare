@@ -238,15 +238,25 @@ import Nagare.Ops.Doctor
   , remediationFor
   )
 import Nagare.Ops.Domains
-  ( CertState (..)
+  ( CertificateEvidence (..)
+  , CertificateState (..)
   , DnsExpectation (..)
+  , DnsObservation (..)
   , DomainMapping (..)
   , DomainRow (..)
-  , certStateFor
+  , MappingState (..)
+  , Observation (..)
+  , TlsMode (..)
+  , certificateStateFor
   , dnsExpectationFor
-  , extractCertReadiness
+  , domainCheckFailures
+  , domainReportValue
+  , extractCertificateEvidence
   , extractDomainMappings
   , formatDomainList
+  , observeDnsWith
+  , parseDigShort
+  , queryDomainRowsWith
   )
 import Nagare.Ops.Probe
   ( KourierEvidence (..)
@@ -2205,65 +2215,143 @@ cleanupTests =
 
 domainsTests :: [TestTree]
 domainsTests =
-  [ testCase "extractDomainMappings decodes host/service/ready" $
+  [ testCase "extractDomainMappings preserves route reason and message" $
       extractDomainMappings domainMappingJson
         @?= Right
-          [ DomainMapping "blog.apps.example.com" (Just "blog") (Just True)
-          , DomainMapping "app.nadeem.dev" (Just "shop") (Just False)
+          [ DomainMapping "blog.apps.example.com" (Just "blog") MappingReady
+          , DomainMapping "app.nadeem.dev" (Just "shop") (MappingFailed "DomainAlreadyClaimed: owned by other")
           ]
   , testCase "extractDomainMappings malformed -> Left" $
       assertBool "Left" (isLeft (extractDomainMappings "{not json"))
   , testCase "extractDomainMappings empty list -> Right []" $
       extractDomainMappings "{\"items\":[]}" @?= Right []
-  , testCase "extractCertReadiness pulls (dnsName, ready) per name" $
-      extractCertReadiness certJson
-        @?= Right [("*.personal.apps.example.com", True), ("apps.example.com", True)]
-  , testCase "extractCertReadiness absent/empty -> Right []" $
-      extractCertReadiness "{\"items\":[]}" @?= Right []
-  , testCase "dnsExpectationFor: apex is under the wildcard" $
-      dnsExpectationFor "apps.example.com" "34.83.0.1" "apps.example.com"
-        @?= UnderWildcard "34.83.0.1"
-  , testCase "dnsExpectationFor: one-label subdomain is under the wildcard" $
-      dnsExpectationFor "apps.example.com" "34.83.0.1" "blog.apps.example.com"
-        @?= UnderWildcard "34.83.0.1"
-  , testCase "dnsExpectationFor: two-label subdomain is outside" $
-      dnsExpectationFor "apps.example.com" "34.83.0.1" "a.b.apps.example.com"
-        @?= OutsideWildcard
-  , testCase "dnsExpectationFor: unrelated domain is outside" $
-      dnsExpectationFor "apps.example.com" "34.83.0.1" "app.nadeem.dev"
-        @?= OutsideWildcard
-  , testCase "certStateFor: wildcard cert matches a subdomain (ready)" $
-      certStateFor [("*.personal.apps.example.com", True)] "blog.personal.apps.example.com"
-        @?= CertReady
-  , testCase "certStateFor: matching but not ready -> pending" $
-      certStateFor [("app.nadeem.dev", False)] "app.nadeem.dev"
-        @?= CertPending
-  , testCase "certStateFor: no match -> disabled" $
-      certStateFor [] "app.nadeem.dev" @?= CertDisabled
-  , testCase "formatDomainList: aligned base + app rows golden" $
-      formatDomainList
-        [ DomainRow "apps.example.com" Nothing Nothing (UnderWildcard "34.83.0.1") CertDisabled
-        , DomainRow "blog.apps.example.com" (Just "blog") (Just True) (UnderWildcard "34.83.0.1") CertReady
-        , DomainRow "app.nadeem.dev" (Just "shop") (Just True) OutsideWildcard CertPending
-        ]
-        @?= T.unlines
-          [ "  DOMAIN                          SERVICE         DNS                               CERT"
-          , "  apps.example.com                (base)          *.apps.example.com A -> 34.83.0.1 disabled"
-          , "  blog.apps.example.com           blog            *.apps.example.com A -> 34.83.0.1 Ready"
-          , "  app.nadeem.dev                  shop            (outside wildcard)                pending"
+  , testCase "extractCertificateEvidence preserves ACME failure detail" $
+      extractCertificateEvidence failedCertJson
+        @?= Right
+          [ CertificateEvidence
+              "blog-cert"
+              ["blog.apps.example.com"]
+              (Just "False")
+              (Just "Failed")
+              (Just "DNS01 challenge failed")
           ]
+  , testCase "parseDigShort strips DNS terminal dots" $
+      parseDigShort "203.0.113.10\nedge.example.test.\n" @?= ["203.0.113.10", "edge.example.test"]
+  , testCase "DNS apex expects exact apexIp, never the wildcard" $
+      dnsExpectationFor base (Just vmIp) (Just apexIp) (Just cdnIp) base
+        @?= ExpectedAddresses [apexIp]
+  , testCase "one-label DNS accepts wildcard VM or exact CDN target" $
+      dnsExpectationFor base (Just vmIp) (Just apexIp) (Just cdnIp) "blog.apps.example.com"
+        @?= ExpectedAddresses [vmIp, cdnIp]
+  , testCase "deeper and unrelated DNS have no platform target" $ do
+      dnsExpectationFor base (Just vmIp) (Just apexIp) (Just cdnIp) "a.b.apps.example.com"
+        @?= NoPlatformDnsExpectation
+      dnsExpectationFor base (Just vmIp) (Just apexIp) (Just cdnIp) "app.nadeem.dev"
+        @?= NoPlatformDnsExpectation
+  , testCase "recording dig distinguishes NXDOMAIN from an unavailable command" $ do
+      nxdomain <- observeDnsWith (constantRunner (Observed "")) base "missing.apps.example.com"
+      nxdomain @?= NotFound
+      missing <- observeDnsWith (constantRunner (Unavailable "dig unavailable")) base "blog.apps.example.com"
+      missing @?= Unavailable "dig unavailable"
+      failed <- observeDnsWith (constantRunner (Unavailable "dig exited 9")) base "blog.apps.example.com"
+      failed @?= Unavailable "dig exited 9"
+  , testCase "recording dig captures A, CNAME, and authoritative NS answers" $ do
+      calls <- newIORef []
+      observed <- observeDnsWith (dnsRunner calls cdnIp) base "blog.apps.example.com"
+      observed
+        @?= Observed (DnsObservation [cdnIp] (Just "edge.example.test") ["ns-cloud-a.example"])
+      recorded <- readIORef calls
+      recorded
+        @?= [ ["+short", "A", "blog.apps.example.com"]
+            , ["+short", "AAAA", "blog.apps.example.com"]
+            , ["+short", "CNAME", "blog.apps.example.com"]
+            , ["+short", "NS", "apps.example.com"]
+            ]
+  , testCase "TLS-disabled mode is explicit, not a missing certificate" $
+      certificateStateFor TlsGloballyDisabled (Unavailable "unused") (Unavailable "unused") base
+        @?= TlsDisabled
+  , testCase "pending ACME challenge preserves reason" $
+      certificateStateFor TlsEnabled (Observed True) (Observed [pendingCertificate]) "blog.apps.example.com"
+        @?= CertificatePending "blog-cert: Pending: Waiting for DNS01 challenge"
+  , testCase "failed ACME challenge preserves reason" $
+      certificateStateFor TlsEnabled (Observed True) (Observed [failedCertificate]) "blog.apps.example.com"
+        @?= CertificateFailed "blog-cert: Failed: DNS01 challenge failed"
+  , testCase "apex mismatch fails while wildcard VM and exact CDN answers pass" $ do
+      assertBool "apex mismatch" (not (null (domainCheckFailures [healthyRow base Nothing (ExpectedAddresses [apexIp]) vmIp TlsDisabled])))
+      domainCheckFailures [healthyRow "blog.apps.example.com" (Just "blog") (ExpectedAddresses [vmIp, cdnIp]) vmIp (CertificateReady "blog-cert")]
+        @?= []
+      domainCheckFailures [healthyRow "www.apps.example.com" (Just "www") (ExpectedAddresses [vmIp, cdnIp]) cdnIp (CertificateReady "www-cert")]
+        @?= []
+  , testCase "recording kubectl fixture produces a fully ready row" $ do
+      calls <- newIORef []
+      observed <- queryDomainRowsWith (inventoryRunner calls) base (Just vmIp) (Just apexIp) (Just cdnIp) "personal"
+      case observed of
+        Observed rows -> domainCheckFailures rows @?= []
+        other -> assertFailure ("expected observed rows, got " <> show other)
+      commands <- readIORef calls
+      assertBool "DomainMapping queried" (("kubectl", ["get", "domainmapping", "-n", "personal", "-o", "json"]) `elem` commands)
+      assertBool "dig queried" (("dig", ["+short", "A", "blog.apps.example.com"]) `elem` commands)
+  , testCase "versioned JSON report does not depend on table columns" $
+      assertBool
+        "schemaVersion"
+        ("\"schemaVersion\":1" `BS.isInfixOf` LBS.toStrict (Aeson.encode (domainReportValue [] [healthyRow base Nothing (ExpectedAddresses [apexIp]) apexIp TlsDisabled])))
+  , testCase "formatDomainList keeps a readable observation table" $
+      assertBool
+        "contains observed target"
+        (cdnIp `T.isInfixOf` formatDomainList [healthyRow "www.apps.example.com" (Just "www") (ExpectedAddresses [vmIp, cdnIp]) cdnIp (CertificateReady "www-cert")])
   , testCase "formatDomainList: empty -> (no domains)" $
       formatDomainList [] @?= "(no domains)\n"
   ]
   where
+    base = "apps.example.com"
+    vmIp = "203.0.113.10"
+    cdnIp = "198.51.100.20"
+    apexIp = cdnIp
     domainMappingJson =
       "{\"items\":[\
       \{\"metadata\":{\"name\":\"blog.apps.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}},\
-      \{\"metadata\":{\"name\":\"app.nadeem.dev\"},\"spec\":{\"ref\":{\"name\":\"shop\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"False\"}]}}\
+      \{\"metadata\":{\"name\":\"app.nadeem.dev\"},\"spec\":{\"ref\":{\"name\":\"shop\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"False\",\"reason\":\"DomainAlreadyClaimed\",\"message\":\"owned by other\"}]}}\
       \]}"
-    certJson =
-      "{\"items\":[{\"spec\":{\"dnsNames\":[\"*.personal.apps.example.com\",\"apps.example.com\"]},\
-      \\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
+    failedCertJson = certificateListJson "False" "Failed" "DNS01 challenge failed"
+    pendingCertificate = CertificateEvidence "blog-cert" ["blog.apps.example.com"] (Just "False") (Just "Pending") (Just "Waiting for DNS01 challenge")
+    failedCertificate = CertificateEvidence "blog-cert" ["blog.apps.example.com"] (Just "False") (Just "Failed") (Just "DNS01 challenge failed")
+    certificateListJson status reason message =
+      TE.encodeUtf8
+        ( "{\"items\":[{\"metadata\":{\"name\":\"blog-cert\"},\"spec\":{\"dnsNames\":[\"blog.apps.example.com\"]},"
+            <> "\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\""
+            <> status
+            <> "\",\"reason\":\""
+            <> reason
+            <> "\",\"message\":\""
+            <> message
+            <> "\"}]}}]}"
+        )
+    healthyRow hostname owner expectation answer cert =
+      DomainRow hostname owner (if isNothing owner then NotFound else Observed MappingReady) expectation (Observed (DnsObservation [answer] Nothing ["ns-cloud-a.example"])) cert
+    constantRunner observation _ _ = pure observation
+    dnsRunner calls answer _ args = do
+      modifyIORef' calls (<> [args])
+      pure $ Observed $ case args of
+        ["+short", "A", _] -> TE.encodeUtf8 (answer <> "\n")
+        ["+short", "CNAME", _] -> "edge.example.test.\n"
+        ["+short", "NS", _] -> "ns-cloud-a.example.\n"
+        _ -> ""
+    inventoryRunner calls executable args = do
+      modifyIORef' calls (<> [(executable, args)])
+      pure $ Observed $ case (executable, args) of
+        ("kubectl", ["get", "domainmapping", "-n", "personal", "-o", "json"]) ->
+          "{\"items\":[{\"metadata\":{\"name\":\"blog.apps.example.com\"},\"spec\":{\"ref\":{\"name\":\"blog\"}},\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}]}"
+        ("kubectl", ["-n", "knative-serving", "get", "configmap", "config-network", "-o", "json"]) ->
+          "{\"data\":{\"external-domain-tls\":\"Enabled\"}}"
+        ("kubectl", ["get", "clusterissuer", "letsencrypt-dns", "-o", "json"]) ->
+          "{\"status\":{\"conditions\":[{\"type\":\"Ready\",\"status\":\"True\"}]}}"
+        ("kubectl", ["get", "certificates.cert-manager.io", "-n", "personal", "-o", "json"]) ->
+          certificateListJson "True" "Issued" "Certificate is up to date"
+        ("kubectl", ["get", "certificates.networking.internal.knative.dev", "-n", "personal", "-o", "json"]) ->
+          "{\"items\":[]}"
+        ("dig", ["+short", "A", _]) -> TE.encodeUtf8 (vmIp <> "\n")
+        ("dig", ["+short", "NS", _]) -> "ns-cloud-a.example.\n"
+        _ -> ""
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Ops.Doctor (MasterPlan 8, EP-39): the pure remediation knowledge base,
