@@ -61,6 +61,10 @@ test ! -e "$XDG_CONFIG_HOME/nagare/contexts/nopulumi.env"
 
 # EP-129 / IR-9: a cloud context guard without Pulumi must report the
 # unavailable executable, not claim that the selected stack lacks gcp:project.
+mkdir -p "$HOME/.config/gcloud"
+printf '%s\n' \
+  '{"type":"authorized_user","client_id":"fixture","client_secret":"fixture","refresh_token":"fixture","quota_project_id":"acme-prod"}' \
+  > "$HOME/.config/gcloud/application_default_credentials.json"
 "$unwrapped_cli" context create guardcloud \
   --project acme-prod \
   --region us-west1 \

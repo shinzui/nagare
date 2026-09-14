@@ -5,6 +5,7 @@ date: 2026-08-25
 authors: [shinzui]
 related:
   - docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md
+  - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
 ---
@@ -81,3 +82,25 @@ later upgrade transaction advances it only after host and cluster phases succeed
 Interrupted upgrades can leave the host or cluster at the target release while the context still
 names the previous version. That visible skew is intentional: status reports it, the transaction
 identifies the completed phase, and resume converges forward without inventing success.
+
+## Amendment — 2026-09-14: distinguish confirmed absence from unknown identity
+
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) separates
+deployment evidence from release identity. For a cloud context, a project-, zone-, and
+instance-scoped GCE describe that explicitly reports resource NotFound establishes that the
+single host is `not-deployed`; because Nagare's cluster resides on that host, the cluster is then
+also `not-deployed` without contacting Kubernetes. A successful malformed response, missing tool,
+authentication, permission, network, or other lookup failure is unknown, never absence. An existing
+host or cluster without a readable release identity remains legacy/unknown.
+
+Compatibility aggregation excludes only resources proven not deployed. It therefore preserves a
+real patch skew between payload and context instead of letting absent identities outrank it. Human
+and JSON status carry the explicit deployment states alongside the existing identity fields.
+
+`nagarectl platform repin --version VERSION --yes` is the sole pre-deployment pin correction. It
+requires the requested release to equal the active immutable payload, a versioned cloud context,
+normal platform and project guards, confirmed host and cluster absence, and no cluster identity. If
+a recognized generated host flake exists, its generated release metadata and Nagare input advance
+with the context while `host.nix` and `secrets.yaml` remain unchanged; unrecognized files refuse.
+The command has no force mode and becomes permanently unavailable once deployment exists. Deployed
+contexts continue to use adoption or the upgrade transaction according to their identity state.

@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Report a context with no host or cluster yet as not deployed, not legacy-unknown, and let it be re-pinned
 description: A freshly initialised cloud context used from the next patch release shows Compatibility legacy-unknown only because its host and cluster do not exist yet, and neither adopt nor the documented upgrade flow can move its pin.
-timestamp: "2026-09-14T04:26:09Z"
+timestamp: "2026-09-14T13:11:22Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:04:28Z"
 requestId: IR-16
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T13:11:22Z"
+resolution: "ExecPlan 135 added explicit host and cluster deployment evidence: only a project-scoped GCE NotFound proves the single-host cluster is not deployed, while existing unversioned resources and every inconclusive lookup remain legacy-unknown. Confirmed absence no longer hides context patch skew. The guarded platform repin command advances only a never-deployed context and recognized generated host flake to the active payload, preserves operator files, and refuses deployed or ambiguous targets. Unit and clone-free packaged integration coverage passes as part of the 505-test focused gate. ADR 6 records the durable state and re-pin semantics."
 targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
 origin: mori://shinzui/nagare
 ---
@@ -19,8 +21,10 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for implementation by
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md).
+**Status:** completed by
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); deployment
+evidence and pre-deployment re-pin semantics are recorded in
+[ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md).
 **Created:** 2026-09-14.
 
 

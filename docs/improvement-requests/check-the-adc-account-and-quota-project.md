@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Check the Application Default Credentials account and quota project against the context
 description: Pulumi authenticates with ADC, whose quota project can name a different, even production, project; neither init's preflight nor the context guard looks at ADC at all.
-timestamp: "2026-09-14T04:26:09Z"
+timestamp: "2026-09-14T13:11:22Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-12
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T13:11:22Z"
+resolution: "ExecPlan 135 added token-safe ADC discovery with explicit environment precedence to initialization and every cloud project guard before Pulumi. Missing, invalid, unreadable, or foreign-quota credentials refuse with safe structured evidence and the exact quota-project repair; absent or mismatched principal evidence is visible as a warning. GCP onboarding and context documentation now explains ADC login, quota attribution, and context switching. Fixture, policy, redaction, command-order, and clone-free packaged tests pass as part of the 505-test focused gate. ADR 9 records the durable credential boundary."
 targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
 origin: mori://shinzui/nagare
 ---
@@ -19,8 +21,10 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for implementation by
-[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md).
+**Status:** completed by
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md); the durable
+credential boundary is recorded in
+[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
 **Created:** 2026-09-13.
 
 

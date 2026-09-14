@@ -5,6 +5,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **ADC project confinement (IR-12).** Initialization and every cloud context guard now inspect the
+  Application Default Credentials file Pulumi uses before its first invocation. A foreign quota
+  project refuses with the exact repair command; missing, malformed, or unreadable credentials
+  refuse without exposing tokens, while absent or mismatched principal evidence is an explicit
+  warning. The GCP setup guides now make ADC login and quota attribution context-switching duties.
+- **Never-deployed context re-pin (IR-16).** Platform status now distinguishes a confirmed-absent
+  GCE host and its cluster from legacy or unreachable resources, so a patch-behind fresh context
+  reports `patch-skew`. `nagarectl platform repin --version VERSION --yes` advances only a guarded,
+  never-deployed context and its recognized generated host flake; existing or inconclusive cloud
+  evidence refuses, and operator-owned host configuration and secrets remain untouched.
 - **Safe operator access (IR-10, IR-20).** The installable operator package no longer exports
   Haskell `lib/links`, includes `socat`, and can coexist with Home Manager without priority
   overrides. `nagarectl kubeconfig fetch` retrieves and atomically normalizes a private

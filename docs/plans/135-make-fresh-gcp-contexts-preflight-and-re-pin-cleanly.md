@@ -45,7 +45,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-14 12:40Z) Model and test ADC discovery, principal evidence, and quota-project policy.
 - [x] (2026-09-14 12:49Z) Add the shared ADC observation to initialization and the context guard.
 - [x] (2026-09-14 13:10Z) Represent not-deployed host/cluster identities and add a guarded re-pin command.
-- [ ] Update setup/upgrade docs, complete the IRs, and run all focused and repository checks.
+- [x] (2026-09-14 13:18Z) Update setup/upgrade docs, complete the IRs, and run all focused and repository checks.
 
 
 ## Surprises & Discoveries
@@ -68,6 +68,11 @@ implementation. Provide concise evidence.
   Evidence: deriving cluster `NotDeployed` only after a project-scoped GCE NotFound lets status skip
   kubectl for a host that cannot contain the single-host cluster, while all other lookup outcomes
   retain `DeploymentUnknown` and `legacy-unknown`.
+
+- Observation: The full repository gate's intentional missing-Pulumi scenario began refusing at
+  the newly earlier missing-ADC boundary.
+  Evidence: `nagare-operator-tools` passed again after its context-guard fixture received a matching
+  ADC file, preserving the test's intended Pulumi diagnostic without weakening guard order.
 
 
 ## Decision Log
@@ -167,7 +172,23 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The plan closes both reported gaps. Initialization and all cloud project-guard collection now
+validate the exact ADC file selected by environment precedence before Pulumi can start. Foreign
+quota attribution, missing or malformed files, and unsafe reads fail closed without retaining or
+printing token material; incomplete or disagreeing principal evidence remains visible as a warning.
+
+Fresh cloud status now reports authoritative GCE absence as host and cluster `not-deployed`, so a
+real context patch difference remains `patch-skew`. Existing unversioned objects and every
+inconclusive lookup retain the prior `legacy-unknown` semantics. The new `platform repin` command is
+limited to the current immutable payload and confirmed pre-deployment state, applies the normal
+release, ADC, and project guards, and keeps a recognized generated host flake consistent without
+changing operator-owned configuration or secrets.
+
+IR-12 and IR-16 are completed; ADRs 9 and 6 respectively record the durable credential and
+deployment-state rules. The focused Haskell gate passes all 505 tests, the packaged clone-free
+integration covers success and fail-closed cases, strict OKF validation passes all 23 concepts, and
+the complete native `nix flake check --print-build-logs` passes. No live GCP resource was created or
+modified; all cloud behavior was verified hermetically.
 
 
 ## Context and Orientation
@@ -357,3 +378,7 @@ public preflight and re-pin path.
   integration proves patch-skew status for confirmed absence, consistent context/host re-pinning,
   preservation of operator files, refusal for an existing instance, and fail-closed handling of
   permission, network, malformed, and unavailable probes.
+- 2026-09-14: Completed milestone 4 by documenting the user-visible changes, amending ADRs 6 and 9,
+  completing IR-12 and IR-16 with a bundle-log entry, and updating the missing-Pulumi integration
+  fixture for the earlier ADC guard. Strict OKF validation passes all 23 concepts and the complete
+  native flake check passes.
