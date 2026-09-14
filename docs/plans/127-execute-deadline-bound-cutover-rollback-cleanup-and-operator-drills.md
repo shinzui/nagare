@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:04Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T03:34:56Z
+      mode: "implement"
+      note: "Implement cutover executor, rollback, cleanup, drills, docs, and ADR distillation"
 ---
 
 # Execute deadline-bound cutover rollback cleanup and operator drills
@@ -42,6 +48,11 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
+- [x] (2026-09-13 20:35 PDT) Audited the working tree and established that the hard-prerequisite
+      ExecPlans 122 through 126 have no implementation; added the missing prerequisite contract
+      surface to this execution rather than pretending those APIs already exist.
+- [x] (2026-09-13 20:58 PDT) Implemented the minimal replacement transaction, deadline, and state-transfer contract
+      surface required by this executor without claiming the prerequisite plans complete.
 - [ ] Implement pre-cutover arming, freshness/drift reconciliation, confirmation, and
       maintenance/quiesce contracts.
 - [ ] Implement the monotonic deadline executor and exact static-IP handoff sequence.
@@ -67,6 +78,19 @@ implementation. Provide concise evidence.
 - Observation: Committing only the Pulumi active slot is insufficient; host, kubeconfig,
   platform version, and cluster stamps are context-owned identities used by later commands.
   Evidence: the existing upgrade transaction commits the context last under ADR 0006.
+- Observation: None of the hard-prerequisite replacement plans have been implemented in the
+  current working tree, including the disposable address-handoff proof from ExecPlan 122.
+  Evidence: `Nagare.Platform.Replacement`, `Nagare.Platform.StateTransfer`, candidate-slot,
+  and rehearsal modules are absent, while every Progress item in ExecPlans 122 through 126 is
+  unchecked at commit `f4953c1`.
+- Observation: The plan's root-level Cabal command is not executable because this repository has
+  no root `cabal.project`; the package project lives in `cli/nagarectl/`.
+  Evidence: `nix develop -c cabal build nagarectl` from the repository root reports Cabal error
+  7136, while the same build from `cli/nagarectl/` succeeds.
+- Observation: A failed write-gate command cannot be treated as proof that writes stayed fenced;
+  actual gate observation determines whether the irreversible commit point occurred.
+  Evidence: the injected failpoint after the admission side effect observes admitted writes and
+  completes the promotion without invoking old-context rollback.
 
 
 ## Decision Log
@@ -96,6 +120,13 @@ Record every decision made while working on the plan.
   shorter explicit retention or immediate finalization after acceptance.
   Rationale: Stopped VMs do not need ongoing compute, while a short rollback window is valuable;
   retained disks still cost money and must not become unnoticed permanent infrastructure.
+  Date: 2026-09-13
+- Decision: Implement the smallest prerequisite transaction/deadline/state-transfer contracts
+  needed by the cutover executor in this plan, but leave infrastructure provisioning,
+  rehearsal, and state-adapter delivery attributed to their owning plans.
+  Rationale: The cutover module cannot compile or prove its safety invariants against nonexistent
+  types. Supplying the pure shared boundary here permits deterministic executor work without
+  falsely marking ExecPlans 122 through 126 complete or performing their cloud mutations.
   Date: 2026-09-13
 
 
@@ -355,3 +386,10 @@ The executor uses `Deadline { hardStop, rollbackAt }` from ExecPlan 123 and the
 Pulumi slot config; ExecPlan 125 is the authority for candidate/fence evidence. No later plan
 may independently mutate the reserved address or admit writes. This plan closes the MasterPlan
 only after updating all child outcomes, the master outcome, and the replacement ADR.
+
+
+Revision note (2026-09-13): Recorded the missing prerequisite implementation discovered at the
+start of execution and the scoped decision to supply only the pure contracts needed by cutover.
+
+Revision note (2026-09-13): Recorded completion of the prerequisite contract slice and the focused
+11-test cutover/rollback/cleanup validation, including the observed write-admission commit rule.
