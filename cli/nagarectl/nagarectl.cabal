@@ -55,6 +55,7 @@ library
     Nagare.Cdn.Provision
     Nagare.Cdn.Status
     Nagare.Cluster.GcsJob
+    Nagare.Cluster.Kubeconfig
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -139,6 +140,7 @@ library
     temporary,
     text,
     time,
+    unix,
     vector,
     yaml,
 
@@ -212,4 +214,5 @@ test-suite nagarectl-test
     temporary,
     text,
     time,
+    unix,
     yaml,

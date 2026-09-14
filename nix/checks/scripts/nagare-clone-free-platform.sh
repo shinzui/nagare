@@ -161,6 +161,10 @@ nagare --dry-run infra-preview > recipe-dry-run.out 2>&1
 grep -q 'cd infra/pulumi && pulumi preview' recipe-dry-run.out
 nagare --dry-run infra-up > infra-up-dry-run.out 2>&1
 grep -q 'nagarectl infra guard' infra-up-dry-run.out
+nagare --dry-run iap-ssh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml /tmp/labs.yaml \
+  > iap-ssh-dry-run.out 2>&1
+grep -q 'scripts/iap-ssh.sh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml /tmp/labs.yaml' \
+  iap-ssh-dry-run.out
 nagare --dry-run local-smoke > local-smoke-dry-run.out 2>&1
 grep -q 'scripts/local-smoke.sh' local-smoke-dry-run.out
 # EP-112: the issuer is rendered to a FILE and applied from that
