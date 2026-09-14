@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Complete IR-10 and IR-20. Public operator packages now exclude Haskell `lib/links`, the full package carries `socat`, a project-confined command atomically installs normalized per-context kubeconfigs, and a reusable Kubernetes identity guard runs before cloud cluster mutation recipes. ADRs 4 and 7 record the durable state and package boundaries.
 * **Update**: Complete IR-21. Cloud and local bootstrap now wait for Knative admission webhooks with explicit deadlines, retry idempotent ConfigMap merge patches within a bounded window, and pass the first invocation on a new disposable k3d cluster.
 * **Update**: Accept the remaining first-cluster GCP bootstrap requests under MasterPlan 22: IR-10 and IR-20 target ExecPlan 134; IR-12 and IR-16 target ExecPlan 135; IR-15 and IR-17 target ExecPlan 136; IR-19 targets ExecPlan 137; IR-22 and IR-23 target ExecPlan 138; and IR-11 targets the final integration ExecPlan 139. Other requests remain unchanged.
 * **Update**: Accept IR-18 and target it at docs/plans/133-deliver-the-host-age-key-after-first-boot.md.

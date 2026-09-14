@@ -47,6 +47,7 @@ The context store is user-level, not per-checkout:
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/nagare/
   contexts/<name>.env
+  kubeconfigs/<name>.yaml
   current-context
 ```
 
@@ -78,6 +79,10 @@ to `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`; set
 `NAGARE_CLUSTER_SECRETS_DIR` for an explicit operator-owned location. Source
 checkouts still read a `cluster/secrets/` directory as a compatibility fallback,
 but the public repository ships none.
+
+Fetched Kubernetes credentials live at `kubeconfigs/<context>.yaml` by default. Each private
+mode-`0600` file names its cluster, user, and current context after the Nagare context and points at
+that context's generated host name. It is operator state, not part of the immutable workspace.
 
 | Platform command | Does |
 | --- | --- |
@@ -153,6 +158,8 @@ contacts Let's Encrypt, and `just local-bootstrap` installs no `ClusterIssuer`.
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
+| `nagarectl kubeconfig fetch [--context NAME] [--output FILE]` | Fetch k3s credentials through the context's project-confined IAP transport, normalize all identities and the API endpoint, and atomically install a private per-context kubeconfig. |
+| `nagarectl cluster guard [--context NAME] [--json]` | Refuse unless ambient kubectl selects the named Nagare context and reports exactly its context-owned server node. Cloud Kubernetes mutation recipes run this automatically. |
 
 `nagarectl --context NAME ...` is the global per-command target selector.
 Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
@@ -168,9 +175,9 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
 | `just host-switch` | Apply the active context's generated NixOS configuration | MP-20 EP-107 |
-| `just cluster-bootstrap` | Apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ |
-| `just cluster-enable-tls` | Enable Knative external-domain TLS after DNS delegation | EP-4 |
-| `just job-runs-bootstrap` | Apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ |
+| `just cluster-bootstrap` | Guard the selected cluster, then apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ / MP-22 EP-134 |
+| `just cluster-enable-tls` | Guard the selected cluster, then enable Knative external-domain TLS after DNS delegation | EP-4 / MP-22 EP-134 |
+| `just job-runs-bootstrap` | Guard the selected cluster, then apply the two-slot ResourceQuota for deadline-bounded one-shot Jobs in `personal` | MP-18 EP-95 ✅ / MP-22 EP-134 |
 | `just job-runs-status` | Show bounded-run quota use, admitted Pods, and `FailedCreate` backpressure events | MP-18 EP-95 ✅ |
 | `just context-show` | Print the selected kubectl context and API server without contacting the cluster | MP-8 |
 | `just local-up` | Create local k3d cluster + local registry | MP-16 EP-82 |
@@ -178,8 +185,8 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just local-minio` | Install local MinIO backup object store | MP-16 EP-84 |
 | `just local-down` | Delete the local k3d cluster and registry | MP-16 EP-82 |
 | `nagare local-smoke` (`just local-smoke` in a checkout) | Local zero-cloud smoke: deploy → volume/database backup+restore (MinIO) → HTTP 200 → teardown | MP-16 EP-86 / MP-19 EP-101 |
-| `nagare observability` (`just observability` in a checkout) | Install the Victoria stack + Grafana via Helm using context-owned encrypted Secrets | EP-5 / MP-19 EP-101 |
-| `just deploy-hello` | Apply the sample Knative service | EP-4 ✅ |
+| `nagare observability` (`just observability` in a checkout) | Guard the selected cluster, then install the Victoria stack + Grafana via Helm using context-owned encrypted Secrets | EP-5 / MP-19 EP-101 / MP-22 EP-134 |
+| `just deploy-hello` | Guard the selected cluster, then apply the sample Knative service | EP-4 ✅ / MP-22 EP-134 |
 | `just status` | `kubectl get pods -A` + `kubectl get ksvc -A` | — |
 | `just live-test` | Open an IAP/SSH-forwarded kube connection and print the `KUBECONFIG` to use | MP-8 EP-70 |
 | `just smoke` | Run the cloud deploy, GCS volume round-trip, HTTP check, and teardown smoke test | EP-69 |
@@ -276,7 +283,7 @@ it. Only Traefik is disabled.
 | `host-switch.sh` | Apply the active generated host flake over SSH; `--dry-run` prints the exact command. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
-| `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe). |
+| `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe), exposed from installed releases as `nagare iap-ssh`. |
 | `live-test.sh` | Open the IAP + SSH kube-apiserver forward, fetch/rewrite kubeconfig, and print the environment to use. |
 | `vm-power.sh` | Context-guarded VM `start`/`stop` implementation used by the `just` recipes. |
 | `migrate-pulumi-backend.sh` | Export/import one context's state between its local file backend and opt-in GCS backend. |

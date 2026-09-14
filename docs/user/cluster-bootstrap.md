@@ -39,8 +39,9 @@ kept enabled (only Traefik is disabled).
 
 ## Prerequisites
 
-- A healthy node: [host booted](host-image-and-boot.md), `kubectl get nodes` =
-  `Ready`, and a working [kubeconfig](accessing-the-host.md#getting-a-working-kubectl).
+- A healthy node: [host booted](host-image-and-boot.md), a context-specific
+  [kubeconfig](accessing-the-host.md#getting-a-working-kubectl), and
+  `nagarectl cluster guard --context <name>` succeeding before `kubectl get nodes` reports `Ready`.
 - The Pulumi perimeter applied, providing the **DNS zone**
   (`pulumi stack output dnsZoneName`) and the service account with
   `roles/dns.admin` on that zone plus project-level `roles/dns.reader` for zone
@@ -55,8 +56,16 @@ kept enabled (only Traefik is disabled).
 ## Run it
 
 ```bash
-just cluster-bootstrap
+nagarectl kubeconfig fetch --context prod
+export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/prod.yaml"
+nagare cluster-bootstrap
 ```
+
+`cluster-bootstrap` first checks the selected platform/context and then runs the cluster identity
+guard. It makes no Kubernetes change unless the active kube context is `prod` and the sole server
+node is the context-owned host. The same fail-closed ordering protects `cluster-enable-tls`,
+`job-runs-bootstrap`, `observability`, and `deploy-hello`; local-mode recipes keep their separate
+local identity model.
 
 which (per the `justfile`) creates namespaces and applies, in order:
 

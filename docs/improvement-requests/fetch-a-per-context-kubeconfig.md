@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Add a command that fetches a per-context kubeconfig addressed to that context's host
 description: The documented kubeconfig steps hard-code nagare-01, which on a multi-cluster tailnet is another cluster, leave the context named default, and depend on iap-ssh.sh, which the launcher does not expose and whose socat the operator package does not ship.
-timestamp: "2026-09-14T04:26:09Z"
+timestamp: "2026-09-14T05:29:57Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-20
-status: accepted
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T05:29:57Z"
+resolution: "ExecPlan 134 added project-confined nagare iap-ssh and nagarectl kubeconfig fetch, which derives the context-owned host name, normalizes all k3s identities and the API endpoint, writes mode 0600 through a private sibling staging directory, rejects unsafe destinations, and preserves the previous file on failure. A fail-closed cluster guard checks the ambient kube context and sole labelled server node before five cloud mutation recipes. Unit and fake-command coverage exercises context selection, credentials-preserving normalization, atomic failure, symlink refusal, wrong and ambiguous clusters, kubectl outages, and recipe ordering; all 496 Haskell tests and every native flake check pass. ADR 4 records kubeconfigs as operator-owned state."
 targetPlan: docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md
 origin: mori://shinzui/nagare
 ---
@@ -19,8 +21,10 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted for implementation by
-[ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md).
+**Status:** completed by
+[ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md);
+the credential boundary is recorded in
+[ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md).
 **Created:** 2026-09-14.
 
 

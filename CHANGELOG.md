@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Safe operator access (IR-10, IR-20).** The installable operator package no longer exports
+  Haskell `lib/links`, includes `socat`, and can coexist with Home Manager without priority
+  overrides. `nagarectl kubeconfig fetch` retrieves and atomically normalizes a private
+  per-context kubeconfig through project-confined IAP; `nagarectl cluster guard` verifies its
+  context and sole server node before cloud Kubernetes mutation recipes run.
 - **Reliable first cluster bootstrap (IR-21).** Cloud and local bootstrap now wait with explicit
   deadlines for Knative admission webhooks before changing dependent ConfigMaps, and convergent
   Knative ConfigMap merge patches retry briefly so a fresh cluster succeeds without a second run.

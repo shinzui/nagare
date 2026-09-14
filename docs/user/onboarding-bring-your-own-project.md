@@ -231,12 +231,20 @@ project.
 
 ## Step 9 — Get on the host, confirm the node is Ready  🟡  *(EP-3, verified live)*
 
-Use Tailscale SSH (primary) or `scripts/iap-ssh.sh` (break-glass on macOS) — see
-[accessing the host](accessing-the-host.md). Observable check:
+Use Tailscale SSH (primary) or `nagare iap-ssh` (break-glass on macOS), then fetch the selected
+context's credentials—see [accessing the host](accessing-the-host.md). Observable check:
 
 ```bash
-kubectl get nodes      # nagare-01 should be Ready
+nagarectl kubeconfig fetch --context <name>
+export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/<name>.yaml"
+nagarectl cluster guard --context <name>
+kubectl get nodes      # <name>-nagare should be Ready
 ```
+
+Do not reuse another context's kubeconfig or rename a manually copied `default` context. The fetch
+selects the GCE instance through the context's project, addresses the API by its context-owned host
+name, and installs a distinct mode-`0600` file. Every cloud cluster mutation below repeats the
+identity guard before its first `kubectl` write.
 
 ## Step 10 — Bootstrap the cluster + observability  ✅  *(EP-4 / EP-5, verified live)*
 

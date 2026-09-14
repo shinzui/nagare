@@ -44,7 +44,7 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-14T04:51:29Z) Restrict the user-facing Nix joins, ship `socat`, and add installed-package checks.
 - [x] (2026-09-14T05:08:33Z) Expose IAP SSH and implement an atomic, context-specific `kubeconfig fetch` command.
 - [x] (2026-09-14T05:24:01Z) Implement one reusable cluster identity guard and put it before cluster-mutating recipes.
-- [ ] Update access and installation docs, validate both IRs, and run repository gates.
+- [x] (2026-09-14T05:29:57Z) Update access and installation docs, validate both IRs, and run repository gates.
 
 
 ## Surprises & Discoveries
@@ -71,6 +71,13 @@ implementation. Provide concise evidence.
   Evidence: the first `nagarectl-build-test` attempt could not find
   `Nagare.Cluster.Kubeconfig`; staging that new file made the same build compile the module and run
   all 490 tests.
+
+- Observation: The final native flake gate rebuilt both ordinary and profiled Haskell outputs, then
+  exercised the installed package and recipe harnesses from the dirty source revision.
+  Evidence: `nix flake check --print-build-logs` passed all buildable `aarch64-darwin` outputs,
+  including 496 Haskell tests, `shellcheck-scripts`, `nagare-darwin-profile-install`,
+  `nagare-operator-tools`, and `nagare-clone-free-platform`; Nix reported only the expected omission
+  of incompatible `x86_64-linux` checks.
 
 
 ## Decision Log
@@ -126,7 +133,25 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+All four milestones are complete. The public `nagarectl` and `nagare` package layers expose only
+their deliberate `bin`, `share`, and `nix-support` surfaces; the full operator environment includes
+`socat`, and the Darwin fixture proves installation beside an existing `lib/links` owner without a
+priority workaround. `nagare iap-ssh` is now a stable installed launcher command.
+
+`nagarectl kubeconfig fetch` resolves the selected context once, uses its project and GCE instance
+only for IAP transport, reads its context-owned host name for the API endpoint, and atomically
+installs a mode-`0600` file with unambiguous cluster, user, and context names. Unsafe directory or
+symlink destinations and failed retrieval, parsing, normalization, or validation leave the prior
+file intact. `nagarectl cluster guard` separately inspects ambient kubectl state and accepts only
+the selected kube context with exactly its expected labelled server node. The five direct cloud
+mutation recipes run it before their first Kubernetes write; local recipes remain independent.
+
+IR-10 and IR-20 are completed. ADR 7 holds the intentional release/profile surface, and ADR 4 holds
+the operator-owned kubeconfig boundary. Validation passed for 37 user documents, 2 guides, all
+23 improvement requests, all 496 Haskell tests, the focused installed-package and clone-free checks,
+and every buildable native flake check. No live GCP credential fetch was run during this child: the
+hermetic two-context and failure fixtures prove its isolated contract, while ExecPlan 139 owns the
+authorized disposable-project end-to-end rehearsal.
 
 
 ## Context and Orientation
@@ -300,3 +325,8 @@ Use the existing `Nagare.Target` and host-name resolution interfaces, `scripts/i
 OpenSSH, `gcloud`, and `socat`; do not add a second IAP implementation. The package has no new
 external service. ExecPlan 138 consumes `nagarectl cluster guard`, and ExecPlan 139 validates this
 plan's public commands.
+
+
+Revision note (2026-09-14): Completed all four milestones; recorded the filtered package surface,
+context-owned atomic kubeconfig contract, reusable cluster guard, documentation and ADR amendments,
+IR-10/IR-20 lifecycle closeout, and passing native repository gates.

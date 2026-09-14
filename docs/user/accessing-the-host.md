@@ -11,9 +11,9 @@ generated:
 
 # Accessing the host
 
-> **Status:** 🟡 In progress (EP-3)
+> **Status:** ✅ Working
 >
-> Tailscale SSH and the IAP tunnel both work; the `scripts/iap-ssh.sh` wrapper
+> Tailscale SSH and the IAP tunnel both work; the packaged `nagare iap-ssh` command
 > exists specifically because plain `gcloud … --tunnel-through-iap` is broken on
 > macOS OpenSSH 10.x (see below).
 
@@ -71,7 +71,7 @@ pulumi -C infra/pulumi stack output sshCommand
 # gcloud compute ssh nagare-01 --project=<your-project> --zone=<your-zone> --tunnel-through-iap
 ```
 
-### The macOS caveat — use `scripts/iap-ssh.sh`
+### The macOS caveat — use `nagare iap-ssh`
 
 On **macOS with OpenSSH 10.x**, `gcloud compute ssh --tunnel-through-iap` is
 broken (a kex-handshake bug that eats the connection). The repo ships a wrapper
@@ -81,18 +81,20 @@ you:
 
 ```bash
 # Run a command on the host:
-scripts/iap-ssh.sh ssh nagare-01 -- systemctl status k3s
+nagare iap-ssh ssh nagare-01 -- systemctl status k3s
 
 # Copy a file up or down (exactly one side may be remote):
-scripts/iap-ssh.sh scp ./local.txt nagare-01:/tmp/local.txt
-scripts/iap-ssh.sh scp nagare-01:/etc/hostname ./hostname.txt
+nagare iap-ssh scp ./local.txt nagare-01:/tmp/local.txt
+nagare iap-ssh scp nagare-01:/etc/hostname ./hostname.txt
 
 # Stream a root-owned file you can't read as the SSH user:
-scripts/iap-ssh.sh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml ./k3s.yaml
+nagare iap-ssh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml ./k3s.yaml
 
 # Open a long-lived TCP tunnel (e.g. to an HTTP API on the VM) and get its PID:
-scripts/iap-ssh.sh tunnel nagare-01 6443 6443
+nagare iap-ssh tunnel nagare-01 6443 6443
 ```
+
+From a source checkout, `scripts/iap-ssh.sh` remains the equivalent contributor entry point.
 
 Environment knobs the wrapper honors:
 
@@ -142,7 +144,7 @@ the platform down for a few minutes, so only do this when you have no other way 
 5. Within ten seconds, in the serial console, choose **NixOS - All configurations**, then the
    newest generation that is *older* than the bad one, and press Enter.
 6. Once it has booted, confirm `ssh deploy@prod-nagare true` over Tailscale or
-   `scripts/iap-ssh.sh ssh nagare-01 -- true` over IAP. Then fix the configuration and run
+   `nagare iap-ssh ssh nagare-01 -- true` over IAP. Then fix the configuration and run
    `just host-switch`, which makes a verified generation the boot default again. The generation
    you picked in the menu is only booted once.
 7. Disable the serial port again:
@@ -161,43 +163,39 @@ there. The step-by-step procedure, with pass/fail gates, is Path B in
 ## Getting a working `kubectl`
 
 k3s writes its root-owned kubeconfig on the host at
-`/etc/rancher/k3s/k3s.yaml` (mode `0640`, group `wheel`). To drive the cluster
-from your workstation:
+`/etc/rancher/k3s/k3s.yaml` (mode `0640`, group `wheel`). Fetch and normalize it for one selected
+Nagare context with:
 
-1. Copy the kubeconfig down (it may be root-owned — use `recv-file`):
+```bash
+nagarectl kubeconfig fetch --context prod
+export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/prod.yaml"
+nagarectl cluster guard --context prod
+kubectl get nodes            # prod-nagare  Ready
+nagare status                # pods + Knative services across namespaces
+```
 
-   ```bash
-   scripts/iap-ssh.sh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml ./k3s.yaml
-   ```
+The fetch travels through the context's project-confined IAP connection to its GCE instance, then
+atomically writes a private mode-`0600` file. It renames the k3s cluster, user, and current context
+from the ambiguous `default` to `prod` and addresses the API as `https://prod-nagare:6443`, using
+the context-owned host name. A failed fetch or normalization leaves the previous file untouched.
 
-   Or over Tailscale:
+The guard deliberately inspects the ambient `KUBECONFIG`: it requires Kubernetes context `prod`
+and exactly one control-plane/server node named `prod-nagare`. Cloud cluster mutation recipes run
+the same check automatically and refuse a wrong, unreachable, empty, or ambiguous cluster. Use
+`--output FILE` only when another private, non-symlink destination is required.
 
-   ```bash
-   ssh deploy@prod-nagare sudo cat /etc/rancher/k3s/k3s.yaml > ./k3s.yaml
-   ```
-
-2. Edit the `server:` field from `https://127.0.0.1:6443` to the host's tailnet
-   address (`https://prod-nagare:6443`), since you trust `tailscale0` in the
-   firewall.
-
-3. Point `kubectl` at it:
-
-   ```bash
-   export KUBECONFIG=$PWD/k3s.yaml
-   kubectl get nodes        # prod-nagare  Ready
-   just status              # pods + Knative services across namespaces
-   ```
-
-> Keep this kubeconfig out of Git — it contains cluster credentials. If you
-> prefer not to copy it locally, run `kubectl` directly on the host over SSH.
+Keep kubeconfigs out of Git—they contain cluster-admin credentials. Fetch a separate file for every
+Nagare context and change `KUBECONFIG` explicitly when switching clusters. If you prefer not to
+copy credentials locally, run `kubectl` directly on the host over SSH.
 
 ## Verify
 
 You have access when:
 
 - `ssh deploy@prod-nagare true` (Tailscale) or
-  `scripts/iap-ssh.sh ssh nagare-01 -- true` (IAP) succeeds, and
-- `kubectl get nodes` shows `prod-nagare  Ready`.
+  `nagare iap-ssh ssh nagare-01 -- true` (IAP) succeeds, and
+- `nagarectl cluster guard --context prod` succeeds before `kubectl get nodes` shows
+  `prod-nagare  Ready`.
 
 If SSH connects and then drops *"connection closed at userauth"*, that's the
 documented sshd-penalties / OS-Login issue — see

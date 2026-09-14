@@ -92,7 +92,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | In Progress |
+| EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Not Started |
 | EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Not Started |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Not Started |
@@ -158,7 +158,7 @@ steps. This prevents parallel plans from each inventing a different end-to-end s
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
+- [x] (2026-09-14T05:29:57Z) EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
 - [ ] EP-2: validate ADC and represent/re-pin an undeployed context safely.
 - [ ] EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: serialize blank-disk formatting before fsck and prove first-boot k3s readiness.
@@ -172,7 +172,13 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- EP-1 found that the pinned nixpkgs `symlinkJoin` does not honor `pathsToLink`; its implementation
+  links complete inputs and reproduced the Darwin `lib/links` collision. `buildEnv` provides the
+  required filtered public surface and passed the deliberate profile-collision fixture.
+
+- The final native check compiles both normal and profiled Haskell outputs. EP-1 passed every
+  buildable `aarch64-darwin` check and all 496 Haskell tests; Nix omitted the incompatible
+  `x86_64-linux` outputs, which remain CI/native-runner evidence under ADR 7.
 
 
 ## Decision Log
@@ -212,4 +218,16 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-(To be filled during and after implementation.)
+EP-1 is complete. Operators can install the full package beside Home Manager, use its packaged IAP
+transport to create a private context-named kubeconfig, and rely on a shared fail-closed cluster
+identity guard before the direct cloud Kubernetes mutation recipes. IR-10 and IR-20 are completed;
+ADRs 4 and 7 now own the durable credential-state and release-profile boundaries. The isolated
+implementation passed all native repository gates. The integrated live GCP proof remains assigned
+to EP-6 after the other children establish their parts of the bootstrap path.
+
+EP-2 is the next registry-ordered child with no hard dependencies. It can now make fresh contexts'
+ADC evidence and undeployed release state truthful before EP-3 consumes those interfaces.
+
+
+Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
+and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.

@@ -18,7 +18,8 @@ related:
 Accepted, 2026-08-25. Implemented by
 [ExecPlan 106](../plans/106-make-nagare-platform-assets-resolvable-outside-a-source-checkout.md).
 Amended 2026-08-26 to make the already-decided credential exclusion concrete
-for Kubernetes bootstrap Secrets used by ExecPlans 99 and 101.
+for Kubernetes bootstrap Secrets used by ExecPlans 99 and 101. Amended 2026-09-14 to place fetched
+per-context Kubernetes credentials on the same operator-owned side of the payload boundary.
 
 ## Context
 
@@ -55,6 +56,13 @@ explicit `NAGARE_CLUSTER_SECRETS_DIR` override. A source checkout may use its tr
 that directory. Installers resolve this boundary and fail before mutation when a required encrypted
 secret is absent.
 
+Fetched Kubernetes client credentials are also operator-owned configuration. `nagarectl kubeconfig
+fetch` stores one normalized file per context below
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/` by default, writes it privately and
+atomically, and never places it in an immutable payload or materialized workspace. The selected
+context name identifies the kube context, cluster, and user; the context-owned host name identifies
+the API endpoint.
+
 Haskell command handlers, shared shell setup, and the packaged operator launcher use
 the resolved workspace paths. The source ancestor fallback preserves contributor
 workflows but is not used to recover from an invalid installed payload.
@@ -74,3 +82,5 @@ context-owned flake boundary recorded in
 Context-owned encrypted cluster secrets must be backed up with the context and host configuration;
 changing or removing a Nix release cannot remove them. Release checks assert that neither the
 payload nor its materialized workspace contains `cluster/secrets`.
+Fetched kubeconfigs likewise survive release replacement and must be protected and backed up as
+cluster-admin credentials or regenerated from the host after recovery.
