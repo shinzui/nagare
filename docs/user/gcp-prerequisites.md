@@ -56,7 +56,15 @@ id; use your own:
 ```bash
 gcloud projects create YOUR_PROJECT_ID   # or skip if it already exists
 gcloud config set project YOUR_PROJECT_ID
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
+
+The last command pins API quota attribution in the ADC file that Pulumi and Google client
+libraries use. Run it for every project you select for a Nagare cloud context. Changing the active
+Nagare context or running `gcloud config set project` does not switch ADC or its quota project.
+`nagarectl init` and `nagarectl context guard` refuse a known foreign ADC quota project, fail when
+ADC is missing or malformed, and warn when the ADC principal is absent or differs from gcloud's
+active account.
 
 A **billing account must be linked** to the project, or API enablement and resource
 creation will fail. Link one in the Cloud Console billing page, or with
@@ -173,9 +181,9 @@ target project 'acme-prod' (number '999999999999').
   infra/pulumi config set imageBucket <unique-name>'.
 ```
 
-**`just infra-up` and `just infra-preview` refuse before Pulumi runs** when the selected
-Pulumi stack's `gcp:project`, the ambient `CLOUDSDK_CORE_PROJECT`, or `gcloud`'s configured
-project disagrees with your context. See
+**`just infra-up` and `just infra-preview` refuse before Pulumi runs** when ADC is unavailable or
+attributes quota to another project, or when the selected Pulumi stack's `gcp:project`, the ambient
+`CLOUDSDK_CORE_PROJECT`, or `gcloud`'s configured project disagrees with your context. See
 [Provisioning with Pulumi](provisioning-with-pulumi.md) for that preflight and what to do
 when it stops you, and [Target contexts](contexts.md) for the
 `nagarectl context guard` command behind it.

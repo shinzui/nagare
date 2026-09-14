@@ -243,6 +243,10 @@ nagarectl context create guardcloud \
   --zone us-west1-a \
   --base-domain apps.acme.example
 export CLOUDSDK_CORE_PROJECT=acme-prod
+mkdir -p "$HOME/.config/gcloud"
+printf '%s\n' \
+  '{"type":"authorized_user","client_id":"fixture","client_secret":"never-print-this","refresh_token":"never-print-this-either","quota_project_id":"acme-prod"}' \
+  > "$HOME/.config/gcloud/application_default_credentials.json"
 
 NAGARE_FAKE_STACK_PROJECT=acme-prod \
   nagarectl --context guardcloud context guard > guard-ok.out 2> guard-ok.err
@@ -290,8 +294,34 @@ jq -e '
   .observations.stack == "guardcloud" and
   (.observations.pulumiBackendUrl | startswith("file://")) and
   .observations.stackProject == "some-other-project" and
-  .observations.stackProjectProbe.status == "found"
+  .observations.stackProjectProbe.status == "found" and
+  .observations.adc.status == "found" and
+  .observations.adc.quotaProject == "acme-prod" and
+  (.observations.warnings | type == "array")
 ' guard-bad.json >/dev/null
+
+# EP-135: a foreign ADC quota project is rejected before workspace preparation
+# can invoke Pulumi. The refusal names the exact repair and never prints tokens.
+pulumi_calls_before="$(grep -c '^pulumi ' "$NAGARE_FAKE_TOOL_LOG" || true)"
+printf '%s\n' \
+  '{"type":"authorized_user","client_id":"fixture","client_secret":"secret-sentinel","refresh_token":"refresh-sentinel","quota_project_id":"foreign-prod"}' \
+  > "$HOME/.config/gcloud/application_default_credentials.json"
+if NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud context guard > guard-adc.out 2> guard-adc.err; then
+  echo "context guard accepted a foreign ADC quota project" >&2
+  exit 1
+fi
+pulumi_calls_after="$(grep -c '^pulumi ' "$NAGARE_FAKE_TOOL_LOG" || true)"
+test "$pulumi_calls_after" = "$pulumi_calls_before"
+grep -q 'foreign-prod' guard-adc.err
+grep -q 'application-default set-quota-project acme-prod' guard-adc.err
+if grep -q 'secret-sentinel\|refresh-sentinel' guard-adc.err; then
+  echo "context guard exposed ADC credential material" >&2
+  exit 1
+fi
+printf '%s\n' \
+  '{"type":"authorized_user","client_id":"fixture","client_secret":"never-print-this","refresh_token":"never-print-this-either","quota_project_id":"acme-prod"}' \
+  > "$HOME/.config/gcloud/application_default_credentials.json"
 
 # EP-121: the stack config is context-owned. Every Pulumi-running command links
 # the workspace's Pulumi.<context>.yaml to the canonical XDG file, adopts a

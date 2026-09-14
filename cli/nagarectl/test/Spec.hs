@@ -934,6 +934,24 @@ contextGuardTests =
         assertRefusal
           "CLOUDSDK_CORE_PROJECT"
           (guardInputs (PulumiProjectFound "acme-prod") (Just "some-production-project") (Just "acme-prod"))
+    , testCase "a foreign ADC quota project refuses before a skipped Pulumi probe" $ do
+        let pgi =
+              (guardInputs PulumiProbeSkipped (Just "acme-prod") (Just "acme-prod"))
+                { adc =
+                    Right
+                      AdcObservation
+                        { source = AdcEnvironmentFile "/credentials.json"
+                        , credentialKind = "authorized_user"
+                        , principal = Just "operator@example.com"
+                        , quotaProject = Just "foreign-prod"
+                        }
+                }
+        case projectGuardVerdict pgi of
+          Right () -> assertFailure "foreign ADC was accepted"
+          Left msg -> do
+            assertBool "foreign quota" ("foreign-prod" `T.isInfixOf` msg)
+            assertBool "repair" ("set-quota-project acme-prod" `T.isInfixOf` msg)
+            assertBool "not a Pulumi refusal" (not ("Pulumi inspection was skipped" `T.isInfixOf` msg))
     , testCase "with no ambient override, a disagreeing gcloud config refuses" $
         assertRefusal
           "gcloud's configured project"
@@ -988,6 +1006,15 @@ contextGuardTests =
         , stackProject = stackProject
         , ambient = ambient
         , configured = configured
+        , gcloudAccount = Just "operator@example.com"
+        , adc =
+            Right
+              AdcObservation
+                { source = AdcEnvironmentFile "/credentials.json"
+                , credentialKind = "authorized_user"
+                , principal = Just "operator@example.com"
+                , quotaProject = Just "acme-prod"
+                }
         }
     assertRefusal needle pgi = case projectGuardVerdict pgi of
       Right () -> assertFailure ("expected a refusal mentioning " <> T.unpack needle)

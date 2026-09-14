@@ -140,6 +140,14 @@ import Nagare.Env.Store
   , writeEnvStore
   , writeSecretStore
   )
+import Nagare.Gcp.Adc
+  ( AdcError
+  , AdcObservation
+  , adcEnvFromProcess
+  , adcEvidenceValue
+  , observeAdc
+  , validateAdc
+  )
 import Nagare.GhcEnv (resolveProjectGhcEnv)
 import Nagare.Host.Config
   ( HostConfig (..)
@@ -3228,7 +3236,9 @@ runNamedInit o contextName = do
     result <- runPreflight project
     case result of
       Left message -> TIO.hPutStr stderr message >> exitFailure
-      Right () -> putStrLn "  preflight OK"
+      Right warnings -> do
+        printPreflightWarnings warnings
+        putStrLn "  preflight OK"
 
   exportProfileEnv contextName tp
   writeNamedContext (o ^. #force) (o ^. #dryRun) contextName tp
@@ -3281,6 +3291,9 @@ runNamedInit o contextName = do
 
   TIO.putStr (nextStepsText (paths ^. #rootSource))
 
+printPreflightWarnings :: [Text] -> IO ()
+printPreflightWarnings = mapM_ (TIO.putStrLn . ("  warning: " <>))
+
 -- | Legacy no-name initialization retains its active-context-compatible
 -- resolver and writes @./nagare.target.env@.
 runLegacyInit :: Maybe String -> InitOpts -> IO ()
@@ -3327,7 +3340,9 @@ runLegacyInit mctx o = do
     r <- runPreflight project
     case r of
       Left msg -> TIO.hPutStr stderr msg >> exitFailure
-      Right () -> putStrLn "  preflight OK"
+      Right warnings -> do
+        printPreflightWarnings warnings
+        putStrLn "  preflight OK"
 
   -- Build the fully-derived profile (registry host, buckets) via the EP-62 resolver,
   -- then apply the EP-93 Pulumi backend choice (default local; gcs is cloud-only and
@@ -3607,6 +3622,25 @@ runContextGuard mctx asJson = do
         then LBC.putStrLn (Aeson.encode (Aeson.object ["context" Aeson..= ctx, "mode" Aeson..= ("local" :: Text), "confined" Aeson..= True]))
         else TIO.putStrLn "context guard: local mode; no GCP project to confine"
     Cloud -> do
+      -- ADC is checked before workspace preparation because preparation can invoke
+      -- Pulumi. A foreign quota project must stop the very first Pulumi process.
+      (gcloudAccount, adc) <- observeAdcForProject
+      case validateAdc (tp ^. #project) gcloudAccount adc of
+        Left msg ->
+          if asJson
+            then do
+              let observed =
+                    Aeson.object
+                      [ "context" Aeson..= ctx
+                      , "declaredProject" Aeson..= (tp ^. #project)
+                      , "gcloudAccount" Aeson..= gcloudAccount
+                      , "adc" Aeson..= adcEvidenceValue (tp ^. #project) gcloudAccount adc
+                      , "warnings" Aeson..= ([] :: [Text])
+                      ]
+              LBC.hPutStrLn stderr (Aeson.encode (Aeson.object ["confined" Aeson..= False, "refusal" Aeson..= msg, "observations" Aeson..= observed]))
+              exitFailure
+            else dieT msg
+        Right _ -> pure ()
       -- Ensure the per-context PULUMI_HOME, backend URL and stack exist and are
       -- selected, so the guard is usable as the ONLY preflight a clone-free recipe
       -- needs. These operations are idempotent and `.envrc` performs them on every
@@ -3634,7 +3668,10 @@ projectGuardInputsFor name tp workspace = do
   let ctx = contextNameText name
       penv = pulumiEnvFor stateRoot ctx tp
       stack = penv ^. #stack
-  stackProject <- probePulumiProject (workspace ^. #pulumiDir) stack
+  (gcloudAccount, adc) <- observeAdcForProject
+  stackProject <- case validateAdc (tp ^. #project) gcloudAccount adc of
+    Left _ -> pure PulumiProbeSkipped
+    Right _ -> probePulumiProject (workspace ^. #pulumiDir) stack
   ambient <- fmap T.pack <$> lookupEnv "CLOUDSDK_CORE_PROJECT"
   configured <- gcloudConfiguredProject
   pure
@@ -3646,6 +3683,8 @@ projectGuardInputsFor name tp workspace = do
       , stackProject = stackProject
       , ambient = nonBlank =<< ambient
       , configured = configured
+      , gcloudAccount = gcloudAccount
+      , adc = adc
       }
   where
     nonBlank t = if T.null (T.strip t) then Nothing else Just (T.strip t)
@@ -3668,6 +3707,22 @@ projectGuardInputsFor name tp workspace = do
       pure $ case code of
         ExitSuccess -> Just (T.pack out)
         ExitFailure _ -> Nothing
+
+observeAdcForProject :: IO (Maybe Text, Either AdcError AdcObservation)
+observeAdcForProject = do
+  gcloudAccount <- activeGcloudAccount
+  adcEnv <- adcEnvFromProcess
+  adc <- observeAdc adcEnv
+  pure (gcloudAccount, adc)
+
+activeGcloudAccount :: IO (Maybe Text)
+activeGcloudAccount = do
+  observed <- captureTool "gcloud" ["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"]
+  pure (nonBlank =<< fmap (TE.decodeUtf8) observed)
+  where
+    nonBlank accountText
+      | T.null (T.strip accountText) = Nothing
+      | otherwise = Just (T.strip accountText)
 
 -- | Collect the evidence required by the project guard without collapsing a
 -- missing tool, a failed command, invalid output, and an absent config key.

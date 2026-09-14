@@ -68,7 +68,7 @@ The core fields are:
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; without `NAME`, show the active context. |
 | `nagarectl context create NAME [flags]` | Write a context. Add `--use` to make it current. |
 | `nagarectl context delete NAME --yes` | Delete a context file; deleting the current context clears the pointer. |
-| `nagarectl context guard [--json]` | Refuse unless the Pulumi stack, the environment and `gcloud` all agree with the active context's project. |
+| `nagarectl context guard [--json]` | Refuse unless ADC, the Pulumi stack, the environment and `gcloud` are safe for the active context's project. |
 | `nagarectl context env` | Print the active context's full shell environment as `export` lines, safe to `eval`. |
 
 `nagarectl init NAME --project ... --base-domain ...` is the full onboarding
@@ -86,8 +86,13 @@ release-compatibility question and can be skipped during an upgrade with
 `NAGARE_UPGRADE_APPLY` — this guard has no escape hatch: there is no situation in which
 writing to the wrong project is correct.
 
-It compares the project the active context declares against three sources and fails closed
-on any disagreement. When it accepts, it prints one line:
+It checks the Application Default Credentials (ADC) that Google client libraries use before
+preparing or inspecting Pulumi, then compares the project the active context declares against the
+Pulumi stack, environment, and gcloud configuration. Missing or malformed ADC and a known foreign
+`quota_project_id` fail closed. A missing quota project, an unknowable ADC principal, or a principal
+that differs from gcloud's active account is a visible warning because it is incomplete evidence,
+not proof that resources target a foreign project. When the guard accepts without warnings, it
+prints one line:
 
 ```text
 context guard: labs confined to project acme-prod (stack labs)
@@ -111,15 +116,27 @@ the successful config listing proved `gcp:project` is missing; repair that proje
 `CLOUDSDK_CORE_PROJECT` mismatch is fixed by unsetting that override, and a configured-project
 mismatch is fixed with `gcloud config set project <project>` or by selecting the right context. A
 successful Pulumi command whose output is invalid JSON or has the wrong shape also refuses and
-identifies that parse failure. A `mode=local` context has no project to confine, so the guard prints
+identifies that parse failure. Repair ADC with:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project acme-prod
+```
+
+Selecting another Nagare context or changing `gcloud config set project` does not change the ADC
+file or its quota project. ADC selection follows `GOOGLE_APPLICATION_CREDENTIALS`, then
+`CLOUDSDK_CONFIG/application_default_credentials.json`, then the normal gcloud ADC file under
+`$HOME/.config/gcloud/`. A `mode=local` context has no project to confine, so the guard prints
 `context guard: local mode; no GCP project to confine` and exits 0 without calling `gcloud`.
 
 `--json` emits the same verdict with every compared value under `observations`. A refusal is exactly
 one JSON object on stderr and no stdout, so the complete stream is accepted by `jq`. The existing
 nullable `observations.stackProject` remains for compatibility; `observations.pulumiBackendUrl`
 names the resolved backend and `observations.stackProjectProbe.status` is one of `found`, `missing`,
-`tool-not-found`, `tool-start-failed`, `command-failed`, or `invalid-output`. Applicable details
-appear as `project`, `exitCode`, `stderr`, or `error` in that probe object.
+`tool-not-found`, `tool-start-failed`, `command-failed`, `invalid-output`, or `skipped`. Structured
+ADC identity metadata is under `observations.adc`, and non-fatal findings are in
+`observations.warnings`; credential tokens are never emitted. Applicable Pulumi details appear as
+`project`, `exitCode`, `stderr`, or `error` in that probe object.
 
 ### `nagarectl context env`
 
