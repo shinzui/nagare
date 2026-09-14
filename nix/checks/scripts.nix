@@ -103,6 +103,17 @@
       touch "$out"
     '';
 
+  net-certmanager-controller-install = pkgs.runCommand "nagare-net-certmanager-controller-install-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-install-net-certmanager-controller.sh
+      touch "$out"
+    '';
+
   # EP-112: no personal address and no specific project id may reappear as
   # a default under cluster/bootstrap/, and the two Let's Encrypt directory
   # URLs — which are deliberately duplicated between the shell resolver and

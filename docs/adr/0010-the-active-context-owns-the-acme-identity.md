@@ -5,7 +5,9 @@ date: 2026-09-12
 authors: [shinzui]
 related:
   - docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md
+  - docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
+  - docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
 ---
 
@@ -14,9 +16,12 @@ related:
 ## Status
 
 Accepted, 2026-09-12. Implemented by
-[ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md),
-which closes
-[IR-3](../improvement-requests/context-owned-acme-identity.md).
+[ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md)
+and amended 2026-09-14 by
+[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
+Together they close [IR-3](../improvement-requests/context-owned-acme-identity.md),
+[IR-22](../improvement-requests/system-internal-cert-sent-to-acme.md), and
+[IR-23](../improvement-requests/wildcard-certs-for-system-namespaces.md).
 
 ## Context
 
@@ -118,6 +123,24 @@ creating a circular runtime dependency. Duplicating two constant strings is acce
 undetected drift between them is not, so the `cluster-bootstrap-defaults` flake check asserts
 each URL appears in both resolvers and nowhere else.
 
+**The public issuer is authorized by certificate role and namespace, not merely
+by possession of the cluster-wide issuer.** `letsencrypt-dns` is the external-domain
+issuer. System-internal and cluster-local certificate roles explicitly select
+`knative-selfsigned-issuer`. Namespace wildcards require the opt-in label
+`nagare.dev/app-namespace=true`; Nagare's application workload paths reconcile
+that label and reject fixed platform namespaces. A parsed policy diagnostic
+checks both rules before bootstrap stamps success and as part of day-two doctor.
+
+**Nagare carries the minimum controller correction inside its immutable payload.**
+The latest and final `mori://knative-extensions/net-certmanager` release aliases
+the three issuer defaults through one mutable pointer, and archived upstream
+`main` retains the defect. Nix fetches its exact v1.14.0 source commit, applies a
+small patch plus upstream-style regression case, builds a Linux/amd64 controller
+image, and embeds the archive in `nagare-platform`. Bootstrap imports the archive
+directly into the selected k3s image store and replaces only the controller
+Deployment; it does not introduce a mutable registry dependency or a separately
+hosted fork. Artifact-level Mori coverage for the upstream source file is pending.
+
 ## Consequences
 
 **`nagarectl init` gains one more required answer.** A non-interactive run without
@@ -153,3 +176,18 @@ detectable.
 **The refusal is a non-event.** The renderer only ever writes to standard output and never
 contacts a network, so a refused render mutates nothing and is safe to re-run once the
 context carries a contact.
+
+**Certificate authorization is now fail-closed and observable.** Adding a new
+platform namespace never makes it public-certificate eligible by default. Each
+eligible public wildcard still consumes CA rate budget and may publish its names
+through Certificate Transparency, so the opt-in label is a security boundary.
+Already-issued certificates are not bulk-deleted automatically; operators must
+inventory and remove exact stale Certificate, CertificateRequest, Order, and
+Secret objects after reviewing ownership.
+
+**The controller patch is version-coupled and release-tested.** Changing the
+net-certmanager pin requires rechecking authoritative releases, applying the
+patch cleanly, running the combined native upstream regression, and passing the
+disposable-cluster certificate-policy proof. Once upstream or a successor
+controller provides equivalent behavior, Nagare can remove the carried patch
+and bundled replacement together.

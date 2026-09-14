@@ -53,16 +53,14 @@ kubectl -n knative-serving rollout status deployment/controller --timeout=5m
 kubectl -n knative-serving rollout status deployment/webhook --timeout=5m
 
 kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/v1.14.0/net-certmanager.yaml
-kubectl -n knative-serving rollout status deployment/net-certmanager-controller --timeout=5m
 kubectl -n knative-serving rollout status deployment/net-certmanager-webhook --timeout=5m
+"$repo_root/scripts/install-net-certmanager-controller.sh" --k3d-cluster "$cluster_name"
 
 kubectl -n knative-serving patch configmap config-certmanager \
   --type merge \
   --patch "$(cat "$repo_root/cluster/bootstrap/knative-serving/config-certmanager.yaml")"
-# Restart after the patch so this test does not race the controller's asynchronous
-# config watcher when it enables external-domain TLS immediately afterward.
-kubectl -n knative-serving rollout restart deployment/net-certmanager-controller
-kubectl -n knative-serving rollout status deployment/net-certmanager-controller --timeout=5m
+# The patched controller was started before this ConfigMap update. Its watcher
+# applies all three independent issuer references without requiring a restart.
 kubectl -n knative-serving patch configmap config-domain \
   --type merge \
   --patch '{"data":{"apps.example.test":""}}'
@@ -137,6 +135,11 @@ kubectl get certificate -A -o json | jq -e '
    | select(.metadata.namespace != "personal")]
   | length == 0
 ' >/dev/null
+
+# The deterministic public-issuer fixture is self-signed, so a clean policy
+# creates no ACME Orders at all. This also makes the "no internal ACME name"
+# acceptance claim directly observable without contacting an external CA.
+kubectl get orders.acme.cert-manager.io -A -o json | jq -e '.items | length == 0' >/dev/null
 
 (cd "$repo_root/cli/nagarectl" && cabal run nagarectl -- cluster certificate-policy)
 

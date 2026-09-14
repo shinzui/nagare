@@ -13,6 +13,10 @@ in
       bash ${./scripts/nagare-platform-assets.sh}
     '';
 
+  # EP-138: the patched controller is a release payload dependency, and the
+  # native Linux job executes the upstream regression case during this build.
+  net-certmanager-controller = nagarePackages.netCertManagerController;
+
   nagare-clone-free-platform =
     let
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''

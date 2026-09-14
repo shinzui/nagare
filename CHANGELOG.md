@@ -5,6 +5,13 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Confined bootstrap TLS (IR-22, IR-23).** Public wildcard certificates now require the
+  `nagare.dev/app-namespace=true` opt-in label, which every application workload path reconciles,
+  while internal roles explicitly stay on Knative's self-signed issuer. Nagare carries a focused
+  fix for an issuer-pointer alias in the latest archived net-certmanager v1.14.0 controller, builds
+  it reproducibly with Nix, embeds the archive in the immutable platform payload, and imports it
+  directly into k3s. Bootstrap and doctor fail closed on leaked internal ACME names or unlabeled
+  public wildcards.
 - **Reliable first-boot data disk (IR-19).** The blank-disk formatter now runs before the
   generated systemd-fsck unit, and a recovered mount pulls layout and k3s back into its transaction
   without weakening their hard data-disk requirements. Five independent NixOS VM samples require

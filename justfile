@@ -120,7 +120,9 @@ iap-ssh *args:
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
 # each cluster/bootstrap/*/README.md for the version-discovery procedure.
 # Knative Serving v1.22.0 has no net-certmanager release asset; the independent
-# GCS artifact remains pinned at the verified v1.14.0 URL (checked 2026-08-24).
+# GCS artifact remains pinned at the latest v1.14.0 URL (rechecked 2026-09-14).
+# Nagare replaces only its controller image with the repository-owned aliasing
+# fix after importing that image directly into the selected k3s image store.
 knative_version := "knative-v1.22.0"
 certmanager_version := "v1.20.2"
 netcertmanager_version := "v1.14.0"
@@ -168,6 +170,7 @@ cluster-bootstrap:
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
     kubectl -n knative-serving rollout status deploy/net-certmanager-webhook --timeout=5m
+    scripts/install-net-certmanager-controller.sh
     scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
     scripts/retry-knative-configmap-patch.sh config-features --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
     REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"; \
@@ -280,6 +283,7 @@ local-bootstrap:
       scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
     kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
+    scripts/install-net-certmanager-controller.sh
     # NOTE: config-certmanager patch is intentionally skipped — it points Knative at
     # the letsencrypt-dns ClusterIssuer this bootstrap does not install (EP-85 wires
     # the local issuer). external-domain-tls stays off, so apps serve over HTTP.

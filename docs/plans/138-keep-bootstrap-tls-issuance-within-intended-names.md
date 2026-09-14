@@ -48,10 +48,10 @@ This section must always reflect the actual current state of the work.
   to that selector across bootstrap and workload creation paths.
 - [x] (2026-09-14T16:40:54Z) Add the focused certificate-policy command, doctor probe/remediation,
   parsed manifest gate, and pure inventory coverage.
-- [ ] (2026-09-14T17:05:24Z) Make the disposable k3d certificate-controller verification pass.
-  Two fresh clusters reproduced an upstream net-certmanager issuer-aliasing defect; selecting and
-  delivering a patched controller requires an explicit scope decision.
-- [ ] Reconcile bootstrap ordering, update docs/ADR, complete both IRs, and run gates.
+- [x] (2026-09-14T17:44:42Z) Make the disposable k3d certificate-controller verification pass with
+  the repository-owned patch and payload-bundled controller image.
+- [x] (2026-09-14T17:49:14Z) Reconcile bootstrap ordering, update docs/ADR, complete both IRs,
+  append bundle logs, and pass focused plus aggregate gates.
 
 
 ## Surprises & Discoveries
@@ -87,6 +87,27 @@ implementation. Provide concise evidence.
   creating a new explicitly external-domain fixture produced the same result. The focused
   diagnostic now fails this self-signed public-wildcard state instead of treating absence of ACME
   violations as success.
+
+- Observation: one existing upstream test accidentally depends on the production aliasing defect.
+  Evidence: its `valid SystemInternalIssuerRef` case writes `clusterLocalIssuerRefKey`; the shared
+  package-global pointer made the expected values mutate in test order. After separating defaults,
+  the native Linux regression failed until the fixture wrote `systemInternalIssuerRef`, matching
+  its name and expected value. The carried patch corrects the fixture and the native test passes.
+
+- Observation: the scratch image must declare a numeric non-root user even though the Deployment
+  already requires `runAsNonRoot`.
+  Evidence: the first imported image was present on the k3d node but Kubernetes refused to create
+  its container because image metadata defaulted to root. Declaring UID/GID 65532 preserved the
+  upstream security context and the next fresh-cluster rollout passed.
+
+- Observation: the exact payload-delivery design passes the controller-level acceptance proof.
+  Evidence: Nix built the Linux/amd64 image from commit
+  `dcff3644e7037215a084af52905fb0e9e78bab52`, k3d imported its Docker archive, and the patched
+  Deployment became Ready on an arm64 Colima host through emulation. System-internal and
+  cluster-local fixtures selected `knative-selfsigned-issuer`; the labeled `personal` wildcard
+  selected `letsencrypt-dns`; no unlabeled namespace received a public wildcard; and
+  `nagarectl cluster certificate-policy` exited zero. The deterministic self-signed public-issuer
+  fixture left the ACME Order inventory empty. The disposable cluster was removed.
 
 
 ## Decision Log
@@ -138,6 +159,21 @@ Record every decision made while working on the plan.
   the platform inventory.
   Date: 2026-09-14.
 
+- Decision: Carry the smallest net-certmanager correction in this repository and ship its image
+  archive inside every immutable `nagare-platform` payload.
+  Rationale: v1.14.0 is the latest and final upstream release, the repository is archived, and
+  `main` retains the defect. Pinning the exact release commit, applying an auditable patch during
+  Nix evaluation, and importing the archive directly into the selected k3s/containerd store avoids
+  both a separately hosted fork and a mutable registry tag while preserving ADR 7's release
+  closure. Only the controller is replaced; the latest upstream webhook remains unchanged.
+  Date: 2026-09-14.
+
+- Decision: Declare UID/GID 65532 in the patched scratch image rather than weakening the upstream
+  Deployment security context.
+  Rationale: the controller needs no root privileges, and Kubernetes should continue enforcing
+  `runAsNonRoot` before process start.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
@@ -147,14 +183,15 @@ distill durable project context from the Decision Log, Surprises & Discoveries, 
 this section into docs/adr/. Keep task-local execution details here.
 
 The opt-in namespace selector, workload namespace reconciliation, parsed certificate diagnostics,
-and hermetic checks are implemented and pass their focused tests. The live proof prevented a false
-completion: the latest released net-certmanager cannot represent the required three issuer roles
-because of shared mutable defaults. The diagnostic was strengthened to require Knative namespace
-wildcards in labeled app namespaces to use `letsencrypt-dns`, so the defective all-self-signed state
-fails closed before a TLS-enable stamp. EP-5 remains incomplete pending a decision to own and ship a
-patched net-certmanager controller (including immutable image distribution) or to adopt a different
-controller boundary. Reader documentation, ADR amendment, and IR completion intentionally remain
-unpublished until the selected runtime behavior passes the disposable cluster.
+repository-owned upstream patch, and immutable controller delivery are implemented. The live proof
+prevented a false ConfigMap-only completion, then demonstrated the repaired behavior against the
+exact bundled archive. The latest archived v1.14.0 release remains the base; Nagare owns no separate
+fork or registry image. Native Linux runs the corrected upstream test plus the combined regression,
+while hermetic importer, parsed policy, readiness-order, and platform-payload checks cover the
+release boundary. Reader documentation and ADR 10 now record the public-name and patch lifecycle
+policy. IR-22 and IR-23 are complete. All 520 Haskell tests, strict user/review/guide and
+23-concept improvement-request validation, every buildable native flake check, the native Linux
+upstream regression, and the fresh disposable-cluster proof pass.
 
 
 ## Context and Orientation
@@ -332,3 +369,11 @@ Revision note (2026-09-14): The disposable k3d proof exposed shared issuer point
 released and upstream-main net-certmanager config parser. Strengthened diagnostics to reject the
 resulting self-signed public wildcard and paused final publication pending a controller-delivery
 scope decision.
+
+Revision note (2026-09-14): Selected a repository-owned source patch with a Nix-built Linux/amd64
+controller archive embedded in the immutable platform payload. The native upstream regression and
+fresh disposable-cluster acceptance now pass; final bundle updates and aggregate gates remain.
+
+Revision note (2026-09-14): Completed EP-5, IR-22, and IR-23 after all 520 Haskell tests, strict
+documentation and IR validation, the native flake gate, native upstream regression, and exact
+payload archive disposable-cluster proof passed. ADR 10 owns the durable certificate boundary.
