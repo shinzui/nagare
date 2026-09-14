@@ -104,6 +104,12 @@ import Nagare.Database.Restore (runDbRestore)
 import Nagare.Database.Shell (runDbShell)
 import Nagare.Deploy (applyManifests, applyPVCs, pvcPhases, requireWait, serviceUrl, waitForReady)
 import Nagare.Deploy.Resolve (resolveBrokerEnv, resolveBuildSpec, resolveConnectionEnv, resolveTag)
+import Nagare.Domain.Binding
+  ( BindingTarget (..)
+  , preflightDomainBindings
+  , renderBindingTarget
+  , waitForDomainBindings
+  )
 import Nagare.Dsl.Broker (BrokerProvider (..))
 import Nagare.Dsl.Build (BuildSpec, requiresBuild, resolveImageTag)
 import Nagare.Dsl.Cdn.Types (Cdn)
@@ -4526,6 +4532,14 @@ runDeploy mctx dopts = do
         [ renderResolvedTask appImageTagged effTag withPredef tk
         | tk <- dep' ^. #tasks
         ]
+      bindingTargets =
+        [ BindingTarget
+            { host = domainText (domainSpec ^. #domain)
+            , namespace = ns
+            , service = name
+            }
+        | domainSpec <- dep' ^. #domains
+        ]
 
   -- EP-36: warn (never fail) for each volume opted out of backups, in both
   -- dry-run and live deploys, so no volume is ever silently unprotected.
@@ -4543,6 +4557,8 @@ runDeploy mctx dopts = do
       forM_ dmBytes $ \dm -> do
         BC.putStrLn "--- DomainMapping manifest ---"
         BC.putStr dm
+      forM_ bindingTargets $ \target ->
+        TIO.putStrLn ("Would check domain binding: " <> renderBindingTarget target)
       forM_ taskBytes $ \tb -> do
         BC.putStrLn "--- Task CronJob manifest ---"
         BC.putStr tb
@@ -4564,6 +4580,7 @@ runDeploy mctx dopts = do
         else TIO.putStrLn "Skipping build/push: deploying prebuilt image."
       -- EP-35: apply the PVCs first (no-op when empty), then the Service. Never a
       -- pre-Service Bound wait (local-path is WaitForFirstConsumer; that deadlocks).
+      preflightDomainBindings bindingTargets >>= orDie
       applyPVCs pvcBytes
       applyManifests (svcBytes : dmBytes)
       -- EP-52: provision each co-located task's resolved CronJob in the same
@@ -4572,6 +4589,7 @@ runDeploy mctx dopts = do
         applyManifests taskBytes
         TIO.putStrLn ("Provisioned " <> tShow (length taskBytes) <> " task(s).")
       waitForReady name ns >>= requireWait ("service '" <> name <> "'")
+      waitForDomainBindings 300 bindingTargets >>= orDie
       resolveDeploymentAccess bd dep'
       reportPVCs ns dep'
       -- EP-31: record the deployment in the per-app history ConfigMap. The
@@ -4637,6 +4655,7 @@ deployStatic mctx tp sopts site bd = do
     then do
       printNamespaceAction cdnNs
       printStaticArtifacts (m ^. #nginxConf) (m ^. #service) (m ^. #domainMappings) (m ^. #url)
+      printBindingChecks (siteBindingTargets (site ^. #domains) cdnNs cdnSvc)
       TIO.putStrLn ("Release: " <> imageTag)
       cdnDeployStep mctx True (site ^. #cdn) cdnHosts cdnNs cdnSvc
     else do
@@ -4684,6 +4703,12 @@ deployServer mctx tp sopts site0 bd = do
       forM_ (m ^. #domainMappings) $ \dm -> do
         BC.putStrLn "--- DomainMapping manifest ---"
         BC.putStr dm
+      printBindingChecks
+        ( siteBindingTargets
+            (site ^. #domains)
+            (namespaceText (site ^. #namespace))
+            (siteNameText (site ^. #name))
+        )
       TIO.putStrLn ("URL: " <> (m ^. #url))
       TIO.putStrLn ("Release: " <> imageTag)
       cdnDeployStep mctx True (site ^. #cdn) (siteHostnames (site ^. #domains)) (namespaceText (site ^. #namespace)) (siteNameText (site ^. #name))
@@ -4734,6 +4759,20 @@ gatherGcpStackRefs pulumiDir tp = do
 -- a CDN fronts.
 siteHostnames :: [DomainSpec] -> [Text]
 siteHostnames = map (domainText . (^. #domain))
+
+siteBindingTargets :: [DomainSpec] -> Text -> Text -> [BindingTarget]
+siteBindingTargets domains namespace service =
+  [ BindingTarget
+      { host = domainText (domainSpec ^. #domain)
+      , namespace = namespace
+      , service = service
+      }
+  | domainSpec <- domains
+  ]
+
+printBindingChecks :: [BindingTarget] -> IO ()
+printBindingChecks =
+  mapM_ (TIO.putStrLn . ("Would check domain binding: " <>) . renderBindingTarget)
 
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).

@@ -25,6 +25,7 @@ import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Nagare.Cluster.Namespace (NamespacePurpose (..), ensureNamespace)
 import Nagare.Deploy (applyManifests, requireWait, waitForReady)
+import Nagare.Domain.Binding (BindingTarget (..), preflightDomainBindings, waitForDomainBindings)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
   ( StaticDeployContext (..)
@@ -122,10 +123,18 @@ deployStaticProduction inputs src = do
         configureDockerAuthFor (inputs ^. #targetProfile)
         withStaticImageContext s out (buildImage ref)
         pushImage ref
-        applyManifests (m ^. #service : m ^. #domainMappings)
-        waitForReady (m ^. #serviceName) ns
-          >>= requireWait ("site '" <> m ^. #serviceName <> "'")
-        recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
+        let targets = bindingTargets s (m ^. #serviceName) ns
+        checked <- preflightDomainBindings targets
+        case checked of
+          Left err -> pure (Left err)
+          Right () -> do
+            applyManifests (m ^. #service : m ^. #domainMappings)
+            waitForReady (m ^. #serviceName) ns
+              >>= requireWait ("site '" <> m ^. #serviceName <> "'")
+            domainsReady <- waitForDomainBindings 300 targets
+            case domainsReady of
+              Left err -> pure (Left err)
+              Right () -> recordRelease s (inputs ^. #imageTag) (m ^. #url) (m ^. #serviceName) ns src
 
 -- | Preview deploy: same build/push path under a derived preview Service name
 -- and domain; does not record a production release. Returns the preview URL or a
@@ -198,3 +207,13 @@ staticUrl s baseDomain =
         <> namespaceText (s ^. #namespace)
         <> "."
         <> baseDomain
+
+bindingTargets :: StaticSite -> Text -> Text -> [BindingTarget]
+bindingTargets site serviceName namespace =
+  [ BindingTarget
+      { host = domainText (domainSpec ^. #domain)
+      , namespace = namespace
+      , service = serviceName
+      }
+  | domainSpec <- site ^. #domains
+  ]

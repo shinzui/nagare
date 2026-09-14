@@ -63,7 +63,7 @@ change implementable and make the supported combinations explicit rather than si
 ## Progress
 
 - [x] (2026-09-14T20:01Z) M1: Made one strict, canonical domain model serve `Deployment`, `StaticSite`, and `ServerSite`, with backward-compatible JSON decoding and migration documentation. `nagare-dsl` passed 401 tests, `nagarectl` passed 527 tests, documentation validation passed, Haskell style passed in the Nix shell, and all 33 compatible `nix flake check` checks passed.
-- [ ] M2: Add fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths.
+- [x] (2026-09-14T20:12Z) M2: Added fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths. Hermetic tests prove conflicts and unreadable ownership perform zero applies while same-owner redeploys proceed; `nagarectl` passed 534 tests, `nagare-dsl` passed 401 tests, all executables built, documentation/style checks passed, and every compatible flake check passed.
 - [ ] M3: Provision the exact base-domain apex record and make the Pulumi origin/CDN DNS target model testable and observable.
 - [ ] M4: Replace computed-only domain inventory with actual DNS, route, and certificate observations, and add a machine-checkable `domains check` command.
 - [ ] M5: Make automatic and supplied-secret origin TLS explicit in the domain model and prove multi-domain certificate behavior locally and in a staging ACME run.
@@ -123,6 +123,12 @@ change implementable and make the supported combinations explicit rather than si
   `nix develop --command just haskell-style-check` are the working format and style paths.
   Evidence: the host build returned Cabal-7107; the Nix-shell suites passed 401 and 527 tests,
   and the full flake check passed all 33 compatible checks. Date: 2026-09-14.
+
+- A Nix flake source snapshot excludes a newly created file until Git knows about it. The first
+  M2 flake check therefore failed to find `Nagare/Domain/Binding.hs` even though working-tree Cabal
+  tests passed. Staging the milestone files made the source part of the flake snapshot, after which
+  every compatible check passed. This is a packaging validation behavior, not a Haskell dependency
+  or module-list problem. Date: 2026-09-14.
 
 
 ## Decision Log
@@ -198,6 +204,15 @@ change implementable and make the supported combinations explicit rather than si
   Rationale: One explicit shared wire shape makes TLS intent inspectable without overloading the
   hostname or canonical fields. Rejecting mixed string/object arrays avoids ambiguous canonical
   migration semantics, while the two historical homogeneous shapes continue to decode.
+  Date: 2026-09-14
+
+- Decision: Read all `ClusterDomainClaim` and all-namespace `DomainMapping` objects in one
+  fail-closed ownership snapshot, and grant `nagared` only cluster-wide `get`/`list` access to
+  those two resource kinds while retaining its namespaced mutation Role.
+  Rationale: A per-target not-found query cannot prove that another namespace does not already
+  route the same hostname, while a read-only cluster role provides the required evidence without
+  broadening the webhook runner's write authority. Current Knative documentation confirms that a
+  claim delegates one hostname through `spec.namespace` and that a mapping is namespace-local.
   Date: 2026-09-14
 
 
@@ -748,3 +763,7 @@ registry, never a bare path or plan number.
 Revision note (2026-09-14): Recorded Milestone 1 implementation, validation evidence, the shared
 domain TLS JSON contract, and the Darwin formatter/toolchain discovery so the next milestone can
 resume from the checked ownership-preflight item.
+
+Revision note (2026-09-14): Recorded Milestone 2 ownership preflight, diagnostic readiness waits,
+the minimal `nagared` read-only cluster RBAC, hermetic no-apply evidence, and the staged-file Nix
+source discovery. The next unchecked work is exact apex DNS topology.
