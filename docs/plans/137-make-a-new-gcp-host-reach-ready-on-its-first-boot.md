@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:15Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T14:42:49Z
+      mode: "implement"
+      note: "Implemented EP-4 graph and repeated first-boot test coverage"
 ---
 
 # Make a new GCP host reach Ready on its first boot
@@ -35,8 +41,12 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Encode format-before-fsck ordering and a recoverable layout/k3s dependency chain.
-- [ ] Add evaluation assertions and repeated blank-disk first-boot VM coverage.
+- [x] (2026-09-14T14:42:25Z) Encode format-before-fsck ordering and a recoverable layout/k3s
+  dependency chain.
+- [x] (2026-09-14T14:42:25Z) Add evaluation assertions and five independent blank-disk first-boot
+  VM samples behind one aggregate check.
+- [ ] Run the five-sample aggregate and existing online-growth VM checks on an available
+  x86_64-linux NixOS-test builder; evaluation passes, but the configured builder is unreachable.
 - [ ] Reconcile with ExecPlan 133 and prove the complete new-host service sequence.
 - [ ] Update host boot docs, complete IR-19, and run nested plus root flake gates.
 
@@ -46,7 +56,12 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: neither the legacy `ssh://builder@nix-gcp-builder` route nor the active context's
+  project-confined builder route can currently execute an x86_64-linux check from this workstation.
+  Evidence: `nix flake check ./nixos --no-build --all-systems` passed every nested output. The
+  legacy build failed to connect, and the guarded `tan-ng-labs/us-west1-a/nix-builder-x86` route
+  then refused before starting the VM because gcloud could not refresh credentials non-interactively
+  and requested `gcloud auth login`.
 
 
 ## Decision Log
@@ -76,6 +91,13 @@ Record every decision made while working on the plan.
 - Decision: Keep ADR 12's forward-only ext4 growth policy unchanged.
   Rationale: This plan fixes service ordering, not filesystem type, resize behavior, or capacity
   policy. Amend the ADR only if implementation changes that durable rule.
+  Date: 2026-09-14.
+
+- Decision: Make `k3s.service` wanted by `var-lib-nagare.mount` while retaining its hard
+  `Requires=` and `After=` relationships on both the mount and layout service.
+  Rationale: A fresh mount transaction then retries layout and k3s declaratively after a transient
+  failure. This avoids a helper that invokes `systemctl` from inside a service and still prevents
+  k3s from writing to the boot disk through an unmounted path.
   Date: 2026-09-14.
 
 
@@ -228,3 +250,8 @@ var-lib-nagare.mount
 Use NixOS `utils.escapeSystemdPath`, systemd unit relationships, e2fsprogs, k3s, and the existing
 NixOS test framework. Do not add another filesystem or external service. ExecPlan 133 is an external
 integration dependency; EP-6 consumes the Ready-node behavior.
+
+
+Revision note (2026-09-14): Added the format-before-fsck edge, declarative mount-triggered k3s
+recovery, exact graph assertions, and a five-sample first-boot VM aggregate. Nested flake evaluation
+passes; executing the Linux VM checks awaits an available x86_64-linux builder.

@@ -6,6 +6,7 @@ let
   # disk with deviceName "nagare-data", confirmed against that component.
   dataDiskDevice = "/dev/disk/by-id/google-nagare-data";
   dataDiskDeviceUnit = "${utils.escapeSystemdPath dataDiskDevice}.device";
+  dataDiskFsckUnit = "systemd-fsck@${utils.escapeSystemdPath dataDiskDevice}.service";
 in
 {
   # EP-2 attaches a BLANK persistent disk (no filesystem). Format it ext4 on
@@ -18,7 +19,11 @@ in
   systemd.services.format-nagare-data = {
     description = "Format the Nagare data disk on first boot if it is blank";
     wantedBy = [ "var-lib-nagare.mount" ];
-    before = [ "var-lib-nagare.mount" ];
+    # systemd-fstab-generator schedules fsck for the same device as the mount.
+    # With DefaultDependencies disabled there is no implicit edge between that
+    # fsck and this formatter, so explicitly serialize the two consumers of a
+    # blank disk. Otherwise fsck can open the device while mkfs is writing it.
+    before = [ dataDiskFsckUnit "var-lib-nagare.mount" ];
     # ConditionPathExists guards against an absent disk: the service skips and
     # the nofail mount simply does not mount.
     #
