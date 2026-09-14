@@ -870,6 +870,9 @@ infraPlanTests =
     , testCase "a fresh instance creation is allowed" $ do
         steps <- parseFixture "create-fresh.json"
         classifyPlan protectedResourceTypes steps @?= PlanAllowed
+    , testCase "an apex DNS record target update is allowed" $ do
+        steps <- parseFixture "update-apex-record.json"
+        classifyPlan protectedResourceTypes steps @?= PlanAllowed
     , testCase "malformed JSON is refused" $
         assertBool "malformed preview rejected" (isLeft (parsePreview "{"))
     , testCase "an unknown operation is refused" $

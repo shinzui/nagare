@@ -4,7 +4,8 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "tsc --outDir .test-build && node .test-build/test/domainTopology.test.js && node .test-build/test/perimeterDomainRecords.test.js"
   },
   "dependencies": {
     "@pulumi/pulumi": "^3.140.0",

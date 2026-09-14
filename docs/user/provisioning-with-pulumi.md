@@ -46,7 +46,7 @@ One Pulumi component, `NagarePerimeter`, declares the whole perimeter:
 | **Static external IP** | Regional, reserved — the VM keeps it across rebuilds so wildcard DNS stays valid. |
 | **Data disk** | `pd-balanced`, 100 GB by default, attached as `nagare-data` and mounted at `/var/lib/nagare`. A blank disk is formatted before fsck, mounted, and brought through layout to a `Ready` k3s node during the first boot, without a reboot. Pulumi protects it from deletion and attaches a daily 08:00 UTC snapshot schedule with seven-day retention; automatic snapshots survive source-disk deletion. |
 | **Service account** | `nagare-node`, with `roles/dns.admin` on Nagare's managed zone, project-level `roles/dns.reader` for zone discovery, project-level `roles/artifactregistry.writer`, and `roles/storage.objectAdmin` on the backup bucket only. |
-| **Cloud DNS zone** | Managed zone for `<baseDomain>` with a wildcard `A` record `*.<baseDomain>` → static IP (TTL 300). |
+| **Cloud DNS zone** | Managed zone for `<baseDomain>` with two `A` records at TTL 300: `*.<baseDomain>` always points to the VM's static `publicIp`; exact `<baseDomain>` points to exported `apexIp`, which is the standing CDN's global IP when the CDN exists and otherwise equals `publicIp`. |
 | **Artifact Registry** | Docker repo `nagare` in `us-west1` → `us-west1-docker.pkg.dev/tan-nb-exp/nagare`. |
 | **Backup bucket** | `tan-nb-exp-nagare-backups`, protected in Pulumi, uniform-access, non-public, `forceDestroy: false`, with object versioning and 30-day cleanup of noncurrent versions. |
 | **Image-staging bucket** | `tan-nb-exp-nagare-images`, non-public and `forceDestroy: false`; the NixOS `*.raw.tar.gz` is staged here before image registration. |
@@ -238,6 +238,9 @@ the guard also refuses replacing the Cloud DNS managed zone (new name servers br
 the parent delegation; a `NAGARE_BASE_DOMAIN` change causes it) and any storage
 bucket (its objects are deleted), and `nagarectl platform upgrade` classifies its retained plan the
 same way. A protected replacement requires `--allow-replacement` at preview and again at apply.
+Adding the exact apex record to an existing zone is additive. Enabling or disabling the opt-in CDN
+updates only that record's target; the wildcard record remains on `publicIp` and the managed zone is
+not replaced. Review the preview for exactly that shape.
 This is
 separate from deletion protection: the guard stops the apply before it starts,
 while deletion protection is the Compute API's last backstop.

@@ -242,8 +242,12 @@ with `scripts/migrate-pulumi-backend.sh`. See
 
 ## Pulumi stack outputs (the integration contract — names are stable)
 
-`publicIp`, `sshCommand`, `baseDomain`, `instanceName`, `serviceAccountEmail`,
-`dataDiskName`, `dnsZoneName`, `artifactRegistry`, `backupBucket`.
+`publicIp`, `apexIp`, `sshCommand`, `baseDomain`, `instanceName`, `serviceAccountEmail`,
+`dataDiskName`, `dnsZoneName`, `artifactRegistry`, `backupBucket`, `cdnGlobalIp`,
+`cdnBackendService`, `cdnUrlMap`.
+
+`publicIp` is the VM and wildcard-DNS target. `apexIp` is the exact base-domain target: it equals
+`cdnGlobalIp` when the opt-in CDN component exists and otherwise equals `publicIp`.
 
 ```bash
 pulumi -C infra/pulumi stack output <name>
