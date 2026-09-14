@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:14Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T04:51:48Z
+      mode: "implement"
+      note: "Implemented and validated installed package boundary"
 ---
 
 # Install a clean operator package and fetch a context-safe kubeconfig
@@ -35,7 +41,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Restrict the user-facing Nix joins, ship `socat`, and add installed-package checks.
+- [x] (2026-09-14T04:51:29Z) Restrict the user-facing Nix joins, ship `socat`, and add installed-package checks.
 - [ ] Expose IAP SSH and implement an atomic, context-specific `kubeconfig fetch` command.
 - [ ] Implement one reusable cluster identity guard and put it before cluster-mutating recipes.
 - [ ] Update access and installation docs, validate both IRs, and run repository gates.
@@ -46,7 +52,20 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: The pinned nixpkgs `symlinkJoin` implementation ignores `pathsToLink`; it uses
+  `lndir` over each complete input tree. The first focused build therefore reproduced the original
+  Darwin `libgmpxx.4.dylib` collision even though `pathsToLink` appeared in the derivation arguments.
+  Replacing the public joins with `buildEnv`, whose pinned implementation explicitly supports
+  `pathsToLink`, made both `nagare-operator-tools` and `nagare-darwin-profile-install` pass.
+  Evidence: the failing profile build named the conflicting `lib/links/libgmpxx.4.dylib`; the rerun
+  reported `created 3 symlinks in user environment` and exited zero.
+
+- Observation: The host's standalone Cabal resolver cannot build this package because its compiler
+  does not support the `MultilineStrings` extension required by `nagare-dsl`.
+  Evidence: `cabal test nagarectl-test` failed during dependency solving with `MultilineStrings
+  which is not supported`, while the pinned Nix build compiled `nagarectl` with GHC 9.12.4 and the
+  focused package checks passed. Continue to use the flake's Haskell check for authoritative local
+  validation.
 
 
 ## Decision Log
@@ -74,6 +93,11 @@ Record every decision made while working on the plan.
 - Decision: Amend ADRs 4 and 7 only if implementation changes their durable package or workspace
   boundaries; do not create an ADR for filenames or Unix modes.
   Rationale: Those details implement existing immutable-payload and installed-tool decisions.
+  Date: 2026-09-14.
+
+- Decision: Use `pkgs.buildEnv` with explicit `pathsToLink` for all three public package layers.
+  Rationale: The pinned `symlinkJoin` API cannot filter input subtrees, while `buildEnv` preserves
+  wrapper post-processing and limits the profile surface to `bin`, `share`, and `nix-support`.
   Date: 2026-09-14.
 
 

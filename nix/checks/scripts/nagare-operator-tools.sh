@@ -2,12 +2,13 @@
 set -euo pipefail
 
 operator_package="$1"
-unwrapped_cli="$2"
-platform_root="$3"
-jq_bin="$4"
-coreutils_bin="$5"
-bash_bin="$6"
-grep_bin="$7"
+cli_package="$2"
+unwrapped_cli="$3"
+platform_root="$4"
+jq_bin="$5"
+coreutils_bin="$6"
+bash_bin="$7"
+grep_bin="$8"
 
 mkdir -p packaged/home packaged/config packaged/state packaged/empty
 export HOME="$PWD/packaged/home"
@@ -16,9 +17,14 @@ export XDG_STATE_HOME="$PWD/packaged/state"
 export PATH="$operator_package/bin"
 cd packaged/empty
 
+test ! -e "$operator_package/lib/links"
+test ! -e "$cli_package/lib/links"
+"$operator_package/bin/nagarectl" version --json > version.json
+"$jq_bin" -e '.version != null' version.json >/dev/null
 "$operator_package/bin/nagarectl" version --json --tools > tools.json
 "$jq_bin" -e '.tools.pulumi | startswith("/nix/store/")' tools.json >/dev/null
 "$jq_bin" -e '.tools["pulumi-language-nodejs"] != null' tools.json >/dev/null
+"$jq_bin" -e '.tools.socat | startswith("/nix/store/")' tools.json >/dev/null
 pulumi_bin="$("$jq_bin" -er '.tools.pulumi' tools.json)"
 "$pulumi_bin" version >/dev/null
 "$operator_package/bin/nagare" --list >/dev/null

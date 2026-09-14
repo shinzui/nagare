@@ -71,6 +71,12 @@ nagarectl version --tools
 nagare --list
 ```
 
+Packages containing the `lib/links` profile fix expose only their intentional command, shared-data,
+and Nix-support paths, so `nagare` and `nagarectl` can coexist with Home Manager and other Haskell
+packages without a priority override. If an older pinned release reports a `lib/links` collision,
+installing it with `--priority 6` is a temporary compatibility workaround; upgrade to a release
+containing the fix instead of carrying the override forward.
+
 To change the installed release, inspect its profile name, remove that one package, and install the
 new explicit target rather than following an unpinned branch:
 

@@ -1,5 +1,11 @@
 { pkgs, nagarePackages, src }:
 
+let
+  profileLinksFixture = pkgs.runCommand "nagare-profile-lib-links-fixture" { } ''
+    mkdir -p "$out/lib/links"
+    printf '%s\n' fixture > "$out/lib/links/libgmpxx.4.dylib"
+  '';
+in
 {
   nagare-platform-assets = pkgs.runCommand "nagare-platform-assets"
     { nativeBuildInputs = [ pkgs.jq ]; payload = nagarePackages.nagarePlatform; }
@@ -63,6 +69,7 @@
   nagare-operator-tools = pkgs.runCommand "nagare-operator-tools" { } ''
     ${pkgs.bash}/bin/bash ${./scripts/nagare-operator-tools.sh} \
       ${nagarePackages.nagare} \
+      ${nagarePackages.nagarectl} \
       ${nagarePackages.haskellPackages.nagarectl}/bin/nagarectl \
       ${nagarePackages.nagarePlatform}/share/nagare \
       ${pkgs.jq}/bin/jq \
@@ -80,4 +87,11 @@
       bash ./scripts/test-release.sh
       touch "$out"
     '';
+}
+  // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+  nagare-darwin-profile-install = pkgs.buildEnv {
+    name = "nagare-darwin-profile-install";
+    paths = [ profileLinksFixture nagarePackages.nagare ];
+    ignoreCollisions = false;
+  };
 }
