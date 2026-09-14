@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-14T04:46:24Z
       mode: "implement"
       note: "Started EP-1 implementation and coordination"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T13:38:21Z
+      mode: "implement"
+      note: "Started EP-3 implementation and coordination"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -94,7 +99,7 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Install a clean operator package and fetch a context-safe kubeconfig | [docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md) | None | None | Complete |
 | EP-2 | Make fresh GCP contexts preflight and re-pin cleanly | [docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) | None | None | Complete |
-| EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | Not Started |
+| EP-3 | Apply reviewed infrastructure and confine remote builders | [docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) | None | EP-2 | In Progress |
 | EP-4 | Make a new GCP host reach Ready on its first boot | [docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md) | None | None | Not Started |
 | EP-5 | Keep bootstrap TLS issuance within intended names | [docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md) | None | EP-1 | Not Started |
 | EP-6 | Prove and document one-pass GCP cluster onboarding | [docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md) | EP-1, EP-2, EP-3, EP-4, EP-5 | None | Not Started |
@@ -253,3 +258,6 @@ Revision note (2026-09-14): Started EP-2 after confirming it has no unmet hard d
 
 Revision note (2026-09-14): Completed EP-2, closed IR-12 and IR-16, amended ADRs 9 and 6, and
 satisfied EP-3's soft dependency with shared ADC guard evidence.
+
+Revision note (2026-09-14): Started EP-3 after confirming it has no hard dependencies and its
+soft dependency on EP-2 is satisfied.

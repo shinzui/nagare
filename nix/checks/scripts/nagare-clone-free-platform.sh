@@ -157,10 +157,10 @@ grep -q '^name: prod2-nagare$' host-explicit.out
 nagarectl server status --skip-vm > status.out
 nagare --list > recipes.out
 grep -q 'infra-preview' recipes.out
-nagare --dry-run infra-preview > recipe-dry-run.out 2>&1
-grep -q 'cd infra/pulumi && pulumi preview' recipe-dry-run.out
-nagare --dry-run infra-up > infra-up-dry-run.out 2>&1
-grep -q 'nagarectl infra guard' infra-up-dry-run.out
+nagare --dry-run infra-preview --save-plan .tmp/reviewed > recipe-dry-run.out 2>&1
+grep -q 'nagarectl infra preview --save-plan .tmp/reviewed' recipe-dry-run.out
+nagare --dry-run infra-up --plan .tmp/reviewed --yes > infra-up-dry-run.out 2>&1
+grep -q 'nagarectl infra apply --plan .tmp/reviewed --yes' infra-up-dry-run.out
 nagare --dry-run iap-ssh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml /tmp/labs.yaml \
   > iap-ssh-dry-run.out 2>&1
 grep -q 'scripts/iap-ssh.sh recv-file nagare-01 /etc/rancher/k3s/k3s.yaml /tmp/labs.yaml' \
@@ -402,6 +402,55 @@ if NAGARE_FAKE_STACK_PROJECT=acme-prod \
 fi
 grep -q 'differs from the context-owned stack config' link-conflict.err
 grep -q 'nagare:legacy: kept' "$canonical"
+
+# EP-136 / IR-15: one fake Pulumi preview writes both the Pulumi deployment
+# plan and Nagare's redacted review. Apply verifies every binding and invokes
+# only `pulumi up --plan ... --yes --non-interactive`; it never launches a
+# second preview process.
+rm "$entry"
+ln -s "$canonical" "$entry"
+reviewed_bundle="$PWD/guardcloud-reviewed-plan"
+preview_calls_before="$(grep -c 'pulumi .* preview ' "$NAGARE_FAKE_TOOL_LOG" || true)"
+NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud infra preview --save-plan "$reviewed_bundle" > saved-preview.out
+preview_calls_after="$(grep -c 'pulumi .* preview ' "$NAGARE_FAKE_TOOL_LOG" || true)"
+test "$preview_calls_after" = "$(( preview_calls_before + 1 ))"
+test "$(stat -c '%a' "$reviewed_bundle")" = 700
+test "$(stat -c '%a' "$reviewed_bundle/pulumi-plan.json")" = 600
+test "$(stat -c '%a' "$reviewed_bundle/review.json")" = 600
+test "$(stat -c '%a' "$reviewed_bundle/metadata.json")" = 600
+jq -e '.schemaVersion == 1 and .replacementApproved == false and .verdict == "allowed"' \
+  "$reviewed_bundle/review.json" >/dev/null
+jq -e '.context == "guardcloud" and .project == "acme-prod" and .pulumiVersion == "v3.255.0"' \
+  "$reviewed_bundle/metadata.json" >/dev/null
+
+NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud infra apply --plan "$reviewed_bundle" --yes > saved-apply.out
+grep -q "pulumi .* up --plan $reviewed_bundle/pulumi-plan.json --stack guardcloud --yes --non-interactive" \
+  "$NAGARE_FAKE_TOOL_LOG"
+test "$(grep -c 'pulumi .* preview ' "$NAGARE_FAKE_TOOL_LOG" || true)" = "$preview_calls_after"
+
+nagarectl context create guardother \
+  --project acme-prod \
+  --region us-west1 \
+  --zone us-west1-a \
+  --base-domain other.acme.example
+if NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardother infra apply --plan "$reviewed_bundle" --yes \
+    > saved-other.out 2> saved-other.err; then
+  echo "saved plan from another context was accepted" >&2
+  exit 1
+fi
+grep -q "saved plan context is 'guardcloud', but the current value is 'guardother'" saved-other.err
+
+printf '%s\n' tampered >> "$reviewed_bundle/pulumi-plan.json"
+if NAGARE_FAKE_STACK_PROJECT=acme-prod \
+  nagarectl --context guardcloud infra apply --plan "$reviewed_bundle" --yes \
+    > saved-tampered.out 2> saved-tampered.err; then
+  echo "tampered Pulumi plan was accepted" >&2
+  exit 1
+fi
+grep -q 'pulumi-plan.json digest does not match' saved-tampered.err
 
 rm "$entry" "$canonical"
 ln -s "$XDG_CONFIG_HOME/nagare/operator-repo/missing.yaml" "$canonical"
