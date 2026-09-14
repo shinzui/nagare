@@ -64,6 +64,19 @@
       touch "$out"
     '';
 
+  # EP-132: fresh cloud and local bootstrap wait for Knative admission
+  # endpoints, and their convergent ConfigMap patches have bounded retries.
+  knative-bootstrap-readiness = pkgs.runCommand "nagare-knative-bootstrap-readiness-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.just ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-knative-bootstrap-readiness.sh
+      touch "$out"
+    '';
+
   # EP-112: no personal address and no specific project id may reappear as
   # a default under cluster/bootstrap/, and the two Let's Encrypt directory
   # URLs — which are deliberately duplicated between the shell resolver and
