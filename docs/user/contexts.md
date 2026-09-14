@@ -118,8 +118,8 @@ identifies that parse failure. A `mode=local` context has no project to confine,
 one JSON object on stderr and no stdout, so the complete stream is accepted by `jq`. The existing
 nullable `observations.stackProject` remains for compatibility; `observations.pulumiBackendUrl`
 names the resolved backend and `observations.stackProjectProbe.status` is one of `found`, `missing`,
-`tool-not-found`, `command-failed`, or `invalid-output`. Applicable details appear as `project`,
-`exitCode`, `stderr`, or `error` in that probe object.
+`tool-not-found`, `tool-start-failed`, `command-failed`, or `invalid-output`. Applicable details
+appear as `project`, `exitCode`, `stderr`, or `error` in that probe object.
 
 ### `nagarectl context env`
 
