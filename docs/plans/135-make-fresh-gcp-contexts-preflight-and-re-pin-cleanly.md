@@ -42,7 +42,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Model and test ADC discovery, principal evidence, and quota-project policy.
+- [x] (2026-09-14 12:40Z) Model and test ADC discovery, principal evidence, and quota-project policy.
 - [ ] Add the shared ADC observation to initialization and the context guard.
 - [ ] Represent not-deployed host/cluster identities and add a guarded re-pin command.
 - [ ] Update setup/upgrade docs, complete the IRs, and run all focused and repository checks.
@@ -53,7 +53,15 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: The Mori registry contains the exact `aeson` source used to verify strict JSON
+  decoding and key lookup, but has no registered Google Cloud SDK or `gcloud` project.
+  Evidence: `mori registry show haskell/aeson --full` resolved the corpus source, while
+  `mori registry search google-cloud-sdk` and `mori registry search gcloud` returned no projects.
+
+- Observation: Direct Cabal resolution remains unavailable in this checkout, so the authoritative
+  focused gate is the flake-provided `nagarectl-build-test` check.
+  Evidence: `nix build .#checks.aarch64-darwin.nagarectl-build-test --print-build-logs` compiled the
+  normal and profiled executables and passed all 501 tests.
 
 
 ## Decision Log
@@ -83,6 +91,26 @@ Record every decision made while working on the plan.
 - Decision: Amend ADRs 6 and 9 during implementation if the proposed interfaces remain.
   Rationale: Deployment-state identity and ADC quota attribution are durable extensions of those
   existing decisions, not task-local mechanics.
+  Date: 2026-09-14.
+
+- Decision: Resolve ADC in this precedence order: a nonblank
+  `GOOGLE_APPLICATION_CREDENTIALS`, then `CLOUDSDK_CONFIG/application_default_credentials.json`,
+  then `$HOME/.config/gcloud/application_default_credentials.json`.
+  Rationale: This matches the credential sources operators can select and makes the exact file
+  used by Nagare visible without exposing its contents.
+  Date: 2026-09-14.
+
+- Decision: Require a credential `type`, recognize authorized-user and service-account principals,
+  and accept other credential types with an explicitly unknown principal.
+  Rationale: Quota-project confinement is enforceable across credential kinds, while rejecting a
+  future credential kind solely because its principal field is unfamiliar would be unnecessarily
+  brittle.
+  Date: 2026-09-14.
+
+- Decision: Retain only credential kind, optional principal, optional quota project, and source in
+  the typed ADC observation; do not include JSON parser details in malformed-file errors.
+  Rationale: Token-bearing input must never enter `Show`, structured evidence, or repair output,
+  including through parser excerpts.
   Date: 2026-09-14.
 
 
@@ -267,3 +295,9 @@ Extend `ProjectGuardInputs` with `adc :: Either AdcError AdcObservation` and kee
 `projectGuardVerdict` pure. Depend only on existing Aeson/process/filesystem libraries, `gcloud`,
 and existing Nagare context/host writers. EP-3 consumes the extended guard. EP-6 validates the
 public preflight and re-pin path.
+
+## Revision Note
+
+- 2026-09-14: Completed milestone 1 with a shared, token-safe ADC observer and policy model. Added
+  path-precedence, credential-kind, principal, quota-project, malformed-input, missing-file, and
+  output-redaction tests; the focused Nix gate passes all 501 tests.

@@ -74,6 +74,7 @@ library
     Nagare.Env.Generated
     Nagare.Env.PreviewOverlay
     Nagare.Env.Store
+    Nagare.Gcp.Adc
     Nagare.GhcEnv
     Nagare.Host.Config
     Nagare.Image

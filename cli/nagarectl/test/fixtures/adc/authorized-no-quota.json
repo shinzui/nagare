@@ -1,0 +1,7 @@
+{
+  "type": "authorized_user",
+  "account": "operator@example.com",
+  "client_id": "no-quota-client-id-sentinel",
+  "client_secret": "no-quota-client-secret-sentinel",
+  "refresh_token": "no-quota-refresh-token-sentinel"
+}

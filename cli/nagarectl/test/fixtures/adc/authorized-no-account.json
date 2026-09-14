@@ -1,0 +1,7 @@
+{
+  "type": "authorized_user",
+  "quota_project_id": "labs-project",
+  "client_id": "no-account-client-id-sentinel",
+  "client_secret": "no-account-client-secret-sentinel",
+  "refresh_token": "no-account-refresh-token-sentinel"
+}
