@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Advance current installation and re-pin examples to 0.3.0; document the release's strict multi-domain, reviewed-infrastructure, context-safe bootstrap, and migration paths.
 * **Update**: Make the canonical GCP onboarding sequence use reviewed-release and target placeholders, identify billable targets and observable success, and document boot-disk replacement versus online data-disk growth.
 * **Update**: Document supported post-boot host age-key delivery over IAP.
 * **Update**: Document opt-in public wildcard namespaces, self-signed internal issuer roles, payload-bundled patched net-certmanager delivery, certificate-policy verification, and reviewed stale-certificate cleanup.

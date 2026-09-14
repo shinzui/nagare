@@ -76,7 +76,7 @@ If you initialized a versioned context with an older patch but have not created 
 current release's CLI and re-pin the context before provisioning:
 
 ```bash
-export TARGET_NAGARE_VERSION=0.2.2
+export TARGET_NAGARE_VERSION=0.3.0
 nix run "github:shinzui/nagare/v${TARGET_NAGARE_VERSION}#nagarectl" -- \
   platform repin --version "$TARGET_NAGARE_VERSION" --yes
 ```
