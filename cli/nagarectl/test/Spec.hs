@@ -323,6 +323,7 @@ import Nagare.Version
   , renderPlatformVersion
   )
 import PlatformSpec (platformTests)
+import PlatformCutoverSpec (platformCutoverTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure))
@@ -344,6 +345,7 @@ main = do
         [ testGroup "Nagare.Static.Image" dockerfileTests
         , hostTests
         , platformTests
+        , platformCutoverTests
         , testGroup "Nagare.Static.Build" prepareTests
         , testGroup "Nagare.Static.Release" releaseTests
         , testGroup "Nagare.Static.Preview" previewTests
