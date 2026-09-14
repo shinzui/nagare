@@ -10,6 +10,7 @@ import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime, addUTCTime, defaultTimeLocale, parseTimeOrError)
+import Nagare.Dsl.Prelude hiding (first, over)
 import Nagare.Platform.Cutover
 import Nagare.Platform.Replacement
 import Nagare.Platform.StateTransfer

@@ -42,6 +42,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import GHC.Generics (Generic)
+import Nagare.Dsl.Prelude
 import Numeric.Natural (Natural)
 import System.Directory (createDirectoryIfMissing, renameFile)
 import System.FilePath (takeDirectory)

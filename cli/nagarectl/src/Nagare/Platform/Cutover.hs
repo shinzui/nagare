@@ -28,6 +28,7 @@ where
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
+import Nagare.Dsl.Prelude
 import Nagare.Platform.Replacement
 import Nagare.Platform.StateTransfer
 import Numeric.Natural (Natural)

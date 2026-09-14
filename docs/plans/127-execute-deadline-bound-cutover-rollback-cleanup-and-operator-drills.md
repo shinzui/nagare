@@ -95,6 +95,10 @@ implementation. Provide concise evidence.
   no root `cabal.project`; the package project lives in `cli/nagarectl/`.
   Evidence: `nix develop -c cabal build nagarectl` from the repository root reports Cabal error
   7136, while the same build from `cli/nagarectl/` succeeds.
+- Observation: Cabal compilation does not enforce the repository rule that every maintained Haskell
+  source and test imports `Nagare.Dsl.Prelude`; only the flake style check reports it.
+  Evidence: all 486 tests compiled and passed before `nix flake check` rejected the four new modules
+  with `haskell-dsl-modules-import-custom-prelude`.
 - Observation: A failed write-gate command cannot be treated as proof that writes stayed fenced;
   actual gate observation determines whether the irreversible commit point occurred.
   Evidence: the injected failpoint after the admission side effect observes admitted writes and
@@ -433,3 +437,6 @@ and ADR distillation, and made the remaining adapter/live-drill dependency expli
 
 Revision note (2026-09-13): Captured the final recovery audit fixes for pre-rollback admission
 observation and resumable partial cleanup; the focused suite now contains 14 passing tests.
+
+Revision note (2026-09-13): Recorded the flake-only custom-prelude style discovery and applied the
+required imports before rerunning repository validation.
