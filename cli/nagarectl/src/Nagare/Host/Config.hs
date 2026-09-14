@@ -4,6 +4,7 @@
 module Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
+  , defaultHostName
   , hostConfigDir
   , installHostFlake
   , readAuthorizedKeys
@@ -19,7 +20,7 @@ where
 import Control.Exception (IOException, onException, try)
 import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, isAsciiLower, isDigit)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -63,6 +64,30 @@ hostConfigDir :: ContextName -> IO FilePath
 hostConfigDir context = do
   root <- nagareConfigDir
   pure (root </> "hosts" </> T.unpack (contextNameText context))
+
+-- | Derive the stable NixOS and tailnet host name for a context. Context names
+-- are safe path segments but permit spellings that cannot be mapped to a DNS
+-- label without losing information, so those spellings require an explicit
+-- @--host-name@ instead of being silently normalized.
+defaultHostName :: ContextName -> Either Text Text
+defaultHostName context
+  | T.length candidate > 63 = invalid "the derived name would exceed 63 characters"
+  | not (T.all validLabelChar contextText) = invalid "the context must contain only lowercase ASCII letters, digits, and hyphens"
+  | not (validLabelEdge (T.head contextText) && validLabelEdge (T.last contextText)) = invalid "the context must begin and end with a lowercase ASCII letter or digit"
+  | otherwise = Right candidate
+  where
+    contextText = contextNameText context
+    candidate = contextText <> "-nagare"
+    validLabelChar c = isAsciiLower c || isDigit c || c == '-'
+    validLabelEdge c = isAsciiLower c || isDigit c
+    invalid reason =
+      Left
+        ( "cannot derive a default host name from context '"
+            <> contextText
+            <> "': "
+            <> reason
+            <> "; pass --host-name with a distinct valid NixOS host name"
+        )
 
 validateSshPublicKey :: Text -> Either Text Text
 validateSshPublicKey raw
