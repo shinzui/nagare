@@ -161,12 +161,19 @@ import Nagare.Gcp.Adc
 import Nagare.GhcEnv (findGhcEnvIn)
 import Nagare.Image (DockerAuth (..), dockerAuthPlan, dockerBuildArgs, nixpacksBuildArgs, qualifyImage)
 import Nagare.Infra.Plan
-  ( PlanVerdict (..)
+  ( CurrentInfraIdentity (..)
+  , PlanBindingError (..)
+  , PlanVerdict (..)
+  , SavedPlanMetadata (..)
+  , SavedPlanReview (..)
   , classifyPlan
   , parsePreview
   , previewErrors
   , protectedResourceTypes
+  , renderPlanBindingError
   , renderVerdict
+  , reviewVerdict
+  , verifySavedPlan
   )
 import Nagare.Init
   ( InitOpts (..)
@@ -880,11 +887,61 @@ infraPlanTests =
         case previewErrors bytes of
           [message] -> assertBool "SDK message" (T.isInfixOf "Pulumi SDK has not been installed" message)
           other -> assertFailure ("expected one error diagnostic, got " <> show other)
+    , testCase "a saved review round-trips only classified operations and approval" $ do
+        steps <- parseFixture "replace-instance.json"
+        let original = SavedPlanReview 1 True steps
+        decoded <- either assertFailure pure (Aeson.eitherDecode (Aeson.encode original))
+        decoded @?= original
+        case reviewVerdict decoded of
+          PlanReplacesProtected replacing -> length replacing @?= 1
+          PlanAllowed -> assertFailure "round-tripped replacement review was allowed"
+    , testCase "saved-plan bindings fail closed on another context" $ do
+        let current = currentIdentity
+            metadata = savedMetadata
+        verifySavedPlan current metadata @?= Right ()
+        case verifySavedPlan (current & #currentContext .~ "prod") metadata of
+          Left err -> assertBool "context mismatch named" (T.isInfixOf "context" (renderPlanBindingError err))
+          Right () -> assertFailure "another context accepted the saved plan"
+    , testCase "saved-plan bindings include backend, program, config, payload, and Pulumi version" $ do
+        let mismatches =
+              [ currentIdentity & #currentBackend .~ "gs://other/state"
+              , currentIdentity & #currentProgramDigest .~ "other-program"
+              , currentIdentity & #currentConfigDigest .~ "other-config"
+              , currentIdentity & #currentPayloadDigest .~ "other-payload"
+              , currentIdentity & #currentPulumiVersion .~ "v0.0.0"
+              ]
+        assertBool "every changed binding refuses" (all (isLeft . (`verifySavedPlan` savedMetadata)) mismatches)
     ]
   where
     parseFixture name = do
       bytes <- BS.readFile ("test/fixtures/pulumi-preview" </> name)
       either (assertFailure . T.unpack) pure (parsePreview bytes)
+    currentIdentity =
+      CurrentInfraIdentity
+        "labs"
+        "acme-prod"
+        "labs"
+        "file:///state/labs"
+        "nagare-0.2.2"
+        "payload-digest"
+        "program-digest"
+        "config-digest"
+        "v3.255.0"
+    savedMetadata =
+      SavedPlanMetadata
+        1
+        "labs"
+        "acme-prod"
+        "labs"
+        "file:///state/labs"
+        "nagare-0.2.2"
+        "payload-digest"
+        "program-digest"
+        "config-digest"
+        "v3.255.0"
+        "2026-09-14T00:00:00Z"
+        "plan-digest"
+        "review-digest"
 
 -- ---------------------------------------------------------------------------
 -- EP-93: the GCS Pulumi state-bucket bootstrap. Pure bucket derivation + the

@@ -167,6 +167,7 @@ executable nagarectl
     temporary,
     text,
     time,
+    unix,
 
 executable nagared
   import: common

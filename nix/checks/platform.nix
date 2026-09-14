@@ -18,6 +18,9 @@ in
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''
         printf 'pulumi %s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         case " $* " in
+          " version ")
+            printf '%s\n' 'v3.255.0'
+            ;;
           *" config --json "*)
             # EP-129 / IR-9: a successful config listing can prove either that
             # gcp:project exists or that it is genuinely absent. Process
@@ -35,6 +38,17 @@ in
                 exit 23
                 ;;
             esac
+            ;;
+          *" preview --json --save-plan "*)
+            previous=""
+            for argument in "$@"; do
+              if [ "$previous" = "--save-plan" ]; then
+                printf '%s\n' '{"version":1,"resourcePlans":{}}' > "$argument"
+                break
+              fi
+              previous="$argument"
+            done
+            printf '%s\n' '{"steps":[{"op":"create","urn":"urn:pulumi:guardcloud::nagare::gcp:compute/instance:Instance::nagare-01","replaceReasons":[]}]}'
             ;;
         esac
         exit 0

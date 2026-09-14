@@ -53,19 +53,20 @@ user-documentation-validate:
 # in-progress platform upgrade legitimately runs with skewed versions);
 # `context guard` has none, because there is no situation in which writing to
 # the wrong GCP project is correct.
-# Create/update GCP infrastructure (pulumi up).
+# Apply a context-bound reviewed Pulumi plan without a TTY.
 [group('infra')]
-infra-up:
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl context guard
-    nagarectl infra guard
-    cd infra/pulumi && pulumi up
+infra-up *args:
+    nagarectl infra apply {{args}}
 
-# EP-2: preview the Pulumi changes without applying them.
+# Save and classify one context-bound Pulumi preview.
 [group('infra')]
-infra-preview:
-    nagarectl context guard
-    cd infra/pulumi && pulumi preview
+infra-preview *args:
+    nagarectl infra preview {{args}}
+
+# Completely tear down the selected stack after all guards and explicit confirmation.
+[group('infra')]
+infra-destroy *args:
+    nagarectl infra destroy {{args}}
 
 # Cheapest reversible "off": halts compute charges; the boot/data disks and the
 # reserved static IP keep their small storage/reservation cost. Targets the

@@ -23,8 +23,11 @@ module Main (main) where
 import Control.Exception (IOException, bracket, bracket_, catch, try)
 import Control.Monad (forM, forM_, unless, void)
 import Data.Aeson qualified as Aeson
+import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
@@ -172,12 +175,20 @@ import Nagare.Image
   , qualifyImage
   )
 import Nagare.Infra.Plan
-  ( PlanVerdict (..)
+  ( CurrentInfraIdentity (..)
+  , PlanVerdict (..)
+  , SavedPlanMetadata (..)
+  , SavedPlanReview (..)
   , classifyPlan
+  , digestFile
+  , digestPulumiProgram
   , parsePreview
   , previewErrors
   , protectedResourceTypes
+  , renderPlanBindingError
   , renderVerdict
+  , reviewVerdict
+  , verifySavedPlan
   )
 import Nagare.Init
   ( InitOpts (..)
@@ -246,7 +257,7 @@ import Nagare.Platform.Paths
   , resolvePlatformPaths
   , validatePlatformRoot
   )
-import Nagare.Platform.StackConfig (linkContextStackConfig)
+import Nagare.Platform.StackConfig (contextStackConfigPath, linkContextStackConfig)
 import Nagare.Platform.Status
   ( PlatformStatus (..)
   , ReleaseIdentity (..)
@@ -369,12 +380,13 @@ import Nagare.Version
   )
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, listDirectory, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, doesPathExist, findExecutable, listDirectory, makeAbsolute, pathIsSymbolicLink, removeDirectoryRecursive, renameDirectory)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
-import System.FilePath (dropExtension, takeExtension, (</>))
+import System.FilePath (dropExtension, takeDirectory, takeExtension, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hSetEcho, stderr, stdin, stdout)
-import System.IO.Temp (withSystemTempDirectory)
+import System.IO.Temp (createTempDirectory, withSystemTempDirectory)
+import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Process
   ( CreateProcess (cwd, env)
   , proc
@@ -702,7 +714,24 @@ data ContextCreateOpts = ContextCreateOpts
   }
   deriving stock (Generic, Show)
 
-newtype InfraCommand = InfraGuard Bool
+data InfraCommand
+  = InfraGuard Bool
+  | InfraPreview InfraPreviewOpts
+  | InfraApply InfraApplyOpts
+  | InfraDestroy Bool
+  deriving stock (Generic, Show)
+
+data InfraPreviewOpts = InfraPreviewOpts
+  { savePlan :: !FilePath
+  , allowReplacement :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+data InfraApplyOpts = InfraApplyOpts
+  { plan :: !FilePath
+  , yes :: !Bool
+  , allowReplacement :: !Bool
+  }
   deriving stock (Generic, Show)
 
 -- | Options shared by every @env@/@secret@ subcommand: enough to load the config
@@ -1833,10 +1862,43 @@ opts =
                     (Infra . InfraGuard <$> switch (long "allow-replacement" <> help "Allow a deliberate GCE instance replacement for this run") <**> helper)
                     (progDesc "Preview and refuse a plan that replaces the GCE instance")
                 )
+                <> command
+                  "preview"
+                  ( info
+                      ( Infra
+                          . InfraPreview
+                          <$> ( InfraPreviewOpts
+                                  <$> strOption (long "save-plan" <> metavar "DIR" <> help "Write one private context-bound reviewed-plan bundle")
+                                  <*> switch (long "allow-replacement" <> help "Record approval for protected replacements in this review")
+                              )
+                            <**> helper
+                      )
+                      (progDesc "Save and classify one context-bound Pulumi preview")
+                  )
+                <> command
+                  "apply"
+                  ( info
+                      ( Infra
+                          . InfraApply
+                          <$> ( InfraApplyOpts
+                                  <$> strOption (long "plan" <> metavar "DIR" <> help "Previously reviewed plan bundle")
+                                  <*> switch (long "yes" <> help "Apply without an interactive prompt")
+                                  <*> switch (long "allow-replacement" <> help "Acknowledge an approved protected replacement again at apply time")
+                              )
+                            <**> helper
+                      )
+                      (progDesc "Verify and non-interactively apply a reviewed Pulumi plan")
+                  )
+                <> command
+                  "destroy"
+                  ( info
+                      (Infra . InfraDestroy <$> switch (long "yes" <> help "Confirm complete infrastructure teardown") <**> helper)
+                      (progDesc "Guard and destroy the selected context's Pulumi stack")
+                  )
             )
             <**> helper
         )
-        (fullDesc <> progDesc "Guard infrastructure applies")
+        (fullDesc <> progDesc "Preview, apply, and tear down guarded infrastructure")
     domainsCmd =
       info
         (domainsSubparser <**> helper)
@@ -2435,6 +2497,9 @@ main =
     ContextCmdGroup ccmd -> runContext mctx ccmd
     Init o -> runInit mctx o
     Infra (InfraGuard allowReplacement) -> runInfraGuard mctx allowReplacement
+    Infra (InfraPreview options) -> runInfraPreview mctx options
+    Infra (InfraApply options) -> runInfraApply mctx options
+    Infra (InfraDestroy yes) -> runInfraDestroy mctx yes
     Domains (DomainsList o) -> runDomainsList mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
@@ -2839,21 +2904,34 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
   where
     context = active ^. #contextName
     profile = active ^. #profile
+    reviewedPlanBundle = takeDirectory staged </> "pulumi-plan"
     markerInput = do
       installedAt <- currentTimestamp
       pure (LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt)))
     runPhase NixEvaluate =
       runExternal [ExitSuccess] "nix" ["eval", "path:" <> staged <> "#packages.x86_64-linux.nagare-image.drvPath"] ""
-    -- EP-121: both Pulumi phases run the project guard and the protected-resource
-    -- replacement guard, exactly as `just infra-up` does, and apply re-previews.
-    runPhase PulumiPreview = guardPulumi
-    runPhase PulumiApply = do
-      guarded <- guardPulumi
+    -- EP-136: the preview phase persists one context-bound Pulumi plan beside
+    -- the transaction. Apply verifies and consumes that exact bundle; it never
+    -- launches a separate preview process.
+    runPhase PulumiPreview = do
+      guarded <- guardPulumiContext
       case guarded of
         Left err -> pure (Left err)
-        Right evidence ->
-          fmap ((evidence <> "\n") <>)
-            <$> runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "up", "--yes", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+        Right evidence -> do
+          allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+          alreadySaved <- doesDirectoryExist reviewedPlanBundle
+          saved <-
+            if alreadySaved
+              then fmap (const ("Retained reviewed Pulumi plan at " <> T.pack reviewedPlanBundle <> "\n")) <$> verifyReviewedPlanBundle active workspace reviewedPlanBundle allowed
+              else saveReviewedPlan active workspace reviewedPlanBundle allowed
+          pure (fmap ((evidence <> "\n") <>) saved)
+    runPhase PulumiApply = do
+      guarded <- guardPulumiContext
+      case guarded of
+        Left err -> pure (Left err)
+        Right evidence -> do
+          allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+          fmap ((evidence <> "\n") <>) <$> applyReviewedPlan active workspace reviewedPlanBundle allowed
     runPhase KubernetesDiff = do
       marker <- markerInput
       runExternal [ExitSuccess, ExitFailure 1] "kubectl" ["diff", "-f", "-", "--request-timeout=5s"] marker
@@ -2875,17 +2953,14 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     runPhase ContextCommit =
       writeContextPlatformVersion context (manifest ^. #platformVersion)
         >>= pure . fmap (const ("context pin advanced to " <> manifest ^. #platformVersion))
-    guardPulumi = case profile ^. #mode of
+    guardPulumiContext = case profile ^. #mode of
       Local ->
-        runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "preview", "--stack", T.unpack (contextNameText context), "--non-interactive"] ""
+        pure (Right "context guard: local mode; no GCP project to confine")
       Cloud -> do
         pgi <- projectGuardInputsFor context profile workspace
         case projectGuardVerdict pgi of
           Left refusal -> pure (Left refusal)
-          Right () -> do
-            allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
-            fmap ((renderProjectGuard pgi <> "\n") <>)
-              <$> instanceReplacementGuard profile workspace (T.unpack (contextNameText context)) allowed
+          Right () -> pure (Right (renderProjectGuard pgi))
     bootstrapRecipe = case profile ^. #mode of
       Local -> "local-bootstrap"
       Cloud -> "cluster-bootstrap"
@@ -3199,6 +3274,293 @@ runInfraGuard mctx allowReplacementFlag = do
         Left message -> TIO.hPutStr stderr (ensureNewline message) >> exitFailure
   where
     ensureNewline t = if "\n" `T.isSuffixOf` t then t else t <> "\n"
+
+runInfraPreview :: Maybe String -> InfraPreviewOpts -> IO ()
+runInfraPreview mctx options = do
+  (active, workspace) <- prepareInfraMutation mctx
+  result <- saveReviewedPlan active workspace (options ^. #savePlan) (options ^. #allowReplacement)
+  either dieT TIO.putStr result
+
+runInfraApply :: Maybe String -> InfraApplyOpts -> IO ()
+runInfraApply mctx options = do
+  unless (options ^. #yes) $
+    dieT "refusing to apply a reviewed infrastructure plan without --yes"
+  (active, workspace) <- prepareInfraMutation mctx
+  result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
+  either dieT TIO.putStr result
+
+runInfraDestroy :: Maybe String -> Bool -> IO ()
+runInfraDestroy mctx yes = do
+  unless yes $
+    dieT "refusing to destroy the selected context's infrastructure without --yes"
+  (active, workspace) <- prepareInfraMutation mctx
+  let stack = T.unpack (contextNameText (active ^. #contextName))
+  result <- runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "destroy", "--stack", stack, "--yes", "--non-interactive"] ""
+  either dieT TIO.putStr result
+
+-- | Compose the release and project/ADC guards before any standalone
+-- infrastructure mutation. ADC is validated before workspace preparation,
+-- because preparation may select or initialize a Pulumi stack.
+prepareInfraMutation :: Maybe String -> IO (ActiveTarget, PlatformWorkspace)
+prepareInfraMutation mctx = do
+  (active, status) <- gatherPlatformStatus mctx
+  either dieT pure (guardPlatformMutation status)
+  TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
+  let contextName = active ^. #contextName
+      profile = active ^. #profile
+  case profile ^. #mode of
+    Local -> pure ()
+    Cloud -> do
+      (gcloudAccount, adc) <- observeAdcForProject
+      warnings <- either dieT pure (validateAdc (profile ^. #project) gcloudAccount adc)
+      printPreflightWarnings warnings
+  workspace <- ensurePulumiForContext contextName profile
+  case profile ^. #mode of
+    Local -> TIO.putStrLn "context guard: local mode; no GCP project to confine"
+    Cloud -> do
+      inputs <- projectGuardInputsFor contextName profile workspace
+      either dieT pure (projectGuardVerdict inputs)
+      TIO.putStrLn (renderProjectGuard inputs)
+  pure (active, workspace)
+
+planFileName, reviewFileName, metadataFileName :: FilePath
+planFileName = "pulumi-plan.json"
+reviewFileName = "review.json"
+metadataFileName = "metadata.json"
+
+currentInfraIdentity :: ActiveTarget -> PlatformWorkspace -> IO (Either Text CurrentInfraIdentity)
+currentInfraIdentity active workspace = do
+  result <- try $ do
+    stateRoot <- nagareStateDir
+    let contextName = active ^. #contextName
+        profile = active ^. #profile
+        penv = pulumiEnvFor stateRoot (contextNameText contextName) profile
+    configPath <- contextStackConfigPath contextName
+    configDigest <- digestFile configPath
+    programDigest <- digestPulumiProgram (workspace ^. #pulumiDir)
+    versionResult <- readProcessWithExitCode "pulumi" ["version"] ""
+    pulumiVersion <- case versionResult of
+      (ExitSuccess, out, _) | not (T.null (T.strip (T.pack out))) -> pure (T.strip (T.pack out))
+      (ExitFailure code, out, err) ->
+        ioError (userError ("pulumi version exited " <> show code <> ": " <> err <> out))
+      _ -> ioError (userError "pulumi version returned an empty version")
+    pure
+      CurrentInfraIdentity
+        { currentContext = contextNameText contextName
+        , currentProject = profile ^. #project
+        , currentStack = penv ^. #stack
+        , currentBackend = penv ^. #backendUrl
+        , currentPayloadId = workspace ^. #payloadId
+        , currentPayloadDigest = workspace ^. #digest
+        , currentProgramDigest = programDigest
+        , currentConfigDigest = configDigest
+        , currentPulumiVersion = pulumiVersion
+        }
+  pure $ case result of
+    Left (err :: IOException) -> Left ("could not capture the current infrastructure identity: " <> T.pack (show err))
+    Right identity -> Right identity
+
+saveReviewedPlan :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text Text)
+saveReviewedPlan active workspace destination allowReplacement = do
+  exists <- doesPathExist destination
+  if exists
+    then pure (Left ("refusing to overwrite existing saved-plan bundle " <> T.pack destination))
+    else do
+      identityResult <- currentInfraIdentity active workspace
+      case identityResult of
+        Left err -> pure (Left err)
+        Right identity -> do
+          let parent = takeDirectory destination
+          createDirectoryIfMissing True parent
+          staging <- createTempDirectory parent ".nagare-plan-"
+          setFileMode staging 0o700
+          preview <-
+            try
+              ( readProcessWithExitCode
+                  "pulumi"
+                  [ "-C"
+                  , workspace ^. #pulumiDir
+                  , "preview"
+                  , "--json"
+                  , "--save-plan"
+                  , staging </> planFileName
+                  , "--stack"
+                  , T.unpack (identity ^. #currentStack)
+                  , "--non-interactive"
+                  ]
+                  ""
+              )
+          case preview of
+            Left (err :: IOException) -> cleanupPlanStaging staging ("could not run Pulumi preview: " <> T.pack (show err))
+            Right (ExitFailure code, out, err) ->
+              cleanupPlanStaging
+                staging
+                ( "Pulumi preview exited "
+                    <> T.pack (show code)
+                    <> ":\n"
+                    <> T.strip (T.unlines (T.pack err : previewErrors (TE.encodeUtf8 (T.pack out))))
+                )
+            Right (ExitSuccess, out, _) -> case parsePreview (TE.encodeUtf8 (T.pack out)) of
+              Left err -> cleanupPlanStaging staging ("could not parse Pulumi preview: " <> err)
+              Right steps -> do
+                let review = SavedPlanReview 1 allowReplacement steps
+                    verdict = reviewVerdict review
+                case verdict of
+                  PlanReplacesProtected _
+                    | not allowReplacement ->
+                        cleanupPlanStaging staging (renderVerdict (active ^. #profile . #instanceName) verdict)
+                  _ -> finalizePlan staging identity review verdict
+  where
+    finalizePlan staging identity review verdict = do
+      let planPath = staging </> planFileName
+          reviewPath = staging </> reviewFileName
+          metadataPath = staging </> metadataFileName
+          reviewBytes = LBS.toStrict (Aeson.encode review) <> "\n"
+      planExists <- doesFileExist planPath
+      if not planExists
+        then cleanupPlanStaging staging "Pulumi preview succeeded without writing its saved plan"
+        else do
+          BS.writeFile reviewPath reviewBytes
+          setFileMode planPath 0o600
+          setFileMode reviewPath 0o600
+          planDigest <- digestFile planPath
+          reviewDigest <- digestFile reviewPath
+          createdAt <- currentTimestamp
+          let metadata =
+                SavedPlanMetadata
+                  { metadataSchemaVersion = 1
+                  , context = identity ^. #currentContext
+                  , project = identity ^. #currentProject
+                  , stack = identity ^. #currentStack
+                  , backend = identity ^. #currentBackend
+                  , payloadId = identity ^. #currentPayloadId
+                  , payloadDigest = identity ^. #currentPayloadDigest
+                  , programDigest = identity ^. #currentProgramDigest
+                  , configDigest = identity ^. #currentConfigDigest
+                  , pulumiVersion = identity ^. #currentPulumiVersion
+                  , createdAt = createdAt
+                  , planDigest = planDigest
+                  , reviewDigest = reviewDigest
+                  }
+          BS.writeFile metadataPath (LBS.toStrict (Aeson.encode metadata) <> "\n")
+          setFileMode metadataPath 0o600
+          renamed <- try (renameDirectory staging destination)
+          case renamed of
+            Left (err :: IOException) -> cleanupPlanStaging staging ("could not publish saved-plan bundle: " <> T.pack (show err))
+            Right () ->
+              pure
+                ( Right
+                    ( "Saved reviewed Pulumi plan for context '"
+                        <> identity ^. #currentContext
+                        <> "' at "
+                        <> T.pack destination
+                        <> "\n"
+                        <> renderVerdict (active ^. #profile . #instanceName) verdict
+                    )
+                )
+
+cleanupPlanStaging :: FilePath -> Text -> IO (Either Text a)
+cleanupPlanStaging staging message = do
+  present <- doesDirectoryExist staging
+  when present (removeDirectoryRecursive staging)
+  pure (Left message)
+
+applyReviewedPlan :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text Text)
+applyReviewedPlan active workspace bundle allowReplacement = do
+  verified <- verifyReviewedPlanBundle active workspace bundle allowReplacement
+  case verified of
+    Left err -> pure (Left err)
+    Right identity -> do
+      applied <-
+        runExternal
+          [ExitSuccess]
+          "pulumi"
+          [ "-C"
+          , workspace ^. #pulumiDir
+          , "up"
+          , "--plan"
+          , bundle </> planFileName
+          , "--stack"
+          , T.unpack (identity ^. #currentStack)
+          , "--yes"
+          , "--non-interactive"
+          ]
+          ""
+      pure $
+        fmap
+          ( \evidence ->
+              "Applied reviewed Pulumi plan for context '"
+                <> identity ^. #currentContext
+                <> "' from "
+                <> T.pack bundle
+                <> if T.null (T.strip evidence) then "\n" else "\n" <> evidence
+          )
+          applied
+
+verifyReviewedPlanBundle :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text CurrentInfraIdentity)
+verifyReviewedPlanBundle active workspace bundle allowReplacement = do
+  loaded <- loadPlanBundle bundle
+  case loaded of
+    Left err -> pure (Left err)
+    Right (metadata, savedReview) -> do
+      identityResult <- currentInfraIdentity active workspace
+      case identityResult of
+        Left err -> pure (Left err)
+        Right identity -> case verifySavedPlan identity metadata of
+          Left err -> pure (Left ("refusing saved plan: " <> renderPlanBindingError err))
+          Right () -> do
+            planHash <- digestFile (bundle </> planFileName)
+            reviewHash <- digestFile (bundle </> reviewFileName)
+            pure $
+              if planHash /= metadata ^. #planDigest
+                then Left "refusing saved plan: pulumi-plan.json digest does not match metadata.json"
+                else
+                  if reviewHash /= metadata ^. #reviewDigest
+                    then Left "refusing saved plan: review.json digest does not match metadata.json"
+                    else case reviewVerdict savedReview of
+                      PlanReplacesProtected _
+                        | not (savedReview ^. #replacementApproved) ->
+                            Left "refusing saved plan: review contains a protected replacement that was not approved at preview time"
+                        | not allowReplacement ->
+                            Left "refusing saved plan: repeat the protected-replacement acknowledgement with --allow-replacement"
+                      _ -> Right identity
+
+loadPlanBundle :: FilePath -> IO (Either Text (SavedPlanMetadata, SavedPlanReview))
+loadPlanBundle bundle = do
+  checked <- try (validatePlanBundleSecurity bundle)
+  case checked of
+    Left (err :: IOException) -> pure (Left ("invalid saved-plan bundle " <> T.pack bundle <> ": " <> T.pack (show err)))
+    Right () -> do
+      metadataBytes <- BS.readFile (bundle </> metadataFileName)
+      reviewBytes <- BS.readFile (bundle </> reviewFileName)
+      pure $ do
+        metadata <- firstText "metadata.json" (Aeson.eitherDecodeStrict' metadataBytes)
+        review <- firstText "review.json" (Aeson.eitherDecodeStrict' reviewBytes)
+        if review ^. #reviewSchemaVersion /= 1
+          then Left ("unsupported review.json schema " <> T.pack (show (review ^. #reviewSchemaVersion)))
+          else Right (metadata, review)
+  where
+    firstText name = either (Left . (("invalid " <> name <> ": ") <>) . T.pack) Right
+
+validatePlanBundleSecurity :: FilePath -> IO ()
+validatePlanBundleSecurity bundle = do
+  linked <- pathIsSymbolicLink bundle
+  when linked (ioError (userError "bundle directory is a symlink"))
+  bundleStatus <- getFileStatus bundle
+  unless (isDirectory bundleStatus) (ioError (userError "bundle path is not a directory"))
+  unless (privateMode bundleStatus) (ioError (userError "bundle directory is accessible by group or other users"))
+  entries <- sort <$> listDirectory bundle
+  unless (entries == sort [metadataFileName, planFileName, reviewFileName]) $
+    ioError (userError "bundle must contain exactly metadata.json, pulumi-plan.json, and review.json")
+  forM_ entries $ \entry -> do
+    let path = bundle </> entry
+    entryLinked <- pathIsSymbolicLink path
+    when entryLinked (ioError (userError (entry <> " is a symlink")))
+    status <- getFileStatus path
+    unless (isRegularFile status) (ioError (userError (entry <> " is not a regular file")))
+    unless (privateMode status) (ioError (userError (entry <> " is accessible by group or other users")))
+  where
+    privateMode status = fileMode status .&. 0o077 == 0
 
 -- | Preview the stack and refuse a plan that replaces a protected resource (the
 -- GCE instance, the Cloud DNS zone, or a bucket). Any failure to preview or parse

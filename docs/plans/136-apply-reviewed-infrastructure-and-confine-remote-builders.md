@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T04:16:15Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T13:38:21Z
+      mode: "implement"
+      note: "Started EP-3 implementation"
 ---
 
 # Apply reviewed infrastructure and confine remote builders
@@ -36,7 +42,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Define a context-bound saved-plan bundle and classify its reviewed operations.
+- [ ] (started 2026-09-14T13:37:47Z) Define a context-bound saved-plan bundle and classify its reviewed operations.
 - [ ] Implement guarded preview/apply and reuse it in the upgrade transaction.
 - [ ] Generate and select a per-context GCP builder, with visible cross-project refusal/opt-in.
 - [ ] Cover teardown and non-interactive operation in docs, close the IRs, and run all gates.
@@ -278,3 +284,7 @@ Keep secrets encrypted/redacted in Pulumi's file and out of `review.json`. Use t
 Nix, gcloud, OpenSSH, and the existing target/context modules. Treat
 `mori://pulumi/pulumi/packages/pulumi` as the canonical dependency source. EP-2 supplies ADC guard
 evidence when available; EP-6 consumes the public preview/apply and builder behavior.
+
+
+Revision note (2026-09-14): Began implementation with Milestone 1 after the MasterPlan confirmed
+that EP-3 has no hard dependencies and EP-2's shared ADC guard evidence is available.

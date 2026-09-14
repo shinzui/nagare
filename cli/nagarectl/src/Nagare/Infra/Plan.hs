@@ -8,6 +8,10 @@ module Nagare.Infra.Plan
   ( StepOp (..)
   , PlanStep (..)
   , PlanVerdict (..)
+  , SavedPlanReview (..)
+  , SavedPlanMetadata (..)
+  , CurrentInfraIdentity (..)
+  , PlanBindingError (..)
   , gceInstanceType
   , dnsManagedZoneType
   , storageBucketType
@@ -16,15 +20,29 @@ module Nagare.Infra.Plan
   , previewErrors
   , classifyPlan
   , renderVerdict
+  , reviewVerdict
+  , verifySavedPlan
+  , renderPlanBindingError
+  , digestBytes
+  , digestFile
+  , digestPulumiProgram
   )
 where
 
-import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
+import Crypto.Hash (Context, Digest, SHA256, hash, hashFinalize, hashInit, hashUpdate)
+import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecodeStrict, withObject, (.!=), (.:), (.:?))
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
+import Data.List (isPrefixOf, isSuffixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude
+import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude hiding (Context)
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory, pathIsSymbolicLink)
+import System.FilePath (makeRelative, takeFileName, (</>))
 
 data StepOp
   = OpSame
@@ -45,6 +63,116 @@ data PlanStep = PlanStep
 
 data PlanVerdict = PlanAllowed | PlanReplacesProtected ![PlanStep]
   deriving stock (Eq, Show)
+
+-- | The redacted, reviewable result produced by the same Pulumi process that
+-- writes @pulumi-plan.json@. It contains operation names, URNs, and replacement
+-- reasons, but never resource inputs or decrypted configuration values.
+data SavedPlanReview = SavedPlanReview
+  { reviewSchemaVersion :: !Int
+  , replacementApproved :: !Bool
+  , steps :: ![PlanStep]
+  }
+  deriving stock (Generic, Eq, Show)
+
+-- | Nagare-owned bindings beside Pulumi's opaque deployment plan. Pulumi
+-- constrains resource operations; these fields additionally constrain which
+-- Nagare context, backend, program, configuration, and payload may apply it.
+data SavedPlanMetadata = SavedPlanMetadata
+  { metadataSchemaVersion :: !Int
+  , context :: !Text
+  , project :: !Text
+  , stack :: !Text
+  , backend :: !Text
+  , payloadId :: !Text
+  , payloadDigest :: !Text
+  , programDigest :: !Text
+  , configDigest :: !Text
+  , pulumiVersion :: !Text
+  , createdAt :: !Text
+  , planDigest :: !Text
+  , reviewDigest :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+data CurrentInfraIdentity = CurrentInfraIdentity
+  { currentContext :: !Text
+  , currentProject :: !Text
+  , currentStack :: !Text
+  , currentBackend :: !Text
+  , currentPayloadId :: !Text
+  , currentPayloadDigest :: !Text
+  , currentProgramDigest :: !Text
+  , currentConfigDigest :: !Text
+  , currentPulumiVersion :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+data PlanBindingError
+  = UnsupportedSavedPlanSchema !Int
+  | PlanBindingMismatch !Text !Text !Text
+  deriving stock (Eq, Show)
+
+instance ToJSON StepOp where
+  toJSON = Aeson.String . stepOpToken
+
+instance FromJSON StepOp where
+  parseJSON = Aeson.withText "Pulumi operation" (either (fail . T.unpack) pure . parseStepOp)
+
+instance ToJSON PlanStep where
+  toJSON step =
+    Aeson.object
+      [ "op" Aeson..= (step ^. #op)
+      , "urn" Aeson..= (step ^. #urn)
+      , "replaceReasons" Aeson..= (step ^. #replaceReasons)
+      ]
+
+instance ToJSON SavedPlanReview where
+  toJSON review =
+    Aeson.object
+      [ "schemaVersion" Aeson..= (review ^. #reviewSchemaVersion)
+      , "replacementApproved" Aeson..= (review ^. #replacementApproved)
+      , "verdict" Aeson..= verdictToken (reviewVerdict review)
+      , "steps" Aeson..= (review ^. #steps)
+      ]
+
+instance FromJSON SavedPlanReview where
+  parseJSON = withObject "SavedPlanReview" $ \o ->
+    SavedPlanReview <$> o .: "schemaVersion" <*> o .: "replacementApproved" <*> o .: "steps"
+
+instance ToJSON SavedPlanMetadata where
+  toJSON metadata =
+    Aeson.object
+      [ "schemaVersion" Aeson..= (metadata ^. #metadataSchemaVersion)
+      , "context" Aeson..= (metadata ^. #context)
+      , "project" Aeson..= (metadata ^. #project)
+      , "stack" Aeson..= (metadata ^. #stack)
+      , "backend" Aeson..= (metadata ^. #backend)
+      , "payloadId" Aeson..= (metadata ^. #payloadId)
+      , "payloadDigest" Aeson..= (metadata ^. #payloadDigest)
+      , "programDigest" Aeson..= (metadata ^. #programDigest)
+      , "configDigest" Aeson..= (metadata ^. #configDigest)
+      , "pulumiVersion" Aeson..= (metadata ^. #pulumiVersion)
+      , "createdAt" Aeson..= (metadata ^. #createdAt)
+      , "planDigest" Aeson..= (metadata ^. #planDigest)
+      , "reviewDigest" Aeson..= (metadata ^. #reviewDigest)
+      ]
+
+instance FromJSON SavedPlanMetadata where
+  parseJSON = withObject "SavedPlanMetadata" $ \o ->
+    SavedPlanMetadata
+      <$> o .: "schemaVersion"
+      <*> o .: "context"
+      <*> o .: "project"
+      <*> o .: "stack"
+      <*> o .: "backend"
+      <*> o .: "payloadId"
+      <*> o .: "payloadDigest"
+      <*> o .: "programDigest"
+      <*> o .: "configDigest"
+      <*> o .: "pulumiVersion"
+      <*> o .: "createdAt"
+      <*> o .: "planDigest"
+      <*> o .: "reviewDigest"
 
 -- | Pulumi's type token for the resource created in
 -- @infra\/pulumi\/src\/components\/NagareInstance.ts@. Component ancestry makes
@@ -94,6 +222,15 @@ parseStepOp token = case token of
   where
     replacement = Right (OpReplaceLike token)
 
+stepOpToken :: StepOp -> Text
+stepOpToken (OpReplaceLike token) = token
+stepOpToken OpSame = "same"
+stepOpToken OpCreate = "create"
+stepOpToken OpUpdate = "update"
+stepOpToken OpDelete = "delete"
+stepOpToken OpRefresh = "refresh"
+stepOpToken OpImport = "import"
+
 parsePreview :: ByteString -> Either Text [PlanStep]
 parsePreview bytes = case eitherDecodeStrict bytes of
   Left err -> Left (T.pack err)
@@ -126,6 +263,80 @@ classifyPlan protectedTypes steps =
     replacesProtected step = case (step ^. #op) of
       OpReplaceLike _ -> any (`T.isInfixOf` (step ^. #urn)) protectedTypes
       _ -> False
+
+reviewVerdict :: SavedPlanReview -> PlanVerdict
+reviewVerdict = classifyPlan protectedResourceTypes . (^. #steps)
+
+verdictToken :: PlanVerdict -> Text
+verdictToken PlanAllowed = "allowed"
+verdictToken (PlanReplacesProtected _) = "protected-replacement"
+
+verifySavedPlan :: CurrentInfraIdentity -> SavedPlanMetadata -> Either PlanBindingError ()
+verifySavedPlan current metadata
+  | metadata ^. #metadataSchemaVersion /= 1 = Left (UnsupportedSavedPlanSchema (metadata ^. #metadataSchemaVersion))
+  | otherwise = traverse_ matches bindings
+  where
+    bindings =
+      [ ("context", current ^. #currentContext, metadata ^. #context)
+      , ("project", current ^. #currentProject, metadata ^. #project)
+      , ("stack", current ^. #currentStack, metadata ^. #stack)
+      , ("backend", current ^. #currentBackend, metadata ^. #backend)
+      , ("payloadId", current ^. #currentPayloadId, metadata ^. #payloadId)
+      , ("payloadDigest", current ^. #currentPayloadDigest, metadata ^. #payloadDigest)
+      , ("programDigest", current ^. #currentProgramDigest, metadata ^. #programDigest)
+      , ("configDigest", current ^. #currentConfigDigest, metadata ^. #configDigest)
+      , ("pulumiVersion", current ^. #currentPulumiVersion, metadata ^. #pulumiVersion)
+      ]
+    matches (field, observed, saved)
+      | observed == saved = Right ()
+      | otherwise = Left (PlanBindingMismatch field saved observed)
+
+renderPlanBindingError :: PlanBindingError -> Text
+renderPlanBindingError (UnsupportedSavedPlanSchema version) =
+  "saved plan uses unsupported metadata schema " <> T.pack (show version)
+renderPlanBindingError (PlanBindingMismatch field saved observed) =
+  "saved plan " <> field <> " is '" <> saved <> "', but the current value is '" <> observed <> "'"
+
+digestBytes :: ByteString -> Text
+digestBytes bytes = T.pack (show (hash bytes :: Digest SHA256))
+
+digestFile :: FilePath -> IO Text
+digestFile path = digestBytes <$> BS.readFile path
+
+-- | Hash the stable Pulumi program inputs. Generated dependencies, Pulumi's
+-- working directories, and context-owned @Pulumi.<stack>.yaml@ links are
+-- excluded; the latter is hashed separately as @configDigest@.
+digestPulumiProgram :: FilePath -> IO Text
+digestPulumiProgram root = do
+  files <- sort <$> filesBelow root
+  context <- foldHash (hashInit :: Context SHA256) files
+  pure (T.pack (show (hashFinalize context :: Digest SHA256)))
+  where
+    ignoredDirectory name = name `elem` ["node_modules", ".pulumi", ".pulumi-home", ".pulumi-state"]
+    ignoredFile name = "Pulumi." `isPrefixOf` name && ".yaml" `isSuffixOf` name
+    filesBelow path = do
+      let name = takeFileName path
+      link <- pathIsSymbolicLink path
+      if link || ignoredDirectory name || ignoredFile name
+        then pure []
+        else do
+          file <- doesFileExist path
+          if file
+            then pure [path]
+            else do
+              directory <- doesDirectoryExist path
+              if directory
+                then do
+                  names <- listDirectory path
+                  concat <$> traverse (filesBelow . (path </>)) names
+                else pure []
+    foldHash context [] = pure context
+    foldHash context (path : rest) = do
+      bytes <- BS.readFile path
+      let relative = TE.encodeUtf8 (T.pack (makeRelative root path))
+          separator = BS.singleton 0
+          next = hashUpdate (hashUpdate (hashUpdate context relative) separator) bytes
+      foldHash (hashUpdate next separator) rest
 
 renderVerdict :: Text -> PlanVerdict -> Text
 renderVerdict _ PlanAllowed = "infra guard: no GCE instance replacement is planned (DNS zone and buckets also unchanged)\n"
@@ -175,10 +386,4 @@ renderVerdict instanceName (PlanReplacesProtected steps) =
       [] -> urn
     reasons [] = "not reported by Pulumi"
     reasons xs = T.intercalate ", " xs
-    opToken (OpReplaceLike token) = token
-    opToken OpSame = "same"
-    opToken OpCreate = "create"
-    opToken OpUpdate = "update"
-    opToken OpDelete = "delete"
-    opToken OpRefresh = "refresh"
-    opToken OpImport = "import"
+    opToken = stepOpToken
