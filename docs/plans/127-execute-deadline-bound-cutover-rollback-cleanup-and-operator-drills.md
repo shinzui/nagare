@@ -58,8 +58,10 @@ This section must always reflect the actual current state of the work.
 - [ ] Implement the monotonic deadline executor and exact static-IP handoff sequence.
 - [ ] Implement automatic/manual rollback reconciliation for every interruption point.
 - [ ] Implement atomic promotion, write admission, stopped-old retention, and guarded cleanup.
-- [ ] Add deterministic fault-injection coverage, local integrated tests, and forward/rollback
-      live drills that satisfy the selected budget.
+- [x] (2026-09-13 21:04 PDT) Added deterministic before/after fault-injection coverage and local
+      integrated tests for every pre-commit external-operation boundary.
+- [ ] Run forward/rollback live drills that satisfy the selected budget after ExecPlan 122
+      supplies a disposable environment and measured address-handoff contract.
 - [ ] Complete operator runbooks and distill durable decisions into the replacement ADR.
 
 
@@ -393,3 +395,6 @@ start of execution and the scoped decision to supply only the pure contracts nee
 
 Revision note (2026-09-13): Recorded completion of the prerequisite contract slice and the focused
 11-test cutover/rollback/cleanup validation, including the observed write-admission commit rule.
+
+Revision note (2026-09-13): Expanded the deterministic suite to exercise both sides of every
+pre-commit mutation boundary and separated that completed local proof from the blocked live drills.

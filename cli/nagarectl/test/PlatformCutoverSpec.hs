@@ -6,6 +6,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.IORef
 import Data.List (elemIndex)
+import Data.Foldable (traverse_)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime, addUTCTime, defaultTimeLocale, parseTimeOrError)
@@ -28,6 +29,7 @@ platformCutoverTests =
     , testCase "reconciles crash after old address detach" testDetachedReconciliation
     , testCase "never admits candidate writes before context commit" testCommitOrdering
     , testCase "rolls back a failure after candidate address attachment" testPostAttachFailure
+    , testCase "converges every pre-commit before/after failpoint to old service" testPreCommitFailureMatrix
     , testCase "refuses automatic rollback after write admission and fences candidate" testPostCommitRollback
     , testCase "cleanup rejects an unrecorded resource" testCleanupOwnership
     , testCase "finalize removes only recorded former-active resources" testFinalize
@@ -94,6 +96,28 @@ testPostAttachFailure = do
   cutoverRecoveryAttempted failure @?= True
   replacementState (cutoverErrorTransaction failure) @?= RolledBack
   readIORef (fixtureAddress fixture) >>= (@?= AddressOnOld)
+
+testPreCommitFailureMatrix :: Assertion
+testPreCommitFailureMatrix =
+  traverse_ check
+    [ "quiesce-old"
+    , "finalize-state"
+    , "prepare-ingress"
+    , "detach-old"
+    , "attach-candidate"
+    , "verify-candidate"
+    , "commit-context"
+    ]
+  where
+    check label = traverse_ (checkMode label) [Before, After]
+    checkMode label mode = do
+      fixture <- newFixtureWith (Just (Fault mode label))
+      failure <- runCutover (fixtureOps fixture) readyTransaction >>= assertLeft
+      let recovered = cutoverErrorTransaction failure
+      assertBool (T.unpack label <> " recovery attempted") (cutoverRecoveryAttempted failure)
+      replacementState recovered @?= RolledBack
+      replacementAddressOwner recovered @?= AddressOnOld
+      replacementWritesAdmitted recovered @?= False
 
 testPostCommitRollback :: Assertion
 testPostCommitRollback = do
@@ -163,8 +187,17 @@ data Fixture = Fixture
   , fixtureAddress :: !(IORef AddressOwner)
   }
 
+data FaultMode = Before | After
+  deriving stock (Eq, Show)
+
+data Fault = Fault !FaultMode !Text
+  deriving stock (Eq, Show)
+
 newFixture :: Maybe Text -> IO Fixture
-newFixture failAt = do
+newFixture failAt = newFixtureWith (Fault After <$> failAt)
+
+newFixtureWith :: Maybe Fault -> IO Fixture
+newFixtureWith fault = do
   events <- newIORef []
   clock <- newIORef 10
   address <- newIORef AddressOnOld
@@ -176,8 +209,13 @@ newFixture failAt = do
   let fixture = Fixture ops events clock address
       operation label effect = do
         modifyIORef' events (<> [label])
-        effect
-        pure $ if failAt == Just label then Left ("injected failure at " <> label) else Right ()
+        case fault of
+          Just (Fault Before failed) | failed == label -> pure (Left ("injected failure before " <> label))
+          _ -> do
+            effect
+            pure $ case fault of
+              Just (Fault After failed) | failed == label -> Left ("injected failure after " <> label)
+              _ -> Right ()
       evidenceOperation label effect token = fmap (fmap (const token)) (operation label effect)
       hostIsOld host = hostResourceId host == hostResourceId oldHost
       ops =
@@ -189,12 +227,12 @@ newFixture failAt = do
           , persistCutover = \tx -> modifyIORef' persisted (<> [tx])
           , revalidate = \_ -> do
               modifyIORef' events (<> ["revalidate"])
-              pure $ if failAt == Just "revalidate" then Left "injected failure at revalidate" else Right validRevalidation
+              pure $ if fault == Just (Fault Before "revalidate") || fault == Just (Fault After "revalidate") then Left "injected failure at revalidate" else Right validRevalidation
           , armCandidate = \_ -> evidenceOperation "arm-candidate" (pure ()) "armed"
           , quiesceOld = \_ -> do
               result <- operation "quiesce-old" (pure ())
               pure (result >> Right (QuiesceResult (QuiesceSnapshot "scales-and-schedules") fixtureNow (MonotonicTime 10)))
-          , finalizeState = \_ _ -> logResult fixture "finalize-state" (if failAt == Just "finalize-state" then Left "injected failure at finalize-state" else Right finalEvidence)
+          , finalizeState = \_ _ -> fmap (fmap (const finalEvidence)) (operation "finalize-state" (pure ()))
           , prepareCandidateIngress = \_ -> evidenceOperation "prepare-ingress" (pure ()) "candidate ingress prepared"
           , observeCutover = \_ -> do
               owner <- readIORef address
@@ -208,7 +246,9 @@ newFixture failAt = do
           , verifyPublic = \mode -> case mode of
               CandidateMaintenanceBypass -> do
                 modifyIORef' events (<> ["verify-candidate"])
-                pure $ if failAt == Just "verify-candidate" then Left "injected failure at verify-candidate" else Right publicEvidence
+                pure $ case fault of
+                  Just (Fault _ "verify-candidate") -> Left "injected failure at verify-candidate"
+                  _ -> Right publicEvidence
               OldPublicService -> modifyIORef' events (<> ["verify-old"]) >> pure (Right publicEvidence)
           , commitContext = \_ -> operation "commit-context" (writeIORef contextCommitted True)
           , restoreContext = \_ -> operation "restore-context" (writeIORef contextCommitted False)
