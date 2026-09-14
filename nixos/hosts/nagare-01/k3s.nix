@@ -24,4 +24,10 @@
   # mount and the layout oneshot (see storage.nix).
   systemd.services.k3s.after = [ "var-lib-nagare.mount" "nagare-data-layout.service" ];
   systemd.services.k3s.requires = [ "var-lib-nagare.mount" "nagare-data-layout.service" ];
+
+  # Retrying the mount must also retry k3s after a transient first-boot mount
+  # failure. wantedBy creates var-lib-nagare.mount.wants/k3s.service without
+  # weakening the Requires/After edges above, so k3s can never fall through to
+  # an unmounted /var/lib/nagare path.
+  systemd.services.k3s.wantedBy = [ "var-lib-nagare.mount" ];
 }

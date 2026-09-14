@@ -217,6 +217,10 @@
           let
             dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";
             rootFs = compatibilitySystem.config.fileSystems."/";
+            formatUnit = compatibilitySystem.config.systemd.services.format-nagare-data;
+            layoutUnit = compatibilitySystem.config.systemd.services.nagare-data-layout;
+            k3sUnit = compatibilitySystem.config.systemd.services.k3s;
+            dataDiskFsckUnit = "systemd-fsck@dev-disk-by\\x2did-google\\x2dnagare\\x2ddata.service";
           in
           # The data disk must grow itself when dataDiskSizeGb increases.
           assert dataFs.autoResize;
@@ -230,14 +234,46 @@
           assert compatibilitySystem.config.boot.growPartition;
           # Default dependencies on format-nagare-data close an ordering cycle
           # through local-fs.target that systemd breaks by dropping the grow.
-          assert compatibilitySystem.config.systemd.services.format-nagare-data.unitConfig.DefaultDependencies == false;
+          assert formatUnit.unitConfig.DefaultDependencies == false;
           # ...but then it must wait for the disk's device unit, or it runs before
           # udev creates the by-id link and skips formatting a blank disk.
           assert builtins.elem "dev-disk-by\\x2did-google\\x2dnagare\\x2ddata.device"
-            compatibilitySystem.config.systemd.services.format-nagare-data.after;
+            formatUnit.after;
+          # Formatting must finish before either generated blank-disk consumer.
+          assert builtins.elem dataDiskFsckUnit formatUnit.before;
+          assert builtins.elem "var-lib-nagare.mount" formatUnit.before;
+          # Layout and k3s remain hard-protected by the mount. A later successful
+          # mount also pulls k3s into a fresh start transaction for recovery.
+          assert builtins.elem "var-lib-nagare.mount" layoutUnit.requires;
+          assert layoutUnit.unitConfig.RequiresMountsFor == "/var/lib/nagare";
+          assert builtins.elem "var-lib-nagare.mount" k3sUnit.requires;
+          assert builtins.elem "nagare-data-layout.service" k3sUnit.requires;
+          assert builtins.elem "var-lib-nagare.mount" k3sUnit.wantedBy;
           nixpkgs.legacyPackages.${system}.runCommand "nagare-data-disk-auto-grow-check" { } ''
             touch "$out"
           '';
+
+        # Re-run the race against five independent blank disks. Each imported
+        # test has a unique derivation name; the link farm is the single check
+        # operators build and forces all five samples to complete.
+        data-disk-first-boot =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            dataFs = compatibilitySystem.config.fileSystems."/var/lib/nagare";
+            samples = map
+              (sample: import ./tests/data-disk-first-boot.nix {
+                inherit pkgs dataFs sample;
+              })
+              [ 1 2 3 4 5 ];
+          in
+          pkgs.linkFarm "nagare-data-disk-first-boot" (
+            nixpkgs.lib.imap1
+              (index: path: {
+                name = "sample-${toString index}";
+                inherit path;
+              })
+              samples
+          );
 
         # Prove the online grow, not merely that the option is set. The trick
         # is to invert the setup: put a deliberately UNDERSIZED ext4
