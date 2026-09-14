@@ -42,9 +42,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] (started 2026-09-14T13:37:47Z) Define a context-bound saved-plan bundle and classify its reviewed operations.
-- [ ] Implement guarded preview/apply and reuse it in the upgrade transaction.
-- [ ] Generate and select a per-context GCP builder, with visible cross-project refusal/opt-in.
+- [x] (2026-09-14T13:51Z) Define a context-bound saved-plan bundle and classify its reviewed operations.
+- [x] (2026-09-14T13:51Z) Implement guarded preview/apply and reuse it in the upgrade transaction.
+- [x] (2026-09-14T14:05Z) Generate and select a per-context GCP builder, with visible cross-project refusal/opt-in.
 - [ ] Cover teardown and non-interactive operation in docs, close the IRs, and run all gates.
 
 
@@ -53,7 +53,10 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: A newly added proxy or test is invisible to Nix flake evaluation until it is staged,
+  even though ordinary shell tests see the worktree file. Evidence: the first operator-tools build
+  refused the untracked `scripts/nix-builder-proxy.sh`; staging the two new scripts made the same
+  three-check build proceed and pass.
 
 
 ## Decision Log
@@ -91,7 +94,15 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The public infra commands now make one Pulumi preview, preserve its plan plus review and binding
+metadata in a private immutable directory, and pass that exact plan to non-interactive apply. The
+upgrade transaction uses the same boundary. Focused Haskell tests (508 cases) and the clone-free
+packaged scenario pass.
+
+Host-image now renders a private per-context SSH route and explicit `--builders` value. Its default
+builder is in the target project; a different `NAGARE_BUILDER_PROJECT` is refused unless the command
+names that exact project with `--allow-shared-builder`. Hermetic confinement, packaged-proxy, and
+shellcheck gates pass without consulting ambient builder configuration.
 
 
 ## Context and Orientation
@@ -288,3 +299,7 @@ evidence when available; EP-6 consumes the public preview/apply and builder beha
 
 Revision note (2026-09-14): Began implementation with Milestone 1 after the MasterPlan confirmed
 that EP-3 has no hard dependencies and EP-2's shared ADC guard evidence is available.
+
+Revision note (2026-09-14): Completed the reviewed-plan, upgrade-reuse, and context-owned builder
+milestones. Added focused and packaged regression evidence; documentation, ADRs, IR closure, and the
+complete gate remain.

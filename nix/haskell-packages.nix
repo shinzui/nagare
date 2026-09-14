@@ -36,7 +36,12 @@ let
   };
 
   typedConfigRuntime = haskellPackages.ghcWithPackages (hp: [ hp.nagare-dsl ]);
-  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs pkgs.socat ];
+  nixBuilderProxy = pkgs.writeShellApplication {
+    name = "nagare-nix-builder-proxy";
+    runtimeInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.socat ];
+    text = builtins.readFile ../scripts/nix-builder-proxy.sh;
+  };
+  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs pkgs.socat nixBuilderProxy ];
 
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
@@ -117,12 +122,12 @@ let
 
   nagare = pkgs.buildEnv {
     name = "nagare-${haskellPackages.nagarectl.version}";
-    paths = [ operatorNagarectl nagareLauncher ];
+    paths = [ operatorNagarectl nagareLauncher nixBuilderProxy ];
     pathsToLink = [ "/bin" "/share" "/nix-support" ];
     meta.mainProgram = "nagare";
   };
 in
 {
-  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl operatorNagarectl typedConfigRuntime;
+  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }
