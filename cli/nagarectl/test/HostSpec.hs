@@ -3,10 +3,13 @@
 module HostSpec (hostTests) where
 
 import Control.Exception (finally)
+import Crypto.Hash (Digest, SHA256, hash)
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
+import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.List (isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -19,11 +22,12 @@ import Nagare.Cluster.Kubeconfig
   , normalizeKubeconfig
   )
 import Nagare.Dsl.Prelude
+import Nagare.Host.AgeKey
 import Nagare.Host.Config
 import Nagare.Target (ContextName, Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
-  ( Permissions (executable)
+  ( Permissions (executable, readable)
   , createDirectoryIfMissing
   , createDirectoryLink
   , createFileLink
@@ -31,6 +35,7 @@ import System.Directory
   , setPermissions
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, setFileMode)
@@ -40,11 +45,82 @@ import Test.Tasty.HUnit
 hostTests :: TestTree
 hostTests =
   testGroup
-    "Nagare.Host.Config (EP-107)"
+    "Nagare.Host"
     [ testCase "validates public keys and rejects private material" $ do
         validateSshPublicKey fixtureKey @?= Right fixtureKey
         assertBool "private key is rejected" (either (const True) (const False) (validateSshPublicKey "-----BEGIN OPENSSH PRIVATE KEY-----"))
         assertBool "unknown key type is rejected" (either (const True) (const False) (validateSshPublicKey "ssh-dss AAAAB3NzaC1kc3MAAACBAexample"))
+    , testCase "IR-18: validates and hashes the exact local age-key bytes without retaining the body" $
+        withSystemTempDirectory "nagare-age-key" $ \root -> do
+          let valid = root </> "valid.agekey"
+              empty = root </> "empty.agekey"
+              malformed = root </> "malformed.agekey"
+              multiple = root </> "multiple.agekey"
+              directory = root </> "directory"
+              unreadable = root </> "unreadable.agekey"
+          BS.writeFile valid ("# created for test\n" <> fixtureAgeKey)
+          inspected <- inspectLocalAgeKey valid >>= either (assertFailure . T.unpack) pure
+          inspected ^. #path @?= valid
+          inspected ^. #sha256 @?= T.pack (show (hash ("# created for test\n" <> fixtureAgeKey) :: Digest SHA256))
+
+          BS.writeFile empty ""
+          assertAgeKeyRejected "empty" empty
+          BS.writeFile malformed "not-an-age-identity\n"
+          assertAgeKeyRejected "private-identity" malformed
+          BS.writeFile multiple (fixtureAgeKey <> fixtureAgeKey)
+          assertAgeKeyRejected "exactly one" multiple
+          createDirectoryIfMissing True directory
+          assertAgeKeyRejected "regular file" directory
+          assertAgeKeyRejected "does not exist" (root </> "missing.agekey")
+          BS.writeFile unreadable fixtureAgeKey
+          permissions <- getPermissions unreadable
+          setPermissions unreadable (permissions {readable = False})
+          assertAgeKeyRejected "not readable" unreadable
+    , testCase "IR-18: confines placement to the explicit context and keeps key bytes out of argv and env" $
+        withSystemTempDirectory "nagare-place-age-key" $ \root -> do
+          let keyPath = root </> "labs.agekey"
+              labsProfile :: TargetProfile
+              labsProfile = fixtureProfile & #instanceName .~ "labs-instance"
+              parentEnv = [("NAGARE_CONTEXT", "prod"), ("PRESERVE_ME", "yes")]
+          BS.writeFile keyPath fixtureAgeKey
+          calls <- newIORef ([] :: [([(String, String)], [String])])
+          let transport childEnv arguments = do
+                bytes <- BS.readFile (arguments !! 2)
+                let transportedDigest = show (hash bytes :: Digest SHA256)
+                arguments !! 9 @?= transportedDigest
+                previous <- readIORef calls
+                writeIORef calls (previous <> [(childEnv, arguments)])
+                pure (ExitSuccess, "ready", "")
+
+          placeAgeKeyWith transport parentEnv "labs" labsProfile keyPath False >>= (@?= Right ())
+          placeAgeKeyWith transport parentEnv "labs" labsProfile keyPath True >>= (@?= Right ())
+          recorded <- readIORef calls
+          case recorded of
+            [(defaultEnv, defaultArgs), (forcedEnv, forcedArgs)] -> do
+              let secretText = BC.unpack fixtureAgeKey
+              lookup "NAGARE_CONTEXT" defaultEnv @?= Just "labs"
+              lookup "PRESERVE_ME" defaultEnv @?= Just "yes"
+              defaultArgs
+                @?= [ "send-file"
+                    , "labs-instance"
+                    , keyPath
+                    , "--"
+                    , "sudo"
+                    , "--"
+                    , "/run/current-system/sw/bin/nagare-host-age-key"
+                    , "install"
+                    , "--sha256"
+                    , show (hash fixtureAgeKey :: Digest SHA256)
+                    ]
+              forcedArgs @?= defaultArgs <> ["--force"]
+              assertBool "key body is absent from argv" (all (not . (secretText `isInfixOf`)) (defaultArgs <> forcedArgs))
+              assertBool "key body is absent from env" (all (not . (secretText `isInfixOf`) . snd) (defaultEnv <> forcedEnv))
+            _ -> assertFailure ("expected two transport calls, got " <> show recorded)
+    , testCase "IR-18: local mode rejects placement before validation or transport" $ do
+        let localProfile = fixtureProfile {mode = Local}
+            unusedTransport _ _ = assertFailure "transport must not run" >> pure (ExitSuccess, "", "")
+        result <- placeAgeKeyWith unusedTransport [] "local" localProfile "/missing/key" False
+        assertBool "local-mode refusal is explicit" (either (T.isInfixOf "unavailable for local contexts") (const False) result)
     , testCase "IR-14: derives distinct default host names without changing the instance name" $ do
         prod <- mkTestContext "prod"
         labs <- mkTestContext "labs"
@@ -257,6 +333,16 @@ fixtureConfig context =
 
 fixtureKey :: Text
 fixtureKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly operator@example"
+
+fixtureAgeKey :: BS.ByteString
+fixtureAgeKey = BC.concat ["AGE-", "SECRET-", "KEY-1TESTFIXTUREONLY\n"]
+
+assertAgeKeyRejected :: Text -> FilePath -> Assertion
+assertAgeKeyRejected expected keyPath = do
+  result <- inspectLocalAgeKey keyPath
+  assertBool
+    ("expected rejection containing " <> T.unpack expected <> ", got " <> show result)
+    (either (T.isInfixOf expected) (const False) result)
 
 mkTestContext :: Text -> IO ContextName
 mkTestContext = either (assertFailure . T.unpack) pure . mkContextName

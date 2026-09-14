@@ -153,6 +153,7 @@ import Nagare.Gcp.Adc
   , validateAdc
   )
 import Nagare.GhcEnv (resolveProjectGhcEnv)
+import Nagare.Host.AgeKey (placeAgeKeyWith)
 import Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
@@ -624,6 +625,7 @@ data HostCommand
   = HostInit HostInitOpts
   | HostShow (Maybe String)
   | HostPath (Maybe String)
+  | HostPlaceAgeKey HostPlaceAgeKeyOpts
   deriving stock (Generic, Show)
 
 data KubeconfigCommand
@@ -669,6 +671,13 @@ data HostInitOpts = HostInitOpts
   , deployUser :: !String
   , force :: !Bool
   , dryRun :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+data HostPlaceAgeKeyOpts = HostPlaceAgeKeyOpts
+  { context :: !(Maybe String)
+  , keyFile :: !FilePath
+  , force :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1780,6 +1789,12 @@ opts =
         ( command "init" (info (HostInit <$> hostInitOptsParser <**> helper) (progDesc "Generate and validate a context-owned host flake"))
             <> command "show" (info (HostShow <$> optional hostContextOption <**> helper) (progDesc "Print the generated operator module"))
             <> command "path" (info (HostPath <$> optional hostContextOption <**> helper) (progDesc "Print the generated host-flake path"))
+            <> command
+              "place-age-key"
+              ( info
+                  (HostPlaceAgeKey <$> hostPlaceAgeKeyOptsParser <**> helper)
+                  (progDesc "Stream an age private key to the selected host over project-confined IAP")
+              )
         )
     hostContextOption = strOption (long "context" <> metavar "NAME" <> help "Host context (defaults to the global or active context)")
     hostInitOptsParser =
@@ -1794,6 +1809,11 @@ opts =
         <*> strOption (long "deploy-user" <> metavar "USER" <> value "deploy" <> showDefault <> help "Operator account created on the host")
         <*> switch (long "force" <> help "Atomically replace changed generated scaffolding")
         <*> switch (long "dry-run" <> help "Validate inputs and print generated configuration without writing")
+    hostPlaceAgeKeyOptsParser =
+      HostPlaceAgeKeyOpts
+        <$> optional hostContextOption
+        <*> strOption (long "key-file" <> metavar "PATH" <> help "Operator-held age private-key file to stream over SSH stdin")
+        <*> switch (long "force" <> help "Replace a different installed key (interruption-sensitive; preserve both keys first)")
     kubeconfigCmd =
       info
         (Kubeconfig <$> kubeconfigSubparser <**> helper)
@@ -3018,6 +3038,26 @@ withEnvironment name envValue ioAction =
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
+  HostPlaceAgeKey options -> do
+    active <- activeTarget (options ^. #context <|> globalContext)
+    let context = active ^. #contextName
+        profile = active ^. #profile
+    when (profile ^. #mode == Local) $
+      dieT "host age-key placement uses GCP IAP and is unavailable for local contexts"
+    (_, workspace) <- resolvePlatformWorkspace context
+    parentEnv <- getEnvironment
+    let iapHelper = workspace ^. #scriptsDir </> "iap-ssh.sh"
+        transport childEnv arguments =
+          readCreateProcessWithExitCode ((proc iapHelper arguments) {env = Just childEnv}) ""
+    placeAgeKeyWith transport parentEnv (contextNameText context) profile (options ^. #keyFile) (options ^. #force)
+      >>= either dieT pure
+    TIO.putStrLn
+      ( "Host age key for context '"
+          <> contextNameText context
+          <> "' is ready on instance '"
+          <> profile ^. #instanceName
+          <> "'."
+      )
   HostPath commandContext -> do
     active <- activeTarget (commandContext <|> globalContext)
     root <- hostConfigDir (active ^. #contextName)

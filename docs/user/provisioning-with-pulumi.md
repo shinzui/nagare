@@ -204,6 +204,11 @@ network, IP, disk, DNS, registry, buckets, and IAM are exactly what the host
 image build and the cluster need to exist first. You'll run `pulumi up` again
 after [building the image](host-image-and-boot.md) to bring up the VM.
 
+The second apply creates and immediately boots the VM from a secret-free image. That state is
+intentional: use `nagarectl host place-age-key --context NAME --key-file PATH` over IAP immediately
+afterward, then require `OK host age key` in `nagarectl --context NAME server status` before relying
+on Tailscale. The private age identity is never a Pulumi input or state value.
+
 ### Review replacements and protected resources
 
 Always read the saved `review.json` before applying. The program deliberately

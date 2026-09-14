@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md
   - docs/plans/130-give-every-context-a-distinct-default-host-name.md
+  - docs/plans/133-deliver-the-host-age-key-after-first-boot.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0011-host-activation-is-guarded-and-self-reverting.md
 ---
@@ -85,3 +86,24 @@ Existing host flakes remain unchanged because `host.nix` already records their e
 Re-running `host init --force` without an explicit name intentionally adopts the new context-derived
 default. This amendment is implemented by
 [ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md).
+
+## Amendment — 2026-09-14: explicit post-boot age-key handoff
+
+`nagarectl host init` continues to treat the private age identity as out of scope: it never reads,
+copies, or packages the key, and records only the module-owned path where the host will eventually
+hold it. A new cloud VM therefore boots from a secret-free image. Once IAP SSH is reachable, the
+separate `nagarectl host place-age-key` operation validates an operator-selected local identity and
+streams its exact bytes through context-confined IAP directly to that configured final path. The
+key body is never an argument, environment value, log entry, repository object, image input, Pulumi
+value, or local/remote temporary copy.
+
+The host verifies SHA-256 and `root:root` mode `0400`, reruns the sops-nix installer, and starts the
+existing Tailscale autoconnect unit. Replaying the same digest is idempotent. Replacing a different
+digest is refused before stdin is consumed unless the operator explicitly supplies `--force` after
+preserving both identities; because the secret is streamed directly to its final path, forced
+replacement is interruption-sensitive and documented with an old-key recovery path. This service
+restart does not activate a NixOS generation and does not change the guarded-switch boundary in
+[ADR 11](0011-host-activation-is-guarded-and-self-reverting.md).
+
+This amendment is implemented by
+[ExecPlan 133](../plans/133-deliver-the-host-age-key-after-first-boot.md).

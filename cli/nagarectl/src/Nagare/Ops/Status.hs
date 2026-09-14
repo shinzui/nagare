@@ -12,6 +12,7 @@
 module Nagare.Ops.Status
   ( gatherInventory
   , inventoryOptsFor
+  , parseHostAgeKeyProbe
   , probeCertificatePolicy
   )
 where
@@ -21,9 +22,12 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
+import Data.List (find)
 import Data.Text qualified as T
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Nagare.Cluster.CertificatePolicy
@@ -34,6 +38,7 @@ import Nagare.Cluster.CertificatePolicy
   )
 import Nagare.Database.Discover (DbRow (..), listDatabases)
 import Nagare.Dsl.Prelude
+import Nagare.Host.AgeKey (RemoteAgeKeyStatus (..), parseRemoteAgeKeyStatus)
 import Nagare.Ops.Probe
 import Nagare.Ops.Pulumi (stackOutput)
 import Nagare.Target (TargetProfile (..), registryPrefix)
@@ -83,8 +88,8 @@ gatherInventory tp o = do
         ]
           <> map (probeBackup bucket) (backupPrefixes dbNames)
       )
-  disk <- probeDisk o
-  pure (core <> disk)
+  host <- probeHost o
+  pure (core <> host)
 
 -- ---------------------------------------------------------------------------
 -- Individual probes
@@ -277,27 +282,61 @@ probeBackup bucket prefix = do
               let age = diffUTCTime now t
               pure (Probe name (gradeAge age) ("newest object " <> formatAge age))
 
--- | Boot- and data-disk usage via IAP-tunnelled SSH (best-effort). When
--- @skipVm@ is set, or SSH is not configured, this degrades to a single
--- 'StatusUnknown' line rather than failing the whole report. Requires
+-- | Host age-key state plus boot- and data-disk usage through one IAP SSH call.
+-- When @skipVm@ is set, or SSH is not configured, both facets degrade to
+-- 'StatusUnknown' rather than making an unconfirmed missing-key claim. Requires
 -- @SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519@ in the environment (see
 -- @docs/runbooks/cluster-access.md@).
-probeDisk :: InventoryOpts -> IO [Probe]
-probeDisk o
-  | o ^. #skipVm = pure [Probe "disk" StatusUnknown "skipped (--skip-vm)"]
+probeHost :: InventoryOpts -> IO [Probe]
+probeHost o
+  | o ^. #skipVm =
+      pure
+        [ Probe "host age key" StatusUnknown "skipped (--skip-vm)"
+        , Probe "disk" StatusUnknown "skipped (--skip-vm)"
+        ]
   | otherwise = do
       m <-
         captureTool
           (o ^. #iapSsh)
-          ["ssh", T.unpack (o ^. #instanceName), "--", "df -h /var/lib/nagare /"]
+          [ "ssh"
+          , T.unpack (o ^. #instanceName)
+          , "--"
+          , "if [ -x /run/current-system/sw/bin/nagare-host-age-key ]; then "
+              <> "sudo -- /run/current-system/sw/bin/nagare-host-age-key status || "
+              <> "printf 'age-key\\tunknown\\t-\\thost helper failed\\n'; "
+              <> "else printf 'age-key\\tunknown\\t-\\thost helper is not installed\\n'; fi; "
+              <> "df -h /var/lib/nagare /"
+          ]
       pure $ case fmap decodeUtf8 m of
-        Nothing -> [Probe "disk" StatusUnknown "iap-ssh unavailable (VM off? key not set?)"]
+        Nothing ->
+          [ Probe "host age key" StatusUnknown "iap-ssh unavailable (VM off? SSH key not set?)"
+          , Probe "disk" StatusUnknown "iap-ssh unavailable (VM off? SSH key not set?)"
+          ]
         Just out ->
-          [ mk "boot disk" (parseDfUsage out "/")
+          [ parseHostAgeKeyProbe (encodeUtf8 out)
+          , mk "boot disk" (parseDfUsage out "/")
           , mk "data disk" (parseDfUsage out "/var/lib/nagare")
           ]
   where
     mk nm = maybe (Probe nm StatusUnknown "df parse failed") (Probe nm StatusOk)
+
+-- | Grade the first tab-delimited age-key record in the combined host output.
+-- The surrounding output may contain @df@ lines; malformed or absent records
+-- stay UNKNOWN because transport success alone does not prove key absence.
+parseHostAgeKeyProbe :: ByteString -> Probe
+parseHostAgeKeyProbe output =
+  case find ("age-key\t" `BS.isPrefixOf`) (BC.lines output) of
+    Nothing -> Probe "host age key" StatusUnknown "host age-key status record is missing"
+    Just record ->
+      case parseRemoteAgeKeyStatus record of
+        Left err -> Probe "host age key" StatusUnknown err
+        Right status -> case status of
+          AgeKeyReady keyPath digest ->
+            Probe "host age key" StatusOk ("ready at " <> T.pack keyPath <> " (sha256 " <> digest <> ")")
+          AgeKeyMissing _ detail -> Probe "host age key" StatusFail detail
+          AgeKeyInvalid keyPath detail ->
+            Probe "host age key" StatusFail ("age key invalid at " <> T.pack keyPath <> ": " <> detail)
+          AgeKeyStatusUnsupported detail -> Probe "host age key" StatusUnknown detail
 
 -- ---------------------------------------------------------------------------
 -- Local helpers

@@ -168,6 +168,7 @@ contacts Let's Encrypt, and `just local-bootstrap` installs no `ClusterIssuer`.
 | `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Re-run guards, verify the bundle and current bindings, then apply exactly its Pulumi plan without a TTY. |
 | `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards immediately before deliberate selected-stack teardown. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
+| `nagarectl host place-age-key [--context NAME] --key-file PATH [--force]` | Validate and SHA-256 hash an operator-held age identity, stream it over context-confined IAP SSH stdin, activate sops-nix, and start Tailscale. Replaying the same key is idempotent; replacing a different key requires interruption-sensitive `--force`. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
 | `nagarectl kubeconfig fetch [--context NAME] [--output FILE]` | Fetch k3s credentials through the context's project-confined IAP transport, normalize all identities and the API endpoint, and atomically install a private per-context kubeconfig. |
@@ -496,8 +497,8 @@ See [CDN (edge caching)](cdn.md).
 
 | Command | Does |
 | --- | --- |
-| `nagarectl server status [--skip-vm]` | Print one-screen VM, disk, Kubernetes, ingress, observability, app, database, and backup inventory. `--skip-vm` avoids the IAP/SSH disk probe. |
-| `nagarectl doctor [--skip-vm]` | Run platform health checks with remediation hints; exits 1 if any check is `FAIL`. |
+| `nagarectl server status [--skip-vm]` | Print one-screen VM, host age-key, disk, Kubernetes, ingress, observability, app, database, and backup inventory. Ready is `OK`; confirmed missing/invalid is `FAIL`; an old or unreachable host is `UNKNOWN`. `--skip-vm` avoids the shared IAP/SSH host probe. |
+| `nagarectl doctor [--skip-vm]` | Run platform health checks with remediation hints; a confirmed host age-key failure points to `nagarectl host place-age-key --key-file <private-key-file>` and exits 1. `UNKNOWN` remains a warning. |
 | `nagarectl cluster certificate-policy` | Fail if a public ACME certificate contains an internal name or a public wildcard belongs to an unlabeled namespace. |
 | `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN]` | Compare the base domain and app DomainMappings with DNS and certificate state. |
 | `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`. |

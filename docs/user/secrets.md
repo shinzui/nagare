@@ -36,8 +36,8 @@ External Secrets Operator + GCP Secret Manager is an explicit non-goal for v1.
 ## How host secrets work (sops-nix) — ✅
 
 The encrypted secrets file is **operator-owned and may be committed to a private
-configuration repository**; the **private age key lives only on the host**,
-never in Git. At activation, sops-nix decrypts the file
+configuration repository**; the **private age key lives in operator backup and on the host**,
+never in Git or a Nagare image. At activation, sops-nix decrypts the file
 using that key and writes each secret to a runtime path.
 
 The generated context `host.nix` supplies the encrypted file and on-host age-key path through the
@@ -65,13 +65,30 @@ creation_rules:
 That `age1…` value is the host's **public** key — anyone can encrypt *to* it;
 only the host (holding the matching private key) can decrypt.
 
-### One-time setup: place the host age key
+### One-time setup: generate, encrypt, then place after boot
 
-Before first boot, the host's age **private** key must exist at
-`/var/lib/sops-nix/age-key.txt` (mode `0400`, owned by root). The matching
-public key is the one in `.sops.yaml`. This is what lets sops-nix decrypt during
-activation; without it the host can't bring up anything that depends on a secret
-(e.g. Tailscale won't get its auth key).
+Generate the host's age identity before image build, back it up outside Git, and put only the public
+`age1…` recipient into `.sops.yaml`. Encrypt `secrets.yaml` to that recipient before running
+`nagarectl host init`. The image and first Pulumi apply intentionally contain no private key.
+
+After the VM's first boot, use its IAP SSH path to stream the private identity:
+
+```bash
+nagarectl host place-age-key --context prod --key-file /secure/path/prod-host.agekey
+nagarectl --context prod server status
+```
+
+The command requires exactly one non-comment age private-identity line, computes SHA-256 over the
+exact file bytes, and sends the source path to the retry-safe IAP wrapper. The key body travels only
+on SSH stdin. On the host, `nagare-host-age-key` installs the final path as `root:root` mode `0400`,
+verifies the digest, restarts `sops-install-secrets.service`, requires a non-empty
+`/run/secrets/tailscale/authkey`, and starts `tailscaled-autoconnect.service`. It creates no local or
+remote secret staging file.
+
+Repeating the same placement is idempotent: the host does not rewrite a matching key, but it reruns
+secret activation and Tailscale startup. A missing, malformed, empty, or mis-permissioned host key
+appears as `FAIL host age key` in `server status`; `nagarectl doctor` exits 1 and prints the placement
+command. An unreachable host remains `UNKNOWN`, not a false missing-key report.
 
 > Keep the private key off Git and out of the image. Store it in your own
 > password manager / offline backup so a from-scratch rebuild can re-place it.
@@ -151,8 +168,14 @@ working tree.
 - **GitHub App forge credentials (optional):** follow the operator-owned App,
   key, installation, and live-token procedures in
   [Forge credentials](forge-credentials.md).
-- **Host age key:** regenerate, re-encrypt all secrets to the new public key,
-  update `.sops.yaml`, re-place the private key on the host, rebuild.
+- **Host age key:** retain the old and new private identities in external backup; add the new public
+  recipient and re-encrypt every host secret so the new key can decrypt it; then run
+  `nagarectl host place-age-key --key-file /secure/path/new.agekey --force`. A different installed
+  digest is rejected before stdin is consumed unless `--force` is explicit. Forced replacement
+  writes directly to the final path and is therefore interruption-sensitive. If interrupted, rerun
+  the new key with `--force`; if new-key decryption fails, restore ciphertext encrypted to the old
+  recipient and re-place the backed-up old key with `--force`. Keep both backups until status and
+  Tailscale are healthy.
 - **App runtime secrets:** use `nagarectl secret set/delete`.
 - **Cluster bootstrap secrets:** edit the context-owned encrypted file, then
   re-apply the loop above. `nagare observability` resolves the same directory

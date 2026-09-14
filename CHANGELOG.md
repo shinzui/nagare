@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Post-boot host age-key delivery (IR-18).** New cloud hosts now boot from secret-free images and
+  accept an operator-held age identity through `nagarectl host place-age-key` over context-confined
+  IAP SSH stdin. The host verifies metadata and SHA-256, retries sops-nix activation, starts
+  Tailscale without an interactive login, and exposes ready/missing/invalid state through server
+  status and doctor.
 - **Confined bootstrap TLS (IR-22, IR-23).** Public wildcard certificates now require the
   `nagare.dev/app-namespace=true` opt-in label, which every application workload path reconciles,
   while internal roles explicitly stay on Knative's self-signed issuer. Nagare carries a focused

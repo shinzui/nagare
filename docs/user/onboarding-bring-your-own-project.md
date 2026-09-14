@@ -160,20 +160,27 @@ It writes nothing and does not require the host secrets file yet.
 
 ## Step 4 — Encrypt host secrets and generate the context host flake  🟡
 
-`init` does not do this either. Both parts are required before the host boots cleanly:
+`init` does not do this either. Prepare both parts before building the image, but keep the age
+private key on the workstation until the VM exists:
 
 - **(a) Host age key.** Generate the host's age keypair, record the **public** key in
   the `.sops.yaml` beside your context's host secrets (in your own private operator repository,
-  not `nixos/.sops.yaml`, which holds only an example), and place the **private** key on the VM at
-  `/var/lib/sops-nix/age-key.txt` (mode `0400`, owned by root) before first boot. At NixOS
-  activation, `sops-nix` decrypts the secrets file with this key.
+  not `nixos/.sops.yaml`, which holds only an example), and back up the **private** key outside
+  Git. Do not add it to the image or try to place it yet; Step 8 streams it after the VM boots.
 - **(b) Tailscale pre-auth key.** Put a Tailscale pre-auth key (a token that lets
   the context's host join your tailnet unattended at first boot) into a sops-encrypted YAML file
   under `tailscale/authkey`.
 
-Install the public configuration and encrypted file under the context-owned XDG configuration root:
+Generate the identity into an operator-controlled location, extract only its public recipient for
+`.sops.yaml`, encrypt the Tailscale value with `sops`, and install the public configuration plus
+ciphertext under the context-owned XDG configuration root:
 
 ```bash
+install -d -m 0700 /secure/path
+age-keygen -o /secure/path/prod-host.agekey
+age-keygen -y /secure/path/prod-host.agekey   # put this public age1… recipient in .sops.yaml
+sops /secure/path/prod-host-secrets.yaml      # add tailscale/authkey and save encrypted
+
 nagarectl host init --context prod \
   --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
   --sops-file /secure/path/prod-host-secrets.yaml
@@ -183,8 +190,8 @@ nagarectl host show --context prod
 
 The resulting directory is
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/prod/`. It contains `flake.nix`, `host.nix`,
-the sops-encrypted `secrets.yaml`, and a generated `flake.lock`. The age private key is never read or
-copied; `--age-key-file` records only its on-host path. Repeating the command is unchanged, and
+the sops-encrypted `secrets.yaml`, and a generated `flake.lock`. `host init` never reads or copies
+the age private key; `--age-key-file` records only its eventual on-host path. Repeating the command is unchanged, and
 `--force` atomically replaces generated scaffolding while preserving `secrets.yaml` if
 `--sops-file` is omitted.
 
@@ -254,12 +261,26 @@ otherwise the build refuses before starting a VM.
 On a new VM, the blank data disk is formatted before fsck can inspect it, then
 mounted and populated before k3s starts. The first-boot acceptance suite repeats
 that path with five independent disks and reaches one `Ready` node without a
-reboot. The host age private key is still required before this boot until the
-separate post-boot key-delivery work is complete.
+reboot. This first boot is intentionally secretless: Tailscale autoconnect stops with
+`age key missing` instead of starting an interactive login. Deliver the key immediately over IAP,
+then verify secret activation before relying on the tailnet:
+
+```bash
+nagarectl host place-age-key --context prod --key-file /secure/path/prod-host.agekey
+nagarectl --context prod server status
+nagare iap-ssh ssh nagare-01 -- sudo -- test -s /run/secrets/tailscale/authkey
+nagare iap-ssh ssh nagare-01 -- sudo -- tailscale status
+```
+
+The placement command validates and hashes the local file, streams it only through SSH stdin,
+installs it as root with mode `0400`, reruns sops-nix, and starts Tailscale. `server status` must
+show `OK` for `host age key`; a confirmed missing or invalid key is `FAIL` and `doctor` prints the
+same placement command as its remedy.
 
 ## Step 9 — Get on the host, confirm the node is Ready  🟡  *(EP-3 / EP-4, verified live and in VM tests)*
 
-Use Tailscale SSH (primary) or `nagare iap-ssh` (break-glass on macOS), then fetch the selected
+After Step 8 reports the host age key ready and Tailscale joined, use Tailscale SSH (primary) or
+`nagare iap-ssh` (break-glass on macOS), then fetch the selected
 context's credentials—see [accessing the host](accessing-the-host.md). Observable check:
 
 ```bash
