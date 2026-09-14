@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T02:02:45Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T02:30:14Z
+      mode: "implement"
+      note: "Implemented typed Pulumi project probes and began command integration"
 ---
 
 # Make context guard diagnose Pulumi project probe failures
@@ -37,10 +43,12 @@ machine-readable JSON object.
 
 ## Progress
 
-- [ ] Add a typed Pulumi project observation, pure JSON parsing, cause-specific verdicts, and unit
-  tests in the nagarectl library.
-- [ ] Wire the detailed probe into the command and upgrade paths, make JSON failures independently
-  parseable, and add hermetic command coverage with no Pulumi on `PATH`.
+- [x] (2026-09-14 02:30Z) Added typed Pulumi project observations, strict JSON parsing,
+  cause-specific verdicts, a stable observation renderer, and 15 passing focused unit tests.
+- [x] (2026-09-14 02:30Z) Wired the detailed probe into the shared command and upgrade collector,
+  used the resolved backend URL, and made JSON failures independently parseable.
+- [ ] Extend the hermetic operator-tools and clone-free-platform checks across missing, absent,
+  failed, foreign, and agreeing Pulumi outcomes.
 - [ ] Update operator documentation, the changelog, IR-9, and ADR 9 as implementation evidence
   becomes available; run focused and repository-wide validation.
 
