@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Give each cloud cluster a distinct default host name so tailnet names do not collide
 description: host init defaults the NixOS and Tailscale host name to the instance name, which is nagare-01 in every project, so a second cluster on the same tailnet is renamed and ssh deploy@nagare-01 becomes ambiguous.
-timestamp: "2026-09-13T23:54:44Z"
+timestamp: "2026-09-14T02:03:30Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:54:44Z"
 requestId: IR-14
-status: proposed
+status: accepted
+targetPlan: docs/plans/130-give-every-context-a-distinct-default-host-name.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +18,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted; planned as
+[ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md).
 **Created:** 2026-09-13.
 
 
