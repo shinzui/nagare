@@ -7,6 +7,7 @@ related:
   - docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
+  - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
 ---
@@ -191,3 +192,23 @@ non-zero exit for both absent configuration and backend/process failures. It nev
 from human stderr text. Human and JSON diagnostics identify the exact selected stack and resolved
 backend URL they protected. JSON failures are one independently parseable object, retain the
 nullable `stackProject` compatibility member, and add a typed `stackProjectProbe` object.
+
+## Amendment — 2026-09-14: validate Pulumi's Application Default Credentials
+
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md) extends the
+project boundary to the credentials Pulumi's Google provider actually discovers. Before any Pulumi
+process, named initialization and cloud context-guard collection resolve ADC from a nonblank
+`GOOGLE_APPLICATION_CREDENTIALS`, then
+`CLOUDSDK_CONFIG/application_default_credentials.json`, then the normal per-user gcloud path. A
+missing, unreadable, or malformed file refuses. A known `quota_project_id` different from the
+selected context project also refuses and names
+`gcloud auth application-default set-quota-project <project>` as the repair. An absent quota project
+is a warning because it attributes no known foreign project.
+
+Credential type, source path, optional service-account or authorized-user principal, and optional
+quota project are typed observations in human and JSON output. Tokens, client secrets, private
+keys, parser excerpts, and other credential contents never enter diagnostics or retained values.
+A known principal different from gcloud's active account, or a credential kind whose principal
+cannot be recovered, is visible as a warning rather than treated as proof of a resource-project
+mismatch. Changing Nagare or gcloud contexts does not switch ADC, so operators must deliberately
+set its quota project for the selected context.
