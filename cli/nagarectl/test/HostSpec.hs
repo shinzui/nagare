@@ -3,20 +3,37 @@
 module HostSpec (hostTests) where
 
 import Control.Exception (finally)
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Cluster.Kubeconfig
+  ( FetchOps (..)
+  , KubeconfigIdentity (..)
+  , fetchKubeconfig
+  , normalizeKubeconfig
+  )
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config
-import Nagare.Target (ContextName, contextNameText, mkContextName)
+import Nagare.Target (ContextName, Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
-import System.Directory (createDirectoryIfMissing, createDirectoryLink)
+import System.Directory
+  ( Permissions (executable)
+  , createDirectoryIfMissing
+  , createDirectoryLink
+  , createFileLink
+  , getPermissions
+  , setPermissions
+  )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (fileMode, getFileStatus, setFileMode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
 
@@ -134,6 +151,91 @@ hostTests =
           commitStagedHostFlake staged source >>= either (assertFailure . T.unpack) pure
           TIO.readFile (source </> "host.nix") >>= (@?= hostModule)
           TIO.readFile (source </> "secrets.yaml") >>= (@?= secrets)
+    , testCase "IR-20: reads the context-owned explicit host name" $
+        withSystemTempDirectory "nagare-host-name" $ \root ->
+          withXdgConfigHome root $ do
+            context <- mkTestContext "labs"
+            let hostRoot = root </> "nagare" </> "hosts" </> "labs"
+            createDirectoryIfMissing True hostRoot
+            TIO.writeFile
+              (hostRoot </> "host.nix")
+              "{ ... }:\n{\n  hostName = \"labs-edge\";\n}\n"
+            readContextHostName context >>= (@?= Right "labs-edge")
+    , testCase "IR-20: normalizes the sole k3s identity without changing credentials" $ do
+        let identity = KubeconfigIdentity "labs" "labs-nagare"
+        case normalizeKubeconfig identity fixtureKubeconfig of
+          Left err -> assertFailure (T.unpack err)
+          Right normalized -> do
+            assertBool "renames every default identity" (BC.count 'l' normalized > 0 && not ("name: default" `BS.isInfixOf` normalized))
+            assertBool "sets the context host endpoint" ("https://labs-nagare:6443" `BS.isInfixOf` normalized)
+            assertBool "preserves client certificate data" (fixtureSecret `BS.isInfixOf` normalized)
+    , testCase "IR-20: fetch is context-scoped, private, and atomic on kubectl failure" $
+        withSystemTempDirectory "nagare-kubeconfig-fetch" $ \root -> do
+          let bin = root </> "bin"
+              iap = bin </> "fake-iap"
+              kubectl = bin </> "fake-kubectl"
+              source = root </> "source.yaml"
+              logPath = root </> "tools.log"
+              outputDir = root </> "output"
+              destination = outputDir </> "labs.yaml"
+              identity = KubeconfigIdentity "labs" "labs-nagare"
+              ops = FetchOps iap kubectl
+          createDirectoryIfMissing True bin
+          createDirectoryIfMissing True outputDir
+          setFileMode outputDir 0o700
+          BS.writeFile source fixtureKubeconfig
+          BS.writeFile logPath ""
+          writeExecutable
+            iap
+            [ "#!/bin/sh"
+            , "printf 'NAGARE_CONTEXT=%s|%s\\n' \"$NAGARE_CONTEXT\" \"$*\" >> \"$NAGARE_FAKE_TOOL_LOG\""
+            , "cp \"$NAGARE_KUBECONFIG_SOURCE\" \"$4\""
+            ]
+          writeExecutable
+            kubectl
+            [ "#!/bin/sh"
+            , "printf 'KUBECONFIG=%s|%s\\n' \"$KUBECONFIG\" \"$*\" >> \"$NAGARE_FAKE_TOOL_LOG\""
+            , "if [ \"${NAGARE_FAKE_KUBECTL_FAIL:-0}\" = 1 ]; then echo 'fixture kubectl failure' >&2; exit 17; fi"
+            , "if [ \"$*\" = 'config current-context' ]; then printf '%s\\n' labs; fi"
+            ]
+          withEnvironmentPairs
+            [("NAGARE_FAKE_TOOL_LOG", logPath), ("NAGARE_KUBECONFIG_SOURCE", source)]
+            $ do
+              result <- fetchKubeconfig ops identity fixtureProfile destination
+              result @?= Right ()
+              installed <- BS.readFile destination
+              assertBool "installed kubeconfig preserves credentials" (fixtureSecret `BS.isInfixOf` installed)
+              status <- getFileStatus destination
+              fileMode status .&. 0o777 @?= 0o600
+              calls <- TIO.readFile logPath
+              assertBool "IAP receives context, instance, remote path, and a staging path" $
+                "NAGARE_CONTEXT=labs|recv-file nagare-01 /etc/rancher/k3s/k3s.yaml " `T.isInfixOf` calls
+              assertBool "kubectl always receives the staging kubeconfig" $
+                all ("KUBECONFIG=" `T.isPrefixOf`) (filter ("|config " `T.isInfixOf`) (T.lines calls))
+              assertBool "kubectl sets the context-specific cluster endpoint" $
+                "|config set-cluster labs --server=https://labs-nagare:6443" `T.isInfixOf` calls
+
+              BS.writeFile destination "known-good\n"
+              setEnv "NAGARE_FAKE_KUBECTL_FAIL" "1"
+              failed <- fetchKubeconfig ops identity fixtureProfile destination
+              unsetEnv "NAGARE_FAKE_KUBECTL_FAIL"
+              assertBool "the injected kubectl failure is reported" (either (T.isInfixOf "fixture kubectl failure") (const False) failed)
+              BS.readFile destination >>= (@?= "known-good\n")
+              assertBool "errors never echo client credentials" (either (not . T.isInfixOf (TE.decodeUtf8 fixtureSecret)) (const False) failed)
+    , testCase "IR-20: fetch refuses symlink destinations" $
+        withSystemTempDirectory "nagare-kubeconfig-symlink" $ \root -> do
+          let target = root </> "target"
+              destination = root </> "labs.yaml"
+          BS.writeFile target "keep\n"
+          createFileLink target destination
+          result <- fetchKubeconfig (FetchOps "/unused/iap" "/unused/kubectl") (KubeconfigIdentity "labs" "labs-nagare") fixtureProfile destination
+          assertBool "symlink destination is rejected before transport" (either (T.isInfixOf "symlink") (const False) result)
+    , testCase "IR-20: fetch refuses dangling symlink destinations" $
+        withSystemTempDirectory "nagare-kubeconfig-dangling-symlink" $ \root -> do
+          let destination = root </> "labs.yaml"
+          createFileLink (root </> "missing-target") destination
+          result <- fetchKubeconfig (FetchOps "/unused/iap" "/unused/kubectl") (KubeconfigIdentity "labs" "labs-nagare") fixtureProfile destination
+          assertBool "dangling symlink destination is rejected before transport" (either (T.isInfixOf "symlink") (const False) result)
     ]
 
 fixtureConfig :: ContextName -> HostConfig
@@ -171,3 +273,67 @@ withXdgConfigHome xdg action = do
   saved <- lookupEnv "XDG_CONFIG_HOME"
   setEnv "XDG_CONFIG_HOME" xdg
   action `finally` maybe (unsetEnv "XDG_CONFIG_HOME") (setEnv "XDG_CONFIG_HOME") saved
+
+fixtureKubeconfig :: BS.ByteString
+fixtureKubeconfig =
+  BC.unlines
+    [ "apiVersion: v1"
+    , "kind: Config"
+    , "clusters:"
+    , "- name: default"
+    , "  cluster:"
+    , "    server: https://127.0.0.1:6443"
+    , "    certificate-authority-data: Y2EtZml4dHVyZQ=="
+    , "users:"
+    , "- name: default"
+    , "  user:"
+    , "    client-certificate-data: " <> fixtureSecret
+    , "    client-key-data: a2V5LWZpeHR1cmU="
+    , "contexts:"
+    , "- name: default"
+    , "  context:"
+    , "    cluster: default"
+    , "    user: default"
+    , "current-context: default"
+    ]
+
+fixtureSecret :: BS.ByteString
+fixtureSecret = "Y2VydC1maXh0dXJl"
+
+fixtureProfile :: TargetProfile
+fixtureProfile =
+  TargetProfile
+    { project = "labs-project"
+    , region = "us-west1"
+    , zone = "us-west1-a"
+    , registryHost = "us-west1-docker.pkg.dev"
+    , artifactRegistryId = "nagare"
+    , imageBucket = "labs-project-nagare-images"
+    , backupBucket = "labs-project-nagare-backups"
+    , baseDomain = "apps.example.com"
+    , instanceName = "nagare-01"
+    , machineType = "e2-standard-2"
+    , bootDiskType = "pd-balanced"
+    , bootDiskSizeGb = "100"
+    , dataDiskSizeGb = "100"
+    , targetPlatform = "linux/amd64"
+    , mode = Cloud
+    , localObjectStore = ""
+    , pulumiBackend = PulumiBackendLocal
+    , pulumiBackendUrl = ""
+    , acmeEmail = "ops@example.com"
+    , acmeDirectory = "production"
+    , platformVersion = Just "0.2.2"
+    }
+
+writeExecutable :: FilePath -> [String] -> IO ()
+writeExecutable path linesToWrite = do
+  writeFile path (unlines linesToWrite)
+  permissions <- getPermissions path
+  setPermissions path (permissions {executable = True})
+
+withEnvironmentPairs :: [(String, String)] -> IO a -> IO a
+withEnvironmentPairs pairs action = do
+  saved <- traverse (\(name, _) -> (,) name <$> lookupEnv name) pairs
+  mapM_ (uncurry setEnv) pairs
+  action `finally` mapM_ (\(name, value) -> maybe (unsetEnv name) (setEnv name) value) saved

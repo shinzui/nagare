@@ -42,7 +42,7 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] (2026-09-14T04:51:29Z) Restrict the user-facing Nix joins, ship `socat`, and add installed-package checks.
-- [ ] Expose IAP SSH and implement an atomic, context-specific `kubeconfig fetch` command.
+- [x] (2026-09-14T05:08:33Z) Expose IAP SSH and implement an atomic, context-specific `kubeconfig fetch` command.
 - [ ] Implement one reusable cluster identity guard and put it before cluster-mutating recipes.
 - [ ] Update access and installation docs, validate both IRs, and run repository gates.
 
@@ -66,6 +66,11 @@ implementation. Provide concise evidence.
   which is not supported`, while the pinned Nix build compiled `nagarectl` with GHC 9.12.4 and the
   focused package checks passed. Continue to use the flake's Haskell check for authoritative local
   validation.
+
+- Observation: Flake builds sourced from a dirty Git worktree omit untracked Haskell modules.
+  Evidence: the first `nagarectl-build-test` attempt could not find
+  `Nagare.Cluster.Kubeconfig`; staging that new file made the same build compile the module and run
+  all 490 tests.
 
 
 ## Decision Log
@@ -98,6 +103,13 @@ Record every decision made while working on the plan.
 - Decision: Use `pkgs.buildEnv` with explicit `pathsToLink` for all three public package layers.
   Rationale: The pinned `symlinkJoin` API cannot filter input subtrees, while `buildEnv` preserves
   wrapper post-processing and limits the profile surface to `bin`, `share`, and `nix-support`.
+  Date: 2026-09-14.
+
+- Decision: Treat the context-owned generated `host.nix` assignment as the kubeconfig endpoint
+  source of truth and keep the GCE instance name only for IAP transport.
+  Rationale: `host init --host-name` may deliberately override the derived default, while IAP must
+  continue targeting the profile's project and instance identity. Mixing the names would produce a
+  kubeconfig whose API endpoint is absent from the k3s certificate.
   Date: 2026-09-14.
 
 

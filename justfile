@@ -111,6 +111,11 @@ host-switch:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
     scripts/host-switch.sh
 
+# Run the project-confined IAP SSH helper from the installed platform payload.
+[group('host')]
+iap-ssh *args:
+    scripts/iap-ssh.sh {{args}}
+
 # Pinned upstream versions for the cluster platform (EP-4). These move; see
 # each cluster/bootstrap/*/README.md for the version-discovery procedure.
 # Knative Serving v1.22.0 has no net-certmanager release asset; the independent

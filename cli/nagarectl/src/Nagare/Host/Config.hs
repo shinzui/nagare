@@ -8,6 +8,7 @@ module Nagare.Host.Config
   , findHostNameCollision
   , hostConfigDir
   , installHostFlake
+  , readContextHostName
   , readAuthorizedKeys
   , renderHostFlake
   , renderHostModule
@@ -26,6 +27,7 @@ import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -67,6 +69,37 @@ hostConfigDir :: ContextName -> IO FilePath
 hostConfigDir context = do
   root <- nagareConfigDir
   pure (root </> "hosts" </> T.unpack (contextNameText context))
+
+-- | Read the host name owned by a context's generated operator module. The
+-- generated file is the source of truth because @host init --host-name@ may
+-- deliberately choose a name other than 'defaultHostName'.
+readContextHostName :: ContextName -> IO (Either Text Text)
+readContextHostName context = do
+  root <- hostConfigDir context
+  let modulePath = root </> "host.nix"
+  exists <- doesFileExist modulePath
+  if not exists
+    then
+      pure
+        ( Left
+            ( "host configuration does not exist for context '"
+                <> contextNameText context
+                <> "'; run nagarectl host init first"
+            )
+        )
+    else do
+      contents <- try (TIO.readFile modulePath)
+      pure $ case contents of
+        Left (err :: IOException) -> Left ("could not read host configuration at " <> T.pack modulePath <> ": " <> T.pack (show err))
+        Right body ->
+          case mapMaybe parseAssignment (T.lines body) of
+            [hostName] -> Right hostName
+            [] -> Left ("host configuration does not declare hostName: " <> T.pack modulePath)
+            _ -> Left ("host configuration declares hostName more than once: " <> T.pack modulePath)
+  where
+    parseAssignment line = do
+      value <- T.stripPrefix "hostName = \"" (T.strip line)
+      T.stripSuffix "\";" value
 
 -- | Derive the stable NixOS and tailnet host name for a context. Context names
 -- are safe path segments but permit spellings that cannot be mapped to a DNS

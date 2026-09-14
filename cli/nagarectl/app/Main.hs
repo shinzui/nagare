@@ -82,6 +82,12 @@ import Nagare.Cdn.Provision
   )
 import Nagare.Cdn.Status (CdnDnsTarget (..), CdnRow (..), formatCdnList, formatCdnStatus, queryCdnRows)
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Cluster.Kubeconfig
+  ( KubeconfigIdentity (..)
+  , defaultFetchOps
+  , fetchKubeconfig
+  , kubeconfigPath
+  )
 import Nagare.Database.Backup (runDbBackup)
 import Nagare.Database.Connection (connectionEnv, mergeConnectionEnvs)
 import Nagare.Database.Create (DbCreateParams (..), runDbCreate)
@@ -144,6 +150,7 @@ import Nagare.Host.Config
   , hostConfigDir
   , installHostFlake
   , readAuthorizedKeys
+  , readContextHostName
   , renderHostFlake
   , renderHostModule
   , renderHostSummary
@@ -535,6 +542,7 @@ data Command
   | PlatformUpgradeStatus (Maybe String) Bool
   | PlatformUpgradeRollback String Bool Bool
   | Host HostCommand
+  | Kubeconfig KubeconfigCommand
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
@@ -579,6 +587,16 @@ data HostCommand
   = HostInit HostInitOpts
   | HostShow (Maybe String)
   | HostPath (Maybe String)
+  deriving stock (Generic, Show)
+
+data KubeconfigCommand
+  = KubeconfigFetch KubeconfigFetchOpts
+  deriving stock (Generic, Show)
+
+data KubeconfigFetchOpts = KubeconfigFetchOpts
+  { context :: !(Maybe String)
+  , output :: !(Maybe FilePath)
+  }
   deriving stock (Generic, Show)
 
 data UpgradeOpts = UpgradeOpts
@@ -1590,6 +1608,7 @@ opts =
         ( command "version" versionCmd
             <> command "platform" platformCmd
             <> command "host" hostCmd
+            <> command "kubeconfig" kubeconfigCmd
             <> command "deploy" deployCmd
             <> command "site" siteCmd
             <> command "env" envCmd
@@ -1703,6 +1722,25 @@ opts =
         <*> strOption (long "deploy-user" <> metavar "USER" <> value "deploy" <> showDefault <> help "Operator account created on the host")
         <*> switch (long "force" <> help "Atomically replace changed generated scaffolding")
         <*> switch (long "dry-run" <> help "Validate inputs and print generated configuration without writing")
+    kubeconfigCmd =
+      info
+        (Kubeconfig <$> kubeconfigSubparser <**> helper)
+        (fullDesc <> progDesc "Fetch and manage context-owned Kubernetes credentials")
+    kubeconfigSubparser =
+      subparser
+        ( command
+            "fetch"
+            ( info
+                ( KubeconfigFetch
+                    <$> ( KubeconfigFetchOpts
+                            <$> optional (strOption (long "context" <> metavar "NAME" <> help "Context to fetch (defaults to the global or active context)"))
+                            <*> optional (strOption (long "output" <> metavar "FILE" <> help "Destination (default: the context kubeconfig store)"))
+                        )
+                      <**> helper
+                )
+                (progDesc "Fetch k3s credentials over project-confined IAP and install them atomically")
+            )
+        )
     doctorCmd =
       info
         (Doctor <$> doctorOptsParser <**> helper)
@@ -2302,6 +2340,7 @@ main =
     PlatformUpgradeStatus txId asJson -> runPlatformUpgradeStatus mctx txId asJson
     PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
     Host hcmd -> runHost mctx hcmd
+    Kubeconfig kcmd -> runKubeconfig mctx kcmd
     Deploy dopts -> runDeploy mctx dopts
     SiteDeploy sopts -> runSiteDeploy mctx sopts
     SiteReleases copts -> runSiteReleases copts
@@ -2832,6 +2871,30 @@ runHost globalContext = \case
               HostReplaced -> "Replaced"
               HostUnchanged -> "Unchanged"
         TIO.putStrLn (verb <> " host configuration for context '" <> contextNameText (active ^. #contextName) <> "' at " <> T.pack root)
+
+runKubeconfig :: Maybe String -> KubeconfigCommand -> IO ()
+runKubeconfig globalContext = \case
+  KubeconfigFetch options -> do
+    active <- activeTarget (options ^. #context <|> globalContext)
+    let profile = active ^. #profile
+        context = active ^. #contextName
+    when (profile ^. #mode == Local) $
+      dieT "kubeconfig fetch uses the GCP IAP transport and is unavailable for local contexts"
+    hostName <- readContextHostName context >>= either dieT pure
+    (_, workspace) <- resolvePlatformWorkspace context
+    destination <- maybe (kubeconfigPath context) pure (options ^. #output)
+    let identity = KubeconfigIdentity (contextNameText context) hostName
+        fetchOps = defaultFetchOps (workspace ^. #scriptsDir </> "iap-ssh.sh")
+    fetchKubeconfig fetchOps identity profile destination >>= either dieT pure
+    TIO.putStrLn
+      ( "Wrote kubeconfig for context '"
+          <> contextNameText context
+          <> "' to "
+          <> T.pack destination
+          <> " (server https://"
+          <> hostName
+          <> ":6443)"
+      )
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
 ensurePulumiForContext = ensurePulumiForContextWithInstallNotice True
