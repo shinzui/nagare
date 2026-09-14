@@ -20,11 +20,11 @@ release. A typical setup has a durable production cluster, a disposable
 cloud lab for infrastructure and integration testing, and a local cluster for
 fast development:
 
-| Context | Purpose                                    | Project     | Base domain          | Pulumi state           |
-| ------- | ------------------------------------------ | ----------- | -------------------- | ---------------------- |
-| `prod`  | Durable applications and data              | `acme-prod` | `apps.example.com`   | Remote GCS recommended |
-| `labs`  | Risky upgrades and cloud integration tests | `acme-labs` | `labs.example.com`   | Remote GCS or local    |
-| `local` | Laptop development and offline smoke tests | none        | `127-0-0-1.sslip.io` | Local                  |
+| Context | Purpose                                    | Project     | Base domain          | Default host   | Pulumi state           |
+| ------- | ------------------------------------------ | ----------- | -------------------- | -------------- | ---------------------- |
+| `prod`  | Durable applications and data              | `acme-prod` | `apps.example.com`   | `prod-nagare`  | Remote GCS recommended |
+| `labs`  | Risky upgrades and cloud integration tests | `acme-labs` | `labs.example.com`   | `labs-nagare`  | Remote GCS or local    |
+| `local` | Laptop development and offline smoke tests | none        | `127-0-0-1.sslip.io` | `local-nagare` | Local                  |
 
 The context name is the operator-facing identity of a cluster. It selects the
 GCP project, region, registry, buckets, domain, VM, build target, and Pulumi
@@ -78,6 +78,13 @@ Separate projects also make the fail-closed project guard useful: a command
 whose ambient GCP project disagrees with its selected context is rejected before
 it changes cloud resources.
 
+The VM name and the host name are different identities. The VM name is scoped by GCP project, so
+both `acme-prod` and `acme-labs` may contain a VM named `nagare-01`. The NixOS host name is visible
+across a shared Tailscale network and therefore defaults from the context: `prod-nagare` for
+`prod`, `labs-nagare` for `labs`. `nagarectl host init` refuses an implicit default already recorded
+by another local context; pass `--host-name` only after choosing a deliberate, distinct tailnet
+name.
+
 ## Plan the clusters
 
 Choose all of these before provisioning:
@@ -91,6 +98,7 @@ Choose all of these before provisioning:
 | Pulumi backend         | Prefer GCS for durable or multi-operator cloud clusters.                                     |
 | Backups                | Keep each cluster's default project-specific bucket.                                         |
 | Kubernetes credentials | Store a separate, uncommitted kubeconfig per cluster.                                        |
+| Tailnet host name      | Keep the default `<context>-nagare`, or choose a distinct explicit `--host-name`.             |
 | Host credentials       | Decide whether operators, age recipients, and Tailscale enrollment are intentionally shared. |
 
 `apps.example.com` and `labs.example.com` are a clean pair. Delegate each
@@ -177,6 +185,7 @@ nagare infra-up
 nagarectl host init --context prod \
   --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
   --sops-file /secure/path/prod-host-secrets.yaml
+nagarectl host show --context prod
 nagare host-image
 nagare infra-preview
 nagare infra-up
@@ -191,6 +200,11 @@ direnv reload
 nagarectl context show
 pulumi -C infra/pulumi stack
 nagare infra-preview
+
+nagarectl host init --context labs \
+  --ssh-public-key-file "$HOME/.ssh/id_ed25519.pub" \
+  --sops-file /secure/path/labs-host-secrets.yaml
+nagarectl host show --context labs
 ```
 
 Stop if the preview mentions resources from the other project or base domain.
@@ -200,6 +214,16 @@ for each cloud context; never copy `nagare:nagareImageSelfLink` between stacks.
 Context-driven rendering writes each generated host flake below that context's XDG configuration
 root. Separate workspaces and locks allow independent host evaluation; still avoid concurrent writes
 to the same context.
+
+Once both hosts have joined the same tailnet, their default Tailscale SSH names remain unambiguous:
+
+```bash
+ssh deploy@prod-nagare
+ssh deploy@labs-nagare
+```
+
+GCE and IAP commands continue to address the project-scoped instance name, such as `nagare-01`,
+alongside the selected context's project and zone.
 
 ## Pair context selection with Kubernetes selection
 

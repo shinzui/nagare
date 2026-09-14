@@ -4,6 +4,7 @@ module HostSpec (hostTests) where
 
 import Control.Exception (finally)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as T

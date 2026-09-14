@@ -5,6 +5,7 @@ date: 2026-08-25
 authors: [shinzui]
 related:
   - docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md
+  - docs/plans/130-give-every-context-a-distinct-default-host-name.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0011-host-activation-is-guarded-and-self-reverting.md
 ---
@@ -62,3 +63,25 @@ generator targets one x86_64-linux GCE host per context, matching Nagare's singl
 
 The fixture's evaluation-only status is enforced mechanically, not just stated here: see
 [ADR 11](0011-host-activation-is-guarded-and-self-reverting.md).
+
+## Amendment — 2026-09-14: tailnet host identity defaults from the context
+
+The NixOS host name and the GCE instance name are independent identities. A cloud project's VM may
+keep the project-scoped default `nagare-01`, while `nagarectl host init` now derives an implicit OS
+and Tailscale host name as `<context>-nagare`. Derivation is allowed only when the context is already
+a lowercase DNS label and the final name is at most 63 characters. The CLI does not lowercase,
+replace, or truncate context text because a lossy mapping could give two contexts the same name;
+contexts outside that policy require an explicit `--host-name`.
+
+Before rendering or installing an implicit default, the CLI reads the generated `host.nix` files
+of sibling contexts under the same XDG `hosts/` root. If another flake contains the exact rendered
+`hostName` assignment, initialization refuses and names the owner and recovery flag. The scan
+follows the ordinary directory and file symlinks used by private operator repositories and fails
+closed when an existing sibling module cannot be read. An explicit `--host-name` bypasses this
+workstation-local check because the operator has made a deliberate choice; Nagare does not claim
+that local files are a complete registry of the Tailscale network.
+
+Existing host flakes remain unchanged because `host.nix` already records their effective identity.
+Re-running `host init --force` without an explicit name intentionally adopts the new context-derived
+default. This amendment is implemented by
+[ExecPlan 130](../plans/130-give-every-context-a-distinct-default-host-name.md).

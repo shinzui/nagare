@@ -27,7 +27,7 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 ## Purpose / Big Picture
 
-Nagare currently gives every generated cloud host the context's GCE instance name, which defaults
+Before this plan, Nagare gave every generated cloud host the context's GCE instance name, which defaults
 to `nagare-01`. When two contexts join the same Tailscale private network (a "tailnet"), both nodes
 request the same name. Tailscale renames one of them, and an operator can no longer tell which
 cluster `ssh deploy@nagare-01` or a Kubernetes API connection over that name will reach. The defect
@@ -57,8 +57,9 @@ context already owning the proposed host name. The multi-cluster and host-access
   current-context exclusion, symlink and unreadable-file coverage, and installed-command proof of
   refusal plus explicit recovery. All 472 Haskell tests and both `nagare-clone-free-platform` and
   `host-module-options-agree` passed.
-- [ ] Milestone 3: update the operator documentation and ADR 5, run the focused and repository-wide
-  validations, and close IR-14 with evidence.
+- [x] (2026-09-14 03:06Z) Milestone 3: updated both operator guides, CHANGELOG, and ADR 5; passed
+  user-documentation validation, Haskell style, all 472 Haskell tests, both focused Nix checks, and
+  the full native flake check; then completed IR-14 and validated all 21 improvement requests.
 
 
 ## Surprises & Discoveries
@@ -66,7 +67,19 @@ context already owning the proposed host name. The multi-cluster and host-access
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The improvement-request bundle contains 21 concepts, not the 16 predicted when this plan was
+  drafted. IR-17 through IR-21 were added on the same date before implementation began. Evidence:
+  the final profile/log enforcement reported `OK: 21 concepts (okf_version 0.2)`.
+
+- On this `aarch64-darwin` workstation, `nix flake check --print-build-logs` passed every buildable
+  native check and warned that it omitted incompatible `x86_64-linux` outputs. This is Nix's normal
+  host-system behavior rather than a failed gate; the native run included `nagarectl-build-test`,
+  `nagare-clone-free-platform`, `host-module-options-agree`, `shellcheck-scripts`, documentation-
+  independent packaging checks, and the remaining repository checks.
+
+- The repository style gate requires `import Data.Generics.Labels ()` in every Haskell module that
+  uses an overloaded record label. Adding `#name` assertions to `HostSpec` exposed that requirement;
+  after the explicit import, `scripts/check-haskell-style.sh` passed.
 
 
 ## Decision Log
@@ -122,12 +135,21 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-Milestones 1 and 2 established an injective default for contexts that are already lowercase DNS
-labels and a local collision guard for implicit defaults. The `prod` and `labs` installed-command
-fixtures both retain instance name `nagare-01` while rendering distinct host names; a seeded
-`legacy` owner prevents implicit `prod-nagare`, and `--host-name prod2-nagare` succeeds. All 472
-Haskell tests and both focused Nix checks pass. Documentation, ADR/IR lifecycle work, and
-repository-wide validation remain.
+All three milestones are complete. Contexts that are already lowercase DNS labels now receive an
+injective `<context>-nagare` OS and Tailscale identity without changing their GCE instance name.
+The `prod` and `labs` installed-command fixtures both retain `nagare-01` while rendering distinct
+host names; a seeded `legacy` owner prevents implicit `prod-nagare`, and explicit
+`--host-name prod2-nagare` succeeds. Unit coverage also proves invalid derivations, current-context
+exclusion, missing and non-host entries, symlinked roots, exact assignment matching, and unreadable
+sibling failure.
+
+The multi-cluster and access guides now distinguish `ssh deploy@prod-nagare` over Tailscale from
+IAP commands addressed to project-scoped instance `nagare-01`. ADR 5 holds the durable default,
+collision, symlink, fail-closed, explicit-override, and existing-flake contracts; no new ADR was
+needed. IR-14 is completed. Validation passed: all 472 Haskell tests, both focused Nix checks,
+Haskell style, 37 user documents, 2 guides, 21 improvement requests, and every buildable native
+flake check. Nix omitted incompatible `x86_64-linux` outputs on the `aarch64-darwin` host, and no
+functional work remains in this plan.
 
 
 ## Context and Orientation
@@ -143,20 +165,18 @@ concepts separate and do not narrow `ContextName`, because it is already a publi
 command-line identity.
 
 `cli/nagarectl/app/Main.hs` defines `HostInitOpts`, parses `nagarectl host init`, and implements the
-`HostInit` branch in `runHost`. At present the parser says `--host-name` defaults to the context
-instance name. The handler obtains `profile.instanceName` as `defaultInstance`, uses it for both
-`HostConfig.name` and `HostConfig.instanceName` when their respective flags are absent, renders a
-dry run directly, or passes the same `HostConfig` to `installHostFlake`. This is the collision: the
-instance name is project-scoped and defaults to `nagare-01` in every cloud context, while a Tailscale
-node name is shared across all clusters enrolled in one tailnet.
+`HostInit` branch in `runHost`. The parser explains that `--host-name` defaults to
+`<context>-nagare`. The handler derives and collision-checks that value only when the option is
+absent; an explicit value passes through unchanged. `HostConfig.instanceName` remains independently
+resolved from `--instance-name` or `profile.instanceName`, whose cloud default is `nagare-01`.
 
 `cli/nagarectl/src/Nagare/Host/Config.hs` owns the `HostConfig` record and generated-flake behavior.
 `HostConfig.name` becomes both `nixosConfigurations.<name>` in `flake.nix` and
 `nagare.host.hostName` in `host.nix`. `hostConfigDir` maps a context to
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/<context>/`. `renderHostModule` emits the stable line
 `hostName = "...";`, and `installHostFlake` validates a staging tree before atomically installing it.
-This module is the right home for pure host-name validation/defaulting and the filesystem query over
-sibling host flakes; `Main.hs` should orchestrate those APIs rather than repeat their rules.
+This module now owns pure host-name validation/defaulting and the filesystem query over sibling host
+flakes; `Main.hs` orchestrates those APIs rather than repeating their rules.
 
 `nixos/modules/nagare-host.nix` assigns `nagare.host.hostName` to `networking.hostName`. The checked-in
 `nixos/hosts/nagare-01/` tree is only an evaluation fixture; changing its name or the GCE instance is
@@ -284,7 +304,7 @@ scripts/check-haskell-style.sh
 nix flake check --print-build-logs
 ```
 
-The IR command should report `OK: 16 concepts`. The bundle lacks independent `reviews` metadata for
+The IR command should report `OK: 21 concepts`. The bundle lacks independent `reviews` metadata for
 historical requests, so do not invent reviews to make a strict run pass; the profile/log enforcement
 above is the existing gate. Record exact results in Progress and Outcomes & Retrospective. Every
 implementation commit must use a Conventional Commit message and carry both trailers:
@@ -353,7 +373,7 @@ No new package or service dependency is needed. Use existing `text`, `directory`
 `temporary` dependencies and the current Tasty/HUnit stack. Do not query Tailscale or require
 network access; this check guarantees only uniqueness among locally visible generated host flakes.
 
-`cli/nagarectl/src/Nagare/Host/Config.hs` should expose interfaces equivalent to:
+`cli/nagarectl/src/Nagare/Host/Config.hs` exposes these interfaces:
 
 ```haskell
 defaultHostName :: ContextName -> Either Text Text
@@ -382,3 +402,7 @@ the remaining milestones are unchanged.
 
 Revision note (2026-09-14): Recorded Milestone 2 collision enforcement, deterministic scan order,
 and passing Haskell plus installed-command checks.
+
+Revision note (2026-09-14): Completed Milestone 3, refreshed stale current-state prose, recorded the
+21-concept bundle discovery and native-system scope, distilled durable policy into ADR 5, and closed
+IR-14 after every acceptance gate passed.
