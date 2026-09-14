@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Reliable first-boot data disk (IR-19).** The blank-disk formatter now runs before the
+  generated systemd-fsck unit, and a recovered mount pulls layout and k3s back into its transaction
+  without weakening their hard data-disk requirements. Five independent NixOS VM samples require
+  exactly one `Ready` node in the original boot and reject the former `Device or resource busy`
+  failure.
 - **Reviewed infrastructure apply (IR-15).** `infra preview --save-plan` now creates a private
   context-bound Pulumi plan, redacted review, and binding metadata; `infra apply --plan --yes`
   verifies and applies that exact plan without a second preview or TTY. Upgrades retain the same

@@ -176,7 +176,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-09-14T05:29:57Z) EP-1: ship collision-free operator tools, context kubeconfig fetch, and a cluster identity guard.
 - [x] (2026-09-14T13:18:00Z) EP-2: validate ADC and represent/re-pin an undeployed context safely.
 - [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
-- [ ] EP-4: serialize blank-disk formatting before fsck and prove first-boot k3s readiness.
+- [ ] EP-4: isolated blank-disk and Ready-node behavior is proven; compose it with external
+  ExecPlan 133's post-boot age-key handoff before completing the child.
 - [ ] EP-5: separate internal issuers and opt app namespaces into public wildcard certificates.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
 - [ ] External: complete ExecPlans 132 and 133 before EP-6's live cloud acceptance.
@@ -211,10 +212,15 @@ interactions between child plans. Provide concise evidence.
   It also exposed a pre-existing improvement-request profile advisory: 22 records lack the newly
   recommended `reviews` field, while strict structure and log validation still pass.
 
-- EP-4 added exact graph assertions and a five-sample first-boot aggregate, and nested flake
-  evaluation passes. Executing the x86_64-linux checks is currently blocked because the active
-  context's project-confined builder route cannot refresh the workstation's gcloud credentials in
-  a non-interactive session; `gcloud auth login` must be completed by the operator first.
+- EP-4's initial builder-authentication block cleared after the operator completed interactive
+  gcloud login. The active `labs` route correctly identified a missing context-owned builder, while
+  the existing `tan-nb-exp` daemon builder ran the evidence. Its idle shutdown interrupted one
+  online-growth run; restarting it and retrying passed.
+
+- EP-4's first aggregate attempt exposed a test-harness detail after the host already reached
+  Ready: `systemd-analyze verify` did not resolve a generated mount from bare unit names. Passing
+  all four generated `FragmentPath` values fixed verification, and all five independent samples
+  then passed the full same-boot recovery scenario.
 
 
 ## Decision Log
@@ -276,6 +282,14 @@ for another project. IR-15 and IR-17 are completed, and ADRs 18 and 9 record the
 All 508 Haskell tests and every buildable native flake check pass. EP-4 is the next registry-ordered
 implementable child; it has no hard dependencies.
 
+EP-4 has completed its independently executable storage work and closed IR-19. Formatting is
+serialized before fsck; exact graph checks and five blank-disk VMs prove one Ready node and
+mount-only recovery under the original boot ID; the prior online-growth behavior remains green.
+Focused boot docs now describe that behavior without claiming the still-unimplemented post-boot
+age-key flow. EP-4 remains In Progress because external ExecPlan 133 is Not Started under a
+different intention, so its composed host-sequence milestone cannot yet run and EP-5 is not selected
+ahead of the registry's existing In Progress child.
+
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.
@@ -296,3 +310,7 @@ Revision note (2026-09-14): Started EP-4 after confirming it has no unmet hard d
 Revision note (2026-09-14): EP-4 now serializes formatting before fsck, retries k3s from a recovered
 mount transaction, and defines repeated first-boot evidence; live Linux builds await refreshed
 gcloud authentication for the context-owned builder.
+
+Revision note (2026-09-14): EP-4's isolated work now passes five independent first-boot samples,
+the online-growth regression, strict OKF validation, and nested/root gates; IR-19 is complete. EP-4
+remains In Progress pending composition with external ExecPlan 133.

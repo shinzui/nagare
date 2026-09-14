@@ -44,7 +44,7 @@ One Pulumi component, `NagarePerimeter`, declares the whole perimeter:
 | **VPC + subnet** | Custom-mode VPC, single `/24` subnet (`10.10.0.0/24`) in `us-west1`. |
 | **Firewall** | `80`/`443` from anywhere (Kourier ingress); `22` from the IAP range `35.235.240.0/20` only; `udp/41641` for Tailscale. |
 | **Static external IP** | Regional, reserved — the VM keeps it across rebuilds so wildcard DNS stays valid. |
-| **Data disk** | `pd-balanced`, 100 GB by default, attached as `nagare-data` and mounted at `/var/lib/nagare`. Pulumi protects it from deletion and attaches a daily 08:00 UTC snapshot schedule with seven-day retention; automatic snapshots survive source-disk deletion. |
+| **Data disk** | `pd-balanced`, 100 GB by default, attached as `nagare-data` and mounted at `/var/lib/nagare`. A blank disk is formatted before fsck, mounted, and brought through layout to a `Ready` k3s node during the first boot, without a reboot. Pulumi protects it from deletion and attaches a daily 08:00 UTC snapshot schedule with seven-day retention; automatic snapshots survive source-disk deletion. |
 | **Service account** | `nagare-node`, with `roles/dns.admin` on Nagare's managed zone, project-level `roles/dns.reader` for zone discovery, project-level `roles/artifactregistry.writer`, and `roles/storage.objectAdmin` on the backup bucket only. |
 | **Cloud DNS zone** | Managed zone for `<baseDomain>` with a wildcard `A` record `*.<baseDomain>` → static IP (TTL 300). |
 | **Artifact Registry** | Docker repo `nagare` in `us-west1` → `us-west1-docker.pkg.dev/tan-nb-exp/nagare`. |

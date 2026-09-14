@@ -2,13 +2,15 @@
 type: Improvement Request
 title: Stop the first-boot data-disk format from racing systemd-fsck and leaving k3s failed
 description: On a fresh v0.2.2 host, format-nagare-data's mkfs hit "Device or resource busy" because systemd-fsck opened the same device, so the first mount failed and k3s stayed dead even though a retry one second later formatted and mounted the disk.
-timestamp: "2026-09-14T14:45:36Z"
+timestamp: "2026-09-14T15:22:49Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-19
-status: in-progress
+status: completed
 acceptedAt: "2026-09-14T04:26:09Z"
+completedAt: "2026-09-14T15:22:49Z"
+resolution: "ExecPlan 137 orders format-nagare-data before the escaped systemd-fsck instance and the mount while retaining DefaultDependencies=false. The mount now wants k3s, whose hard mount and layout requirements remain, so a recovered mount retries the chain without a reboot. Exact evaluation assertions pass; five independent blank-disk NixOS VMs each reached exactly one Ready node in the original boot, rejected Device or resource busy and relevant failed units, and recovered layout/k3s from a mount-only restart without changing boot ID. The existing online-growth VM regression also passes."
 targetPlan: docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md
 origin: mori://shinzui/nagare
 reviews:
@@ -25,9 +27,22 @@ reviews:
       Audited the request against ExecPlan 137, the current storage and first-boot
       test surfaces, and MasterPlan 22's In Progress registry state; implementation
       has started but no completion evidence exists, so in-progress and Nagare fit are accurate.
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-09-14T15:22:49Z"
+    document_timestamp: "2026-09-14T15:22:49Z"
+    scope: content-and-metadata
+    outcome: approved
+    provider: openai
+    model: gpt-5.6-sol
+    effort: high
+    context: >-
+      Reviewed the implemented systemd graph, exact evaluation assertions, five independent
+      blank-disk VM results, same-boot mount recovery, online-growth regression, and updated
+      operator documentation; the request's Ready-without-reboot acceptance is satisfied.
 verified:
   by: process:openai-codex
-  at: "2026-09-14T14:45:36Z"
+  at: "2026-09-14T15:22:49Z"
 ---
 
 # Improvement Request: make the first-boot data-disk format reliable
@@ -36,7 +51,7 @@ verified:
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** in progress under
+**Status:** completed by
 [ExecPlan 137](../plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md).
 **Created:** 2026-09-14.
 
@@ -98,3 +113,18 @@ boot, with no reboot.
 ## Non-goals
 
 Changing the filesystem type, the growfs behaviour, or the forward-only disk-capacity decision (ADR 12).
+
+
+## Resolution
+
+`format-nagare-data.service` now runs before the generated fsck instance and the mount, without
+restoring the default dependencies that previously caused the growfs ordering cycle. The mount
+wants k3s while k3s retains hard requirements on the mount and layout, so a successful mount retry
+reconstructs the dependent transaction safely.
+
+The `data-disk-auto-grow` evaluation check locks the exact edges. The
+`data-disk-first-boot` aggregate ran five independent blank-disk VMs; every sample formatted ext4,
+mounted the intended device, created the layout, reached exactly one `Ready` node without a reboot,
+rejected the original busy error and relevant failed units, and recovered layout plus k3s after a
+mount-only restart under the same boot ID. The existing `data-disk-online-grow` VM regression also
+passes, preserving ADR 12's forward-only growth behavior.
