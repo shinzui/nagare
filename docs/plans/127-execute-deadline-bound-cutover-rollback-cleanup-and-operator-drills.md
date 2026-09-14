@@ -99,6 +99,15 @@ implementation. Provide concise evidence.
   actual gate observation determines whether the irreversible commit point occurred.
   Evidence: the injected failpoint after the admission side effect observes admitted writes and
   completes the promotion without invoking old-context rollback.
+- Observation: A persisted pre-admission transaction can still hide a completed external write-gate
+  mutation if the process died before recording its observation.
+  Evidence: rollback now observes the gate before any restore; the regression fixture presents a
+  stale `CuttingOver` record with live candidate admission and verifies that neither old context nor
+  old address is restored.
+- Observation: Persisting the shrinking cleanup manifest after each deletion requires `finalizing`
+  to be a resumable input state, including when the last deletion succeeded before Pulumi convergence.
+  Evidence: the focused suite resumes a `Finalizing` transaction with an empty remaining manifest,
+  performs convergence/pruning, and reaches `Complete` without deleting anything twice.
 
 
 ## Decision Log
@@ -421,3 +430,6 @@ pre-commit mutation boundary and separated that completed local proof from the b
 
 Revision note (2026-09-13): Recorded completion of the provider-independent executor, documentation,
 and ADR distillation, and made the remaining adapter/live-drill dependency explicit and fail closed.
+
+Revision note (2026-09-13): Captured the final recovery audit fixes for pre-rollback admission
+observation and resumable partial cleanup; the focused suite now contains 14 passing tests.

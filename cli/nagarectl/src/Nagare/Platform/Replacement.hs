@@ -268,7 +268,7 @@ readiness now tx =
         , if replacementQuiesceContractComplete tx then Nothing else Just "the production quiesce contract is incomplete"
         , case replacementEvidenceValidUntil tx of
             Nothing -> Just "required rehearsal and state evidence is missing"
-            Just expires | expires < now -> Just "required rehearsal or state evidence is stale"
+            Just expires | expires <= now -> Just "required rehearsal or state evidence is stale"
             Just _ -> Nothing
         , if rollbackReserveSeconds configured == 0 then Just "rollback reserve must be nonzero" else Nothing
         , if total <= budget then Nothing else Just ("predicted downtime exceeds the budget by " <> T.pack (show (total - budget)) <> " seconds")

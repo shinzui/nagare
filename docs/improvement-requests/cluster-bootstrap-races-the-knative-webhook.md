@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Wait for the Knative webhook before cluster-bootstrap patches Knative ConfigMaps
 description: On a fresh cluster, cluster-bootstrap applies serving-core and immediately patches config-network, config-certmanager and friends, which the not-yet-ready Knative validating webhook rejects, so the first run fails partway.
-timestamp: "2026-09-14T02:40:00Z"
+timestamp: "2026-09-14T03:42:01Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-21
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T03:42:01Z"
+targetPlan: docs/plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 132](../plans/132-make-cluster-bootstrap-wait-for-knative-webhooks.md).
 **Created:** 2026-09-14.
 
 

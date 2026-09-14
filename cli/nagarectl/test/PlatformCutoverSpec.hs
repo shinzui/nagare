@@ -31,8 +31,10 @@ platformCutoverTests =
     , testCase "rolls back a failure after candidate address attachment" testPostAttachFailure
     , testCase "converges every pre-commit before/after failpoint to old service" testPreCommitFailureMatrix
     , testCase "refuses automatic rollback after write admission and fences candidate" testPostCommitRollback
+    , testCase "observes an unjournalled write-admission commit before rollback" testObservedCommitRollback
     , testCase "cleanup rejects an unrecorded resource" testCleanupOwnership
     , testCase "finalize removes only recorded former-active resources" testFinalize
+    , testCase "finalize resumes after recorded resources were already deleted" testFinalizeResume
     , testCase "transaction persistence ignores a sibling temporary file and rejects future schema" testPersistence
     , testCase "readiness accepts the exact budget boundary and rejects one-second excess" testBudgetBoundary
     , testCase "JSON uses stable committed and address tokens" testStableJson
@@ -128,6 +130,18 @@ testPostCommitRollback = do
   replacementCandidateFenced (cutoverErrorTransaction failure) @?= True
   assertBool "manual recovery is named" ("manual" `T.isInfixOf` cutoverErrorMessage failure)
 
+testObservedCommitRollback :: Assertion
+testObservedCommitRollback = do
+  fixture <- newFixture Nothing
+  let admittedObservation = CutoverObservation AddressOnCandidate InstanceRunning False True True False
+      ops = (fixtureOps fixture) {observeCutover = const (pure (Right admittedObservation))}
+      stale = readyTransaction {replacementState = CuttingOver, replacementWritesAdmitted = False}
+  failure <- runRollback ops stale >>= assertLeft
+  replacementState (cutoverErrorTransaction failure) @?= ReplacementFailed
+  events <- readIORef (fixtureEvents fixture)
+  assertBool "old context is never restored after observed admission" ("restore-context" `notElem` events)
+  assertBool "old address is never restored after observed admission" ("attach-old" `notElem` events)
+
 testCleanupOwnership :: Assertion
 testCleanupOwnership = do
   deleted <- newIORef []
@@ -147,6 +161,15 @@ testFinalize = do
   replacementState completed @?= Complete
   replacementRetainedResources completed @?= []
   readIORef deleted >>= (@?= ["old-vm", "old-disk"])
+
+testFinalizeResume :: Assertion
+testFinalizeResume = do
+  deleted <- newIORef []
+  let interrupted = (committedForCleanup []) {replacementState = Finalizing}
+      ops = cleanupFixture deleted (const (pure (Right True)))
+  completed <- finalizeReplacement True ops interrupted >>= assertRightCleanup
+  replacementState completed @?= Complete
+  readIORef deleted >>= (@?= [])
 
 testPersistence :: Assertion
 testPersistence =
