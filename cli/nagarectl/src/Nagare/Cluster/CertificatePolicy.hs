@@ -25,6 +25,7 @@ data CertificateObservation = CertificateObservation
   , name :: !Text
   , issuerName :: !Text
   , dnsNames :: ![Text]
+  , isNamespaceWildcard :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -48,9 +49,14 @@ parseCertificateObservations bytes = do
       String namespace <- KeyMap.lookup "namespace" metadata
       String name <- KeyMap.lookup "name" metadata
       String issuerName <- KeyMap.lookup "name" issuer
-      Array dns <- KeyMap.lookup "dnsNames" spec
-      dnsNames <- traverse textValue (Vector.toList dns)
-      pure CertificateObservation {namespace, name, issuerName, dnsNames}
+      let isNamespaceWildcard = case KeyMap.lookup "labels" metadata of
+            Just (Object labels) -> KeyMap.member "networking.knative.dev/wildcardDomain" labels
+            _ -> False
+      dnsNames <- case KeyMap.lookup "dnsNames" spec of
+        Nothing -> Just []
+        Just (Array dns) -> traverse textValue (Vector.toList dns)
+        Just _ -> Nothing
+      pure CertificateObservation {namespace, name, issuerName, dnsNames, isNamespaceWildcard}
     parseCertificate _ = Nothing
     textValue (String value) = Just value
     textValue _ = Nothing
@@ -70,19 +76,22 @@ parseLabeledNamespaces bytes = do
 certificatePolicyViolations :: Set Text -> [CertificateObservation] -> [CertificateViolation]
 certificatePolicyViolations labeledNamespaces = concatMap inspect
   where
-    inspect observation@CertificateObservation {namespace = observationNamespace, issuerName = observationIssuer, dnsNames = observationDnsNames}
-      | observationIssuer /= "letsencrypt-dns" = []
-      | otherwise = nameViolations <> wildcardViolation
+    inspect observation@CertificateObservation {namespace = observationNamespace, issuerName = observationIssuer, dnsNames = observationDnsNames, isNamespaceWildcard = observationIsNamespaceWildcard}
+      | observationIsNamespaceWildcard = namespaceWildcardViolations <> nameViolations
+      | observationIssuer == "letsencrypt-dns" = nameViolations
+      | otherwise = []
       where
         nameViolations =
           [ violation observation ("non-public ACME DNS name " <> dnsName)
           | dnsName <- observationDnsNames
+          , observationIssuer == "letsencrypt-dns"
           , not (isPublicDnsName dnsName)
           ]
-        wildcardViolation
-          | any ("*." `T.isPrefixOf`) observationDnsNames
-              && observationNamespace `Set.notMember` labeledNamespaces =
-              [violation observation "public wildcard is in an unlabeled namespace"]
+        namespaceWildcardViolations
+          | observationNamespace `Set.notMember` labeledNamespaces =
+              [violation observation "namespace wildcard is in an unlabeled namespace"]
+          | observationIssuer /= "letsencrypt-dns" =
+              [violation observation "public namespace wildcard is not using letsencrypt-dns"]
           | otherwise = []
 
     violation CertificateObservation {namespace = observationNamespace, name = observationName} reason =

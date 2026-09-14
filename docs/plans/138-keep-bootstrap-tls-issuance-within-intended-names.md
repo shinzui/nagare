@@ -48,7 +48,9 @@ This section must always reflect the actual current state of the work.
   to that selector across bootstrap and workload creation paths.
 - [x] (2026-09-14T16:40:54Z) Add the focused certificate-policy command, doctor probe/remediation,
   parsed manifest gate, and pure inventory coverage.
-- [ ] Run the disposable k3d certificate-controller verification; Docker is currently stopped.
+- [ ] (2026-09-14T17:05:24Z) Make the disposable k3d certificate-controller verification pass.
+  Two fresh clusters reproduced an upstream net-certmanager issuer-aliasing defect; selecting and
+  delivering a patched controller requires an explicit scope decision.
 - [ ] Reconcile bootstrap ordering, update docs/ADR, complete both IRs, and run gates.
 
 
@@ -58,17 +60,33 @@ Document unexpected behaviors, bugs, optimizations, or insights discovered durin
 implementation. Provide concise evidence.
 
 - Observation: net-certmanager v1.14.0 is both the repository's pinned version and the latest tag in
-  the authoritative `knative-extensions/net-certmanager` repository.
+  the authoritative `knative-extensions/net-certmanager` repository, but its three documented
+  issuer settings cannot hold distinct values.
   Evidence: Mori has no registered Knative project, so the fallback upstream tag inspection resolved
   `knative-v1.14.0` to commit `dcff3644e7037215a084af52905fb0e9e78bab52`. That source parses
   `issuerRef`, `clusterLocalIssuerRef`, and `systemInternalIssuerRef` separately and selects them by
-  Knative certificate type. The pin does not need to move.
+  Knative certificate type. However, `NewCertManagerConfigFromConfigMap` initializes all three fields
+  with the same `knativeSelfSignedIssuer` pointer and unmarshals into those shared objects. When all
+  three keys are present, the last `systemInternalIssuerRef` parse overwrites every role. The tests
+  exercise each override separately and do not cover the combined configuration. Current upstream
+  `main` at `ece6a96aa096cbec0069e7037347d735878c50b1` retains the same implementation, and no newer
+  release exists.
 
 - Observation: the ambient shell lacks `k3d` and its configured Colima Docker socket is absent, but
   the project development shell provides k3d v5.9.0.
   Evidence: `docker info` could not connect to `~/.colima/docker.sock`; `k3d` was absent from the
   ambient `PATH`, while `nix develop -c k3d version` succeeded. The controller-level disposable
   verification therefore remains a distinct environment-dependent step.
+
+- Observation: the disposable-cluster proof reproduces the aliasing defect rather than merely a
+  stale ConfigMap watch.
+  Evidence: after raising Colima's inotify limits, fresh k3d clusters installed the exact pinned
+  stack. Explicitly classed system-internal and cluster-local fixtures became Ready on
+  `knative-selfsigned-issuer`, but `personal/personal.apps.example.test` also became Ready on that
+  issuer instead of `letsencrypt-dns`. Restarting the controller after the ConfigMap patch and then
+  creating a new explicitly external-domain fixture produced the same result. The focused
+  diagnostic now fails this self-signed public-wildcard state instead of treating absence of ACME
+  violations as success.
 
 
 ## Decision Log
@@ -98,9 +116,12 @@ Record every decision made while working on the plan.
   platform policy, not merely manifest syntax.
   Date: 2026-09-14.
 
-- Decision: Keep net-certmanager v1.14.0 and encode all three issuer roles explicitly.
-  Rationale: the pinned/latest controller source supports the exact keys and type dispatch required
-  by this plan. A version change would add unrelated compatibility risk without changing behavior.
+- Decision: Do not claim the three-role ConfigMap as complete against unpatched net-certmanager
+  v1.14.0.
+  Rationale: source inspection and two live clusters prove the released controller aliases all
+  three issuer references. A correct solution now requires either carrying and distributing a
+  patched controller image or changing the certificate-controller architecture; both materially
+  exceed the planned ConfigMap-only compatibility work and require an explicit scope decision.
   Date: 2026-09-14.
 
 - Decision: Reconcile application namespaces by applying a Namespace object containing only
@@ -125,7 +146,15 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The opt-in namespace selector, workload namespace reconciliation, parsed certificate diagnostics,
+and hermetic checks are implemented and pass their focused tests. The live proof prevented a false
+completion: the latest released net-certmanager cannot represent the required three issuer roles
+because of shared mutable defaults. The diagnostic was strengthened to require Knative namespace
+wildcards in labeled app namespaces to use `letsencrypt-dns`, so the defective all-self-signed state
+fails closed before a TLS-enable stamp. EP-5 remains incomplete pending a decision to own and ship a
+patched net-certmanager controller (including immutable image distribution) or to adopt a different
+controller boundary. Reader documentation, ADR amendment, and IR completion intentionally remain
+unpublished until the selected runtime behavior passes the disposable cluster.
 
 
 ## Context and Orientation
@@ -298,3 +327,8 @@ Revision note (2026-09-14): Verified the pinned controller schema, made issuer r
 namespace eligibility explicit, reconciled the app-namespace label across workload creation paths,
 and added fail-closed parsed certificate diagnostics. Disposable-controller verification and final
 publication remain.
+
+Revision note (2026-09-14): The disposable k3d proof exposed shared issuer pointers in the latest
+released and upstream-main net-certmanager config parser. Strengthened diagnostics to reject the
+resulting self-signed public wildcard and paused final publication pending a controller-delivery
+scope decision.

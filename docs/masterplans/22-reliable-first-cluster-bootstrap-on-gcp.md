@@ -183,8 +183,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-09-14T14:18:39Z) EP-3: bind reviewed Pulumi plans and remote builders to the selected context.
 - [ ] EP-4: isolated blank-disk and Ready-node behavior is proven; compose it with external
   ExecPlan 133's post-boot age-key handoff before completing the child.
-- [ ] EP-5 (In Progress): separate internal issuers and opt app namespaces into public wildcard
-  certificates.
+- [ ] EP-5 (In Progress): namespace selection and fail-closed diagnostics are implemented, but the
+  latest released net-certmanager aliases its three issuer references; completion needs a decision
+  on shipping a patched controller or changing the controller boundary.
 - [ ] EP-6: correct boot-disk guidance and pass hermetic plus authorized live onboarding rehearsals.
 - [ ] External: complete ExecPlans 132 and 133 before EP-6's live cloud acceptance.
 
@@ -230,8 +231,10 @@ interactions between child plans. Provide concise evidence.
 
 - EP-5 found no registered Knative dependency in Mori, so authoritative upstream inspection was
   required. The repository's net-certmanager v1.14.0 pin is still the latest upstream tag and its
-  source explicitly supports separate external, cluster-local, and system-internal issuer roles;
-  the safety fix needs configuration and diagnostics, not a compatibility pin change.
+  API advertises separate external, cluster-local, and system-internal issuer roles. Two disposable
+  k3d clusters exposed a defect missed by its per-key tests: all three defaults point at the same
+  object, so parsing the final internal setting overwrites the public issuer too. Upstream `main`
+  retains the defect; configuration alone cannot deliver the required split.
 
 
 ## Decision Log
@@ -309,6 +312,14 @@ different intention, so its composed host-sequence milestone cannot yet run. EP-
 because it has no hard dependency on EP-4 and can deliver independently verifiable TLS policy while
 that external work remains outstanding.
 
+EP-5 has implemented the opt-in app-namespace boundary, reconciled that label across Nagare workload
+creation, and added a fail-closed parsed certificate-policy probe. Its hermetic checks and focused
+tests pass. The required live issuer split is blocked by a defect in the latest released and current
+upstream net-certmanager parser: explicit internal settings force the public wildcard onto the
+self-signed issuer. Completing EP-5 therefore needs an explicit decision to add immutable patched
+controller distribution or to replace that integration boundary; final docs, ADR, and IR closure
+remain deferred until the runtime proof passes.
+
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.
@@ -337,3 +348,8 @@ remains In Progress pending composition with external ExecPlan 133.
 Revision note (2026-09-14): Started EP-5 while EP-4 waits for external ExecPlan 133; verified the
 pinned certificate-controller schema and implemented the issuer, app-namespace, and diagnostic
 policy through its hermetic gates.
+
+Revision note (2026-09-14): EP-5's disposable-cluster proof found an upstream shared-pointer defect
+that collapses all issuer roles to the last configured value. Kept the child In Progress and made
+its diagnostic reject the resulting self-signed public wildcard pending a controller-delivery
+scope decision.

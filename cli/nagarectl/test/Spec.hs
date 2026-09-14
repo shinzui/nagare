@@ -2358,15 +2358,19 @@ certificatePolicyTests :: [TestTree]
 certificatePolicyTests =
   [ testCase "parses certificate and selected-namespace inventories" $ do
       let certificates =
-            "{\"items\":[{\"metadata\":{\"name\":\"wildcard\",\"namespace\":\"personal\"},\"spec\":{\"issuerRef\":{\"name\":\"letsencrypt-dns\"},\"dnsNames\":[\"*.personal.apps.example.com\"]}}]}"
+            "{\"items\":[{\"metadata\":{\"name\":\"wildcard\",\"namespace\":\"personal\",\"labels\":{\"networking.knative.dev/wildcardDomain\":\"apps.example.com\"}},\"spec\":{\"issuerRef\":{\"name\":\"letsencrypt-dns\"},\"dnsNames\":[\"*.personal.apps.example.com\"]}}]}"
           namespaces = "{\"items\":[{\"metadata\":{\"name\":\"personal\"}}]}"
       parseCertificateObservations certificates
-        @?= Just [cert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
+        @?= Just [namespaceWildcardCert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
       parseLabeledNamespaces namespaces @?= Just (Set.singleton "personal")
+  , testCase "accepts CA certificates that omit dnsNames" $
+      parseCertificateObservations
+        "{\"items\":[{\"metadata\":{\"name\":\"root-ca\",\"namespace\":\"cert-manager\"},\"spec\":{\"issuerRef\":{\"name\":\"selfsigned-cluster-issuer\"}}}]}"
+        @?= Just [cert "cert-manager" "root-ca" "selfsigned-cluster-issuer" []]
   , testCase "accepts a public wildcard in a labeled app namespace" $
       certificatePolicyViolations
         (Set.singleton "personal")
-        [cert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
+        [namespaceWildcardCert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
         @?= []
   , testCase "ignores internal names on the self-signed issuer" $
       certificatePolicyViolations
@@ -2386,8 +2390,13 @@ certificatePolicyTests =
   , testCase "rejects a public wildcard in an unlabeled namespace" $
       certificatePolicyViolations
         Set.empty
-        [cert "kube-system" "wildcard" "letsencrypt-dns" ["*.kube-system.apps.example.com"]]
-        @?= [CertificateViolation "kube-system" "wildcard" "public wildcard is in an unlabeled namespace"]
+        [namespaceWildcardCert "kube-system" "wildcard" "letsencrypt-dns" ["*.kube-system.apps.example.com"]]
+        @?= [CertificateViolation "kube-system" "wildcard" "namespace wildcard is in an unlabeled namespace"]
+  , testCase "rejects a self-signed public namespace wildcard" $
+      certificatePolicyViolations
+        (Set.singleton "personal")
+        [namespaceWildcardCert "personal" "wildcard" "knative-selfsigned-issuer" ["*.personal.apps.example.com"]]
+        @?= [CertificateViolation "personal" "wildcard" "public namespace wildcard is not using letsencrypt-dns"]
   ]
   where
     cert namespace name issuerName dnsNames =
@@ -2396,7 +2405,10 @@ certificatePolicyTests =
         , name = name
         , issuerName = issuerName
         , dnsNames = dnsNames
+        , isNamespaceWildcard = False
         }
+    namespaceWildcardCert namespace name issuerName dnsNames =
+      (cert namespace name issuerName dnsNames) {isNamespaceWildcard = True}
 
 -- ---------------------------------------------------------------------------
 -- Nagare.Storage.Snapshot (EP-36)
