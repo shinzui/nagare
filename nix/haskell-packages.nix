@@ -36,7 +36,7 @@ let
   };
 
   typedConfigRuntime = haskellPackages.ghcWithPackages (hp: [ hp.nagare-dsl ]);
-  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs ];
+  operatorTools = [ pkgs.pulumi pkgs.pulumiPackages.pulumi-nodejs pkgs.socat ];
 
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
@@ -60,9 +60,10 @@ let
     })
   );
 
-  nagarectl = pkgs.symlinkJoin {
+  nagarectl = pkgs.buildEnv {
     name = "nagarectl-${haskellPackages.nagarectl.version}";
     paths = [ haskellPackages.nagarectl ];
+    pathsToLink = [ "/bin" "/share" "/nix-support" ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
@@ -72,9 +73,10 @@ let
     meta.mainProgram = "nagarectl";
   };
 
-  operatorNagarectl = pkgs.symlinkJoin {
+  operatorNagarectl = pkgs.buildEnv {
     name = "nagare-operator-nagarectl-${haskellPackages.nagarectl.version}";
     paths = [ nagarectl ];
+    pathsToLink = [ "/bin" "/share" "/nix-support" ];
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       # Deliberately append the tested Pulumi tools: an operator-provided binary
@@ -113,9 +115,10 @@ let
     '';
   };
 
-  nagare = pkgs.symlinkJoin {
+  nagare = pkgs.buildEnv {
     name = "nagare-${haskellPackages.nagarectl.version}";
     paths = [ operatorNagarectl nagareLauncher ];
+    pathsToLink = [ "/bin" "/share" "/nix-support" ];
     meta.mainProgram = "nagare";
   };
 in
