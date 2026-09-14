@@ -5,6 +5,7 @@ date: 2026-09-12
 authors: [shinzui]
 related:
   - docs/plans/113-confine-every-cloud-mutating-path-to-the-active-context-s-project.md
+  - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
 ---
@@ -160,3 +161,18 @@ the assertion read an empty value and refused every bucket, including one just c
 target project. Both implementations now pass `--raw` to read the API field
 ([ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md)).
 The comparison is unchanged and still refuses a foreign bucket.
+
+## Amendment — 2026-09-14
+
+[ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md)
+extends the fail-closed project boundary to named context creation. `nagarectl init NAME` never
+consults the active context, the global `--context` selection, or ambient target variables. A fresh
+context is derived only from explicit flags and built-in defaults; `init NAME --force` may additionally
+reuse `NAME`'s own stored fields.
+
+Before any workspace, context, or cloud mutation, named init prints its derived resource names and
+refuses image or backup bucket names that do not start with the selected project. It applies the same
+rule to an effective GCS Pulumi backend inherited from the named context; an explicitly supplied
+backend URL remains a deliberate operator choice. This prevents a context from being born with
+another project's resource names, complementing the mutation-time ownership checks recorded above.
+The rule shipped in signed release `v0.2.2`.

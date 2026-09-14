@@ -103,11 +103,25 @@ tailnet) are related but out of scope. The Decision Log records why.
   changelog, workflow default, compatibility fixture, and `docs/releases/v0.2.2.md` agree on
   0.2.2. The source-only release check, documentation validators, capability profile and graph,
   and `mori validate` pass.
-- [ ] Milestone 4 remaining: commit the candidate; run the clean candidate gates; then, after the
-  plan's bounded operator approval, push, dispatch native CI, sign and push the tag, publish, and
-  verify 0.2.2.
-- [ ] Milestone 5: mark IR-13, IR-7, and IR-8 completed with resolutions, distill ADR context,
-  and notify the `labs-tan` session.
+- [x] (2026-09-14 01:31Z) Milestone 4 candidate validation: committed `248e5f9`; a clean
+  `nix flake check --print-build-logs` passed all 27 aarch64-darwin checks and all 462 Haskell
+  tests; the assembled release audit reported payload digest
+  `sha256-+dxcPuhQw9zD5NIy6OBCg0A+Elx7lgjA29Zj3DQ4l0c=` at that exact revision; and the local
+  clone-free release rehearsal passed.
+- [x] (2026-09-14 01:55Z) Milestone 4 publication: after bounded operator approval, normal CI run
+  `34796315741` passed both the root flake and private `nagare-access` compatibility job; manual
+  Release run `34796355804` passed on x86_64-linux and aarch64-darwin and assembled byte-identical
+  evidence; signed tag `v0.2.2` was verified locally and pushed; tag run `34797271649` published
+  [Nagare 0.2.2](https://github.com/shinzui/nagare/releases/tag/v0.2.2). The seven published
+  attachments pass their checksums and match the rehearsed bundle byte for byte, and the public
+  Nix-by-tag command reports version 0.2.2 at `248e5f9`.
+- [x] (2026-09-14 01:58Z) Milestone 5 repository bookkeeping: IR-13, IR-7, and IR-8 are completed
+  with resolutions; ADR 9 records isolated, fail-closed named context creation; ADR 7 records the
+  operator-only Pulumi packaging rule; and the IR bundle log records the completion.
+- [ ] Milestone 5 external handoff: notify the `labs-tan` session that it may drop the
+  no-active-context and separate-Pulumi workarounds. This runtime listed only `/root`; the literal
+  `labs-tan` target was syntactically unavailable and `/root/labs_tan` did not exist, so no delivery
+  is claimed. The exact handoff is preserved in Outcomes & Retrospective.
 
 
 ## Surprises & Discoveries
@@ -166,6 +180,17 @@ tailnet) are related but out of scope. The Decision Log records why.
   recorded schema hash predates the semantic hash embedded in the current Mori binary. The
   configuration is valid and this release does not change Mori configuration, so the unrelated
   schema-upgrade rewrite remains outside this candidate.
+
+- Observation: at the post-approval publication boundary, authoritative `origin/master` already
+  resolved to candidate `248e5f9`, and GitHub recorded push-triggered CI run `34796315741` for that
+  revision at 2026-09-14 01:33Z. No redundant push was made; the session proceeded from the observed
+  remote state and did not infer who synchronized it.
+
+- Observation: the requested `labs-tan` Claude session is not reachable through this runtime's
+  collaboration tree. `list_agents` returned only `/root`; `labs-tan` is not a valid runtime agent
+  name, and the canonicalized `/root/labs_tan` target was absent. The release and repository
+  bookkeeping are complete, but the external notification remains an explicit handoff rather than
+  a claimed success.
 
 
 ## Decision Log
@@ -271,7 +296,30 @@ tailnet) are related but out of scope. The Decision Log records why.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Nagare 0.2.2 is published from signed annotated tag `v0.2.2`, which peels to reviewed candidate
+`248e5f95803c0110b5890b611c7bbd24468f8d71`. The release contains the expected seven attachments for
+x86_64-linux and aarch64-darwin; their checksums pass, their manifest names the exact tag and
+revision, and they are byte-identical to the manual native rehearsal. Running
+`nix run github:shinzui/nagare/v0.2.2#nagarectl -- version --json` without a checkout reports
+platform and CLI version 0.2.2 at that revision.
+
+IR-13 is resolved by the `3a107d3` renderer fix, its HostSpec golden, the
+`host-module-options-agree` contract check, and the published patch release. IR-7 and IR-8 are
+resolved by implementation commit `73a2f4a`: named init is isolated from the active context and
+refuses foreign derived buckets before side effects, while the operator package carries the locked
+Pulumi toolchain and init preflights every required tool before mutation. The focused clone-free and
+operator-tool checks, all 462 Haskell tests, full local flake gate, normal CI, and native release
+workflow all passed.
+
+No Nagare context, Pulumi stack, GCP project, cluster, VM, or application was selected or mutated by
+the release process. The intentionally unclosed product work remains IR-9, IR-14, and adding
+`nixos/flake.nix` evaluation to CI. The existing strict improvement-request review-provenance gap and
+GitHub's `actions/checkout@v4` Node 20 deprecation annotation are also recorded rather than hidden.
+
+The undelivered `labs-tan` handoff is: Nagare v0.2.2 is the signed tag at `248e5f9`; IR-7 and IR-8
+are in; the rollout may drop its no-active-context workaround for `nagarectl init` and its separate
+`nix shell` Pulumi workaround; the `labs` context still names `tan-ng-labs`; and this release ran no
+`infra-up` and created no VM.
 
 
 ## Context and Orientation
@@ -938,3 +986,8 @@ Revision note (2026-09-14 01:02Z): The 0.2.2 candidate sources and operator note
 the committed implementation passed the full local flake gate. Progress and Surprises now record
 the exact candidate validators and the non-blocking Mori schema-hash warning before the clean
 candidate rehearsal.
+
+Revision note (2026-09-14 01:58Z): The clean candidate, normal CI, native rehearsal, signed tag,
+tag-triggered publication, public attachments, and Nix-by-tag execution are verified. The three IRs
+are completed and ADRs 9 and 7 amended. The requested `labs-tan` notification could not be routed by
+the available collaboration runtime, so the precise handoff remains open and is recorded above.

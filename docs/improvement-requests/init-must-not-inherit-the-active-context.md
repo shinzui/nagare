@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Stop nagarectl init from inheriting derived fields from the active context
 description: A new context created while another is current silently takes that context's bucket names and other derived values, pointing a fresh project at another cluster's live buckets.
-timestamp: "2026-09-14T00:12:08Z"
+timestamp: "2026-09-14T01:56:48Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-7
-status: accepted
+status: completed
+completedAt: "2026-09-14T01:56:48Z"
+resolution: "Commit 73a2f4a made named init resolve only from flags, built-in defaults, and the named context's own stored values under --force; it also prints derived names and refuses foreign derived buckets before any side effect. The unit suite and nagare-clone-free-platform check cover a foreign current context, fresh and forced init, stored Pulumi backend preservation, and ownership refusal. Full local and native release gates passed, and the behavior is published in the signed v0.2.2 tag at commit 248e5f9."
 targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
 ---
@@ -18,7 +20,7 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** accepted; planned for 0.2.2 as [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md).
+**Status:** completed by [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md) and published in signed tag `v0.2.2` at `248e5f9`.
 **Created:** 2026-09-13.
 
 
