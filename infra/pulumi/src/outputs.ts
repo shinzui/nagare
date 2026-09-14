@@ -8,6 +8,7 @@ import * as pulumi from "@pulumi/pulumi";
  */
 export interface StackOutputs {
     publicIp: pulumi.Output<string>;
+    apexIp: pulumi.Output<string>;
     sshCommand: pulumi.Output<string>;
     baseDomain: pulumi.Output<string>;
     instanceName: pulumi.Output<string>;

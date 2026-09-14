@@ -12,6 +12,17 @@
       touch "$out"
     '';
 
+  infra-domain-topology = pkgs.runCommand "nagare-infra-domain-topology-test"
+    { nativeBuildInputs = [ pkgs.nodejs pkgs.typescript ]; src = src; }
+    ''
+      mkdir build
+      tsc --strict --target ES2020 --module commonjs --outDir build \
+        "$src/infra/pulumi/src/domainTopology.ts" \
+        "$src/infra/pulumi/test/domainTopology.test.ts"
+      node build/test/domainTopology.test.js | grep -qx ok
+      touch "$out"
+    '';
+
   host-module-options-agree = pkgs.runCommand "nagare-host-module-options-agree"
     { nativeBuildInputs = [ pkgs.coreutils pkgs.gnused ]; src = src; }
     ''

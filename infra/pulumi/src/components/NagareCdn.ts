@@ -57,17 +57,13 @@ export class NagareCdn extends pulumi.ComponentResource {
             ],
         }, { parent: this });
 
-        // 3. Health check (EP-54). HTTP-first interim: probe Kourier on port 80.
-        //    Kourier (the Knative ingress Envoy) routes by Host header and
-        //    answers an unmatched Host with 404, so the probe carries the app
-        //    Host header the backend serves. The exact healthy host/path is
-        //    confirmed by EP-54's live leg once `nagare-01` is powered on; until
-        //    then the backend may report UNHEALTHY (a deferred, VM-off concern).
+        // 3. Health check. Kourier's listening socket is the standing backend
+        //    invariant: it does not depend on an application route already
+        //    owning the apex Host header. Route readiness is checked separately
+        //    by nagarectl after each DomainMapping is applied.
         const healthCheck = new gcp.compute.HealthCheck(`${name}-hc`, {
-            httpHealthCheck: {
+            tcpHealthCheck: {
                 port: 80,
-                requestPath: "/",
-                host: args.baseDomain,
             },
             checkIntervalSec: 10,
             timeoutSec: 5,

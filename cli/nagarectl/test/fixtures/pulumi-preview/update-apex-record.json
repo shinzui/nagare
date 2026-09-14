@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "op": "update",
+      "urn": "urn:pulumi:prod::nagare::nagare:env:NagarePerimeter$gcp:dns/recordSet:RecordSet::nagare-apex"
+    }
+  ]
+}

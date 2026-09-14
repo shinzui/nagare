@@ -3,6 +3,7 @@ import * as gcp from "@pulumi/gcp";
 import { NagareNetwork } from "./NagareNetwork";
 import { NagareInstance } from "./NagareInstance";
 import { NagareCdn } from "./NagareCdn";
+import { resolveDomainTopology } from "../domainTopology";
 
 export interface NagarePerimeterArgs {
     gcpProject: string;
@@ -32,6 +33,7 @@ export interface NagarePerimeterArgs {
 
 export class NagarePerimeter extends pulumi.ComponentResource {
     public readonly publicIp: pulumi.Output<string>;
+    public readonly apexIp: pulumi.Output<string>;
     public readonly serviceAccountEmail: pulumi.Output<string>;
     public readonly dataDiskName: pulumi.Output<string>;
     public readonly dnsZoneName: pulumi.Output<string>;
@@ -191,16 +193,6 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             member: saMember,
         }, { parent: this });
 
-        // Wildcard A record: *.apps.example.com -> publicIp. ttl in
-        // seconds; rrdatas is the list of answer IPs.
-        new gcp.dns.RecordSet(`${name}-wildcard`, {
-            managedZone: dnsZone.name,
-            name: pulumi.interpolate`*.${dnsName}`,
-            type: "A",
-            ttl: 300,
-            rrdatas: [address.address],
-        }, { parent: this });
-
         // Artifact Registry Docker repository (IP for EP-6). Location is
         // the region; repositoryId is the short name "nagare".
         const registry = new gcp.artifactregistry.Repository(`${name}-registry`, {
@@ -232,8 +224,9 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // absent, the three outputs carry a clear disabled sentinel that EP-58
         // treats as "no Google CDN provisioned".
         const CDN_DISABLED = "(cdn disabled)";
+        let cdn: NagareCdn | undefined;
         if (args.enableCdn && instance) {
-            const cdn = new NagareCdn(`${name}-cdn`, {
+            cdn = new NagareCdn(`${name}-cdn`, {
                 gcpProject: args.gcpProject,
                 region: args.region,
                 zone: args.zone,
@@ -251,7 +244,32 @@ export class NagarePerimeter extends pulumi.ComponentResource {
             this.cdnUrlMap = pulumi.output(CDN_DISABLED);
         }
 
+        // The wildcard always routes directly to the VM. The exact apex uses
+        // the standing CDN only when that optional component was constructed;
+        // otherwise it follows the wildcard to the VM's regional static IP.
+        const domainTopology = resolveDomainTopology({
+            enableCdn: args.enableCdn,
+            cdnExists: cdn !== undefined,
+            vmPublicIp: address.address,
+            cdnGlobalIp: cdn?.cdnGlobalIp,
+        });
+        new gcp.dns.RecordSet(`${name}-wildcard`, {
+            managedZone: dnsZone.name,
+            name: pulumi.interpolate`*.${dnsName}`,
+            type: "A",
+            ttl: 300,
+            rrdatas: [domainTopology.wildcardIp],
+        }, { parent: this });
+        new gcp.dns.RecordSet(`${name}-apex`, {
+            managedZone: dnsZone.name,
+            name: dnsName,
+            type: "A",
+            ttl: 300,
+            rrdatas: [domainTopology.apexIp],
+        }, { parent: this });
+
         this.publicIp = address.address;
+        this.apexIp = domainTopology.apexIp;
         this.serviceAccountEmail = sa.email;
         this.dataDiskName = dataDisk.name;
         this.dnsZoneName = dnsZone.name;
@@ -265,6 +283,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
 
         this.registerOutputs({
             publicIp: this.publicIp,
+            apexIp: this.apexIp,
             serviceAccountEmail: this.serviceAccountEmail,
             dataDiskName: this.dataDiskName,
             dnsZoneName: this.dnsZoneName,

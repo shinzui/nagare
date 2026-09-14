@@ -96,10 +96,11 @@ const perimeter = new NagarePerimeter(
     { dependsOn: apiServices },
 );
 
-// Integration Point 1 — the nine exact stack-output names. The exported
+// Integration Point 1 — the stable core stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these
 // without updating the MasterPlan and the consuming plans (EP-3/4/6/7).
 export const publicIp = perimeter.publicIp;
+export const apexIp = perimeter.apexIp;
 export const baseDomain = baseDomainCfg;
 export const instanceName = perimeter.instanceName;
 export const serviceAccountEmail = perimeter.serviceAccountEmail;

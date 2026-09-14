@@ -64,7 +64,7 @@ change implementable and make the supported combinations explicit rather than si
 
 - [x] (2026-09-14T20:01Z) M1: Made one strict, canonical domain model serve `Deployment`, `StaticSite`, and `ServerSite`, with backward-compatible JSON decoding and migration documentation. `nagare-dsl` passed 401 tests, `nagarectl` passed 527 tests, documentation validation passed, Haskell style passed in the Nix shell, and all 33 compatible `nix flake check` checks passed.
 - [x] (2026-09-14T20:12Z) M2: Added fail-closed hostname-ownership preflight, managed metadata, and per-DomainMapping readiness waits to all production deploy paths. Hermetic tests prove conflicts and unreadable ownership perform zero applies while same-owner redeploys proceed; `nagarectl` passed 534 tests, `nagare-dsl` passed 401 tests, all executables built, documentation/style checks passed, and every compatible flake check passed.
-- [ ] M3: Provision the exact base-domain apex record and make the Pulumi origin/CDN DNS target model testable and observable.
+- [x] (2026-09-14T20:28Z) M3: Added a pure, fully truth-tabled apex/wildcard target resolver; two Pulumi-owned RRsets; exported `apexIp`; a TCP Kourier health check; and an executable Pulumi mock proving the distinct records. `npm test`, the `infra-domain-topology` Nix check, documentation/style validation, all 535 `nagarectl` tests, and every compatible flake check passed; the infrastructure guard still refuses zone replacement but permits an apex RRset target update.
 - [ ] M4: Replace computed-only domain inventory with actual DNS, route, and certificate observations, and add a machine-checkable `domains check` command.
 - [ ] M5: Make automatic and supplied-secret origin TLS explicit in the domain model and prove multi-domain certificate behavior locally and in a staging ACME run.
 - [ ] M6: Replace Google CDN's single-host edge certificate with a staged Certificate Manager map covering the apex and first-level base-domain hosts.
@@ -129,6 +129,13 @@ change implementable and make the supported combinations explicit rather than si
   tests passed. Staging the milestone files made the source part of the flake snapshot, after which
   every compatible check passed. This is a packaging validation behavior, not a Haskell dependency
   or module-list problem. Date: 2026-09-14.
+
+- The local Mori corpus has the Pulumi core project and Node SDK, but no registered
+  `pulumi-gcp` provider project. After locating `mori://pulumi/pulumi/packages/@pulumi/pulumi`
+  with Mori, the locked `@pulumi/gcp` 8.41.1 declaration in this repository confirmed that
+  `gcp.compute.HealthCheck` accepts `tcpHealthCheck` with a `port`. The installed Pulumi mock
+  runtime requires waiting for its RPC queue to drain before asserting on all asynchronously
+  registered child resources. Date: 2026-09-14.
 
 
 ## Decision Log
@@ -215,11 +222,21 @@ change implementable and make the supported combinations explicit rather than si
   claim delegates one hostname through `spec.namespace` and that a mapping is namespace-local.
   Date: 2026-09-14
 
+- Decision: Keep DNS selection in a dependency-free generic resolver and treat a requested CDN
+  that was not constructed (for example, before the VM exists) as absent. Fail if a constructed
+  CDN has no global IP.
+  Rationale: `enableCdn` alone does not prove that an edge resource exists. Testing all four flag
+  and existence combinations prevents an apex from receiving the disabled sentinel or an
+  unavailable target, while the explicit impossible-state failure keeps future refactors honest.
+  Date: 2026-09-14
+
 
 ## Outcomes & Retrospective
 
-(No implementation work has begun. At completion, summarize outcomes and distill durable decisions
-into `docs/adr` before marking M7 complete.)
+Implementation is in progress. Milestones 1–3 now provide one strict domain contract, fail-closed
+route ownership, readiness diagnostics, and standing apex DNS with a hermetically tested
+origin/CDN selection policy. At completion, summarize the operator-visible outcomes and distill
+durable decisions into `docs/adr` before marking M7 complete.
 
 
 ## Context and Orientation
@@ -767,3 +784,7 @@ resume from the checked ownership-preflight item.
 Revision note (2026-09-14): Recorded Milestone 2 ownership preflight, diagnostic readiness waits,
 the minimal `nagared` read-only cluster RBAC, hermetic no-apply evidence, and the staged-file Nix
 source discovery. The next unchecked work is exact apex DNS topology.
+
+Revision note (2026-09-14): Recorded Milestone 3 exact apex DNS, the pure topology truth table,
+the Pulumi two-record mock, the TCP origin health invariant, exported `apexIp`, and the additive
+preview-guard contract. The next unchecked work is truthful domain inventory.
