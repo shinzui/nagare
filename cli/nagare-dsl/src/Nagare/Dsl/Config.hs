@@ -400,6 +400,22 @@ cdnJSON c =
 scopeTokensJSON :: ScopedEnvVar -> [Text]
 scopeTokensJSON sev = map (Text.pack . show) (Set.toAscList (sev ^. #scopes))
 
+-- | The shared serialized domain contract used by every web workload kind.
+domainSpecJSON :: DomainSpec -> Value
+domainSpecJSON ds =
+  object
+    [ "domain" .= domainText (ds ^. #domain)
+    , "canonical" .= (ds ^. #canonical)
+    , "tls" .= domainTlsJSON (ds ^. #tls)
+    ]
+  where
+    domainTlsJSON AutomaticTls = object ["mode" .= ("automatic" :: Text)]
+    domainTlsJSON (SuppliedTlsSecret secret) =
+      object
+        [ "mode" .= ("supplied-secret" :: Text)
+        , "secretName" .= secretNameText secret
+        ]
+
 -- | The JSON shape the loader reads back (see 'Nagare.Dsl.Load').
 deploymentJSON :: Deployment -> Value
 deploymentJSON dep =
@@ -428,12 +444,6 @@ deploymentJSON dep =
   where
     resources = dep ^. #resources
     scale = dep ^. #scale
-
-    domainSpecJSON ds =
-      object
-        [ "domain" .= domainText (ds ^. #domain)
-        , "canonical" .= (ds ^. #canonical)
-        ]
 
     healthCheckJSON hc =
       object
@@ -490,7 +500,7 @@ staticSiteJSON site =
     , "namespace" .= namespaceText (site ^. #namespace)
     , "image" .= imageRefText (site ^. #image)
     , "build" .= buildJSON (site ^. #build)
-    , "domains" .= map domainText (site ^. #domains)
+    , "domains" .= map domainSpecJSON (site ^. #domains)
     , "redirects" .= map redirectJSON (site ^. #redirects)
     , "headers" .= map headerJSON (site ^. #headers)
     , "cache" .= cacheJSON (site ^. #cache)
@@ -557,7 +567,7 @@ serverSiteJSON site =
     , "memoryRequest" .= fmap quantityText (resources >>= (^. #memory))
     , "scaleMin" .= fmap (^. #minScale) scale
     , "scaleMax" .= fmap (^. #maxScale) scale
-    , "domains" .= map domainText (site ^. #domains)
+    , "domains" .= map domainSpecJSON (site ^. #domains)
     , "volumes" .= map volumeJSON (site ^. #volumes)
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (site ^. #cdn)

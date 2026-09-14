@@ -19,7 +19,7 @@ import Nagare.Dsl.Load
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)
+import Nagare.Dsl.Types (canonicalDomain, domainText, mkDomains, mkImageRef, mkNamespace)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
@@ -50,7 +50,7 @@ notesSite =
           { command = "npm run build"
           , outputDirectory = unsafe (mkFilePathText "dist")
           }
-    , domains = [unsafe (mkDomain "notes.example.com")]
+    , domains = unsafe (mkDomains [("notes.example.com", True)])
     , redirects = [unsafe (mkRedirectRule "/old" "/new" 301)]
     , headers = [unsafe (mkHeaderRule "/assets/" "X-Frame-Options" "DENY")]
     , cache = unsafe (mkCachePolicy True (Just 3600))
@@ -152,6 +152,10 @@ decodeFailureTests =
       case decodeStaticSite (BC.pack (staticJSON validParts)) of
         Right _ -> pure ()
         other -> assertFailure ("expected Right, got: " <> show other)
+  , testCase "legacy string domains keep the first entry canonical" $
+      case decodeStaticSite (BC.pack legacyDomainsJSON) of
+        Right site -> fmap domainText (canonicalDomain (site ^. #domains)) @?= Just "first.example.com"
+        other -> assertFailure ("expected Right, got: " <> show other)
   , testCase "bad site name returns MarshalError name" $
       assertMarshal "name" (staticJSON (validParts & #pName .~ "Notes"))
   , testCase "absolute output dir returns MarshalError build.outputDirectory" $
@@ -188,6 +192,10 @@ decodeFailureTests =
 deploymentJSON :: String
 deploymentJSON =
   "{\"name\":\"hello\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"port\":8080,\"env\":[]}"
+
+legacyDomainsJSON :: String
+legacyDomainsJSON =
+  "{\"kind\":\"StaticSite\",\"name\":\"notes\",\"namespace\":\"personal\",\"image\":\"gcr.io/foo/bar\",\"build\":{\"kind\":\"NoBuild\",\"directory\":\"dist\"},\"domains\":[\"first.example.com\",\"second.example.com\"],\"redirects\":[],\"headers\":[],\"cache\":{\"immutableAssets\":false,\"defaultMaxAge\":null},\"notFound\":null}"
 
 -- ---------------------------------------------------------------------------
 -- JSON template for the decode tests

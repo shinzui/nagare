@@ -117,7 +117,7 @@ import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
-  , Domain
+  , DomainSpec
   , EnvName
   , EnvScope (..)
   , Namespace
@@ -4732,8 +4732,8 @@ gatherGcpStackRefs pulumiDir tp = do
 
 -- | The custom-domain hostnames of a site (in declaration order) — the hostnames
 -- a CDN fronts.
-siteHostnames :: [Domain] -> [Text]
-siteHostnames = map domainText
+siteHostnames :: [DomainSpec] -> [Text]
+siteHostnames = map (domainText . (^. #domain))
 
 -- | @site releases@: print the recorded release history. Kind-agnostic — works
 -- for both static and server sites (the release record is runtime-agnostic).

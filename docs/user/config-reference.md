@@ -290,15 +290,21 @@ constructing the record directly bypasses the check.
 mkDomain   :: Text -> Either Text Domain
 domainText :: Domain -> Text
 
-data DomainSpec = DomainSpec { domain :: Domain, canonical :: Bool }
+data DomainTls = AutomaticTls | SuppliedTlsSecret SecretName
+data DomainSpec = DomainSpec { domain :: Domain, canonical :: Bool, tls :: DomainTls }
 
 mkDomains       :: [(Text, Bool)] -> Either Text [DomainSpec]
+withTlsSecret   :: SecretName -> DomainSpec -> DomainSpec
 canonicalDomain :: [DomainSpec] -> Maybe Domain
 ```
 
-A `Domain` is non-empty, no spaces, and no URI scheme (`http://`/`https://`). A
-`Deployment` carries a *list* of domains (`domains :: [DomainSpec]`), each paired
-with a `canonical` flag. Build the list with `mkDomains`, passing
+A `Domain` is a normalized lowercase ASCII hostname with at least two RFC 1123
+labels. `mkDomain` removes one terminal dot and rejects wildcards, IP literals,
+Unicode (supply an IDNA A-label instead), duplicate or empty labels, invalid
+hyphens, labels over 63 bytes, and names over 253 bytes. A `Deployment`,
+`StaticSite`, or `ServerSite` carries a *list* of domains
+(`domains :: [DomainSpec]`), each paired with a `canonical` flag and an origin
+TLS policy. Build the list with `mkDomains`, passing
 `(hostname, isCanonical)` pairs:
 
 ```haskell
@@ -310,8 +316,16 @@ mkDomains [("app.example.com", True), ("www.example.com", False)]
 - A **non-empty list** must mark **exactly one** entry `canonical` (`mkDomains`
   rejects zero or two-plus canonicals). The canonical domain is the one
   `nagarectl` prints as the app's URL.
+- `mkDomains` defaults every entry to `AutomaticTls`. Apply `withTlsSecret` to
+  an entry when an existing namespace-local Kubernetes TLS Secret supplies the
+  origin certificate.
 - The renderer emits **one `DomainMapping` per domain**, so every hostname routes
   to the Service.
+
+Static and server configs previously used `[Domain]`. Migrate source configs to
+`mkDomains [(hostname, True)]` (or a multi-entry list with exactly one `True`).
+Already-emitted legacy JSON string arrays remain readable for compatibility;
+their first entry is treated as canonical and all entries use automatic TLS.
 
 > **Redirects are not installed.** Each domain gets a DomainMapping and the
 > canonical one drives the reported URL, but a non-canonical hostname is *not*

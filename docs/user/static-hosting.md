@@ -117,7 +117,7 @@ main = case staticSite of
 | `namespace` | Kubernetes namespace; use `mkNamespace "personal"`. |
 | `image` | Artifact Registry repo for the built image, **no tag** (Nagare appends the tag). |
 | `build` | `NoBuild dir` to serve an existing directory, or `BuildCommand { command, outputDirectory }` to run a build first (e.g. `npm run build` → `dist`). |
-| `domains` | Custom hostnames (`[Domain]`); each becomes a Knative DomainMapping. Empty = the wildcard URL. |
+| `domains` | Custom hostnames (`[DomainSpec]`) built with `mkDomains`; exactly one non-empty entry is canonical and each becomes a Knative DomainMapping. Empty = the wildcard URL. Source configs written as `[Domain]` must migrate to `mkDomains [(host, True)]`; legacy emitted JSON string arrays still load. |
 | `redirects` | `[RedirectRule]`; `mkRedirectRule from to status` with status ∈ {301,302,303,307,308}. |
 | `headers` | `[HeaderRule]`; `mkHeaderRule path name value` adds a response header for matching paths. |
 | `cache` | `mkCachePolicy immutableAssets defaultMaxAge` — long-immutable caching for fingerprinted assets, plus a default `max-age`. |

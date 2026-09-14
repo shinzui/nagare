@@ -12,7 +12,7 @@ import Data.Bifunctor (first)
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
-import Nagare.Dsl.Types (mkDomain, mkImageRef, mkNamespace)
+import Nagare.Dsl.Types (mkDomains, mkImageRef, mkNamespace)
 
 staticSite :: Either String StaticSite
 staticSite = do
@@ -20,7 +20,7 @@ staticSite = do
   ns' <- first show (mkNamespace "personal")
   img' <- first show (mkImageRef "notes")
   outDir <- first show (mkFilePathText "dist")
-  dom' <- first show (mkDomain "notes.example.com")
+  domains' <- first show (mkDomains [("notes.example.com", True)])
   redirect' <- first show (mkRedirectRule "/old" "/new" 301)
   header' <- first show (mkHeaderRule "/assets/" "X-Frame-Options" "DENY")
   cache' <- first show (mkCachePolicy True (Just 3600))
@@ -37,7 +37,7 @@ staticSite = do
       , namespace = ns'
       , image = img'
       , build = BuildCommand {command = "npm run build", outputDirectory = outDir}
-      , domains = [dom']
+      , domains = domains'
       , redirects = [redirect']
       , headers = [header']
       , cache = cache'

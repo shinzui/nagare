@@ -33,7 +33,7 @@ import Nagare.Dsl.Static.Render
   , renderStaticService
   )
 import Nagare.Dsl.Static.Types (StaticSite, siteNameText)
-import Nagare.Dsl.Types (domainText, imageRefText, mkDomain, namespaceText)
+import Nagare.Dsl.Types (canonicalDomain, domainText, imageRefText, mkDomains, namespaceText)
 import Nagare.Env.PreviewOverlay (withPreviewEnvFrom)
 import Nagare.Image (buildImage, configureDockerAuthFor, pushImage, taggedImageRef)
 import Nagare.Static.Build (PreparedStaticOutput, prepareStaticOutput, renderStaticBuildError)
@@ -90,8 +90,8 @@ previewManifests inputs raw = do
       prodName = siteNameText (s ^. #name)
   svcName <- previewServiceName prodName raw
   pdomText <- previewDomain prodName raw (inputs ^. #baseDomain)
-  pd <- mkDomain pdomText
-  let previewSite = s & #domains .~ [pd]
+  previewDomains <- mkDomains [(pdomText, True)]
+  let previewSite = s & #domains .~ previewDomains
       ctx = StaticDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
   Right
     StaticManifests
@@ -185,13 +185,13 @@ recordRelease s tag siteUrl name ns src = do
       writeReleaseLog name ns (addRelease rel logv)
       pure (Right siteUrl)
 
--- | The static site's public URL: the first configured custom domain if any,
+-- | The static site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.
 staticUrl :: StaticSite -> Text -> Text
 staticUrl s baseDomain =
-  case s ^. #domains of
-    (d : _) -> "https://" <> domainText d
-    [] ->
+  case canonicalDomain (s ^. #domains) of
+    Just d -> "https://" <> domainText d
+    Nothing ->
       "https://"
         <> siteNameText (s ^. #name)
         <> "."

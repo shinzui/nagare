@@ -264,9 +264,22 @@ unitTests =
   , testGroup
       "mkDomain"
       [ testCase "accepts hostname" $ assertRight (mkDomain "hello.example.com")
+      , testCase "normalizes uppercase and one terminal dot" $
+          fmap domainText (mkDomain "WWW.Example.COM.") @?= Right "www.example.com"
       , testCase "rejects empty" $ assertLeftContains "empty" (mkDomain "")
       , testCase "rejects space" $ assertLeftContains "space" (mkDomain "my domain.com")
       , testCase "rejects uri scheme" $ assertLeftContains "scheme" (mkDomain "https://foo.com")
+      , testCase "rejects a single label" $ assertLeftContains "two labels" (mkDomain "localhost")
+      , testCase "rejects empty labels" $ assertLeftContains "empty labels" (mkDomain "a..example.com")
+      , testCase "rejects leading hyphens" $ assertLeftContains "start" (mkDomain "-a.example.com")
+      , testCase "rejects trailing hyphens" $ assertLeftContains "end" (mkDomain "a-.example.com")
+      , testCase "rejects wildcards" $ assertLeftContains "wildcard" (mkDomain "*.example.com")
+      , testCase "rejects IPv4 literals" $ assertLeftContains "IPv4" (mkDomain "192.0.2.1")
+      , testCase "rejects IPv6 literals" $ assertLeftContains "IPv6" (mkDomain "2001:db8::1")
+      , testCase "rejects Unicode and names the IDNA remedy" $
+          assertLeftContains "IDNA" (mkDomain "münich.example")
+      , testCase "rejects a 64-byte label" $
+          assertLeftContains "label too long" (mkDomain (Text.replicate 64 "a" <> ".example"))
       ]
   , testGroup
       "mkHealthCheck / httpHealthCheck"
@@ -303,6 +316,10 @@ unitTests =
           assertLeftContains "exactly one" (mkDomains [("a.example.com", True), ("b.example.com", True)])
       , testCase "rejects an invalid hostname" $
           assertLeftContains "space" (mkDomains [("bad host.com", True)])
+      , testCase "rejects duplicates after normalization before canonical count" $
+          assertLeftContains
+            "duplicate domain after normalization"
+            (mkDomains [("A.Example.com.", False), ("a.example.com", False)])
       , testCase "canonicalDomain returns the canonical entry" $
           fmap domainText (canonicalDomain (unsafe (mkDomains [("a.example.com", False), ("b.example.com", True)])))
             @?= Just "b.example.com"
@@ -833,6 +850,15 @@ extendedModelTests =
       assertInfix "/healthz" yaml
   , testCase "renderDomainMappings emits one document per domain" $
       length (renderDomainMappings richDep) @?= 2
+  , testCase "supplied TLS secret is explicit in DomainMapping spec" $ do
+      case unsafe (mkDomains [("secure.example.com", True)]) of
+        [automatic] ->
+          case renderDomainMappings (helloDep & #domains .~ [withTlsSecret (unsafe (mkSecretName "external-tls")) automatic]) of
+            [yaml] -> do
+              assertInfix "tls:" yaml
+              assertInfix "secretName: external-tls" yaml
+            other -> assertFailure ("expected one DomainMapping, got " <> show (length other))
+        other -> assertFailure ("expected one DomainSpec, got " <> show (length other))
   , testCase "a deployment with no new fields renders no probe or limits YAML" $ do
       let yaml = renderService helloDep "20260602-120000"
       assertBool "no readinessProbe" (not ("readinessProbe" `Text.isInfixOf` TE.decodeUtf8 yaml))

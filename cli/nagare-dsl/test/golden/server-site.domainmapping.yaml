@@ -3,6 +3,10 @@ kind: DomainMapping
 metadata:
   name: notes-app.example.com
   namespace: personal
+  labels:
+    nagare.dev/canonical: 'true'
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/service: notes-app
 spec:
   ref:
     apiVersion: serving.knative.dev/v1

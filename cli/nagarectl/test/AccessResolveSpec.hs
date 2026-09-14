@@ -185,7 +185,10 @@ demoDep domains =
     }
 
 domainSpec :: Text -> DomainSpec
-domainSpec host = DomainSpec (unsafe (mkDomain host)) True
+domainSpec host =
+  case unsafe (mkDomains [(host, True)]) of
+    [spec] -> spec
+    _ -> error "mkDomains returned an unexpected number of entries"
 
 personal :: Namespace
 personal = unsafe (mkNamespace "personal")

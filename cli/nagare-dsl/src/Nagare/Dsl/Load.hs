@@ -216,9 +216,22 @@ instance FromJSON JsonBuildSpec where
 -- | One entry of the @domains@ array: a hostname and its canonical marker.
 -- @canonical@ defaults to 'False' when absent (an old single-domain config that
 -- has been migrated, or hand-written JSON).
+data JsonDomainTls = JsonDomainTls
+  { mode :: !Text
+  , secretName :: !(Maybe Text)
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonDomainTls where
+  parseJSON = withObject "DomainTls" $ \o ->
+    JsonDomainTls
+      <$> o .: "mode"
+      <*> o .:? "secretName"
+
 data JsonDomainSpec = JsonDomainSpec
   { domain :: !Text
   , canonical :: !Bool
+  , tls :: !(Maybe JsonDomainTls)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -227,6 +240,50 @@ instance FromJSON JsonDomainSpec where
     JsonDomainSpec
       <$> o .: "domain"
       <*> o .:? "canonical" .!= False
+      <*> o .:? "tls"
+
+data JsonDomainEntry
+  = JsonDomainObject !JsonDomainSpec
+  | JsonDomainString !Text
+  deriving stock (Generic, Eq, Show)
+
+instance FromJSON JsonDomainEntry where
+  parseJSON value =
+    (JsonDomainObject <$> parseJSON value)
+      <|> (JsonDomainString <$> parseJSON value)
+
+-- | Decode either the shared object representation or a complete legacy
+-- string array. Legacy arrays preserve their historical first-entry canonical
+-- behavior; mixed arrays are rejected so their canonical semantics cannot be
+-- ambiguous.
+toDomainSpecs :: Text -> [JsonDomainEntry] -> Either LoadError [DomainSpec]
+toDomainSpecs _ [] = Right []
+toDomainSpecs field entries
+  | Just hosts <- traverse legacyHost entries =
+      first (MarshalError field) $ mkDomains (zipWith (\i host -> (host, i == (0 :: Int))) [0 ..] hosts)
+  | Just specs <- traverse objectSpec entries = do
+      domains' <-
+        first (MarshalError field) $
+          mkDomains [(host, isCanonical) | JsonDomainSpec host isCanonical _ <- specs]
+      traverse applyTls (zip specs domains')
+  | otherwise = Left (MarshalError field "domain entries must be either all strings or all objects")
+  where
+    legacyHost (JsonDomainString host) = Just host
+    legacyHost _ = Nothing
+    objectSpec (JsonDomainObject spec) = Just spec
+    objectSpec _ = Nothing
+
+    applyTls (JsonDomainSpec _ _ Nothing, spec) = Right spec
+    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "automatic" Nothing)), spec) = Right spec
+    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "automatic" (Just _))), _) =
+      Left (MarshalError field "automatic TLS must not name a supplied secret")
+    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "supplied-secret" Nothing)), _) =
+      Left (MarshalError field "supplied-secret TLS requires secretName")
+    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls "supplied-secret" (Just rawSecret))), spec) = do
+      secret <- first (MarshalError field) (mkSecretName rawSecret)
+      Right (withTlsSecret secret spec)
+    applyTls (JsonDomainSpec _ _ (Just (JsonDomainTls unknownMode _)), _) =
+      Left (MarshalError field ("unknown domain TLS mode: " <> unknownMode))
 
 -- | The @healthCheck@ sub-object (see 'Nagare.Dsl.Config'). Every field is
 -- optional so a partial object is reported as a precise 'MarshalError' by
@@ -265,7 +322,7 @@ data JsonDeployment = JsonDeployment
   , namespace :: !Text
   , image :: !Text
   , build :: !(Maybe JsonBuildSpec)
-  , domains :: ![JsonDomainSpec]
+  , domains :: ![JsonDomainEntry]
   , port :: !Int
   , env :: ![JsonEnvEntry]
   , cpuRequest :: !(Maybe Text)
@@ -319,9 +376,7 @@ toDeployment jd = do
   build' <- case jd ^. #build of
     Nothing -> first (MarshalError "build") defaultBuild
     Just jb -> toBuildSpec jb
-  domains' <-
-    first (MarshalError "domains") $
-      mkDomains [(ds ^. #domain, ds ^. #canonical) | ds <- jd ^. #domains]
+  domains' <- toDomainSpecs "domains" (jd ^. #domains)
   port' <- first (MarshalError "port") $ mkPort (jd ^. #port)
   env' <- mapM toEnvEntry (jd ^. #env)
   res' <- toResources jd
@@ -1453,7 +1508,7 @@ data JsonStaticSite = JsonStaticSite
   , namespace :: !Text
   , image :: !Text
   , build :: !JsonStaticBuild
-  , domains :: ![Text]
+  , domains :: ![JsonDomainEntry]
   , redirects :: ![JsonRedirect]
   , headers :: ![JsonHeader]
   , cache :: !JsonCache
@@ -1485,7 +1540,7 @@ toStaticSite j = do
   ns' <- first (MarshalError "namespace") $ mkNamespace (j ^. #namespace)
   img' <- first (MarshalError "image") $ mkImageRef (j ^. #image)
   build' <- toStaticBuild (j ^. #build)
-  domains' <- traverse (first (MarshalError "domain") . mkDomain) (j ^. #domains)
+  domains' <- toDomainSpecs "domains" (j ^. #domains)
   redirects' <- traverse toRedirect (j ^. #redirects)
   headers' <- traverse toHeader (j ^. #headers)
   cache' <-
@@ -1699,7 +1754,7 @@ data JsonServerSite = JsonServerSite
   , memoryRequest :: !(Maybe Text)
   , scaleMin :: !(Maybe Int)
   , scaleMax :: !(Maybe Int)
-  , domains :: ![Text]
+  , domains :: ![JsonDomainEntry]
   , volumes :: ![JsonVolume]
   , cdn :: !(Maybe JsonCdn)
   }
@@ -1740,7 +1795,7 @@ toServerSite j = do
     (Nothing, Nothing) -> Right Nothing
     (Just mn, Just mx) -> fmap Just . first (MarshalError "scale") $ mkScale mn mx
     _ -> Left (MarshalError "scale" "scaleMin and scaleMax must both be present or both absent")
-  domains' <- traverse (first (MarshalError "domain") . mkDomain) (j ^. #domains)
+  domains' <- toDomainSpecs "domains" (j ^. #domains)
   vols' <- toVolumes (j ^. #volumes)
   cdn' <- traverse toCdn (j ^. #cdn)
   Right
