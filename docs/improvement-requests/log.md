@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-09-14
+* **Update**: Complete IR-9. The context guard now distinguishes a missing Pulumi executable, command failures with stderr, invalid output, and a genuinely absent project; every refusal names its stack/backend, and hermetic human/JSON command checks cover the missing-tool and fake-Pulumi outcomes. Decision amended in ADR 9.
 * **Add**: Record IR-17 through IR-21 as proposed, from booting the tan-ng-labs host and cluster on v0.2.2: host-image builds on a workstation remote builder whose proxy can start a VM in another GCP project (IR-17); the host age key has no delivery path before a GCE first boot (IR-18); the first-boot data-disk mkfs races systemd-fsck and leaves k3s failed until a reboot (IR-19); no command fetches a per-context kubeconfig, and the documented steps address nagare-01 on a multi-cluster tailnet (IR-20); and cluster-bootstrap patches Knative ConfigMaps before the Knative webhook is ready (IR-21).
 * **Update**: Accept IR-9 and record its target plan: docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md.
 * **Update**: Accept IR-14 and record its target plan: docs/plans/130-give-every-context-a-distinct-default-host-name.md.

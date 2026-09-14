@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Context guard diagnostics (IR-9).** `nagarectl context guard` now distinguishes a missing
+  Pulumi executable, a failed command with captured stderr, invalid JSON, and a genuinely absent
+  `gcp:project`; every refusal names the selected stack/backend, and `--json` failures are standalone
+  parseable objects.
+
 ## [0.2.2] - 2026-09-13
 
 - **Host initialization (IR-13).** Generated host modules once again set the declared

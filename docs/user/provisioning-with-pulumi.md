@@ -145,10 +145,11 @@ When it accepts you see one line before Pulumi's output:
 context guard: labs confined to project acme-prod (stack labs)
 ```
 
-When it refuses, the recipe stops with no Pulumi output at all:
+When it refuses, the recipe stops before preview or apply. Every refusal names the selected stack
+and resolved backend:
 
 ```text
-refusing to run: Pulumi stack 'labs' targets project 'some-other-project', not the active context's project 'acme-prod'.
+refusing to run: Pulumi stack 'labs' at backend 'file://.../state' targets project 'some-other-project', not the active context's project 'acme-prod'.
 fix: re-project the stack config with 'nagarectl context use labs', or select the context that owns 'some-other-project'.
 ```
 
@@ -161,6 +162,19 @@ context that owns the project the stack names. If the message instead names the 
 `gcloud config set project <project>`; your local `gcloud` pointing somewhere else is fine
 as long as nothing exports it into this shell. A `mode=local` context prints
 `context guard: local mode; no GCP project to confine` and proceeds.
+
+An unknown stack project does not always mean an absent key. If `pulumi` is missing, the guard says
+it was not found and points to `nagarectl version --tools` and the operator package. If Pulumi exits
+non-zero, the refusal includes its exit status and stderr; inspect the exact stack/backend
+environment with `nagarectl context env` and fix that backend, authentication, or state error. Only
+a successful config listing without `gcp:project` recommends `nagarectl context use <name>`. Invalid
+JSON or a malformed config entry is reported as invalid output, and every case remains fail-closed.
+
+For automation, `nagarectl context guard --json` writes one failure object to stderr and nothing to
+stdout. The object keeps nullable `observations.stackProject`, adds the resolved
+`observations.pulumiBackendUrl`, and describes the probe through
+`observations.stackProjectProbe.status` plus applicable `project`, `exitCode`, `stderr`, or `error`
+details.
 
 See [Target contexts](contexts.md) for the full command reference, and
 [GCP prerequisites](gcp-prerequisites.md) for everything else that keeps Nagare inside your
