@@ -106,7 +106,7 @@ nix run "${TARGET_NAGARE}#nagarectl" -- platform upgrade status "$transaction_id
 ```
 
 Review the immutable workspace and staged host-flake paths, Nix evaluation,
-Pulumi preview, and Kubernetes diff recorded in the transaction. Back up any
+Pulumi review bundle, and Kubernetes diff recorded in the transaction. Back up any
 stateful workloads when the release notes call for a migration. Apply only the
 reviewed transaction:
 
@@ -116,11 +116,13 @@ nix run "${TARGET_NAGARE}#nagarectl" -- \
 nix run "${TARGET_NAGARE}#nagarectl" -- platform status
 ```
 
-Both Pulumi phases run `nagarectl context guard` and the protected-resource
-replacement check from `nagarectl infra guard` (since 0.2.1). A plan that would
-replace the GCE instance, the Cloud DNS zone, or a bucket fails the phase and
-leaves the transaction resumable; set `NAGARE_ALLOW_VM_REPLACEMENT=1` for the
-apply only after reviewing a deliberate rebuild. Do not run `platform upgrade`
+The Pulumi preview phase runs the project and protected-resource guards and stores a private
+context-bound plan bundle inside the transaction directory. Pulumi apply reruns the guards, verifies
+the exact retained bundle against the current context, project, stack, backend, payload, program,
+config, and Pulumi version, and passes it to `pulumi up --plan --yes --non-interactive` without a
+second preview. A plan that would replace the GCE instance, the Cloud DNS zone, or a bucket fails
+the phase; set `NAGARE_ALLOW_VM_REPLACEMENT=1` for both planning and apply only after reviewing a
+deliberate rebuild. Do not run `platform upgrade`
 with Nagare 0.2.0 on a real cloud context: its Pulumi phases ran without the
 context's stack config and applied without a guarded preview.
 
@@ -136,7 +138,10 @@ nix run "${TARGET_NAGARE}#nagarectl" -- \
 ```
 
 Resume rechecks successful phases and reruns convergent operations whose
-postcondition cannot be proven. Reapplying a completed transaction is a no-op.
+postcondition cannot be proven. The Pulumi plan is never recomputed during resume: changed inputs
+make it stale and require a newly planned transaction. A cloud update remains constrained by the
+reviewed plan, not atomic; after partial failure, inspect the stack before retrying the unchanged
+transaction. Reapplying a completed transaction is a no-op.
 Each context has separate history and immutable workspaces under its XDG state
 directory.
 
@@ -197,8 +202,9 @@ replacement, and boot it:
 
 ```bash
 just host-image
-pulumi -C infra/pulumi preview
-pulumi -C infra/pulumi up
+plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/host-refresh"
+nagare infra-preview --save-plan "$plan_dir" --allow-replacement
+nagare infra-up --plan "$plan_dir" --yes --allow-replacement
 ```
 
 A kernel or systemd upgrade is present in the switched closure, but the running

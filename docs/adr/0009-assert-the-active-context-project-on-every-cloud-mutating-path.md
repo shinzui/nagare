@@ -8,6 +8,7 @@ related:
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
   - docs/plans/129-make-context-guard-diagnose-pulumi-project-probe-failures.md
   - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
+  - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
 ---
@@ -212,3 +213,22 @@ A known principal different from gcloud's active account, or a credential kind w
 cannot be recovered, is visible as a warning rather than treated as proof of a resource-project
 mismatch. Changing Nagare or gcloud contexts does not switch ADC, so operators must deliberately
 set its quota project for the selected context.
+
+## Amendment — 2026-09-14: the image builder belongs to the context
+
+[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md) extends
+project confinement through the remote execution selected by `host-image`. An entry-point project
+guard cannot protect a plain `nix build`: ambient `/etc/nix/machines` and workstation SSH config can
+route the build to a VM in another project, starting and billing it without any Nagare gcloud call.
+
+The context's project and zone are therefore the builder defaults, with instance
+`nix-builder-x86`. Host-image renders a private per-context SSH config and builders specification,
+prints their effective URI/project/zone/instance, and passes that builders value explicitly to Nix.
+The packaged ProxyCommand receives project, zone, and instance as positional values and supplies all
+three to every gcloud operation. It never consults ambient Nix builder configuration.
+
+A shared builder remains possible only as a two-part deliberate exception: select a known different
+`NAGARE_BUILDER_PROJECT` and pass `--allow-shared-builder PROJECT` naming the exact same project.
+A mismatch or missing acknowledgement refuses before Nix or gcloud. This exception is visible in
+dry-run and real-build output; it does not weaken the target project's guards around image upload,
+registration, or Pulumi configuration.

@@ -194,7 +194,10 @@ states only *that* and *when*.
 ## Step 5 — Provision the cloud perimeter (first `nagare infra-up`)  🟡  *(EP-2)*
 
 ```bash
-nagare infra-up
+plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/perimeter"
+nagare infra-preview --save-plan "$plan_dir"
+jq . "$plan_dir/review.json"
+nagare infra-up --plan "$plan_dir" --yes
 ```
 
 The first apply creates everything **except the VM**, because
@@ -232,15 +235,21 @@ a first-deploy surprise.)
 ## Step 8 — Build + register the NixOS image, then boot the VM  🟡  *(EP-3)*
 
 ```bash
+nagare host-image --dry-run
 nagare host-image      # builds on the on-demand x86_64-linux Nix builder, uploads to
                        # $NAGARE_IMAGE_BUCKET, registers the GCE image, and writes
                        # nagare:nagareImageSelfLink into Pulumi config
-nagare infra-up        # re-run: the VM is created now that the self-link is set
+vm_plan="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/first-vm"
+nagare infra-preview --save-plan "$vm_plan"
+jq . "$vm_plan/review.json"
+nagare infra-up --plan "$vm_plan" --yes
 ```
 
 See [host image and boot](host-image-and-boot.md). `nagareImageSelfLink` embeds the
 project, so it is target-specific and regenerated per target — never carried from another
-project.
+project. Dry-run must show this context's project as the builder project. A deliberate shared
+builder in another project requires the matching `--allow-shared-builder PROJECT` acknowledgement;
+otherwise the build refuses before starting a VM.
 
 ## Step 9 — Get on the host, confirm the node is Ready  🟡  *(EP-3, verified live)*
 

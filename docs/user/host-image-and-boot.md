@@ -114,14 +114,15 @@ Confirm the selected host before building, then run the pipeline:
 
 ```bash
 nagarectl host path
-scripts/upload-images.sh --dry-run
+nagare host-image --dry-run
 nagare host-image      # runs scripts/upload-images.sh
 ```
 
 `scripts/upload-images.sh` (the details are owned by the script):
 
-1. Ensures an x86_64-linux Nix builder is available
-   (`scripts/setup-nix-builder.sh` provisions an on-demand one if needed).
+1. Renders a private per-context SSH route and explicit Nix builders specification, then uses the
+   context's project, zone, and `nix-builder-x86` instance
+   (`scripts/setup-nix-builder.sh` provisions that on-demand VM if needed).
 2. Resolves the active context's generated flake (or an explicit `NAGARE_HOST_FLAKE`) and builds
    `.#packages.x86_64-linux.nagare-image` on it.
 3. Uploads the resulting `*.raw.tar.gz` to the active context's
@@ -129,16 +130,36 @@ nagare host-image      # runs scripts/upload-images.sh
 4. Registers it as a GCE image (`gcloud compute images create --source-uri …`).
 5. Writes the image self-link into Pulumi config key `nagareImageSelfLink`.
 
-The remote builder is on-demand and costs money while it runs. The
-`setup-nix-builder.sh` / `nix-builder-startup.sh.tpl` scripts manage its
-lifecycle; tear it down when you're done iterating on the image.
+Dry-run and the real build print the local and target systems, builder URI, project, zone, instance,
+and shared-project status. The generated SSH config and builders file live under
+`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/nix-builder/` with directory mode `0700` and
+file mode `0600`. `nix build` receives that builders value explicitly; ambient
+`/etc/nix/machines` cannot select another VM.
+
+The remote builder is on-demand and costs money while it runs. The shipped
+`nagare-nix-builder-proxy` starts exactly the displayed GCP instance and opens its IAP tunnel; every
+gcloud call carries the displayed project and zone. To use a deliberate shared builder in another
+project, both select it and acknowledge that exact project:
+
+```bash
+NAGARE_BUILDER_PROJECT=shared-build-project \
+  nagare host-image --allow-shared-builder shared-build-project --dry-run
+NAGARE_BUILDER_PROJECT=shared-build-project \
+  nagare host-image --allow-shared-builder shared-build-project
+```
+
+A foreign builder project without the matching flag refuses before Nix or gcloud. The
+`setup-nix-builder.sh` / `nix-builder-startup.sh.tpl` scripts manage the builder lifecycle; tear it
+down when you're done iterating on the image.
 
 ## Boot the VM
 
 With `nagareImageSelfLink` now set, declare and create the VM:
 
 ```bash
-nagare infra-up        # pulumi up — now includes the nagare-01 instance
+plan_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/reviews/first-vm"
+nagare infra-preview --save-plan "$plan_dir"
+nagare infra-up --plan "$plan_dir" --yes
 ```
 
 Pulumi creates `nagare-01` from the image, attaches the static IP and the

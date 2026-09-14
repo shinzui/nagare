@@ -5,6 +5,13 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Reviewed infrastructure apply (IR-15).** `infra preview --save-plan` now creates a private
+  context-bound Pulumi plan, redacted review, and binding metadata; `infra apply --plan --yes`
+  verifies and applies that exact plan without a second preview or TTY. Upgrades retain the same
+  bundle across resume, and guarded `infra destroy --yes` owns deliberate teardown.
+- **Context-owned image builders (IR-17).** Host-image prints and explicitly selects a private
+  per-context Nix builder route. The shipped IAP proxy receives project, zone, and instance as
+  parameters; foreign-project builders refuse unless the command acknowledges that exact project.
 - **ADC project confinement (IR-12).** Initialization and every cloud context guard now inspect the
   Application Default Credentials file Pulumi uses before its first invocation. A foreign quota
   project refuses with the exact repair command; missing, malformed, or unreadable credentials

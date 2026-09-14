@@ -84,6 +84,12 @@ Fetched Kubernetes credentials live at `kubeconfigs/<context>.yaml` by default. 
 mode-`0600` file names its cluster, user, and current context after the Nagare context and points at
 that context's generated host name. It is operator state, not part of the immutable workspace.
 
+Reviewed infrastructure plans are operator-confidential directories chosen with
+`infra preview --save-plan`; each contains `pulumi-plan.json`, `review.json`, and `metadata.json`.
+Per-context builder routing lives at
+`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/nix-builder/{ssh_config,builders}`. Both use a
+private mode-`0700` directory and mode-`0600` files.
+
 | Platform command | Does |
 | --- | --- |
 | `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |
@@ -121,6 +127,9 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_BOOT_DISK_SIZE_GB` | `100` | boot-disk size in GB; growth is in place, filesystem growth is separate |
 | `NAGARE_DATA_DISK_SIZE_GB` | `100` | protected data-disk size in GB; growth only |
 | `NAGARE_TARGET_PLATFORM` | `linux/amd64` | Docker/Nixpacks build platform for cloud node images |
+| `NAGARE_BUILDER_PROJECT` | target project | GCP project of the context's x86_64 Nix builder; a different value also requires `--allow-shared-builder PROJECT`. |
+| `NAGARE_BUILDER_ZONE` | target zone | GCE zone of the Nix builder. |
+| `NAGARE_BUILDER_INSTANCE` | `nix-builder-x86` | GCE instance selected by the context-owned builder proxy. |
 | `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
 | `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
 | `NAGARE_PLATFORM_VERSION` | current payload for new contexts | explicit per-context release intent; absent means legacy/unadopted. |
@@ -154,7 +163,10 @@ contacts Let's Encrypt, and `just local-bootstrap` installs no `ClusterIssuer`.
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
 | `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--machine-type`, `--boot-disk-type`, `--boot-disk-size-gb`, `--data-disk-size-gb`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--instance-name`, `--target-platform`, `--mode`, `--local-object-store`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL), `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. Both ACME flags are optional here (unlike `nagarectl init`) because this command also writes local contexts. With `--force` on an existing context, only the passed flags change; every other field and the platform pin are kept. |
 | `nagarectl context delete NAME --yes` | Delete a context. If it was current, clear the pointer. |
-| `nagarectl infra guard [--allow-replacement]` | Preview the active Pulumi stack and refuse if the plan replaces the GCE instance, the Cloud DNS zone, or a bucket. `infra-up` and `platform upgrade` run it automatically. |
+| `nagarectl infra guard [--allow-replacement]` | Compatibility guard that previews and classifies protected replacements. New apply workflows use the saved-plan commands below. |
+| `nagarectl infra preview --save-plan DIR [--allow-replacement]` | Guard, save, classify, and bind one Pulumi preview as a private immutable bundle. |
+| `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Re-run guards, verify the bundle and current bindings, then apply exactly its Pulumi plan without a TTY. |
+| `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards immediately before deliberate selected-stack teardown. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
@@ -169,10 +181,11 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | Recipe | Does | Plan |
 | --- | --- | --- |
 | `just` / `just default` | List all recipes | — |
-| `just infra-preview` | `pulumi preview` the cloud perimeter | EP-2 |
-| `just infra-up` | `pulumi up` the cloud perimeter | EP-2 |
+| `just infra-preview --save-plan DIR` | Save and classify one guarded cloud-perimeter plan | MP-22 EP-136 |
+| `just infra-up --plan DIR --yes` | Verify and non-interactively apply the exact reviewed plan | MP-22 EP-136 |
+| `just infra-destroy --yes` | Guard and deliberately destroy the selected Pulumi stack | MP-22 EP-136 |
 | `just vm-stop` / `just vm-start` | Stop or start the context-selected VM without changing disks or the static IP | MP-8 |
-| `just host-image` | Build + upload + register the NixOS GCE image (`scripts/upload-images.sh`) | EP-3 |
+| `just host-image [--dry-run] [--allow-shared-builder PROJECT]` | Build + upload + register the NixOS GCE image with an explicit context-owned builder (`scripts/upload-images.sh`) | MP-22 EP-136 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
 | `just host-switch` | Apply the active context's generated NixOS configuration | MP-20 EP-107 |
 | `just cluster-bootstrap` | Guard the selected cluster, then apply cert-manager, Knative, Kourier, config-domain | EP-4 ✅ / MP-22 EP-134 |
@@ -279,7 +292,8 @@ it. Only Traefik is disabled.
 | `lib/target.sh` | Sourced helper: resolves the active context, sets `TARGET_PROJECT`/`REGION`/`ZONE`, exports `NAGARE_REGISTRY_PREFIX`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
 | `lib/host.sh` | Resolve and validate `NAGARE_HOST_FLAKE`, defaulting to `nagarectl host path` for the active context. |
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
-| `upload-images.sh` | Build the NixOS image on the remote builder, upload to GCS, register as a GCE image, write `nagareImageSelfLink`. |
+| `upload-images.sh` | Render an explicit per-context builder, build the NixOS image, upload to GCS, register it, and write `nagareImageSelfLink`. |
+| `nix-builder-proxy.sh` | Packaged as `nagare-nix-builder-proxy`; start one positional project/zone/instance and proxy SSH through an IAP local tunnel. |
 | `host-switch.sh` | Apply the active generated host flake over SSH; `--dry-run` prints the exact command. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |

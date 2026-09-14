@@ -319,28 +319,21 @@ pulumi -C infra/pulumi config get nagareImageSelfLink
 ```
 
 A `pulumi up` that recreates the instance boots that image, then the platform is
-re-bootstrapped with steps 4–8 above. The ordinary `infra-up` path refuses an
-instance replacement, so explicitly allow this one deliberate rebuild after
-reviewing the preview:
-
-```bash
-pulumi -C infra/pulumi config set nagare:vmDeletionProtection false
-just infra-up
-just infra-preview
-NAGARE_ALLOW_VM_REPLACEMENT=1 nagare infra-up
-pulumi -C infra/pulumi config set nagare:vmDeletionProtection true
-just infra-up
-```
+re-bootstrapped with steps 4–8 above. The ordinary reviewed-plan path refuses an instance
+replacement, so follow the three-bundle
+[deliberate VM rebuild procedure](../user/provisioning-with-pulumi.md#review-replacements-and-protected-resources).
 
 **Full teardown (stop all charges).**
 
 ```bash
-cd infra/pulumi && pulumi destroy
+nagare infra-destroy --yes
 ```
 
-This deletes the VM, disks, IP, DNS zone, and buckets' contents per the stack.
-Rebuild from scratch with this runbook from step 1. The age private key, Git, and
-the GCS backup bucket contents are what make that rebuild possible.
+This reruns the platform, ADC, and selected-project guards immediately before Pulumi. Protected
+resources and GCE deletion protection refuse until you deliberately remove those protections; the
+command never infers teardown from a failed apply. Rebuild from scratch with this runbook from step
+1. The age private key, Git, and any deliberately retained backup objects are what make that rebuild
+possible.
 
 ## Notes on idempotence
 
