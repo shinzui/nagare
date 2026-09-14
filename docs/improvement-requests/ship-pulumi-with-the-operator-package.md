@@ -2,12 +2,13 @@
 type: Improvement Request
 title: Ship Pulumi with the operator package and make init fail before it changes anything
 description: The clone-free nagare package has no pulumi binary and no documented prerequisite, so init crashes after enabling APIs and creating the state bucket, and its recovery hints point the wrong way.
-timestamp: "2026-09-13T23:42:08Z"
+timestamp: "2026-09-14T00:12:08Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-8
-status: proposed
+status: accepted
+targetPlan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +18,7 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted; planned for 0.2.2 as [ExecPlan 128](../plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md).
 **Created:** 2026-09-13.
 
 

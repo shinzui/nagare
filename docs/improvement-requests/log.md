@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-14
+* **Update**: Accept IR-13, IR-7 and IR-8 for Nagare 0.2.2 and record their target plan: docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md. IR-13's fix is already in 3a107d3.
+
 ## 2026-09-13
 * **Add**: Record IR-13 and IR-14 as proposed, from the tan-ng-labs rollout on v0.2.1: host init renders nagare.host.name, which the module does not declare, so no new host flake can be generated since a8918f9 (IR-13); and the default host name is the per-project-fixed instance name, so a second cluster collides on the tailnet (IR-14).
 * **Add**: Record IR-7 through IR-12 as proposed, from the tan-ng-labs rollout on v0.2.1: init inherits derived fields from the active context (IR-7); the operator package ships no pulumi and init fails after side effects with misleading recovery hints (IR-8); the context guard misreports a missing pulumi as an unprojected stack (IR-9); the package's lib/links collides with home-manager on install (IR-10); the docs still call a boot-disk size change in-place (IR-11); and no check covers the ADC account or quota project (IR-12).
