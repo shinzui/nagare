@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-14T16:26:57Z
       mode: "implement"
       note: "Started EP-5 TLS issuer and namespace policy implementation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T22:24:16Z
+      mode: "implement"
+      note: "Repair pure-Linux importer fixture portability for the 0.3.0 release gate"
 ---
 
 # Keep bootstrap TLS issuance within intended names
@@ -52,6 +57,9 @@ This section must always reflect the actual current state of the work.
   the repository-owned patch and payload-bundled controller image.
 - [x] (2026-09-14T17:49:14Z) Reconcile bootstrap ordering, update docs/ADR, complete both IRs,
   append bundle logs, and pass focused plus aggregate gates.
+- [x] (2026-09-14T22:23:30Z) Repair the importer fixture's pure-Nix Linux execution by invoking
+  the repository script through the check's Bash and giving generated fake executables exact Bash
+  store-path shebangs; the focused Nix derivation and standalone fixture pass.
 
 
 ## Surprises & Discoveries
@@ -108,6 +116,14 @@ implementation. Provide concise evidence.
   selected `letsencrypt-dns`; no unlabeled namespace received a public wildcard; and
   `nagarectl cluster certificate-policy` exited zero. The deterministic self-signed public-issuer
   fixture left the ACME Order inventory empty. The disposable cluster was removed.
+
+- Observation: macOS could execute the importer fixture's generated `#!/usr/bin/env bash` files,
+  but a pure Linux Nix builder has no `/usr/bin/env` and rejected the repository installer before
+  exercising its assertions.
+  Evidence: GitHub CI job `104171043596` failed
+  `net-certmanager-controller-install` with `bad interpreter: No such file or directory`. The
+  fixture now invokes the repository installer through the check-provided Bash and renders exact
+  Bash store paths into only its generated fakes; the same derivation passes locally.
 
 
 ## Decision Log
@@ -192,6 +208,11 @@ release boundary. Reader documentation and ADR 10 now record the public-name and
 policy. IR-22 and IR-23 are complete. All 520 Haskell tests, strict user/review/guide and
 23-concept improvement-request validation, every buildable native flake check, the native Linux
 upstream regression, and the fresh disposable-cluster proof pass.
+
+The 0.3.0 release audit found and repaired one portability gap in the hermetic importer fixture:
+pure Linux builders do not provide `/usr/bin/env`. This changed test execution only, not the shipped
+installer or controller payload. The focused Nix check and direct fixture both pass after pinning
+their interpreter to the Bash already supplied by the check.
 
 
 ## Context and Orientation
@@ -377,3 +398,6 @@ fresh disposable-cluster acceptance now pass; final bundle updates and aggregate
 Revision note (2026-09-14): Completed EP-5, IR-22, and IR-23 after all 520 Haskell tests, strict
 documentation and IR validation, the native flake gate, native upstream regression, and exact
 payload archive disposable-cluster proof passed. ADR 10 owns the durable certificate boundary.
+
+Revision note (2026-09-14): Recorded and repaired the 0.3.0 release CI portability failure in the
+net-certmanager importer fixture; the shipped installer contract is unchanged.

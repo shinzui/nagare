@@ -51,6 +51,11 @@ provenance:
       at: 2026-09-14T19:28:34Z
       mode: "implement"
       note: "Audited the live runner and reconciled installed-workspace and TLS acceptance steps"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T22:24:16Z
+      mode: "implement"
+      note: "Record the EP-5 release-gate portability repair"
 ---
 
 # Reliable first-cluster bootstrap on GCP
@@ -261,6 +266,11 @@ interactions between child plans. Provide concise evidence.
   context. With UID/GID 65532 declared, the exact bundled Linux/amd64 archive rolled out on a fresh
   arm64 k3d cluster and produced the intended three-role certificate inventory.
 
+- The 0.3.0 release audit exposed a test-only Linux portability boundary in EP-5: its importer
+  fixture executed generated `#!/usr/bin/env bash` files directly, while a pure Nix Linux builder
+  has no `/usr/bin/env`. The fixture now pins those generated interpreters to the check-provided
+  Bash store path and invokes the repository installer through Bash; the focused derivation passes.
+
 - EP-4's final composition exposed that the NixOS VM harness replaces `fileSystems`, even when the
   real host module is imported. Restoring the evaluated shipped data mount in ExecPlan 133's
   existing VM check produced the missing cross-plan evidence: the blank disk and k3s became Ready
@@ -375,6 +385,8 @@ used `letsencrypt-dns`, no unlabeled namespace received a public wildcard, and t
 fixture produced zero ACME Orders. IR-22 and IR-23 are complete; ADR 10 records the durable security
 and patch-lifecycle boundaries. All 520 Haskell tests, strict documentation/IR validation, the
 native Linux upstream regression, and all 29 buildable native flake checks pass.
+The 0.3.0 audit additionally repaired the importer fixture's pure-Linux interpreter boundary without
+changing the shipped payload behavior.
 
 EP-6's repository-owned work is complete, but the child remains In Progress at its explicit cloud
 boundary. The packaged hermetic state machine proves the public command order, all eight focused
@@ -433,3 +445,6 @@ external completion prerequisites are satisfied.
 Revision note (2026-09-14): Completed EP-6's hermetic state machine, canonical onboarding rewrite,
 boot-disk help/docs regression, IR-11 closure, and repository gates. The child and initiative remain
 In Progress pending the explicitly authorized disposable-project rehearsal and cleanup evidence.
+
+Revision note (2026-09-14): The 0.3.0 release audit repaired EP-5's pure-Linux importer-fixture
+interpreter failure; focused validation passes and the shipped controller behavior is unchanged.
