@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Check the Application Default Credentials account and quota project against the context
 description: Pulumi authenticates with ADC, whose quota project can name a different, even production, project; neither init's preflight nor the context guard looks at ADC at all.
-timestamp: "2026-09-13T23:42:08Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-12
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 135](../plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md).
 **Created:** 2026-09-13.
 
 

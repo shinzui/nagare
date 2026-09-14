@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Make host-image show, and confine, the GCP project its Nix remote builder runs in
 description: nagare host-image passes every project guard, but the image is built by the workstation's Nix remote builder, whose SSH proxy can start and use a VM in a different GCP project that no nagare guard can see.
-timestamp: "2026-09-14T02:40:00Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-17
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 136](../plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md).
 **Created:** 2026-09-14.
 
 

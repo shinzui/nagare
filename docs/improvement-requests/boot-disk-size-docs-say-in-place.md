@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Correct the docs that call a boot-disk size change in-place growth
 description: provisioning-with-pulumi.md and reference.md still say NAGARE_BOOT_DISK_SIZE_GB grows in place, but a recorded preview shows the change replaces the instance and its k3s state.
-timestamp: "2026-09-13T23:42:08Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-11
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 139](../plans/139-prove-and-document-one-pass-gcp-cluster-onboarding.md).
 **Created:** 2026-09-13.
 
 

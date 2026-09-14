@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Keep lib/links out of the installed nagare package so it installs beside other Nix profiles
 description: The nagare and nagarectl packages expose the Darwin GHC lib/links dylib directory, which collides with home-manager and other profile entries on nix profile install.
-timestamp: "2026-09-13T23:42:08Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-13T23:42:08Z"
 requestId: IR-10
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md).
 **Created:** 2026-09-13.
 
 

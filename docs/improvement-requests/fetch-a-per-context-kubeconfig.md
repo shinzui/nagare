@@ -2,12 +2,14 @@
 type: Improvement Request
 title: Add a command that fetches a per-context kubeconfig addressed to that context's host
 description: The documented kubeconfig steps hard-code nagare-01, which on a multi-cluster tailnet is another cluster, leave the context named default, and depend on iap-ssh.sh, which the launcher does not expose and whose socat the operator package does not ship.
-timestamp: "2026-09-14T02:40:00Z"
+timestamp: "2026-09-14T04:26:09Z"
 generated:
   by: process:claude-code
   at: "2026-09-14T02:40:00Z"
 requestId: IR-20
-status: proposed
+status: accepted
+acceptedAt: "2026-09-14T04:26:09Z"
+targetPlan: docs/plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md
 origin: mori://shinzui/nagare
 ---
 
@@ -17,7 +19,8 @@ origin: mori://shinzui/nagare
 (`mori://tan/tan-infrastructure`, `docs/plans/2026-06-30-nagare-labs-domain-delegation.md`; the
 artifact-level plan URI is pending).
 **Addressed to:** `shinzui/nagare` agents.
-**Status:** proposed.
+**Status:** accepted for implementation by
+[ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md).
 **Created:** 2026-09-14.
 
 
