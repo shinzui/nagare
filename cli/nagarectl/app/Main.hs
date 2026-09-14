@@ -2814,17 +2814,23 @@ runHost globalContext = \case
         TIO.putStrLn (verb <> " host configuration for context '" <> contextNameText (active ^. #contextName) <> "' at " <> T.pack root)
 
 ensurePulumiForContext :: ContextName -> TargetProfile -> IO PlatformWorkspace
-ensurePulumiForContext name tp = do
+ensurePulumiForContext = ensurePulumiForContextWithInstallNotice True
+
+ensurePulumiForContextWithInstallNotice :: Bool -> ContextName -> TargetProfile -> IO PlatformWorkspace
+ensurePulumiForContextWithInstallNotice announceInstall name tp = do
   (paths, workspace) <- resolvePlatformWorkspace name
   -- EP-121: a source checkout's own `just` recipes run Pulumi in its infra/pulumi,
   -- so it must read the same context-owned stack config as the workspace.
   when (paths ^. #rootSource == SourceRoot) $
     linkContextStackConfig name (paths ^. #pulumiDir) >>= either dieT (const (pure ()))
-  ensurePulumiInWorkspace name tp workspace
+  ensurePulumiInWorkspaceWithInstallNotice announceInstall name tp workspace
   pure workspace
 
 ensurePulumiInWorkspace :: ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
-ensurePulumiInWorkspace name tp workspace = do
+ensurePulumiInWorkspace = ensurePulumiInWorkspaceWithInstallNotice True
+
+ensurePulumiInWorkspaceWithInstallNotice :: Bool -> ContextName -> TargetProfile -> PlatformWorkspace -> IO ()
+ensurePulumiInWorkspaceWithInstallNotice announceInstall name tp workspace = do
   stateRoot <- nagareStateDir
   let penv = pulumiEnvFor stateRoot (contextNameText name) tp
       stack = penv ^. #stack
@@ -2832,7 +2838,7 @@ ensurePulumiInWorkspace name tp workspace = do
   -- EP-121: payload workspaces exclude every Pulumi.<stack>.yaml, so link the
   -- context-owned stack config in before Pulumi reads or writes it.
   linkContextStackConfig name pulumiDir >>= either dieT (const (pure ()))
-  ensurePulumiProgramDependencies pulumiDir
+  ensurePulumiProgramDependencies announceInstall pulumiDir
   createDirectoryIfMissing True (penv ^. #home)
   -- Only a local (@file://@) backend has a state directory to create; a GCS
   -- backend URL is @gs://…@ and must never be treated as a local path.
@@ -2876,12 +2882,13 @@ bootstrapGcsIfNeeded dryRun ctx tp mMember =
 -- | EP-121: payload workspaces exclude node_modules, so a clone-free Pulumi run
 -- would fail with "the Pulumi SDK has not been installed". Install the program's
 -- locked dependencies once per workspace, before any Pulumi command needs them.
-ensurePulumiProgramDependencies :: FilePath -> IO ()
-ensurePulumiProgramDependencies pulumiDir = do
+ensurePulumiProgramDependencies :: Bool -> FilePath -> IO ()
+ensurePulumiProgramDependencies announceInstall pulumiDir = do
   installed <- doesFileExist (pulumiDir </> "node_modules" </> "@pulumi" </> "pulumi" </> "package.json")
   locked <- doesFileExist (pulumiDir </> "package-lock.json")
   when (locked && not installed) $ do
-    TIO.hPutStrLn stderr ("Installing the Pulumi program's locked Node dependencies in " <> T.pack pulumiDir <> " ...")
+    when announceInstall $
+      TIO.hPutStrLn stderr ("Installing the Pulumi program's locked Node dependencies in " <> T.pack pulumiDir <> " ...")
     result <-
       try (readCreateProcessWithExitCode ((proc "npm" ["ci", "--no-audit", "--no-fund"]) {cwd = Just pulumiDir}) "")
     case result of
@@ -3450,7 +3457,7 @@ runContextGuard mctx asJson = do
       -- selected, so the guard is usable as the ONLY preflight a clone-free recipe
       -- needs. These operations are idempotent and `.envrc` performs them on every
       -- shell entry already.
-      workspace <- ensurePulumiForContext name tp
+      workspace <- ensurePulumiForContextWithInstallNotice (not asJson) name tp
       pgi <- projectGuardInputsFor name tp workspace
       let observed = projectGuardObservationsValue pgi
       case projectGuardVerdict pgi of

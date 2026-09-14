@@ -180,6 +180,42 @@ if NAGARE_FAKE_STACK_PROJECT=some-other-project \
 fi
 grep -q 'some-other-project' guard-bad.err
 grep -q 'acme-prod' guard-bad.err
+grep -q 'guardcloud' guard-bad.err
+grep -q 'file://' guard-bad.err
+
+if NAGARE_FAKE_PULUMI_CONFIG_RESULT=missing \
+  nagarectl --context guardcloud context guard > guard-missing.out 2> guard-missing.err; then
+  echo "context guard accepted a stack without gcp:project" >&2
+  exit 1
+fi
+grep -q 'declares no gcp:project' guard-missing.err
+grep -q 'nagarectl context use guardcloud' guard-missing.err
+
+if NAGARE_FAKE_PULUMI_CONFIG_RESULT=failed \
+  nagarectl --context guardcloud context guard > guard-failed.out 2> guard-failed.err; then
+  echo "context guard accepted a failed Pulumi config probe" >&2
+  exit 1
+fi
+grep -q 'exited with status 23' guard-failed.err
+grep -q 'error: could not access backend: test authentication failure' guard-failed.err
+if grep -q 'declares no gcp:project\|nagarectl context use' guard-failed.err; then
+  echo "context guard misdiagnosed a failed Pulumi command as an absent project" >&2
+  exit 1
+fi
+
+if NAGARE_FAKE_STACK_PROJECT=some-other-project \
+  nagarectl --context guardcloud context guard --json > guard-bad-json.out 2> guard-bad.json; then
+  echo "context guard JSON accepted a stack targeting a foreign project" >&2
+  exit 1
+fi
+test ! -s guard-bad-json.out
+jq -e '
+  .confined == false and
+  .observations.stack == "guardcloud" and
+  (.observations.pulumiBackendUrl | startswith("file://")) and
+  .observations.stackProject == "some-other-project" and
+  .observations.stackProjectProbe.status == "found"
+' guard-bad.json >/dev/null
 
 # EP-121: the stack config is context-owned. Every Pulumi-running command links
 # the workspace's Pulumi.<context>.yaml to the canonical XDG file, adopts a
