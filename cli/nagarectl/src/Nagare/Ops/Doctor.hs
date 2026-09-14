@@ -106,6 +106,7 @@ why tp name detail
   | name == "private image pull" = "The cluster is not configured to pull private images from the project Artifact Registry."
   | name == "build platform" = "The configured build platform does not match the cluster node architecture; images built here will not run on the node."
   | name == "platform version" = detail
+  | name == "host age key" = "The host age key is missing or invalid, so sops-nix cannot activate runtime secrets."
   | isDisk name = "Disk is filling up."
   | isBackup name = "No recent backup object found."
   | otherwise = detail
@@ -142,6 +143,7 @@ commandAt root pulumiDir iapSsh tp name
         <> asset "docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
   | name == "platform version" =
       "nagarectl platform status; use `nagarectl platform adopt` for verified legacy contexts or `nagarectl platform upgrade` for release skew"
+  | name == "host age key" = "nagarectl host place-age-key --key-file <private-key-file>"
   | name == "base domain" =
       "re-render config-domain from the active context stack: pulumi -C "
         <> T.pack pulumiDir

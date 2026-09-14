@@ -69,6 +69,11 @@
       nixosConfigurations.nagare-01 = compatibilitySystem;
 
       checks.${system} = {
+        host-age-key-delivery = import ./tests/host-age-key-delivery.nix {
+          inherit nagareHostModule;
+          pkgs = nixpkgs.legacyPackages.${system};
+        };
+
         # ExecPlan 115: the in-repo fixture refuses activation by any tool, an
         # operator-like configuration does not, and a configuration carrying the
         # fixture's placeholder key without the fixture flag fails to build.

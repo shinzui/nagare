@@ -279,6 +279,7 @@ import Nagare.Ops.PulumiBackend
   , projectNumberArgs
   , pulumiStateBucket
   )
+import Nagare.Ops.Status (parseHostAgeKeyProbe)
 import Nagare.Platform.Paths (PlatformRootSource (InstalledRoot, SourceRoot))
 import Nagare.Server.Build
 import Nagare.Static.Build
@@ -2052,6 +2053,21 @@ opsTests =
       parseDfUsage dfOutput "/" @?= Just "24% of 100G"
   , testCase "parseDfUsage: absent mount" $
       parseDfUsage dfOutput "/nope" @?= Nothing
+  , testCase "IR-18: host age-key ready record grades OK alongside df output" $ do
+      let record = "age-key\tready\t/var/lib/sops-nix/age-key.txt\t" <> BC.replicate 64 'a' <> "\n" <> TE.encodeUtf8 dfOutput
+          probe = parseHostAgeKeyProbe record
+      probe ^. #status @?= StatusOk
+      assertBool "ready detail names the configured path" ("ready at /var/lib/sops-nix/age-key.txt" `T.isInfixOf` (probe ^. #detail))
+  , testCase "IR-18: confirmed missing and invalid records grade FAIL with actionable detail" $ do
+      let missing = parseHostAgeKeyProbe "age-key\tmissing\t/var/lib/sops-nix/age-key.txt\tage key missing at /var/lib/sops-nix/age-key.txt\n"
+          invalid = parseHostAgeKeyProbe "age-key\tinvalid\t/var/lib/sops-nix/age-key.txt\texpected root:root mode 0400; found 0:0:644\n"
+      missing @?= Probe "host age key" StatusFail "age key missing at /var/lib/sops-nix/age-key.txt"
+      invalid ^. #status @?= StatusFail
+      assertBool "invalid detail preserves the metadata defect" ("found 0:0:644" `T.isInfixOf` (invalid ^. #detail))
+  , testCase "IR-18: malformed, absent, and unsupported host records remain UNKNOWN" $ do
+      parseHostAgeKeyProbe "age-key\tready\t/path\tnot-a-digest\n" ^. #status @?= StatusUnknown
+      parseHostAgeKeyProbe (TE.encodeUtf8 dfOutput) ^. #status @?= StatusUnknown
+      parseHostAgeKeyProbe "age-key\tunknown\t-\thost helper is not installed\n" ^. #status @?= StatusUnknown
   , testCase "statusLabel covers every constructor" $
       map statusLabel [StatusOk, StatusWarn, StatusUnknown, StatusFail]
         @?= ["OK", "WARN", "UNKNOWN", "FAIL"]
@@ -2292,6 +2308,15 @@ doctorTests =
   , testCase "remediationFor: UNKNOWN -> 'could not check' why" $
       whyOf (Probe "k3s node" StatusUnknown "no kubeconfig / not reachable")
         `startsWithT` "could not check"
+  , testCase "IR-18: host age-key remediation is exact and confirmed absence fails doctor" $ do
+      let missing = Probe "host age key" StatusFail "age key missing at /var/lib/sops-nix/age-key.txt"
+          ready = Probe "host age key" StatusOk "ready"
+          unreachable = Probe "host age key" StatusUnknown "iap-ssh unavailable"
+      cmdOf missing @?= "nagarectl host place-age-key --key-file <private-key-file>"
+      whyOf missing @?= "The host age key is missing or invalid, so sops-nix cannot activate runtime secrets."
+      doctorExitOk (gradeChecks tnbProfile [missing]) @?= False
+      doctorExitOk (gradeChecks tnbProfile [ready]) @?= True
+      doctorExitOk (gradeChecks tnbProfile [unreachable]) @?= True
   , testCase "remediationFor: uncatalogued non-OK probe gets a generic hint" $
       cmdOf (Probe "mystery" StatusFail "boom") @?= "see docs/runbooks/"
   , testCase "doctorExitOk: False iff any FAIL" $

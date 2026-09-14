@@ -17,7 +17,8 @@ generated:
 > pipeline exist; `nagare-01` has been booted from a baked image and the data
 > disk auto-formats on first boot. The blank-disk service graph is covered by
 > repeated VM tests through an exactly-one-node `Ready` result without a reboot.
-> Post-boot host age-key delivery remains separate follow-up work.
+> The first boot is deliberately secretless; the supported IAP handoff below activates host secrets
+> and Tailscale without rebuilding or rebooting.
 
 This page covers turning the NixOS configuration into a bootable GCE image and
 bringing `nagare-01` up from it. Because your workstation is `aarch64-darwin`
@@ -85,13 +86,12 @@ Nagare's packaged modules under `nixos/` configure:
 The rationale for the non-obvious choices is in [Troubleshooting](troubleshooting.md)
 — they were each the fix for a real first-boot failure.
 
-## Prerequisite: the host age key and secrets
+## Prerequisite: encrypted host secrets and an operator-held age key
 
 Before the host can boot cleanly, generate its context-owned flake with `nagarectl host init`.
-sops-nix then decrypts the copied `secrets.yaml`. That requires:
+sops-nix later decrypts the copied `secrets.yaml`. Prepare:
 
-- The host's **age private key** placed on the VM at
-  `/var/lib/sops-nix/age-key.txt` (mode `0400`, root) **before first boot**.
+- The host's **age private key** in an operator-controlled backup outside Git and the image.
 - The supplied secrets file encrypted to the host's age **public** key.
 
 The one secret managed at this stage is `tailscale/authkey` (a Tailscale
@@ -100,9 +100,8 @@ the age key is generated, where it's stored, and how to add/rotate secrets.
 
 > On the from-zero path these are Steps 3–4 of the
 > [bring-your-own-project onboarding](onboarding-bring-your-own-project.md):
-> the operator SSH key, the host age key, and the Tailscale key all
-> go in **before first boot**, in that order. This page is the "how"; the runbook
-> fixes the "when."
+> the operator SSH key and encrypted Tailscale secret are prepared before image build. The private
+> age key is delivered only after the VM exists and IAP SSH is reachable.
 
 ## Build and register the image
 
@@ -168,6 +167,19 @@ nagare infra-up --plan "$plan_dir" --yes
 Pulumi creates `nagare-01` from the image, attaches the static IP and the
 `nagare-data` disk, and runs it under the `nagare-node` service account.
 
+The VM's first boot intentionally has no private age key. Its Tailscale autoconnect unit fails fast
+with `age key missing` before the upstream client can print an interactive login URL. Complete the
+handoff through project-confined IAP:
+
+```bash
+nagarectl host place-age-key --context prod --key-file /secure/path/prod-host.agekey
+nagarectl --context prod server status
+```
+
+Placement verifies the local and remote SHA-256 values, installs the module-configured path as
+`root:root` mode `0400`, reruns sops-nix, and starts Tailscale. Do not proceed to tailnet-only access
+until `server status` reports `OK host age key`.
+
 That command is enough for first creation. For an existing VM, confirm the
 preview replaces only the boot instance while preserving `nagare-data`, apply,
 then immediately set `nagare:vmDeletionProtection` back to `true` and apply
@@ -178,6 +190,7 @@ image.
 
 ```bash
 pulumi -C infra/pulumi stack output publicIp     # VM has its static IP
+nagarectl --context prod server status           # host age key is OK
 
 # Once you can reach the host (see Accessing the host):
 # - the data disk is mounted and formatted:
@@ -196,9 +209,9 @@ that starting only the mount recovers layout and k3s without a reboot. If a
 fresh cloud boot still misbehaves, work through
 [Troubleshooting](troubleshooting.md) before assuming new breakage.
 
-This evidence covers storage and k3s readiness. Until the independent host
-age-key delivery work is complete, the age private key remains a pre-first-boot
-prerequisite as documented above.
+The dedicated host-age-key VM check separately proves the intentional missing state, checksum and
+`root:root 0400` placement, sops secret appearance, and successful Tailscale autoconnect without an
+interactive login.
 
 ## Next
 

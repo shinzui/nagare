@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-14T03:44:11Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-14T18:02:13Z
+      mode: "implement"
+      note: "Implemented the post-boot host age-key delivery plan"
 ---
 
 # Deliver the host age key after first boot
@@ -38,15 +44,39 @@ touching a real cloud project.
 
 ## Progress
 
-- [ ] Milestone 1: make host secret activation retryable, add the host-side age-key helper, gate
-  Tailscale on a usable key, and prove the missing-to-ready transition in a NixOS VM.
-- [ ] Milestone 2: add retry-safe stdin streaming to the IAP helper and expose
-  `nagarectl host place-age-key` with local validation, context confinement, checksum verification,
-  and focused tests.
-- [ ] Milestone 3: surface a missing, malformed, or mis-permissioned host age key in `server status`
-  and `doctor`, with a direct remediation command and unit/command coverage.
-- [ ] Milestone 4: rewrite the onboarding order and related user documentation, amend ADR 5, record
-  IR-18 as completed only after evidence exists, and run all repository gates.
+- [x] (2026-09-14T18:02Z) Milestone 1 implementation: made host secret activation retryable, added
+  the host-side age-key helper and Tailscale pre-start guard, and added the missing-to-ready NixOS
+  VM test.
+- [x] (2026-09-14T18:03Z) Milestone 1 evaluation: `nix flake check ./nixos --no-build
+  --all-systems` reached the new check, and its focused derivation evaluated successfully after
+  fixing Nix-string escaping and disabling only the test's evaluation-time ciphertext check.
+- [x] (2026-09-14T18:36Z) Milestone 1 runtime validation: the focused
+  `host-age-key-delivery` VM check passed on the configured x86_64-linux builder. Its log proves
+  secretless boot fails with `age key missing`, placement verifies root:root 0400 and the exact
+  checksum, sops decrypts the runtime-generated canary, Tailscale autoconnect recovers, and neither
+  secret reaches the journal or serial console. It also proves same-key placement does not rewrite
+  the key and a different key is refused before changing the installed digest.
+- [x] (2026-09-14T18:13Z) Milestone 2: added retry-safe `send-file` stdin streaming to the IAP
+  helper and exposed `nagarectl host place-age-key` with exact-byte local validation, explicit
+  child-context confinement, checksum construction, local-mode refusal, `--force`, packaged-payload
+  assertions, and fake-transport secrecy coverage. All 523 Haskell tests passed and
+  `cabal build exe:nagarectl` succeeded.
+- [x] (2026-09-14T18:19Z) Milestone 3: combined the host age-key status record and both `df`
+  observations into one IAP call; confirmed missing/invalid states grade `FAIL`, ready grades `OK`,
+  and unsupported, malformed, skipped, or unreachable observations remain `UNKNOWN`. Doctor now
+  prints the exact placement remedy and only confirmed failure changes its exit grade. All 527
+  Haskell tests passed.
+- [x] (2026-09-14T18:27Z) Milestone 4 documentation and durable context: rewrote onboarding and
+  secret recovery around the intentional secretless first boot and explicit IAP handoff; updated
+  the host-image, Pulumi, reference, and changelog surfaces; synchronized the user-documentation
+  log; and amended ADR 5 with the no-copy, context-confined, idempotence, and forced-rotation
+  boundaries. ADR 11 remains unchanged because no NixOS generation is activated.
+- [x] (2026-09-14T18:46Z) Milestone 4 validation and closure: all 527 focused Haskell tests, all 25
+  declared native root-flake checks, and three app-validity checks passed; the Haskell style,
+  operator-package, platform-asset,
+  documentation, 23-concept improvement-request, nested-flake evaluation, shell syntax, diff
+  hygiene, secret-marker, and focused VM gates passed. Completed IR-18 and synchronized its OKF log
+  as the final durable content update.
 
 
 ## Surprises & Discoveries
@@ -72,6 +102,37 @@ touching a real cloud project.
   Evidence: `scripts/iap-ssh.sh` implements retry around `_do_ssh`; its `recv-file` operation
   deliberately reopens/truncates its destination for each attempt. Sending a key needs the symmetric
   source-file operation so each retry reopens the operator's key file without staging a copy.
+
+- Observation: the focused NixOS VM derivation evaluates on the aarch64-darwin workstation, but its
+  runtime proof requires the configured x86_64-linux remote builder, which was unreachable during
+  the first validation attempt.
+  Evidence: `nix build ./nixos#checks.x86_64-linux.host-age-key-delivery --print-build-logs`
+  reported `socat ... localhost:24668: Connection refused` and then `Failed to find a machine for
+  remote build`; the failure occurred before the test derivation ran.
+
+- Observation: the plan's root-working-directory Cabal commands do not resolve this repository's
+  package layout because `cabal.project` lives under `cli/nagarectl/` and refers to its sibling
+  `../nagare-dsl` relative to that directory.
+  Evidence: the literal command reported `No cabal.project file`; passing only `--project-file`
+  from the root then resolved the sibling relative to the wrong directory. Running `nix develop
+  ../.. -c cabal ...` from `cli/nagarectl/` built the suite, where all 523 tests passed.
+
+- Observation: an additional `cabal test all` experiment is not a supported substitute for the
+  plan's focused command in this multi-package project: its concurrently built nagare-dsl suite
+  could not expose the config-as-program packages to its fixture subprocesses and reported 14
+  module-resolution failures.
+  Evidence: the required `cabal test nagarectl-test` command passed all 527 tests, the root flake's
+  `examples-compile` and `nagare-dsl-build-test` checks passed, and this plan changes neither the
+  nagare-dsl package nor its test harness.
+
+- Observation: the first executable VM run exposed two assumptions in the new test harness before
+  the production lifecycle completed: Nix indented strings preserve ordinary backslashes, and the
+  pinned Tailscale autoconnect unit is `Type=notify`.
+  Evidence: the first assertion searched for literal `\t` characters despite receiving the correct
+  tab-delimited status record. After fixing that, the plain test `ExecStart` completed but systemd
+  reported `protocol`; evaluating the pinned unit showed `Type = "notify"`. The hermetic stub now
+  overrides the type to `oneshot` with `RemainAfterExit`, while the real module leaves the upstream
+  notification behavior intact. The subsequent focused VM build passed.
 
 
 ## Decision Log
@@ -128,10 +189,43 @@ touching a real cloud project.
   Rationale: the bidirectional link establishes ownership without claiming that the defect is fixed.
   Date: 2026-09-14.
 
+- Decision: require `nagare.host.ageKeyFile` to be an absolute path without tabs or newlines, and
+  refuse to replace a symlink or other non-regular object even with `--force`.
+  Rationale: the configured path is embedded in a root-running helper and serialized in a
+  tab-delimited status protocol. Constraining its shape keeps that protocol unambiguous, while
+  refusing non-regular targets prevents the explicit rotation escape hatch from following a
+  link or recursively displacing a directory.
+  Date: 2026-09-14.
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The supported post-boot handoff is complete. A new cloud host can boot from a secret-free image,
+fail Tailscale autoconnect immediately with an actionable `age key missing` diagnostic, accept the
+context-selected private identity only through retried IAP SSH stdin, verify its exact SHA-256 and
+root:root 0400 metadata, rerun sops decryption, and recover Tailscale autoconnect without rebooting.
+Matching placement is retry-safe; replacement requires explicit `--force` and retains the documented
+interruption boundary. Server status and doctor distinguish confirmed missing/invalid state from an
+unsupported or unreachable probe.
+
+The focused x86_64-linux VM check is the strongest result: it generated both the age identity and a
+random secret inside the disposable guest, observed the secretless failure, exercised the installed
+host helper, compared the decrypted secret byte-for-byte, observed successful autoconnect, and
+preserved the key mtime on same-key re-placement while rejecting a different key before its digest
+changed. It also proved neither secret appeared in the journal or serial console. The final
+validation set comprised
+527 focused Haskell tests, 25 declared native root-flake checks plus three app-validity checks, all
+eight nested NixOS checks at evaluation, the focused runtime VM check,
+Haskell/Fourmolu/Cabal formatting, both changed operator package
+checks, shell syntax, documentation bundles (37 user concepts and 2 guides), and all 23 improvement
+requests.
+
+Two implementation lessons are durable. A secret-bearing retry wrapper must own and reopen the
+source file rather than inherit already-consumed stdin. A hermetic systemd test replacement must
+also model the original unit protocol deliberately: the production autoconnect unit remains
+`Type=notify`, while the no-network test stub is explicitly a retained `oneshot`. No real context or
+host was mutated during validation. IR-18 is completed, ADR 5 records the handoff boundary, and ADR
+11 remains unchanged because the workflow activates services rather than a NixOS generation.
 
 
 ## Context and Orientation
@@ -381,8 +475,8 @@ ready phase: /run/secrets/tailscale/authkey present; autoconnect succeeded
 Run Haskell and formatting checks after Milestones 2 and 3:
 
 ```bash
-nix develop -c cabal test nagarectl-test --test-show-details=direct
-nix develop -c cabal build nagarectl
+(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct)
+(cd cli/nagarectl && nix develop ../.. -c cabal build exe:nagarectl)
 just haskell-style-check
 nix build .#checks.aarch64-darwin.nagare-platform-assets
 nix build .#checks.aarch64-darwin.nagare-operator-tools
@@ -596,3 +690,7 @@ The relevant local records remain linked: IR-18 targets this ExecPlan; this plan
 ADR 5; ADR 5 lists this plan when amended. The active intention is
 `intention_01m2ezxphwejxtj51bbm5cy63r`, and every implementation commit carries both required
 trailers.
+
+
+Revision note (2026-09-14): Implemented the full plan, recorded the runtime and repository-wide
+verification evidence, and captured the final service/test boundaries and outcomes.

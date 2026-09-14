@@ -8,9 +8,8 @@
 #   `gcloud compute start-iap-tunnel --local-host-port` and route OpenSSH
 #   through `socat` as the ProxyCommand. This wrapper does that automatically
 #   on each invocation, manages the tunnel's lifecycle via a trap, and exposes
-#   the same surface as `ssh` and `scp` plus a thin `recv-file` helper that
-#   streams a remote file through `cat` (so the SSH user does not need group
-#   read on, e.g., postgres-owned files).
+#   the same surface as `ssh` and `scp` plus streaming helpers that never stage
+#   their payload on the opposite side.
 #
 # Subcommands:
 #   iap-ssh.sh ssh <instance> -- <command...>
@@ -22,6 +21,9 @@
 #       Stream a remote file through `sudo cat` and write it locally.
 #       Use this when ${SSH_USER} cannot read the file directly
 #       (e.g. /var/lib/postgresql/17/postgresql.conf).
+#   iap-ssh.sh send-file <instance> <local-path> -- <command...>
+#       Reopen <local-path> on every transport attempt and stream it to the
+#       remote command's stdin without a local or remote staging copy.
 #   iap-ssh.sh tunnel <instance> <remote-port> <local-port>
 #       Open a long-lived TCP tunnel and print its PID; caller is responsible
 #       for `kill <pid>` when done. Useful for talking to HTTP APIs on the VM.
@@ -343,6 +345,38 @@ cmd_recv_file() {
   return "${rc}"
 }
 
+# Internal: open a tunnel and stream a local file to a remote command. The
+# shell `<` lives INSIDE the retried subshell, so every attempt reopens the
+# source at byte zero instead of inheriting already-consumed stdin.
+_do_send_file_inner() (
+  set -e
+  local instance="$1" local_path="$2"; shift 2
+  local info port pid logfile
+  info="$(start_tunnel "${instance}" 22)"
+  port="$(echo "${info}" | awk '{print $1}')"
+  pid="$(echo "${info}" | awk '{print $2}')"
+  logfile="$(echo "${info}" | awk '{print $3}')"
+  # shellcheck disable=SC2064
+  trap "kill ${pid} 2>/dev/null || true; wait ${pid} 2>/dev/null || true; rm -f '${logfile}'" EXIT
+  # shellcheck disable=SC2046
+  ssh $(ssh_common_args) \
+    -o ProxyCommand="$(ssh_proxy_cmd "${instance}" "${port}")" \
+    "${SSH_USER}@localhost" "$@" < "${local_path}"
+)
+
+cmd_send_file() {
+  if [ $# -lt 4 ] || [ "$3" != "--" ]; then
+    echo "usage: iap-ssh.sh send-file <instance> <local-path> -- <remote-command...>" >&2
+    exit 2
+  fi
+  local instance="$1" local_path="$2"; shift 3
+  if [ ! -f "${local_path}" ] || [ ! -r "${local_path}" ]; then
+    echo "iap-ssh.sh send-file: local path is not a readable regular file: ${local_path}" >&2
+    exit 2
+  fi
+  with_iap_retry _do_send_file_inner "${instance}" "${local_path}" "$@"
+}
+
 cmd_tunnel() {
   if [ $# -ne 3 ]; then
     echo "usage: iap-ssh.sh tunnel <instance> <remote-port> <local-port>" >&2
@@ -379,7 +413,7 @@ cmd_tunnel() {
 }
 
 if [ $# -lt 1 ]; then
-  echo "usage: $0 <ssh|scp|recv-file|tunnel> ..." >&2
+  echo "usage: $0 <ssh|scp|recv-file|send-file|tunnel> ..." >&2
   exit 2
 fi
 sub="$1"; shift
@@ -387,6 +421,7 @@ case "${sub}" in
   ssh)       cmd_ssh "$@" ;;
   scp)       cmd_scp "$@" ;;
   recv-file) cmd_recv_file "$@" ;;
+  send-file) cmd_send_file "$@" ;;
   tunnel)    cmd_tunnel "$@" ;;
   *) echo "unknown subcommand: ${sub}" >&2; exit 2 ;;
 esac

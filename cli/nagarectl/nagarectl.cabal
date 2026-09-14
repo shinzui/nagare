@@ -78,6 +78,7 @@ library
     Nagare.Env.Store
     Nagare.Gcp.Adc
     Nagare.GhcEnv
+    Nagare.Host.AgeKey
     Nagare.Host.Config
     Nagare.Image
     Nagare.Infra.Plan
