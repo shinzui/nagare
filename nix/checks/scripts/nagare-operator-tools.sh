@@ -53,4 +53,45 @@ fi
 test ! -s "$tool_log"
 test ! -e "$XDG_CONFIG_HOME/nagare/contexts/nopulumi.env"
 
+# EP-129 / IR-9: a cloud context guard without Pulumi must report the
+# unavailable executable, not claim that the selected stack lacks gcp:project.
+"$unwrapped_cli" context create guardcloud \
+  --project acme-prod \
+  --region us-west1 \
+  --zone us-west1-a \
+  --base-domain apps.acme.example
+export CLOUDSDK_CORE_PROJECT=acme-prod
+expected_backend="file://$XDG_STATE_HOME/nagare/guardcloud/state"
+
+if "$unwrapped_cli" --context guardcloud context guard \
+  > absent/guard-missing.out 2> absent/guard-missing.err; then
+  echo "unwrapped context guard unexpectedly accepted missing Pulumi" >&2
+  exit 1
+fi
+"$grep_bin" -q 'pulumi was not found on PATH' absent/guard-missing.err
+"$grep_bin" -q 'guardcloud' absent/guard-missing.err
+"$grep_bin" -q "$expected_backend" absent/guard-missing.err
+if "$grep_bin" -q 'declares no gcp:project' absent/guard-missing.err; then
+  echo "context guard misdiagnosed missing Pulumi as an absent project" >&2
+  exit 1
+fi
+
+if "$unwrapped_cli" --context guardcloud context guard --json \
+  > absent/guard-missing-json.out 2> absent/guard-missing.json; then
+  echo "unwrapped JSON context guard unexpectedly accepted missing Pulumi" >&2
+  exit 1
+fi
+test ! -s absent/guard-missing-json.out
+if ! "$jq_bin" -e '
+  .confined == false and
+  .observations.stack == "guardcloud" and
+  .observations.pulumiBackendUrl == $backend and
+  .observations.stackProject == null and
+  .observations.stackProjectProbe.status == "tool-not-found"
+' --arg backend "$expected_backend" absent/guard-missing.json >/dev/null; then
+  echo "context guard did not emit the expected standalone JSON failure:" >&2
+  cat absent/guard-missing.json >&2
+  exit 1
+fi
+
 touch "$out"

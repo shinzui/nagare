@@ -47,15 +47,25 @@ machine-readable JSON object.
   cause-specific verdicts, a stable observation renderer, and 15 passing focused unit tests.
 - [x] (2026-09-14 02:30Z) Wired the detailed probe into the shared command and upgrade collector,
   used the resolved backend URL, and made JSON failures independently parseable.
-- [ ] Extend the hermetic operator-tools and clone-free-platform checks across missing, absent,
-  failed, foreign, and agreeing Pulumi outcomes.
+- [x] (2026-09-14 02:42Z) Extended the hermetic operator-tools and clone-free-platform checks
+  across missing, absent, failed, foreign, and agreeing Pulumi outcomes; both Nix derivations pass.
 - [ ] Update operator documentation, the changelog, IR-9, and ADR 9 as implementation evidence
   becomes available; run focused and repository-wide validation.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: The first `--json` missing-tool check contained the dependency-install notice before
+  its JSON object, even though the refusal handler itself emitted only JSON.
+  Evidence: the initial `nagare-operator-tools` build failed `jq` and printed:
+
+  ```text
+  Installing the Pulumi program's locked Node dependencies in .../infra/pulumi ...
+  {"confined":false,...}
+  ```
+
+  The guard now suppresses that informational notice in JSON mode while still performing the
+  installation and retaining errors.
 
 
 ## Decision Log
@@ -95,6 +105,13 @@ machine-readable JSON object.
   Rationale: The current handler writes JSON and then calls `dieT`, leaving a file that cannot be
   parsed as one JSON document. IR-9 requires the cause, backend, and stack in JSON output, so the
   structured failure must be independently consumable.
+  Date: 2026-09-14.
+
+- Decision: Suppress the Pulumi program dependency-install progress line only for JSON context
+  guard invocations.
+  Rationale: workspace preparation can legitimately install dependencies before probing Pulumi,
+  but an informational prefix makes the promised JSON failure stream unparsable. Human commands
+  retain the progress line, and installation failures remain visible.
   Date: 2026-09-14.
 
 

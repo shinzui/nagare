@@ -12,11 +12,23 @@
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''
         printf '%s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         case " $* " in
-          *" config get gcp:project "*)
-            # EP-113: the `nagarectl context guard` fixture drives the
-            # stack's declared project from the environment, so the check
-            # can exercise both the agreeing and the disagreeing verdict.
-            printf '%s\n' "''${NAGARE_FAKE_STACK_PROJECT:-}"
+          *" config --json "*)
+            # EP-129 / IR-9: a successful config listing can prove either that
+            # gcp:project exists or that it is genuinely absent. Process
+            # failure is a separate fixture and must retain stderr.
+            case "''${NAGARE_FAKE_PULUMI_CONFIG_RESULT:-project}" in
+              project)
+                printf '{"gcp:project":{"value":"%s","secret":false}}\n' \
+                  "''${NAGARE_FAKE_STACK_PROJECT:-}"
+                ;;
+              missing)
+                printf '{}\n'
+                ;;
+              failed)
+                printf '%s\n' 'error: could not access backend: test authentication failure' >&2
+                exit 23
+                ;;
+            esac
             ;;
         esac
         exit 0
