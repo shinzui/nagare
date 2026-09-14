@@ -48,8 +48,10 @@ the expected ConfigMap values are present, and no second invocation is needed.
   successful retry, exhaustion, and bootstrap command ordering.
 - [x] (2026-09-14 04:20Z) Put explicit Knative Serving and net-certmanager webhook waits in the
   cloud recipe, and the Knative Serving wait in the local recipe, before their dependent patches.
-- [ ] Prove one-shot success on a newly created disposable k3d cluster and record the observed
-  rollout, endpoint, ConfigMap, and exit-status evidence here.
+- [x] (2026-09-14 04:25Z) Proved one-shot success on disposable k3d cluster
+  `nagare-webhook-readiness-49505`: the first bootstrap exited 0, the webhook rolled out with an
+  endpoint, all four local ConfigMaps held the expected values, the original error was absent, the
+  second idempotence run exited 0, and the trap deleted the cluster.
 - [ ] Update bootstrap documentation, the changelog, IR-21, and the improvement-request bundle log;
   run the focused checks and the repository gate.
 
@@ -62,6 +64,25 @@ the expected ConfigMap values are present, and no second invocation is needed.
   Evidence: the first readiness build exited 1 with
   `bash: scripts/test-knative-bootstrap-readiness.sh: No such file or directory`; the separately
   evaluated `shellcheck-scripts` derivation exited 0.
+
+- Observation: The first disposable-cluster attempt could not reach Kubernetes API readiness because
+  the restarted Colima VM had `fs.inotify.max_user_instances = 128` while two pre-existing k3d
+  clusters were also running. Raising that transient VM limit to 8192 let the isolated acceptance
+  proceed; no Nagare code change was needed for this host constraint.
+  Evidence: the failed k3s log included `inotify_init: too many open files`. The successful retry
+  produced:
+
+  ```text
+  live-test: first local-bootstrap exit=0
+  deployment "webhook" successfully rolled out
+  live-test: webhook endpoints=10.42.0.11
+  live-test: config-network={"autocreate-cluster-domain-claims":"true","ingress-class":"kourier.ingress.networking.knative.dev"}
+  live-test: config-domain={"127-0-0-1.sslip.io":""}
+  live-test: config-features={"kubernetes.podspec-persistent-volume-claim":"enabled","kubernetes.podspec-persistent-volume-write":"enabled"}
+  live-test: config-deployment={"registriesSkippingTagResolving":"kind.local,ko.local,dev.local,k3d-registry.localhost:5000"}
+  live-test: second local-bootstrap exit=0
+  live-test: PASS
+  ```
 
 
 ## Decision Log
