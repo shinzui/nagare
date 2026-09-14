@@ -31,7 +31,7 @@ import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -165,10 +165,18 @@ import Nagare.Infra.Plan
 import Nagare.Init
   ( InitOpts (..)
   , WriteResult (..)
+  , checkInitOwnership
   , enableApis
+  , findMissingTools
+  , initContextMap
+  , initFlagPairs
   , nextStepsText
   , profileFromOpts
+  , renderInitSummary
   , renderTargetEnv
+  , requiredApis
+  , requiredInitTools
+  , resolveInitBase
   , runPreflight
   , seedPulumiConfig
   , writeTargetEnv
@@ -285,6 +293,7 @@ import Nagare.Target
   , contextNameText
   , contextsDir
   , deleteContext
+  , effectivePulumiBackend
   , listContexts
   , mergeContextOverrides
   , mkContextName
@@ -292,10 +301,12 @@ import Nagare.Target
   , parseAcmeDirectory
   , parsePulumiBackendKind
   , profileFromContextMap
+  , pulumiBackendToken
   , pulumiEnvFor
   , readContextMap
   , readContextProfile
   , readCurrentContext
+  , registryPrefix
   , renderContextShellEnv
   , resolveActiveContext
   , resolveActiveTarget
@@ -319,12 +330,13 @@ import Nagare.Version
   , currentBuildVersion
   , parsePlatformVersion
   , renderBuildVersionJson
+  , renderBuildVersionJsonWithTools
   , renderBuildVersionText
   , renderPlatformVersion
   )
 import Nagare.Worker.Deploy (WorkerDeployParams (..), runWorkerDeploy)
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, listDirectory, makeAbsolute)
 import System.Environment (getEnvironment, lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitFailure, exitWith)
 import System.FilePath (dropExtension, takeExtension, (</>))
@@ -552,8 +564,9 @@ data Command
   | Cleanup CleanupOpts
   deriving stock (Generic, Show)
 
-newtype VersionOpts = VersionOpts
-  { json :: Bool
+data VersionOpts = VersionOpts
+  { json :: !Bool
+  , tools :: !Bool
   }
   deriving stock (Generic, Show)
 
@@ -1595,7 +1608,13 @@ opts =
         )
     versionCmd =
       info
-        (Version . VersionOpts <$> switch (long "json" <> help "Print machine-readable version metadata") <**> helper)
+        ( Version
+            <$> ( VersionOpts
+                    <$> switch (long "json" <> help "Print machine-readable version metadata")
+                    <*> switch (long "tools" <> help "Report the executable paths selected from PATH")
+                )
+              <**> helper
+        )
         (progDesc "Print the nagarectl version")
     platformCmd =
       info
@@ -2268,10 +2287,7 @@ opts =
 main :: IO ()
 main =
   execParser opts >>= \(mctx, cmd0) -> case cmd0 of
-    Version (VersionOpts versionJson) ->
-      if versionJson
-        then BC.putStrLn (renderBuildVersionJson currentBuildVersion)
-        else TIO.putStrLn (renderBuildVersionText currentBuildVersion)
+    Version versionOpts -> runVersion versionOpts
     PlatformRoot asJson -> runPlatformRoot mctx asJson
     PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
     PlatformGuard -> runPlatformGuard mctx
@@ -2316,6 +2332,28 @@ main =
     Domains (DomainsList o) -> runDomainsList mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
+
+runVersion :: VersionOpts -> IO ()
+runVersion options = do
+  resolvedTools <-
+    if options ^. #tools
+      then traverse resolveTool ["pulumi", "pulumi-language-nodejs", "gcloud", "npm"]
+      else pure []
+  if options ^. #json
+    then
+      BC.putStrLn
+        ( if options ^. #tools
+            then renderBuildVersionJsonWithTools currentBuildVersion resolvedTools
+            else renderBuildVersionJson currentBuildVersion
+        )
+    else do
+      TIO.putStrLn (renderBuildVersionText currentBuildVersion)
+      forM_ resolvedTools $ \(name, path) ->
+        TIO.putStrLn (name <> ": " <> maybe "not found" T.pack path)
+  where
+    resolveTool name = do
+      path <- findExecutable name
+      pure (T.pack name, path)
 
 -- | @server status@: gather the platform inventory and print the aligned
 -- report. Read-only and always exits 0 — graceful degradation is the probes'
@@ -2947,7 +2985,143 @@ instanceReplacementGuard tp workspace stack allowReplacement =
 -- stage is skippable. The ONLY command that drives Pulumi/gcloud (MasterPlan 12
 -- Decision Log).
 runInit :: Maybe String -> InitOpts -> IO ()
-runInit mctx o = do
+runInit mctx o = case o ^. #contextName of
+  Just rawName -> parseContextNameOrDie rawName >>= runNamedInit o
+  Nothing -> runLegacyInit mctx o
+
+-- | Initialize a named context from flags, built-in defaults, and only that
+-- context's stored values under @--force@. No active-context resolver appears in
+-- this path, which prevents ambient or foreign context values from becoming part
+-- of a newly created context.
+runNamedInit :: InitOpts -> ContextName -> IO ()
+runNamedInit o contextName = do
+  base <- either dieT pure =<< resolveInitBase contextName (o ^. #force)
+  let preliminaryProfile = profileFromContextMap (initContextMap base (initFlagPairs o) "")
+  preflightInitTools o (effectivePulumiBackend preliminaryProfile)
+  pathsResult <- resolvePlatformPaths Nothing
+  payloadPaths <- either (dieT . renderPlatformPathError) pure pathsResult
+  manifest <- either (dieT . renderWorkspaceError) pure =<< readPayloadManifest payloadPaths
+  let storedDefaults = profileFromContextMap (initContextMap base [] (manifest ^. #platformVersion))
+      projectDefault = fromMaybe "" (base >>= Map.lookup "CLOUDSDK_CORE_PROJECT")
+      acmeEmailDefault = fromMaybe "" (base >>= Map.lookup "NAGARE_ACME_EMAIL")
+
+  project <- resolveField (T.null projectDefault) "GCP project id" "project" (o ^. #project) projectDefault
+  region <- resolveField False "Compute region" "region" (o ^. #region) (storedDefaults ^. #region)
+  zone <- resolveField False "Compute zone" "zone" (o ^. #zone) (storedDefaults ^. #zone)
+  baseDomain <- resolveField False "Apps base domain" "base-domain" (o ^. #baseDomain) (storedDefaults ^. #baseDomain)
+  machineType <- resolveField False "GCE machine type" "machine-type" (o ^. #machineType) (storedDefaults ^. #machineType)
+  bootDiskType <- resolveField False "Boot disk type" "boot-disk-type" (o ^. #bootDiskType) (storedDefaults ^. #bootDiskType)
+  bootDiskSizeGb <- resolveField False "Boot disk size (GB)" "boot-disk-size-gb" (o ^. #bootDiskSizeGb) (storedDefaults ^. #bootDiskSizeGb)
+  dataDiskSizeGb <- resolveField False "Data disk size (GB)" "data-disk-size-gb" (o ^. #dataDiskSizeGb) (storedDefaults ^. #dataDiskSizeGb)
+  shape <-
+    either dieT pure $
+      validateVmShape
+        VmShape
+          { machineType = machineType
+          , bootDiskType = bootDiskType
+          , bootDiskSizeGb = bootDiskSizeGb
+          , dataDiskSizeGb = dataDiskSizeGb
+          }
+  acmeEmailRaw <- resolveField (T.null acmeEmailDefault) "Let's Encrypt contact address" "acme-email" (o ^. #acmeEmail) acmeEmailDefault
+  acmeEmail <- either dieT pure (validateAcmeEmail acmeEmailRaw)
+  let acmeDirectoryRaw = maybe (storedDefaults ^. #acmeDirectory) T.pack (o ^. #acmeDirectory)
+  acmeDirectory <- either dieT (pure . acmeDirectoryToken) (parseAcmeDirectory acmeDirectoryRaw)
+
+  let resolvedOpts =
+        o
+          & #project
+          .~ Just (T.unpack project)
+          & #region
+          .~ Just (T.unpack region)
+          & #zone
+          .~ Just (T.unpack zone)
+          & #baseDomain
+          .~ Just (T.unpack baseDomain)
+          & #machineType
+          .~ Just (T.unpack (shape ^. #machineType))
+          & #bootDiskType
+          .~ Just (T.unpack (shape ^. #bootDiskType))
+          & #bootDiskSizeGb
+          .~ Just (T.unpack (shape ^. #bootDiskSizeGb))
+          & #dataDiskSizeGb
+          .~ Just (T.unpack (shape ^. #dataDiskSizeGb))
+          & #acmeEmail
+          .~ Just (T.unpack acmeEmail)
+          & #acmeDirectory
+          .~ Just (T.unpack acmeDirectory)
+      tp =
+        profileFromContextMap
+          (initContextMap base (initFlagPairs resolvedOpts) (manifest ^. #platformVersion))
+      context = contextNameText contextName
+
+  void (either dieT pure (validateVmShape (vmShapeOf tp)))
+  TIO.putStr (renderInitSummary context tp)
+  either dieT pure (checkInitOwnership (isJust (o ^. #pulumiBackendUrl)) context tp)
+  (paths, workspace) <- resolvePlatformWorkspace contextName
+
+  unless (o ^. #skipPreflight) $ do
+    putStrLn ("Checking gcloud authentication and operator IAM on " <> T.unpack project <> "...")
+    result <- runPreflight project
+    case result of
+      Left message -> TIO.hPutStr stderr message >> exitFailure
+      Right () -> putStrLn "  preflight OK"
+
+  exportProfileEnv contextName tp
+  writeNamedContext (o ^. #force) (o ^. #dryRun) contextName tp
+  unless (o ^. #dryRun) (setCurrentContext contextName)
+  if o ^. #dryRun
+    then TIO.putStrLn ("DRY RUN — would write context '" <> context <> "' and set it current.")
+    else TIO.putStrLn ("Wrote context '" <> context <> "' and set it current.")
+
+  unless (o ^. #skipEnable) $ do
+    putStrLn "Enabling GCP service APIs..."
+    if o ^. #dryRun
+      then do
+        TIO.putStrLn "DRY RUN: would run:"
+        TIO.putStrLn ("  gcloud services enable " <> T.unwords requiredApis <> " --project=" <> project)
+      else do
+        code <- enableApis (workspace ^. #scriptsDir </> "enable-apis.sh") False
+        case code of
+          ExitSuccess -> pure ()
+          ExitFailure _ ->
+            dieT
+              ( "enable-apis failed; see the gcloud output above. The context '"
+                  <> context
+                  <> "' is written and current. After fixing the cause, re-run `nagarectl init "
+                  <> context
+                  <> " --force --skip-preflight` (it keeps the context's stored values)."
+              )
+
+  unless (o ^. #skipSeed) $ do
+    putStrLn "Seeding Pulumi stack config from the profile..."
+    bootstrapResult <- bootstrapPulumiStateBucket (o ^. #dryRun) context tp (T.pack <$> o ^. #pulumiBackendMember)
+    either
+      ( \message ->
+          dieT
+            ( "GCS state-bucket bootstrap failed: "
+                <> message
+                <> " The context '"
+                <> context
+                <> "' is written and current. Fix the cause and run `nagarectl context use "
+                <> context
+                <> "` to finish seeding."
+            )
+      )
+      pure
+      bootstrapResult
+    unless (o ^. #dryRun) (ensurePulumiInWorkspace contextName tp workspace)
+    result <- seedPulumiConfig (workspace ^. #pulumiDir) (o ^. #dryRun) context tp
+    case result of
+      Right () -> pure ()
+      Left (key, code) -> dieT (namedSeedFailure context key code)
+
+  TIO.putStr (nextStepsText (paths ^. #rootSource))
+
+-- | Legacy no-name initialization retains its active-context-compatible
+-- resolver and writes @./nagare.target.env@.
+runLegacyInit :: Maybe String -> InitOpts -> IO ()
+runLegacyInit mctx o = do
+  preflightInitTools o (parsePulumiBackendKind (o ^. #pulumiBackend))
   -- Defaults for prompts come from the current resolved profile, so re-running
   -- shows the operator their existing values.
   defs <- activeProfile mctx
@@ -3004,7 +3178,7 @@ runInit mctx o = do
   contextName <- case o ^. #contextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"
-  (_, workspace) <- resolvePlatformWorkspace contextName
+  (paths, workspace) <- resolvePlatformWorkspace contextName
   let tp = case o ^. #contextName of
         Just _ -> baseProfile & #platformVersion .~ Just (workspace ^. #platformVersion)
         Nothing -> baseProfile
@@ -3043,10 +3217,83 @@ runInit mctx o = do
     s <- seedPulumiConfig (workspace ^. #pulumiDir) (o ^. #dryRun) (contextNameText contextName) tp
     case s of
       Right () -> pure ()
+      Left (k, ExitFailure 127) -> dieT ("pulumi could not be started while setting key " <> k <> "; install the nagare operator package and re-run `nagarectl init --skip-preflight --skip-enable`.")
       Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl init --skip-preflight --skip-enable`.")
 
   -- Next steps.
-  TIO.putStr nextStepsText
+  TIO.putStr (nextStepsText (paths ^. #rootSource))
+
+preflightInitTools :: InitOpts -> PulumiBackendKind -> IO ()
+preflightInitTools o backend = do
+  missing <- findMissingTools (requiredInitTools o backend)
+  unless (null missing) $
+    dieT
+      ( T.unlines
+          ( ["init: required tools are not on PATH: " <> T.intercalate ", " (map T.pack missing)]
+              <> [ "  pulumi ships with the nagare package (nix profile install github:shinzui/nagare/v"
+                     <> currentBuildVersion ^. #version
+                     <> "#nagare);"
+                 | "pulumi" `elem` missing
+                 ]
+              <> ["  npm comes from Node.js, which must be installed separately." | "npm" `elem` missing]
+              <> ["  Google Cloud SDK must be installed separately." | "gcloud" `elem` missing]
+              <> ["  Nothing was changed."]
+          )
+      )
+
+namedSeedFailure :: Text -> Text -> ExitCode -> Text
+namedSeedFailure context key code =
+  prefix
+    <> " at key "
+    <> key
+    <> "; the context '"
+    <> context
+    <> "' is written and current. Fix the cause and run `nagarectl context use "
+    <> context
+    <> "` to finish seeding."
+  where
+    prefix = case code of
+      ExitFailure 127 -> "pulumi could not be started"
+      _ -> "pulumi config set failed"
+
+-- | Export the named profile for child scripts. Empty values are removed so a
+-- stale ambient value cannot outrank the new context. Pulumi's own variables are
+-- still installed by 'ensurePulumiInWorkspace'.
+exportProfileEnv :: ContextName -> TargetProfile -> IO ()
+exportProfileEnv name tp = mapM_ (uncurry setOrUnset) fields
+  where
+    context = contextNameText name
+    fields =
+      [ ("NAGARE_CONTEXT", context)
+      , ("CLOUDSDK_CORE_PROJECT", tp ^. #project)
+      , ("CLOUDSDK_COMPUTE_REGION", tp ^. #region)
+      , ("CLOUDSDK_COMPUTE_ZONE", tp ^. #zone)
+      , ("NAGARE_REGISTRY_HOST", tp ^. #registryHost)
+      , ("NAGARE_ARTIFACT_REGISTRY_ID", tp ^. #artifactRegistryId)
+      , ("NAGARE_IMAGE_BUCKET", tp ^. #imageBucket)
+      , ("NAGARE_BACKUP_BUCKET", tp ^. #backupBucket)
+      , ("NAGARE_BASE_DOMAIN", tp ^. #baseDomain)
+      , ("NAGARE_ACME_EMAIL", tp ^. #acmeEmail)
+      , ("NAGARE_ACME_DIRECTORY", tp ^. #acmeDirectory)
+      , ("NAGARE_INSTANCE_NAME", tp ^. #instanceName)
+      , ("NAGARE_MACHINE_TYPE", tp ^. #machineType)
+      , ("NAGARE_BOOT_DISK_TYPE", tp ^. #bootDiskType)
+      , ("NAGARE_BOOT_DISK_SIZE_GB", tp ^. #bootDiskSizeGb)
+      , ("NAGARE_DATA_DISK_SIZE_GB", tp ^. #dataDiskSizeGb)
+      , ("NAGARE_TARGET_PLATFORM", tp ^. #targetPlatform)
+      , ("NAGARE_MODE", modeToken (tp ^. #mode))
+      , ("NAGARE_LOCAL_OBJECT_STORE", tp ^. #localObjectStore)
+      , ("NAGARE_PULUMI_BACKEND", pulumiBackendToken (effectivePulumiBackend tp))
+      , ("NAGARE_PULUMI_BACKEND_URL", tp ^. #pulumiBackendUrl)
+      , ("NAGARE_REGISTRY_PREFIX", registryPrefix tp)
+      , ("NAGARE_PULUMI_STACK", context)
+      ]
+        <> maybe [] (\version -> [("NAGARE_PLATFORM_VERSION", version)]) (tp ^. #platformVersion)
+    setOrUnset key fieldValue
+      | T.null fieldValue = unsetEnv key
+      | otherwise = setEnv key (T.unpack fieldValue)
+    modeToken Cloud = "cloud"
+    modeToken Local = "local"
 
 -- | Resolve one @init@ target field: a flag value wins; otherwise prompt on a TTY
 -- with the default; otherwise (non-TTY, no flag) use the default unless the field
@@ -3093,7 +3340,7 @@ runContext mctx = \case
             s <- seedPulumiConfig (workspace ^. #pulumiDir) False (contextNameText name) tp
             case s of
               Right () -> pure ()
-              Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
+              Left (k, code) -> dieT (namedSeedFailure (contextNameText name) k code)
         TIO.putStrLn ("Switched to context '" <> contextNameText name <> "'")
       else dieT ("no such context: " <> contextNameText name)
   ContextShow mname -> do
@@ -3139,7 +3386,7 @@ runContext mctx = \case
         s <- seedPulumiConfig (workspace ^. #pulumiDir) False (contextNameText name) tp
         case s of
           Right () -> pure ()
-          Left (k, _) -> dieT ("pulumi config set failed at key " <> k <> "; fix Pulumi state and re-run `nagarectl context use " <> contextNameText name <> "`.")
+          Left (k, code) -> dieT (namedSeedFailure (contextNameText name) k code)
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextGuard asJson -> runContextGuard mctx asJson
   ContextEnv -> runContextEnv mctx

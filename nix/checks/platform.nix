@@ -48,6 +48,17 @@
         bash ${./scripts/nagare-clone-free-platform.sh}
       '';
 
+  nagare-operator-tools = pkgs.runCommand "nagare-operator-tools" { } ''
+    ${pkgs.bash}/bin/bash ${./scripts/nagare-operator-tools.sh} \
+      ${nagarePackages.nagare} \
+      ${nagarePackages.haskellPackages.nagarectl}/bin/nagarectl \
+      ${nagarePackages.nagarePlatform}/share/nagare \
+      ${pkgs.jq}/bin/jq \
+      ${pkgs.coreutils} \
+      ${pkgs.bash} \
+      ${pkgs.gnugrep}/bin/grep
+  '';
+
   release-consistency-source = pkgs.runCommand "release-consistency-source"
     { nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ]; src = src; }
     ''

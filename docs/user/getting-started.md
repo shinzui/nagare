@@ -33,8 +33,9 @@ flake owns the host image, and the `nagare` launcher runs the common recipes.
 You need, on your workstation:
 
 - **Nix** with flakes enabled. It installs the pinned CLI and platform payload.
-- Operator clients used by the selected recipes: `pulumi`, `node`, `gcloud`, `kubectl`, `helm`,
-  `sops`, `age`, and `tailscale`. Install them through Nix or your platform package manager.
+- Operator clients used by the selected recipes: `node` with npm, `gcloud`, `kubectl`, `helm`,
+  `sops`, `age`, and `tailscale`. Install them through Nix or your platform package manager. The
+  full `nagare` package supplies its tested Pulumi and Node.js language plugin.
 - A **Google Cloud identity** with access to *your* GCP project (the default
   example is `tan-nb-exp`); see [GCP prerequisites](gcp-prerequisites.md) for the
   auth, IAM roles, project, and API setup, and
@@ -59,6 +60,7 @@ install its full operator output. No checkout or `direnv` session is required:
 export NAGARE_VERSION=0.1.0
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagare"
 nagarectl version --json
+nagarectl version --tools
 nagare --list
 ```
 
@@ -69,7 +71,8 @@ For one-off use, run
 Verify:
 
 ```bash
-pulumi version
+nagarectl version --tools
+pulumi version              # resolved from the operator package unless PATH supplies another
 gcloud --version
 kubectl version --client
 nagare --list    # the release's available operator recipes

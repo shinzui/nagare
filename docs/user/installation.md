@@ -23,7 +23,7 @@ release and supplies its manifest, native Nix output identities, notes, and `SHA
 | Need | Flake output | What it provides |
 | --- | --- | --- |
 | Deploy or inspect apps on an existing platform | `nagarectl` | CLI plus the typed-config GHC runtime |
-| Provision or operate the platform | `nagare` | `nagarectl`, the immutable payload, and the `nagare` recipe launcher |
+| Provision or operate the platform | `nagare` | `nagarectl`, the immutable payload, the `nagare` recipe launcher, Pulumi, and Pulumi's Node.js language plugin |
 | Build or change Nagare itself | source checkout | `nix develop`, tests, and maintainer tools |
 
 The examples use version 0.2.1. Replace it only after reviewing the target release notes.
@@ -48,6 +48,11 @@ nix run "${NAGARE_FLAKE}#nagare" -- --dry-run infra-preview
 recipes and automatically resolves a writable, content-addressed payload workspace. Neither command
 edits the released Nix payload.
 
+The full `nagare` operator package includes Pulumi and `pulumi-language-nodejs` from the release's
+pinned nixpkgs. Install Node.js with npm and the Google Cloud SDK separately. Run
+`nagarectl version --tools` (or `nagarectl version --json --tools`) to see the exact binaries the
+current `PATH` selects; an operator-supplied binary takes precedence over the packaged fallback.
+
 ## Install persistently
 
 Install the smaller CLI on app-developer workstations:
@@ -62,6 +67,7 @@ Install the full package on operator workstations:
 ```bash
 nix profile install "${NAGARE_FLAKE}#nagare"
 nagarectl version --json
+nagarectl version --tools
 nagare --list
 ```
 

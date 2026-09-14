@@ -12,6 +12,13 @@
 module Nagare.Init
   ( InitOpts (..)
   , WriteResult (..)
+  , initFlagPairs
+  , initContextMap
+  , resolveInitBase
+  , checkInitOwnership
+  , renderInitSummary
+  , requiredInitTools
+  , findMissingTools
   , profileFromOpts
   , renderTargetEnv
   , pulumiConfigSetArgs
@@ -26,10 +33,13 @@ module Nagare.Init
   )
 where
 
-import Control.Monad (when)
+import Control.Exception (IOException, try)
+import Control.Monad (filterM, when)
 import Cradle (addArgs, cmd, run)
 import Data.Function ((&))
 import Data.Generics.Labels ()
+import Data.Map.Strict (Map)
+import Data.Maybe (catMaybes, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
@@ -37,14 +47,24 @@ import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (captureTool)
+import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
-  ( Mode (..)
+  ( ContextName
+  , Mode (..)
+  , PulumiBackendKind (..)
   , TargetProfile (..)
   , VmShape (..)
+  , contextFilePath
+  , contextNameText
+  , defaultGcsPulumiBackendUrl
+  , effectivePulumiBackend
+  , mergeContextOverrides
   , pulumiBackendToken
+  , readContextMap
+  , registryPrefix
   , resolveTargetProfile
   )
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, findExecutable)
 import System.Environment (setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 
@@ -75,6 +95,135 @@ data InitOpts = InitOpts
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Convert only the target-setting flags supplied to @nagarectl init@ into the
+-- stored context keys they override. Callers may first fill the optional fields
+-- from prompts, which makes this suitable for both flag-only and interactive
+-- named initialization.
+initFlagPairs :: InitOpts -> [(String, Text)]
+initFlagPairs o =
+  catMaybes
+    [ pair "CLOUDSDK_CORE_PROJECT" (o ^. #project)
+    , pair "CLOUDSDK_COMPUTE_REGION" (o ^. #region)
+    , pair "CLOUDSDK_COMPUTE_ZONE" (o ^. #zone)
+    , pair "NAGARE_BASE_DOMAIN" (o ^. #baseDomain)
+    , pair "NAGARE_MACHINE_TYPE" (o ^. #machineType)
+    , pair "NAGARE_BOOT_DISK_TYPE" (o ^. #bootDiskType)
+    , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)
+    , pair "NAGARE_DATA_DISK_SIZE_GB" (o ^. #dataDiskSizeGb)
+    , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
+    , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
+    , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
+    , pair "NAGARE_ACME_DIRECTORY" (o ^. #acmeDirectory)
+    ]
+  where
+    pair key = fmap (\value -> (key, T.pack value))
+
+-- | Build the context map for named initialization. This deliberately delegates
+-- to the same merge used by @context create --force@: flags override the named
+-- context's own stored values, omitted fields keep those values, and a new
+-- context receives the payload version without consulting the active context.
+initContextMap :: Maybe (Map String Text) -> [(String, Text)] -> Text -> Map String Text
+initContextMap = mergeContextOverrides
+
+-- | Read only the named context that @init NAME@ is about to create or replace.
+-- The current-context pointer and process environment are intentionally outside
+-- this function's inputs.
+resolveInitBase :: ContextName -> Bool -> IO (Either Text (Maybe (Map String Text)))
+resolveInitBase name force = do
+  path <- contextFilePath name
+  stored <- readContextMap path
+  pure $ case stored of
+    Nothing -> Right Nothing
+    Just context
+      | force -> Right (Just context)
+      | otherwise ->
+          Left
+            ( "context '"
+                <> contextNameText name
+                <> "' already exists; pass --force to re-initialize it (omitted flags keep its stored values)"
+            )
+
+-- | Refuse names derived for another project before initialization performs any
+-- side effect. Explicit GCS backend URLs are operator choices and are therefore
+-- shown in the summary but left to the existing bucket ownership guard.
+checkInitOwnership :: Bool -> Text -> TargetProfile -> Either Text ()
+checkInitOwnership explicitBackendUrl context tp =
+  case offenders of
+    [] -> Right ()
+    names ->
+      Left
+        ( "init: stored or inherited values belong to a different project: "
+            <> T.intercalate ", " names
+            <> ". Expected names beginning with '"
+            <> projectPrefix
+            <> "'. Choose a new context name or run `nagarectl context create "
+            <> context
+            <> " --force --image-bucket ... --backup-bucket ...`. Nothing was changed."
+        )
+  where
+    projectPrefix = tp ^. #project <> "-"
+    wrongPrefix value = not (projectPrefix `T.isPrefixOf` value)
+    bucketOffenders =
+      [ name
+      | (name, value) <-
+          [ ("NAGARE_IMAGE_BUCKET", tp ^. #imageBucket)
+          , ("NAGARE_BACKUP_BUCKET", tp ^. #backupBucket)
+          ]
+      , wrongPrefix value
+      ]
+    backendUrl
+      | T.null (tp ^. #pulumiBackendUrl) = defaultGcsPulumiBackendUrl context tp
+      | otherwise = tp ^. #pulumiBackendUrl
+    backendBucket = do
+      rest <- T.stripPrefix "gs://" backendUrl
+      pure (T.takeWhile (/= '/') rest)
+    backendOffenders
+      | explicitBackendUrl = []
+      | effectivePulumiBackend tp /= PulumiBackendGcs = []
+      | maybe True (\bucket -> T.null bucket || wrongPrefix bucket) backendBucket = ["NAGARE_PULUMI_BACKEND_URL"]
+      | otherwise = []
+    offenders = bucketOffenders <> backendOffenders
+
+-- | Show the project-owned names that named initialization resolved before any
+-- preflight or write. A local backend uses a deliberately symbolic state root;
+-- the real per-context path is printed later when the workspace is prepared.
+renderInitSummary :: Text -> TargetProfile -> Text
+renderInitSummary context tp =
+  T.unlines
+    [ "Derived names for context '" <> context <> "':"
+    , "  project: " <> tp ^. #project
+    , "  registry prefix: " <> registryPrefix tp
+    , "  image bucket: " <> tp ^. #imageBucket
+    , "  backup bucket: " <> tp ^. #backupBucket
+    , "  instance name: " <> tp ^. #instanceName
+    , "  Pulumi backend: " <> pulumiBackendToken backend
+    , "  Pulumi backend URL: " <> backendUrl
+    ]
+  where
+    backend = effectivePulumiBackend tp
+    backendUrl = case backend of
+      PulumiBackendLocal -> "file://<state>/" <> context <> "/state"
+      PulumiBackendGcs
+        | T.null (tp ^. #pulumiBackendUrl) -> defaultGcsPulumiBackendUrl context tp
+        | otherwise -> tp ^. #pulumiBackendUrl
+
+-- | External programs needed by an init invocation. The list is ordered for
+-- deterministic diagnostics. Dry runs use the same preflight as real runs so
+-- they cannot promise success when the real command would later fail.
+requiredInitTools :: InitOpts -> PulumiBackendKind -> [String]
+requiredInitTools o backend =
+  (if needsGcloud then ["gcloud"] else [])
+    <> (if o ^. #skipSeed then [] else ["pulumi", "npm"])
+  where
+    needsGcloud =
+      not (o ^. #skipPreflight)
+        || not (o ^. #skipEnable)
+        || (not (o ^. #skipSeed) && backend == PulumiBackendGcs)
+
+-- | Return the requested executable names that cannot be resolved on PATH.
+findMissingTools :: [String] -> IO [String]
+findMissingTools = filterM (fmap isNothing . findExecutable)
+
 -- | The operator IAM roles the preflight verifies (Decision Log). @roles/owner@
 -- short-circuits to pass because it includes all of these.
 operatorRoles :: [Text]
@@ -99,11 +248,9 @@ requiredApis =
   , "servicenetworking.googleapis.com"
   ]
 
--- | Build the resolved 'TargetProfile' from the chosen project/region/zone/base
--- domain by REUSING 'resolveTargetProfile' with those values placed into the
--- environment, so the derived fields (registry host, buckets) follow EP-60's
--- derivations exactly. The derived overrides are cleared so the derivation, not a
--- stale env value, wins.
+-- | Build the legacy no-name @init@ profile by reusing 'resolveTargetProfile'
+-- with the selected values placed into the environment. Named initialization is
+-- pure and must use 'initContextMap' with @profileFromContextMap@ instead.
 profileFromOpts :: Text -> Text -> Text -> Text -> VmShape -> Text -> Text -> IO TargetProfile
 profileFromOpts project region zone baseDomain shape acmeEmail acmeDirectory = do
   setEnv "CLOUDSDK_CORE_PROJECT" (T.unpack project)
@@ -196,20 +343,34 @@ pulumiConfigSetArgs :: FilePath -> Text -> Text -> Text -> [String]
 pulumiConfigSetArgs pulumiDir stack key value =
   ["-C", pulumiDir, "config", "set", "--stack", T.unpack stack, T.unpack key, T.unpack value]
 
--- | The ordered follow-on commands printed after a successful init.
-nextStepsText :: Text
-nextStepsText =
+-- | The ordered follow-on commands printed after a successful init. Packaged
+-- and explicitly selected payloads use the installed @nagare@ launcher; source
+-- checkouts retain their direct @just@ workflow.
+nextStepsText :: PlatformRootSource -> Text
+nextStepsText rootSource =
   T.unlines
-    [ ""
-    , "Next steps:"
-    , "  1.  just infra-up        # create the GCP resources (the VM is omitted until the image exists)"
-    , "  2.  just host-image      # build + register the NixOS image and write its self-link to Pulumi config"
-    , "  3.  just infra-up        # re-run to create the VM now that nagareImageSelfLink is set"
-    , "  4.  just cluster-bootstrap   # install the in-cluster platform (k3s/Knative/cert-manager)"
-    , ""
-    , "See docs/masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md and the"
-    , "EP-2/EP-3/EP-4 plans under docs/plans/ for the details behind each step."
-    ]
+    ( [ ""
+      , "Next steps:"
+      , "  1.  " <> command "infra-up" <> "        # create the GCP resources (the VM is omitted until the image exists)"
+      , "  2.  " <> command "host-image" <> "      # build + register the NixOS image and write its self-link to Pulumi config"
+      , "  3.  " <> command "infra-up" <> "        # re-run to create the VM now that nagareImageSelfLink is set"
+      , "  4.  " <> command "cluster-bootstrap" <> "   # install the in-cluster platform (k3s/Knative/cert-manager)"
+      , ""
+      ]
+        <> guidance
+    )
+  where
+    command recipe = launcher <> " " <> recipe
+    launcher = case rootSource of
+      SourceRoot -> "just"
+      InstalledRoot -> "nagare"
+      ExplicitRoot -> "nagare"
+    guidance = case rootSource of
+      SourceRoot ->
+        [ "See docs/masterplans/12-bring-your-own-gcp-project-onboarding-for-nagare.md and the"
+        , "EP-2/EP-3/EP-4 plans under docs/plans/ for the details behind each step."
+        ]
+      _ -> ["See the release's installed guide at docs/user/getting-started.md."]
 
 -- | Outcome of attempting to write the profile file.
 data WriteResult = Wrote | RefusedExists | DryRunWouldWrite
@@ -252,10 +413,13 @@ seedPulumiConfig pulumiDir dryRun stack tp = go (seedKeys tp)
           TIO.putStrLn ("  pulumi " <> T.pack (unwords (pulumiConfigSetArgs pulumiDir stack k v)))
           go rest
       | otherwise = do
-          code <- run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs pulumiDir stack k v)
-          case code of
-            ExitSuccess -> go rest
-            ExitFailure _ -> pure (Left (k, code))
+          result <-
+            try (run $ cmd "pulumi" & addArgs (pulumiConfigSetArgs pulumiDir stack k v)) ::
+              IO (Either IOException ExitCode)
+          case result of
+            Left _ -> pure (Left (k, ExitFailure 127))
+            Right ExitSuccess -> go rest
+            Right code@(ExitFailure _) -> pure (Left (k, code))
 
 -- | Preflight: confirm gcloud has an active authenticated account and that it
 -- holds (or owns) the operator roles on @project@. Returns @Right ()@ on pass, or
