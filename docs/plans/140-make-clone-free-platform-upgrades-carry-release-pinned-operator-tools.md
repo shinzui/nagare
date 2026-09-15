@@ -52,8 +52,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-15 14:36Z) Milestone 2: made the clone-free release rehearsal execute the
   documented command with a Nix-only host PATH, verify release-pinned Pulumi tools, and record one
   safe saved preview with all three planning phases successful and all apply phases pending.
-- [ ] Milestone 3: update release/package documentation, distill any durable packaging decision,
-  and pass the focused and full release gates.
+- [x] (2026-09-15 14:45Z) Milestone 3: synchronized release/package documentation, amended ADR 7
+  with the durable operator-shell contract, and passed the focused documentation, release,
+  shellcheck, package-boundary, clone-free platform, native rehearsal, and full flake gates.
 
 
 ## Surprises & Discoveries
@@ -103,6 +104,13 @@ Record every decision made while working on the plan.
   exactly one reviewed preview.
   Date: 2026-09-15.
 
+- Decision: Amend ADR 7 rather than create a new architecture record.
+  Rationale: The durable result refines ADR 7's existing operator/developer package boundary by
+  specifying how clone-free platform commands enter `#nagare`; it does not establish a separate
+  architectural concern. The repository has no profile-governed `docs/adr` bundle, so the existing
+  filesystem convention remains authoritative.
+  Date: 2026-09-15.
+
 
 ## Outcomes & Retrospective
 
@@ -116,6 +124,14 @@ Milestone 2 outcome: the native `aarch64-darwin` rehearsal completed with
 `platformUpgrade.previewCalls: 1`. Its test double log proved the transaction invoked Nix
 evaluation, one saved Pulumi preview, and Kubernetes diff, while the JSON transaction kept every
 apply phase pending and the old context pin unchanged.
+
+Final outcome: operators can now copy one immutable target-release prefix for platform re-pin,
+plan, status, apply, resume, and rollback without relying on an installed Pulumi. The release
+rehearsal proves the complete package supplies Pulumi and its Node.js language host before safely
+recording the documented planning transaction. ADR 7 now preserves this operator-shell contract.
+All current-system checks passed, including 552 `nagarectl` tests inside the full flake gate; the
+only omitted outputs were the incompatible `x86_64-linux` system checks, which require their native
+runner. No implementation gaps remain.
 
 
 ## Context and Orientation
@@ -211,12 +227,13 @@ nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).naga
 nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).nagare-clone-free-platform
 ```
 
-Rehearse the candidate from the working tree without cloud mutation:
+Rehearse the candidate from the tracked working tree without cloud mutation. A Git flake view keeps
+ignored local compiler-environment files out of the Nix source while retaining tracked dirty edits:
 
 ```bash
 ./scripts/rehearse-clone-free-release.sh \
   --version "$(jq -r '.platformVersion' release.json)" \
-  --flake-ref "path:$PWD"
+  --flake-ref "git+file://$PWD"
 ```
 
 The final trace must contain the equivalent of:
@@ -294,3 +311,7 @@ the failure and the intentionally smaller package respectively.
 Revision note (2026-09-15): The native clone-free rehearsal now crosses the documented operator
 shell boundary from a host PATH without Pulumi, substitutes recording tools only after verifying the
 release closure, rejects any apply/cloud mutation, and publishes concise upgrade evidence.
+
+Revision note (2026-09-15): Implementation completed after amending ADR 7, recording the successful
+native and full-flake validation evidence, and documenting why dirty working-tree rehearsals use a
+Git flake view rather than a raw path input.
