@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/109-publish-versioned-releases-and-clone-free-onboarding.md
   - docs/plans/128-isolate-init-from-the-active-context-ship-pulumi-with-the-operator-package-and-release-nagare-0-2-2.md
+  - docs/plans/140-make-clone-free-platform-upgrades-carry-release-pinned-operator-tools.md
   - docs/adr/0003-package-the-typed-config-runtime-with-nagarectl.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
@@ -85,3 +86,19 @@ Release checks exercise the installed commands, reject either public output when
 present, require `socat` on the operator PATH, and prove the package can share a Darwin profile with
 another output that owns the former collision path. [ExecPlan 134](../plans/134-install-a-clean-operator-package-and-fetch-a-context-safe-kubeconfig.md)
 introduced and validated this boundary.
+
+## Amendment — 2026-09-15: clone-free platform commands enter the operator shell
+
+An operator invoking an immutable target release without installing it runs platform commands as
+`nix shell "${TARGET_NAGARE}#nagare" -c nagarectl ...`. Selecting the complete `#nagare` package is
+part of the platform-operation contract: its wrapped CLI receives the release-pinned Pulumi CLI,
+Pulumi Node.js language host, and other operator tools. `nix run ...#nagarectl -- ...` remains a
+supported application-developer interface, but it is not a clone-free platform-operation command
+because its intentionally smaller wrapper does not carry Pulumi.
+
+The native release rehearsal enters that exact shell from an isolated host PATH containing Nix but
+no Pulumi. It verifies the wrapper resolves both release-pinned Pulumi executables before prepending
+recording doubles, then requires an upgrade transaction to finish its Nix evaluation, one saved
+Pulumi preview, and Kubernetes diff with every apply phase still pending. The resulting native
+release artifact records the Pulumi version, planned state, and preview count so publication retains
+evidence of the full documentation-to-package boundary.
