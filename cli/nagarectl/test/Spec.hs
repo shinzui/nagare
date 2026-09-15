@@ -11,6 +11,7 @@ module Main (main) where
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
+import CertificateMigrationSpec (certificateMigrationTests)
 import Control.Exception (IOException, finally, try)
 import Control.Monad (forM_)
 import Crypto.Hash (SHA256)
@@ -433,6 +434,7 @@ main = do
         , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
         , testGroup "Nagare.Cluster.Namespace" namespaceTests
         , testGroup "Nagare.Cluster.CertificatePolicy" certificatePolicyTests
+        , certificateMigrationTests
         , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
         , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
         , testGroup "Nagare.Version" versionTests

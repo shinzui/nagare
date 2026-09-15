@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-15T14:04:02Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T16:31:36Z
+      mode: "implement"
+      note: "Implemented the pure migration model and began upgrade orchestration"
 ---
 
 # Migrate legacy namespace wildcard certificates during upgrades
@@ -42,8 +48,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: model legacy selector and certificate/Secret inventory as a pure, reviewable,
-  transaction-bound Kubernetes migration bundle.
+- [x] (2026-09-15T16:31:36Z) Milestone 1: model legacy selector and certificate/Secret inventory
+  as a pure, reviewable, transaction-bound Kubernetes migration bundle. Ten focused tests prove
+  deterministic preserve/remove classification, disabled/target-selector no-ops, ambiguous Secret
+  refusal, exact UID/content/reference drift refusal, idempotent absence, and transaction bindings.
 - [ ] Milestone 2: include the migration in upgrade planning and apply it before the existing
   certificate-policy gate with fail-closed cleanup checks.
 - [ ] Milestone 3: prove 0.2.2-to-current convergence, document recovery, amend durable TLS upgrade
@@ -55,7 +63,20 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: `mori registry search net-certmanager` and
+  `mori registry show knative-extensions/net-certmanager --full` do not resolve the archived
+  upstream project in the current local registry, even though ADR 10 records the intended
+  `mori://knative-extensions/net-certmanager` project URI. The repository-owned exact source pin
+  remains available in `nix/net-certmanager-controller.nix`, and the official upstream source was
+  consulted for the object contract.
+  Evidence: Mori printed `No projects matching 'net-certmanager'` and `Project ... not found in
+  local registry`; the Nix expression pins commit `dcff3644e7037215a084af52905fb0e9e78bab52`.
+
+- Observation: the plan's root-level `cabal test` examples do not work because the repository root
+  has no `cabal.project`; Nagare's established package commands run from `cli/nagarectl` while the
+  Nix development shell is discovered from the repository root.
+  Evidence: Cabal returned `There is no <pkgname>.cabal package file or cabal.project file`; the
+  same focused test from `cli/nagarectl` passed all 10 cases.
 
 
 ## Decision Log
@@ -92,6 +113,15 @@ Record every decision made while working on the plan.
   independent transaction-journal evolution while still detecting tampering and stale plans.
   Date: 2026-09-15.
 
+- Decision: Recognize a generated TLS Secret only when the cert-manager Certificate UID appears in
+  its owner references or when both `cert-manager.io/certificate-name` and
+  `cert-manager.io/issuer-name` match the reviewed Certificate.
+  Rationale: cert-manager owner references on generated Secrets are deployment-option dependent,
+  while its generated annotations preserve a narrow identity binding. Requiring one of those exact
+  bindings rejects an arbitrary same-named Secret without making legacy clusters depend on an
+  optional controller flag.
+  Date: 2026-09-15.
+
 
 ## Outcomes & Retrospective
 
@@ -100,7 +130,10 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+- Milestone 1 produced `Nagare.Cluster.CertificateMigration`, a pure JSON inventory and review
+  model with no Kubernetes process execution. It hashes only stable Secret identity, annotations,
+  labels, type, and data, deliberately excluding mutable server bookkeeping such as
+  `resourceVersion`. The first focused run passed 10 tests.
 
 
 ## Context and Orientation
@@ -352,3 +385,8 @@ SHA-256 support for file/object digests, and the repository's atomic rename/priv
 The only external services are the selected Kubernetes API, Knative/net-certmanager controllers,
 and cert-manager. Do not add a new package or network dependency; all required APIs already exist in
 the repository and target payload.
+
+
+Revision note (2026-09-15): Implemented and validated the pure Milestone 1 migration model, recorded
+the exact Secret-management safety rule, and corrected the working-directory discovery needed to
+resume validation.
