@@ -40,6 +40,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import GHC.IO.Encoding (setLocaleEncoding)
 import Nagare.Access.Grants (AccessGrantParams (..), AccessListParams (..), runAccessGrant, runAccessList, runAccessRevoke)
 import Nagare.Access.Resolve
   ( ShomeiPortalChange (EnablePortal)
@@ -2508,6 +2509,7 @@ opts =
 
 main :: IO ()
 main = do
+  setLocaleEncoding utf8
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
   execParser opts >>= \(mctx, cmd0) -> case cmd0 of
