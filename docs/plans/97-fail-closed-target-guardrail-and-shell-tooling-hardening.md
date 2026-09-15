@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Fail-closed target guardrail and shell tooling hardening
@@ -67,14 +74,20 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
 - [x] M2: guard the rollback-path passphrase truncation in `scripts/migrate-pulumi-backend.sh` (same bug class as target.sh). (2026-08-05)
 - [x] M2: run M2 validation and record transcripts. (2026-08-05 — M2-a/b/c pass; M2-d verified statically, the live foreign-bucket check remains credential-gated)
 - [x] M2: commit M2 with Conventional Commit message + trailers. (2026-08-05)
-- [ ] M2 (deferred, credential-gated): run the live M2-d probe — `scripts/migrate-pulumi-backend.sh --url gs://<existing-foreign-bucket>/nagare/x` must print the `refusing: gs://… is owned by project number …` message and run no `buckets update`. Requires credentials for the real target project and a known foreign bucket name; not runnable in this session.
+- [x] M2 live M2-d probe: EP-116's first real backend-migration run exposed a gcloud output-format
+  incompatibility, fixed it with `--raw`, then verified that the ownership guard accepts the target
+  bucket and refuses a foreign bucket before re-running the approved migration. (Reconciled
+  2026-09-15 from EP-116's 2026-09-12 live transcript.)
 - [x] M3: guard `scripts/live-smoke.sh` cleanup on a harness-ready flag and fix the `pkill` pattern to use the instance name. (2026-08-05)
 - [x] M3: guard `scripts/local-smoke.sh` cleanup on a harness-ready flag and split the SC2155 `export KUBECONFIG` line. (2026-08-05)
 - [x] M3: quote the remote path in `scripts/iap-ssh.sh` `recv-file` with `printf '%q'`. (2026-08-05)
 - [x] M3: replace the fixed `/tmp/nagare-nix-build.err` in `scripts/upload-images.sh` with `mktemp`. (2026-08-05)
 - [x] M3: run shellcheck (error severity over all scripts; default severity over touched scripts). (2026-08-05 — error severity clean; `SC2155` count in local-smoke is 0)
 - [x] M3 (split from the shellcheck item): run the hermetic `shellcheck-scripts` flake check. (2026-08-05 — `nix build .#checks.aarch64-darwin.shellcheck-scripts` PASSES)
-- [ ] M3 (split, blocked, NOT this plan's fault): a full `nix flake check` cannot complete in this environment — `nagare-access-build-test` fails cloning a cabal `source-repository-package` from GitHub inside the Nix sandbox (`fatal: could not read Username for 'https://github.com'`), which cancels the remaining checks. No file under `cli/` was touched by this plan. Re-run once the sandbox has GitHub credentials.
+- [x] M3 full flake gate: the dependency-authentication blocker was subsequently removed. The
+  released v0.3.0 candidate at current HEAD passed the full flake gates, including all 29 buildable
+  native root-flake checks; the shell hardening remains in that released tree. (Reconciled
+  2026-09-15 from EP-139 and `docs/releases/v0.3.0.md`.)
 - [x] M3: commit M3 with Conventional Commit message + trailers; fill in Outcomes & Retrospective. (2026-08-05)
 - [ ] M3 (deferred, operator-run): the positive `just local-smoke` end-to-end run printing `local smoke: OK`. Docker is up on this machine but no `nagare-local` k3d cluster exists, so the run would stand up a fresh cluster; the specific risk this plan introduces to local mode (the tightened loopback whitelist) was instead proven directly — see Surprises & Discoveries.
 
@@ -218,6 +231,17 @@ message. Static ordering evidence:
 169:    pulumi … stack import …
 ```
 
+**Later live evidence closes M2-d.** EP-116 recorded that the first migration attempt was
+refused when gcloud 570 hid `projectNumber`; commit `ed238ba` switched the probe to raw output,
+after which the guard accepted the owned bucket and refused a foreign bucket. Only then did the
+operator-approved migration proceed. This is stronger evidence than the originally requested
+standalone probe because it exercised the same ordering immediately before a real state migration.
+
+**The unrelated full-flake blocker is gone.** EP-139 and `docs/releases/v0.3.0.md` record the
+released candidate passing full flake checks and all 29 buildable native root-flake checks. The
+shell guard changes from this plan are present in that candidate, so the stale environment-specific
+failure no longer represents unfinished acceptance work.
+
 **The M3-a probe as written never reaches the trap.** The plan's probe
 (`PATH="/usr/bin:/bin" bash scripts/live-smoke.sh`) makes the script die at the
 `cabal build` line — which runs *before* `trap cleanup EXIT` is installed — so
@@ -347,6 +371,13 @@ coverage.
   script that never reached the trap. Recorded in Surprises & Discoveries with
   transcripts.
   Date: 2026-08-05
+
+- Decision: accept later plan and release evidence for M2-d and the full-flake gate.
+  Rationale: EP-116 exercised the exact shipped bucket-ownership path against owned and foreign
+  buckets, and EP-139's v0.3.0 release gate exercised the integrated repository after the unrelated
+  dependency-authentication failure was fixed. Repeating either older blocked command would be
+  weaker than the evidence already retained.
+  Date: 2026-09-15
 - Decision: `nix flake check` is not treated as a blocking gate for this plan;
   the hermetic `shellcheck-scripts` check is built on its own instead
   (`nix build .#checks.aarch64-darwin.shellcheck-scripts`). Rationale: the full
@@ -403,16 +434,13 @@ at; the stray-tunnel `pkill` matches the instance name actually present in the
 `start-iap-tunnel` argv; `iap-ssh.sh recv-file` `%q`-quotes the remote path; and
 `upload-images.sh` uses a private `mktemp` scratch file.
 
-**What remains.** Three items, all recorded as unchecked Progress entries and
-none of them code changes: the live foreign-bucket probe for `ensure_bucket`
-(needs credentials for the real target project plus a known foreign bucket
-name); a full `nix flake check` (blocked on an unrelated
-`nagare-access-build-test` GitHub-clone failure inside the Nix sandbox — the
-hermetic `shellcheck-scripts` check was built on its own and passes); and the
-positive end-to-end `just local-smoke` run (would stand up a fresh `nagare-local`
-k3d cluster; the specific local-mode risk this plan introduces was instead
-proven directly, by showing the shipped local profile passes the tightened
-whitelist).
+**What remains after the 2026-09-15 reconciliation.** One operator check, not a code change:
+the positive end-to-end `just local-smoke` run, which would stand up a fresh
+`nagare-local` k3d cluster. EP-116 later proved the foreign-bucket refusal in the real
+migration path, and EP-139's released v0.3.0 candidate passed the full flake gate after
+the unrelated dependency-authentication blocker was fixed. The specific local-mode risk
+introduced here remains directly proven by the shipped local profile passing the tightened
+whitelist, but the full local smoke is left visible rather than inferred from labs.
 
 **Lessons.** Two of the plan's own validation probes were wrong in instructive
 ways, and both errors were of the same kind — assuming a failure would land where
@@ -1388,3 +1416,9 @@ modify `_require_target_project` or the resolver's capture/whitelist code;
 `docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md` touches
 other `justfile` recipes (version pins) — this plan's `justfile` footprint is
 exactly `vm-stop`, `vm-start`, and the `cluster-bootstrap` BASE_DOMAIN line.
+
+
+Revision note (2026-09-15): Reconciled the live foreign-bucket refusal from EP-116 and the
+subsequent full v0.3.0 flake evidence from EP-139. Those two stale blockers are now complete; the
+positive local-mode `just local-smoke` run remains explicitly open because the labs cloud cluster
+does not substitute for that local-mode behavior.

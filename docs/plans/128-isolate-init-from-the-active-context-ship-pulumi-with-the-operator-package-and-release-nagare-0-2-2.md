@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-14T00:22:36Z
       mode: "implement"
       note: "Validated Milestone 1 and began the init isolation implementation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Isolate init from the active context, ship Pulumi with the operator package, and release Nagare 0.2.2
@@ -118,10 +123,11 @@ tailnet) are related but out of scope. The Decision Log records why.
 - [x] (2026-09-14 01:58Z) Milestone 5 repository bookkeeping: IR-13, IR-7, and IR-8 are completed
   with resolutions; ADR 9 records isolated, fail-closed named context creation; ADR 7 records the
   operator-only Pulumi packaging rule; and the IR bundle log records the completion.
-- [ ] Milestone 5 external handoff: notify the `labs-tan` session that it may drop the
-  no-active-context and separate-Pulumi workarounds. This runtime listed only `/root`; the literal
-  `labs-tan` target was syntactically unavailable and `/root/labs_tan` did not exist, so no delivery
-  is claimed. The exact handoff is preserved in Outcomes & Retrospective.
+- [x] (2026-09-15 13:31Z) Milestone 5 external handoff reconciled: the operator supplied the
+  registered `mori://tan/tan-ng-labs` repository as the authoritative labs context for this audit.
+  That repository pins v0.2.2, records the context-owned Pulumi stack, and its rollout successfully
+  used the packaged Pulumi path to create the host and cluster. The previously undeliverable
+  runtime-session message has therefore been consumed as repository-level operator state.
 
 
 ## Surprises & Discoveries
@@ -191,6 +197,11 @@ tailnet) are related but out of scope. The Decision Log records why.
   name, and the canonicalized `/root/labs_tan` target was absent. The release and repository
   bookkeeping are complete, but the external notification remains an explicit handoff rather than
   a claimed success.
+
+- Observation (resolved 2026-09-15): the handoff no longer depends on reaching the old ephemeral
+  Claude session. The operator explicitly brought `mori://tan/tan-ng-labs` into this audit; its
+  README, pinned flake, context, context-owned stack config, and completed rollout demonstrate that
+  v0.2.2 and the packaged-Pulumi workflow were received and used.
 
 
 ## Decision Log
@@ -293,6 +304,13 @@ tailnet) are related but out of scope. The Decision Log records why.
   contains it, and the defect is only resolved for operators once a tag exists.
   Date: 2026-09-14
 
+- Decision: treat the operator's registered labs repository and its successful v0.2.2 rollout as
+  durable delivery of the external handoff.
+  Rationale: the purpose of the notification was to let labs stop depending on the two workarounds,
+  not to preserve a message to one ephemeral agent session. The receiving repository now records
+  and operates the released workflow, which is stronger and longer-lived evidence of receipt.
+  Date: 2026-09-15
+
 
 ## Outcomes & Retrospective
 
@@ -316,10 +334,11 @@ the release process. The intentionally unclosed product work remains IR-9, IR-14
 `nixos/flake.nix` evaluation to CI. The existing strict improvement-request review-provenance gap and
 GitHub's `actions/checkout@v4` Node 20 deprecation annotation are also recorded rather than hidden.
 
-The undelivered `labs-tan` handoff is: Nagare v0.2.2 is the signed tag at `248e5f9`; IR-7 and IR-8
-are in; the rollout may drop its no-active-context workaround for `nagarectl init` and its separate
-`nix shell` Pulumi workaround; the `labs` context still names `tan-ng-labs`; and this release ran no
-`infra-up` and created no VM.
+The labs handoff is now delivered through `mori://tan/tan-ng-labs`, not an ephemeral agent message.
+The repository pins Nagare v0.2.2, retains the `labs` context and context-owned Pulumi stack, and its
+rollout used that release to build the image, apply Pulumi, bootstrap the host and cluster, and serve
+trusted HTTPS. The release session itself still ran no `infra-up` and created no VM; those later
+operations belong to the receiving repository's evidence.
 
 
 ## Context and Orientation
@@ -991,3 +1010,7 @@ Revision note (2026-09-14 01:58Z): The clean candidate, normal CI, native rehear
 tag-triggered publication, public attachments, and Nix-by-tag execution are verified. The three IRs
 are completed and ADRs 9 and 7 amended. The requested `labs-tan` notification could not be routed by
 the available collaboration runtime, so the precise handoff remains open and is recorded above.
+
+Revision note (2026-09-15): Closed the external handoff after the operator supplied
+`mori://tan/tan-ng-labs` as the authoritative receiving context and its repository/rollout evidence
+showed v0.2.2 and the packaged-Pulumi workflow in active use. No release or cloud state changed.

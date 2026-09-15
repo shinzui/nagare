@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-06-02T15:39:48Z
 intention: "intention_01kt4f3svnekz80g94f2k4tthq"
 master_plan: "docs/masterplans/1-bootstrap-nagare-personal-paas.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # NixOS host nagare-01 with k3s
@@ -102,10 +109,10 @@ Milestone 1: NixOS configuration authored and `nagare-image` builds on the remot
       Tailscale key encrypted to host age key `age1rc26869…`.)
 - [x] Run `nix flake lock` inside `nixos/`; commit `nixos/flake.lock`. (2026-06-02 — nixpkgs
       `331800d` / 26.11 line, sops-nix `c591bf6`.)
-- [~] Build via the remote builder: `cd nixos && nix build .#packages.x86_64-linux.nagare-image`.
-      Config fully validated by evaluation (`nix eval` of both the image and the day-2 toplevel
-      derivations succeeds); the actual remote-builder build is deferred to the user checkpoint
-      (folded into M2's pipeline run). Record store path + size when built.
+- [x] Build via the remote builder: `cd nixos && nix build .#packages.x86_64-linux.nagare-image`.
+      The original `tan-nb-exp` run built the 891 MiB image recorded in Outcomes. A second released
+      run through `nagare host-image` built the labs image on the same remote builder and uploaded a
+      921 MiB tarball on 2026-09-13. (Reconciled 2026-09-15.)
 
 Milestone 2: builder provisioned; image uploaded, registered, and wired into Pulumi config.
 
@@ -116,16 +123,17 @@ Milestone 2: builder provisioned; image uploaded, registered, and wired into Pul
 - [x] Author `scripts/iap-ssh.sh` (IAP-tunneled ssh/scp wrapper, copied verbatim). (2026-06-02)
 - [x] Author `scripts/upload-images.sh` (build `nagare-image`, upload, register, write
       `nagareImageSelfLink`). (2026-06-02 — Nagare-specific single-image adaptation.)
-- [~] Run `scripts/setup-nix-builder.sh`; confirm the builder VM exists and is stopped. Already
-      satisfied: `nix-builder-x86` exists in `tan-nb-exp` (TERMINATED) from the reference-repo setup;
-      the script is idempotent and would no-op.
-- [~] Configure the host-side builder SSH wiring. Already satisfied: `/etc/nix/machines` registers
-      `builder@nix-gcp-builder`, `/etc/nix/builder_ed25519` exists, and the SSH host resolves via
-      `/etc/ssh/ssh_config.d/200-nix-gcp-builder.conf` (nix-darwin managed). Deferred verification
-      (`nix store info`) to the build checkpoint.
-- [ ] Run `scripts/upload-images.sh`; confirm `pulumi config get nagareImageSelfLink` returns
-      a `https://www.googleapis.com/compute/v1/projects/tan-nb-exp/global/images/...` URL. (Deferred to
-      the user checkpoint — runs the remote-builder build + upload.)
+- [x] Run `scripts/setup-nix-builder.sh`; confirm the builder VM exists and is stopped. The existing
+      `tan-nb-exp` builder performed both image builds and auto-stopped after the labs build; the
+      labs rollout recorded it TERMINATED at 02:52:30Z on 2026-09-13. (Reconciled 2026-09-15.)
+- [x] Configure the host-side builder SSH wiring. The successful original and labs remote builds
+      exercise the `/etc/nix/machines`, builder key, and SSH-host wiring end to end. (Reconciled
+      2026-09-15.)
+- [x] Run the image upload pipeline and confirm `nagareImageSelfLink`. The original run registered
+      `nagare-image-bamf7v4ym3si` in `tan-nb-exp`; the independent labs run registered READY image
+      `nagare-image-f9p6raz75qjf` and wrote
+      `https://www.googleapis.com/compute/v1/projects/tan-ng-labs/global/images/nagare-image-f9p6raz75qjf`
+      into the context-owned stack config. (Reconciled 2026-09-15.)
 
 Milestone 3: deploy and verify the running host and cluster.
 
@@ -274,6 +282,13 @@ implementation. Provide concise evidence (command output is ideal).
   (2026-06-03)
 
 
+- Audit discovery (2026-09-15): the Progress section still described the remote build and upload
+  as deferred even though this plan's own Outcomes recorded their successful original execution.
+  The independent labs rollout (`mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`)
+  repeated the complete released `nagare host-image` path, so those stale partial markers are now
+  reconciled. Only the explicit day-2 `nixos-rebuild switch` demonstration remains open.
+
+
 ## Decision Log
 
 Record every decision made while working on the plan.
@@ -361,6 +376,14 @@ Record every decision made while working on the plan.
   host can join the tailnet. The host still boots and k3s still runs without it — Tailscale join is the
   only affected behavior.
   Date: 2026-06-02
+
+
+- Decision: use the successful original build recorded in Outcomes, corroborated by the later labs
+  rollout, to close the stale M1/M2 execution markers.
+  Rationale: both executions used the remote x86 builder, uploaded the resulting GCE archive,
+  registered a READY image, and projected its self-link into Pulumi. Keeping those items partial
+  contradicted the plan's own outcome and hid the sole remaining operator follow-up.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -1489,3 +1512,9 @@ the listed milestone so the dependent plans can rely on them.
 - Libraries/modules used: `nixpkgs` (the GCE image module and all NixOS options), `sops-nix`
   (the `sops-nix.nixosModules.sops` module and `sops.secrets.*` options), the k3s NixOS module
   (`services.k3s`), and the Tailscale NixOS module (`services.tailscale`).
+
+
+Revision note (2026-09-15): Reconciled four stale remote-builder/image-upload Progress entries
+against this plan's existing Outcomes and the independently recorded labs rollout at
+`mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`. The day-2 host-switch
+demonstration remains deliberately unchecked; no product or infrastructure state changed.

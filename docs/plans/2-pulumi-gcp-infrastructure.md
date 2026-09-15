@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-06-02T15:39:48Z
 intention: "intention_01kt4f3svnekz80g94f2k4tthq"
 master_plan: "docs/masterplans/1-bootstrap-nagare-personal-paas.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Pulumi GCP infrastructure
@@ -76,10 +83,15 @@ after the operating-system image exists). Check items off as they are demonstrab
 - [x] M2: the wildcard DNS record resolves to `publicIp` — `gcloud dns record-sets list` shows
   `*.apps.example.com. A 34.145.74.203`; Artifact Registry `nagare` (DOCKER) and both buckets exist.
   (2026-06-02)
-- [ ] M3 (blocked on EP-3): after EP-3 sets `nagareImageSelfLink` via `scripts/upload-images.sh`,
-  a second `pulumi up` creates the `nagare-01` instance booting from the NixOS image.
-- [ ] M3: `gcloud compute instances describe nagare-01` shows it RUNNING with the data disk and the
-  service account attached; `pulumi stack output sshCommand` prints a usable command.
+- [x] M3: after EP-3 set `nagareImageSelfLink`, a second `pulumi up` created `nagare-01`
+  from the NixOS image. EP-3 recorded the original `tan-nb-exp` creation on 2026-06-02;
+  the independent `tan-ng-labs` rollout repeated the same two-pass contract on 2026-09-13
+  (`mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation`). (Reconciled 2026-09-15.)
+- [x] M3: live read-only verification against `tan-ng-labs` showed `nagare-01` RUNNING with
+  service account `nagare-node@tan-ng-labs.iam.gserviceaccount.com`, the boot and
+  `nagare-data` disks attached, and `pulumi stack output sshCommand` returned the usable
+  IAP command `gcloud compute ssh nagare-01 --project=tan-ng-labs --zone=us-west1-a
+  --tunnel-through-iap`. (2026-09-15)
 
 
 ## Surprises & Discoveries
@@ -116,6 +128,11 @@ with concise evidence (command output is ideal).
   Pulumi resources, so a clean-project rebuild must enable these APIs first. Consider adding
   `gcp.projects.Service` resources in a future revision; for now this is a documented manual prereq.
   Final `publicIp` = `34.145.74.203`; wildcard `*.apps.example.com.` A record matches it.
+
+- Audit discovery (2026-09-15): M3 had remained unchecked even though EP-3 already recorded
+  the original VM creation and access. The later labs rollout provided a clean second-target
+  repetition: image `nagare-image-f9p6raz75qjf` is READY, the stack is 31 resources unchanged,
+  and the live instance, disks, service account, public IP, and `sshCommand` output all agree.
 
 
 ## Decision Log
@@ -193,6 +210,14 @@ reader can reconstruct the reasoning from this file alone.
   (`cd infra/pulumi && pulumi …`). State still lives at `infra/pulumi/.pulumi-state`.
   Date: 2026-06-02
 
+- Decision: accept the independently provisioned labs context as current M3 acceptance evidence
+  in addition to the original `tan-nb-exp` evidence already recorded by EP-3.
+  Rationale: M3 validates the reusable conditional-image and instance-output contract, not a
+  property unique to one project id. The labs rollout used released Nagare v0.2.2 from a fresh
+  project and reproduced the same image registration, second Pulumi apply, instance attachments,
+  and IAP SSH output without relying on this checkout's old local state.
+  Date: 2026-09-15
+
 
 ## Outcomes & Retrospective
 
@@ -200,8 +225,8 @@ Summarize outcomes, gaps, and lessons learned at major milestones or at completi
 result against the Purpose: can a reader run `pulumi up` and get a reproducible cloud perimeter, and
 do all nine stack outputs exist with correct values?
 
-Status: **M1 and M2 complete; M3 deferred (blocked on EP-3).** A `pulumi up` from a clean checkout
-reproduces the entire cloud perimeter except the VM, and all nine Integration-Point-1 stack outputs
+Status: **M1, M2, and M3 complete.** The documented two-pass `pulumi up` flow from a clean checkout
+reproduces the entire cloud perimeter and, after the image self-link is set, the VM; all nine Integration-Point-1 stack outputs
 exist with correct values (`publicIp` = `34.145.74.203`, `artifactRegistry` =
 `us-west1-docker.pkg.dev/tan-nb-exp/nagare`, `backupBucket` = `tan-nb-exp-nagare-backups`, etc.). The
 wildcard `*.apps.example.com.` A record resolves to the static IP, the Artifact Registry DOCKER repo
@@ -215,10 +240,10 @@ doubled the segment); (2) `artifactregistry.googleapis.com` and `iam.googleapis.
 on `tan-nb-exp` before `pulumi up` could create the registry and service account — the plan does not
 model API enablement as Pulumi resources, so this is a manual prereq for a clean-project rebuild.
 
-Remaining: **M3** creates the `nagare-01` VM and is intentionally blocked until EP-3
-(`docs/plans/3-nixos-host-nagare-01-with-k3s.md`) builds and registers the NixOS GCE image and sets
-the `nagareImageSelfLink` config key. The perimeter is ready for EP-3 to upload its image into
-`gs://tan-nb-exp-nagare-images`.
+M3 first completed on `tan-nb-exp` as recorded in EP-3, then repeated from a fresh project in
+`tan-ng-labs`. The 2026-09-15 audit observed the labs stack at 31 unchanged resources and verified
+the live instance's disks, service account, static IP, and IAP `sshCommand`. No implementation or
+acceptance work remains in this plan.
 
 
 ## Context and Orientation
@@ -1154,3 +1179,10 @@ is what EP-3's `scripts/upload-images.sh` uploads into; that script must include
 assertion (refuse to run unless the active project is `tan-nb-exp`) and pass `--project=tan-nb-exp`
 to every `gcloud`/`gsutil` call, exactly as the reference repo's
 `/Users/shinzui/Keikaku/bokuno/load-testing-infra/scripts/upload-images.sh` does.
+
+
+Revision note (2026-09-15): Reconciled the two stale M3 checkboxes with the original EP-3
+transcript and independent live evidence from
+`mori://tan/tan-infrastructure/docs/nagare-labs-domain-delegation` and
+`mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`. The plan is now
+complete; no product or infrastructure state changed during this audit.

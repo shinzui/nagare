@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-01T00:55:02Z
 intention: "intention_01kwdjzg86eyhvbkvgq64hd7zs"
 master_plan: "docs/masterplans/17-first-class-target-contexts-for-nagare.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Remote GCS Pulumi backends for target contexts
@@ -52,11 +59,14 @@ and `.pulumi/history/` objects under the context's backend path after a stack op
 Use this checklist to track the actual implementation state. Every stopping point must
 be recorded here with the date and enough evidence for the next contributor to resume.
 
-- [ ] M0: Prototype the Pulumi CLI behavior against a temporary local file backend and,
-  if credentials are available, a throwaway GCS path. Confirm that `PULUMI_BACKEND_URL`
-  selects the backend, `PULUMI_STACK` selects the stack, and `pulumi stack export` /
-  `pulumi stack import` migrate a stack between backends without hand-copying state
-  files. Record the transcript in Surprises & Discoveries.
+- [x] M0 (reconciled 2026-09-15): later live execution supplied stronger evidence than the
+  proposed prototype. EP-116 migrated the 32-resource `tan-nb-exp` stack from local state to
+  `gs://tan-nb-exp-nagare-pulumi-state/nagare/tan-nb-exp` using the shipped export/import script,
+  matched outputs, and obtained `pulumi preview --refresh` with 31 unchanged. The independently
+  initialized labs context selects stack `labs` at
+  `gs://tan-ng-labs-nagare-pulumi-state/nagare/labs`; `pulumi stack output` returned its live
+  `sshCommand`, `publicIp`, and `instanceName`. As corrected by M3, stack selection uses
+  `NAGARE_PULUMI_STACK`/explicit `--stack`, not a `PULUMI_STACK` export.
 - [x] M1 (2026-07-01): Extended the context schema with `NAGARE_PULUMI_BACKEND` and
   `NAGARE_PULUMI_BACKEND_URL`, defaulting to the EP-90 local file backend. Added
   `PulumiBackendKind`, `tpPulumiBackend`/`tpPulumiBackendUrl` on `TargetProfile`,
@@ -159,6 +169,14 @@ implementation. Provide concise evidence.
   must remain the per-context *local* directory even for gcs (Pulumi keeps its workspace and
   credentials there); only `PULUMI_BACKEND_URL` becomes `gs://`.
 
+- Live reconciliation (2026-09-15): EP-116 recorded the exact export/import migration that M0
+  deferred, including the encrypted rollback artifact, output comparison, backend flip, and a
+  clean 31-unchanged refresh preview. A second context in
+  `mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use` independently
+  proves that direct GCS initialization, context selection, and stack-output reads survive across
+  a released workspace. No throwaway migration is needed now that both production-shaped paths
+  have observable evidence.
+
 
 ## Decision Log
 
@@ -241,6 +259,12 @@ Record every decision made while working on the plan.
   EP-90-as-shipped.
   Date: 2026-07-01
 
+- Decision: close the M0 prototype with later live evidence from EP-116 and the labs context.
+  Rationale: the prototype existed to de-risk backend selection and export/import before real use.
+  EP-116 exercised the shipped implementation on a real 32-resource stack, while labs proves the
+  fresh-GCS path. Re-running a weaker throwaway experiment would add no acceptance coverage.
+  Date: 2026-09-15
+
 
 ## Outcomes & Retrospective
 
@@ -270,10 +294,11 @@ required:
   downgrade+warn, and unchanged default behavior. `nagarectl init --dry-run --pulumi-backend gcs`
   prints the exact idempotent `gcloud storage` bootstrap sequence. The migration script is
   `bash -n` clean with a working cloud-only guardrail.
-- **Gap (intentional).** The live GCS path — actually creating a bucket, running `pulumi up`
-  against it, and the end-to-end migration proof — is deferred to manual validation against a
-  real project, mirroring how EP-90 deferred its live migration proof. Nothing in this plan
-  created or mutated any real GCP resource.
+- **Live gap closed later.** EP-116 created the versioned `tan-nb-exp` state bucket and migrated
+  the live stack through `pulumi stack export`/`import`; outputs matched and refresh preview showed
+  31 unchanged. The fresh labs rollout independently initialized and operated a second GCS-backed
+  stack. The original implementation session itself mutated no GCP resource, but the deferred
+  acceptance now has durable downstream evidence.
 
 Lesson: validating a follow-up plan against the *shipped* dependency (not its plan text)
 before writing code paid off — the `PULUMI_STACK`-vs-`NAGARE_PULUMI_STACK` and
@@ -744,3 +769,9 @@ whose state it stores.
   4. docs + MasterPlan (this commit).
   Progress M1–M5 are checked with evidence; Outcomes & Retrospective is filled. `cabal test`
   = 355 pass. Live-GCP validation of the GCS path is deferred (no real resources touched).
+
+- 2026-09-15 (live-evidence reconciliation) — Closed M0 with the real export/import migration
+  recorded by EP-116 and the independent fresh-GCS operation recorded by
+  `mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`. Updated Progress,
+  Surprises, Decision Log, and Outcomes consistently; no cloud or product state changed in this
+  audit.

@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
 intention: "intention_01kzakvy1qeasagg3rpbn44749"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Host tuning, upgrade story, and documentation reality sync
@@ -61,11 +68,18 @@ while every runbook step matches the real tree.
 - [x] M1: add `--secrets-encryption` to the k3s server flags
 - [x] M1: add zram swap and the three sysctls to `nixos/modules/gcp.nix`
 - [x] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
-- [ ] M1: apply to the live host (`just host-switch`) and run the online `k3s secrets-encrypt enable` + restart + `reencrypt` procedure
-- [ ] M1: verify kubeconfig mode/group on the host and encryption status `Enabled` / `reencrypt_finished`
+- [x] M1 live activation and partial verification: the released configuration is active on the
+  fresh labs host; `/etc/rancher/k3s/k3s.yaml` is `640 root wheel` and `k3s secrets-encrypt status`
+  reports `Encryption Status: Enabled` with matching server hashes. (2026-09-15)
+- [ ] M1 remaining online migration: complete the rotation/reencryption procedure on the live
+  datastore and verify `Current Rotation Stage: reencrypt_finished`. The labs host currently reports
+  `Current Rotation Stage: start`; a fresh encrypted host does not prove the existing-data migration.
 - [x] M2: add the `nagare-registry-pull-secret` service + 30-minute timer to `nixos/hosts/nagare-01/registries.nix`
 - [x] M2: delete the `nagare-registries-reload` service and timer from `registries.nix`
-- [ ] M2: apply with `just host-switch`; confirm the old timer is gone and the new one fires
+- [x] M2 live activation: the fresh labs host runs the released configuration. The old
+  `nagare-registries-reload` unit is absent; `nagare-registry-pull-secret.timer` is enabled and
+  active, fires every 30 minutes, and repeatedly configures the pull Secret and patches the default
+  ServiceAccount without restarting k3s. (2026-09-15)
 - [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start, with no k3s restart in `journalctl`
 - [x] M3: verify the `knative-v1.22.0` release assets; retain the independently verified v1.14.0 GCS pin and rewrite its README
 - [x] M3: write `docs/user/upgrades.md` (host, cluster components, observability, cadence) and link it from `docs/user/README.md`
@@ -110,6 +124,13 @@ while every runbook step matches the real tree.
 - The optional k3d pin-rehearsal cannot run on this workstation: the Docker CLI
   is present, but its configured Colima socket does not exist. M3 records the
   skip instead of presenting an unexecuted rehearsal as evidence.
+
+- Live labs audit (2026-09-15): the released host configuration is active on
+  `labs-nagare`. The kubeconfig is `640 root wheel`; encryption is Enabled with matching
+  hashes but remains at rotation stage `start`; the replacement pull-secret timer is enabled,
+  active, and firing every 30 minutes; the old reload unit is absent; and its journal repeatedly
+  shows the Secret configured and ServiceAccount patched. The only recorded k3s starts are the
+  initial 2026-09-14 bootstrap/reboot, so the timer is not restarting the control plane.
 
 (More to be added during implementation.)
 
@@ -192,22 +213,30 @@ while every runbook step matches the real tree.
   and sudo argument.
   Date: 2026-08-24.
 
+- Decision: count a fresh released-host activation as evidence for the M1 configuration and M2
+  timer activation, but not as evidence for late-datastore reencryption or a private image pull.
+  Rationale: labs directly proves the desired steady-state units, mode, and encryption flag. It
+  began with the flag enabled, so it cannot prove migrating pre-existing plaintext Secret rows;
+  and no private application image has yet been pulled there. Splitting the checklist preserves
+  those two distinct gaps instead of treating “host is running” as blanket validation.
+  Date: 2026-09-15.
+
 
 ## Outcomes & Retrospective
 
-- M1 repository work completed on 2026-08-24: kubeconfig access is narrowed to
+- M1 repository work completed on 2026-08-24 and live steady state was observed on labs on
+  2026-09-15: kubeconfig access is narrowed to
   `root:wheel` mode 0640, datastore Secret encryption is enabled for fresh
   starts, and zram/inotify/overcommit tuning is declarative. The NixOS
-  configuration evaluates. Live activation, late encryption enablement, and
-  host observations remain open because there is no active target context and
-  the configured gcloud account requires interactive reauthentication.
+  configuration evaluates and is active. Late encryption migration remains open because
+  `k3s secrets-encrypt status` reports rotation stage `start`, not `reencrypt_finished`.
 - M2 repository work completed on 2026-08-24. The restart timer is removed;
   the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
   namespaces, treats an unavailable API as retryable, and preserves hard
   failures for token minting or Kubernetes mutations while the API is healthy.
-  Evaluation proves the new timer's `2min`/`30min`/persistent settings and the
-  old timer's absence. Host activation and the >45-minute uncached pull proof
-  remain open behind the same cloud authentication blocker.
+  Evaluation proves the new timer's `2min`/`30min`/persistent settings, and labs proves the
+  old unit's absence plus repeated successful 30-minute executions without k3s restarts. The
+  >45-minute uncached private-image pull remains open because labs has no private app workload yet.
 - M3 repository and documentation work completed on 2026-08-24. The verified
   net-certmanager pin remains v1.14.0; the new upgrade guide covers host,
   controller, observability, verification, cadence, rollback, and the exact IAP
@@ -217,10 +246,9 @@ while every runbook step matches the real tree.
   and whitespace check pass. The optional k3d rehearsal was skipped because no
   Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
   behind the active-context/authentication blocker.
-- EP-7 remains In Progress solely for the live M1/M2 activation and observation
-  checks: encryption status and datastore proof, host tuning/mode observations,
-  timer replacement, and the greater-than-45-minute uncached image pull without
-  a k3s restart.
+- EP-7 remains In Progress solely for two live checks: finish the online encryption rotation to
+  `reencrypt_finished`, and perform a greater-than-45-minute uncached private-image pull without
+  a k3s restart. Labs has closed the mode, Enabled-status, timer-activation, and no-restart portions.
 
 
 ## Context and Orientation
@@ -939,3 +967,8 @@ disaster-recovery.md lines 30/41/45/57–59/67/108–116/188–195/265–302,
 secrets.md:3–6/90–96, reference.md:29, `nixos/flake.lock` nixpkgs
 lastModified 2026-05-31, `Nagare/Ops/Status.hs:72–74` legacy `postgres`
 freshness prefix.
+
+Revision note (2026-09-15): Split the previously bundled live checks using read-only evidence from
+`mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`. Marked the released
+host configuration and replacement timer active, while retaining the unfinished reencryption stage
+and private-image pull as explicit acceptance work. No host state changed during the audit.
