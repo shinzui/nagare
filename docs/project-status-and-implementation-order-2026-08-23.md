@@ -7,7 +7,7 @@ Input baseline: `master` at `d76557f`, matching `origin/master`, with no pre-exi
 
 ## Executive Summary
 
-Nagare is substantially implemented. The repository contains 19 MasterPlans and 103 ExecPlans. Of the 103 ExecPlans, 95 have delivered their intended behavior, or 92.2 percent. One additional plan, EP-6, is formally Cancelled after its intended capability was delivered through a successor. Seventeen MasterPlans have no active child work: sixteen are fully delivered and MP-1 is resolved with six Complete children plus the cancelled EP-6. Two completed standalone plans, EP-71 and EP-81, are now explicitly indexed in [the plan registry](plan-registry.md) and are included in the 95-plan implemented total.
+Nagare is substantially implemented. The repository contains 19 MasterPlans and 103 ExecPlans. Of the 103 ExecPlans, 95 have delivered their intended behavior, or 92.2 percent. One additional plan, EP-6, is formally Cancelled after its intended capability was delivered through a successor. Seventeen MasterPlans have no active child work: sixteen are fully delivered and MP-1 is resolved with six Complete children plus the cancelled EP-6. Two completed standalone plans, EP-71 and EP-81, are included directly in the 95-plan implemented total.
 
 Seven plans remain active:
 
@@ -137,8 +137,9 @@ Treat this as a separate verification backlog rather than reopening completed or
 The local bookkeeping recommendations from this review are complete:
 
 - EP-6 is formally Cancelled, with MP-1 dependencies and successor lineage updated;
-- standalone EP-71 and EP-81 are explicitly indexed in [the plan registry](plan-registry.md);
-- MP-18's canonical Kikan origin and local EP-94 through EP-96 lineage are registered; and
-- Mori now advertises the plan index plus both plan directories as Nagare documentation.
+- standalone EP-71 and EP-81 are included directly in the status totals;
+- MP-18's canonical Kikan origin and local EP-94 through EP-96 lineage are recorded in the owning
+  MasterPlan and ExecPlans; and
+- Mori advertises both plan directories as Nagare documentation.
 
 One cross-repository action remains before EP-94 or EP-96 implementation: reconcile the Kikan-owned plan and conformance artifacts with Nagare's current MP-18/EP-95 state. Nagare records that dependency but does not claim ownership of the Kikan files.
