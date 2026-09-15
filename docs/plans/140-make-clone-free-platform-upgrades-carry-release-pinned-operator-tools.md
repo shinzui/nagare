@@ -49,8 +49,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-15 14:28Z) Milestone 1: defined `nix shell ...#nagare -c nagarectl` as the
   target-release operator invocation throughout the upgrade, multi-cluster, installation,
   reference, current release, release-maintainer, and changelog documentation.
-- [ ] Milestone 2: make the clone-free release rehearsal execute the documented upgrade command
-  with no ambient Pulumi and verify that planning reaches the reviewed preview.
+- [x] (2026-09-15 14:36Z) Milestone 2: made the clone-free release rehearsal execute the
+  documented command with a Nix-only host PATH, verify release-pinned Pulumi tools, and record one
+  safe saved preview with all three planning phases successful and all apply phases pending.
 - [ ] Milestone 3: update release/package documentation, distill any durable packaging decision,
   and pass the focused and full release gates.
 
@@ -60,7 +61,12 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: A working-tree rehearsal through `path:$PWD` can admit ignored local build files,
+  unlike the clean exact-commit release path or a Git flake view.
+  Evidence: the first local rehearsal copied
+  `cli/nagare-dsl/.ghc.environment.aarch64-darwin-9.12.4`; the sandboxed GHC then refused its
+  host-only `/Users/shinzui/.cabal/store/.../package.db`. Retrying with `git+file://$PWD` included
+  the tracked dirty changes, excluded the ignored file, and completed successfully.
 
 
 ## Decision Log
@@ -83,6 +89,20 @@ Record every decision made while working on the plan.
   must cross the same public boundary an operator uses.
   Date: 2026-09-15.
 
+- Decision: Let the recording `nix` double proxy only the outer `nix shell` call to the real Nix
+  executable and record inner upgrade evaluation calls.
+  Rationale: This preserves the literal public command boundary while ensuring the upgrade's
+  `nix eval` cannot build a host or contact an external evaluator. The operator wrapper appends its
+  real fallbacks, so the deliberately prepended Pulumi, npm, gcloud, and kubectl doubles still win.
+  Date: 2026-09-15.
+
+- Decision: Include `pulumiVersion` and the planned upgrade state/preview count in each native
+  clone-free release artifact.
+  Rationale: The rehearsal assertions already fail on a missing tool or unsafe phase, while the
+  summary fields retain concise publication evidence that the release supplied Pulumi and reached
+  exactly one reviewed preview.
+  Date: 2026-09-15.
+
 
 ## Outcomes & Retrospective
 
@@ -91,7 +111,11 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Milestone 2 outcome: the native `aarch64-darwin` rehearsal completed with
+`pulumiVersion: "v3.255.0"`, `platformUpgrade.state: "planned"`, and
+`platformUpgrade.previewCalls: 1`. Its test double log proved the transaction invoked Nix
+evaluation, one saved Pulumi preview, and Kubernetes diff, while the JSON transaction kept every
+apply phase pending and the old context pin unchanged.
 
 
 ## Context and Orientation
@@ -266,3 +290,7 @@ Revision note (2026-09-15): Implementation began by standardizing the target-rel
 invocation across current user, release, and multi-cluster documentation. Historical bug-report
 reproduction and application-developer `#nagarectl` examples remain unchanged because they describe
 the failure and the intentionally smaller package respectively.
+
+Revision note (2026-09-15): The native clone-free rehearsal now crosses the documented operator
+shell boundary from a host PATH without Pulumi, substitutes recording tools only after verifying the
+release closure, rejects any apply/cloud mutation, and publishes concise upgrade evidence.
