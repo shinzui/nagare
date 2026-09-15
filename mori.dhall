@@ -123,6 +123,14 @@ in  Schema.Project::{
         , description = Some "Nagare-owned improvement requests"
         }
       , Schema.OkfBundle::{
+        , name = "bug-reports"
+        , path = "docs/bug-reports"
+        , profile = Some "docs/bug-reports/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Defects in behavior Nagare already provides, one reproduction per report"
+        }
+      , Schema.OkfBundle::{
         , name = "reviews"
         , path = "docs/reviews"
         , profile = Some "docs/reviews/profile.dhall"
