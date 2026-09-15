@@ -20,7 +20,10 @@ and describes an existing tag but never creates a version commit, moves a tag, o
 The first command checks source and built identities and writes deterministic attachments. The second
 uses an exact `git+file` revision from outside the checkout with an isolated home/XDG tree. It covers
 version, context, external typed configuration, payload resolution, host generation, and local/cloud
-dry runs. CI repeats the rehearsal natively on every system in `release.json`.
+dry runs. It also copies the documented `nix shell ...#nagare -c nagarectl platform upgrade` shape
+into an environment with no ambient Pulumi, verifies the release supplies its operator tools, and
+records a mutation-free reviewed preview. CI repeats the rehearsal natively on every system in
+`release.json`.
 
 ## Rehearse CI without publishing
 

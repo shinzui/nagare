@@ -52,6 +52,14 @@ The full `nagare` operator package includes Pulumi and `pulumi-language-nodejs` 
 pinned nixpkgs. Install Node.js with npm and the Google Cloud SDK separately. Run
 `nagarectl version --tools` (or `nagarectl version --json --tools`) to see the exact binaries the
 current `PATH` selects; an operator-supplied binary takes precedence over the packaged fallback.
+For a clone-free platform command without a persistent install, invoke the CLI inside that package:
+
+```bash
+nix shell "${NAGARE_FLAKE}#nagare" -c nagarectl platform status
+```
+
+Use the same `nix shell ...#nagare -c nagarectl` prefix for platform planning, apply, resume, and
+rollback so every operation selects the target release's complete operator toolchain.
 
 ## Install persistently
 
