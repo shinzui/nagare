@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-06-10T18:57:36Z
 intention: "intention_01ktsdz4s8er09txy9afce3hn4"
 master_plan: "docs/masterplans/11-cdn-integration-for-nagare.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:37:02Z
+      mode: "update"
+      note: "Reconcile deferred origin reachability against tan-ng-labs"
 ---
 
 # CDN substrate spike and origin-TLS feasibility
@@ -98,9 +105,9 @@ This section must always reflect the actual current state of the work.
   the project preflight and the required-env guards were verified to fire before any
   cloud or API call (a wrong `CLOUDSDK_CORE_PROJECT` is refused; a missing `HC_HOST`
   / `CF_API_TOKEN` aborts).
-- [ ] M0 (deferred — needs VM up): start `nagare-01`; read `publicIp` from Pulumi; confirm
-  Kourier serves HTTP on the VM's public IP and that a known app responds when the right
-  Host header is sent.
+- [x] M0 live origin reachability: the labs stack output reports public IP `8.235.22.170`, and
+  `curl -H 'Host: hello.personal.labs.topagentnetwork.net' http://8.235.22.170/` returned
+  `HTTP/1.1 200 OK` with body `Hello Nagare!` through Kourier. (2026-09-15)
 - [ ] M1 (deferred — needs VM up): stand up the throwaway Google Cloud CDN load balancer
   (instance group, health check, CDN backend service, URL map, target proxy, forwarding
   rule, global IP, managed cert); capture the routed-response and cache-HIT `curl`
@@ -121,7 +128,11 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Live M0 evidence (2026-09-15): the independent labs target at `mori://tan/tan-ng-labs`
+  removes the old powered-off-origin blocker. Pulumi reports `publicIp=8.235.22.170`; direct HTTP
+  to that address with the Knative host header returns 200 and `Hello Nagare!`. This proves the
+  reusable origin-routing prerequisite only. It does not create a Google load balancer, call the
+  Cloudflare API, or establish either cache-HIT/TLS topology.
 
 
 ## Decision Log
@@ -233,6 +244,13 @@ proposal names the later plan that consumes it.
   Date: 2026-06-10
 
 
+- Decision: accept labs as M0 evidence but keep M1–M3 open.
+  Rationale: M0 asks only whether the public VM address reaches Kourier and Knative when the Host
+  header is preserved, which labs proves exactly. M1 and M2 require distinct provider resources,
+  cache HITs, TLS behavior, and teardown; none can be inferred from origin reachability alone.
+  Date: 2026-09-15
+
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -248,9 +266,11 @@ forwarding rule), and `cf-cdn-up.sh`'s three API calls are the verified shapes o
 `--project=tan-nb-exp` behind the repo preflight; both `up` scripts are idempotent and paired
 with `--quiet`, missing-object-tolerant teardown.
 
-**Deferred (live evidence).** Because `nagare-01` is `TERMINATED`, the live `curl` transcripts for
-M0–M2 (routed response, `age:`/`cf-cache-status` cache HITs, the working origin-TLS mode, the
-Google-managed-cert transition) are **not yet captured**. The Substrate Decisions subsection
+**Deferred (live evidence).** M0 is now captured against the running labs origin: the Pulumi IP plus
+the correct Host header routes through Kourier to the known app with HTTP 200. M1–M2 remain
+uncaptured: no Google CDN load balancer or Cloudflare proxy/cache rule was created, so the
+`age:`/`cf-cache-status` cache HITs, working origin-TLS mode, and Google-managed-cert transition are
+**not yet proven**. The Substrate Decisions subsection
 records them as the proposals the live spike confirms; an operator runs the scripts and fills in
 the transcripts when the VM is started (and, for Cloudflare, a domain + `CF_API_TOKEN` are
 supplied). This matches how EP-43 and EP-49 closed under the same powered-off constraint: the
@@ -1062,3 +1082,9 @@ typed model* (a field on `Cdn`) or stays a deploy-time default chosen by EP-57/E
 spike's recommendation is the latter (keep it out of the model; default `Full (strict)`),
 because origin TLS is a platform-wide posture, not a per-site choice; EP-55 confirms or
 amends.
+
+
+Revision note (2026-09-15): Closed only the M0 origin-routing prerequisite with a read-only request
+to the labs public IP and canonical cross-repository context from `mori://tan/tan-ng-labs`. Kept
+the billable/provider-specific Google CDN and Cloudflare experiments plus final contract decisions
+open; no cloud resource was created or changed.

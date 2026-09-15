@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T13:31:15Z
+      mode: "update"
+      note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
 ---
 
 # Protect stateful infrastructure and make secrets and state recoverable
@@ -60,12 +67,11 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-**Status summary (reconciled 2026-08-26): the Pulumi infrastructure changes are
-written, committed, and typecheck. The versioned-distribution work in MasterPlan 20
-made released workspaces and context-owned host/secret configuration authoritative;
-the remaining commands and recovery targets below now follow that model. Every live
-GCP step is still blocked on operator action — this workstation has no cloud target
-context and its gcloud credentials need an interactive re-login.**
+**Status summary (reconciled 2026-09-15): the Pulumi infrastructure changes and GCS
+state path are now validated live. The fresh `tan-ng-labs` target applied the released
+infrastructure and exposes the expected protections; EP-116 migrated the original
+`tan-nb-exp` stack to GCS. The remaining substantive work is the operator-held offline
+recovery key, re-keying every context-owned secret, and the matching recovery runbook.**
 
 - [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
@@ -79,12 +85,14 @@ context and its gcloud credentials need an interactive re-login.**
 - [x] M1c: Drop the `enable-oslogin` metadata entry (fix the comment to describe the
   real auth model), and thread boot-disk size and type through config
   (`bootDiskSizeGb`, `bootDiskType` default `pd-balanced`). (2026-08-05)
-- [ ] M1 (BLOCKED — needs a live GCP session): run `pulumi preview --diff`, confirm the
-  acceptance gate (update/create only, plus the single expected delete of
-  `nagare-iam-dns`), pin `bootDiskType` to the live boot disk's actual type if it is
-  not already `pd-balanced`, then `nagare infra-up` and run the post-apply `gcloud`
-  describe checks and the `kubectl get clusterissuer letsencrypt-dns` verification.
-  **Do not apply without the preview.**
+- [x] M1 live GCP acceptance (reconciled 2026-09-15): the fresh `tan-ng-labs` rollout
+  reviewed and applied the released Pulumi program, and a new read-only audit reported
+  `31 unchanged`. The instance is RUNNING with `deletionProtection: true`, no metadata
+  block, and a `pd-balanced` data disk attached to daily snapshot policy
+  `nagare-data-snapshots-63547e1`; the backup bucket has versioning, enforced public-access
+  prevention, uniform access, and the 30-day noncurrent lifecycle; the zone grants only
+  `roles/dns.admin` to the node identity while the project grants it `roles/dns.reader`;
+  ClusterIssuer `letsencrypt-dns` is Ready for project `tan-ng-labs`.
 - [x] M2a (partial — the half that needs no key material): delete the dead
   `nixos/secrets/` creation rule and correct the root `.sops.yaml` header comment,
   which wrongly claimed one private key lives in both key locations. (2026-08-05,
@@ -105,9 +113,11 @@ context and its gcloud credentials need an interactive re-login.**
 - [ ] M2c (BLOCKED — depends on M2a/M2b): rewrite the age-key section of
   `docs/runbooks/disaster-recovery.md` to name all three keys. Not written yet because
   it would document a three-key model that does not exist until the re-key lands.
-- [ ] M3 (BLOCKED — no cloud context exists on this machine): migrate the active cloud
-  context's Pulumi state to GCS. There is nothing to migrate here: the only context is
-  the in-repo local-mode profile, and its `default` stack holds **0 resources**.
+- [x] M3 live state migration (reconciled 2026-09-15 from EP-116): the active
+  `tan-nb-exp` context's 32-resource stack was exported and imported into
+  `gs://tan-nb-exp-nagare-pulumi-state/nagare/tan-nb-exp`; outputs matched, the bucket is
+  versioned with public-access prevention and uniform access, the context flipped through
+  its private-repository symlink, and `pulumi preview --refresh` reported 31 unchanged.
 - [x] Re-audit the live-environment blocker before yielding EP-3: the Nagare context
   directory is still absent, the active gcloud configuration still names
   `tan-nb-exp`/`us-west1-a`, and explicit read-only instance, disk, and bucket queries
@@ -248,6 +258,14 @@ the real host. The packaged secret resolver added on 2026-08-26 similarly keeps
 encrypted cluster credentials outside payloads at
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`.
 
+**Live infrastructure became available through labs (2026-09-15).** The clean second target at
+`mori://tan/tan-ng-labs` was provisioned from Nagare v0.2.2 after this plan's Pulumi changes. Its
+operator plan is `mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`.
+Read-only GCP, Kubernetes, and Pulumi checks matched every M1 observable and showed 31 unchanged.
+This removes the old infrastructure blocker without claiming the still-unperformed recovery-key
+work. EP-116 independently provides the exact live local-to-GCS export/import evidence required by
+M3.
+
 (Add further implementation discoveries here as they occur.)
 
 
@@ -350,20 +368,35 @@ Record every decision made while working on the plan.
   host secrets come from `nagarectl host path`; both must be included in M2 acceptance.
   Date: 2026-08-26
 
+- Decision: accept the fresh labs deployment for M1 and EP-116's original-context migration for M3.
+  Rationale: M1's acceptance is the behavior of released Pulumi resources, which labs exercised
+  from an empty project and exposes directly through authoritative GCP/Kubernetes APIs. M3 names the
+  active `tan-nb-exp` state, and EP-116 performed that exact export/import with output and refresh
+  verification. Neither evidence substitutes for M2's human custody and re-key requirements.
+  Date: 2026-09-15
+
 (Record further decisions as work proceeds.)
 
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+As of 2026-09-15, the infrastructure and state-recovery halves of the purpose are observably live.
+The labs target has deletion-protected compute, a snapshot-scheduled data disk, hardened/versioned
+backup storage, and scoped DNS rights; its Pulumi stack previews at 31 unchanged. The original
+`tan-nb-exp` stack is no longer laptop-only: EP-116 migrated it to its versioned GCS backend with a
+retained rollback artifact and a clean refresh preview.
 
-The infrastructure implementation remains complete but unapplied. Packaging
-reconciliation on 2026-08-26 closed a newly discovered distribution gap: released
-payloads/workspaces no longer carry cluster secrets, and recovery work now targets the
-generated host flake and context-owned encrypted Secret directory. The packaged asset
-and clone-free checks prove that boundary. Live GCP apply,
-offline-key creation/re-keying, state migration, and final retrospective remain open.
+The plan remains incomplete because the secret root of trust is a human-custody operation, not an
+infrastructure inference. The offline recovery private key has not been stored in the operator's
+vault, context-owned host and cluster secrets have not all been re-keyed to it, and the disaster-
+recovery runbook must not claim that three-key model until those steps exist. Once M2a–M2c complete,
+the final MasterPlan reconciliation and full retrospective can close the plan.
+
+Packaging reconciliation on 2026-08-26 also closed a distribution gap: released
+payloads/workspaces no longer carry cluster secrets, and recovery work targets the generated
+host flake and context-owned encrypted Secret directory. The packaged asset and clone-free checks
+prove that boundary. Live GCP apply and state migration are no longer open; offline-key
+creation/re-keying, the truthful runbook update, and final MasterPlan closeout remain.
 
 
 ## Context and Orientation
@@ -1025,3 +1058,8 @@ tagged-release contracts recorded in `docs/adr/0003-*.md` through
   workspace, and checkout paths remain contributor/legacy compatibility only. This
   revision also records and fixes the packaged cluster-secret omission discovered by
   resuming this plan after EP-105–109.
+
+- 2026-09-15 — Reconciled M1 with live, read-only labs evidence and M3 with EP-116's retained
+  `tan-nb-exp` export/import transcript. Updated Progress, Surprises, Decision Log, and Outcomes;
+  kept the operator-held recovery-key and re-key work explicitly open. No cloud or secret state
+  changed during this audit.
