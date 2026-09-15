@@ -36,7 +36,7 @@ write_executable() {
 }
 
 write_executable "$fixture/bin/nagarectl" \
-  '#!/usr/bin/env bash' \
+  "#!$BASH" \
   'set -euo pipefail' \
   'printf "nagarectl %s\n" "$*" >> "${NAGARE_IDENTITY_LOG:?}"' \
   'case "$*" in' \
@@ -45,7 +45,7 @@ write_executable "$fixture/bin/nagarectl" \
   'esac'
 
 write_executable "$fixture/bin/nix" \
-  '#!/usr/bin/env bash' \
+  "#!$BASH" \
   'set -euo pipefail' \
   'printf "nix %s\n" "$*" >> "${NAGARE_IDENTITY_LOG:?}"' \
   'case "$*" in' \
@@ -57,7 +57,7 @@ write_executable "$fixture/bin/nix" \
   'esac'
 
 write_executable "$fixture/bin/ssh" \
-  '#!/usr/bin/env bash' \
+  "#!$BASH" \
   'set -euo pipefail' \
   'printf "ssh %s\n" "$*" >> "${NAGARE_IDENTITY_LOG:?}"' \
   'case "$*" in' \

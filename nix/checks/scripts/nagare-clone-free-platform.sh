@@ -306,7 +306,7 @@ test ! -e "$legacy_kube_state/secret-kube-system"
 test ! -e "$legacy_kube_state/secret-observability"
 mkdir -p apply-bin
 printf '%s\n' \
-  '#!/usr/bin/env bash' \
+  "#!$BASH" \
   'printf "just %s\n" "$*" >> "${NAGARE_FAKE_TOOL_LOG:?}"' \
   > apply-bin/just
 chmod +x apply-bin/just
