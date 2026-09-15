@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROGRAM="$(basename "$0")"
+PROGRAM="${NAGARE_GCP_BOOTSTRAP_FAKE_PROGRAM:-$(basename "$0")}"
 
 die() {
   printf '%s: %s\n' "$PROGRAM" "$*" >&2
@@ -355,7 +355,12 @@ certificate_scope=apps-only
 EOF
   local tool
   for tool in gcloud pulumi nix ssh kubectl nagare-dns npm; do
-    ln -s "$ROOT/scripts/rehearse-gcp-bootstrap.sh" "$NAGARE_REHEARSAL_ROOT/bin/$tool"
+    {
+      printf '#!%s\n' "$BASH"
+      printf 'export NAGARE_GCP_BOOTSTRAP_FAKE_PROGRAM=%q\n' "$tool"
+      printf 'exec %q %q "$@"\n' "$BASH" "$ROOT/scripts/rehearse-gcp-bootstrap.sh"
+    } > "$NAGARE_REHEARSAL_ROOT/bin/$tool"
+    chmod +x "$NAGARE_REHEARSAL_ROOT/bin/$tool"
   done
   export PATH="$NAGARE_REHEARSAL_ROOT/bin:$PATH"
 
