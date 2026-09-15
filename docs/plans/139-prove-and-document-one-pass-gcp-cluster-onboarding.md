@@ -47,6 +47,11 @@ provenance:
       at: 2026-09-15T01:38:17Z
       mode: "implement"
       note: "Made hermetic failure diagnostics inherit through Bash functions"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T01:48:38Z
+      mode: "implement"
+      note: "Preserved the failing public infra-preview dry-run diagnostic in native CI"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -110,7 +115,9 @@ implementation. Provide concise evidence.
   assertions intentionally use quiet `grep`. Bash does not inherit an `ERR` trap into functions
   unless errtrace is enabled, so installing the trap inside `run_hermetic` was insufficient for
   failures in `assert_public_interfaces`. The rehearsal now enables errtrace and reports the failed
-  command and source line from its own temporary, secret-free hermetic environment.
+  command and source line from its own temporary, secret-free hermetic environment. That exposed
+  the remaining boundary as the packaged `nagare --dry-run infra-preview` command; the harness now
+  emits that command's captured output before deleting the temporary environment.
 
 
 ## Decision Log
