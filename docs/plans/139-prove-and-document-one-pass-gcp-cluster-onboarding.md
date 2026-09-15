@@ -52,6 +52,11 @@ provenance:
       at: 2026-09-15T01:48:38Z
       mode: "implement"
       note: "Preserved the failing public infra-preview dry-run diagnostic in native CI"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T01:56:51Z
+      mode: "implement"
+      note: "Pinned hermetic fake-tool launchers to the native Bash closure"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -118,6 +123,12 @@ implementation. Provide concise evidence.
   command and source line from its own temporary, secret-free hermetic environment. That exposed
   the remaining boundary as the packaged `nagare --dry-run infra-preview` command; the harness now
   emits that command's captured output before deleting the temporary environment.
+
+- Symlinking the recording fakes back to this repository script preserved the script's
+  `#!/usr/bin/env bash` interpreter. Linux `posix_spawnp` therefore refused the fake `npm` in a pure
+  Nix closure where `/usr/bin/env` is intentionally absent, although invoking the top-level harness
+  explicitly with Bash remained valid. Each fake is now a tiny generated launcher whose shebang is
+  the exact Bash already running the check and whose explicit program identity preserves dispatch.
 
 
 ## Decision Log
