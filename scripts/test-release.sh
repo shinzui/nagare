@@ -61,15 +61,19 @@ test -s "$test_root/artifacts/SHA256SUMS"
 for system in x86_64-linux aarch64-darwin; do
   native_dir="$test_root/native/$system"
   mkdir -p "$native_dir"
-  cp "$test_root/artifacts/nagare-release-${version}.json" "$native_dir/"
+  platform_hash="sha256-platform-$system"
+  jq --arg digest "$platform_hash" '.payloadDigest = $digest' \
+    "$test_root/artifacts/nagare-release-${version}.json" \
+    > "$native_dir/nagare-release-${version}.json"
   cp "$test_root/artifacts/nagare-v${version}.md" "$native_dir/"
   jq -n -S \
     --arg system "$system" \
     --arg version "$version" \
+    --arg platformHash "$platform_hash" \
     '{version: $version, revision: "fixture-revision", system: $system,
       outputs: {
         nagarectl: {narHash: "sha256-cli", narSize: 1},
-        "nagare-platform": {narHash: "sha256-platform", narSize: 2}
+        "nagare-platform": {narHash: $platformHash, narSize: 2}
       }}' > "$native_dir/nix-output-$system.json"
   jq -n -S \
     --arg system "$system" \
@@ -89,6 +93,23 @@ test -s "$test_root/assembled/nix-output-aarch64-darwin.json"
 test -s "$test_root/assembled/clone-free-x86_64-linux.json"
 test -s "$test_root/assembled/clone-free-aarch64-darwin.json"
 test -s "$test_root/assembled/SHA256SUMS"
+jq -e '
+  .payloadDigest == null
+    and .payloadDigests["x86_64-linux"] == "sha256-platform-x86_64-linux"
+    and .payloadDigests["aarch64-darwin"] == "sha256-platform-aarch64-darwin"
+' "$test_root/assembled/nagare-release-${version}.json" >/dev/null
+
+cp -R "$test_root/native" "$test_root/divergent-native"
+jq '.revision = "different-revision"' \
+  "$test_root/divergent-native/x86_64-linux/nagare-release-${version}.json" \
+  > "$test_root/divergent-native/x86_64-linux/manifest.tmp"
+mv "$test_root/divergent-native/x86_64-linux/manifest.tmp" \
+  "$test_root/divergent-native/x86_64-linux/nagare-release-${version}.json"
+expect_failure divergent-native-manifest \
+  assemble_release \
+    --version "$version" \
+    --input-root "$test_root/divergent-native" \
+    --output-dir "$test_root/divergent-assembled"
 
 expect_failure malformed-version \
   check_release --version 01.1.0 --source-root "$fixture" --source-only
