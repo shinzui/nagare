@@ -1,0 +1,1 @@
+{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"config-network","namespace":"knative-serving","uid":"config-network-022"},"data":{"external-domain-tls":"Enabled","namespace-wildcard-cert-selector":"{}\n"}}

@@ -110,7 +110,6 @@ data KubernetesPlanMetadata = KubernetesPlanMetadata
   , context :: !Text
   , payloadId :: !Text
   , payloadDigest :: !Text
-  , createdAt :: !Text
   , manifestDigest :: !Text
   , reviewDigest :: !Text
   }
@@ -215,7 +214,6 @@ instance ToJSON KubernetesPlanMetadata where
       , "context" Aeson..= context metadata
       , "payloadId" Aeson..= payloadId metadata
       , "payloadDigest" Aeson..= payloadDigest metadata
-      , "createdAt" Aeson..= createdAt metadata
       , "manifestDigest" Aeson..= manifestDigest metadata
       , "reviewDigest" Aeson..= reviewDigest metadata
       ]
@@ -228,7 +226,6 @@ instance FromJSON KubernetesPlanMetadata where
       <*> o .: "context"
       <*> o .: "payloadId"
       <*> o .: "payloadDigest"
-      <*> o .: "createdAt"
       <*> o .: "manifestDigest"
       <*> o .: "reviewDigest"
 
@@ -285,7 +282,7 @@ parseCertificate group = withObject "Certificate" $ \item -> do
   resourceIssuer <- case group of
     "cert-manager.io" -> spec .: "issuerRef" >>= (.: "name")
     _ -> pure ""
-  let isWildcard = KeyMap.member "networking.knative.dev/wildcardDomain" labels || any ("*." `T.isPrefixOf`) resourceDnsNames
+  let isWildcard = group == "networking.internal.knative.dev" && KeyMap.member "networking.knative.dev/wildcardDomain" labels
       isManaged = case KeyMap.lookup "networking.knative.dev/certificate.class" annotations of
         Just (String "cert-manager.certificate.networking.knative.dev") -> True
         _ -> False

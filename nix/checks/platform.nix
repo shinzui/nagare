@@ -78,6 +78,99 @@ in
         printf '%s %s\n' "${name}" "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         printf '%s\n' '{"items":[]}'
       '';
+      fakeKubectl = pkgs.writeShellScriptBin "kubectl" ''
+        printf 'kubectl %s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+        case " $* " in
+          " config current-context ")
+            printf '%s\n' labs
+            exit 0
+            ;;
+          *" get nodes -o json "*)
+            printf '%s\n' '{"items":[{"metadata":{"name":"labs-nagare","labels":{"node-role.kubernetes.io/control-plane":"true"}}}]}'
+            exit 0
+            ;;
+        esac
+        if [ "''${NAGARE_FAKE_LEGACY_CERTS:-}" = 1 ]; then
+          fixture=${src}/cluster/test/fixtures/certificate-migration-0.2.2
+          state="''${NAGARE_FAKE_KUBE_STATE:?}"
+          mkdir -p "$state"
+          case " $* " in
+            *" get configmap config-network "*)
+              if [ -e "$state/selector-applied" ]; then
+                printf '%s\n' '{"data":{"external-domain-tls":"Enabled","namespace-wildcard-cert-selector":"matchLabels:\\n  nagare.dev/app-namespace: \\\"true\\\"\\n"}}'
+              else
+                cat "$fixture/config-network.json"
+              fi
+              exit 0
+              ;;
+            *" get namespaces "*)
+              cat "$fixture/namespaces.json"
+              exit 0
+              ;;
+            *" get certificates.networking.internal.knative.dev "*)
+              if [ -e "$state/knative-cleaned" ]; then
+                jq 'del(.items[] | select(.metadata.namespace != "personal"))' "$fixture/knative-certificates.json"
+              else
+                cat "$fixture/knative-certificates.json"
+              fi
+              exit 0
+              ;;
+            *" get certificates.cert-manager.io "*)
+              if [ -e "$state/managers-cleaned" ]; then
+                jq 'del(.items[] | select(.metadata.namespace != "personal"))' "$fixture/cert-manager-certificates.json"
+              else
+                cat "$fixture/cert-manager-certificates.json"
+              fi
+              exit 0
+              ;;
+            *" get secrets "*)
+              jq \
+                --argjson kube "$(test -e "$state/secret-kube-system" && printf true || printf false)" \
+                --argjson observability "$(test -e "$state/secret-observability" && printf true || printf false)" \
+                'del(.items[] | select((.metadata.namespace == "kube-system" and $kube) or (.metadata.namespace == "observability" and $observability)))' \
+                "$fixture/secrets.json"
+              exit 0
+              ;;
+            *" apply --server-side "*)
+              cat >/dev/null
+              touch "$state/selector-applied"
+              printf '%s\n' 'configmap/config-network server-side applied'
+              exit 0
+              ;;
+            *" wait --for=delete certificates.networking.internal.knative.dev/"*)
+              touch "$state/knative-cleaned"
+              exit 0
+              ;;
+            *" wait --for=delete certificates.cert-manager.io/"*)
+              touch "$state/managers-cleaned"
+              exit 0
+              ;;
+            *" delete secret kube-system-wildcard-tls "*)
+              touch "$state/secret-kube-system"
+              exit 0
+              ;;
+            *" delete secret observability-wildcard-tls "*)
+              touch "$state/secret-observability"
+              exit 0
+              ;;
+          esac
+        fi
+        case " $* " in
+          *" get configmap config-network "*)
+            printf '%s\n' '{"data":{}}'
+            ;;
+          *" diff "*)
+            cat >/dev/null
+            ;;
+          *" apply "*)
+            cat >/dev/null
+            printf '%s\n' 'configmap/config-network server-side applied'
+            ;;
+          *)
+            printf '%s\n' '{"items":[]}'
+            ;;
+        esac
+      '';
       fakeGcloud = pkgs.writeShellScriptBin "gcloud" ''
         printf 'gcloud %s\n' "$*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
         case " $* " in
@@ -130,7 +223,7 @@ in
       '';
       fakeTools = pkgs.symlinkJoin {
         name = "nagare-fake-platform-tools";
-        paths = [ fakeGcloud fakeSsh ] ++ map fakeJsonTool [ "curl" "gsutil" "kubectl" ];
+        paths = [ fakeGcloud fakeSsh fakeKubectl ] ++ map fakeJsonTool [ "curl" "gsutil" ];
       };
     in
     pkgs.runCommand "nagare-clone-free-platform"

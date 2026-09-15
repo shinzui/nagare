@@ -36,9 +36,9 @@ certificateMigrationTests =
         map (certificateNamespace . certManagerCertificate) (remove migration) @?= ["kube-system"]
         assertBool "review names selector and exact removals" ("delete secret: kube-system/system-tls" `T.isInfixOf` renderCertificateMigrationReview migration)
     , testCase "planning is deterministic across inventory order" $ do
-        first <- fixturePlan
-        second <- either (assertFailure . T.unpack) pure (planCertificateMigration legacyObservation (Set.singleton "personal") (reverse fixtureKnative) (reverse fixtureManagers) (reverse fixtureSecrets))
-        Aeson.encode first @?= Aeson.encode second
+        firstPlan <- fixturePlan
+        secondPlan <- either (assertFailure . T.unpack) pure (planCertificateMigration legacyObservation (Set.singleton "personal") (reverse fixtureKnative) (reverse fixtureManagers) (reverse fixtureSecrets))
+        Aeson.encode firstPlan @?= Aeson.encode secondPlan
     , testCase "disabled TLS and a target selector require no migration" $ do
         planCertificateMigration (ConfigNetworkObservation False LegacyAllNamespaces) Set.empty fixtureKnative fixtureManagers fixtureSecrets
           @?= Right (CertificateMigrationPlan 1 Nothing [] [])
@@ -66,7 +66,7 @@ certificateMigrationTests =
         validateReviewedCleanup migration [personalKnative] [personalManager] [personalSecret] @?= Right ()
     , testCase "metadata binds transaction, context, and payload" $ do
         let current = CurrentKubernetesIdentity "tx-1" "labs" "payload-1" "digest-1"
-            metadata = KubernetesPlanMetadata 1 "tx-1" "labs" "payload-1" "digest-1" "2026-09-15T00:00:00Z" "manifest" "review"
+            metadata = KubernetesPlanMetadata 1 "tx-1" "labs" "payload-1" "digest-1" "manifest" "review"
         verifyKubernetesPlanMetadata current metadata @?= Right ()
         assertLeftContains "context" (verifyKubernetesPlanMetadata (current {currentContext = "other"}) metadata)
     ]
@@ -123,7 +123,7 @@ managerCertificate resourceNamespace resourceName uid owner generatedName =
     "letsencrypt-dns"
     ["*." <> resourceNamespace <> ".apps.example.com"]
     (Just generatedName)
-    True
+    False
     False
 
 generatedSecretObservation :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> SecretObservation

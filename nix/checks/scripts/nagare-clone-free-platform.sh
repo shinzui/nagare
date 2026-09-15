@@ -255,15 +255,55 @@ payload_root="$(jq -er '.payloadRoot' root.json)"
 nagarectl platform upgrade --to "$platform_version" --payload-root "$payload_root" --dry-run --json > upgrade.json
 jq -e --arg version "$platform_version" '.state == "planned" and .previousVersion == "0.0.0" and .targetVersion == $version and ([.phases[] | select(.state == "succeeded")] | length) == 3' upgrade.json >/dev/null
 grep -q 'NAGARE_PLATFORM_VERSION=0.0.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
+local_transaction="$(jq -er '.id' upgrade.json)"
+local_kubernetes_bundle="$XDG_STATE_HOME/nagare/local/upgrades/$local_transaction/kubernetes-plan"
+test "$(stat -c '%a' "$local_kubernetes_bundle")" = 700
+test "$(stat -c '%a' "$local_kubernetes_bundle/config-network.json")" = 600
+test "$(stat -c '%a' "$local_kubernetes_bundle/review.json")" = 600
+test "$(stat -c '%a' "$local_kubernetes_bundle/metadata.json")" = 600
+jq -e '.schemaVersion == 1 and .selectorChange == null and .preserve == [] and .remove == []' \
+  "$local_kubernetes_bundle/review.json" >/dev/null
+jq -e --arg transaction "$local_transaction" \
+  '.schemaVersion == 1 and .transactionId == $transaction and .context == "local"' \
+  "$local_kubernetes_bundle/metadata.json" >/dev/null
+jq '.tampered = true' "$local_kubernetes_bundle/review.json" > tampered-review.json
+install -m 0600 tampered-review.json "$local_kubernetes_bundle/review.json"
+if NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl platform upgrade --apply --resume "$local_transaction" --yes --json \
+  > kubernetes-plan-tampered.out 2> kubernetes-plan-tampered.err; then
+  echo "upgrade accepted a tampered Kubernetes migration review" >&2
+  exit 1
+fi
+if ! grep -q 'review.json digest does not match metadata.json' kubernetes-plan-tampered.err; then
+  cat kubernetes-plan-tampered.out kubernetes-plan-tampered.err >&2
+  exit 1
+fi
+grep -q 'NAGARE_PLATFORM_VERSION=0.0.0' "$XDG_CONFIG_HOME/nagare/contexts/local.env"
 
 # BUG-2 / EP-141: the upgrade owns all logical host identity passed to the
 # guarded switch. Both contexts retain the GCE instance name nagare-01, an
 # ambient sibling identity tries to redirect the labs transaction, and the
 # recording transports prove every Nix/SSH operation stays on labs-nagare.
-nagarectl --context labs platform upgrade \
+legacy_kube_state="$PWD/legacy-kube-state"
+mkdir -p "$legacy_kube_state"
+NAGARE_FAKE_LEGACY_CERTS=1 \
+  NAGARE_FAKE_KUBE_STATE="$legacy_kube_state" \
+  nagarectl --context labs platform upgrade \
   --to "$platform_version" --payload-root "$payload_root" --dry-run --json \
   > labs-upgrade.json
 labs_transaction="$(jq -er '.id' labs-upgrade.json)"
+labs_kubernetes_bundle="$XDG_STATE_HOME/nagare/labs/upgrades/$labs_transaction/kubernetes-plan"
+test -f "$labs_kubernetes_bundle/review.json"
+jq -e '
+  .selectorChange.from == "{}" and
+  .selectorChange.to == "matchLabels:\n  nagare.dev/app-namespace: \"true\"\n" and
+  ([.preserve[].knativeCertificate.namespace] == ["personal"]) and
+  ([.remove[].knativeCertificate.namespace] == ["kube-system", "observability"]) and
+  ([.remove[].generatedSecret.name] == ["kube-system-wildcard-tls", "observability-wildcard-tls"])
+' "$labs_kubernetes_bundle/review.json" >/dev/null
+test ! -e "$legacy_kube_state/selector-applied"
+test ! -e "$legacy_kube_state/secret-kube-system"
+test ! -e "$legacy_kube_state/secret-observability"
 mkdir -p apply-bin
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -272,6 +312,8 @@ printf '%s\n' \
 chmod +x apply-bin/just
 : > "$NAGARE_FAKE_TOOL_LOG"
 PATH="$PWD/apply-bin:$PATH" \
+  NAGARE_FAKE_LEGACY_CERTS=1 \
+  NAGARE_FAKE_KUBE_STATE="$legacy_kube_state" \
   NAGARE_HOST_ATTR=prod-nagare \
   NAGARE_SSH_HOST=prod-nagare \
   NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
@@ -279,6 +321,17 @@ PATH="$PWD/apply-bin:$PATH" \
     --apply --resume "$labs_transaction" --yes --json > labs-applied.json
 jq -e --arg version "$platform_version" '.state == "completed" and .targetVersion == $version' \
   labs-applied.json >/dev/null
+test -e "$legacy_kube_state/selector-applied"
+test -e "$legacy_kube_state/knative-cleaned"
+test -e "$legacy_kube_state/managers-cleaned"
+test -e "$legacy_kube_state/secret-kube-system"
+test -e "$legacy_kube_state/secret-observability"
+grep -q '^kubectl apply --server-side --force-conflicts --field-manager=nagare-upgrade -f -$' "$NAGARE_FAKE_TOOL_LOG"
+grep -q '^kubectl delete secret kube-system-wildcard-tls -n kube-system --wait=true$' "$NAGARE_FAKE_TOOL_LOG"
+grep -q '^kubectl delete secret observability-wildcard-tls -n observability --wait=true$' "$NAGARE_FAKE_TOOL_LOG"
+selector_line="$(grep -n -m1 '^kubectl apply --server-side' "$NAGARE_FAKE_TOOL_LOG" | cut -d: -f1)"
+bootstrap_line="$(grep -n -m1 '^just ' "$NAGARE_FAKE_TOOL_LOG" | cut -d: -f1)"
+test "$selector_line" -lt "$bootstrap_line"
 grep -q 'nixosConfigurations.labs-nagare' "$NAGARE_FAKE_TOOL_LOG"
 grep -q '^ssh .*deploy@labs-nagare' "$NAGARE_FAKE_TOOL_LOG"
 if grep -q 'nixosConfigurations.nagare-01\|deploy@nagare-01\|nixosConfigurations.prod-nagare\|deploy@prod-nagare' \
@@ -289,6 +342,20 @@ if grep -q 'nixosConfigurations.nagare-01\|deploy@nagare-01\|nixosConfigurations
 fi
 grep -q "Nagare platform version: $platform_version" "$XDG_CONFIG_HOME/nagare/hosts/labs/flake.nix"
 grep -q 'Nagare platform version: 0.0.0' "$XDG_CONFIG_HOME/nagare/hosts/prod/flake.nix"
+
+# A completed transaction is a fixed point: reapplying it performs no
+# Kubernetes mutation and does not invoke bootstrap again.
+mutation_count="$(grep -Ec '^kubectl (apply --server-side|delete secret)|^just ' "$NAGARE_FAKE_TOOL_LOG")"
+PATH="$PWD/apply-bin:$PATH" \
+  NAGARE_FAKE_LEGACY_CERTS=1 \
+  NAGARE_FAKE_KUBE_STATE="$legacy_kube_state" \
+  NAGARE_HOST_ATTR=prod-nagare \
+  NAGARE_SSH_HOST=prod-nagare \
+  NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl --context labs platform upgrade \
+    --apply --resume "$labs_transaction" --yes --json > labs-reapplied.json
+jq -e '.state == "completed"' labs-reapplied.json >/dev/null
+test "$(grep -Ec '^kubectl (apply --server-side|delete secret)|^just ' "$NAGARE_FAKE_TOOL_LOG")" = "$mutation_count"
 
 # An ambiguous context-owned module is copied into staging, then rejected by
 # the shared validated parser before the transaction can evaluate or contact a

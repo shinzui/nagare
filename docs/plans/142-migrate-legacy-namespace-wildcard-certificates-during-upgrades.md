@@ -52,8 +52,11 @@ This section must always reflect the actual current state of the work.
   as a pure, reviewable, transaction-bound Kubernetes migration bundle. Ten focused tests prove
   deterministic preserve/remove classification, disabled/target-selector no-ops, ambiguous Secret
   refusal, exact UID/content/reference drift refusal, idempotent absence, and transaction bindings.
-- [ ] Milestone 2: include the migration in upgrade planning and apply it before the existing
-  certificate-policy gate with fail-closed cleanup checks.
+- [x] (2026-09-15T16:57:42Z) Milestone 2: upgrade planning now publishes a private, canonical,
+  context/transaction/payload-bound Kubernetes bundle after the cluster guard; apply verifies it,
+  narrows the selector with server-side apply before bootstrap, waits for controller convergence,
+  and deletes only unchanged reviewed Secrets. The installed clone-free check proves tamper
+  refusal, exact legacy preserve/remove inventory, mutation order, and fixed-point reapply.
 - [ ] Milestone 3: prove 0.2.2-to-current convergence, document recovery, amend durable TLS upgrade
   policy, and pass focused plus full validation.
 
@@ -122,6 +125,14 @@ Record every decision made while working on the plan.
   optional controller flag.
   Date: 2026-09-15.
 
+- Decision: Keep `metadata.json` canonical and omit an informational creation timestamp from the
+  Kubernetes bundle metadata.
+  Rationale: Every remaining metadata field is either checked against the current transaction,
+  context, and payload or checked against a member digest. Requiring byte-for-byte canonical JSON
+  therefore makes a one-file metadata edit fail closed instead of leaving an unchecked timestamp
+  field that could be changed without invalidating the bundle.
+  Date: 2026-09-15.
+
 
 ## Outcomes & Retrospective
 
@@ -134,6 +145,12 @@ this section into docs/adr/. Keep task-local execution details here.
   model with no Kubernetes process execution. It hashes only stable Secret identity, annotations,
   labels, type, and data, deliberately excluding mutable server bookkeeping such as
   `resourceVersion`. The first focused run passed 10 tests.
+
+- Milestone 2 integrated that model into `KubernetesDiff` and `KubernetesApply` without changing the
+  upgrade journal schema. The hermetic 0.2.2 fixture includes `personal`, `kube-system`, and
+  `observability`, so the successful exact trace proves the opt-in label drives cleanup rather than
+  a system-namespace deny-list. Tampered review bytes refuse before any Kubernetes cleanup, and a
+  second apply of the completed transaction adds no mutation.
 
 
 ## Context and Orientation
