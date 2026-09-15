@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-15T14:04:02Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T15:09:54Z
+      mode: "implement"
+      note: "Implement generated host identity separation across switch and upgrades"
 ---
 
 # Separate generated host identity from GCE instance identity in upgrades
@@ -39,8 +45,8 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: define and test an explicit host-switch input contract that keeps the Nix
-  attribute, SSH/tailnet destination, and GCE instance name separate.
+- [x] (2026-09-15T15:16:38Z) Milestone 1: defined and tested an explicit host-switch input
+  contract that keeps the Nix attribute, SSH/tailnet destination, and GCE instance name separate.
 - [ ] Milestone 2: make `nagarectl platform upgrade` read the staged context's validated generated
   host name and pass it to every host-switch operation.
 - [ ] Milestone 3: update operator documentation and ADR context, then pass focused, installed, and
@@ -52,7 +58,15 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: The plan's root-level `cabal test nagarectl-test` command cannot discover the
+  package because the Cabal project lives under `cli/nagarectl`.
+  Evidence: the command reported `No cabal.project file`; running it from `cli/nagarectl` with
+  `nix develop ../..` passed all 16 focused `Nagare.Host` tests.
+
+- Observation: `shellcheck` is not present in the ordinary developer shell, so direct invocation
+  cannot be a focused validation command without adding an ad hoc tool environment.
+  Evidence: `nix develop -c shellcheck ...` reported `exec: shellcheck: not found`; the hermetic
+  `host-switch-identity` derivation passed with its declared runtime tools.
 
 
 ## Decision Log
@@ -195,7 +209,7 @@ Format and run the focused suite after the Haskell changes:
 
 ```bash
 nix develop -c fourmolu -i cli/nagarectl/app/Main.hs cli/nagarectl/test/PlatformSpec.hs cli/nagarectl/test/HostSpec.hs
-nix develop -c cabal test nagarectl-test
+(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test)
 nix develop -c ./scripts/check-haskell-style.sh
 ```
 

@@ -647,6 +647,7 @@ data HostCommand
   = HostInit HostInitOpts
   | HostShow (Maybe String)
   | HostPath (Maybe String)
+  | HostName (Maybe String) Bool
   | HostPlaceAgeKey HostPlaceAgeKeyOpts
   deriving stock (Generic, Show)
 
@@ -1813,6 +1814,12 @@ opts =
         ( command "init" (info (HostInit <$> hostInitOptsParser <**> helper) (progDesc "Generate and validate a context-owned host flake"))
             <> command "show" (info (HostShow <$> optional hostContextOption <**> helper) (progDesc "Print the generated operator module"))
             <> command "path" (info (HostPath <$> optional hostContextOption <**> helper) (progDesc "Print the generated host-flake path"))
+            <> command
+              "name"
+              ( info
+                  (HostName <$> optional hostContextOption <*> switch (long "json" <> help "Print machine-readable host identity") <**> helper)
+                  (progDesc "Print the validated generated NixOS and tailnet host name")
+              )
             <> command
               "place-age-key"
               ( info
@@ -3098,6 +3105,13 @@ runHost globalContext = \case
     exists <- doesDirectoryExist root
     unless exists $ dieT ("host configuration does not exist for context '" <> contextNameText (active ^. #contextName) <> "'; run nagarectl host init first")
     putStrLn root
+  HostName commandContext asJson -> do
+    active <- activeTarget (commandContext <|> globalContext)
+    let context = active ^. #contextName
+    hostName <- readContextHostName context >>= either dieT pure
+    if asJson
+      then LBC.putStrLn (Aeson.encode (Aeson.object ["context" Aeson..= contextNameText context, "hostName" Aeson..= hostName]))
+      else TIO.putStrLn hostName
   HostShow commandContext -> do
     active <- activeTarget (commandContext <|> globalContext)
     root <- hostConfigDir (active ^. #contextName)
