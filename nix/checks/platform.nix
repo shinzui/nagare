@@ -17,6 +17,15 @@ in
   # native Linux job executes the upstream regression case during this build.
   net-certmanager-controller = nagarePackages.netCertManagerController;
 
+  host-switch-identity = pkgs.runCommand "host-switch-identity"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq ];
+    }
+    ''
+      bash ${./scripts/test-host-switch-identity.sh} ${src}
+      touch "$out"
+    '';
+
   nagare-clone-free-platform =
     let
       fakePulumi = pkgs.writeShellScriptBin "pulumi" ''

@@ -30,9 +30,11 @@ done
 
 _nagare_resolve_host_flake
 
-HOST_ATTR="${NAGARE_HOST_ATTR:-${NAGARE_INSTANCE_NAME}}"
+GENERATED_HOST_NAME="$(nagarectl host name)"
+HOST_ATTR="${NAGARE_HOST_ATTR:-${GENERATED_HOST_NAME}}"
 SSH_USER="${NAGARE_SSH_USER:-deploy}"
-TARGET_HOST="${SSH_USER}@${NAGARE_INSTANCE_NAME}"
+SSH_HOST="${NAGARE_SSH_HOST:-${NAGARE_HOST_ATTR:-${GENERATED_HOST_NAME}}}"
+TARGET_HOST="${SSH_USER}@${SSH_HOST}"
 KEY_FILE="${NAGARE_SSH_PUBLIC_KEY_FILE:-${SSH_KEY:-${HOME}/.ssh/id_ed25519}.pub}"
 CONFIRM_SECONDS="${NAGARE_SWITCH_CONFIRM_SECONDS:-600}"
 CONFIG_REF="${NAGARE_HOST_FLAKE}#nixosConfigurations.${HOST_ATTR}.config"
@@ -43,6 +45,7 @@ if [ "${BUILD_ON_HOST}" -eq 1 ]; then BUILD_MODE="on-host"; else BUILD_MODE="loc
 if [ "${DRY_RUN}" -eq 1 ]; then
   printf 'context: %s\n' "${NAGARE_CONTEXT}"
   printf 'host flake: %s\n' "${NAGARE_HOST_FLAKE}"
+  printf 'GCE instance: %s\n' "${NAGARE_INSTANCE_NAME}"
   printf 'attribute: %s\n' "${HOST_ATTR}"
   printf 'target host: %s\n' "${TARGET_HOST}"
   printf 'operator key file: %s\n' "${KEY_FILE}"
