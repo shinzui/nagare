@@ -49,8 +49,10 @@ This section must always reflect the actual current state of the work.
   contract that keeps the Nix attribute, SSH/tailnet destination, and GCE instance name separate.
 - [x] (2026-09-15T15:25:12Z) Milestone 2: made `nagarectl platform upgrade` read the staged
   context's validated generated host name and pass it to every host-switch operation.
-- [ ] Milestone 3: update operator documentation and ADR context, then pass focused, installed, and
-  full native validation.
+- [x] (2026-09-15T15:30:00Z) Milestone 3 documentation: updated operator guidance, changelog,
+  bundle logs, and ADR 5; strict user-documentation validation passed.
+- [ ] Milestone 3 validation: pass the full Haskell, style, focused/installed Nix, and native flake
+  checks, then record the retrospective.
 
 
 ## Surprises & Discoveries
@@ -116,6 +118,12 @@ Record every decision made while working on the plan.
   Rationale: The staged module is the reviewed Nix input and survives resume. Binding the child
   environment to it prevents an operator edit between planning and apply from selecting a host
   name that does not match the configuration being evaluated and activated.
+  Date: 2026-09-15.
+
+- Decision: Amend ADR 5, but not ADR 11, for this change.
+  Rationale: ADR 5 owns the durable boundary between GCE and context-owned OS/tailnet identity and
+  now records how direct and transactional switches propagate it. ADR 11's guarded activation,
+  fresh-login verification, rollback timer, and commit protocol are unchanged.
   Date: 2026-09-15.
 
 

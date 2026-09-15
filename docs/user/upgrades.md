@@ -132,7 +132,17 @@ context's stack config and applied without a guarded preview.
 
 Apply runs Pulumi, switches and commits the staged host flake, reconciles the
 cluster, stamps its release ConfigMap, and atomically advances the context pin
-last. A failure preserves the transaction and the old context pin. Inspect and
+last. Before any phase runs, the transaction reads the generated host name from its staged
+`host.nix`. That name selects both `nixosConfigurations.<host-name>` and the Tailscale SSH target;
+the context's `NAGARE_INSTANCE_NAME` remains the GCE resource used only by cloud and IAP commands.
+For example, upgrading context `labs` may apply `nixosConfigurations.labs-nagare` through
+`deploy@labs-nagare` while its GCE VM is still named `nagare-01`. Ambient `NAGARE_HOST_ATTR` or
+`NAGARE_SSH_HOST` values cannot redirect an upgrade transaction.
+
+A missing, unreadable, absent, or duplicate `hostName` assignment refuses before host evaluation
+or transport. Inspect the authoritative values with `nagarectl host name [--context NAME] [--json]`
+and repair or regenerate the context-owned host flake before resuming. A failure preserves the
+transaction and the old context pin. Inspect and
 resume the same identifier after correcting the cause:
 
 ```bash

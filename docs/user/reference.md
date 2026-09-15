@@ -30,6 +30,7 @@ host `<region>-docker.pkg.dev`, buckets `<project>-nagare-*`, SA
 | Region | `us-west1` |
 | Zone | `us-west1-a` |
 | Instance | `nagare-01` (`e2-standard-2`) |
+| Generated host | `tan-nb-exp-nagare` (NixOS, flake attribute, and Tailscale identity) |
 | Subnet CIDR | `10.10.0.0/24` |
 | Node service account | `nagare-node@tan-nb-exp.iam.gserviceaccount.com` |
 | Artifact Registry | `us-west1-docker.pkg.dev/tan-nb-exp/nagare` |
@@ -158,6 +159,21 @@ Local mode uses neither `NAGARE_ACME_EMAIL` nor `NAGARE_ACME_DIRECTORY`: it neve
 contacts Let's Encrypt. `just local-bootstrap` installs the `nagare-local-ca`
 ClusterIssuer and configures Knative external-domain TLS to use it.
 
+## Host-switch identity variables
+
+The generated `host.nix`, not the GCE instance variable, is the default source for NixOS and
+Tailscale identity. `nagarectl host name [--context NAME] [--json]` prints that validated name.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NAGARE_HOST_ATTR` | generated host name | Nix attribute below `nixosConfigurations`; a direct troubleshooting override only. |
+| `NAGARE_SSH_HOST` | `NAGARE_HOST_ATTR`, then generated host name | Logical Tailscale/SSH destination; use `NIX_SSHOPTS` to map that name through another transport such as an IAP localhost tunnel. |
+| `NAGARE_SSH_USER` | `deploy` | User prepended to the logical SSH destination. |
+| `NAGARE_INSTANCE_NAME` | `nagare-01` | GCE resource identity for `gcloud` and IAP; never a Nix attribute or host-switch SSH fallback. |
+
+`nagarectl platform upgrade` replaces the first two values with the identity preserved in the
+transaction's staged host flake, so inherited values from another context cannot redirect apply.
+
 ## `nagarectl context` commands
 
 | Command | Does |
@@ -176,6 +192,7 @@ ClusterIssuer and configures Knative external-domain TLS to use it.
 | `nagarectl host place-age-key [--context NAME] --key-file PATH [--force]` | Validate and SHA-256 hash an operator-held age identity, stream it over context-confined IAP SSH stdin, activate sops-nix, and start Tailscale. Replaying the same key is idempotent; replacing a different key requires interruption-sensitive `--force`. |
 | `nagarectl host show [--context NAME]` | Print the generated public operator module. |
 | `nagarectl host path [--context NAME]` | Print the generated host-flake path. |
+| `nagarectl host name [--context NAME] [--json]` | Print the generated NixOS/flake/Tailscale host name after validating that `host.nix` declares it exactly once. |
 | `nagarectl kubeconfig fetch [--context NAME] [--output FILE]` | Fetch k3s credentials through the context's project-confined IAP transport, normalize all identities and the API endpoint, and atomically install a private per-context kubeconfig. |
 | `nagarectl cluster guard [--context NAME] [--json]` | Refuse unless ambient kubectl selects the named Nagare context and reports exactly its context-owned server node. Cloud Kubernetes mutation recipes run this automatically. |
 
@@ -306,7 +323,7 @@ it. Only Traefik is disabled.
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
 | `upload-images.sh` | Render an explicit per-context builder, build the NixOS image, upload to GCS, register it, and write `nagareImageSelfLink`. |
 | `nix-builder-proxy.sh` | Packaged as `nagare-nix-builder-proxy`; start one positional project/zone/instance and proxy SSH through an IAP local tunnel. |
-| `host-switch.sh` | Apply the active generated host flake over SSH; `--dry-run` prints the exact command. |
+| `host-switch.sh` | Apply the active generated host flake over its logical Tailscale/SSH name; `--dry-run` prints the GCE instance, Nix attribute, and SSH target separately. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |
 | `nix-builder-startup.sh.tpl` | Startup-script template for the builder VM (no project literal). |
 | `iap-ssh.sh` | IAP-tunneled `ssh`/`scp`/`recv-file`/`tunnel` wrapper (macOS-safe), exposed from installed releases as `nagare iap-ssh`. |

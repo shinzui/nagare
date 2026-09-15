@@ -23,6 +23,13 @@ platform behavior remains in Nagare's packaged NixOS modules. Push the selected 
 to the running host with `just host-switch`. The image build pipeline is
 only for the *initial* boot (or a deliberate from-scratch rebuild).
 
+Keep the three host identities distinct. `NAGARE_INSTANCE_NAME` names the GCE VM for Google Cloud
+and IAP operations. `nagarectl host name` reads the generated NixOS and Tailscale name from the
+active context's `host.nix`; that logical name selects the flake attribute and ordinary SSH target.
+For deliberate troubleshooting, `NAGARE_HOST_ATTR` can select another flake attribute and
+`NAGARE_SSH_HOST` can select another logical SSH destination. Neither variable renames or selects a
+GCE resource, and an upgrade transaction ignores ambient values for both.
+
 ---
 
 ## Apply a change
@@ -48,7 +55,7 @@ activation, no `switch-to-configuration`). `just host-switch` does the following
 3. **Builds and copies.** By default the `x86_64-linux` toplevel is built from the workstation
    (an `aarch64-darwin` workstation dispatches to the remote Linux Nix builder, the same mechanism
    as the image build — see [Host image and first boot](host-image-and-boot.md)) and copied with
-   `nix copy --no-check-sigs --to ssh-ng://deploy@<instance>`. With `--build-on-host` it is built
+   `nix copy --no-check-sigs --to ssh-ng://deploy@<host-name>`. With `--build-on-host` it is built
    straight into the host's store. `deploy` is a Nix `trusted-user` (`@wheel`), so it can receive
    the closure. `--no-check-sigs` is required because paths built on the remote builder are
    unsigned, and `nix copy` otherwise rejects them on the workstation side even though the host
@@ -65,7 +72,7 @@ activation, no `switch-to-configuration`). `just host-switch` does the following
 
 If verification fails, it prints `NOT COMMITTED: access could not be verified …` and exits 4.
 **Do not run further commands against the host.** Wait for the window to pass, then try a fresh
-`ssh deploy@<instance> true`. By then the host has reactivated the previous configuration by
+`ssh deploy@<host-name> true`. By then the host has reactivated the previous configuration by
 itself. A reboot would also boot the previous one, because the boot default never changed.
 Investigate the configuration before switching again. If SSH still fails after the window, use
 the serial console boot menu in
@@ -75,8 +82,8 @@ the serial console boot menu in
 
 If Tailscale is unavailable, tunnel SSH port 22 to localhost and point every SSH connection the
 switch opens (the closure copy, arm, activate, the fresh verification login, commit) at the
-tunnel with `NIX_SSHOPTS`. `-o HostName=127.0.0.1` keeps the target named `deploy@<instance>`
-while connecting through the tunnel:
+tunnel with `NIX_SSHOPTS`. `-o HostName=127.0.0.1` keeps the logical target named
+`deploy@<host-name>` while connecting through the tunnel:
 
 ```bash
 TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)
@@ -179,7 +186,8 @@ you touch it, or k3s may start before its storage path exists.
 ## Verify
 
 ```bash
-ssh deploy@nagare-01 'systemctl status k3s; mount | grep /var/lib/nagare'
+host_name="$(nagarectl host name)"
+ssh "deploy@$host_name" 'systemctl status k3s; mount | grep /var/lib/nagare'
 kubectl get nodes        # still Ready after the switch
 ```
 
