@@ -51,8 +51,8 @@ This section must always reflect the actual current state of the work.
   context's validated generated host name and pass it to every host-switch operation.
 - [x] (2026-09-15T15:30:00Z) Milestone 3 documentation: updated operator guidance, changelog,
   bundle logs, and ADR 5; strict user-documentation validation passed.
-- [ ] Milestone 3 validation: pass the full Haskell, style, focused/installed Nix, and native flake
-  checks, then record the retrospective.
+- [x] (2026-09-15T15:33:29Z) Milestone 3 validation: passed the full Haskell, style,
+  focused/installed Nix, and native flake checks and recorded the retrospective.
 
 
 ## Surprises & Discoveries
@@ -63,7 +63,7 @@ implementation. Provide concise evidence.
 - Observation: The plan's root-level `cabal test nagarectl-test` command cannot discover the
   package because the Cabal project lives under `cli/nagarectl`.
   Evidence: the command reported `No cabal.project file`; running it from `cli/nagarectl` with
-  `nix develop ../..` passed all 16 focused `Nagare.Host` tests.
+  `nix develop ../..` passed all 18 focused `Nagare.Host` tests.
 
 - Observation: `shellcheck` is not present in the ordinary developer shell, so direct invocation
   cannot be a focused validation command without adding an ad hoc tool environment.
@@ -75,6 +75,12 @@ implementation. Provide concise evidence.
   Evidence: after making the fixture identity explicit, the installed `nagare-clone-free-platform`
   check completed a `labs` upgrade with ambient `prod-nagare`, recorded only `labs-nagare` Nix/SSH
   calls, left `prod` pinned to `0.0.0`, and rejected a duplicate `hostName` before host evaluation.
+
+- Observation: The native validation matrix exercises the new identity boundary through both unit
+  and installed-script paths without requiring live cloud or tailnet state.
+  Evidence: `nix flake check --print-build-logs` passed all aarch64-darwin flake checks, including
+  all 554 Haskell tests and `shellcheck-scripts`; direct builds of `host-switch-identity` and
+  `nagare-clone-free-platform` passed their focused installed-path rehearsals.
 
 
 ## Decision Log
@@ -134,7 +140,27 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The upgrade and direct-switch paths now keep all three host identities explicit. The GCE instance
+name remains available for cloud and IAP operations, while the generated host name selects the Nix
+configuration and, by default, the SSH/tailnet destination. `nagarectl platform upgrade` derives
+that logical identity from the reviewed staged `host.nix`, replaces potentially stale ambient
+values for the child switch, and refuses missing, unreadable, absent, or duplicate declarations
+before host evaluation. Direct `just host-switch` use obtains the same validated identity through
+the new read-only `nagarectl host name` command while retaining deliberate troubleshooting
+overrides.
+
+The regression evidence covers the original wrong-host scenario: `prod` and `labs` share GCE
+instance `nagare-01`, `prod` has generated host `prod-nagare`, and the upgraded `labs` context has
+generated host `labs-nagare`. Even with an ambient `prod-nagare` override and a sibling named
+`nagare-01`, the installed rehearsal records evaluation, closure copy, activation, and verification
+only against `labs-nagare`; neither sibling is contacted, and the `prod` context remains unchanged.
+An ambiguous staged identity stops before any host evaluation.
+
+Validation passed with 18 focused host tests, the full 554-test Haskell suite, Haskell style, strict
+user-documentation validation, the standalone and installed host-switch identity checks, the
+clone-free platform-upgrade rehearsal, and `nix flake check --print-build-logs`. ADR 5 now records
+the durable identity and propagation boundary. ADR 11 required no change because the guarded
+activation protocol itself did not change. No implementation gaps remain for this plan.
 
 
 ## Context and Orientation
