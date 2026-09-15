@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md
   - docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md
+  - docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0007-publish-immutable-nix-releases-from-validated-tags.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
@@ -16,9 +17,11 @@ related:
 ## Status
 
 Accepted, 2026-09-12. Implemented by
-[ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md)
-and amended 2026-09-14 by
-[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md).
+[ExecPlan 112](../plans/112-make-the-acme-identity-context-owned-and-remove-the-personal-fallback-defaults.md),
+amended 2026-09-14 by
+[ExecPlan 138](../plans/138-keep-bootstrap-tls-issuance-within-intended-names.md), and amended
+2026-09-15 by
+[ExecPlan 142](../plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md).
 Together they close [IR-3](../improvement-requests/context-owned-acme-identity.md),
 [IR-22](../improvement-requests/system-internal-cert-sent-to-acme.md), and
 [IR-23](../improvement-requests/wildcard-certs-for-system-namespaces.md).
@@ -191,3 +194,19 @@ patch cleanly, running the combined native upstream regression, and passing the
 disposable-cluster certificate-policy proof. Once upstream or a successor
 controller provides equivalent behavior, Nagare can remove the carried patch
 and bundled replacement together.
+
+## Amendment — 2026-09-15: upgrades converge the legacy wildcard boundary
+
+The earlier consequence that operators manually remove every already-issued stale certificate is
+superseded for the exact Nagare 0.2.2 namespace-wildcard shape. A platform upgrade that observes
+external TLS enabled with selector `{}` records the selector change and the complete
+Knative-Certificate → cert-manager-Certificate → generated-Secret identity chain in a private,
+transaction-bound review. It preserves a public wildcard when its namespace carries
+`nagare.dev/app-namespace=true` and its issuer is `letsencrypt-dns`; every other reviewed namespace
+wildcard is obsolete under this ADR's authorization boundary.
+
+Apply verifies the selected cluster and the unchanged reviewed identities before writing, narrows
+the selector first, waits for controller-owned Certificate deletion, and deletes only an unchanged
+generated Secret with no other live Certificate reference. Missing objects are convergent success;
+replacement, content drift, ambiguous ownership, or a new reference refuses. This is not a general
+bulk cleanup facility and has no force-delete mode.

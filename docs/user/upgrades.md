@@ -105,7 +105,7 @@ export TARGET_NAGARE_VERSION=0.2.0
 export TARGET_NAGARE="github:shinzui/nagare/v${TARGET_NAGARE_VERSION}"
 nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade --to "$TARGET_NAGARE_VERSION" --dry-run --json > upgrade-plan.json
-transaction_id="$(jq -r '.transactionId' upgrade-plan.json)"
+transaction_id="$(jq -r '.id' upgrade-plan.json)"
 nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade status "$transaction_id"
 ```
 
@@ -130,6 +130,14 @@ deliberate rebuild. Do not run `platform upgrade`
 with Nagare 0.2.0 on a real cloud context: its Pulumi phases ran without the
 context's stack config and applied without a guarded preview.
 
+The Kubernetes diff phase also stores a private `kubernetes-plan/` bundle in the transaction. For
+a TLS-enabled cluster that still has the Nagare 0.2.2 namespace wildcard selector `{}`, its review
+names the selector change, each compliant application wildcard that will be preserved, and each
+exact obsolete Knative Certificate, cert-manager Certificate, and generated TLS Secret proposed for
+removal. The bundle is mode `0700`, its files are mode `0600`, and its metadata binds the review to
+the transaction, selected context, target payload, and file digests. TLS-disabled and
+already-narrowed clusters record a no-op review and remain HTTP-first or unchanged respectively.
+
 Apply runs Pulumi, switches and commits the staged host flake, reconciles the
 cluster, stamps its release ConfigMap, and atomically advances the context pin
 last. Before any phase runs, the transaction reads the generated host name from its staged
@@ -138,6 +146,14 @@ the context's `NAGARE_INSTANCE_NAME` remains the GCE resource used only by cloud
 For example, upgrading context `labs` may apply `nixosConfigurations.labs-nagare` through
 `deploy@labs-nagare` while its GCE VM is still named `nagare-01`. Ambient `NAGARE_HOST_ATTR` or
 `NAGARE_SSH_HOST` values cannot redirect an upgrade transaction.
+
+For a reviewed legacy TLS migration, Kubernetes apply reruns the cluster guard, verifies the
+untouched bundle and every reviewed live UID, owner relationship, and Secret digest, and installs
+the narrowed selector before bootstrap reaches `cluster certificate-policy`. It waits for Knative
+and cert-manager to remove the obsolete Certificate objects, then deletes only a still-identical
+generated Secret that no live Certificate references. A valid wildcard in an opted-in namespace,
+such as `personal`, is not replaced or deleted. Reapplying a completed transaction performs no
+additional cleanup.
 
 A missing, unreadable, absent, or duplicate `hostName` assignment refuses before host evaluation
 or transport. Inspect the authoritative values with `nagarectl host name [--context NAME] [--json]`
@@ -158,6 +174,14 @@ reviewed plan, not atomic; after partial failure, inspect the stack before retry
 transaction. Reapplying a completed transaction is a no-op.
 Each context has separate history and immutable workspaces under its XDG state
 directory.
+
+If Kubernetes apply reports that an object UID, content, ownership, or Secret reference differs
+from the review, Nagare leaves it untouched. Inspect the named object and the transaction's
+`kubernetes-plan/review.json`. If another actor legitimately changed the object, abandon that stale
+transaction and create a new upgrade plan; there is no force-delete option. If controller deletion
+times out without an identity mismatch, diagnose Knative or cert-manager and resume the same
+transaction. The context pin remains on the old release until convergence and the final policy gate
+succeed.
 
 ## Rollback boundaries
 

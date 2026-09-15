@@ -57,8 +57,11 @@ This section must always reflect the actual current state of the work.
   narrows the selector with server-side apply before bootstrap, waits for controller convergence,
   and deletes only unchanged reviewed Secrets. The installed clone-free check proves tamper
   refusal, exact legacy preserve/remove inventory, mutation order, and fixed-point reapply.
-- [ ] Milestone 3: prove 0.2.2-to-current convergence, document recovery, amend durable TLS upgrade
-  policy, and pass focused plus full validation.
+- [x] (2026-09-15T17:01:00Z) Milestone 3: added the repository-owned 0.2.2 observation fixture,
+  hermetic installed-package convergence trace, and guarded disposable-k3d rehearsal; documented
+  migration and recovery, updated the changelog, and amended ADRs 10 and 18. All runnable focused,
+  package, documentation, and Nix checks pass. The k3d script is syntax-checked but its live run is
+  recorded below as unavailable because this workstation has no Docker daemon.
 
 
 ## Surprises & Discoveries
@@ -80,6 +83,12 @@ implementation. Provide concise evidence.
   Nix development shell is discovered from the repository root.
   Evidence: Cabal returned `There is no <pkgname>.cabal package file or cabal.project file`; the
   same focused test from `cli/nagarectl` passed all 10 cases.
+
+- Observation: the disposable k3d proof cannot run in this implementation environment because the
+  configured Colima Docker socket does not exist.
+  Evidence: `docker info` failed to connect to
+  `unix:///Users/shinzui/.colima/docker.sock`; `bash -n` still accepted the complete guarded script,
+  while the installed clone-free check exercised the same plan/apply/reapply transaction semantics.
 
 
 ## Decision Log
@@ -151,6 +160,14 @@ this section into docs/adr/. Keep task-local execution details here.
   `observability`, so the successful exact trace proves the opt-in label drives cleanup rather than
   a system-namespace deny-list. Tampered review bytes refuse before any Kubernetes cleanup, and a
   second apply of the completed transaction adds no mutation.
+
+- Milestone 3 leaves the operator-visible contract in the runbooks and durable security boundaries
+  in ADRs 10 and 18. The final local matrix passed all 564 Haskell tests, Haskell style, the focused
+  certificate-policy shell and Nix checks, the installed clone-free upgrade check, strict user-doc
+  validation, fixture JSON validation, and shell syntax validation. The disposable script creates
+  and verifies its own `nagare-certificate-migration-*` kube context, loads the legacy selector,
+  reviews live controller UIDs, applies twice, and checks every preserved/removed chain from the
+  retained review rather than assuming generated object names.
 
 
 ## Context and Orientation
@@ -246,8 +263,8 @@ prove no cleanup happens before bundle and cluster validation.
 Milestone 3 proves the actual upgrade path. Add a 0.2.2 Kubernetes fixture under
 `cli/nagarectl/test/fixtures/` or `cluster/test/fixtures/` containing selector `{}`, one valid
 `personal` wildcard, several system-namespace legacy chains, and their Secrets. Extend the hermetic
-platform check to prove the planned diff and exact deletion trace. Extend
-Add `scripts/test-cluster-certificate-migration-k3d.sh` as a focused disposable-cluster proof that
+platform check to prove the planned diff and exact deletion trace. Add
+`scripts/test-cluster-certificate-migration-k3d.sh` as a focused disposable-cluster proof that
 loads the fixture, runs plan/apply twice, and observes that the valid wildcard remains Ready, all
 reviewed invalid Certificates and Secrets are absent, the selector is narrowed, and policy exits
 zero. Document the migration and mismatch recovery in `docs/user/upgrades.md` and
@@ -407,3 +424,7 @@ the repository and target payload.
 Revision note (2026-09-15): Implemented and validated the pure Milestone 1 migration model, recorded
 the exact Secret-management safety rule, and corrected the working-directory discovery needed to
 resume validation.
+
+Revision note (2026-09-15): Completed upgrade orchestration, hermetic and disposable-cluster proofs,
+operator documentation, and durable ADR amendments. Recorded the unavailable Docker daemon rather
+than claiming the k3d proof ran locally.

@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md
   - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
+  - docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
   - docs/adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md
@@ -77,3 +78,18 @@ operation than planned and cloud calls still occur over time; a failed update ca
 progress. Recovery keeps the unchanged bundle for inspection and retry while its bindings remain
 valid. If they do not, the operator creates a new review or upgrade transaction. Deliberate teardown
 is a separate guarded command and is never inferred as rollback or recovery.
+
+## Amendment — 2026-09-15: retain and guard Kubernetes migration evidence
+
+[ExecPlan 142](../plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md)
+extends the retained-review boundary to an upgrade's Kubernetes diff. Planning runs the cluster
+guard, captures the selected cluster's TLS policy and exact certificate-chain inventory, previews
+the desired ConfigMap with server-side diff, and atomically publishes a private
+`kubernetes-plan/` bundle. Its metadata binds the transaction, context, immutable payload, and
+member digests; planning performs no Kubernetes write.
+
+Kubernetes apply reruns the cluster guard and rejects wrong-context, stale, tampered, permissive, or
+ambiguous evidence before mutation. It applies the reviewed selector before the ordinary bootstrap,
+then confines cleanup to unchanged reviewed identities. A failed phase retains the old context pin
+and the same evidence for a convergent resume. A future Kubernetes mutation added to an upgrade must
+either fit this retained-review boundary or document and guard its own equivalent boundary.

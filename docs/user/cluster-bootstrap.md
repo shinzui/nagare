@@ -147,6 +147,21 @@ spends the registered domain's issuance budget, and every publicly trusted
 certificate can expose its DNS names through Certificate Transparency. Do not
 label a namespace merely to make a certificate appear.
 
+### Upgrading a legacy wildcard selector
+
+Nagare 0.2.2 enabled namespace wildcards with selector `{}`, which also issued public wildcard
+certificates in system namespaces. A current `nagarectl platform upgrade` detects that exact legacy
+state during its read-only Kubernetes diff phase. Review the transaction's private
+`kubernetes-plan/review.json`: it lists application wildcard chains to preserve and exact obsolete
+chains to remove. Apply narrows the selector before the bootstrap certificate-policy gate, waits for
+the controllers to converge, and removes only still-identical orphaned generated Secrets.
+
+Do not manually bulk-delete Certificate or Secret resources before planning; doing so discards the
+identity evidence the guarded cleanup needs. If apply reports drift, inspect the named object and
+make a fresh plan after deciding whether the change is legitimate. A controller timeout is
+resumable after repair, and the previous platform pin remains active until the selector, resources,
+and certificate policy all converge.
+
 > This is a deliberate override of the spec's "start with host-level Caddy"
 > suggestion: Nagare chose the Kubernetes-native cert-manager + Kourier path.
 > See the [spec corrections](../initial-spec.md#spec-accuracy-corrections-2026-06-02).

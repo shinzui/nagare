@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Guarded legacy certificate migration.** Platform upgrades from a TLS-enabled 0.2.2 cluster now
+  retain a private, context-bound Kubernetes review of the legacy `{}` wildcard selector and its
+  exact certificate chains. Apply narrows the selector before the policy gate, preserves opted-in
+  application wildcards, and removes only unchanged obsolete Certificates and generated Secrets;
+  drift refuses without advancing the context.
 - **Upgrade host identity confinement.** Host switches now derive their Nix attribute and
   Tailscale SSH destination from the context's validated generated host name instead of the GCE
   instance name. Upgrade transactions bind both values to the staged `host.nix`, reject ambiguous
