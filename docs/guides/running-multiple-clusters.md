@@ -308,12 +308,12 @@ export NAGARE_CONTEXT=labs
 export KUBECONFIG="$HOME/.config/nagare/kubeconfigs/labs.yaml"
 export LABS_NAGARE_VERSION=0.2.0
 export LABS_NAGARE="github:shinzui/nagare/v${LABS_NAGARE_VERSION}"
-nix run "${LABS_NAGARE}#nagarectl" -- \
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl \
   platform upgrade --to "$LABS_NAGARE_VERSION" --dry-run --json > labs-upgrade.json
 labs_transaction="$(jq -r '.transactionId' labs-upgrade.json)"
-nix run "${LABS_NAGARE}#nagarectl" -- \
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl \
   platform upgrade --apply --resume "$labs_transaction" --yes
-nix run "${LABS_NAGARE}#nagarectl" -- platform status
+nix shell "${LABS_NAGARE}#nagare" -c nagarectl platform status
 ```
 
 Leave `prod` selected at its old release until the labs verification is

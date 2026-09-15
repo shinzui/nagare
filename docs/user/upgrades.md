@@ -77,7 +77,8 @@ current release's CLI and re-pin the context before provisioning:
 
 ```bash
 export TARGET_NAGARE_VERSION=0.3.0
-nix run "github:shinzui/nagare/v${TARGET_NAGARE_VERSION}#nagarectl" -- \
+export TARGET_NAGARE="github:shinzui/nagare/v${TARGET_NAGARE_VERSION}"
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform repin --version "$TARGET_NAGARE_VERSION" --yes
 ```
 
@@ -93,16 +94,19 @@ exists, use the normal upgrade workflow; there is no force option.
 
 Read the target release notes and invoke the **target release's** CLI. Its packaged payload becomes
 the upgrade candidate; the currently installed CLI cannot invent or fetch a payload from a bare
-version number. Planning is the default and does not change the context, host, infrastructure, or
-cluster:
+version number. Infrastructure operations use the target release's complete `#nagare` operator
+package, which puts the release-pinned Pulumi CLI and Pulumi Node.js language host on the invoked
+`nagarectl` process's `PATH`. The smaller `#nagarectl` output remains the right choice for
+application-only commands, but it deliberately omits those operator tools. Planning is the default
+and does not change the context, host, infrastructure, or cluster:
 
 ```bash
 export TARGET_NAGARE_VERSION=0.2.0
 export TARGET_NAGARE="github:shinzui/nagare/v${TARGET_NAGARE_VERSION}"
-nix run "${TARGET_NAGARE}#nagarectl" -- \
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade --to "$TARGET_NAGARE_VERSION" --dry-run --json > upgrade-plan.json
 transaction_id="$(jq -r '.transactionId' upgrade-plan.json)"
-nix run "${TARGET_NAGARE}#nagarectl" -- platform upgrade status "$transaction_id"
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade status "$transaction_id"
 ```
 
 Review the immutable workspace and staged host-flake paths, Nix evaluation,
@@ -111,9 +115,9 @@ stateful workloads when the release notes call for a migration. Apply only the
 reviewed transaction:
 
 ```bash
-nix run "${TARGET_NAGARE}#nagarectl" -- \
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade --apply --resume "$transaction_id" --yes
-nix run "${TARGET_NAGARE}#nagarectl" -- platform status
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform status
 ```
 
 The Pulumi preview phase runs the project and protected-resource guards and stores a private
@@ -132,8 +136,8 @@ last. A failure preserves the transaction and the old context pin. Inspect and
 resume the same identifier after correcting the cause:
 
 ```bash
-nix run "${TARGET_NAGARE}#nagarectl" -- platform upgrade status "$transaction_id" --json
-nix run "${TARGET_NAGARE}#nagarectl" -- \
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade status "$transaction_id" --json
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade --apply --resume "$transaction_id" --yes
 ```
 
@@ -151,7 +155,7 @@ Rollback is available only when the target release metadata explicitly allows
 the previous version and the retained old payload is still present:
 
 ```bash
-nix run "${TARGET_NAGARE}#nagarectl" -- \
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade rollback "$transaction_id" --yes
 ```
 

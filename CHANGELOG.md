@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Clone-free platform upgrades.** The upgrade and multi-cluster guides now invoke target-release
+  platform operations through `nix shell ...#nagare -c nagarectl`, so planning, status, apply,
+  resume, and rollback carry the release-pinned Pulumi CLI and Node.js language host instead of
+  relying on ambient operator tools.
+
 ## [0.3.0] - 2026-09-14
 
 - **Production domain routing and TLS.** Ordinary applications, static sites, and server sites now

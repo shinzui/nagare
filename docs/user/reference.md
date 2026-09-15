@@ -99,6 +99,10 @@ private mode-`0700` directory and mode-`0600` files.
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
 | `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
 
+When invoking these platform commands from an immutable release without installing it, use
+`nix shell "${TARGET_NAGARE}#nagare" -c nagarectl ...`. The `#nagare` package carries the
+release-pinned operator tools; the smaller `#nagarectl` output is for application-only work.
+
 See [Upgrades](upgrades.md) for compatibility states, recovery, and rollback
 boundaries.
 
