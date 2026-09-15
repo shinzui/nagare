@@ -84,8 +84,10 @@ done < <(find "$input_root" -type f -name 'clone-free-*.json' | sort)
 base_manifest="${manifests[0]}"
 base_notes="${notes[0]}"
 for candidate in "${manifests[@]:1}"; do
-  cmp -s "$base_manifest" "$candidate" \
-    || die "native runners produced different $manifest_name files"
+  diff -q \
+    <(jq -S 'del(.payloadDigest)' "$base_manifest") \
+    <(jq -S 'del(.payloadDigest)' "$candidate") >/dev/null \
+    || die "native runners produced different $manifest_name fields other than payloadDigest"
 done
 for candidate in "${notes[@]:1}"; do
   cmp -s "$base_notes" "$candidate" \
@@ -94,6 +96,7 @@ done
 
 expected_systems="$(jq -c '.systems | sort' "$base_manifest")"
 observed_systems='[]'
+payload_digests='{}'
 for output in "${outputs[@]}"; do
   jq -e --arg version "$version" \
     '.version == $version
@@ -106,13 +109,25 @@ for output in "${outputs[@]}"; do
   [[ "$output_revision" == "$(jq -er '.revision' "$base_manifest")" ]] \
     || die "native output revision does not match release manifest: $output"
   system="$(jq -er '.system' "$output")"
+  payload_digest="$(jq -er '.outputs["nagare-platform"].narHash' "$output")"
   observed_systems="$(jq -c --arg system "$system" '. + [$system]' <<<"$observed_systems")"
+  payload_digests="$(jq -c \
+    --arg system "$system" \
+    --arg digest "$payload_digest" \
+    '. + {($system): $digest}' <<<"$payload_digests")"
 done
 
 [[ "$(jq -c 'sort | unique' <<<"$observed_systems")" == "$expected_systems" ]] \
   || die "native output manifests do not cover every supported system exactly once"
 [[ "$(jq -r 'length' <<<"$observed_systems")" == "$(jq -r 'length' <<<"$expected_systems")" ]] \
   || die "duplicate native output manifests found"
+for candidate in "${manifests[@]}"; do
+  candidate_digest="$(jq -er '.payloadDigest' "$candidate")"
+  jq -e --arg digest "$candidate_digest" \
+    'to_entries | map(.value) | index($digest) != null' \
+    <<<"$payload_digests" >/dev/null \
+    || die "native release manifest payloadDigest has no matching output: $candidate"
+done
 
 rehearsed_systems='[]'
 for rehearsal in "${rehearsals[@]}"; do
@@ -128,7 +143,10 @@ done
   || die "duplicate clone-free rehearsals found"
 
 mkdir -p "$output_dir"
-cp "$base_manifest" "$output_dir/$manifest_name"
+jq -S \
+  --argjson payloadDigests "$payload_digests" \
+  '.payloadDigest = null | .payloadDigests = $payloadDigests' \
+  "$base_manifest" > "$output_dir/$manifest_name"
 cp "$base_notes" "$output_dir/$notes_name"
 for output in "${outputs[@]}"; do
   cp "$output" "$output_dir/$(basename "$output")"
