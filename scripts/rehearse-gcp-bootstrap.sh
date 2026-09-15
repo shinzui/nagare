@@ -291,8 +291,12 @@ assert_public_interfaces() {
     --acme-email operator@example.invalid \
     --acme-directory staging --skip-preflight --dry-run \
     > "$NAGARE_REHEARSAL_ROOT/init-dry-run.txt"
-  nagare --dry-run infra-preview --save-plan "$NAGARE_REHEARSAL_ROOT/public-perimeter" \
-    > "$NAGARE_REHEARSAL_ROOT/infra-preview-dry-run.txt" 2>&1
+  if ! nagare --dry-run infra-preview --save-plan "$NAGARE_REHEARSAL_ROOT/public-perimeter" \
+    > "$NAGARE_REHEARSAL_ROOT/infra-preview-dry-run.txt" 2>&1; then
+    printf 'nagare infra-preview dry run failed:\n' >&2
+    cat "$NAGARE_REHEARSAL_ROOT/infra-preview-dry-run.txt" >&2
+    return 1
+  fi
   nagare --dry-run infra-up --plan "$NAGARE_REHEARSAL_ROOT/public-perimeter" --yes \
     > "$NAGARE_REHEARSAL_ROOT/infra-apply-dry-run.txt" 2>&1
   nagare --dry-run host-image > "$NAGARE_REHEARSAL_ROOT/host-image-dry-run.txt" 2>&1
