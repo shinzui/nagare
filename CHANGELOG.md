@@ -5,6 +5,10 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Upgrade host identity confinement.** Host switches now derive their Nix attribute and
+  Tailscale SSH destination from the context's validated generated host name instead of the GCE
+  instance name. Upgrade transactions bind both values to the staged `host.nix`, reject ambiguous
+  identity before host mutation, and cannot inherit a sibling context's ambient override.
 - **Clone-free platform upgrades.** The upgrade and multi-cluster guides now invoke target-release
   platform operations through `nix shell ...#nagare -c nagarectl`, so planning, status, apply,
   resume, and rollback carry the release-pinned Pulumi CLI and Node.js language host instead of

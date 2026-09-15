@@ -7,6 +7,7 @@ related:
   - docs/plans/107-externalize-per-operator-nixos-and-host-configuration.md
   - docs/plans/130-give-every-context-a-distinct-default-host-name.md
   - docs/plans/133-deliver-the-host-age-key-after-first-boot.md
+  - docs/plans/141-separate-generated-host-identity-from-gce-instance-identity-in-upgrades.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0011-host-activation-is-guarded-and-self-reverting.md
 ---
@@ -107,3 +108,19 @@ restart does not activate a NixOS generation and does not change the guarded-swi
 
 This amendment is implemented by
 [ExecPlan 133](../plans/133-deliver-the-host-age-key-after-first-boot.md).
+
+## Amendment — 2026-09-15: host switches consume staged generated identity
+
+The generated `host.nix` is authoritative not only when creating the system but also when selecting
+the flake output and Tailscale destination used to activate it. `nagarectl host name` exposes the
+validated value for direct operator workflows. `scripts/host-switch.sh` uses it for
+`nixosConfigurations.<hostName>` and `deploy@<hostName>` unless the operator deliberately supplies
+the separate `NAGARE_HOST_ATTR` or `NAGARE_SSH_HOST` troubleshooting inputs. It never falls back to
+`NAGARE_INSTANCE_NAME`, which remains exclusively the GCE/IAP resource identity.
+
+An upgrade binds both logical switch inputs to the `host.nix` preserved in its staged transaction
+workspace and replaces inherited ambient values. Missing, unreadable, absent, or duplicate staged
+assignments refuse before host evaluation or transport. This keeps plan, resume, and apply on the
+reviewed host identity even when a sibling context or VM retains the same project-scoped instance
+name. This amendment is implemented by
+[ExecPlan 141](../plans/141-separate-generated-host-identity-from-gce-instance-identity-in-upgrades.md).

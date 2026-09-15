@@ -287,6 +287,12 @@ payload workspace, generated host flake, Pulumi projection, and transaction
 history are stored below that context's XDG state/config roots; upgrading
 `labs` does not advance `prod`.
 
+The contexts may each keep a GCE instance named `nagare-01` because the project and context confine
+cloud operations. Their generated host names must remain distinct: for example, `labs-nagare` and
+`prod-nagare`. During apply, the staged `labs` host module selects
+`nixosConfigurations.labs-nagare` and `deploy@labs-nagare`; an ambient sibling name cannot redirect
+the transaction. Check each mapping with `nagarectl host name --context NAME` before planning.
+
 Inspect each context with its own kubeconfig before planning:
 
 ```bash
