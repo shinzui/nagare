@@ -68,14 +68,6 @@ in  Schema.Project::{
       ]
     , docs =
       [ Schema.DocRef::{
-        , key = "plan-registry"
-        , kind = Schema.DocKind.Reference
-        , audience = Schema.DocAudience.Internal
-        , description = Some
-            "Curated index for standalone ExecPlans, retired-plan successors, and cross-project plan lineage."
-        , location = Schema.DocLocation.LocalFile "docs/plan-registry.md"
-        }
-      , Schema.DocRef::{
         , key = "masterplans"
         , kind = Schema.DocKind.Spec
         , audience = Schema.DocAudience.Internal

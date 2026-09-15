@@ -261,6 +261,6 @@ those.)
 Start with [`docs/user/README.md`](docs/user/README.md) for the operator manual,
 [`docs/guides/README.md`](docs/guides/README.md) for end-to-end operating
 patterns, or [`docs/user/local-development.md`](docs/user/local-development.md)
-to run Nagare locally. Planning status, standalone plans, retired successors,
-and cross-project lineage are indexed in
-[`docs/plan-registry.md`](docs/plan-registry.md).
+to run Nagare locally. Execution plans live in [`docs/plans/`](docs/plans/), and
+coordinated initiatives keep their child-plan status in
+[`docs/masterplans/`](docs/masterplans/).
