@@ -42,6 +42,11 @@ provenance:
       at: 2026-09-15T01:20:20Z
       mode: "implement"
       note: "Extended deterministic UTF-8 from terminal handles to generated text files"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T01:38:17Z
+      mode: "implement"
+      note: "Made hermetic failure diagnostics inherit through Bash functions"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -102,8 +107,10 @@ implementation. Provide concise evidence.
 
 - A later Linux release run still returned a bare status 1 from the hermetic rehearsal after all
   552 Haskell tests passed, but the Nix log could identify only the derivation because several
-  assertions intentionally use quiet `grep`. The rehearsal now reports the failed command and
-  source line from its own temporary, secret-free hermetic environment.
+  assertions intentionally use quiet `grep`. Bash does not inherit an `ERR` trap into functions
+  unless errtrace is enabled, so installing the trap inside `run_hermetic` was insufficient for
+  failures in `assert_public_interfaces`. The rehearsal now enables errtrace and reports the failed
+  command and source line from its own temporary, secret-free hermetic environment.
 
 
 ## Decision Log
@@ -148,6 +155,8 @@ Record every decision made while working on the plan.
 - Decision: Keep an ERR diagnostic active in hermetic mode only.
   Rationale: A failed release assertion must be actionable on a remote native builder, while live
   mode may handle operator inputs and therefore must not gain an indiscriminate command dump.
+  Enable Bash errtrace globally so the hermetic trap reaches nested assertion functions, but do not
+  install that trap anywhere in the live path.
   Date: 2026-09-14.
 
 
