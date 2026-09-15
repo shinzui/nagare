@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-14T23:42:10Z
       mode: "implement"
       note: "Made hermetic rehearsal assertion failures identify their command and source line"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-15T01:20:20Z
+      mode: "implement"
+      note: "Extended deterministic UTF-8 from terminal handles to generated text files"
 ---
 
 # Prove and document one-pass GCP cluster onboarding
@@ -90,8 +95,10 @@ implementation. Provide concise evidence.
 - The Linux release builder has an ASCII default text encoding, while several public CLI
   diagnostics intentionally contain Unicode punctuation. The v0.3.0 candidate passed all 552
   Haskell tests and reached the final GCP rehearsal before `nagarectl init --dry-run` failed while
-  encoding its em dash. Explicit UTF-8 stdout/stderr encodings make the packaged interface stable
-  independently of the caller's locale.
+  encoding its em dash. A later native run showed that setting stdout and stderr alone was too
+  narrow: `context create` also writes the same documented punctuation to a newly opened context
+  file. Selecting UTF-8 as the process locale encoding before parsing makes both existing and
+  subsequently opened handles stable independently of the caller's locale.
 
 - A later Linux release run still returned a bare status 1 from the hermetic rehearsal after all
   552 Haskell tests passed, but the Nix log could identify only the derivation because several
@@ -131,9 +138,11 @@ Record every decision made while working on the plan.
   interactive authorization was supplied, and hermetic evidence cannot substitute for that run.
   Date: 2026-09-14.
 
-- Decision: Set UTF-8 explicitly on both public Haskell executables' stdout and stderr handles.
-  Rationale: Nagare owns Unicode diagnostics and JSON text, so their encodability must not depend on
-  whether a pure builder or minimal operator environment happens to export a UTF-8 locale.
+- Decision: Set the process locale encoding and both terminal handles to UTF-8 at the start of each
+  public Haskell executable.
+  Rationale: Nagare owns Unicode diagnostics, generated context files, and JSON text, so their
+  encodability must not depend on whether a pure builder or minimal operator environment exports a
+  UTF-8 locale. Setting only stdout and stderr leaves later text-file handles locale-dependent.
   Date: 2026-09-14.
 
 - Decision: Keep an ERR diagnostic active in hermetic mode only.
@@ -157,7 +166,8 @@ key, wrong kubeconfig node, absent webhooks, and leaked certificate scope. The n
 `gcp-bootstrap-rehearsal` and `shellcheck-scripts` checks pass.
 
 The v0.3.0 release audit made that hermetic evidence portable across native systems: both Haskell
-executables now select UTF-8 output before option parsing, including help and dry-run diagnostics.
+executables now select UTF-8 as their process and terminal encoding before option parsing, covering
+help, dry-run diagnostics, and generated context files.
 Hermetic failures also identify the exact failed command and source line without weakening any
 assertion or exposing live operator values.
 
@@ -373,6 +383,7 @@ consume, not reimplement, interfaces from ExecPlans 132–138. All five MasterPl
 dependencies; ExecPlans 132 and 133 are external completion prerequisites.
 
 
-Revision note (2026-09-14): Hardened v0.3.0's hermetic GCP rehearsal after Linux CI demonstrated
-that public Unicode diagnostics must not inherit a pure builder's ASCII encoding, then made any
-remaining hermetic assertion failure identify its command and source line on a remote builder.
+Revision note (2026-09-15): Hardened v0.3.0's hermetic GCP rehearsal after Linux CI demonstrated
+that public Unicode diagnostics and generated files must not inherit a pure builder's ASCII
+encoding, then made any remaining hermetic assertion failure identify its command and source line
+on a remote builder.
