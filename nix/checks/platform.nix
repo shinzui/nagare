@@ -104,11 +104,33 @@ in
       '';
       fakeNix = pkgs.writeShellScriptBin "nix" ''
         printf '%s\n' "nix $*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
-        printf '%s\n' "/nix/store/fake-nagare-upgrade-result"
+        case "$*" in
+          *evaluationFixture*) printf '%s\n' false ;;
+          *authorizedKeys.keys*)
+            printf '%s\n' '["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluationOnly operator@example"]'
+            ;;
+          build*) printf '%s\n' "/nix/store/fake-nagare-upgrade-result" ;;
+          copy*) ;;
+          *) printf '%s\n' "/nix/store/fake-nagare-upgrade-result" ;;
+        esac
+      '';
+      fakeSsh = pkgs.writeShellScriptBin "ssh" ''
+        printf '%s\n' "ssh $*" >> "''${NAGARE_FAKE_TOOL_LOG:?}"
+        case "$*" in
+          *"nagare-safe-activate arm /nix/store/fake-nagare-upgrade-result "*)
+            printf '%s\n' 'ARMED previous=/nix/store/old-system new=/nix/store/fake-nagare-upgrade-result'
+            ;;
+          *"nagare-safe-activate commit /nix/store/fake-nagare-upgrade-result "*)
+            printf '%s\n' 'COMMITTED new=/nix/store/fake-nagare-upgrade-result'
+            ;;
+          *"sudo -n true && readlink -f /run/current-system")
+            printf '%s\n' '/nix/store/fake-nagare-upgrade-result'
+            ;;
+        esac
       '';
       fakeTools = pkgs.symlinkJoin {
         name = "nagare-fake-platform-tools";
-        paths = [ fakeGcloud ] ++ map fakeJsonTool [ "curl" "gsutil" "kubectl" ];
+        paths = [ fakeGcloud fakeSsh ] ++ map fakeJsonTool [ "curl" "gsutil" "kubectl" ];
       };
     in
     pkgs.runCommand "nagare-clone-free-platform"

@@ -241,6 +241,30 @@ hostTests =
               (hostRoot </> "host.nix")
               "{ ... }:\n{\n  hostName = \"labs-edge\";\n}\n"
             readContextHostName context >>= (@?= Right "labs-edge")
+    , testCase "BUG-2: rejects missing, absent, duplicate, and unreadable generated host names" $
+        withSystemTempDirectory "nagare-host-name-errors" $ \root ->
+          withXdgConfigHome root $ do
+            context <- mkTestContext "labs"
+            let hostRoot = root </> "nagare" </> "hosts" </> "labs"
+                modulePath = hostRoot </> "host.nix"
+            readContextHostName context >>= assertLeftContains "context 'labs'"
+            createDirectoryIfMissing True hostRoot
+            TIO.writeFile modulePath "{ ... }: { }\n"
+            readContextHostName context >>= assertLeftContains "does not declare hostName"
+            TIO.writeFile modulePath "{ ... }: {\n  hostName = \"labs-nagare\";\n  hostName = \"sibling\";\n}\n"
+            readContextHostName context >>= assertLeftContains "more than once"
+            originalPermissions <- getPermissions modulePath
+            setPermissions modulePath originalPermissions {readable = False}
+            readContextHostName context
+              `finally` setPermissions modulePath originalPermissions
+              >>= assertLeftContains "could not read host configuration"
+    , testCase "BUG-2: upgrade host environment overwrites ambient logical identities" $ do
+        let identity = hostSwitchIdentity "labs-nagare"
+            environment = hostSwitchEnvironment "/transaction/host-flake" identity
+        lookup "NAGARE_HOST_FLAKE" environment @?= Just "/transaction/host-flake"
+        lookup "NAGARE_HOST_ATTR" environment @?= Just "labs-nagare"
+        lookup "NAGARE_SSH_HOST" environment @?= Just "labs-nagare"
+        lookup "NAGARE_INSTANCE_NAME" environment @?= Nothing
     , testCase "IR-20: normalizes the sole k3s identity without changing credentials" $ do
         let identity = KubeconfigIdentity "labs" "labs-nagare"
         case normalizeKubeconfig identity fixtureKubeconfig of
@@ -336,6 +360,12 @@ fixtureKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyForNagareEvaluation
 
 fixtureAgeKey :: BS.ByteString
 fixtureAgeKey = BC.concat ["AGE-", "SECRET-", "KEY-1TESTFIXTUREONLY\n"]
+
+assertLeftContains :: Text -> Either Text a -> Assertion
+assertLeftContains needle (Left message) =
+  assertBool ("expected " <> show message <> " to contain " <> show needle) (needle `T.isInfixOf` message)
+assertLeftContains needle (Right _) =
+  assertFailure ("expected Left containing " <> show needle <> ", got Right")
 
 assertAgeKeyRejected :: Text -> FilePath -> Assertion
 assertAgeKeyRejected expected keyPath = do

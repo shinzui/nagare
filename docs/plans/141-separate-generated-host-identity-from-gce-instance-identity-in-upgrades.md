@@ -47,8 +47,8 @@ This section must always reflect the actual current state of the work.
 
 - [x] (2026-09-15T15:16:38Z) Milestone 1: defined and tested an explicit host-switch input
   contract that keeps the Nix attribute, SSH/tailnet destination, and GCE instance name separate.
-- [ ] Milestone 2: make `nagarectl platform upgrade` read the staged context's validated generated
-  host name and pass it to every host-switch operation.
+- [x] (2026-09-15T15:25:12Z) Milestone 2: made `nagarectl platform upgrade` read the staged
+  context's validated generated host name and pass it to every host-switch operation.
 - [ ] Milestone 3: update operator documentation and ADR context, then pass focused, installed, and
   full native validation.
 
@@ -67,6 +67,12 @@ implementation. Provide concise evidence.
   cannot be a focused validation command without adding an ad hoc tool environment.
   Evidence: `nix develop -c shellcheck ...` reported `exec: shellcheck: not found`; the hermetic
   `host-switch-identity` derivation passed with its declared runtime tools.
+
+- Observation: The existing clone-free upgrade fixture stored an empty legacy `host.nix`; the new
+  fail-closed preflight correctly rejected that fixture until it declared `local-nagare`.
+  Evidence: after making the fixture identity explicit, the installed `nagare-clone-free-platform`
+  check completed a `labs` upgrade with ambient `prod-nagare`, recorded only `labs-nagare` Nix/SSH
+  calls, left `prod` pinned to `0.0.0`, and rejected a duplicate `hostName` before host evaluation.
 
 
 ## Decision Log
@@ -103,6 +109,13 @@ Record every decision made while working on the plan.
   Rationale: An ambient value from another context must not redirect a reviewed transaction. A
   direct `host-switch.sh` recovery can still deliberately select a logical destination after the
   operator independently verifies it.
+  Date: 2026-09-15.
+
+- Decision: Parse the transaction's staged `host.nix` when constructing upgrade operations rather
+  than rereading the mutable context-owned module at apply time.
+  Rationale: The staged module is the reviewed Nix input and survives resume. Binding the child
+  environment to it prevents an operator edit between planning and apply from selecting a host
+  name that does not match the configuration being evaluated and activated.
   Date: 2026-09-15.
 
 
