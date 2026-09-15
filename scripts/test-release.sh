@@ -80,7 +80,8 @@ for system in x86_64-linux aarch64-darwin; do
     --arg version "$version" \
     '{version: $version, revision: "fixture-revision", system: $system,
       supportedSystems: ["x86_64-linux", "aarch64-darwin"], cloneFree: true,
-      checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe"]}' \
+      pulumiVersion: "v3.255.0", platformUpgrade: {state: "planned", previewCalls: 1},
+      checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe", "platform-upgrade"]}' \
     > "$native_dir/clone-free-$system.json"
 done
 assemble_release \
