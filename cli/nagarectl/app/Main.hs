@@ -178,9 +178,12 @@ import Nagare.Host.Config
   , defaultHostName
   , findHostNameCollision
   , hostConfigDir
+  , hostSwitchEnvironment
+  , hostSwitchIdentity
   , installHostFlake
   , readAuthorizedKeys
   , readContextHostName
+  , readStagedHostName
   , renderHostFlake
   , renderHostModule
   , renderHostSummary
@@ -2963,9 +2966,11 @@ resolveUpgradePayload target override = case override of
 
 upgradeOps :: ActiveTarget -> PlatformWorkspace -> PayloadManifest -> FilePath -> FilePath -> FilePath -> IO UpgradeOps
 upgradeOps active workspace manifest staged hostRoot txPath = do
+  generatedHostName <- readStagedHostName context staged >>= either dieT pure
+  let hostEnvironment = hostSwitchEnvironment staged (hostSwitchIdentity generatedHostName)
   pure
     UpgradeOps
-      { runUpgradePhase = runPhase
+      { runUpgradePhase = runPhase hostEnvironment
       , upgradePhaseSatisfied = phaseSatisfied
       , saveUpgradeTransaction = writeUpgradeTransaction txPath
       , upgradeNow = currentTimestamp
@@ -2977,12 +2982,12 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     markerInput = do
       installedAt <- currentTimestamp
       pure (LBC.unpack (Aeson.encode (clusterMarkerValue (identityFromPayload manifest) installedAt)))
-    runPhase NixEvaluate =
+    runPhase _ NixEvaluate =
       runExternal [ExitSuccess] "nix" ["eval", "path:" <> staged <> "#packages.x86_64-linux.nagare-image.drvPath"] ""
     -- EP-136: the preview phase persists one context-bound Pulumi plan beside
     -- the transaction. Apply verifies and consumes that exact bundle; it never
     -- launches a separate preview process.
-    runPhase PulumiPreview = do
+    runPhase _ PulumiPreview = do
       guarded <- guardPulumiContext
       case guarded of
         Left err -> pure (Left err)
@@ -2994,32 +2999,32 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
               then fmap (const ("Retained reviewed Pulumi plan at " <> T.pack reviewedPlanBundle <> "\n")) <$> verifyReviewedPlanBundle active workspace reviewedPlanBundle allowed
               else saveReviewedPlan active workspace reviewedPlanBundle allowed
           pure (fmap ((evidence <> "\n") <>) saved)
-    runPhase PulumiApply = do
+    runPhase _ PulumiApply = do
       guarded <- guardPulumiContext
       case guarded of
         Left err -> pure (Left err)
         Right evidence -> do
           allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
           fmap ((evidence <> "\n") <>) <$> applyReviewedPlan active workspace reviewedPlanBundle allowed
-    runPhase KubernetesDiff = do
+    runPhase _ KubernetesDiff = do
       marker <- markerInput
       runExternal [ExitSuccess, ExitFailure 1] "kubectl" ["diff", "-f", "-", "--request-timeout=5s"] marker
-    runPhase HostApply = do
-      switched <- withEnvironment "NAGARE_HOST_FLAKE" staged $ runExternal [ExitSuccess] "bash" [workspace ^. #scriptsDir </> "host-switch.sh"] ""
+    runPhase hostEnvironment HostApply = do
+      switched <- withEnvironmentValues hostEnvironment $ runExternal [ExitSuccess] "bash" [workspace ^. #scriptsDir </> "host-switch.sh"] ""
       case switched of
         Left err -> pure (Left err)
         Right evidence -> do
           committed <- commitStagedHostFlake staged hostRoot
           pure (evidence <$ committed)
-    runPhase KubernetesApply =
+    runPhase _ KubernetesApply =
       withEnvironment "NAGARE_UPGRADE_APPLY" "1" $
         runExternal
           [ExitSuccess]
           "just"
           ["--justfile", workspace ^. #justfile, "--working-directory", workspace ^. #root, bootstrapRecipe]
           ""
-    runPhase ClusterStamp = applyClusterMarker manifest
-    runPhase ContextCommit =
+    runPhase _ ClusterStamp = applyClusterMarker manifest
+    runPhase _ ContextCommit =
       writeContextPlatformVersion context (manifest ^. #platformVersion)
         >>= pure . fmap (const ("context pin advanced to " <> manifest ^. #platformVersion))
     guardPulumiContext = case profile ^. #mode of
@@ -3076,6 +3081,10 @@ withEnvironment name envValue ioAction =
     (lookupEnv name <* setEnv name envValue)
     (\saved -> maybe (unsetEnv name) (setEnv name) saved)
     (const ioAction)
+
+withEnvironmentValues :: [(String, String)] -> IO a -> IO a
+withEnvironmentValues variables ioAction =
+  foldr (\(name, envValue) next -> withEnvironment name envValue next) ioAction variables
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case

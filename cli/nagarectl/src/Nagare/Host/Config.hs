@@ -4,11 +4,15 @@
 module Nagare.Host.Config
   ( HostConfig (..)
   , HostInstallResult (..)
+  , HostSwitchIdentity (..)
   , defaultHostName
   , findHostNameCollision
   , hostConfigDir
   , installHostFlake
   , readContextHostName
+  , readStagedHostName
+  , hostSwitchEnvironment
+  , hostSwitchIdentity
   , readAuthorizedKeys
   , renderHostFlake
   , renderHostModule
@@ -66,6 +70,26 @@ data HostConfig = HostConfig
 data HostInstallResult = HostInstalled | HostReplaced | HostUnchanged
   deriving stock (Eq, Show)
 
+data HostSwitchIdentity = HostSwitchIdentity
+  { hostAttribute :: !Text
+  , sshHost :: !Text
+  }
+  deriving stock (Generic, Eq, Show)
+
+hostSwitchIdentity :: Text -> HostSwitchIdentity
+hostSwitchIdentity hostName =
+  HostSwitchIdentity
+    { hostAttribute = hostName
+    , sshHost = hostName
+    }
+
+hostSwitchEnvironment :: FilePath -> HostSwitchIdentity -> [(String, String)]
+hostSwitchEnvironment hostFlake identity =
+  [ ("NAGARE_HOST_FLAKE", hostFlake)
+  , ("NAGARE_HOST_ATTR", T.unpack (identity ^. #hostAttribute))
+  , ("NAGARE_SSH_HOST", T.unpack (identity ^. #sshHost))
+  ]
+
 hostConfigDir :: ContextName -> IO FilePath
 hostConfigDir context = do
   root <- nagareConfigDir
@@ -77,7 +101,17 @@ hostConfigDir context = do
 readContextHostName :: ContextName -> IO (Either Text Text)
 readContextHostName context = do
   root <- hostConfigDir context
-  let modulePath = root </> "host.nix"
+  readHostNameModule context (root </> "host.nix")
+
+-- | Read the same validated identity from the transaction's preserved host
+-- module. Upgrade apply must stay bound to this staged input even if the live
+-- context-owned files change after planning.
+readStagedHostName :: ContextName -> FilePath -> IO (Either Text Text)
+readStagedHostName context stagedRoot =
+  readHostNameModule context (stagedRoot </> "host.nix")
+
+readHostNameModule :: ContextName -> FilePath -> IO (Either Text Text)
+readHostNameModule context modulePath = do
   exists <- doesFileExist modulePath
   if not exists
     then
@@ -85,18 +119,20 @@ readContextHostName context = do
         ( Left
             ( "host configuration does not exist for context '"
                 <> contextNameText context
-                <> "'; run nagarectl host init first"
+                <> "' at "
+                <> T.pack modulePath
+                <> "; run nagarectl host init first"
             )
         )
     else do
       contents <- try (TIO.readFile modulePath)
       pure $ case contents of
-        Left (err :: IOException) -> Left ("could not read host configuration at " <> T.pack modulePath <> ": " <> T.pack (show err))
+        Left (err :: IOException) -> Left ("could not read host configuration for context '" <> contextNameText context <> "' at " <> T.pack modulePath <> ": " <> T.pack (show err))
         Right body ->
           case mapMaybe parseAssignment (T.lines body) of
             [hostName] -> Right hostName
-            [] -> Left ("host configuration does not declare hostName: " <> T.pack modulePath)
-            _ -> Left ("host configuration declares hostName more than once: " <> T.pack modulePath)
+            [] -> Left ("host configuration for context '" <> contextNameText context <> "' does not declare hostName: " <> T.pack modulePath)
+            _ -> Left ("host configuration for context '" <> contextNameText context <> "' declares hostName more than once: " <> T.pack modulePath)
   where
     parseAssignment line = do
       value <- T.stripPrefix "hostName = \"" (T.strip line)
