@@ -152,15 +152,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
-    name: Publish GitHub release
+  assemble:
+    name: Assemble release artifacts
     needs: [prepare, build]
-    if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
-      - name: Check out the exact tag
+      - name: Check out the exact candidate
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -175,6 +172,33 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: ./scripts/assemble-release.sh --version "$VERSION" --input-root native-artifacts --output-dir dist
+
+      - name: Upload assembled release attachments
+        uses: actions/upload-artifact@v7
+        with:
+          name: nagare-release-assembled
+          path: dist
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    needs: [prepare, assemble]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download assembled release attachments
+        uses: actions/download-artifact@v7
+        with:
+          name: nagare-release-assembled
+          path: dist
 
       - name: Refuse to replace a different existing release
         id: existing

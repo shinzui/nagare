@@ -30,6 +30,7 @@ let
 
     patches = [ ../cluster/bootstrap/net-certmanager/patches/0001-use-distinct-default-issuer-references.patch ];
     vendorHash = null;
+    env.CGO_ENABLED = "0";
     subPackages = [ "cmd/controller" ];
     tags = [ "netgo" "osusergo" ];
     ldflags = [ "-s" "-w" ];
