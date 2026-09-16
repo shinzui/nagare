@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-16
+* **Add**: Record IR-24 as proposed after the unreleased 0.4.0 Attic rehearsal exposed conflicting ownership of one Kubernetes Service. Generalize the request into a versioned resource inventory spanning cloud, host, cluster, data, secrets, artifacts, and releases, with collision-free identity, explicit ownership and lifecycle, dependency-aware resumable reconciliation, drift evidence, safe adoption, and guarded garbage collection.
+
 ## 2026-09-14
 * **Completed**: Correct boot-disk-size guidance and CLI help, and add a packaged regression check that rejects future in-place claims while preserving data-disk growth guidance.
 * **Update**: Complete IR-18 with verified post-boot host age-key delivery.

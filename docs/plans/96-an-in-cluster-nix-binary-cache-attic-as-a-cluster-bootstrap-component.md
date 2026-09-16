@@ -440,7 +440,8 @@ stable component identity, reject duplicate `(cluster, namespace, kind, name)` c
 refuse to adopt a live object whose ownership annotation names another component. That
 inventory and its collision check belong in CI and upgrade preflight; its schema can later
 become the input to a controller when continuous drift reconciliation and garbage collection
-justify one.
+justify one. [IR-24](../improvement-requests/make-managed-resources-first-class.md) generalizes
+that work across Nagare's cloud, host, cluster, data, secret, artifact, and release resources.
 
 The main cross-repository follow-up is to reconcile
 `mori://shinzui/kotei/masterplans/10-first-class-shared-nix-cache-infrastructure` with
