@@ -85,7 +85,10 @@ while every runbook step matches the real tree.
   direct switch refused before mutation because the ambient CLI was stale. Supported same-version
   platform-upgrade transaction `20260916T22472374565-0.4.0-eacc2bab` now has a successful host
   evaluation, replacement-free Pulumi preview, and no-op Kubernetes migration; apply awaits
-  separate operator approval. (2026-09-16)
+  separate operator approval. Its approved apply left all 37 Pulumi resources unchanged, then
+  stopped before host activation on a macOS Bash 3.2 empty-array incompatibility. The portable
+  rollback-client fix and its full VM test now pass; a new immutable transaction is required.
+  (2026-09-16)
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
   invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
@@ -172,6 +175,15 @@ while every runbook step matches the real tree.
   The final plan is same-version, has no GCE/DNS/bucket replacement and no Kubernetes migration,
   and stages the corrected host flake. No cloud or host mutation occurred during these refusals or
   previews.
+
+- The approved platform transaction applied its reviewed no-change Pulumi plan, built and copied
+  the corrected host closure, then failed before arming rollback or activating it. macOS `/bin/bash`
+  3.2 treats `"${empty_array[@]}"` as an unbound variable under `set -u`; current Bash does not,
+  which is why the original VM test missed the workstation failure. The switch reported
+  `arm failed; nothing was changed`, and a guarded host audit confirmed the prior generation and
+  `0700 root:root` directory remained active. The client now branches before expanding empty
+  `NIX_SSHOPTS`; a direct Bash 3.2 reproduction, shellcheck, formatting, flake evaluation, and the
+  complete commit/lockout/crash rollback VM test all pass.
 
 (More to be added during implementation.)
 
@@ -287,6 +299,13 @@ while every runbook step matches the real tree.
   applies the host, stamps release identity, and commits the context pin as one resumable workflow.
   The successful rehearsal reports no replacement and no Kubernetes migration, but its broader apply
   boundary still requires explicit operator approval.
+  Date: 2026-09-16.
+
+- Decision: make the rollback client portable to macOS Bash 3.2 by routing SSH through a helper
+  that expands `NIX_SSHOPTS` only when the array is non-empty.
+  Rationale: injecting a dummy option would hide the compatibility defect, and bypassing the
+  rollback client would discard the host's principal lockout protection. The explicit branch keeps
+  option ordering and every existing SSH safety flag intact while supporting ordinary SSH config.
   Date: 2026-09-16.
 
 
@@ -1070,3 +1089,8 @@ Revision note (2026-09-16, activation rehearsal): the direct switch refused the 
 before mutation. A checkout-built operator-package rehearsal then passed host evaluation,
 replacement-free Pulumi preview, and an explicit-labs no-op Kubernetes migration. Recorded the
 persisted same-version transaction and retained its apply as a separate operator approval boundary.
+
+Revision note (2026-09-16, activation recovery): the approved transaction left infrastructure
+unchanged and stopped before host activation because macOS Bash 3.2 rejects empty-array expansion
+under nounset. Added and fully tested the portable SSH-option branch; the host remained on its prior
+generation and a newly planned immutable transaction is required.

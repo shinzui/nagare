@@ -17,12 +17,26 @@ nagare_safe_switch() {
   sshopts=(${NIX_SSHOPTS:-})
   script="$(cat "$activate_script")" || return 1
 
+  # macOS still ships Bash 3.2. With nounset enabled it treats expansion of an
+  # empty array as an unbound-variable error, unlike current Bash. Branch before
+  # expansion so a host reachable through ordinary SSH config needs no dummy
+  # NIX_SSHOPTS value.
+  _nagare_ssh() {
+    if [ "${#sshopts[@]}" -gt 0 ]; then
+      # shellcheck disable=SC2029 # callers deliberately pass a pre-quoted remote command.
+      ssh "${sshopts[@]}" "$@"
+    else
+      # shellcheck disable=SC2029 # callers deliberately pass a pre-quoted remote command.
+      ssh "$@"
+    fi
+  }
+
   _nagare_remote() {
     local remote
     remote="$(printf '%q ' sudo -n bash -c "$script" nagare-safe-activate "$@")"
     # shellcheck disable=SC2029 # $remote is deliberately expanded here, pre-quoted with %q.
     # BatchMode: after a key removal ssh would otherwise wait forever at a password prompt.
-    ssh -o BatchMode=yes "${sshopts[@]}" "$target" "$remote" </dev/null
+    _nagare_ssh -o BatchMode=yes "$target" "$remote" </dev/null
   }
 
   echo "host-switch: arming rollback on $target (window ${window}s)"
@@ -38,8 +52,8 @@ nagare_safe_switch() {
     # "verify" a host nobody can log in to.
     # Compare stdout only: ssh warnings (e.g. "Permanently added … to known hosts") go to
     # stderr and must not turn a working login into a failed verification.
-    out="$(ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=15 \
-      "${sshopts[@]}" "$target" 'sudo -n true && readlink -f /run/current-system' </dev/null 2>"$err")" || true
+    out="$(_nagare_ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ConnectTimeout=15 \
+      "$target" 'sudo -n true && readlink -f /run/current-system' </dev/null 2>"$err")" || true
     out="$(printf '%s\n' "$out" | tail -n 1)"
     if [ "$out" = "$new" ]; then
       verified=1

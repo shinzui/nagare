@@ -195,6 +195,16 @@
               client.wait_for_unit("multi-user.target")
               client.succeed("chmod 0600 /root/.ssh/id_ed25519")
               client.wait_until_succeeds(env + "ssh $NIX_SSHOPTS deploy@host true", timeout=60)
+              # The operator package does not need NIX_SSHOPTS when ordinary SSH
+              # config/default identities are sufficient. Seed known_hosts, then
+              # prove that the empty-options branch reaches the already-active
+              # host without tripping nounset array expansion.
+              client.succeed("ssh-keyscan host > /root/.ssh/known_hosts")
+              base = host.succeed("readlink -f /run/current-system").strip()
+              no_opts = "unset NIX_SSHOPTS; source /etc/nagare/nagare-safe-switch-client.sh; nagare_safe_switch deploy@host {} 120 /etc/nagare/nagare-safe-activate.sh"
+              out = client.succeed(no_opts.format(base) + " 2>&1")
+              print("SCENARIO 0\n" + out)
+              assert "ALREADY_ACTIVE" in out
               good = host.succeed("readlink -f /run/current-system/specialisation/good").strip()
               locked = host.succeed("readlink -f /run/current-system/specialisation/locked").strip()
               run = env + "source /etc/nagare/nagare-safe-switch-client.sh; nagare_safe_switch deploy@host {} {} /etc/nagare/nagare-safe-activate.sh"

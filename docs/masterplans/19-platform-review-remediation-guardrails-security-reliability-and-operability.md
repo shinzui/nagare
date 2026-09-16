@@ -361,7 +361,9 @@ complete; the child plans hold the granular checklists.
   proves encryption covered the datastore from birth; `Enabled` + stage `start` is normal before
   optional key rotation, so no reencryption is required. A guarded same-version platform-upgrade
   rehearsal passed host evaluation, replacement-free Pulumi preview, and no-op Kubernetes diff;
-  apply awaits separate approval)
+  its approved apply left all 37 Pulumi resources unchanged, then stopped before host activation on
+  a macOS Bash 3.2 empty-array incompatibility. The tested portable rollback-client fix now awaits a
+  new immutable transaction)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -445,6 +447,12 @@ Discoveries from implementation:
   same-version upgrade rehearsal passed host evaluation and a no-replacement Pulumi preview; after
   fetching and explicitly selecting the labs kubeconfig, Kubernetes diff also passed with no
   migration. The persisted apply remains a separate operator boundary.
+- **The self-reverting switch was safe but not portable to empty SSH options on macOS Bash 3.2**
+  (2026-09-16). The approved transaction applied a no-change Pulumi plan, built and copied the host
+  closure, then failed before arming or activation because nounset rejects expansion of an empty
+  array on Bash 3.2. Live verification confirmed the old generation remained active. The client now
+  branches before expansion; a native reproduction and the full commit/lockout/crash rollback VM
+  test pass.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -592,6 +600,13 @@ Discoveries from implementation:
   replacement-free infrastructure plan, corrected host closure, explicit labs cluster gate, release
   stamp, and context-pin commit; applying only an ad hoc source tree would leave those identities
   inconsistent.
+  Date: 2026-09-16.
+
+- Decision: retain the self-reverting switch and fix its Bash 3.2 empty-options path instead of
+  bypassing rollback protection for EP-7.
+  Rationale: the refusal happened before activation and proved the safety boundary worked. An
+  explicit non-empty/empty SSH helper preserves every safety flag and supports both configured
+  `NIX_SSHOPTS` and ordinary SSH configuration.
   Date: 2026-09-16.
 
 - Decision: accept the later `DiskUsageCritical` addition as EP-5's seventh
@@ -835,6 +850,11 @@ datastore rewrite; the read-only audit made no host or cluster mutation.
 Revision note (2026-09-16, EP-7 activation rehearsal): recorded the stale-CLI refusal, immutable
 payload boundary, explicit labs kubeconfig recovery, and successful same-version upgrade plan. No
 cloud or host mutation occurred; transaction apply remains operator-gated.
+
+Revision note (2026-09-16, EP-7 activation recovery): the approved transaction kept all Pulumi
+resources unchanged and stopped before host activation on a Bash 3.2 compatibility bug. Recorded
+the unchanged live generation and fully tested portable rollback-client correction; a new immutable
+transaction remains operator-gated.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked
