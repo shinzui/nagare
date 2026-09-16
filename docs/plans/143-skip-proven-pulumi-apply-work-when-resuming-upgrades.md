@@ -51,8 +51,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-16T03:44:37Z) Milestone 1: added durable, transaction-bound Pulumi apply receipts
   and a resume-decision model that can skip, run, or refuse a phase with evidence. The 47 focused
   platform tests pass, the executable builds, and the Haskell style check passes.
-- [ ] Milestone 2: wire normal success, later-phase resumes, legacy transactions, and ambiguous crash
-  recovery through the upgrade CLI.
+- [x] (2026-09-16T04:00:30Z) Milestone 2: wired automatic success/failure receipts,
+  provider-free later-phase resume, legacy and ambiguous refusal, and both audited
+  `recover-pulumi` outcomes through the installed CLI. The clone-free platform regression passes.
 - [ ] Milestone 3: add exhaustive failure/resume regressions, document the recovery contract, amend
   the upgrade ADRs, and pass focused plus full validation.
 - [x] (2026-09-16T03:36:10Z) Refreshed the plan against the current transaction runner, saved-plan
@@ -83,6 +84,14 @@ implementation. Provide concise evidence.
   Evidence: the root invocation reported `No cabal.project file or cabal file`, while
   `cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-options='--pattern Platform'`
   passed all 47 selected tests.
+
+- Observation: Skipping the Pulumi phase alone did not make a later host resume provider-free,
+  because `scripts/host-switch.sh` sources `scripts/lib/target.sh` and a local-backend target eagerly
+  ran `pulumi stack select` during shell initialization.
+  Evidence: the installed regression logged `pulumi ... stack select local` after an
+  operator-attested skip and before the injected host failure. Upgrade apply now scopes
+  `NAGARE_SKIP_PULUMI_STACK_SELECT=1` across the runner, and the same regression observes zero Pulumi
+  commands before that host failure.
 
 
 ## Decision Log
@@ -138,6 +147,15 @@ Record every decision made while working on the plan.
   metadata without needing a Pulumi executable, credentials, mutable stack config, or a provider
   observation. A command that is about to run Pulumi or let an operator attest its outcome must
   still perform the stronger current-identity checks required by ADR 18.
+  Date: 2026-09-15.
+
+- Decision: Suppress `target.sh`'s eager local stack selection only while an upgrade apply runner is
+  active; explicit Pulumi execution and the audited recovery command continue to initialize and
+  verify the stack themselves.
+  Rationale: Host and Kubernetes scripts source the shared target environment even though they do
+  not own infrastructure state. Once a receipt proves Pulumi success, those later phases must not
+  accidentally require a Pulumi binary or provider access, while ordinary interactive shells and
+  commands that actually use Pulumi retain the existing selection behavior.
   Date: 2026-09-15.
 
 

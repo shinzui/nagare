@@ -357,6 +357,90 @@ PATH="$PWD/apply-bin:$PATH" \
 jq -e '.state == "completed"' labs-reapplied.json >/dev/null
 test "$(grep -Ec '^kubectl (apply --server-side|delete secret)|^just ' "$NAGARE_FAKE_TOOL_LOG")" = "$mutation_count"
 
+# BUG-4 / EP-143: Pulumi success is a private, transaction-bound receipt. A
+# started receipt refuses a normal resume without touching Pulumi; an explicit
+# applied recovery lets later phases resume provider-free. A legacy successful
+# journal with no receipt also refuses, while an explicit retry authorization
+# is consumed by exactly one retained-plan apply.
+labs_transaction_path="$XDG_STATE_HOME/nagare/labs/upgrades/$labs_transaction.json"
+labs_receipt="$XDG_STATE_HOME/nagare/labs/upgrades/$labs_transaction/pulumi-apply-receipt.json"
+test "$(stat -c '%a' "$labs_receipt")" = 600
+jq -e --arg transaction "$labs_transaction" \
+  '.schemaVersion == 1 and .state == "succeeded" and .transactionId == $transaction' \
+  "$labs_receipt" >/dev/null
+test "$(grep -c 'pulumi .* up --plan ' "$NAGARE_FAKE_TOOL_LOG")" = 1
+
+jq '(.phases[] | select(.name == "pulumi-apply" or .name == "host-apply")) |= (.state = "pending" | .evidence = null) | .state = "failed"' \
+  "$labs_transaction_path" > transaction-started.json
+install -m 0600 transaction-started.json "$labs_transaction_path"
+jq '.state = "started" | .recoveryOutcome = null' "$labs_receipt" > receipt-started.json
+install -m 0600 receipt-started.json "$labs_receipt"
+: > "$NAGARE_FAKE_TOOL_LOG"
+if NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl --context labs platform upgrade --apply --resume "$labs_transaction" --yes \
+    > pulumi-ambiguous.out 2> pulumi-ambiguous.err; then
+  echo "ambiguous Pulumi receipt was accepted by normal resume" >&2
+  exit 1
+fi
+grep -q 'recover-pulumi' pulumi-ambiguous.err
+test "$(grep -c '^pulumi ' "$NAGARE_FAKE_TOOL_LOG" || true)" = 0
+
+nagarectl --context labs platform upgrade recover-pulumi "$labs_transaction" \
+  --outcome applied --yes > pulumi-recovered-applied.out
+jq -e '.state == "operator-attested" and .recoveryOutcome == "applied"' "$labs_receipt" >/dev/null
+mkdir -p resume-bin
+printf '%s\n' \
+  "#!$BASH" \
+  'printf "ssh %s\n" "$*" >> "${NAGARE_FAKE_TOOL_LOG:?}"' \
+  'exit 88' \
+  > resume-bin/ssh
+chmod +x resume-bin/ssh
+: > "$NAGARE_FAKE_TOOL_LOG"
+if PATH="$PWD/resume-bin:$PWD/apply-bin:$PATH" \
+  NAGARE_FAKE_LEGACY_CERTS=1 \
+  NAGARE_FAKE_KUBE_STATE="$legacy_kube_state" \
+  NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl --context labs platform upgrade \
+    --apply --resume "$labs_transaction" --yes --json \
+    > pulumi-recovered-applied.json 2> pulumi-recovered-applied.err; then
+  echo "injected host failure unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q 'host-apply failed' pulumi-recovered-applied.err
+test "$(grep -c '^pulumi ' "$NAGARE_FAKE_TOOL_LOG" || true)" = 0
+
+rm "$labs_receipt"
+jq '(.phases[] | select(.name == "pulumi-apply")) |= (.state = "succeeded" | .evidence = "legacy success") | .state = "failed"' \
+  "$labs_transaction_path" > transaction-legacy.json
+install -m 0600 transaction-legacy.json "$labs_transaction_path"
+: > "$NAGARE_FAKE_TOOL_LOG"
+if NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl --context labs platform upgrade --apply --resume "$labs_transaction" --yes \
+    > pulumi-legacy.out 2> pulumi-legacy.err; then
+  echo "legacy Pulumi success without a receipt was accepted by normal resume" >&2
+  exit 1
+fi
+grep -q 'predates durable receipts' pulumi-legacy.err
+test "$(grep -c '^pulumi ' "$NAGARE_FAKE_TOOL_LOG" || true)" = 0
+
+nagarectl --context labs platform upgrade recover-pulumi "$labs_transaction" \
+  --outcome retry --yes > pulumi-recovered-retry.out
+jq -e '.state == "operator-attested" and .recoveryOutcome == "retry"' "$labs_receipt" >/dev/null
+: > "$NAGARE_FAKE_TOOL_LOG"
+if PATH="$PWD/resume-bin:$PWD/apply-bin:$PATH" \
+  NAGARE_FAKE_LEGACY_CERTS=1 \
+  NAGARE_FAKE_KUBE_STATE="$legacy_kube_state" \
+  NAGARE_SSH_PUBLIC_KEY_FILE="$PWD/operator.pub" \
+  nagarectl --context labs platform upgrade \
+    --apply --resume "$labs_transaction" --yes --json \
+    > pulumi-recovered-retry.json 2> pulumi-recovered-retry.err; then
+  echo "injected host failure unexpectedly succeeded after Pulumi retry" >&2
+  exit 1
+fi
+grep -q 'host-apply failed' pulumi-recovered-retry.err
+test "$(grep -c 'pulumi .* up --plan ' "$NAGARE_FAKE_TOOL_LOG")" = 1
+jq -e '.state == "succeeded" and .recoveryOutcome == null' "$labs_receipt" >/dev/null
+
 # An ambiguous context-owned module is copied into staging, then rejected by
 # the shared validated parser before the transaction can evaluate or contact a
 # host. The selected context is present in the diagnostic.

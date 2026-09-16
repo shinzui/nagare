@@ -329,7 +329,9 @@ _nagare_export_pulumi_env() {
   else
     mkdir -p "${root}/state"
     export PULUMI_BACKEND_URL="file://${root}/state"
-    _nagare_select_pulumi_stack
+    if [ "${NAGARE_SKIP_PULUMI_STACK_SELECT:-}" != 1 ]; then
+      _nagare_select_pulumi_stack
+    fi
   fi
 }
 

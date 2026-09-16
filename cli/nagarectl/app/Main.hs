@@ -31,7 +31,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
-import Data.List (sort)
+import Data.List (find, sort)
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust)
@@ -287,6 +287,17 @@ import Nagare.Platform.Paths
   , resolvePlatformPaths
   , validatePlatformRoot
   )
+import Nagare.Platform.PulumiReceipt
+  ( PulumiApplyReceipt (..)
+  , PulumiReceiptState (..)
+  , PulumiRecoveryOutcome (..)
+  , pulumiReceiptPath
+  , readVerifiedPulumiReceipt
+  , renderPulumiReceiptEvidence
+  , writeRecoveryReceipt
+  , writeResultReceipt
+  , writeStartedReceipt
+  )
 import Nagare.Platform.StackConfig (contextStackConfigPath, linkContextStackConfig)
 import Nagare.Platform.Status
   ( PlatformStatus (..)
@@ -317,6 +328,7 @@ import Nagare.Platform.Upgrade
   , phaseToken
   , planUpgrade
   , readUpgradeTransaction
+  , recordUpgradePhase
   , renderUpgradeTransaction
   , writeUpgradeTransaction
   )
@@ -609,6 +621,7 @@ data Command
   | PlatformUpgrade UpgradeOpts
   | PlatformUpgradeStatus (Maybe String) Bool
   | PlatformUpgradeRollback String Bool Bool
+  | PlatformUpgradeRecoverPulumi String String Bool
   | Host HostCommand
   | Kubeconfig KubeconfigCommand
   | Cluster ClusterCommand
@@ -1803,6 +1816,12 @@ opts =
                   (PlatformUpgradeRollback <$> strArgument (metavar "TRANSACTION_ID") <*> switch (long "yes" <> help "Confirm the supported release rollback") <*> switch (long "json" <> help "Print transaction JSON") <**> helper)
                   (progDesc "Create and apply a reverse transaction when release metadata explicitly permits it")
               )
+            <> command
+              "recover-pulumi"
+              ( info
+                  (PlatformUpgradeRecoverPulumi <$> strArgument (metavar "TRANSACTION_ID") <*> strOption (long "outcome" <> metavar "applied|retry" <> help "Record the inspected Pulumi outcome") <*> switch (long "yes" <> help "Confirm the audited recovery decision") <**> helper)
+                  (progDesc "Resolve an ambiguous or pre-receipt Pulumi apply outcome")
+              )
         )
         <|> (PlatformUpgrade <$> upgradeOptsParser)
     upgradeOptsParser =
@@ -2539,6 +2558,7 @@ main = do
     PlatformUpgrade options -> runPlatformUpgrade mctx options
     PlatformUpgradeStatus txId asJson -> runPlatformUpgradeStatus mctx txId asJson
     PlatformUpgradeRollback txId yes asJson -> runPlatformUpgradeRollback mctx txId yes asJson
+    PlatformUpgradeRecoverPulumi txId outcome yes -> runPlatformUpgradeRecoverPulumi mctx txId outcome yes
     Host hcmd -> runHost mctx hcmd
     Kubeconfig kcmd -> runKubeconfig mctx kcmd
     Cluster ccmd -> runCluster mctx ccmd
@@ -2845,6 +2865,87 @@ runPlatformUpgradeRollback mctx requested yes asJson = do
       , json = asJson
       }
 
+runPlatformUpgradeRecoverPulumi :: Maybe String -> String -> String -> Bool -> IO ()
+runPlatformUpgradeRecoverPulumi mctx requested outcomeToken yes = do
+  outcome <- case outcomeToken of
+    "applied" -> pure RecoveryApplied
+    "retry" -> pure RecoveryRetry
+    _ -> dieT "--outcome must be either applied or retry"
+  unless yes (dieT "refusing to record a Pulumi recovery decision without --yes")
+  active <- activeTarget mctx
+  (txPath, tx) <- loadUpgradeTransaction (active ^. #contextName) (Just requested)
+  when (tx ^. #state == Completed) (dieT "a completed upgrade has no Pulumi outcome to recover")
+  let workspace = platformWorkspaceFromTransaction tx
+      bundle = takeDirectory (tx ^. #stagedHostRoot) </> "pulumi-plan"
+      receiptPath = pulumiReceiptPath txPath tx
+      pulumiRecord = find ((== PulumiApply) . (^. #name)) (tx ^. #phases)
+  (metadata, _) <- verifyLocalReviewedPlanBundle bundle >>= either dieT pure
+  existing <- readVerifiedPulumiReceipt receiptPath tx metadata >>= either dieT pure
+  let isLegacySuccess = maybe False ((== Succeeded) . (^. #state)) pulumiRecord && existing == Nothing
+      isAmbiguous = maybe False ((== ReceiptStarted) . receiptState) existing
+      repeatsSameRecovery =
+        maybe
+          False
+          (\receipt -> receiptState receipt == ReceiptOperatorAttested && receiptRecoveryOutcome receipt == Just outcome)
+          existing
+  unless (isLegacySuccess || isAmbiguous || repeatsSameRecovery) $
+    dieT "Pulumi recovery is available only for an ambiguous started receipt or a successful legacy journal without a receipt"
+  validatePulumiRecoveryEnvironment active workspace
+  allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
+  (identity, verifiedMetadata) <- verifyReviewedPlanBundleEvidence active workspace bundle allowed >>= either dieT pure
+  TIO.putStrLn (renderPulumiRecoveryReview tx verifiedMetadata identity outcome)
+  now <- currentTimestamp
+  receipt <- writeRecoveryReceipt receiptPath tx verifiedMetadata outcome now >>= either dieT pure
+  let recoveredState = case outcome of RecoveryApplied -> Succeeded; RecoveryRetry -> Failed
+      evidence = renderPulumiReceiptEvidence receipt
+      updated =
+        recordUpgradePhase PulumiApply recoveredState evidence now tx
+          & #state
+          .~ TransactionFailed
+          & #updatedAt
+          .~ now
+  writeUpgradeTransaction txPath updated
+  TIO.putStrLn ("Recorded " <> recoveryOutcomeLabel outcome <> " recovery at " <> T.pack receiptPath)
+
+validatePulumiRecoveryEnvironment :: ActiveTarget -> PlatformWorkspace -> IO ()
+validatePulumiRecoveryEnvironment active workspace = do
+  let context = active ^. #contextName
+      profile = active ^. #profile
+  case profile ^. #mode of
+    Local -> pure ()
+    Cloud -> do
+      (gcloudAccount, adc) <- observeAdcForProject
+      warnings <- either dieT pure (validateAdc (profile ^. #project) gcloudAccount adc)
+      printPreflightWarnings warnings
+  ensurePulumiInWorkspace context profile workspace
+  case profile ^. #mode of
+    Local -> pure ()
+    Cloud -> do
+      inputs <- projectGuardInputsFor context profile workspace
+      either dieT pure (projectGuardVerdict inputs)
+      TIO.putStrLn (renderProjectGuard inputs)
+
+renderPulumiRecoveryReview :: UpgradeTransaction -> SavedPlanMetadata -> CurrentInfraIdentity -> PulumiRecoveryOutcome -> Text
+renderPulumiRecoveryReview tx metadata identity outcome =
+  T.unlines
+    [ "Pulumi recovery review"
+    , "Transaction: " <> tx ^. #id
+    , "Context: " <> tx ^. #context
+    , "Target version: " <> tx ^. #targetVersion
+    , "Reviewed project/stack: " <> metadata ^. #project <> "/" <> metadata ^. #stack
+    , "Reviewed backend: " <> metadata ^. #backend
+    , "Reviewed plan digest: " <> metadata ^. #planDigest
+    , "Reviewed Pulumi version: " <> metadata ^. #pulumiVersion
+    , "Current project/stack: " <> identity ^. #currentProject <> "/" <> identity ^. #currentStack
+    , "Current backend: " <> identity ^. #currentBackend
+    , "Current Pulumi version: " <> identity ^. #currentPulumiVersion
+    , "Recovery outcome: " <> recoveryOutcomeLabel outcome
+    ]
+
+recoveryOutcomeLabel :: PulumiRecoveryOutcome -> Text
+recoveryOutcomeLabel RecoveryApplied = "applied"
+recoveryOutcomeLabel RecoveryRetry = "retry"
+
 findRetainedWorkspace :: ContextName -> Text -> IO FilePath
 findRetainedWorkspace context wantedVersion = do
   stateRoot <- nagareStateDir
@@ -2880,11 +2981,10 @@ runPlatformUpgrade mctx options = do
       (path, tx) <- loadUpgradeTransaction (active ^. #contextName) (Just resumeId)
       paths <- validatePlatformRoot ExplicitRoot (tx ^. #workspaceRoot) >>= either (dieT . renderPlatformPathError) pure
       manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-      let workspace = workspaceFromTransaction tx
+      let workspace = platformWorkspaceFromTransaction tx
       hostRoot <- hostConfigDir (active ^. #contextName)
-      ensurePulumiInWorkspace (active ^. #contextName) (active ^. #profile) workspace
       ops <- upgradeOps active workspace manifest (tx ^. #stagedHostRoot) hostRoot path
-      result <- applyUpgrade True ops tx
+      result <- withEnvironment "NAGARE_SKIP_PULUMI_STACK_SELECT" "1" (applyUpgrade True ops tx)
       case result of
         Left err -> do
           readUpgradeTransaction path >>= either (const (pure ())) (printUpgradeTransaction (options ^. #json))
@@ -2930,22 +3030,23 @@ runPlatformUpgrade mctx options = do
           readUpgradeTransaction txPath >>= either (const (pure ())) (printUpgradeTransaction (options ^. #json))
           dieT err
         Right planned -> printUpgradeTransaction (options ^. #json) planned
-  where
-    -- The transaction stores all paths needed to resume without re-resolving a tag.
-    workspaceFromTransaction tx =
-      PlatformWorkspace
-        { root = tx ^. #workspaceRoot
-        , payloadId = tx ^. #payloadId
-        , platformVersion = tx ^. #targetVersion
-        , sourceRevision = Nothing
-        , digest = tx ^. #payloadDigest
-        , pulumiDir = tx ^. #workspaceRoot </> "infra" </> "pulumi"
-        , scriptsDir = tx ^. #workspaceRoot </> "scripts"
-        , clusterDir = tx ^. #workspaceRoot </> "cluster"
-        , nixosDir = tx ^. #workspaceRoot </> "nixos"
-        , justfile = tx ^. #workspaceRoot </> "justfile"
-        , docsDir = tx ^. #workspaceRoot </> "docs" </> "user"
-        }
+
+-- The transaction stores all paths needed to resume without re-resolving a tag.
+platformWorkspaceFromTransaction :: UpgradeTransaction -> PlatformWorkspace
+platformWorkspaceFromTransaction tx =
+  PlatformWorkspace
+    { root = tx ^. #workspaceRoot
+    , payloadId = tx ^. #payloadId
+    , platformVersion = tx ^. #targetVersion
+    , sourceRevision = Nothing
+    , digest = tx ^. #payloadDigest
+    , pulumiDir = tx ^. #workspaceRoot </> "infra" </> "pulumi"
+    , scriptsDir = tx ^. #workspaceRoot </> "scripts"
+    , clusterDir = tx ^. #workspaceRoot </> "cluster"
+    , nixosDir = tx ^. #workspaceRoot </> "nixos"
+    , justfile = tx ^. #workspaceRoot </> "justfile"
+    , docsDir = tx ^. #workspaceRoot </> "docs" </> "user"
+    }
 
 resolveUpgradePayload :: Text -> Maybe FilePath -> IO PlatformPaths
 resolveUpgradePayload target override = case override of
@@ -3004,12 +3105,45 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
               else saveReviewedPlan active workspace reviewedPlanBundle allowed
           pure (fmap ((evidence <> "\n") <>) saved)
     runPhase _ PulumiApply = do
+      ensurePulumiInWorkspace context profile workspace
       guarded <- guardPulumiContext
       case guarded of
         Left err -> pure (Left err)
         Right evidence -> do
           allowed <- (== Just "1") <$> lookupEnv "NAGARE_ALLOW_VM_REPLACEMENT"
-          fmap ((evidence <> "\n") <>) <$> applyReviewedPlan active workspace reviewedPlanBundle allowed
+          verified <- verifyReviewedPlanBundleEvidence active workspace reviewedPlanBundle allowed
+          case verified of
+            Left err -> pure (Left err)
+            Right (identity, metadata) -> do
+              loadedTx <- readUpgradeTransaction txPath
+              case loadedTx of
+                Left err -> pure (Left err)
+                Right tx -> do
+                  startedAt <- currentTimestamp
+                  let receiptPath = pulumiReceiptPath txPath tx
+                  started <- writeStartedReceipt receiptPath tx metadata startedAt
+                  case started of
+                    Left err -> pure (Left err)
+                    Right _ -> do
+                      applied <- applyVerifiedReviewedPlan workspace reviewedPlanBundle identity
+                      resultAt <- currentTimestamp
+                      recorded <-
+                        writeResultReceipt
+                          receiptPath
+                          tx
+                          metadata
+                          (either (const ReceiptFailed) (const ReceiptSucceeded) applied)
+                          resultAt
+                      pure $ case (applied, recorded) of
+                        (Left err, Right _) -> Left err
+                        (Right applyEvidence, Right receipt) ->
+                          Right (evidence <> "\n" <> applyEvidence <> "\n" <> renderPulumiReceiptEvidence receipt)
+                        (Left applyError, Left receiptError) -> Left (applyError <> "\n" <> receiptError)
+                        (Right _, Left receiptError) ->
+                          Left
+                            ( "Pulumi apply returned success but its durable receipt could not be recorded; outcome is ambiguous:\n"
+                                <> receiptError
+                            )
     runPhase _ KubernetesDiff = do
       guarded <- guardKubernetesContext active
       case guarded of
@@ -3070,11 +3204,44 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     phaseSatisfied ContextCommit = do
       current <- readContextProfile context
       pure (either (const False) ((== Just (manifest ^. #platformVersion)) . (^. #platformVersion)) current)
+    resumeDecision PulumiApply state = pulumiResumeDecision state
     resumeDecision phase state
       | state /= Succeeded = pure RunPhase
       | otherwise = do
           satisfied <- phaseSatisfied phase
           pure (if satisfied then SkipPhase (phaseToken phase <> " postcondition is satisfied") else RunPhase)
+    pulumiResumeDecision state = do
+      loadedTx <- readUpgradeTransaction txPath
+      case loadedTx of
+        Left err -> pure (RefusePhase err)
+        Right tx -> do
+          localPlan <- verifyLocalReviewedPlanBundle reviewedPlanBundle
+          case localPlan of
+            Left err -> pure (RefusePhase err)
+            Right (metadata, _) -> do
+              receipt <- readVerifiedPulumiReceipt (pulumiReceiptPath txPath tx) tx metadata
+              pure $ case receipt of
+                Left err -> RefusePhase err
+                Right Nothing
+                  | state == Succeeded ->
+                      RefusePhase
+                        ( "the successful Pulumi journal predates durable receipts; run `nagarectl platform upgrade recover-pulumi "
+                            <> tx ^. #id
+                            <> " --outcome applied|retry --yes`"
+                        )
+                  | otherwise -> RunPhase
+                Right (Just proof) -> case (receiptState proof, receiptRecoveryOutcome proof) of
+                  (ReceiptSucceeded, Nothing) -> SkipPhase (renderPulumiReceiptEvidence proof)
+                  (ReceiptFailed, Nothing) -> RunPhase
+                  (ReceiptStarted, Nothing) ->
+                    RefusePhase
+                      ( "Pulumi may have changed provider state before its result was recorded; run `nagarectl platform upgrade recover-pulumi "
+                          <> tx ^. #id
+                          <> " --outcome applied|retry --yes`"
+                      )
+                  (ReceiptOperatorAttested, Just RecoveryApplied) -> SkipPhase (renderPulumiReceiptEvidence proof)
+                  (ReceiptOperatorAttested, Just RecoveryRetry) -> RunPhase
+                  _ -> RefusePhase "Pulumi apply receipt has an invalid state"
 
 kubernetesManifestFileName, kubernetesReviewFileName, kubernetesMetadataFileName :: FilePath
 kubernetesManifestFileName = "config-network.json"
@@ -3951,40 +4118,47 @@ cleanupPlanStaging staging message = do
 
 applyReviewedPlan :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text Text)
 applyReviewedPlan active workspace bundle allowReplacement = do
-  verified <- verifyReviewedPlanBundle active workspace bundle allowReplacement
+  verified <- verifyReviewedPlanBundleEvidence active workspace bundle allowReplacement
   case verified of
     Left err -> pure (Left err)
-    Right identity -> do
-      applied <-
-        runExternal
-          [ExitSuccess]
-          "pulumi"
-          [ "-C"
-          , workspace ^. #pulumiDir
-          , "up"
-          , "--plan"
-          , bundle </> planFileName
-          , "--stack"
-          , T.unpack (identity ^. #currentStack)
-          , "--yes"
-          , "--non-interactive"
-          ]
-          ""
-      pure $
-        fmap
-          ( \evidence ->
-              "Applied reviewed Pulumi plan for context '"
-                <> identity ^. #currentContext
-                <> "' from "
-                <> T.pack bundle
-                <> if T.null (T.strip evidence) then "\n" else "\n" <> evidence
-          )
-          applied
+    Right (identity, _) -> applyVerifiedReviewedPlan workspace bundle identity
+
+applyVerifiedReviewedPlan :: PlatformWorkspace -> FilePath -> CurrentInfraIdentity -> IO (Either Text Text)
+applyVerifiedReviewedPlan workspace bundle identity = do
+  applied <-
+    runExternal
+      [ExitSuccess]
+      "pulumi"
+      [ "-C"
+      , workspace ^. #pulumiDir
+      , "up"
+      , "--plan"
+      , bundle </> planFileName
+      , "--stack"
+      , T.unpack (identity ^. #currentStack)
+      , "--yes"
+      , "--non-interactive"
+      ]
+      ""
+  pure $
+    fmap
+      ( \evidence ->
+          "Applied reviewed Pulumi plan for context '"
+            <> identity ^. #currentContext
+            <> "' from "
+            <> T.pack bundle
+            <> if T.null (T.strip evidence) then "\n" else "\n" <> evidence
+      )
+      applied
 
 verifyReviewedPlanBundle :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text CurrentInfraIdentity)
-verifyReviewedPlanBundle active workspace bundle allowReplacement = do
-  loaded <- loadPlanBundle bundle
-  case loaded of
+verifyReviewedPlanBundle active workspace bundle allowReplacement =
+  fmap (fmap fst) (verifyReviewedPlanBundleEvidence active workspace bundle allowReplacement)
+
+verifyReviewedPlanBundleEvidence :: ActiveTarget -> PlatformWorkspace -> FilePath -> Bool -> IO (Either Text (CurrentInfraIdentity, SavedPlanMetadata))
+verifyReviewedPlanBundleEvidence active workspace bundle allowReplacement = do
+  local <- verifyLocalReviewedPlanBundle bundle
+  case local of
     Left err -> pure (Left err)
     Right (metadata, savedReview) -> do
       identityResult <- currentInfraIdentity active workspace
@@ -3992,22 +4166,32 @@ verifyReviewedPlanBundle active workspace bundle allowReplacement = do
         Left err -> pure (Left err)
         Right identity -> case verifySavedPlan identity metadata of
           Left err -> pure (Left ("refusing saved plan: " <> renderPlanBindingError err))
-          Right () -> do
-            planHash <- digestFile (bundle </> planFileName)
-            reviewHash <- digestFile (bundle </> reviewFileName)
-            pure $
-              if planHash /= metadata ^. #planDigest
-                then Left "refusing saved plan: pulumi-plan.json digest does not match metadata.json"
-                else
-                  if reviewHash /= metadata ^. #reviewDigest
-                    then Left "refusing saved plan: review.json digest does not match metadata.json"
-                    else case reviewVerdict savedReview of
-                      PlanReplacesProtected _
-                        | not (savedReview ^. #replacementApproved) ->
-                            Left "refusing saved plan: review contains a protected replacement that was not approved at preview time"
-                        | not allowReplacement ->
-                            Left "refusing saved plan: repeat the protected-replacement acknowledgement with --allow-replacement"
-                      _ -> Right identity
+          Right () ->
+            pure $ case reviewVerdict savedReview of
+              PlanReplacesProtected _
+                | not allowReplacement ->
+                    Left "refusing saved plan: repeat the protected-replacement acknowledgement with --allow-replacement"
+              _ -> Right (identity, metadata)
+
+verifyLocalReviewedPlanBundle :: FilePath -> IO (Either Text (SavedPlanMetadata, SavedPlanReview))
+verifyLocalReviewedPlanBundle bundle = do
+  loaded <- loadPlanBundle bundle
+  case loaded of
+    Left err -> pure (Left err)
+    Right (metadata, savedReview) -> do
+      planHash <- digestFile (bundle </> planFileName)
+      reviewHash <- digestFile (bundle </> reviewFileName)
+      pure $
+        if planHash /= metadata ^. #planDigest
+          then Left "refusing saved plan: pulumi-plan.json digest does not match metadata.json"
+          else
+            if reviewHash /= metadata ^. #reviewDigest
+              then Left "refusing saved plan: review.json digest does not match metadata.json"
+              else case reviewVerdict savedReview of
+                PlanReplacesProtected _
+                  | not (savedReview ^. #replacementApproved) ->
+                      Left "refusing saved plan: review contains a protected replacement that was not approved at preview time"
+                _ -> Right (metadata, savedReview)
 
 loadPlanBundle :: FilePath -> IO (Either Text (SavedPlanMetadata, SavedPlanReview))
 loadPlanBundle bundle = do
