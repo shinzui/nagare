@@ -84,6 +84,16 @@ platformTests =
         tp ^. #platformVersion @?= Just "0.2.0"
     , testCase "EP-121: a new context is stamped with the payload version" $
         Map.lookup "NAGARE_PLATFORM_VERSION" (mergeContextOverrides Nothing [("CLOUDSDK_CORE_PROJECT", "p")] "0.2.1") @?= Just "0.2.1"
+    , testCase "platform status can read persisted release intent without ambient version overrides" $
+        withSystemTempDirectory "nagare-platform-context-version" $ \root ->
+          withTemporaryEnv "XDG_CONFIG_HOME" (root </> "config") $
+            withTemporaryEnv "NAGARE_PLATFORM_VERSION" "0.3.0" $ do
+              labs <- either (assertFailure . T.unpack) pure (mkContextName "labs")
+              path <- contextFilePath labs
+              createDirectoryIfMissing True (takeDirectory path)
+              TIO.writeFile path "export CLOUDSDK_CORE_PROJECT=labs\nexport NAGARE_PLATFORM_VERSION=0.4.0\n"
+              stored <- readContextProfile labs >>= either (assertFailure . T.unpack) pure
+              identityFromContext stored ^. #version @?= Just "0.4.0"
     , testCase "EP-121: host identity is read from the indented comments a generated flake carries" $ do
         let flake =
               T.unlines
