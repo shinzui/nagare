@@ -23,11 +23,11 @@ cleanup() {
 trap cleanup EXIT
 
 image="$(kubectl -n nagare-system get deployment nix-cache -o jsonpath='{.spec.template.spec.containers[0].image}')"
-database="$(kubectl -n nagare-system get statefulset nix-cache -o jsonpath='{.status.readyReplicas}/{.status.replicas}')"
+database="$(kubectl -n nagare-system get statefulset nix-cache-db -o jsonpath='{.status.readyReplicas}/{.status.replicas}')"
 migration="$(kubectl -n nagare-system get job nix-cache-migrate -o jsonpath='{.status.succeeded}')"
 rollout="$(kubectl -n nagare-system get deployment nix-cache -o jsonpath='{.status.readyReplicas}/{.status.replicas}')"
 gc_schedule="$(kubectl -n nagare-system get cronjob nix-cache-gc -o jsonpath='{.spec.schedule}')"
-backup_schedule="$(kubectl -n nagare-system get cronjob nagare-dbbackup-nix-cache -o jsonpath='{.spec.schedule}')"
+backup_schedule="$(kubectl -n nagare-system get cronjob nagare-dbbackup-nix-cache-db -o jsonpath='{.spec.schedule}')"
 config_digest="$(kubectl -n personal get configmap nagare-nix-cache-client -o jsonpath='{.data.nix\.conf}' | sha256sum | cut -d' ' -f1)"
 
 kubectl -n nagare-system port-forward service/nix-cache 18080:80 > "${private_dir}/port-forward.log" 2>&1 &

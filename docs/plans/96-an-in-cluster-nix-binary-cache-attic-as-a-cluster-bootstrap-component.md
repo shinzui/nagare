@@ -418,7 +418,7 @@ owns the additive cache policies and ConfigMap data.
 
 The server, database, migration, GC, and their Secrets live in `nagare-system`. The
 consumer ConfigMap and client policy live in `personal`. The managed database command is
-idempotent and preserves Secret `nagare-db-nix-cache`; key `DATABASE_URL` maps to
+idempotent and preserves Secret `nagare-db-nix-cache-db`; key `DATABASE_URL` maps to
 `ATTIC_SERVER_DATABASE_URL`. Its daily backup is required because the NAR private key
 lives in PostgreSQL.
 
@@ -519,7 +519,7 @@ preflight and rehearsal entry point.
 applies the Secret through sops, and idempotently runs:
 
 ```bash
-nagarectl db create postgres nix-cache --namespace nagare-system --size 5Gi --cpu 500m --memory 1Gi
+nagarectl db create postgres nix-cache-db --namespace nagare-system --size 5Gi --cpu 500m --memory 1Gi
 ```
 
 Render `server.toml` from the selected bucket and validate it with
@@ -779,7 +779,7 @@ Server namespace: nagare-system
 Deployment/Service: nix-cache
 Cache name: nagare-cache
 URL: http://nix-cache.nagare-system.svc.cluster.local/nagare-cache
-Database Secret: nagare-db-nix-cache, key DATABASE_URL
+Database Secret: nagare-db-nix-cache-db, key DATABASE_URL
 Storage Secret: nagare-nix-cache-storage
 JWT Secret: nagare-nix-cache-token-key
 Consumer namespace: personal
