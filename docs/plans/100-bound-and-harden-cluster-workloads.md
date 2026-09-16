@@ -84,11 +84,14 @@ opt-in.
 - [x] M1: add resources and securityContext to the Job in `cluster/bootstrap/en/migrations.yaml`. (2026-08-24)
 - [x] M1: render all five manifests and assert their resource, probe, and security
   fields with `yq`; all assertions passed. (2026-08-24)
-- [ ] M1 live validation: apply the current combined manifests after
-  `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` and run
-  `nagare local-smoke` or the local-auth install to observe pods Running with the
-  declared limits. ExecPlan 104 proved the upgraded auth plane reaches Ready locally,
-  but did not record the resource/probe observations required by this milestone.
+- [x] M1 local validation (2026-09-16): built current En, Shomei and nagare-access
+  images at source tag `9577009`, installed the combined manifests on disposable
+  k3d, and observed all three services Ready with zero restarts. All five application
+  and migration containers have CPU/memory requests, memory limits, UID/GID 10001,
+  non-root execution, no privilege escalation, dropped ALL capabilities and
+  RuntimeDefault seccomp. En's 62-second database outage returned readiness 503 and
+  liveness 200 throughout; Kubernetes readiness failed and recovered, with unchanged
+  server UID and zero restarts. The nagared scaffold was not installed.
 - [x] M1: commit the bounded auth-plane manifests and plan state. (2026-08-24)
 - [x] M2: create sops-encrypted `cluster/secrets/grafana-admin.yaml` without
   exposing the generated password in tool output or plaintext Git state. (2026-08-24;
@@ -120,10 +123,10 @@ opt-in.
 - [x] M3: prove migration rerun behavior against disposable PostgreSQL: the first
   `en-migrate up` reported `applied_now`, the second `already_applied`, and
   `en-migrate verify` reported one applied, zero pending, zero unknown. (2026-08-24)
-- [ ] M3 live installer validation: run the current local installer twice and confirm
-  both recreated migration Jobs succeed against their cluster databases. ExecPlan 104
-  (`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) proved one fresh
-  install of both Jobs; the second-run/idempotence observation remains.
+- [x] M3 local installer validation (2026-09-16): both installer runs completed.
+  Both migration Job UIDs changed and each completed once. The first logs report
+  `applied_now`, the second `already_applied`; En verifies 2 applied and Shomei 36,
+  both with zero pending/unknown. Fresh databases were created solely for this test.
 - [x] M3: commit the pg-migrate Job, immutable tag defaults, and MinIO pins. (2026-08-24)
 - [x] Packaging reconciliation: `cluster/observability/install.sh` now resolves
   `grafana-admin.yaml` from the active context's operator-owned cluster-secret directory
@@ -197,6 +200,19 @@ opt-in.
 
 
 ## Surprises & Discoveries
+
+- Labs kernel evidence (read-only SSH, 2026-09-16): three metrics cgroup OOMs
+  at 18:55:27/35/55 UTC and one logs OOM at 19:21:59 UTC all hit a 524288KiB
+  memory limit. The killed processes had about 510MiB/509MiB anonymous RSS.
+  `CONSTRAINT_MEMCG` confirms workload limits, not a node-wide OOM; duplicate
+  group-kill lines do not represent additional container restarts. This narrows
+  the failure but does not identify the allocations or prove a remedy.
+- Local auth acceptance (2026-09-16): resource/security assertions passed on the
+  actual pods, not only rendered YAML. Application spot usage was En 35Mi,
+  Shomei 14Mi and nagare-access 5Mi; this idle arm64 sample does not size cloud
+  workloads. The readiness harness initially included the completed migration
+  pod sharing En's label; restricting it to ReplicaSet-owned pods fixed the
+  pre-mutation test refusal. The outage/recovery then passed.
 
 - Local acceptance restart (2026-09-16): Colima was stopped and is now running
   with its existing 4-CPU/8GiB profile. The cached auth images predate current
@@ -564,8 +580,9 @@ The 2026-09-16 local acceptance continuation restored Colima and discovered a
 separate fresh-bootstrap defect: cert-manager's Ready webhook pod could precede
 trusted admission. The new server-dry-run gate handles the narrow startup race
 without retrying terminal errors or weakening validation; regression and native
-checks pass and the disposable bootstrap recovered. Current auth-image builds
-and fresh local databases are now available/in progress for M1/M3 acceptance.
+checks pass and the disposable bootstrap recovered. Current auth images then passed
+both local installer runs, actual container resource/security assertions, migration
+verification, and En's database-outage readiness/liveness/recovery proof.
 The two local store probes accepted and eventually returned 12000 synthetic
 records/series each under the live limits with no OOM. This is diagnostic evidence
 only: architecture, workload and storage differ from labs, whose OOM cause remains
@@ -579,16 +596,16 @@ also eliminated a more serious form of drift than the original finding: Nagare
 no longer carries stale en SQL and instead consumes en's accepted migration
 interface from the same release image.
 
-The plan remains in progress because the auth manifests have not yet been
-observed with their declared resources/probes on the target cluster, the auth
-installer rerun remains, and startup OOM behavior needs follow-up. The formerly
+The plan remains in progress because cloud auth bootstrap, startup OOM behavior,
+longer-term sizing and private ciphertext publication remain. Local auth resource,
+probe and installer-rerun acceptance is now complete. The formerly
 unbounded chart-default containers now have verified live limits. Observability installation,
 credential checks, datasource queries, store caps, and current node headroom have
 now been observed on labs. ExecPlan 104
 (`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) later proved the
 upgraded auth plane and both dependency-owned migrations on a disposable local
-cluster, but it did not record the EP-4-specific resource, probe, rerun, and
-node-capacity evidence. Those acceptance items remain explicit rather than inferred.
+cluster; the additional EP-4-specific resource, probe and rerun evidence is now
+recorded below. Cloud auth and nagared deployment are not implied by the local proof.
 
 The 2026-08-26 packaging reconciliation made the remaining rollout usable from an
 installed release: Grafana ciphertext is operator-owned, the installer finds it by
@@ -1249,6 +1266,64 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 ## Validation and Acceptance
 
+### Observed local auth acceptance (2026-09-16)
+
+Build the three services with `NAGARE_AUTH_PUSH=0` and source tag `9577009`,
+using the isolated environment below; tag/import the images into k3d as
+`k3d-registry.localhost:5000/<service>:9577009`. Create fresh `en-db` and
+`shomei-db` with `nagarectl db create postgres <name> -n nagare-system`.
+Run `NAGARE_AUTH_TAG=9577009 cluster/bootstrap/local-auth/install.sh` twice,
+saving Job JSON and logs after each. Both Job UIDs changed and completed; En's
+2 and Shomei's 36 migrations changed from `applied_now` to `already_applied`.
+Run `kubectl -n nagare-system exec deploy/<service> -- <service>-migrate verify`;
+both reported zero pending and zero unknown.
+
+Actual application memory caps were En 384Mi, Shomei/nagare-access 256Mi,
+and both migration Jobs 128Mi. All five containers passed CPU/memory request,
+non-root UID/GID 10001, no privilege escalation, dropped ALL capabilities and
+RuntimeDefault assertions. Knative's queue proxy is platform-managed and excluded
+from these five application-container assertions; nagared remains an undeployed scaffold.
+
+With a loopback port-forward to `deploy/en:8080`, scale only the disposable
+`statefulset/en-db` to zero. Thirteen samples over 62 seconds returned
+`/health/ready` 503 and `/health/live` 200. Kubernetes Ready became false; the
+server kept its UID and restart count zero. Restore the database to one replica:
+HTTP readiness returned 200 and Kubernetes Ready true, with the same UID and zero
+restarts. All auth services were Ready afterwards. The test's `finally` handler
+restores the database and closes the port-forward even on failure. After capturing
+evidence, the disposable `nagare-local` cluster and both synthetic store containers
+were removed. The existing unrelated `kotei-dev` cluster was left intact; Colima
+remains running. Built images and private temporary evidence remain available.
+
+Raw local evidence is in `/tmp/nagare-ep100-local/` (private, temporary):
+`jobs-first.json`, `jobs-second.json`, `auth-pods.json`, migration/verify logs,
+`en-outage.json` and `en-outage.log`. Durable results are summarized here because
+those files are not part of the repository. The kernel diagnostic is in
+`/tmp/nagare-ep100-rollout/kernel-startup.log`; its four cgroup OOM timestamps
+and interpretation are recorded in Surprises & Discoveries.
+
+### Private Grafana backup publication gate (2026-09-16)
+
+The working tree at `mori://shinzui/nagare-ops` is clean; GitHub confirms that
+repository is private. Its remote master is `f70d762`; the sole unpublished
+commit is `85826b1af8f04170a2308d2af44c67f4d1877d62`, containing encrypted Grafana
+credentials and a README update. An explicit-ref `git push --dry-run` passed.
+After operator approval, push that exact commit to `refs/heads/master` and verify
+`git ls-remote` equals it. Refuse if the remote changed or the commit/file set differs;
+never force-push. This publishes ciphertext only and performs no cluster mutation.
+
+### Local En outage harness recovery (2026-09-16)
+
+The first outage probe stopped before scaling the database: the shared
+`app.kubernetes.io/name=en` label selects both the server and completed migration
+Job. The cluster remains healthy and unchanged. Recovery: select only pods owned
+by a ReplicaSet, require exactly one Ready server with zero restarts, then run the
+bounded outage against the newly created disposable `en-db` only. Pass gates:
+HTTP liveness remains 200, readiness becomes 503 and Kubernetes Ready becomes
+false, server UID/restart count stay unchanged for at least 60 seconds, and both
+readiness signals recover after restoring the database. A `finally` handler
+restores the database even on assertion failure. Do not run against labs.
+
 ### Fresh local cert-manager recovery (2026-09-16)
 
 The first isolated `just local-bootstrap` stopped when its local ClusterIssuer
@@ -1602,3 +1677,8 @@ local context resolution after an observed guard refusal, corrected the fresh
 cert-manager admission race, and resumed the local auth prerequisites. Native
 synthetic store tests did not reproduce the cloud startup OOMs; no live store
 configuration was changed on that evidence.
+
+Revision note (2026-09-16, local auth acceptance): both installer runs, actual pod
+resource/security checks, and En database-outage recovery passed. Kernel logs
+confirm four original cgroup OOM events without establishing their allocation cause.
+Private Grafana publication is rehearsed and awaits the separately requested approval.

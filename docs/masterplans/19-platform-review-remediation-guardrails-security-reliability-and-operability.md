@@ -64,9 +64,10 @@ EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
 Its private recovery backups are now published with verified remote heads. EP-4's
 observability rollout and datasource/storage checks passed on labs; it must still
-finish auth probes/migration reruns, startup-memory follow-up, and longer-term
-sizing evidence. The monitoring resource correction is deployed and passed its
-628-second stability observation. The new Grafana ciphertext backup is
+finish cloud auth bootstrap, startup-memory follow-up, and longer-term sizing
+evidence. Local auth resource/probe/migration-rerun acceptance now passes. The
+monitoring resource correction is deployed and passed its 628-second stability
+observation. The new Grafana ciphertext backup is
 committed privately but not yet published. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
 prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
@@ -277,7 +278,10 @@ complete; the child plans hold the granular checklists.
   local HEAD at `mori://shinzui/nagare-ops` (commit `f70d762`) and
   `mori://tan/tan-ng-labs` (commit `0a57197`). EP-3 is Complete.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
-- [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
+- [x] EP-4 M1 local acceptance (2026-09-16): three auth services Ready, all five
+  application/migration containers bounded and hardened; En survived a 62-second
+  database outage with readiness failing/recovering, liveness 200 and zero restarts.
+  Cloud auth bootstrap and the undeployed nagared scaffold remain separate.
 - [x] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace
   stores (2026-09-16 — all five releases deployed; encrypted login/default rejection,
   exactly one logs/traces datasource, real logs/synthetic traces, and live caps/PVCs
@@ -308,10 +312,10 @@ complete; the child plans hold the granular checklists.
 - [ ] EP-4 remaining resource reliability: investigate startup OOMs (three metrics,
   one logs) and record longer-term sizing.
   Short-window recovery is not clean-start reliability.
-- [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
-  pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
-  against disposable PostgreSQL, rendered manifests and registry tags verified;
-  live installer rerun remains)
+- [x] EP-4 M3 local acceptance (2026-09-16): both installer runs recreated and
+  completed both Jobs; En verifies 2 applied migrations and Shomei 36, with zero
+  pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders
+  and MinIO pins retain their earlier verification; cloud installer proof remains.
 - [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
 - [~] EP-5 M2: Six rules covering five failure modes, and a truthful freshness
   probe (2026-08-26 — exact chart render, scrape selector, PromQL validation,
@@ -660,11 +664,11 @@ remain separate evidence.
 
 EP-4's repository changes for resource bounds, probes, observability storage caps,
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
-Its live auth resource/probe/migration-rerun acceptance remains open. The
+Its local auth resource/probe/migration-rerun acceptance now passes. The
 observability rollout/data paths/caps and current capacity are now verified;
 chart-default memory bounds are now live and passed a 628-second stability window.
 Startup OOM investigation remains open.
-EP-8's local auth proof does not substitute for the outstanding evidence.
+The additional local checks directly establish EP-4's pod and rerun behavior.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
 but a plugin pin syntax error prevented Grafana startup. The installer was stopped
@@ -674,7 +678,7 @@ all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queri
 and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
 recovered without changes. The subsequently approved revision 4 closes the live
 observability-container bounds gap and passed its ten-minute stability gate.
-Auth coverage and clean-start reliability remain open; private ciphertext publication remains pending. Auth images/databases
+Cloud auth coverage and clean-start reliability remain open; private ciphertext publication remains pending. Auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
@@ -730,3 +734,9 @@ Revision note (2026-09-16, local acceptance recovery): EP-4 restored the disposa
 local test path and fixed the cert-manager admission readiness race encountered
 before auth installation. The guardrail remains unchanged. The initial local store
 probe did not reproduce the cloud OOMs and does not close startup acceptance.
+
+Revision note (2026-09-16, local auth acceptance): EP-4 completed both current-image
+installer runs, migration verification, actual container resource/security checks
+and the En database-outage readiness/liveness proof. Read-only kernel diagnostics
+confirm cgroup-limit OOMs but do not establish their allocation cause. The private
+Grafana backup push passed rehearsal and awaits explicit publication approval.
