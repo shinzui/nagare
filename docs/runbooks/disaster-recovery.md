@@ -22,13 +22,42 @@ historic default context is project **`tan-nb-exp`**, region **`us-west1`**, zon
 > typed CLI. Build it once with `cabal build exe:nagarectl` in `cli/nagarectl/`
 > (inside `nix develop`), or have it on `PATH`, before starting a restore.
 
-## The one thing that is NOT in Git or the bucket
+## The keys that are NOT in Git or the bucket
 
-The **age private key** (`~/.config/sops/age/keys.txt`; on the host
-`/var/lib/sops-nix/age-key.txt`). It is the root of trust for every encrypted
-secret. Store a copy offline (password manager / hardware token). **Without it,
-none of the context's encrypted cluster secrets or host `secrets.yaml` can be
-decrypted** and the recovery cannot complete. Restore it first, before step 7.
+Three separate age identities serve different purposes. The **host identity** lives
+at the context's configured `ageKeyFile` (normally `/var/lib/sops-nix/age-key.txt`)
+and lets sops-nix render that host's secrets. The **workstation identity**, normally
+`~/.config/sops/age/keys.txt`, lets the operator edit encrypted files. The **offline
+recovery identity** belongs in the operator's password manager, separately from both
+machines; remove temporary local copies after verification. All private identities
+stay out of Git, Pulumi state, platform payloads, and VM images. Public recipients
+and the vault-item reference belong in the private operator repository.
+
+Recovery coverage is explicit per context and ciphertext. A shared recovery identity
+can cover several clusters only after their private policies and every encrypted
+document have been updated and independently verified. A policy entry alone is not
+proof, and an existing host-key backup is not an independent recovery identity.
+Consult the selected context's private recovery inventory rather than assuming all
+clusters use the same recipients.
+
+Resolve the actual host file with `nagarectl host path --context <context>` and the
+cluster-secret directory with `NAGARE_CLUSTER_SECRETS_DIR` or
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`. Reconcile their
+versioned private backups; regular XDG files do not follow later Git edits as symlinks
+do. The public `example.yaml` has a deliberately discarded private key and is not a
+recovery source.
+
+Retrieve the recovery identity from the vault into a private temporary file on the
+recovery machine. With only that identity available, prove decryption of every
+inventoried operational file, including every document in multi-document YAML, while
+discarding plaintext output. Repeat with only the workstation identity and check
+that an invocation with no identities fails. Preserve the host recipient when
+re-keying. Restore the appropriate host identity through
+`nagarectl host place-age-key` before activating a replacement host; the offline
+recovery private key must not become the running VM's identity. Then use the guarded
+`nagare host-switch` path and verify sops-nix renders the expected `/run/secrets`
+entries. Keep old ciphertext until these checks succeed. If no inventoried identity
+can decrypt an operational file, stop recovery and locate its matching vault backup.
 
 ## Backup inventory — what is backed up, where, and how it is restored
 

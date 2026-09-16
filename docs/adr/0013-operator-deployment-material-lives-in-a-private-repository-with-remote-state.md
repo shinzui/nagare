@@ -5,6 +5,7 @@ date: 2026-09-12
 authors: [shinzui]
 related:
   - docs/plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md
+  - docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
@@ -105,3 +106,27 @@ existing checkout symlink keeps working when it resolves to the same real file. 
 change installs the Pulumi program's locked Node dependencies (`npm ci`) in a workspace that
 lacks them, because payloads exclude `node_modules`. Implemented by
 [ExecPlan 121](../plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md).
+
+## Amendment — 2026-09-16: recovery identities are offline and explicitly enrolled
+
+Operational secrets have distinct consumer, workstation-editing, and offline-recovery
+roles. The recovery private identity belongs in the operator's vault, independent of
+the host and workstation identities. A backed-up host identity remains a host identity;
+it does not provide that separation. An operator may share a recovery identity across
+contexts, but coverage is established per ciphertext, never inferred from the vault
+item's name or a policy change alone.
+
+Recovery recipients are added only to private operator policies and operational
+ciphertext. The public policies and intentionally undecryptable evaluation fixture
+remain examples. Inventory the actual context paths and versioned backups separately:
+a regular XDG host directory can coexist with a cluster-secret symlink into another
+private repository. Updating one does not update the other.
+
+Re-keying preserves consumer recipients and secret values, proves independent
+decryption by each required identity, and includes a no-key failure check to detect
+ambient credentials masking a failed recovery proof. For multi-document YAML, every
+document must carry the recovery recipient. Host verification uses the guarded switch
+from ADR 11. Temporary recovery-key material is removed after verification and
+operator-confirmed vault custody; vault confirmation and cryptographic checks are
+recorded as separate evidence, without claiming automated vault retrieval when the
+operator performed the handoff manually.

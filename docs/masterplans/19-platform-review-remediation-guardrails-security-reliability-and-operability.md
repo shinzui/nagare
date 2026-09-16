@@ -51,9 +51,10 @@ generating unparsable connection URLs; and the host is tuned for its 2-vCPU/8 GB
 reality with a written, rehearsable upgrade story and a disaster-recovery runbook
 that matches the tree.
 
-Four live/operator-owned acceptance bundles remain before the initiative is complete.
-EP-3 must create and vault the offline age recovery identity, re-key the active
-context's host and cluster secrets, and finish the matching recovery text. EP-4 must
+Three live acceptance bundles and EP-3's private-backup publication remain before the initiative is complete.
+EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
+custody, independent decryption, guarded live activation, and updated recovery text.
+Its private-repository commits still need remote synchronization before EP-3 closes. EP-4 must
 roll the bounded workloads and observability settings into a real cluster and record
 probe, migration-rerun, rollout, and steady-state resource evidence. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
@@ -220,8 +221,8 @@ generated cabal-project tails. Both repository changes have landed. EP-4's remai
 live validation consumes the resulting combined manifests, including EP-8's current
 health endpoints and both dependency-owned migration Jobs.
 
-`docs/runbooks/disaster-recovery.md` — EP-3 still owns the age-key/root-of-trust
-section and must update it only after the recovery key and re-keying exist. EP-7's
+`docs/runbooks/disaster-recovery.md` — EP-3 owns the age-key/root-of-trust
+section and completed it with labs re-keying on 2026-09-16. EP-7's
 reality-sync work for every other section is complete; EP-5 also corrected the managed
 database backup prefixes.
 
@@ -248,13 +249,20 @@ complete; the child plans hold the granular checklists.
 - [x] EP-2 M2: nagare-access — cookie MAC, return destination, Host header (2026-08-05)
 - [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
 - [x] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (2026-09-15 — the released program was applied to the fresh `tan-ng-labs` target and authoritative GCP/Kubernetes reads plus a 31-unchanged preview proved the intended protections)
-- [~] EP-3 M2: sops — an offline recovery recipient for every secret (2026-09-15 — policy cleanup and the context-owned secret boundary are complete; generating/vaulting the recovery key, re-keying live host and cluster secrets, and updating the runbook remain operator work)
+- [x] EP-3 M2: sops recovery (2026-09-16) — operator confirmed vault storage;
+  re-keyed the labs host and both nix-cache documents, proved independent recovery,
+  workstation, and host decryption with unchanged plaintext, completed guarded host
+  activation, updated the runbook and ADR 13, and removed temporary private material.
+  Other contexts remain unenrolled; private Git commits have not been pushed.
 - [x] EP-3 M2 preflight (2026-09-16): inventoried the selected labs host and
   nix-cache ciphertext and proved workstation decryption for both. Recovery-key
   custody/access remains unresolved; the 1Password CLI has no configured account.
 - [x] EP-3 M2 recovery-key generation (2026-09-16): generated a distinct identity
   at the operator's explicit request, staged outside repositories with directory
   mode 0700 and key mode 0600. Manual vault storage/retrieval and re-keying remain.
+- [ ] EP-3 final publication: publish the private recovery commits and verify the
+  remote heads. The cache-secret repository also contains two pre-existing
+  unpublished commits; approval to publish that combined history is pending.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
@@ -331,6 +339,12 @@ implementation):
 
 Discoveries from implementation:
 
+- **Labs recovery enrollment is now proven** (EP-3, 2026-09-16). The host document
+  and both nix-cache documents decrypt independently with the new recovery identity;
+  original identities still work, plaintext is unchanged, and no-key checks fail.
+  Guarded activation committed and sops-nix, k3s, and Tailscale are healthy. Manual
+  vault custody was confirmed by the operator; no automated vault retrieval is
+  claimed. ADR 13 records why recovery enrollment is explicit per context.
 - **EP-3's current files do not match its historical key assumptions** (2026-09-16).
   The selected labs host already accepts the workstation identity and has its own
   host recipient. Its operational host directory is a regular XDG directory, while
@@ -439,6 +453,12 @@ Discoveries from implementation:
 
 ## Decision Log
 
+- Decision: treat EP-3's labs live implementation as complete but retain In Progress
+  until the private recovery envelopes are published, with explicit scope limits.
+  Rationale: labs is the active context the operator agreed to enroll. A shared
+  recovery identity does not enroll other clusters. Existing unpublished commits in
+  the private configuration repository are not published as an incidental mutation.
+  Date: 2026-09-16
 - Decision: resume EP-3 against the selected `labs` context and apply ADR 13's
   existing distinction between private operational ciphertext and public examples.
   Rationale: the current host is already workstation-decryptable, uses its own host
@@ -556,49 +576,32 @@ Discoveries from implementation:
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-The 2026-09-16 EP-3 resumption verified existing workstation access to both selected
-labs secret files and corrected stale public-fixture and fixed-host-key instructions.
-No secret or cloud state changed. EP-3 remains In Progress pending the operator's
-vaulted recovery identity and retrieval method; the CLI reports no configured
-1Password accounts. The required re-key, independent recovery proof, live host
-rendering, and final runbook update remain open.
+As of 2026-09-16, four of eight child plans are complete: EP-1, EP-2,
+EP-6, and EP-8. EP-3 now adds verified labs secret recovery to its previously
+accepted infrastructure protections and GCS migration. The operator confirmed vault
+storage of a distinct recovery identity; all three operational YAML documents pass
+isolated decryption with unchanged plaintext, the guarded host switch committed,
+and temporary recovery private material was removed. Other clusters remain
+unenrolled. The private configuration changes are committed locally and still need
+remote synchronization before EP-3 closes; no automated vault readback or remote
+publication is claimed.
 
-The operator subsequently requested a new recovery identity after the supplied key
-was confirmed to be the existing labs host identity. The new key is staged privately
-for manual vault handoff; generation is complete, but vault storage/retrieval and
-all recipient changes remain open.
+EP-4's repository changes for resource bounds, probes, observability storage caps,
+Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
+Its live resource, probe, migration-rerun, observability, and capacity acceptance
+remains open. EP-8's local auth proof does not substitute for that broader evidence.
 
-EP-4's repository changes for resource bounds, observability storage caps,
-Grafana credential handling, datasource single-sourcing, immutable auth tags,
-dependency-owned migrations, and local MinIO pinning are complete and pass their
-offline/rendered checks. Live rollout remains open because EP-4-specific resource,
-probe, installer-rerun, observability, and node-capacity evidence has not been
-recorded; EP-8's later local auth proof does not imply those broader observations.
-EP-5 M2's repository implementation is also complete offline: the exact chart
-renders, all six alert expressions validate, the pinned cert-manager selector is
-correct, and all 394 packaged nagarectl tests pass. Live metric/rule evaluation and Pushover
-delivery remain open rather than being simulated.
-EP-5 M3 now carries the managed-database restore assertion and monthly schedule;
-its packaged k3d execution passed repeatedly on 2026-08-26, including teardown.
+EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
+packaged database restore smoke tests. Pushover configuration, phone delivery, and live
+metric/status evidence remain open. EP-7's host configuration is active on labs and
+still requires late datastore reencryption and a private pull after the boot token
+expires. EP-3's successful secrets activation does not prove either behavior.
 
-As of 2026-09-15, four of eight child plans are complete (EP-1, EP-2, EP-6,
-EP-8). EP-3 has live infrastructure protection and remote-state evidence and is
-open only for the recovery-key/re-key/runbook bundle. EP-4's repository work is
-complete and awaits live rollout evidence. EP-5 has validated rules, truthful backup
-probing, and a proven packaged restore drill, but still needs a real Pushover channel
-and live metric/status proof. EP-7's configuration is active on labs and is open only
-for late datastore reencryption plus an expired-boot-token private pull. The remaining
-scope is therefore operator acceptance and secret custody, not another broad coding
-phase.
-
-The next practical sequence is opportunistic rather than dependency-driven. Create and
-vault the EP-3 recovery identity before touching ciphertext; it unlocks both re-keying
-and the final recovery text. EP-4 and EP-5 can share one authenticated cluster session:
-roll out the current combined manifests, observe workload resources/probes and both
-migration Jobs, then validate live metrics, backup status, Alertmanager, and a synthetic
-phone alert. EP-7 can use that same host window to finish datastore reencryption and,
-after the boot token is older than 45 minutes, force a fresh private-image pull while
-checking the k3s journal for no restart.
+After EP-3 publication, the next child is EP-4. It and EP-5 can share a live cluster session, while
+EP-7 can use the same host window for its two remaining checks. The full disaster-
+recovery drill remains a separate scratch-context exercise. ADR 13 captures the
+durable recovery decisions from EP-3; task-specific custody and test evidence stays
+in the child plan.
 
 Revision note (2026-09-15): reconciled all eight child plans, later live evidence,
 MasterPlan 20's packaged-operator boundary, and current ADRs. Marked EP-8 complete,
@@ -612,3 +615,10 @@ Revision note (2026-09-16): recorded EP-3's current labs inventory and successfu
 workstation decryption, corrected recovery scope to the existing ADR 13 boundary,
 and retained the vault-access blocker. The child plan now accounts for differing
 host/cluster ownership paths and excludes intentionally undecryptable public fixtures.
+
+Revision note (2026-09-16, live completion): completed EP-3's live labs work after manual vault
+confirmation, recipient-only re-keying, isolated cryptographic checks, guarded live
+activation, and temporary-key cleanup. Updated the registry, remaining-work view,
+runbook ownership, and retrospective; ADR 13 preserves the recovery decisions.
+Other contexts remain unenrolled. EP-3 stays In Progress until private backup
+publication is authorized and verified, including its pre-existing unpublished history.

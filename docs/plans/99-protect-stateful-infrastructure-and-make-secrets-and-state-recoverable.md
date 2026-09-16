@@ -73,11 +73,13 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-**Status summary (reconciled 2026-09-15): the Pulumi infrastructure changes and GCS
-state path are now validated live. The fresh `tan-ng-labs` target applied the released
-infrastructure and exposes the expected protections; EP-116 migrated the original
-`tan-nb-exp` stack to GCS. The remaining substantive work is the operator-held offline
-recovery key, re-keying every context-owned secret, and the matching recovery runbook.**
+**Status summary (live work completed 2026-09-16; publication pending): infrastructure protections and remote state
+have live acceptance evidence. The selected labs context now has a separate,
+operator-vaulted recovery identity on every operational ciphertext document, proven
+independent decryption with unchanged values, and a committed guarded host activation.
+The temporary recovery private key has been removed. Other clusters require explicit
+enrollment; public examples remain excluded. Private Git commits still need remote
+publication before EP-3 can close.**
 
 - [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
@@ -104,27 +106,28 @@ recovery key, re-keying every context-owned secret, and the matching recovery ru
   which wrongly claimed one private key lives in both key locations. (2026-08-05,
   commit `4148e68`; verified by a `sops -e`/`sops -d` round-trip of a scratch file
   under `cluster/secrets/`)
-- [x] M2a generation (2026-09-16): on the operator's explicit request, generated a
-  distinct recovery identity outside all repositories in a private temporary
-  directory under the Nagare config root. Verified directory mode 0700 and key-file
-  mode 0600. Only the public recipient was printed; the private file awaits manual
-  vault storage. The supplied labs-host key was independently confirmed to be the
-  existing host identity, not this new recovery identity.
-- [ ] M2a (BLOCKED — needs operator vault storage): store and retrieve the newly
-  generated private key through the password manager, and add its public half only
-  to the operator-owned policies governing the active context's host/cluster secrets.
-  Preserve existing consumer and workstation recipients. The public example policies
-  and intentionally undecryptable fixture are excluded under ADR 13.
-  Recipient changes remain unstarted until vault storage and retrieval are verified.
-- [ ] M2b (BLOCKED — needs the recovery key, active cloud context, and running VM):
-  inventory and re-key every encrypted Secret in the context-owned cluster-secret
-  directory plus the actual host file returned by `nagarectl host path`. Resolve
-  policy paths and canonical ciphertext paths before updating keys; the current
-  labs host directory is a regular directory, while its cluster-secret directory
-  points into a different private repository.
-- [ ] M2c (BLOCKED — depends on M2a/M2b): rewrite the age-key section of
-  `docs/runbooks/disaster-recovery.md` to name all three keys. Not written yet because
-  it would document a three-key model that does not exist until the re-key lands.
+- [x] M2a generation and custody (2026-09-16): generated a distinct recovery identity
+  at the operator's request, with staging-directory mode 0700 and key-file mode 0600.
+  The operator confirmed saving the complete file in their password manager.
+  Custody evidence is that confirmation; no automated vault readback is claimed.
+- [x] M2a policies (2026-09-16): added the recovery recipient to the applicable
+  private labs rules in both operator repositories, retaining all original consumer
+  and workstation recipients. No public policy or other context was changed.
+- [x] M2b ciphertext (2026-09-16): re-keyed the versioned and operational XDG host
+  file plus both documents in the context-owned nix-cache file. Recovery-only and
+  workstation-only decryption reproduce the original plaintext for every file;
+  host-only decryption also passes for the host file. Empty-identity decryption
+  fails. The versioned and operational host copies match byte for byte.
+- [x] M2b live acceptance (2026-09-16 18:13 UTC): the 0.4.0 packaged guarded
+  host switch reported ACTIVATE_RC=0, verified fresh SSH login and sudo, and
+  COMMITTED. Sops-nix reports success; the Tailscale auth secret is rendered mode
+  0400 root:root. k3s and Tailscale are active, boot and active systems match, and
+  the rollback timer is inactive. Removed the temporary recovery private file
+  and empty staging directory after final isolated decryption checks.
+- [x] M2c (2026-09-16): updated the runbook's key section and both private README
+  inventories. Distilled explicit recovery enrollment, private policy ownership,
+  independent decryption, and manual custody evidence into ADR 13.
+
 - [x] M2 preflight (2026-09-16): selected context is `labs`; both the generated
   host `secrets.yaml` and context-owned `nix-cache.yaml` decrypt with the explicitly
   selected workstation key, with plaintext discarded. The host has host plus
@@ -145,15 +148,49 @@ recovery key, re-keying every context-owned secret, and the matching recovery ru
   `nagare` launcher, workspace-resolved Pulumi/migration paths, and the generated host
   flake as the operational recovery target. The asset and clone-free package checks
   pass with the new secret boundary. (2026-08-26)
-- [ ] Final: update MasterPlan 19's registry/progress for EP-99 and write the Outcomes
-  & Retrospective entry here. (MasterPlan registry updated 2026-08-05 to In Progress;
-  the retrospective waits for the blocked steps.)
+- [x] Final documentation (2026-09-16): completed the retrospective and distilled
+  recovery decisions into ADR 13.
+- [ ] Final publication: publish the private recovery envelopes, verify remote
+  commit heads, then mark EP-3 Complete. The cache-secret repository has two
+  pre-existing unpublished commits, so pushing it also publishes work from before
+  this session. Approval for that combined publication is pending.
 
 
 ## Surprises & Discoveries
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
+
+**Live recovery enrollment completed (2026-09-16).** The original PATH resolved
+Nagare 0.2.2, whose host-switch script derives the SSH host from the GCE instance
+name. Labs uses GCE instance `nagare-01` but OS/Tailscale name `labs-nagare`. Built
+the repository's 0.4.0 operator package, verified `nagarectl host name`, and used
+that immutable build's guarded recipe with the existing context-owned host flake.
+The switch rebuilt only the secrets manifest, service wiring, and system closure;
+it did not regenerate the host flake or change its pinned platform input.
+
+```text
+host: workstation-only, recovery-only, host-only decryption PASS
+nix-cache: workstation-only, recovery-only decryption PASS
+Every decrypted document equals its pre-change plaintext
+No-key decryption refused; recovery recipient present in all three YAML documents
+ACTIVATE_RC=0
+host-switch: fresh login and sudo verified (attempt 1)
+COMMITTED
+sops-install-secrets: Result=success ExecMainStatus=0
+k3s: active; tailscaled: active
+Rendered Tailscale secret: 400 root:root
+Active and boot system match; rollback timer inactive
+Temporary recovery identity removed
+```
+
+The original labs-host file provided by the operator was a consumer identity,
+not the new recovery identity. Manual confirmation of saving the complete new
+identity supplied the custody evidence. The cryptographic checks used the staged
+copy with an empty environment except PATH and the single chosen key-file variable;
+they did not retrieve a key through 1Password. Existing workstation and host keys
+were retained. The private cluster-secret repository already had two unpublished
+commits; its remote was not updated incidentally.
 
 - Planning research (2026-07-15): the root `.sops.yaml` comment (lines 3–7) claims the
   same private key lives at `~/.config/sops/age/keys.txt` and at
@@ -317,6 +354,19 @@ also reject the valid labs host identity.
 
 Record every decision made while working on the plan.
 
+- Decision: accept the operator's explicit confirmation of complete-file vault
+  storage as manual custody evidence, verify the generated recovery identity in
+  isolation, and remove the staging file after successful live activation.
+  Rationale: the operator performed the password-manager handoff manually. Requiring
+  CLI account setup would not improve the already authorized re-key operation;
+  evidence distinguishes human custody from automated vault retrieval instead.
+  Date: 2026-09-16
+- Decision: enroll only the selected labs context and preserve its existing consumer
+  recipients, all other contexts, and the public fixture policy.
+  Rationale: the operator accepted labs as the initial coverage scope. A shared vault
+  item does not confer coverage on unenrolled ciphertext. ADR 13 preserves this rule.
+  Date: 2026-09-16
+
 - Decision: make the VM's `deletionProtection` config-driven
   (`vmDeletionProtection`, default `true`) rather than hardcoded.
   Rationale: GCP refuses to delete a protected instance, and the platform's *intended*
@@ -433,35 +483,39 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-As of 2026-09-15, the infrastructure and state-recovery halves of the purpose are observably live.
-The labs target has deletion-protected compute, a snapshot-scheduled data disk, hardened/versioned
-backup storage, and scoped DNS rights; its Pulumi stack previews at 31 unchanged. The original
-`tan-nb-exp` stack is no longer laptop-only: EP-116 migrated it to its versioned GCS backend with a
-retained rollback artifact and a clean refresh preview.
+Live implementation completed on 2026-09-16 for the selected labs context; remote
+publication remains before final plan completion. Infrastructure acceptance
+remains backed by the labs deployment's deletion protections, disk snapshot schedule,
+versioned backup storage, and scoped DNS permissions. EP-116 provides the original
+context's verified local-to-GCS state migration.
 
-The plan remains incomplete because the secret root of trust is a human-custody operation, not an
-infrastructure inference. The offline recovery private key has not been stored in the operator's
-vault, context-owned host and cluster secrets have not all been re-keyed to it, and the disaster-
-recovery runbook must not claim that three-key model until those steps exist. Once M2a–M2c complete,
-the final MasterPlan reconciliation and full retrospective can close the plan.
+The operator confirmed vault storage of the separate recovery identity. Only its
+public recipient and vault reference entered the private operator repositories.
+Every document in the current inventory accepts that identity: one host-secret
+document in versioned and operational copies, and two nix-cache documents. Independent
+recovery/workstation decryption and host-only decryption where applicable returned
+unchanged plaintext; an empty identity set failed. Verification used the generated
+staging identity after operator-confirmed custody, not an automated vault retrieval.
+The temporary private file and directory were then removed. Ciphertext rollback
+copies remain at `/tmp/nagare-ep99-rekey.pB3Ebd`.
 
-Packaging reconciliation on 2026-08-26 also closed a distribution gap: released
-payloads/workspaces no longer carry cluster secrets, and recovery work targets the generated
-host flake and context-owned encrypted Secret directory. The packaged asset and clone-free checks
-prove that boundary. Live GCP apply and state migration are no longer open; offline-key
-creation/re-keying, the truthful runbook update, and final MasterPlan closeout remain.
+The guarded host switch completed at 18:13 UTC, verified fresh SSH and sudo, and
+committed the new boot default. Sops-nix rendered the expected secret; k3s and
+Tailscale remained healthy. Existing identities and secret values were preserved.
+No Kubernetes Secret apply was needed for recipient-only changes. The runbook and
+ADR 13 now distinguish the three roles and explicit per-context enrollment. Other
+contexts, including tan-nb-exp, were not enrolled.
 
-Following that preflight, the operator requested generation of a distinct recovery
-identity for manual vault storage. It now exists in a private staging file outside
-repositories, with modes 0700/0600 verified. Vault storage, retrieval, re-keying, and
-recovery proof remain outstanding; operational ciphertext remains unchanged.
+The main lessons are that a host-key backup is not an independent recovery identity,
+every YAML document needs recovery coverage, and regular XDG host copies can drift
+from Git even when cluster secrets use symlinks. The public discarded-key fixture
+is excluded. The full disaster-recovery drill remains a separate MasterPlan follow-up.
 
-The 2026-09-16 implementation preflight narrowed M2 to the actual labs files and
-proved workstation decryption for both without exposing plaintext. Recovery-key
-creation/retrieval is pending operator vault access; no recipients, cloud state,
-or running services changed. The public example is excluded by the existing ADR 13
-contract, and the plan no longer instructs an implementer to re-key it.
-
+The private-repository changes are committed locally, not pushed. The cluster-secret
+repository already had two unpublished commits before this work, including the
+original nix-cache ciphertext. Remote synchronization is still needed before a fresh
+clone alone supplies the new recovery envelopes; this completion does not claim those
+remote copies were updated.
 
 ## Context and Orientation
 
@@ -723,11 +777,12 @@ fixture are excluded by ADR 13.
 
 First resolve the intended vaulted recovery identity, or generate a new identity
 using `age-keygen` in a private temporary directory after establishing how it will
-be stored in the operator's vault. Store and retrieve the private half through the
-vault before modifying any recipients. Record only the public recipient and vault
+be stored in the operator's vault. Require confirmation that the complete private identity is
+stored in the operator's vault before modifying recipients. Record manual custody
+attestation separately from any automated vault readback. Record only the public recipient and vault
 item reference in the private operator repository. Never put the private key in
 chat, command arguments, logs, Git, or a platform payload. Remove temporary private
-material after successful vault retrieval and verification.
+material after confirmed custody and cryptographic verification.
 
 Resolve the active context's actual host and cluster ciphertext paths, following
 symlinks. Inventory their private-repository backups too. On the 2026-09-16 labs
@@ -748,8 +803,9 @@ a blocker, never a reason to substitute the public example.
 
 Keep pre-change ciphertext backups until each updated file passes independent
 workstation-only and recovery-only decryption, and compare the plaintext internally
-without printing it. The recovery-only proof must use the key retrieved from the
-vault and exclude all ambient workstation and SSH identities. Verify the original
+without printing it. The recovery-only proof must isolate the recovery identity from all ambient
+workstation and SSH identities; record whether vault custody was operator-confirmed
+or independently checked through retrieval. Verify the original
 host recipient remains present. Synchronize the intended private-repository backup
 and actual context file only after reconciling any differences, then run the
 selected context's packaged `nagare host-switch` and verify sops-nix renders its
@@ -761,7 +817,7 @@ the context-specific host identity at its configured on-host age-key path, the
 workstation identity used for daily editing, and the offline recovery identity held
 in the vault. Public documentation describes roles and discovery paths; actual
 operator recipient and vault references belong in the private repository. Do not
-claim recovery acceptance until vault retrieval, isolated decryption, and live host
+claim recovery acceptance until vault custody, isolated decryption, and live host
 rendering succeed. Suggested commits are `feat(secrets): add offline recovery recipients`
 for private policies and ciphertext, and `docs(runbooks): document verified secret recovery`
 for the public documentation. Include the required plan and intention trailers.
@@ -913,12 +969,11 @@ existing-key/access problem and must be resolved before re-keying that file.
 
 For the 2026-09-16 labs selection, the inventory consists of the regular XDG host
 `secrets.yaml` and the cluster directory's `nix-cache.yaml`. The owning private
-projects and backup paths are recorded in Surprises & Discoveries. The 1Password
-CLI returns no configured accounts, so establish vault access or a secure
-operator-provided retrieval method before continuing. Do not generate an identity
-that cannot be vaulted.
+projects and backup paths are recorded in Surprises & Discoveries. The operator confirmed manual vault storage in this run because the CLI had no
+configured accounts. Future recovery retrieves the identity from the vault; the
+original staging file has been removed.
 
-After vault storage and retrieval are verified, update the discovered private
+After vault custody is confirmed, update the discovered private
 policy, preserve a ciphertext backup, and invoke `sops --config <private-policy>
 updatekeys -y <canonical-ciphertext>` from that policy's repository root for each
 matched operational file. For the regular XDG host copy, use a private policy whose
@@ -993,8 +1048,7 @@ explicitly "preview shows update-in-place only".
 and a certificate issuance or renewal completes (no `403` / `forbidden` events on the
 Challenge resources: `kubectl describe challenge -A` clean).
 
-**Secrets are recoverable and editable.** With only the recovery identity retrieved
-from the vault enabled, `sops -d` succeeds on every operational ciphertext in the
+**Secrets are recoverable and editable.** With only the recovery identity enabled and its vault custody confirmed, `sops -d` succeeds on every operational ciphertext in the
 active context's cluster-secret directory, `$(nagarectl host path)/secrets.yaml`,
 and their inventoried private-repository backups. Repeat with only the workstation
 identity enabled. Ambient workstation or SSH identities must not satisfy the
@@ -1092,6 +1146,14 @@ tagged-release contracts recorded in `docs/adr/0003-*.md` through
 
 
 ## Revision Notes
+
+- 2026-09-16 — Completed labs re-keying after operator-confirmed vault storage,
+  verified isolated decryption and unchanged plaintext for every YAML document,
+  committed guarded host activation, and removed temporary private-key material.
+  Recorded manual custody separately from cryptographic evidence, updated the
+  runbook and ADR 13. EP-3 remains In Progress solely for private-repository
+  publication, which would include two pre-existing unpublished commits. Other
+  contexts remain unenrolled.
 
 - 2026-09-16 — On explicit operator request, generated a separate recovery key for
   manual vault handoff after confirming their supplied file is the existing labs
