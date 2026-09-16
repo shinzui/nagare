@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-16T18:33:59Z
       mode: "implement"
       note: "Record labs baseline, pinned chart rehearsal, auth server dry runs, and fresh bootstrap prerequisites"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-16T19:41:12Z
+      mode: "implement"
+      note: "Bound chart helpers and operator reloaders; validate pinned renders and labs admission; prepare gated rollout"
 ---
 
 # Bound and harden cluster workloads
@@ -157,18 +162,38 @@ opt-in.
   databases/credentials, then apply the remaining M1/M3 workloads
   and record observed steady-state usage. Do not treat the nagared scaffold as a
   turnkey deployment or reset any existing database.
-- [ ] Close the broader memory-bound acceptance gap: chart-default Grafana,
-  its two sidecars, kube-state-metrics, node-exporter, operator, and the two
-  metrics config-reloaders have no memory limits in the live render. The explicitly
-  configured VMSingle/VMAgent/VMAlert limits are present. Size/rehearse the omitted
-  chart resources before claiming every monitoring container is bounded; this
-  additional configuration change is not part of the plugin-only recovery.
-- [ ] Write Outcomes & Retrospective
+- [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart
+  rendering and labs server admission dry runs pass; six direct containers gain
+  limits and operator defaults cover both reloaders. Deployment remains pending.
+- [ ] Deploy and verify the broader memory-bound correction: Grafana, its two
+  sidecars, kube-state-metrics, node-exporter, operator, and the two metrics
+  config-reloaders still have no live memory limits. The configuration is now
+  rehearsed; use the bounded rollout below before claiming complete coverage.
+- [x] Update Outcomes & Retrospective with the bounded rollout and remaining gates. (2026-09-16)
 
 
 ## Surprises & Discoveries
 
 Initial findings date from authoring (2026-07-15); later observations are dated below.
+
+- Follow-up on 2026-09-16: Mori has no registered Victoria/Helm source, so the
+  exact published chart archive was inspected directly. The pinned operator is
+  v0.70.1; its running `/app --printDefaults` confirms the three
+  `VM_CONFIG_RELOADER_*` resource settings used below. Six directly rendered
+  containers lacked memory limits; two operator-created reloaders also lacked them.
+  The baseline render reproduces all six direct omissions; the new render has none.
+- The labs follow-up sample showed Grafana 172Mi, dashboard/datasource sidecars
+  77/74Mi, operator 36Mi, kube-state-metrics 19Mi, node-exporter 10Mi, and reloaders
+  7/6Mi. Metrics/logs restart counts remain 3/1. Their previous logs identify the
+  correct 512Mi cgroup limit and a 60% cache budget; the cause of the transient
+  allocation peak is unresolved. Raising limits or claiming a cgroup-detection bug
+  is not justified by this evidence. Retain the store limits pending a separately
+  rehearsed startup experiment.
+- The local Docker API is unavailable (`.colima/docker.sock` is absent). No local
+  auth cluster was created, and no cloud auth bootstrap is implied by the resource
+  rehearsal. The current labs CPU request total is 2245m; the proposed change adds
+  115m, leaving 1640m of its 4000m allocatable CPU. Memory requests grow by 576Mi
+  to 3674Mi. These are projected reservations, not post-rollout measurements.
 
 - Live deployment (2026-09-16) disproved the earlier plugin syntax assumption:
   `GF_PLUGINS_PREINSTALL_SYNC` split `victoriametrics-logs-datasource 0.31.0`
@@ -317,6 +342,14 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 
 ## Decision Log
+
+- Decision: bound chart-created helpers through their chart resources and the
+  operator's global reloader defaults; retain EP-5's notifier blocks unchanged.
+  Rationale: direct Pod templates alone miss operator-created containers. Initial
+  requests/caps use the observed labs footprint with headroom; seven-day tuning
+  and live reconciliation remain separate acceptance. This extends EP-4 ownership
+  to the operator/exporter resources in the shared values file. ADR 23 records
+  the durable coverage and evidence rule. Date: 2026-09-16.
 
 - Decision: stop on the observed Grafana startup failure, retain the new PVC and
   credentials, and prepare an in-place repair rather than uninstalling or resetting
@@ -515,6 +548,20 @@ all workloads are bounded or clean-start reliability is proven. Auth bootstrap
 remains a separate unapproved sequence.
 
 
+The resource follow-up now has a concrete, locally validated implementation:
+Grafana 50m/256Mi request and 512Mi cap; each sidecar 10m/96Mi and 256Mi;
+operator 25m/64Mi and 256Mi; each exporter 10m/32Mi and 128Mi; reloaders retain
+10m/25Mi and gain a 128Mi cap. No new CPU limits are introduced. The new
+`bash scripts/test-observability-resources.sh` renders all five installer-pinned
+charts and checks every regular/init container plus the Victoria custom resources
+and reloader defaults. Labs admitted the affected objects in server dry run.
+The regression check rejects the original chart values for unbounded containers.
+Native Nix checks `shellcheck-scripts` and `observability-grafana` pass, as does
+`git diff --check`. The rendered Grafana plugin/Secret contract remains valid.
+The live bounds, startup reliability, auth proof, and private publication remain
+open; no cloud mutation was performed during this follow-up.
+
+
 ## Context and Orientation
 
 This repository (`nagare`) manages a single-node PaaS: a GCP VM named
@@ -636,6 +683,12 @@ Knative/cert-manager platform. This plan adds ~375m of new requests (see M1/M2),
 which still leaves room for an app (~250m) plus a database (~300m) to
 co-schedule — the constraint the original trimming was done for. Check the live
 picture any time with `kubectl describe node | grep -A8 "Allocated resources"`.
+
+
+Relevant durable context also includes
+[ADR 23](../adr/0023-observability-resource-bounds-cover-chart-and-operator-created-containers.md):
+resource coverage includes sidecars and operator-created pods, and rendering,
+live reconciliation, restart stability, and long-term sizing are separate evidence.
 
 
 ## Plan of Work
@@ -1129,6 +1182,45 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 ## Validation and Acceptance
 
+### Pending bounded resource rollout (2026-09-16)
+
+Preparation is complete. Run `bash scripts/test-observability-resources.sh` and
+`bash scripts/test-observability-grafana.sh --render` from the checkout. The first
+checks all five exact pinned charts; the second guards the previously broken
+plugin syntax. The affected objects passed labs server-side dry run. Under
+`CLAUDE.md`, obtain one operator go-ahead for the following sequence before mutation.
+
+Select `NAGARE_CONTEXT=labs`, source `scripts/lib/target.sh`, run
+`_require_target_project`, and set `KUBECONFIG` to
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/kubeconfigs/labs.yaml`. Require node,
+cache/database, and all existing observability pods Ready, with no new store
+restarts. Retain the current Helm revision and pod/resource inventory for comparison.
+Then run only:
+
+```bash
+helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version 0.81.0 \
+  --namespace monitoring -f cluster/observability/victoria-metrics/values.yaml \
+  --wait --timeout 10m
+```
+
+Require all affected Deployments and the node-exporter DaemonSet to finish
+rollout. Inspect every regular/init container in monitoring, logging, and tracing:
+each must have a positive CPU request, memory request, and memory limit. In
+particular both newly reconciled `config-reloader` containers must have 128Mi
+limits; a successful Helm exit alone does not establish this. Observe pod UIDs,
+Ready status and restart counts for ten minutes (sample every thirty seconds),
+requiring no restart after readiness. Recheck Grafana health and its metrics query
+through the private Service proxy, logs ingestion, cache health, and node requests
+with at least 550m CPU unreserved. Record observed reservations against the projected
+2360m CPU/3674Mi memory. If a rollout, query, or stability gate fails, stop and
+inspect logs; no automatic uninstall, PVC deletion, or speculative retry.
+
+This sequence changes only the metrics release resources, including its operator
+and reloaders. It does not rotate credentials, publish private commits, create auth
+services, alter storage caps, or change hosts. Metrics/logs startup reproduction
+and seven-day sizing remain open after it passes. A separate startup experiment
+must preserve PVC data and state its pass/fail gates before being approved.
+
 ### Recovery gates for the interrupted labs observability install (2026-09-16)
 
 Executed successfully on 2026-09-16 after explicit operator approval; retained here
@@ -1383,3 +1475,9 @@ current servant-health paths and two migration Jobs, and with ADR 4's
 context-owned encrypted-secret boundary. The historical EP-4 implementation
 evidence remains intact; current operator commands now consume the combined
 manifests and packaged secret resolver instead of obsolete checkout paths.
+
+Revision note (2026-09-16, resource follow-up): implemented the omitted chart
+resource bounds and operator reloader defaults, added an exact-chart regression
+check, recorded current samples and admission rehearsal, and prepared the bounded
+metrics-release rollout. The startup OOM cause remains unresolved; Docker is
+unavailable for local auth acceptance. ADR 23 captures the coverage/evidence rule.

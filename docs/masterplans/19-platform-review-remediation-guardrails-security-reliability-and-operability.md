@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-16T17:57:59Z
       mode: "implement"
       note: "Record EP-3 labs preflight and vault access dependency under the private-operator boundary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-16T19:41:12Z
+      mode: "implement"
+      note: "Record EP-4 resource correction rehearsal, operator ownership, ADR 23, and remaining live gates"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -175,7 +180,8 @@ is pure Haskell, EP-3 is Pulumi TypeScript plus sops configuration.
 
 `cluster/observability/victoria-metrics/values.yaml` — shared by EP-4 and EP-5.
 EP-4 owns the `grafana` block (admin `existingSecret`, plugin pinning, datasource
-deduplication) and defines the repository's sops-managed-Secret pattern for cluster
+deduplication), exporter/controller resource blocks, and global operator reloader
+resource defaults and defines the repository's sops-managed-Secret pattern for cluster
 credentials. EP-5 owns the `vmalert` and `alertmanager` blocks and consumes the
 sops pattern for the push-channel credential. Neither plan edits the other's block.
 
@@ -286,9 +292,14 @@ complete; the child plans hold the granular checklists.
   VMSingle passed a 306-second no-restart window, and all five releases completed.
   Datasource queries and live caps passed, with 1755m CPU unreserved. Auth bootstrap
   was not authorized by this approval.
-- [ ] EP-4 remaining resource reliability: bound chart-default monitoring
-  containers; investigate startup OOMs (three metrics, one logs) and record
-  longer-term sizing. Short-window recovery is not clean-start reliability.
+- [x] EP-4 resource correction preparation (2026-09-16): added limits for six
+  chart-created containers and operator defaults for two reloaders; all five pinned
+  chart checks and labs server admission dry runs pass. Proposed additional requests
+  are 115m CPU/576Mi memory; labs retains a projected 1640m unreserved CPU.
+- [ ] EP-4 remaining resource reliability: approve/apply the prepared metrics-release
+  rollout and verify all live containers, investigate startup OOMs (three metrics,
+  one logs), and record longer-term sizing. Short-window recovery is not clean-start
+  reliability. The child contains the bounded rollout and pass/fail gates.
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
@@ -361,6 +372,14 @@ implementation):
   project-free.
 
 Discoveries from implementation:
+
+- **EP-4 has a rehearsed resource correction** (2026-09-16). Six direct chart
+  containers and two operator-created reloaders lacked limits. Pinned-chart source
+  and the running operator confirm the supported settings; a new five-chart check
+  covers both forms. ADR 23 distinguishes render/admission evidence from live
+  resource reconciliation and startup stability. The current labs sample has no
+  new metrics/logs restarts; their initial OOM cause remains unresolved. Docker is
+  unavailable locally, so auth acceptance cannot run there yet.
 
 - **Labs recovery enrollment is now proven** (EP-3, 2026-09-16). The host document
   and both nix-cache documents decrypt independently with the new recovery identity;
@@ -475,6 +494,12 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: EP-4 owns the shared chart operator/exporter resource blocks and global
+  reloader defaults in addition to Grafana; EP-5 retains notification policy.
+  Rationale: the live acceptance gap includes operator-created sidecars. Setting
+  their global defaults avoids changing EP-5 notifier configuration. ADR 23 records
+  the coverage boundary and separate proof requirements. Date: 2026-09-16.
 
 - Decision: close EP-3 after publishing the verified recovery envelopes with the
   operator's explicit approval, including the disclosed pre-existing private commits.
@@ -620,7 +645,7 @@ EP-4's repository changes for resource bounds, probes, observability storage cap
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
 Its live auth resource/probe/migration-rerun acceptance remains open. The
 observability rollout/data paths/caps and current capacity are now verified;
-missing chart-default memory limits and startup OOMs remain follow-ups.
+the prepared chart-default memory bounds await rollout, and startup OOMs remain follow-ups.
 EP-8's local auth proof does not substitute for the outstanding evidence.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
@@ -670,3 +695,8 @@ Revision note (2026-09-16, publication): the operator approved both private push
 including the disclosed pre-existing commits. Verified exact remote heads and marked
 EP-3 Complete; five of eight children are now complete. No unrelated Pulumi edit was
 staged or published.
+
+Revision note (2026-09-16, resource follow-up): EP-4 now has tested chart/helper
+bounds and a rehearsed metrics-only rollout, pending operator go-ahead. Expanded
+shared-file resource ownership and recorded ADR 23. Live acceptance, OOM root
+cause, auth bootstrap, and longer-term sizing remain open.

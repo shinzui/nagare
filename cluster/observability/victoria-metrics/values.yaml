@@ -94,14 +94,52 @@ defaultRules:
 # Host-level metrics (CPU, memory, disk, network) for nagare-01.
 prometheus-node-exporter:
   enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
 
 # Kubernetes object state (deployments, pods, nodes) as metrics.
 kube-state-metrics:
   enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# Bound the controller and the sidecars it creates. These operator defaults
+# cover both VMAgent and VMAlert without changing EP-101's notifier settings.
+# The reloaders used 6–7Mi in the labs sample; retain their existing CPU floor.
+victoria-metrics-operator:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  env:
+    - name: VM_CONFIG_RELOADER_REQUEST_CPU
+      value: "10m"
+    - name: VM_CONFIG_RELOADER_REQUEST_MEMORY
+      value: "25Mi"
+    - name: VM_CONFIG_RELOADER_LIMIT_MEMORY
+      value: "128Mi"
 
 # --- Grafana (the dashboard UI). Values pass through to the upstream grafana chart. ---
 grafana:
   enabled: true
+  # Initial floors/caps from the labs sample (172Mi Grafana, 74–77Mi per
+  # sidecar). Keep burst headroom; recheck peaks after seven days of use.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
   # Admin credentials come from the sops-managed Secret `grafana-admin`, read
   # from the active context's operator-owned cluster-secret directory and
   # applied by install.sh BEFORE the chart so the Grafana Deployment can mount
@@ -126,6 +164,12 @@ grafana:
   # Load dashboard JSON committed under cluster/observability/grafana/dashboards/
   # via the sidecar (ConfigMaps labelled grafana_dashboard). EP-7 backs these up.
   sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 96Mi
+      limits:
+        memory: 256Mi
     dashboards:
       enabled: true
     datasources:
