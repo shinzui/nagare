@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-16T12:24:44Z
       mode: "implement"
       note: "Implemented the optional context-owned Attic provider, immutable release payload, guarded cloud and secret boundaries, cluster reconciliation, smoke assets, observability, and operator documentation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T16:35:00Z
+      mode: "implement"
+      note: "Rehearsed unreleased 0.4.0 on tan-ng-labs, fixed live boundary faults, and recorded signed substitution, wrong-key, restart, and GC evidence"
   reviews:
     - model: "gpt-5.6-sol"
       harness: "codex-cli"
@@ -111,9 +116,15 @@ identity.
   server-reported public key.
 - [x] (2026-09-16) Integrate enabled-cache reconciliation into clone-free bootstrap and upgrades, and
   document the Nagare/Kotei ownership boundary.
-- [ ] Pass live secret, migration, push, substitution, wrong-key, restart, GC, policy,
-  alert, backup, and rotation acceptance. Static image, payload, schema, package, shell,
-  context, and Pulumi tests pass; this environment has no reachable target cluster.
+- [x] (2026-09-16) Rehearse the unreleased 0.4.0 provider on the `labs` context in
+  `tan-ng-labs`: apply the retained cache infrastructure review, initialize the private
+  sops material, publish the immutable image, create and migrate PostgreSQL, configure
+  Attic, push the pinned smoke path, prove signed substitution with builds and fallback
+  disabled, reject a wrong key, repeat substitution after restart, and complete one-shot GC.
+- [ ] Complete destructive trust-rotation acceptance and the explicit unrelated-HTTP
+  NetworkPolicy probe before calling every optional acceptance scenario complete. Live
+  status already proves the public key, 30-day retention, API/database readiness, daily
+  backup schedule, GC schedule, and consumer ConfigMap; static alert checks pass.
 
 
 ## Surprises & Discoveries
@@ -213,6 +224,32 @@ identity.
 - Discovery: this flake currently exposes no `formatter.<system>`, so the plan's inherited
   `nix fmt` command cannot run. The native `haskell-style` flake check is the repository's
   enforced Fourmolu/style gate; Nix expression formatting was reviewed in the focused diff.
+
+- Discovery: release rehearsal originally exercised the assembled provider for the first
+  time. macOS LibreSSL, sops policy discovery, OCI trust policy and digest preservation,
+  persisted-context precedence, private registry pulls, and Kubernetes namespace policy
+  all crossed package or runtime boundaries that the repository's component tests did not.
+  These failures explain why release validation was slow despite green unit tests.
+
+- Discovery: the first live manifests gave PostgreSQL and Attic the same Kubernetes
+  Service name, `nix-cache`. Applying the API Service replaced the database Service and
+  made Attic connect to itself on port 80. The managed database is now independently named
+  `nix-cache-db` across Service, StatefulSet, Secret, backup, and NetworkPolicy identity.
+
+- Discovery: port 8080 on the operator workstation was already occupied by Redpanda
+  Console. The original readiness probe accepted that unrelated HTTP 200 and sent Attic
+  API calls to the wrong process. The control port is now 18080; bootstrap and status both
+  require the port-forward process to remain alive, and bootstrap verifies Attic's own page.
+
+- Discovery: kube-router evaluates client egress against the Service ClusterIP before
+  destination NAT, so a namespace-and-Pod peer did not authorize the ClusterIP even when
+  both Service and container ports were listed. Consumers now use a headless Service on
+  port 8080, preserving selector-scoped HTTP egress without opening arbitrary port 80.
+
+- Discovery: an acceptance test that treats any Nix failure as a wrong-key success is
+  dangerously weak. The first negative Pod passed only because flakes were disabled.
+  The final smoke realizes the producer's exact immutable store path, keeps local builds
+  and fallback disabled, and requires signature-related failure text for the wrong key.
 
 
 ## Decision Log
@@ -330,6 +367,26 @@ identity.
   especially upgrades, teardown, and key rotation.
   Date: 2026-09-16
 
+- Decision: Give the managed database the identity `nix-cache-db` and reserve `nix-cache`
+  for the Attic API Deployment and control Service.
+  Rationale: Kubernetes resources share one namespace-wide name per kind. Separate names
+  prevent the API Service from overwriting PostgreSQL discovery and make status, backup,
+  and policy evidence unambiguous.
+  Date: 2026-09-16
+
+- Decision: Publish consumer traffic through headless Service `nix-cache-internal:8080`
+  while retaining ClusterIP Service `nix-cache:80` for operator port-forwarding.
+  Rationale: direct Pod DNS lets kube-router enforce namespace-and-Pod NetworkPolicy peers
+  without depending on pre/post-DNAT implementation details. The control Service remains
+  a stable port-forward target.
+  Date: 2026-09-16
+
+- Decision: Make the signed smoke consumer realize the exact producer store path rather
+  than reevaluate its derivation in a different Nix client image.
+  Rationale: the contract is transport and signature verification. Re-evaluation adds
+  Nix-version-dependent derivation identity and can pass or fail before contacting Attic.
+  Date: 2026-09-16
+
 
 ## Outcomes & Retrospective
 
@@ -352,10 +409,29 @@ shellcheck, cache-assets, and Haskell style), the cross-system smoke derivation 
 user-documentation enforcement, and `git diff --check`. The image archive's observed digest
 matched the reviewed Linux/amd64 digest.
 
-Live cloud acceptance remains intentionally open: there was no reachable target Kubernetes
-cluster or authorized retained Pulumi apply in this implementation environment. Do not call the
-feature production-accepted until the final Progress item records the signed push/substitution,
-wrong-key, restart, GC, policy, alert, backup, and separate key-rotation observations.
+Live cloud acceptance ran on 2026-09-16 against the `labs` context in project
+`tan-ng-labs`, using the unreleased 0.4.0 payload and the private operator material owned
+by `mori://shinzui/nagare-ops`. The retained Pulumi review created the protected cache
+bucket, scoped IAM member, and HMAC key without replacing existing resources. The cluster
+then accepted config validation and migration, reported database/API readiness 1/1,
+published a context-specific key with 30-day retention, and exposed daily database backup
+and GC schedules.
+
+The producer build took one second and its first push took six seconds. A fresh Pod with
+`max-jobs=0` and fallback disabled substituted the exact signed path in four seconds. A
+wrong-key Pod rejected the same path with Attic's signature error. Restarting the API and
+running another fresh Pod preserved metadata, signing identity, and retrieval, again in
+four seconds. A manual Job from `nix-cache-gc` completed successfully. This is the core
+provider acceptance proof; destructive JWT/NAR rotation and the explicit unrelated-HTTP
+policy probe remain intentionally open in Progress.
+
+The rehearsal also demonstrated why prior releases took hours: every cache-only iteration
+rematerialized the full operator payload and reinstalled locked Pulumi dependencies, while
+failed cluster bootstrap transactions could not resume at a component boundary. A focused
+follow-up should add a reusable labs release-verification command, reuse one resolved
+`--payload-root`, run production-shaped acceptance continuously before a version bump, and
+make cluster components individually resumable. Release day should consume existing green
+evidence instead of becoming the first assembled-system test.
 
 The main cross-repository follow-up is to reconcile
 `mori://shinzui/kotei/masterplans/10-first-class-shared-nix-cache-infrastructure` with
@@ -829,3 +905,10 @@ guarded sops secret creation and Artifact Registry publication, ordered Attic da
 reconciliation, live trust ConfigMap generation, policies, deterministic positive/negative smoke
 assets, the critical disk alert, hermetic checks, and the operator runbook. Static acceptance
 passes; retained cloud apply and live cluster behavior remain explicitly outstanding.
+
+2026-09-16: Rehearsed the unreleased 0.4.0 provider on `tan-ng-labs`, corrected operator
+portability and payload-boundary faults, private-image bootstrap ordering, Attic/database
+resource identity, verified port-forwarding, kube-router Service handling, and smoke-test
+false positives. Recorded successful push, signed substitution, wrong-key rejection,
+restart persistence, GC, readiness, retention, and backup-schedule evidence; left destructive
+key rotation and the unrelated-HTTP policy probe open.
