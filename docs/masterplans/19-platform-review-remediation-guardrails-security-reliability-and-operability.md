@@ -272,6 +272,13 @@ complete; the child plans hold the granular checklists.
   mutation performed. Labs has no auth/observability installation or auth images;
   its 4-CPU node currently reserves 2 CPUs. Fresh bootstrap and bounded deployment
   approval are required, not merely an existing-workload update.
+- [~] EP-4 first observability rollout (2026-09-16): operator approved the bounded
+  sequence; recovery-encrypted Grafana credentials created/applied and committed
+  privately (publication pending). Stopped at the metrics release when Grafana's
+  plugin syntax caused startup failure; revision 1 is failed, resources retained.
+  Local syntax fix and regression/render tests pass. VMSingle also recorded three
+  OOM restarts. Recovery approval, stable metrics, and the remaining four releases
+  plus acceptance remain open; auth bootstrap was not authorized by this approval.
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
@@ -603,11 +610,14 @@ EP-4's repository changes for resource bounds, probes, observability storage cap
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
 Its live resource, probe, migration-rerun, observability, and capacity acceptance
 remains open. EP-8's local auth proof does not substitute for that broader evidence.
-The 2026-09-16 labs preflight confirmed that this is a first installation: auth
-images/databases and context-owned Grafana ciphertext are absent. Pinned chart
-renders and auth server-side dry runs passed; no live mutation was performed.
-The next bounded sequence is observability credential preparation and installation,
-followed by the auth bootstrap prerequisites and validation. The nagared manifest
+The 2026-09-16 labs preflight confirmed that this is a first installation. After
+the operator's observability-only approval, Grafana ciphertext was created/applied,
+but a plugin pin syntax error prevented Grafana startup. The installer was stopped
+at failed `vmks` revision 1; the other four releases are absent. VMSingle's three
+OOM restarts also need stability verification. The local syntax correction and
+regression tests pass. EP-4 now contains explicit recovery pass/fail gates awaiting
+approval; private ciphertext publication remains pending. Auth images/databases
+remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful

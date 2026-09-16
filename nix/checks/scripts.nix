@@ -38,6 +38,17 @@
       touch "$out"
     '';
 
+  observability-grafana = pkgs.runCommand "nagare-observability-grafana-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.yq-go ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-observability-grafana.sh
+      touch "$out"
+    '';
+
   # EP-113: the auth-plane image builders take their project only from the
   # active context, with no `gcloud config get-value project` fallback.
   image-build-guard = pkgs.runCommand "nagare-image-build-guard-test"

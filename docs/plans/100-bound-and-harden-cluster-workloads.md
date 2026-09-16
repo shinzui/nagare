@@ -115,9 +115,23 @@ opt-in.
   guard, inventoried workloads and registry images, rendered all five pinned
   observability charts, and server-dry-ran En, Shomei, nagare-access, and both
   migration Jobs successfully. No live resources were created or changed.
-- [ ] Cloud rollout: obtain the repository-required bounded mutation approval after
-  rehearsal; create context-owned Grafana ciphertext, install observability, build
-  auth images and provision fresh auth databases/credentials, then apply M1/M2/M3
+- [x] Observability rollout approval and credential preparation (2026-09-16): operator
+  approved the five-release observability sequence only. Created private labs
+  Grafana ciphertext with workstation/recovery recipients; isolated workstation
+  round-trip and empty-identity rejection passed. Committed in the private operator
+  repository as `85826b1` (not yet pushed). No recovery-private-key readback claimed.
+- [x] First live attempt and safe stop (2026-09-16 18:54–18:56 UTC): applied the
+  monitoring namespace and Grafana Secret, then installed `vmks` revision 1.
+  Grafana failed startup on the plugin syntax. Cancelled Helm and confirmed the
+  installer exited; release status is `failed`. No later releases were installed.
+- [x] Local repair/rehearsal (2026-09-16): corrected the plugin pin to `id@version`,
+  added a hermetic regression test and exact-chart render check; both pass.
+  Native Nix checks `observability-grafana` and `shellcheck-scripts` also pass.
+- [ ] Execute the recovery gates below after operator approval: repair Grafana,
+  establish metrics-store stability, then resume the remaining observability
+  releases and verify credentials, datasources, ingestion, and storage caps.
+- [ ] Cloud rollout: separately approve/build auth images and provision fresh auth
+  databases/credentials, then apply the remaining M1/M3 workloads
   and record observed steady-state usage. Do not treat the nagared scaffold as a
   turnkey deployment or reset any existing database.
 - [ ] Write Outcomes & Retrospective
@@ -126,6 +140,23 @@ opt-in.
 ## Surprises & Discoveries
 
 Initial findings date from authoring (2026-07-15); later observations are dated below.
+
+- Live deployment (2026-09-16) disproved the earlier plugin syntax assumption:
+  `GF_PLUGINS_PREINSTALL_SYNC` split `victoriametrics-logs-datasource 0.31.0`
+  into two plugin IDs. Grafana exited with `failed to install plugin 0.31.0@:
+  404: Plugin not found`. The supported pin is `id@version`, documented by
+  [Grafana's Docker installation guide](https://grafana.com/docs/grafana/latest/setup-grafana/installation/docker/#install-plugins).
+  A successful Helm render alone did not prove runtime parsing. The new
+  `scripts/test-observability-grafana.sh` checks the exact pin and rejects the old
+  shape; `--render` also asserts the ConfigMap/environment linkage.
+- During this attempt, VMSingle restarted three times with `OOMKilled`/exit 137
+  under its 512Mi cap. It subsequently became Ready, but startup stability and
+  sustained resource usage are not proven. No memory limit was changed. The
+  recovery must stop if new OOMs occur; a Ready snapshot is not sufficient.
+- After cancelling the attempt, metrics components other than Grafana were Ready;
+  the 20Gi VMSingle PVC was Bound, all monitoring Services were ClusterIP, the node
+  remained Ready, and the existing cache/server database remained Ready without
+  restarts. No host/auth/database reset/public-endpoint mutation was performed.
 
 - The 2026-09-16 `labs` inventory is a fresh bootstrap for this plan, not an auth
   upgrade. The node is Ready on k3s v1.35.8+k3s1 with 4 allocatable CPUs and
@@ -205,8 +236,9 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
   `victoriametrics-logs-datasource` 0.31.0 (released 2026-08-06), so M2 pins 0.31.0.
   The pinned k8s-stack chart 0.81.0 embeds Grafana chart 12.3.x and renders that pin
   through `GF_PLUGINS_PREINSTALL_SYNC`, not the older `GF_INSTALL_PLUGINS` variable
-  named by the plan. The rendered ConfigMap value is exactly
-  `victoriametrics-logs-datasource 0.31.0`.
+  named by the plan. The original rendered value was
+  `victoriametrics-logs-datasource 0.31.0`; the 2026-09-16 live failure proved this
+  was invalid despite rendering. It is now `victoriametrics-logs-datasource@0.31.0`.
 
 - Implementation (2026-08-24): `mori://shinzui/en/packages/en-migrations` changed
   from the two timestamped SQL files assumed during planning to an append-only,
@@ -237,6 +269,14 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 ## Decision Log
 
+- Decision: stop on the observed Grafana startup failure, retain the new PVC and
+  credentials, and prepare an in-place repair rather than uninstalling or resetting
+  anything. Apply the local syntax repair only after the recovery approval gate.
+  Rationale: `CLAUDE.md` requires stopping after a refusal/failure and a recovery
+  ExecPlan with pass/fail gates. The failure is observable, and no speculative
+  host recovery or credential rotation is warranted. The VMSingle OOM observation
+  adds a separate stability gate before installing more workloads.
+  Date: 2026-09-16.
 - Decision: stage the fresh labs rollout, beginning with observability; obtain a
   bounded operator approval after the rehearsal as required by `CLAUDE.md`.
   Rationale: existing cluster workloads are healthy, but auth image builds,
@@ -408,9 +448,14 @@ active context, and a missing file is a pre-mutation refusal. This changes the s
 location, not the `monitoring/grafana-admin` Kubernetes contract.
 
 On 2026-09-16, the labs preflight and rendering/admission rehearsal passed without
-live mutation. The remaining work is a first installation, with no auth images or
-Grafana ciphertext yet present. Baseline capacity is recorded above; bounded cloud
-approval and the live acceptance steps remain outstanding.
+live mutation. The operator subsequently approved the first observability install.
+Grafana ciphertext was created and applied, but the metrics release could not
+finish because Grafana's plugin pin used the wrong runtime syntax. Helm was
+cancelled, leaving revision 1 failed and its resources retained. The local repair
+and regression tests pass; live repair, metrics stability after three OOM restarts,
+the other four releases, and their acceptance checks remain outstanding. The
+private credential commit is local-only until published. Auth bootstrap remains a
+separate unapproved sequence.
 
 
 ## Context and Orientation
@@ -746,12 +791,12 @@ introductory comment) and replace it with a pointer comment:
 
 Pin the plugin. The Grafana plugin API reported 0.29.0 during planning and
 0.31.0 at implementation time; use the verified current release. The pinned
-stack chart carries the space-separated pin through
+stack chart carries the `id@version` pin through
 `GF_PLUGINS_PREINSTALL_SYNC`:
 
 ```yaml
   plugins:
-    - victoriametrics-logs-datasource 0.31.0
+    - victoriametrics-logs-datasource@0.31.0
 ```
 
 Keep the `sidecar:` block unchanged (both sidecars stay enabled; the datasource
@@ -977,7 +1022,10 @@ logs-single transcript should contain:
 
 Expected in the last: `GF_SECURITY_ADMIN_USER`/`GF_SECURITY_ADMIN_PASSWORD`
 sourced via `secretKeyRef` from `grafana-admin`, and
-`GF_PLUGINS_PREINSTALL_SYNC: victoriametrics-logs-datasource 0.31.0`. Also shellcheck
+`GF_PLUGINS_PREINSTALL_SYNC` referencing ConfigMap key `plugins` with value
+`victoriametrics-logs-datasource@0.31.0`. Run
+`bash scripts/test-observability-grafana.sh --render` to assert the full linkage.
+Also shellcheck
 the installer: `shellcheck cluster/observability/install.sh`.
 
 Step 4 — commit M2 (`feat(observability): ...` with the same trailers). The
@@ -1023,6 +1071,44 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 
 ## Validation and Acceptance
+
+### Recovery gates for the interrupted labs observability install (2026-09-16)
+
+This recovery is limited to the already-approved observability scope; it does not
+authorize auth installation, host changes, public ingress, credential regeneration,
+PVC deletion, or database resets. Obtain the operator's go-ahead before resuming.
+
+1. Recheck `labs` confinement with `scripts/lib/target.sh` and
+   `_require_target_project`; explicitly set
+   `KUBECONFIG` to the labs context's kubeconfig. Require node Ready, existing cache
+   pods Ready, the encrypted Grafana source present/decryptable without printing
+   it, the same `monitoring/grafana-admin` Secret, and the VMSingle PVC Bound.
+   Any mismatch stops the sequence for inspection; do not regenerate credentials.
+2. Run `bash scripts/test-observability-grafana.sh --render`. Require the pinned
+   chart to render `victoriametrics-logs-datasource@0.31.0` and the same Secret
+   references. Then run only the metrics-stage Helm command:
+
+   ```bash
+   helm upgrade --install vmks vm/victoria-metrics-k8s-stack --version 0.81.0 \
+     --namespace monitoring -f cluster/observability/victoria-metrics/values.yaml \
+     --wait --timeout 10m
+   ```
+
+3. Require all monitoring pods Ready, Grafana `/api/health` success, login with the
+   encrypted credential, and rejection of `admin`/`change-me-nagare`. Confirm
+   installed plugin version 0.31.0. Record VMSingle restart counts and memory usage
+   over at least five minutes, with no new OOM/restart. Any failure stops rollout;
+   investigate and rehearse a bounded resource adjustment rather than removing
+   the memory cap or advancing to more workloads.
+4. After those gates pass, rerun `cluster/observability/install.sh` under the same
+   explicit context/kubeconfig. It reuses credentials/PVCs and converges the metrics
+   release before installing the remaining four releases. Stop on any error.
+5. Perform the cloud acceptance below, including data ingestion, single datasources,
+   storage flags and node headroom. Keep Alertmanager disabled and the notifier
+   unchanged. Record actual results, not just Helm status. Publish the new private
+   ciphertext backup as a separately identified pending operation if not yet done.
+
+### Original milestone acceptance
 
 Local path (no GCP; requires Docker):
 
@@ -1157,8 +1243,8 @@ pinned versions with `helm show values` / `helm template`, most recently on
   `grafana.admin.userKey`, `grafana.admin.passwordKey` (pass through to the
   upstream grafana chart and become `GF_SECURITY_ADMIN_*` env via
   `secretKeyRef`); `grafana.plugins` entries land in
-  `GF_PLUGINS_PREINSTALL_SYNC`, which accepts the space-separated
-  `<id> <version>` pin syntax; sidecar
+  `GF_PLUGINS_PREINSTALL_SYNC`, which accepts the
+  `<id>@<version>` pin syntax (corrected after the 2026-09-16 live failure); sidecar
   defaults `sidecar.datasources.label: grafana_datasource`, labelValue `"1"`.
 - `vm/victoria-logs-single` 0.13.5 and `vm/victoria-traces-single` 0.1.6 —
   `server.retentionDiskSpaceUsage` (default unit GiB, renders as

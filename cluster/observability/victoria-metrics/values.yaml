@@ -119,9 +119,10 @@ grafana:
   # install.sh as ConfigMaps labelled grafana_datasource=1 for the sidecar
   # below (same mechanism the chart itself uses).
   # Install the VictoriaLogs datasource plugin at a verified immutable version.
-  # Grafana needs internet access at boot to fetch it.
+  # This chart uses GF_PLUGINS_PREINSTALL_SYNC: pins use id@version, not the
+  # legacy CLI's space-separated syntax. Grafana fetches it at boot.
   plugins:
-    - victoriametrics-logs-datasource 0.31.0
+    - victoriametrics-logs-datasource@0.31.0
   # Load dashboard JSON committed under cluster/observability/grafana/dashboards/
   # via the sidecar (ConfigMaps labelled grafana_dashboard). EP-7 backs these up.
   sidecar:
