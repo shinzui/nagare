@@ -6,6 +6,7 @@ authors: [shinzui]
 related:
   - docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md
   - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
+  - docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
 ---
@@ -104,3 +105,19 @@ a recognized generated host flake exists, its generated release metadata and Nag
 with the context while `host.nix` and `secrets.yaml` remain unchanged; unrecognized files refuse.
 The command has no force mode and becomes permanently unavailable once deployment exists. Deployed
 contexts continue to use adoption or the upgrade transaction according to their identity state.
+
+## Amendment — 2026-09-15: require durable evidence before skipping Pulumi apply
+
+[ExecPlan 143](../plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md) makes a successful
+Pulumi phase skippable only when a separate private receipt verifies against the transaction and its
+retained reviewed plan. The transaction journal remains the ordered record, but its free-text phase
+result is not sufficient proof of which provider operation completed. Resume can repair a missing
+successful journal update from a verified success receipt and then continue without a Pulumi
+executable, credentials, stack probe, or provider access.
+
+Nagare writes `started` before invoking Pulumi and replaces it with `succeeded` or `failed` after the
+process returns. An interrupted `started` receipt is deliberately ambiguous: automatic resume stops
+instead of guessing whether cloud state changed. A successful legacy journal without a receipt also
+stops. In either case, the operator must inspect the selected stack and record `applied` or `retry`
+through the guarded `platform upgrade recover-pulumi` command. Context commit remains the final
+write, and a completed transaction remains a no-op.

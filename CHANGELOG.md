@@ -5,6 +5,10 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Provider-free Pulumi upgrade resume.** A private receipt now binds successful Pulumi apply to
+  the exact upgrade transaction and retained reviewed plan. Later-phase resumes skip Pulumi without
+  probing its executable or provider, while ambiguous crashes and successful legacy journals
+  require the explicit audited `platform upgrade recover-pulumi` workflow.
 - **Guarded legacy certificate migration.** Platform upgrades from a TLS-enabled 0.2.2 cluster now
   retain a private, context-bound Kubernetes review of the legacy `{}` wildcard selector and its
   exact certificate chains. Apply narrows the selector before the policy gate, preserves opted-in

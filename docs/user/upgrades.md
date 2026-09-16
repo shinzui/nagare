@@ -124,9 +124,14 @@ The Pulumi preview phase runs the project and protected-resource guards and stor
 context-bound plan bundle inside the transaction directory. Pulumi apply reruns the guards, verifies
 the exact retained bundle against the current context, project, stack, backend, payload, program,
 config, and Pulumi version, and passes it to `pulumi up --plan --yes --non-interactive` without a
-second preview. A plan that would replace the GCE instance, the Cloud DNS zone, or a bucket fails
-the phase; set `NAGARE_ALLOW_VM_REPLACEMENT=1` for both planning and apply only after reviewing a
-deliberate rebuild. Do not run `platform upgrade`
+second preview. Immediately before that command, Nagare writes a private
+`pulumi-apply-receipt.json` beside the transaction's retained plan directory. A successful receipt
+binds the transaction, context, target release, payload, project, stack, backend, Pulumi version,
+and plan/review digests. If a later phase fails, resume verifies those local bindings and skips the
+already successful Pulumi phase without invoking Pulumi or contacting its provider. A plan that
+would replace the GCE instance, the Cloud DNS zone, or a bucket fails the phase; set
+`NAGARE_ALLOW_VM_REPLACEMENT=1` for both planning and apply only after reviewing a deliberate
+rebuild. Do not run `platform upgrade`
 with Nagare 0.2.0 on a real cloud context: its Pulumi phases ran without the
 context's stack config and applied without a guarded preview.
 
@@ -167,11 +172,36 @@ nix shell "${TARGET_NAGARE}#nagare" -c nagarectl \
   platform upgrade --apply --resume "$transaction_id" --yes
 ```
 
-Resume rechecks successful phases and reruns convergent operations whose
-postcondition cannot be proven. The Pulumi plan is never recomputed during resume: changed inputs
-make it stale and require a newly planned transaction. A cloud update remains constrained by the
-reviewed plan, not atomic; after partial failure, inspect the stack before retrying the unchanged
-transaction. Reapplying a completed transaction is a no-op.
+Resume rechecks successful phases and reruns convergent operations whose postcondition cannot be
+proven. A verified successful Pulumi receipt is the proof for `pulumi-apply`; a recorded Pulumi
+failure may retry the unchanged retained plan on normal resume. The plan is never recomputed during
+resume, and changed inputs make it stale and require a newly planned transaction. Reapplying a
+completed transaction is a no-op.
+
+A cloud update remains constrained by the reviewed plan, not atomic. If the process stops after
+recording `started` but before recording Pulumi's result, the provider may already have changed.
+Nagare therefore refuses normal resume before any Pulumi or later-phase command. It also refuses an
+older successful transaction that predates receipts. Inspect the selected stack and choose exactly
+one audited recovery outcome:
+
+```bash
+# Pulumi completed the reviewed update; continue with later phases without rerunning it.
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade \
+  recover-pulumi "$transaction_id" --outcome applied --yes
+
+# Pulumi did not complete, or retrying the same reviewed plan is the intended recovery.
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade \
+  recover-pulumi "$transaction_id" --outcome retry --yes
+
+nix shell "${TARGET_NAGARE}#nagare" -c nagarectl platform upgrade \
+  --apply --resume "$transaction_id" --yes
+```
+
+The recovery command reruns the current platform, credentials, project, stack, and retained-plan
+guards and prints the reviewed and observed bindings. `applied` records operator-attested success;
+`retry` authorizes the next normal resume to invoke the exact retained plan once. Nagare never
+infers either outcome from an empty preview. Do not delete or edit a receipt to recover.
+
 Each context has separate history and immutable workspaces under its XDG state
 directory.
 

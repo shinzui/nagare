@@ -87,6 +87,9 @@ that context's generated host name. It is operator state, not part of the immuta
 
 Reviewed infrastructure plans are operator-confidential directories chosen with
 `infra preview --save-plan`; each contains `pulumi-plan.json`, `review.json`, and `metadata.json`.
+An upgrade keeps the same bundle under its private transaction directory and records Pulumi apply
+state in mode-`0600` `pulumi-apply-receipt.json`. This receipt is transaction-bound evidence; it is
+not a file to edit or remove during recovery.
 Per-context builder routing lives at
 `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/nix-builder/{ssh_config,builders}`. Both use a
 private mode-`0700` directory and mode-`0600` files.
@@ -98,6 +101,7 @@ private mode-`0700` directory and mode-`0600` files.
 | `nagarectl platform upgrade --to VERSION --dry-run [--json]` | Persist Nix, Pulumi, and Kubernetes preflight results without mutating the target. |
 | `nagarectl platform upgrade --apply --resume ID --yes` | Apply or resume a reviewed transaction; advance the context pin last. |
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
+| `nagarectl platform upgrade recover-pulumi ID --outcome applied\|retry --yes` | Record an audited decision for an ambiguous or pre-receipt Pulumi outcome. |
 | `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
 
 When invoking these platform commands from an immutable release without installing it, use

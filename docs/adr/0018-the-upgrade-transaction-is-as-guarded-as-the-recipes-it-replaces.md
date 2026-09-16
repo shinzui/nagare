@@ -7,6 +7,7 @@ related:
   - docs/plans/121-give-operator-pulumi-stack-config-a-context-owned-home-so-guarded-platform-upgrades-are-safe-ship-0-2-1-and-upgrade-tan-nb-exp.md
   - docs/plans/136-apply-reviewed-infrastructure-and-confine-remote-builders.md
   - docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md
+  - docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
   - docs/adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md
   - docs/adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md
   - docs/adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md
@@ -93,3 +94,22 @@ ambiguous evidence before mutation. It applies the reviewed selector before the 
 then confines cleanup to unchanged reviewed identities. A failed phase retains the old context pin
 and the same evidence for a convergent resume. A future Kubernetes mutation added to an upgrade must
 either fit this retained-review boundary or document and guard its own equivalent boundary.
+
+## Amendment — 2026-09-15: bind Pulumi completion evidence to the retained review
+
+[ExecPlan 143](../plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md) adds a private
+Pulumi apply receipt beside the upgrade's retained plan. Its schema binds transaction, context,
+target release, payload, project, stack, backend, Pulumi version, and plan/review digests. Receipt
+writes use a private same-directory temporary file and atomic rename. Resume verifies the immutable
+local bundle and receipt without consulting Pulumi; only an exact automatic or operator-attested
+success skips the provider phase. A known automatic failure may retry the unchanged reviewed plan.
+
+The unavoidable crash window around an external provider is explicit. `started` is durable before
+`pulumi up`, so loss of the process before its result is recorded refuses automatic recovery. The
+separate `platform upgrade recover-pulumi TRANSACTION --outcome applied|retry --yes` command reruns
+the platform, credential, project, bundle, and current stack-identity guards and displays the
+reviewed and observed bindings before recording an operator decision. `applied` permits later phases
+without another provider call; `retry` permits exactly the next normal resume to consume the same
+reviewed plan. Later host and Kubernetes phases also suppress the shared target shell's eager local
+stack selection, keeping a proven-success resume provider-independent without weakening commands
+that actually execute Pulumi.

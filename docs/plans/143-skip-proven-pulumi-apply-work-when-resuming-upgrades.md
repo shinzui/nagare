@@ -54,8 +54,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-16T04:00:30Z) Milestone 2: wired automatic success/failure receipts,
   provider-free later-phase resume, legacy and ambiguous refusal, and both audited
   `recover-pulumi` outcomes through the installed CLI. The clone-free platform regression passes.
-- [ ] Milestone 3: add exhaustive failure/resume regressions, document the recovery contract, amend
-  the upgrade ADRs, and pass focused plus full validation.
+- [x] (2026-09-16T04:11:49Z) Milestone 3: added exact-count later-phase resume and foreign-receipt
+  regressions, documented the recovery contract, amended ADRs 6 and 18, and passed the installed
+  process-count check plus the complete native flake gate (568 Haskell tests and 25 flake checks).
 - [x] (2026-09-16T03:36:10Z) Refreshed the plan against the current transaction runner, saved-plan
   bundle loader, CLI parser, test fixture, ADR corpus, and installed clone-free regression before
   implementation.
@@ -166,7 +167,26 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The implementation meets the original provider-independence goal. Pulumi apply now leaves a
+private, atomically replaced receipt bound to the transaction and retained reviewed-plan evidence.
+A verified automatic or operator-attested success repairs or skips the journal without loading a
+Pulumi executable, selecting a stack, reading credentials, or contacting the provider. Failures in
+host apply, Kubernetes apply, cluster stamp, and context commit each preserve exactly one total
+Pulumi invocation across resume. Completed transactions remain no-ops, and transaction JSON stays
+at schema version 1.
+
+The external-operation crash window remains intentionally visible rather than falsely solved. A
+durable `started` receipt or a successful pre-receipt journal refuses normal resume until the
+operator runs the guarded `recover-pulumi` command with `applied` or `retry`; conflicting recovery,
+tampered or foreign bindings, and unsafe permissions refuse. ADRs 6 and 18 now own that durable
+contract, while the upgrade guide and command reference describe the operational procedure.
+
+Validation completed with all 47 focused platform tests, the packaged clone-free process-count
+regression, documentation profile validation, shell syntax checks, Haskell formatting/style checks,
+and `nix flake check --print-build-logs`. The native flake run passed all 568 Haskell tests and 25
+checks; it reported `x86_64-linux` as an incompatible non-native system, as expected. No live-cloud
+upgrade was performed because the hermetic installed regression supplies the required call-count
+and crash-boundary evidence without mutating provider state.
 
 
 ## Context and Orientation
