@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-16T04:27:19Z
       mode: "update"
       note: "Refresh Attic scope for immutable payloads, guarded operations, and Nagare/Kotei ownership"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T12:24:44Z
+      mode: "implement"
+      note: "Implemented the optional context-owned Attic provider, immutable release payload, guarded cloud and secret boundaries, cluster reconciliation, smoke assets, observability, and operator documentation"
   reviews:
     - model: "gpt-5.6-sol"
       harness: "codex-cli"
@@ -94,20 +99,21 @@ identity.
 - [x] (2026-09-15) Refresh the plan against Nagare's immutable payload, context model,
   guarded Pulumi workflow, private operator state, current observability, and completed
   one-shot Job contract.
-- [ ] Add the context opt-in and package the pinned Attic client plus server image into
+- [x] (2026-09-16) Add the context opt-in and package the pinned Attic client plus server image into
   Nagare's release outputs and immutable platform payload.
-- [ ] Provision the optional protected GCS bucket, scoped IAM, and HMAC credential
+- [x] (2026-09-16) Implement the optional protected GCS bucket, scoped IAM, and HMAC credential
   through a separately owned Pulumi component and retained reviewed plan.
-- [ ] Add the operator-owned sops workflow for the Attic JWT key and Pulumi-produced HMAC
+- [x] (2026-09-16) Add the operator-owned sops workflow for the Attic JWT key and Pulumi-produced HMAC
   credential without putting either value in the public payload or process arguments.
-- [ ] Add managed PostgreSQL plus Attic migration, API, garbage-collection, Service,
+- [x] (2026-09-16) Add managed PostgreSQL plus Attic migration, API, garbage-collection, Service,
   ConfigMap, and NetworkPolicy resources.
-- [ ] Initialize the public-read cache and generate the consumer ConfigMap from the live
+- [x] (2026-09-16) Initialize the public-read cache and generate the consumer ConfigMap from the live
   server-reported public key.
-- [ ] Integrate enabled-cache reconciliation into clone-free bootstrap and upgrades, and
+- [x] (2026-09-16) Integrate enabled-cache reconciliation into clone-free bootstrap and upgrades, and
   document the Nagare/Kotei ownership boundary.
-- [ ] Pass image, secret, migration, push, substitution, wrong-key, restart, GC, policy,
-  alert, backup, and rotation acceptance.
+- [ ] Pass live secret, migration, push, substitution, wrong-key, restart, GC, policy,
+  alert, backup, and rotation acceptance. Static image, payload, schema, package, shell,
+  context, and Pulumi tests pass; this environment has no reachable target cluster.
 
 
 ## Surprises & Discoveries
@@ -172,6 +178,41 @@ identity.
   `mori://shinzui/kotei/masterplans/10-first-class-shared-nix-cache-infrastructure` is a
   separate stale cache initiative. The provider/consumer boundary must be explicit to
   prevent two repositories from deploying competing caches.
+
+- Discovery: the newest Attic `main` commit did not have a corresponding official image.
+  The most recent commit-named GHCR image that matched reviewed source was
+  `12cbeca141f46e1ade76728bce8adc447f2166c6`; its multi-architecture manifest is
+  `sha256:18574aba70fc89d2b695273fbe2e7b2f8ad7e8e786b4cc535124fbe14bada1d0` and its
+  Linux/amd64 manifest is
+  `sha256:317924e10e70416e69d401880bb71b3aae69b413ecafcfc54018f61929464526`.
+  Evidence: authoritative upstream refs, GHCR manifests, and a checkout of that exact
+  commit were inspected before implementing its CLI and TOML interfaces.
+
+- Discovery: the installed Pulumi GCP provider marks `HmacKey.secret` as secret, but the
+  unit-test mock does not reproduce provider schema annotations. Wrapping the value with
+  `pulumi.secret` makes the stack contract explicit and keeps disabled and enabled tests
+  fail-closed if provider behavior changes.
+
+- Discovery: a Darwin operator's default smoke package must still resolve to the exact
+  x86_64-linux derivation requested by the cluster Pod. Publishing a native Darwin path
+  would make the substitution proof meaningless. The smoke flake therefore maps every
+  supported operator-system default to one pinned x86_64-linux derivation and relies on
+  Nagare's configured remote builder when the operator is not Linux.
+
+- Discovery: `kubectl apply --dry-run=client --validate=false` still asks the configured
+  API server for REST mappings. With no live cluster, it is not an offline manifest check.
+  The hermetic check renders every template and parses the multi-document YAML with `yq`;
+  live server-side acceptance remains in the unchecked final progress item.
+
+- Discovery: the official Attic image has no OCI `User`, so Kubernetes interprets it as
+  root and rejects `runAsNonRoot: true` unless the manifest supplies a numeric identity.
+  Attic now runs explicitly as UID/GID 65532. The stock Nix smoke image is different: its
+  single-user store must be writable by root, so the smoke Pods drop every capability and
+  disable privilege escalation without claiming a non-root identity they cannot use.
+
+- Discovery: this flake currently exposes no `formatter.<system>`, so the plan's inherited
+  `nix fmt` command cannot run. The native `haskell-style` flake check is the repository's
+  enforced Fourmolu/style gate; Nix expression formatting was reviewed in the focused diff.
 
 
 ## Decision Log
@@ -270,6 +311,25 @@ identity.
   header. An in-cluster API producer or public ingress is future scope.
   Date: 2026-09-15
 
+- Decision: Pin the latest Attic commit for which upstream published an official matching
+  image, not the newer unbuilt `main` head.
+  Rationale: the release must bind reviewed client source and deployed server bytes to one
+  immutable identity. A newer source-only commit cannot satisfy that supply-chain contract.
+  Date: 2026-09-16
+
+- Decision: Pin the smoke Pod's `nixos/nix:2.28.4` Linux/amd64 manifest by digest and commit
+  the smoke flake lock.
+  Rationale: a mutable test image or moving nixpkgs input could turn an acceptance change
+  into an unrelated upstream change. The producer and Pod must request the same Linux store
+  path across operator systems.
+  Date: 2026-09-16
+
+- Decision: Distill provider ownership and the three independent trust domains into
+  [ADR 21](../adr/0021-nagare-owns-an-optional-context-local-nix-cache-provider.md).
+  Rationale: these boundaries constrain future Nagare and Kotei work beyond this implementation,
+  especially upgrades, teardown, and key rotation.
+  Date: 2026-09-16
+
 
 ## Outcomes & Retrospective
 
@@ -279,7 +339,25 @@ component because Nagare owns the cloud and cluster lifecycle. The refresh also 
 three costs that implementation must keep visible: Attic lacks stable release tags,
 generated trust is per context, and the S3 redirect path requires client HTTPS egress.
 
-Implementation has not started. The main cross-repository follow-up is to reconcile
+The repository implementation is complete and the focused static checks pass. Contexts now
+round-trip the default-off cloud-only opt-in; Pulumi has tested enabled and disabled resource
+graphs; the release exposes the pinned client and image; clone-free payload checks cover every
+script and template; bootstrap orders config validation, migration, rollout, initialization, and
+live-key publication; and the runbook covers use, trust, rotation, recovery, and retirement.
+
+Validated locally on 2026-09-16: all 569 `nagarectl` tests, Pulumi TypeScript build and tests,
+Attic client and server-image builds, `#nagare-platform`, `#nagare`, direct packaged tool probes,
+the complete native `nix flake check` suite (including platform-assets, operator-tools,
+shellcheck, cache-assets, and Haskell style), the cross-system smoke derivation build, OKF
+user-documentation enforcement, and `git diff --check`. The image archive's observed digest
+matched the reviewed Linux/amd64 digest.
+
+Live cloud acceptance remains intentionally open: there was no reachable target Kubernetes
+cluster or authorized retained Pulumi apply in this implementation environment. Do not call the
+feature production-accepted until the final Progress item records the signed push/substitution,
+wrong-key, restart, GC, policy, alert, backup, and separate key-rotation observations.
+
+The main cross-repository follow-up is to reconcile
 `mori://shinzui/kotei/masterplans/10-first-class-shared-nix-cache-infrastructure` with
 this provider boundary and replace the byte-identical `pod-nix.conf` fixture proposed by
 `mori://shinzui/kikan/plans/27-author-nagare-s-platform-prerequisites-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache`
@@ -587,12 +665,12 @@ pinned Nix wrong-key wording in Surprises during implementation.
 Run focused and aggregate checks:
 
 ```bash
-nix fmt
+nix build .#checks.aarch64-darwin.haskell-style
 nix flake check
 npm --prefix infra/pulumi run build
 npm --prefix infra/pulumi test
-nix develop -c shellcheck cluster/bootstrap/nix-cache/*.sh
-kubectl apply --dry-run=client --validate=false -f cluster/bootstrap/nix-cache/rendered-test-manifests.yaml
+nix shell nixpkgs#shellcheck -c shellcheck cluster/bootstrap/nix-cache/*.sh
+nix build .#checks.aarch64-darwin.nix-cache-bootstrap-assets
 git diff --check
 ```
 
@@ -743,3 +821,10 @@ cache-hit Job startup rather than deployment as a whole, and linked the implemen
 plan to `mori://shinzui/nagare/okf/use-cases/concepts/UC-2`. Replaced Host-derived API
 endpoints with a fixed port-forward upload endpoint after checking upstream's production
 requirement.
+
+2026-09-16: Implemented the optional Attic provider end to end in repository scope. Added
+context and Pulumi contracts, exact source/image pins, clone-free release assets and tools,
+guarded sops secret creation and Artifact Registry publication, ordered Attic database/runtime
+reconciliation, live trust ConfigMap generation, policies, deterministic positive/negative smoke
+assets, the critical disk alert, hermetic checks, and the operator runbook. Static acceptance
+passes; retained cloud apply and live cluster behavior remain explicitly outstanding.
