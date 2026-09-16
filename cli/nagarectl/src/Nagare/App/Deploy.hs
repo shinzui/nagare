@@ -567,6 +567,7 @@ ensureDatabase env db =
     (databaseNameText (db ^. #name))
     DbCreateParams
       { namespace = namespaceText (db ^. #namespace)
+      , namespacePurpose = ApplicationNamespace
       , version = Just (engineVersionText (db ^. #version))
       , size = Just (quantityText (db ^. #size))
       , cpu = fmap quantityText (db ^. #resources >>= (^. #cpuLimit))

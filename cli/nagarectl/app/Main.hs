@@ -954,6 +954,7 @@ data DbNameOpts = DbNameOpts
 -- 'DbCreate' constructor, not in this record.
 data DbCreateOpts = DbCreateOpts
   { namespace :: !(Maybe String)
+  , systemNamespace :: !Bool
   , version :: !(Maybe String)
   , size :: !(Maybe String)
   , cpu :: !(Maybe String)
@@ -1614,6 +1615,7 @@ dbCreateOptsParser :: Parser DbCreateOpts
 dbCreateOptsParser =
   DbCreateOpts
     <$> namespaceOpt
+    <*> switch (long "system-namespace" <> internal)
     <*> optional (strOption (long "version" <> metavar "TAG" <> help "Pinned engine image tag (per-engine default if absent)"))
     <*> optional (strOption (long "size" <> metavar "QTY" <> help "Data volume size (default 10Gi, redis 2Gi)"))
     <*> optional (strOption (long "cpu" <> metavar "QTY" <> help "CPU limit (e.g. 500m)"))
@@ -3093,6 +3095,14 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
   where
     context = active ^. #contextName
     profile = active ^. #profile
+    bootstrapEnvironment =
+      [ ("NAGARE_CONTEXT", T.unpack (contextNameText context))
+      , ("NAGARE_NIX_CACHE_ENABLED", if profile ^. #nixCacheEnabled then "1" else "0")
+      -- Force shell helpers to discard any stale context variables inherited
+      -- from the operator's calling shell before they source the selected
+      -- persisted context.
+      , ("NAGARE_RESOLVED_CONTEXT", "upgrade-transaction")
+      ]
     reviewedPlanBundle = takeDirectory staged </> "pulumi-plan"
     reviewedKubernetesBundle = takeDirectory staged </> "kubernetes-plan"
     runPhase _ NixEvaluate =
@@ -3172,12 +3182,13 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
         Left err -> pure (Left err)
         Right migrationEvidence -> do
           bootstrap <-
-            withEnvironment "NAGARE_UPGRADE_APPLY" "1" $
-              runExternal
-                [ExitSuccess]
-                "just"
-                ["--justfile", workspace ^. #justfile, "--working-directory", workspace ^. #root, bootstrapRecipe]
-                ""
+            withEnvironmentValues bootstrapEnvironment $
+              withEnvironment "NAGARE_UPGRADE_APPLY" "1" $
+                runExternal
+                  [ExitSuccess]
+                  "just"
+                  ["--justfile", workspace ^. #justfile, "--working-directory", workspace ^. #root, bootstrapRecipe]
+                  ""
           pure (fmap (\evidence -> migrationEvidence <> "\n" <> evidence) bootstrap)
     runPhase _ ClusterStamp = applyClusterMarker manifest
     runPhase _ ContextCommit =
@@ -5936,6 +5947,7 @@ runDb mctx = \case
       (T.pack name)
       DbCreateParams
         { namespace = nsOf (o ^. #namespace)
+        , namespacePurpose = if o ^. #systemNamespace then PlatformNamespace else ApplicationNamespace
         , version = T.pack <$> o ^. #version
         , size = T.pack <$> o ^. #size
         , cpu = T.pack <$> o ^. #cpu

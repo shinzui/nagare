@@ -52,7 +52,7 @@ kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
 kubectl apply -f "${private_dir}/secrets.yaml"
 
 nagarectl db create postgres nix-cache \
-  --namespace nagare-system --size 5Gi --cpu 500m --memory 1Gi
+  --namespace nagare-system --system-namespace --size 5Gi --cpu 500m --memory 1Gi
 
 escaped_bucket="$(printf '%s' "${NAGARE_NIX_CACHE_BUCKET}" | sed -e 's/[&|]/\\&/g')"
 sed "s|\${NAGARE_NIX_CACHE_BUCKET}|${escaped_bucket}|g" \

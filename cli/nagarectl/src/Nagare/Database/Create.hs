@@ -59,6 +59,7 @@ import System.IO (stderr)
 -- not depend on the executable's option types.
 data DbCreateParams = DbCreateParams
   { namespace :: !Text
+  , namespacePurpose :: !NamespacePurpose
   , version :: !(Maybe Text)
   , size :: !(Maybe Text)
   , cpu :: !(Maybe Text)
@@ -122,6 +123,7 @@ runDbCreate eng nameT params = do
   let name = databaseNameText (db ^. #name)
       ns = namespaceText (db ^. #namespace)
       engine' = db ^. #engine
+      purpose = params ^. #namespacePurpose
       host = dbHost name ns
       mkParts pw =
         ConnectionParts
@@ -140,7 +142,7 @@ runDbCreate eng nameT params = do
   let cronJob = renderDbBackupCronJob ns name engine' (engineVersionText (db ^. #version)) backend 7
   if params ^. #dryRun
     then do
-      namespaceManifest <- orDie (renderNamespace ApplicationNamespace ns)
+      namespaceManifest <- orDie (renderNamespace purpose ns)
       TIO.putStrLn "--- Namespace manifest ---"
       TIO.putStr (TE.decodeUtf8 namespaceManifest)
       TIO.putStrLn ""
@@ -158,7 +160,7 @@ runDbCreate eng nameT params = do
       TIO.putStrLn
         ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
     else do
-      ensureNamespace ApplicationNamespace ns >>= orDie
+      ensureNamespace purpose ns >>= orDie
       pw <- readOrGeneratePassword ns name engine'
       let kvs = secretKeysFor engine' (mkParts pw)
           secret = renderDbSecret (DbSecretInputs name ns engine' kvs)

@@ -18,7 +18,7 @@ import Data.Text qualified as T
 import Nagare.Deploy (applyManifests)
 import Nagare.Dsl.Prelude hiding ((.=))
 
-data NamespacePurpose = ApplicationNamespace
+data NamespacePurpose = ApplicationNamespace | PlatformNamespace
   deriving stock (Eq, Show)
 
 applicationNamespaceLabel :: Text
@@ -46,9 +46,19 @@ renderNamespace ApplicationNamespace namespace
                 , "labels" .= object [Key.fromText applicationNamespaceLabel .= ("true" :: Text)]
                 ]
           ]
+renderNamespace PlatformNamespace namespace
+  | namespace `Set.notMember` reservedNamespaces =
+      Left ("platform namespace must be reserved, got '" <> namespace <> "'")
+  | otherwise =
+      Right . LBS.toStrict . encode $
+        object
+          [ "apiVersion" .= ("v1" :: Text)
+          , "kind" .= ("Namespace" :: Text)
+          , "metadata" .= object ["name" .= namespace]
+          ]
 
--- | Create a missing application namespace or add the opt-in label to an
--- existing one. Re-applying preserves unrelated labels.
+-- | Create a missing namespace. Application namespaces gain the public
+-- certificate opt-in label; platform namespaces remain deliberately unlabeled.
 ensureNamespace :: NamespacePurpose -> Text -> IO (Either Text ())
 ensureNamespace purpose namespace =
   case renderNamespace purpose namespace of

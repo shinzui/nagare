@@ -2604,6 +2604,14 @@ namespaceTests =
         , "logging"
         ]
         (assertBool "reserved namespace was accepted" . isLeft . renderNamespace ApplicationNamespace)
+  , testCase "renders a reserved platform namespace without the public-certificate label" $ do
+      manifest <- either (assertFailure . T.unpack) pure (renderNamespace PlatformNamespace "nagare-system")
+      assertBool
+        "platform namespace gained the app opt-in label"
+        (not (applicationNamespaceLabel `T.isInfixOf` TE.decodeUtf8 manifest))
+      assertBool
+        "non-reserved namespace was accepted as platform-owned"
+        (isLeft (renderNamespace PlatformNamespace "personal"))
   ]
 
 certificatePolicyTests :: [TestTree]
@@ -3844,6 +3852,7 @@ databaseTests =
     mkParams ver sz =
       DbCreateParams
         { namespace = "personal"
+        , namespacePurpose = ApplicationNamespace
         , version = ver
         , size = sz
         , cpu = Nothing
