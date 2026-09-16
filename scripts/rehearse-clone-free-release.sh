@@ -220,13 +220,26 @@ fi
 printf 'nix %s\n' "$*" >> "${NAGARE_FAKE_TOOL_LOG:?}"
 printf '%s\n' '/nix/store/fake-nagare-upgrade-result'
 FAKE_NIX
-for tool in gcloud kubectl; do
-  cat > "$fake_tools/$tool" <<FAKE_TOOL
+cat > "$fake_tools/gcloud" <<'FAKE_GCLOUD'
 #!/usr/bin/env bash
-printf '$tool %s\\n' "\$*" >> "\${NAGARE_FAKE_TOOL_LOG:?}"
-printf '%s\\n' '{"items":[]}'
-FAKE_TOOL
-done
+printf 'gcloud %s\n' "$*" >> "${NAGARE_FAKE_TOOL_LOG:?}"
+printf '%s\n' '{"items":[]}'
+FAKE_GCLOUD
+cat > "$fake_tools/kubectl" <<'FAKE_KUBECTL'
+#!/usr/bin/env bash
+printf 'kubectl %s\n' "$*" >> "${NAGARE_FAKE_TOOL_LOG:?}"
+case " $* " in
+  *" get configmap config-network "*)
+    printf '%s\n' '{"data":{}}'
+    ;;
+  *" diff "*)
+    cat >/dev/null
+    ;;
+  *)
+    printf '%s\n' '{"items":[]}'
+    ;;
+esac
+FAKE_KUBECTL
 chmod +x "$fake_tools"/*
 
 real_nix="$(command -v nix)"
