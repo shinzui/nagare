@@ -65,7 +65,9 @@ spec:
       command: ["sh", "-ceu"]
       args:
         - |
-          out="$(nix --extra-experimental-features 'nix-command flakes' build /source#default --no-update-lock-file --no-write-lock-file --no-link --print-out-paths --max-jobs 0 --option fallback false -L)"
+          source_dir="$(mktemp -d)"
+          cp -L /source/flake.nix /source/flake.lock "$source_dir/"
+          out="$(nix --extra-experimental-features 'nix-command flakes' build "$source_dir#default" --no-update-lock-file --no-write-lock-file --no-link --print-out-paths --max-jobs 0 --option fallback false -L)"
           test "$(cat "$out")" = nagare-attic-smoke-v1
           echo "substituted $out from http://nix-cache.nagare-system.svc.cluster.local/nagare-cache"
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"], add: ["CHOWN"]}}
@@ -94,7 +96,9 @@ spec:
       command: ["sh", "-ceu"]
       args:
         - |
-          if output="$(nix --extra-experimental-features 'nix-command flakes' build /source#default --no-update-lock-file --no-write-lock-file --no-link --print-out-paths --max-jobs 0 --option fallback false -L 2>&1)"; then
+          source_dir="$(mktemp -d)"
+          cp -L /source/flake.nix /source/flake.lock "$source_dir/"
+          if output="$(nix --extra-experimental-features 'nix-command flakes' build "$source_dir#default" --no-update-lock-file --no-write-lock-file --no-link --print-out-paths --max-jobs 0 --option fallback false -L 2>&1)"; then
             echo "unexpectedly trusted the wrong key" >&2
             exit 1
           fi
