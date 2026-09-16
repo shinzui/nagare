@@ -6,11 +6,47 @@ metadata:
 data:
   flake.nix: |
     {
+      description = "Deterministic Nagare Attic substitution smoke path";
+
       inputs.nixpkgs.url = "github:NixOS/nixpkgs/9b008d60392981ad674e04016d25619281550a9d";
-      outputs = { nixpkgs, ... }: {
-        packages.x86_64-linux.default = nixpkgs.legacyPackages.x86_64-linux.writeText
-          "nagare-attic-smoke" "nagare-attic-smoke-v1\n";
-      };
+
+      outputs = { nixpkgs, ... }:
+        let
+          forSystem = system: nixpkgs.legacyPackages.${system}.writeText "nagare-attic-smoke" ''
+            nagare-attic-smoke-v1
+          '';
+          linuxSmoke = forSystem "x86_64-linux";
+        in
+        {
+          packages.x86_64-linux.default = linuxSmoke;
+          packages.aarch64-linux.default = linuxSmoke;
+          packages.aarch64-darwin.default = linuxSmoke;
+          packages.x86_64-darwin.default = linuxSmoke;
+        };
+    }
+  flake.lock: |
+    {
+      "nodes": {
+        "nixpkgs": {
+          "locked": {
+            "lastModified": 1751949589,
+            "narHash": "sha256-mgFxAPLWw0Kq+C8P3dRrZrOYEQXOtKuYVlo9xvPntt8=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9b008d60392981ad674e04016d25619281550a9d",
+            "type": "github"
+          },
+          "original": {
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9b008d60392981ad674e04016d25619281550a9d",
+            "type": "github"
+          }
+        },
+        "root": {"inputs": {"nixpkgs": "nixpkgs"}}
+      },
+      "root": "root",
+      "version": 7
     }
 ---
 apiVersion: v1
