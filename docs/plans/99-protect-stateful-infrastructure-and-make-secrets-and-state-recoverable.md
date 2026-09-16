@@ -73,13 +73,13 @@ Use this checklist to summarize granular steps. Every stopping point must be doc
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-**Status summary (live work completed 2026-09-16; publication pending): infrastructure protections and remote state
+**Status summary (completed 2026-09-16): infrastructure protections and remote state
 have live acceptance evidence. The selected labs context now has a separate,
 operator-vaulted recovery identity on every operational ciphertext document, proven
 independent decryption with unchanged values, and a committed guarded host activation.
 The temporary recovery private key has been removed. Other clusters require explicit
-enrollment; public examples remain excluded. Private Git commits still need remote
-publication before EP-3 can close.**
+enrollment; public examples remain excluded. Both private recovery repositories
+have been published and their remote commit heads verified.**
 
 - [x] M1a: Add `protect: true` to the data disk and backup bucket, `deletionProtection`
   (config-driven, default true) to the VM, bucket versioning + 30-day noncurrent
@@ -150,10 +150,12 @@ publication before EP-3 can close.**
   pass with the new secret boundary. (2026-08-26)
 - [x] Final documentation (2026-09-16): completed the retrospective and distilled
   recovery decisions into ADR 13.
-- [ ] Final publication: publish the private recovery envelopes, verify remote
-  commit heads, then mark EP-3 Complete. The cache-secret repository has two
-  pre-existing unpublished commits, so pushing it also publishes work from before
-  this session. Approval for that combined publication is pending.
+- [x] Final publication (2026-09-16): the operator explicitly approved publishing
+  both private repositories, including the cache repository's two pre-existing
+  commits. Pushed and verified remote master equals local HEAD at
+  `mori://shinzui/nagare-ops` (commit `f70d7625acae4b7af4047faf94eec33210c3f0ed`)
+  and `mori://tan/tan-ng-labs` (commit `0a57197b833e38ff4ef4ed66e557fef6eb9a5a6d`).
+  The unrelated uncommitted Pulumi config edit was preserved. EP-3 is Complete.
 
 
 ## Surprises & Discoveries
@@ -483,8 +485,8 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Live implementation completed on 2026-09-16 for the selected labs context; remote
-publication remains before final plan completion. Infrastructure acceptance
+Completed on 2026-09-16 for the selected labs context, including private backup
+publication and verification. Infrastructure acceptance
 remains backed by the labs deployment's deletion protections, disk snapshot schedule,
 versioned backup storage, and scoped DNS permissions. EP-116 provides the original
 context's verified local-to-GCS state migration.
@@ -511,11 +513,12 @@ every YAML document needs recovery coverage, and regular XDG host copies can dri
 from Git even when cluster secrets use symlinks. The public discarded-key fixture
 is excluded. The full disaster-recovery drill remains a separate MasterPlan follow-up.
 
-The private-repository changes are committed locally, not pushed. The cluster-secret
-repository already had two unpublished commits before this work, including the
-original nix-cache ciphertext. Remote synchronization is still needed before a fresh
-clone alone supplies the new recovery envelopes; this completion does not claim those
-remote copies were updated.
+The operator explicitly approved private backup publication, including the two
+pre-existing cache-repository commits. Both pushes succeeded, and independent
+`git ls-remote` checks matched the local commit heads: `f70d7625acae4b7af4047faf94eec33210c3f0ed`
+in `mori://shinzui/nagare-ops` and `0a57197b833e38ff4ef4ed66e557fef6eb9a5a6d`
+in `mori://tan/tan-ng-labs`. Their remote histories now contain the verified recovery
+envelopes. The unrelated uncommitted Pulumi change was neither staged nor published.
 
 ## Context and Orientation
 
@@ -1146,6 +1149,11 @@ tagged-release contracts recorded in `docs/adr/0003-*.md` through
 
 
 ## Revision Notes
+
+- 2026-09-16 — Following explicit operator approval, published both private
+  recovery repositories (including the two disclosed pre-existing commits), verified
+  exact remote heads, and closed the final EP-3 publication gate. No additional
+  secret, cloud, or host changes were needed.
 
 - 2026-09-16 — Completed labs re-keying after operator-confirmed vault storage,
   verified isolated decryption and unchanged plaintext for every YAML document,

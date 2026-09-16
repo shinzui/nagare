@@ -51,10 +51,10 @@ generating unparsable connection URLs; and the host is tuned for its 2-vCPU/8 GB
 reality with a written, rehearsable upgrade story and a disaster-recovery runbook
 that matches the tree.
 
-Three live acceptance bundles and EP-3's private-backup publication remain before the initiative is complete.
+Three live acceptance bundles remain before the initiative is complete.
 EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
-Its private-repository commits still need remote synchronization before EP-3 closes. EP-4 must
+Its private recovery backups are now published with verified remote heads. EP-4 must
 roll the bounded workloads and observability settings into a real cluster and record
 probe, migration-rerun, rollout, and steady-state resource evidence. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
@@ -113,7 +113,7 @@ release's checksum-breaking migration correction. It remains grouped into Phase 
 |---|-------|------|-----------|-----------|--------|
 | 1 | Fail-closed target guardrail and shell tooling hardening | docs/plans/97-fail-closed-target-guardrail-and-shell-tooling-hardening.md | None | None | Complete |
 | 2 | Auth-plane application security fixes for nagared and nagare-access | docs/plans/98-auth-plane-application-security-fixes-for-nagared-and-nagare-access.md | None | None | Complete |
-| 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | In Progress |
+| 3 | Protect stateful infrastructure and make secrets and state recoverable | docs/plans/99-protect-stateful-infrastructure-and-make-secrets-and-state-recoverable.md | None | None | Complete |
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
@@ -253,16 +253,17 @@ complete; the child plans hold the granular checklists.
   re-keyed the labs host and both nix-cache documents, proved independent recovery,
   workstation, and host decryption with unchanged plaintext, completed guarded host
   activation, updated the runbook and ADR 13, and removed temporary private material.
-  Other contexts remain unenrolled; private Git commits have not been pushed.
+  Other contexts remain unenrolled; private recovery commits are now published.
 - [x] EP-3 M2 preflight (2026-09-16): inventoried the selected labs host and
   nix-cache ciphertext and proved workstation decryption for both. Recovery-key
-  custody/access remains unresolved; the 1Password CLI has no configured account.
+  custody was subsequently confirmed manually; no automated vault readback is claimed.
 - [x] EP-3 M2 recovery-key generation (2026-09-16): generated a distinct identity
   at the operator's explicit request, staged outside repositories with directory
-  mode 0700 and key mode 0600. Manual vault storage/retrieval and re-keying remain.
-- [ ] EP-3 final publication: publish the private recovery commits and verify the
-  remote heads. The cache-secret repository also contains two pre-existing
-  unpublished commits; approval to publish that combined history is pending.
+  mode 0700 and key mode 0600. Vault storage, re-keying, and staging cleanup are complete.
+- [x] EP-3 final publication (2026-09-16): operator approved both private pushes,
+  including the two disclosed pre-existing commits. Verified remote master equals
+  local HEAD at `mori://shinzui/nagare-ops` (commit `f70d762`) and
+  `mori://tan/tan-ng-labs` (commit `0a57197`). EP-3 is Complete.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
@@ -453,6 +454,12 @@ Discoveries from implementation:
 
 ## Decision Log
 
+- Decision: close EP-3 after publishing the verified recovery envelopes with the
+  operator's explicit approval, including the disclosed pre-existing private commits.
+  Rationale: both remote heads now match the tested local commits, closing the
+  off-machine backup gap. The unrelated uncommitted Pulumi edit was preserved.
+  Date: 2026-09-16
+
 - Decision: treat EP-3's labs live implementation as complete but retain In Progress
   until the private recovery envelopes are published, with explicit scope limits.
   Rationale: labs is the active context the operator agreed to enroll. A shared
@@ -576,15 +583,16 @@ Discoveries from implementation:
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-As of 2026-09-16, four of eight child plans are complete: EP-1, EP-2,
-EP-6, and EP-8. EP-3 now adds verified labs secret recovery to its previously
+As of 2026-09-16, five of eight child plans are complete: EP-1, EP-2, EP-3,
+EP-6, and EP-8. EP-3 adds verified labs secret recovery to its previously
 accepted infrastructure protections and GCS migration. The operator confirmed vault
 storage of a distinct recovery identity; all three operational YAML documents pass
 isolated decryption with unchanged plaintext, the guarded host switch committed,
 and temporary recovery private material was removed. Other clusters remain
-unenrolled. The private configuration changes are committed locally and still need
-remote synchronization before EP-3 closes; no automated vault readback or remote
-publication is claimed.
+unenrolled. Both private configuration repositories were pushed with the operator's
+approval, and independent remote-head checks matched the verified local commits.
+No automated vault readback is claimed; manual custody and cryptographic verification
+remain separate evidence.
 
 EP-4's repository changes for resource bounds, probes, observability storage caps,
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
@@ -597,7 +605,7 @@ metric/status evidence remain open. EP-7's host configuration is active on labs 
 still requires late datastore reencryption and a private pull after the boot token
 expires. EP-3's successful secrets activation does not prove either behavior.
 
-After EP-3 publication, the next child is EP-4. It and EP-5 can share a live cluster session, while
+The next child is EP-4. It and EP-5 can share a live cluster session, while
 EP-7 can use the same host window for its two remaining checks. The full disaster-
 recovery drill remains a separate scratch-context exercise. ADR 13 captures the
 durable recovery decisions from EP-3; task-specific custody and test evidence stays
@@ -622,3 +630,8 @@ activation, and temporary-key cleanup. Updated the registry, remaining-work view
 runbook ownership, and retrospective; ADR 13 preserves the recovery decisions.
 Other contexts remain unenrolled. EP-3 stays In Progress until private backup
 publication is authorized and verified, including its pre-existing unpublished history.
+
+Revision note (2026-09-16, publication): the operator approved both private pushes,
+including the disclosed pre-existing commits. Verified exact remote heads and marked
+EP-3 Complete; five of eight children are now complete. No unrelated Pulumi edit was
+staged or published.
