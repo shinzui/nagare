@@ -306,12 +306,15 @@ import Nagare.Platform.Status
   , validatePlatformRepin
   )
 import Nagare.Platform.Upgrade
-  ( TransactionState (..)
+  ( PhaseState (..)
+  , ResumeDecision (..)
+  , TransactionState (..)
   , UpgradeOps (..)
   , UpgradePhase (..)
   , UpgradeTransaction (..)
   , applyUpgrade
   , newUpgradeTransaction
+  , phaseToken
   , planUpgrade
   , readUpgradeTransaction
   , renderUpgradeTransaction
@@ -2974,7 +2977,7 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
   pure
     UpgradeOps
       { runUpgradePhase = runPhase hostEnvironment
-      , upgradePhaseSatisfied = phaseSatisfied
+      , upgradeResumeDecision = resumeDecision
       , saveUpgradeTransaction = writeUpgradeTransaction txPath
       , upgradeNow = currentTimestamp
       }
@@ -3067,6 +3070,11 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     phaseSatisfied ContextCommit = do
       current <- readContextProfile context
       pure (either (const False) ((== Just (manifest ^. #platformVersion)) . (^. #platformVersion)) current)
+    resumeDecision phase state
+      | state /= Succeeded = pure RunPhase
+      | otherwise = do
+          satisfied <- phaseSatisfied phase
+          pure (if satisfied then SkipPhase (phaseToken phase <> " postcondition is satisfied") else RunPhase)
 
 kubernetesManifestFileName, kubernetesReviewFileName, kubernetesMetadataFileName :: FilePath
 kubernetesManifestFileName = "config-network.json"

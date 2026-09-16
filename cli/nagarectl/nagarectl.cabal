@@ -98,6 +98,7 @@ library
     Nagare.Platform.Cutover
     Nagare.Platform.Deployment
     Nagare.Platform.Paths
+    Nagare.Platform.PulumiReceipt
     Nagare.Platform.Replacement
     Nagare.Platform.StackConfig
     Nagare.Platform.StateTransfer

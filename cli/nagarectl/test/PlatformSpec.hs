@@ -16,9 +16,11 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
+import Nagare.Infra.Plan (SavedPlanMetadata (..))
 import Nagare.Init (resolveInitBase)
 import Nagare.Platform.Deployment
 import Nagare.Platform.Paths
+import Nagare.Platform.PulumiReceipt
 import Nagare.Platform.StackConfig
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
@@ -38,6 +40,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit
 
@@ -239,7 +242,7 @@ platformTests =
         events <- newIORef []
         saved <- newIORef Nothing
         let tx = newUpgradeTransaction "tx-1" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False "2026-08-25T19:00:00Z"
-            ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) (const (pure False))
+            ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) (\_ _ -> pure RunPhase)
         planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
         planned ^. #state @?= Planned
         applied <- applyUpgrade False ops planned >>= either (assertFailure . T.unpack) pure
@@ -251,6 +254,54 @@ platformTests =
         reapplied <- applyUpgrade True ops applied >>= either (assertFailure . T.unpack) pure
         reapplied @?= applied
         readIORef events >>= (@?= observed)
+    , testCase "resume can repair a pending phase from durable evidence without invoking it" $ do
+        events <- newIORef []
+        saved <- newIORef Nothing
+        let tx = newUpgradeTransaction "tx-repair" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
+            decision PulumiApply Pending = pure (SkipPhase "verified success receipt")
+            decision _ _ = pure RunPhase
+            ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) decision
+        planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
+        completed <- applyUpgrade True ops planned >>= either (assertFailure . T.unpack) pure
+        completed ^. #state @?= Completed
+        readIORef events >>= assertBool "Pulumi was not invoked" . (PulumiApply `notElem`)
+        let repaired = filter ((== PulumiApply) . (^. #name)) (completed ^. #phases)
+        repaired @?= [PhaseRecord PulumiApply Succeeded (Just "verified success receipt") (Just fixtureNow)]
+    , testCase "resume refusal preserves a failed transaction without invoking the phase" $ do
+        events <- newIORef []
+        saved <- newIORef Nothing
+        let tx = newUpgradeTransaction "tx-refuse" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
+            decision PulumiApply Pending = pure (RefusePhase "ambiguous provider outcome")
+            decision _ _ = pure RunPhase
+            ops = fixtureUpgradeOps events saved (const (pure (Right "ok"))) decision
+        planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
+        refused <- applyUpgrade True ops planned
+        assertBool "resume refused" (either (T.isInfixOf "ambiguous provider outcome") (const False) refused)
+        Just persisted <- readIORef saved
+        persisted ^. #state @?= TransactionFailed
+        readIORef events >>= assertBool "Pulumi was not invoked" . (PulumiApply `notElem`)
+    , testCase "Pulumi receipts round-trip, bind the plan, and enforce state transitions" $
+        withSystemTempDirectory "nagare-pulumi-receipt" $ \root -> do
+          let tx = newUpgradeTransaction "tx-receipt" "labs" (Just "0.1.0") "0.2.0" "payload" "payload-digest" "/workspace" "/host" False fixtureNow
+              path = pulumiReceiptPath (root </> "tx-receipt.json") tx
+          started <- writeStartedReceipt path tx fixturePlanMetadata fixtureNow >>= either (assertFailure . T.unpack) pure
+          receiptState started @?= ReceiptStarted
+          writeStartedReceipt path tx fixturePlanMetadata fixtureNow >>= assertBool "a second start is ambiguous" . either (const True) (const False)
+          succeeded <- writeResultReceipt path tx fixturePlanMetadata ReceiptSucceeded fixtureNow >>= either (assertFailure . T.unpack) pure
+          readVerifiedPulumiReceipt path tx fixturePlanMetadata >>= (@?= Right (Just succeeded))
+          let staleMetadata = fixturePlanMetadata {planDigest = "other-plan"}
+          readVerifiedPulumiReceipt path tx staleMetadata >>= assertBool "stale plan binding refused" . either (T.isInfixOf "planDigest") (const False)
+          writeRecoveryReceipt path tx fixturePlanMetadata RecoveryApplied fixtureNow >>= assertBool "automatic success cannot be overwritten" . either (const True) (const False)
+    , testCase "Pulumi recovery is idempotent but conflicting outcomes and public modes refuse" $
+        withSystemTempDirectory "nagare-pulumi-recovery" $ \root -> do
+          let tx = newUpgradeTransaction "tx-recovery" "labs" (Just "0.1.0") "0.2.0" "payload" "payload-digest" "/workspace" "/host" False fixtureNow
+              path = pulumiReceiptPath (root </> "tx-recovery.json") tx
+          _ <- writeStartedReceipt path tx fixturePlanMetadata fixtureNow >>= either (assertFailure . T.unpack) pure
+          recovered <- writeRecoveryReceipt path tx fixturePlanMetadata RecoveryApplied fixtureNow >>= either (assertFailure . T.unpack) pure
+          writeRecoveryReceipt path tx fixturePlanMetadata RecoveryApplied fixtureNow >>= (@?= Right recovered)
+          writeRecoveryReceipt path tx fixturePlanMetadata RecoveryRetry fixtureNow >>= assertBool "conflicting recovery refused" . either (const True) (const False)
+          setFileMode path 0o644
+          readPulumiReceipt path >>= assertBool "public receipt refused" . either (T.isInfixOf "group or other") (const False)
     , testCase "failed apply preserves the old commit point and resume rechecks succeeded phases" $ do
         events <- newIORef []
         saved <- newIORef Nothing
@@ -258,7 +309,7 @@ platformTests =
         let run phase = do
               shouldFail <- readIORef failHost
               pure (if shouldFail && phase == HostApply then Left "host unavailable" else Right "ok")
-            satisfied phase = pure (phase == PulumiApply)
+            satisfied phase _ = pure (if phase == PulumiApply then SkipPhase "verified receipt" else RunPhase)
             tx = newUpgradeTransaction "tx-2" "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
             ops = fixtureUpgradeOps events saved run satisfied
         planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
@@ -284,7 +335,7 @@ platformTests =
             shouldFail <- readIORef failing
             pure (if shouldFail && phase == failingPhase then Left ("injected failure at " <> T.pack (show phase)) else Right "ok")
           tx = newUpgradeTransaction ("tx-" <> T.pack (show failingPhase)) "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
-          ops = fixtureUpgradeOps events saved run (const (pure False))
+          ops = fixtureUpgradeOps events saved run (\_ _ -> pure RunPhase)
       planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
       applyUpgrade False ops planned >>= assertBool ("expected failure at " <> show failingPhase) . either (const True) (const False)
       Just persisted <- readIORef saved
@@ -300,16 +351,34 @@ platformTests =
 fixtureNow :: T.Text
 fixtureNow = "2026-08-25T19:00:00Z"
 
+fixturePlanMetadata :: SavedPlanMetadata
+fixturePlanMetadata =
+  SavedPlanMetadata
+    { metadataSchemaVersion = 1
+    , context = "labs"
+    , project = "labs-project"
+    , stack = "labs"
+    , backend = "file:///state"
+    , payloadId = "payload"
+    , payloadDigest = "payload-digest"
+    , programDigest = "program-digest"
+    , configDigest = "config-digest"
+    , pulumiVersion = "v3.255.0"
+    , createdAt = fixtureNow
+    , planDigest = "plan-digest"
+    , reviewDigest = "review-digest"
+    }
+
 deploymentState :: Key -> KeyMap.KeyMap Aeson.Value -> Maybe Aeson.Value
 deploymentState key deployment = case KeyMap.lookup key deployment of
   Just (Aeson.Object evidence) -> KeyMap.lookup "state" evidence
   _ -> Nothing
 
-fixtureUpgradeOps :: IORef [UpgradePhase] -> IORef (Maybe UpgradeTransaction) -> (UpgradePhase -> IO (Either T.Text T.Text)) -> (UpgradePhase -> IO Bool) -> UpgradeOps
-fixtureUpgradeOps events saved run satisfied =
+fixtureUpgradeOps :: IORef [UpgradePhase] -> IORef (Maybe UpgradeTransaction) -> (UpgradePhase -> IO (Either T.Text T.Text)) -> (UpgradePhase -> PhaseState -> IO ResumeDecision) -> UpgradeOps
+fixtureUpgradeOps events saved run decision =
   UpgradeOps
     { runUpgradePhase = \phase -> modifyIORef' events (<> [phase]) >> run phase
-    , upgradePhaseSatisfied = satisfied
+    , upgradeResumeDecision = decision
     , saveUpgradeTransaction = writeIORef saved . Just
     , upgradeNow = pure fixtureNow
     }

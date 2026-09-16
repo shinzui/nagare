@@ -7,6 +7,7 @@ module Nagare.Platform.Upgrade
   , PhaseRecord (..)
   , TransactionState (..)
   , UpgradeTransaction (..)
+  , ResumeDecision (..)
   , UpgradeOps (..)
   , previewPhases
   , applyPhases
@@ -17,6 +18,7 @@ module Nagare.Platform.Upgrade
   , writeUpgradeTransaction
   , readUpgradeTransaction
   , renderUpgradeTransaction
+  , recordUpgradePhase
   )
 where
 
@@ -79,11 +81,17 @@ data UpgradeTransaction = UpgradeTransaction
 
 data UpgradeOps = UpgradeOps
   { runUpgradePhase :: !(UpgradePhase -> IO (Either Text Text))
-  , upgradePhaseSatisfied :: !(UpgradePhase -> IO Bool)
+  , upgradeResumeDecision :: !(UpgradePhase -> PhaseState -> IO ResumeDecision)
   , saveUpgradeTransaction :: !(UpgradeTransaction -> IO ())
   , upgradeNow :: !(IO Text)
   }
   deriving stock (Generic)
+
+data ResumeDecision
+  = RunPhase
+  | SkipPhase !Text
+  | RefusePhase !Text
+  deriving stock (Eq, Show)
 
 previewPhases :: [UpgradePhase]
 previewPhases = [NixEvaluate, PulumiPreview, KubernetesDiff]
@@ -226,10 +234,22 @@ runPhases resume ops initial phases finalState = do
   where
     go tx [] = Right <$> touchState ops tx finalState
     go tx (name : rest) = do
-      satisfied <- if resume && phaseSucceeded tx name then (ops ^. #upgradePhaseSatisfied) name else pure False
-      if satisfied
-        then go tx rest
-        else do
+      decision <-
+        if resume
+          then (ops ^. #upgradeResumeDecision) name (phaseState tx name)
+          else pure RunPhase
+      case decision of
+        SkipPhase evidence -> do
+          now <- ops ^. #upgradeNow
+          let succeeded = updatePhase name Succeeded (nonEmpty evidence) now (tx & #updatedAt .~ now)
+          (ops ^. #saveUpgradeTransaction) succeeded
+          go succeeded rest
+        RefusePhase err -> do
+          now <- ops ^. #upgradeNow
+          let refused = tx & #state .~ TransactionFailed & #updatedAt .~ now
+          (ops ^. #saveUpgradeTransaction) refused
+          pure (Left (phaseToken name <> " resume refused: " <> err))
+        RunPhase -> do
           result <- (ops ^. #runUpgradePhase) name
           now <- ops ^. #upgradeNow
           case result of
@@ -242,6 +262,11 @@ runPhases resume ops initial phases finalState = do
               (ops ^. #saveUpgradeTransaction) succeeded
               go succeeded rest
     nonEmpty value = if T.null (T.strip value) then Nothing else Just (T.take 4096 value)
+
+phaseState :: UpgradeTransaction -> UpgradePhase -> PhaseState
+phaseState tx wanted = case find (\phase -> phase ^. #name == wanted) (tx ^. #phases) of
+  Just phase -> phase ^. #state
+  Nothing -> Pending
 
 touchState :: UpgradeOps -> UpgradeTransaction -> TransactionState -> IO UpgradeTransaction
 touchState ops tx newState = do
@@ -257,6 +282,10 @@ updatePhase wanted state evidence now tx =
     update phase
       | phase ^. #name == wanted = phase & #state .~ state & #evidence .~ evidence & #updatedAt ?~ now
       | otherwise = phase
+
+recordUpgradePhase :: UpgradePhase -> PhaseState -> Text -> Text -> UpgradeTransaction -> UpgradeTransaction
+recordUpgradePhase phase state evidence now =
+  updatePhase phase state (if T.null (T.strip evidence) then Nothing else Just (T.take 4096 evidence)) now
 
 writeUpgradeTransaction :: FilePath -> UpgradeTransaction -> IO ()
 writeUpgradeTransaction path tx = do

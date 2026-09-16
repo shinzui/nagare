@@ -48,8 +48,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: add durable, transaction-bound Pulumi apply receipts and a resume-decision model
-  that can skip, run, or refuse a phase with evidence.
+- [x] (2026-09-16T03:44:37Z) Milestone 1: added durable, transaction-bound Pulumi apply receipts
+  and a resume-decision model that can skip, run, or refuse a phase with evidence. The 47 focused
+  platform tests pass, the executable builds, and the Haskell style check passes.
 - [ ] Milestone 2: wire normal success, later-phase resumes, legacy transactions, and ambiguous crash
   recovery through the upgrade CLI.
 - [ ] Milestone 3: add exhaustive failure/resume regressions, document the recovery contract, amend
@@ -76,6 +77,12 @@ implementation. Provide concise evidence.
   program/config inputs.
   Evidence: `cli/nagarectl/app/Main.hs` lines 3976-4044 in the refreshed tree. Receipt verification
   must reuse the local loader and digest checks without calling `currentInfraIdentity`.
+
+- Observation: The original focused Cabal command was not runnable from the repository root because
+  this monorepo has package-local `cabal.project` files rather than a root project file.
+  Evidence: the root invocation reported `No cabal.project file or cabal file`, while
+  `cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-options='--pattern Platform'`
+  passed all 47 selected tests.
 
 
 ## Decision Log
@@ -257,7 +264,7 @@ After each Haskell milestone, format and run the focused package tests:
 
 ```bash
 nix develop -c fourmolu -i cli/nagarectl/src/Nagare/Platform/Upgrade.hs cli/nagarectl/src/Nagare/Platform/PulumiReceipt.hs cli/nagarectl/app/Main.hs cli/nagarectl/test/PlatformSpec.hs
-nix develop -c cabal test nagarectl-test --test-options='--pattern Platform'
+(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-options='--pattern Platform')
 nix develop -c ./scripts/check-haskell-style.sh
 ```
 
