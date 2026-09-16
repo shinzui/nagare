@@ -1,7 +1,7 @@
 { inputs, ... }:
 
 {
-  perSystem = { pkgs, system, ... }:
+  perSystem = { pkgs, system, nagarePackages, ... }:
     let
       mkDevShell = inputs.haskell-nix-dev.lib.${system}.mkDevShell;
       haskellTools = [
@@ -35,6 +35,8 @@
             # Public DNS observations for `nagarectl domains list/check`.
             pkgs.bind.dnsutils
             pkgs.sops
+            nagarePackages.atticClient
+            pkgs.skopeo
             pkgs.age
             pkgs.tailscale
             pkgs.jq

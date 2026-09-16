@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-nix-cache-client
+  namespace: personal
+  labels:
+    app.kubernetes.io/part-of: nagare
+data:
+  nix.conf: |
+    substituters = http://nix-cache.nagare-system.svc.cluster.local/nagare-cache https://cache.nixos.org/
+    trusted-public-keys = ${ATTIC_PUBLIC_KEY} cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=

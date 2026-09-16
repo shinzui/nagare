@@ -83,6 +83,8 @@ data InitOpts = InitOpts
   , bootDiskType :: !(Maybe String)
   , bootDiskSizeGb :: !(Maybe String)
   , dataDiskSizeGb :: !(Maybe String)
+  , nixCacheEnabled :: !(Maybe String)
+  , nixCacheBucket :: !(Maybe String)
   , pulumiBackend :: !(Maybe String)
   , pulumiBackendUrl :: !(Maybe String)
   , pulumiBackendMember :: !(Maybe String)
@@ -111,6 +113,8 @@ initFlagPairs o =
     , pair "NAGARE_BOOT_DISK_TYPE" (o ^. #bootDiskType)
     , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)
     , pair "NAGARE_DATA_DISK_SIZE_GB" (o ^. #dataDiskSizeGb)
+    , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
+    , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
     , pair "NAGARE_ACME_EMAIL" (o ^. #acmeEmail)
@@ -169,6 +173,7 @@ checkInitOwnership explicitBackendUrl context tp =
       | (name, value) <-
           [ ("NAGARE_IMAGE_BUCKET", tp ^. #imageBucket)
           , ("NAGARE_BACKUP_BUCKET", tp ^. #backupBucket)
+          , ("NAGARE_NIX_CACHE_BUCKET", tp ^. #nixCacheBucket)
           ]
       , wrongPrefix value
       ]
@@ -196,6 +201,8 @@ renderInitSummary context tp =
     , "  registry prefix: " <> registryPrefix tp
     , "  image bucket: " <> tp ^. #imageBucket
     , "  backup bucket: " <> tp ^. #backupBucket
+    , "  Nix cache: " <> if tp ^. #nixCacheEnabled then "enabled" else "disabled"
+    , "  Nix cache bucket: " <> tp ^. #nixCacheBucket
     , "  instance name: " <> tp ^. #instanceName
     , "  Pulumi backend: " <> pulumiBackendToken backend
     , "  Pulumi backend URL: " <> backendUrl
@@ -297,6 +304,8 @@ renderTargetEnv tp =
     , "export NAGARE_ARTIFACT_REGISTRY_ID=" <> tp ^. #artifactRegistryId
     , "export NAGARE_IMAGE_BUCKET=" <> tp ^. #imageBucket
     , "export NAGARE_BACKUP_BUCKET=" <> tp ^. #backupBucket
+    , "export NAGARE_NIX_CACHE_ENABLED=" <> boolToken (tp ^. #nixCacheEnabled)
+    , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
     , "export NAGARE_BASE_DOMAIN=" <> tp ^. #baseDomain
     , "export NAGARE_ACME_EMAIL=" <> tp ^. #acmeEmail
     , "export NAGARE_ACME_DIRECTORY=" <> tp ^. #acmeDirectory
@@ -315,8 +324,10 @@ renderTargetEnv tp =
   where
     modeToken Cloud = "cloud"
     modeToken Local = "local"
+    boolToken True = "1"
+    boolToken False = "0"
 
--- | The twelve Pulumi config (key, value) pairs to seed from the profile. Order is
+-- | The fourteen Pulumi config (key, value) pairs to seed from the profile. Order is
 -- stable for deterministic output. @nagare:imageBucket@ is REQUIRED by the program
 -- (no default), so it is always present here. The four VM-shape values are pinned
 -- so a later change to a program fallback cannot plan an instance replacement
@@ -331,6 +342,8 @@ seedKeys tp =
   , ("nagare:baseDomain", tp ^. #baseDomain)
   , ("nagare:imageBucket", tp ^. #imageBucket)
   , ("nagare:backupBucket", tp ^. #backupBucket)
+  , ("nagare:enableNixCache", if tp ^. #nixCacheEnabled then "true" else "false")
+  , ("nagare:nixCacheBucket", tp ^. #nixCacheBucket)
   , ("nagare:artifactRegistryId", tp ^. #artifactRegistryId)
   , ("nagare:instanceName", tp ^. #instanceName)
   , ("nagare:machineType", tp ^. #machineType)

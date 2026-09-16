@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
+import { NagareNixCache } from "./src/components/NagareNixCache";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
@@ -25,6 +26,8 @@ const baseDomainCfg = cfg.get("baseDomain") ?? "apps.example.com";
 const artifactRegistryIdCfg = cfg.get("artifactRegistryId") ?? "nagare";
 const backupBucketNameCfg = cfg.get("backupBucket") ?? `${gcpProject}-nagare-backups`;
 const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.<context>.yaml
+const enableNixCacheCfg = cfg.getBoolean("enableNixCache") ?? false;
+const nixCacheBucketCfg = cfg.get("nixCacheBucket") ?? `${gcpProject}-nagare-nix-cache`;
 
 // IP-10: EP-3 writes this after building+registering the NixOS image.
 // `get` (not `require`) so the VM is simply omitted until it is set.
@@ -100,6 +103,14 @@ const perimeter = new NagarePerimeter(
     { dependsOn: apiServices },
 );
 
+const nixCache = new NagareNixCache("nagare-nix-cache", {
+    enabled: enableNixCacheCfg,
+    gcpProject,
+    region,
+    bucketName: nixCacheBucketCfg,
+    serviceAccountEmail: perimeter.serviceAccountEmail,
+}, { dependsOn: apiServices });
+
 // Integration Point 1 — the stable core stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these
 // without updating the MasterPlan and the consuming plans (EP-3/4/6/7).
@@ -112,6 +123,10 @@ export const dataDiskName = perimeter.dataDiskName;
 export const dnsZoneName = perimeter.dnsZoneName;
 export const artifactRegistry = perimeter.artifactRegistry;
 export const backupBucket = perimeter.backupBucket;
+export const nixCacheEnabled = nixCache.enabled;
+export const nixCacheBucket = nixCache.bucket;
+export const nixCacheHmacAccessId = nixCache.hmacAccessId;
+export const nixCacheHmacSecret = nixCache.hmacSecret;
 export const sshCommand = buildSshCommand(perimeter.instanceName, zone, gcpProject);
 
 // MasterPlan 11 / EP-56 — Integration Point 2. The exported binding name *is*

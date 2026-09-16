@@ -20,6 +20,7 @@
 -- artifacts and URL without side effects.
 module Main (main) where
 
+import Control.Applicative ((<|>))
 import Control.Exception (IOException, bracket, bracket_, catch, try)
 import Control.Monad (forM, forM_, unless, void)
 import Data.Aeson qualified as Aeson
@@ -402,6 +403,7 @@ import Nagare.Target
   , setCurrentContext
   , storeBackendFor
   , validateAcmeEmail
+  , validateNixCacheMode
   , validateVmShape
   , vmShapeOf
   , writeContextPlatformVersion
@@ -756,6 +758,8 @@ data ContextCreateOpts = ContextCreateOpts
   , artifactRegistryId :: !(Maybe String)
   , imageBucket :: !(Maybe String)
   , backupBucket :: !(Maybe String)
+  , nixCacheEnabled :: !(Maybe String)
+  , nixCacheBucket :: !(Maybe String)
   , instanceName :: !(Maybe String)
   , targetPlatform :: !(Maybe String)
   , mode :: !(Maybe String)
@@ -1066,6 +1070,8 @@ initOptsParser =
     <*> optional (strOption (long "boot-disk-type" <> metavar "TYPE" <> help "Boot disk type (default pd-balanced; changing a live VM replaces it)"))
     <*> optional (strOption (long "boot-disk-size-gb" <> metavar "GB" <> help "Boot disk size in GB (default 100; changing a live VM replaces it)"))
     <*> optional (strOption (long "data-disk-size-gb" <> metavar "GB" <> help "Data disk size in GB (default 100)"))
+    <*> optional (flag' "1" (long "enable-nix-cache" <> help "Enable the cloud-only Attic binary cache") <|> flag' "0" (long "disable-nix-cache" <> help "Disable Attic without deleting retained resources"))
+    <*> optional (strOption (long "nix-cache-bucket" <> metavar "BUCKET" <> help "Attic GCS bucket (default <project>-nagare-nix-cache)"))
     <*> optional (strOption (long "pulumi-backend" <> metavar "BACKEND" <> help "local | gcs Pulumi state backend (default local; gcs is cloud-only)"))
     <*> optional (strOption (long "pulumi-backend-url" <> metavar "GS_URL" <> help "Explicit gs://bucket/path backend URL (default gs://<project>-nagare-pulumi-state/nagare/<context>)"))
     <*> optional (strOption (long "pulumi-backend-member" <> metavar "PRINCIPAL" <> help "Grant this principal objectAdmin on the state bucket during bootstrap (not persisted)"))
@@ -1095,6 +1101,8 @@ contextCreateOptsParser =
     <*> optional (strOption (long "artifact-registry-id" <> metavar "ID" <> help "Artifact Registry repo id (default nagare)"))
     <*> optional (strOption (long "image-bucket" <> metavar "BUCKET" <> help "Image bucket (default <project>-nagare-images)"))
     <*> optional (strOption (long "backup-bucket" <> metavar "BUCKET" <> help "Backup bucket (default <project>-nagare-backups)"))
+    <*> optional (flag' "1" (long "enable-nix-cache" <> help "Enable the cloud-only Attic binary cache") <|> flag' "0" (long "disable-nix-cache" <> help "Disable Attic without deleting retained resources"))
+    <*> optional (strOption (long "nix-cache-bucket" <> metavar "BUCKET" <> help "Attic GCS bucket (default <project>-nagare-nix-cache)"))
     <*> optional (strOption (long "instance-name" <> metavar "NAME" <> help "VM instance name (default nagare-01)"))
     <*> optional (strOption (long "target-platform" <> metavar "PLATFORM" <> help "Docker build platform (default linux/amd64)"))
     <*> optional (strOption (long "mode" <> metavar "MODE" <> help "cloud | local (default cloud)"))
@@ -2606,7 +2614,7 @@ runVersion :: VersionOpts -> IO ()
 runVersion options = do
   resolvedTools <-
     if options ^. #tools
-      then traverse resolveTool ["pulumi", "pulumi-language-nodejs", "socat", "gcloud", "npm"]
+      then traverse resolveTool ["pulumi", "pulumi-language-nodejs", "socat", "attic", "skopeo", "gcloud", "npm"]
       else pure []
   if options ^. #json
     then
@@ -4340,6 +4348,7 @@ runNamedInit o contextName = do
       context = contextNameText contextName
 
   void (either dieT pure (validateVmShape (vmShapeOf tp)))
+  either dieT pure (validateNixCacheMode tp)
   TIO.putStr (renderInitSummary context tp)
   either dieT pure (checkInitOwnership (isJust (o ^. #pulumiBackendUrl)) context tp)
   (paths, workspace) <- resolvePlatformWorkspace contextName
@@ -4467,6 +4476,10 @@ runLegacyInit mctx o = do
           .~ parsePulumiBackendKind (o ^. #pulumiBackend)
           & #pulumiBackendUrl
           .~ maybe "" T.pack (o ^. #pulumiBackendUrl)
+          & #nixCacheEnabled
+          .~ maybe (defs ^. #nixCacheEnabled) (== "1") (o ^. #nixCacheEnabled)
+          & #nixCacheBucket
+          .~ maybe (project <> "-nagare-nix-cache") T.pack (o ^. #nixCacheBucket)
   contextName <- case o ^. #contextName of
     Just rawName -> parseContextNameOrDie rawName
     Nothing -> parseContextNameOrDie "default"
@@ -4474,6 +4487,8 @@ runLegacyInit mctx o = do
   let tp = case o ^. #contextName of
         Just _ -> baseProfile & #platformVersion .~ Just (workspace ^. #platformVersion)
         Nothing -> baseProfile
+
+  either dieT pure (validateNixCacheMode tp)
 
   case o ^. #contextName of
     Just _ -> do
@@ -4662,6 +4677,7 @@ runContext mctx = \case
     let contextMap = mergeContextOverrides stored (contextEnvPairs o) (workspace ^. #platformVersion)
         tp = profileFromContextMap contextMap
     void (either dieT pure (validateVmShape (vmShapeOf tp)))
+    either dieT pure (validateNixCacheMode tp)
     writeContextProfile name tp
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     forM_ stored $ \previous -> do
@@ -4910,6 +4926,8 @@ contextEnvPairs o =
     , pair "NAGARE_ARTIFACT_REGISTRY_ID" (o ^. #artifactRegistryId)
     , pair "NAGARE_IMAGE_BUCKET" (o ^. #imageBucket)
     , pair "NAGARE_BACKUP_BUCKET" (o ^. #backupBucket)
+    , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
+    , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_INSTANCE_NAME" (o ^. #instanceName)
     , pair "NAGARE_TARGET_PLATFORM" (o ^. #targetPlatform)
     , pair "NAGARE_MODE" (o ^. #mode)

@@ -11,6 +11,9 @@
     url = "github:garnix-io/cradle/711c441fa8f190a8964c56a3bae864cd5321c5c5";
     flake = false;
   };
+  inputs.attic = {
+    url = "github:zhaofengli/attic/12cbeca141f46e1ade76728bce8adc447f2166c6";
+  };
 
   nixConfig = {
     extra-substituters = [ "https://shinzui.cachix.org" ];

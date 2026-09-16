@@ -18,6 +18,7 @@ okf_version: "0.2"
 - [Using kubefwd for development](kubefwd-development.md) - Reach cluster services from a development machine with kubefwd and the active Nagare context.
 - [Managed databases](managed-databases.md) - Declare, provision, connect, back up, restore, and operate Nagare-managed databases.
 - [Messaging brokers](messaging-brokers.md) - Provision, bind, size, observe, and operate Kafka-compatible messaging brokers on Nagare.
+- [In-cluster Nix binary cache](nix-binary-cache.md) - Enable, use, operate, rotate, and recover Nagare's optional Attic cache.
 - [Observability](observability.md) - Install, access, emit to, and verify Nagare metrics, logs, traces, and Grafana dashboards.
 - [Bounded one-shot jobs](one-shot-jobs.md) - Define, run, observe, and safely constrain deadline-bounded one-shot jobs on Nagare.
 - [Persistent storage](persistent-storage.md) - Declare, deploy, back up, restore, and operate persistent application volumes on Nagare.

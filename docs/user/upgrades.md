@@ -23,6 +23,11 @@ Run cloud commands with the intended [target context](contexts.md) active. Keep
 the IAP path in [Accessing the host](accessing-the-host.md) available before a
 host or networking change.
 
+An enabled [in-cluster Nix binary cache](nix-binary-cache.md) is reconciled during the
+cluster phase from the candidate payload's pinned image. Review Attic schema compatibility before
+the apply: a rollback that crosses an incompatible migration also requires the matching PostgreSQL
+backup, not merely the previous server image.
+
 ## Inspect release identity
 
 Select both the Nagare context and its matching kubeconfig, then inspect the

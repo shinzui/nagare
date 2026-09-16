@@ -120,6 +120,8 @@ you can observe.
      persist. 🟡
 7. [Cluster bootstrap](cluster-bootstrap.md) — Knative Serving, Kourier ingress,
    cert-manager, and wildcard DNS/TLS wiring. ✅
+   - [In-cluster Nix binary cache](nix-binary-cache.md) — optionally transport
+     signed Nix closures from trusted producers to build-disabled Jobs. 🟡
 8. [Observability](observability.md) — VictoriaMetrics/Logs/Traces, the OTel
    Collector, and Grafana. ✅
    - [Protecting observability UIs](protecting-observability-uis.md) — publish

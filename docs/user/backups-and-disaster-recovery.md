@@ -42,6 +42,8 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | `nagarectl storage snapshot` → GCS or MinIO (`volumes/<app>/<volume>/`); excluded volumes warned at deploy | ✅ |
 | Managed databases | `nagarectl db backup` / daily CronJob → GCS or MinIO (`databases/<name>/`); keep-last-N; scratch-first restore | ✅ |
+| Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / daily `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
+| Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
 | Victoria metrics/logs/traces data | Optional — usually not worth backing up | — |
 
@@ -58,6 +60,12 @@ The node credential can still delete current backup objects. Versioning gives
 an operator a 30-day recovery window from accidental or malicious deletion; it
 is not an immutable/off-account backup. For higher assurance, replicate the
 bucket into a separately administered project or account.
+
+The optional [in-cluster Nix binary cache](nix-binary-cache.md) deliberately uses a
+separate, unversioned bucket so garbage collection can reclaim chunks. Its PostgreSQL backup is the
+important recovery artifact because it preserves metadata and the NAR signing identity. Bucket loss
+is recovered by rebuilding and repushing closures; database loss requires a restore and public-key
+comparison before clients resume.
 
 ### App volumes: backup-included by default, opt out explicitly
 

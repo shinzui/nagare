@@ -5,6 +5,8 @@
   releaseVersion,
   netCertManagerImage,
   netCertManagerImageReference,
+  atticServerImage,
+  atticPinFile,
   sourceRevision ? null,
 }:
 
@@ -56,6 +58,11 @@ pkgs.runCommand "nagare-platform-${releaseVersion}"
     "$payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
   test "$(tr -d '[:space:]' < "$payload/cluster/bootstrap/net-certmanager/image-reference")" = \
     '${netCertManagerImageReference}'
+  mkdir -p "$payload/cluster/bootstrap/nix-cache"
+  chmod u+w "$payload/cluster/bootstrap/nix-cache"
+  cp "${atticServerImage}" \
+    "$payload/cluster/bootstrap/nix-cache/attic-server-image.tar.gz"
+  cp "${atticPinFile}" "$payload/cluster/bootstrap/nix-cache/attic-pin.json"
   cp -R "$src/scripts" "$payload/scripts"
   cp -R "$src/nixos" "$payload/nixos"
   cp -R "$src/docs/user" "$payload/docs/user"

@@ -361,6 +361,7 @@ import Nagare.Target
   , setCurrentContext
   , storeBackendFor
   , validateAcmeEmail
+  , validateNixCacheMode
   , validateVmShape
   , writeContextPlatformVersion
   )
@@ -526,6 +527,8 @@ initProfile =
     , artifactRegistryId = "nagare"
     , imageBucket = "acme-prod-nagare-images"
     , backupBucket = "acme-prod-nagare-backups"
+    , nixCacheEnabled = False
+    , nixCacheBucket = "acme-prod-nagare-nix-cache"
     , baseDomain = "apps.acme.com"
     , instanceName = "nagare-01"
     , machineType = "e2-standard-2"
@@ -550,6 +553,8 @@ initTests =
         let out = renderTargetEnv initProfile
         assertBool "project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT=acme-prod" out)
         assertBool "derived image bucket" (T.isInfixOf "export NAGARE_IMAGE_BUCKET=acme-prod-nagare-images" out)
+        assertBool "cache disabled" (T.isInfixOf "export NAGARE_NIX_CACHE_ENABLED=0" out)
+        assertBool "derived cache bucket" (T.isInfixOf "export NAGARE_NIX_CACHE_BUCKET=acme-prod-nagare-nix-cache" out)
         assertBool "base domain" (T.isInfixOf "export NAGARE_BASE_DOMAIN=apps.acme.com" out)
         assertBool "machine type" (T.isInfixOf "export NAGARE_MACHINE_TYPE=e2-standard-2" out)
         assertBool "boot disk type" (T.isInfixOf "export NAGARE_BOOT_DISK_TYPE=pd-balanced" out)
@@ -575,7 +580,7 @@ initTests =
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
-    , testCase "seedKeys covers the twelve Pulumi keys incl. the pinned VM shape" $
+    , testCase "seedKeys covers the Pulumi keys incl. cache opt-in and pinned VM shape" $
         map fst (seedKeys initProfile)
           @?= [ "gcp:project"
               , "gcp:region"
@@ -583,6 +588,8 @@ initTests =
               , "nagare:baseDomain"
               , "nagare:imageBucket"
               , "nagare:backupBucket"
+              , "nagare:enableNixCache"
+              , "nagare:nixCacheBucket"
               , "nagare:artifactRegistryId"
               , "nagare:instanceName"
               , "nagare:machineType"
@@ -616,6 +623,8 @@ initTests =
             tp = profileFromContextMap contextMap
         tp ^. #imageBucket @?= "p-nagare-images"
         tp ^. #backupBucket @?= "p-nagare-backups"
+        tp ^. #nixCacheEnabled @?= False
+        tp ^. #nixCacheBucket @?= "p-nagare-nix-cache"
         tp ^. #registryHost @?= "us-west1-docker.pkg.dev"
         tp ^. #instanceName @?= "nagare-01"
         tp ^. #targetPlatform @?= "linux/amd64"
@@ -659,6 +668,14 @@ initTests =
         checkInitOwnership False "labs" initProfile @?= Right ()
         assertBool "stored foreign GCS URL refused" (isLeft (checkInitOwnership False "labs" foreignBackend))
         checkInitOwnership True "labs" foreignBackend @?= Right ()
+    , testCase "nix cache is cloud-only and round-trips when enabled" $ do
+        let enabled = initProfile & #nixCacheEnabled .~ True
+        validateNixCacheMode enabled @?= Right ()
+        validateNixCacheMode (enabled & #mode .~ Local)
+          @?= Left "NAGARE_NIX_CACHE_ENABLED=1 is cloud-only; disable it for local contexts"
+        let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_NIX_CACHE_ENABLED=1\n")
+        parsed ^. #nixCacheEnabled @?= True
+        parsed ^. #nixCacheBucket @?= "acme-prod-nagare-nix-cache"
     , testCase "init summary shows both buckets and the effective GCS URL" $ do
         let out = renderInitSummary "labs" (initProfile & #pulumiBackend .~ PulumiBackendGcs)
         assertBool "heading" (T.isInfixOf "Derived names for context 'labs':" out)
@@ -766,6 +783,7 @@ initTests =
             out = renderContextShellEnv name initProfile penv
         assertBool "context" (T.isInfixOf "export NAGARE_CONTEXT='labs'\n" out)
         assertBool "project" (T.isInfixOf "export CLOUDSDK_CORE_PROJECT='acme-prod'\n" out)
+        assertBool "cache enabled flag" (T.isInfixOf "export NAGARE_NIX_CACHE_ENABLED='0'\n" out)
         assertBool
           "local backend url"
           (T.isInfixOf "export PULUMI_BACKEND_URL='file:///tmp/nagare-state/labs/state'\n" out)
@@ -867,6 +885,8 @@ defaultInitOpts =
     , bootDiskType = Nothing
     , bootDiskSizeGb = Nothing
     , dataDiskSizeGb = Nothing
+    , nixCacheEnabled = Nothing
+    , nixCacheBucket = Nothing
     , pulumiBackend = Nothing
     , pulumiBackendUrl = Nothing
     , pulumiBackendMember = Nothing
@@ -1507,6 +1527,8 @@ tnbProfile =
     , artifactRegistryId = "nagare"
     , imageBucket = "tan-nb-exp-nagare-images"
     , backupBucket = "tan-nb-exp-nagare-backups"
+    , nixCacheEnabled = False
+    , nixCacheBucket = "tan-nb-exp-nagare-nix-cache"
     , baseDomain = "apps.example.com"
     , instanceName = "nagare-01"
     , machineType = "e2-standard-2"
@@ -1547,6 +1569,8 @@ targetProfileTests =
         tp0 ^. #registryHost @?= "us-west1-docker.pkg.dev"
         tp0 ^. #imageBucket @?= "tan-nb-exp-nagare-images"
         tp0 ^. #backupBucket @?= "tan-nb-exp-nagare-backups"
+        tp0 ^. #nixCacheEnabled @?= False
+        tp0 ^. #nixCacheBucket @?= "tan-nb-exp-nagare-nix-cache"
         registryPrefix tp0 @?= "us-west1-docker.pkg.dev/tan-nb-exp/nagare"
         tp0 ^. #targetPlatform @?= "linux/amd64" -- EP-3: default is the node's arch
         tp0 ^. #localObjectStore @?= "" -- EP-84: unset unless local profile sets it
@@ -1593,6 +1617,8 @@ targetProfileTests =
       , "NAGARE_ARTIFACT_REGISTRY_ID"
       , "NAGARE_IMAGE_BUCKET"
       , "NAGARE_BACKUP_BUCKET"
+      , "NAGARE_NIX_CACHE_ENABLED"
+      , "NAGARE_NIX_CACHE_BUCKET"
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"
       , "NAGARE_MACHINE_TYPE"

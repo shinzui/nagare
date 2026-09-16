@@ -18,6 +18,7 @@
         cluster/bootstrap/render-context-template.sh \
         cluster/bootstrap/auth-images/build-local-image.sh \
         cluster/bootstrap/nagare-access/build-image.sh \
+        cluster/bootstrap/nix-cache/*.sh \
         nixos/hosts/nagare-01/forge-credentials-refresh.sh \
         "$checkScripts"/*.sh
       touch "$out"
@@ -145,6 +146,20 @@
     { nativeBuildInputs = [ pkgs.gnugrep pkgs.gnused pkgs.findutils ]; inherit src; }
     ''
       bash ${./scripts/cluster-bootstrap-defaults.sh}
+    '';
+
+  # EP-96: the optional Attic provider remains digest-pinned, hardened, and
+  # syntactically renderable without requiring a live Kubernetes API server.
+  nix-cache-bootstrap-assets = pkgs.runCommand "nagare-nix-cache-bootstrap-assets"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.gnugrep pkgs.gnused pkgs.yq-go ];
+      inherit src;
+      checkScript = ./scripts/nix-cache-bootstrap-assets.sh;
+    }
+    ''
+      cd "$src"
+      bash "$checkScript"
+      touch "$out"
     '';
 
   forge-credential-refresh = pkgs.runCommand "nagare-forge-credential-refresh-test"

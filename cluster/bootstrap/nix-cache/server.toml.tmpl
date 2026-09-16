@@ -1,0 +1,29 @@
+listen = "[::]:8080"
+allowed-hosts = [
+  "nix-cache.nagare-system.svc.cluster.local",
+  "nix-cache.nagare-system.svc.cluster.local:80",
+  "127.0.0.1:8080",
+]
+api-endpoint = "http://127.0.0.1:8080/"
+substituter-endpoint = "http://nix-cache.nagare-system.svc.cluster.local/"
+
+[database]
+heartbeat = true
+
+[storage]
+type = "s3"
+region = "auto"
+bucket = "${NAGARE_NIX_CACHE_BUCKET}"
+endpoint = "https://storage.googleapis.com"
+
+[chunking]
+nar-size-threshold = 65536
+min-size = 16384
+avg-size = 65536
+max-size = 262144
+
+[compression]
+type = "zstd"
+
+[garbage-collection]
+interval = "0 seconds"

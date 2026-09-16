@@ -177,7 +177,32 @@ cluster-bootstrap:
       scripts/retry-knative-configmap-patch.sh config-deployment --type merge \
         --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
     nagarectl cluster certificate-policy
+    @if [ "${NAGARE_NIX_CACHE_ENABLED:-0}" = "1" ]; then cluster/bootstrap/nix-cache/install.sh; fi
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
+
+# Create or rotate the context-owned sops ciphertext for Attic storage/JWT credentials.
+[group('cluster')]
+nix-cache-secret-init *args:
+    cluster/bootstrap/nix-cache/create-secret.sh {{args}}
+
+# Mirror the release-pinned Attic server image to the selected Artifact Registry.
+[group('cluster')]
+nix-cache-publish:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    cluster/bootstrap/nix-cache/publish-image.sh
+
+# Reconcile the enabled Attic cache without re-running the rest of cluster bootstrap.
+[group('cluster')]
+nix-cache-bootstrap:
+    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl cluster guard
+    cluster/bootstrap/nix-cache/install.sh
+
+# Report Attic image, database, rollout, trust, retention, schedules, and client digest.
+[group('cluster')]
+nix-cache-status:
+    nagarectl cluster guard
+    cluster/bootstrap/nix-cache/status.sh
 
 # EP-95: install the two-slot ResourceQuota for deadline-bounded one-shot Jobs.
 # Create/update the personal namespace and bounded Job-run quota.

@@ -4,6 +4,8 @@
   perSystem = { pkgs, nagarePackages, ... }: {
     packages = {
       inherit (nagarePackages) nagarectl;
+      attic-client = nagarePackages.atticClient;
+      attic-server-image = nagarePackages.atticServerImage;
       nagare-platform = nagarePackages.nagarePlatform;
       net-certmanager-controller = nagarePackages.netCertManagerController;
       net-certmanager-controller-image = nagarePackages.netCertManagerControllerImage;

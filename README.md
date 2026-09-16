@@ -45,7 +45,7 @@ Service, wires up secrets and domains, waits for readiness, and prints the URL.
 | **TLS** | cert-manager + Let's Encrypt (wildcard via DNS-01) |
 | **Observability** | [VictoriaMetrics](https://victoriametrics.com/), VictoriaLogs, VictoriaTraces, OpenTelemetry Collector |
 | **Dashboards** | [Grafana](https://grafana.com/) |
-| **Data** | PVC-backed app volumes, managed Postgres/Redis/ClickHouse, Redpanda brokers, GCS or MinIO backups |
+| **Data** | PVC-backed app volumes, managed Postgres/Redis/ClickHouse, Redpanda brokers, optional in-cluster Attic, GCS or MinIO backups |
 
 The Victoria stack replaces Prometheus + Loki + Tempo because it has lower
 operational overhead and memory usage — a better fit for a cheap single-node

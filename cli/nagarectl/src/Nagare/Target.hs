@@ -16,6 +16,7 @@ module Nagare.Target
   , defaultVmShape
   , vmShapeOf
   , validateVmShape
+  , validateNixCacheMode
   , Mode (..)
   , AcmeDirectory (..)
   , PulumiEnv (..)
@@ -432,6 +433,10 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_IMAGE_BUCKET, default @"\<project>-nagare-images"@
   , backupBucket :: !Text
   -- ^ NAGARE_BACKUP_BUCKET, default @"\<project>-nagare-backups"@
+  , nixCacheEnabled :: !Bool
+  -- ^ NAGARE_NIX_CACHE_ENABLED; opt in to the cloud-only Attic component.
+  , nixCacheBucket :: !Text
+  -- ^ NAGARE_NIX_CACHE_BUCKET, default @"\<project>-nagare-nix-cache"@
   , baseDomain :: !Text
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
   , instanceName :: !Text
@@ -566,6 +571,8 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_ARTIFACT_REGISTRY_ID" (tp ^. #artifactRegistryId)
     , line "NAGARE_IMAGE_BUCKET" (tp ^. #imageBucket)
     , line "NAGARE_BACKUP_BUCKET" (tp ^. #backupBucket)
+    , line "NAGARE_NIX_CACHE_ENABLED" (boolToken (tp ^. #nixCacheEnabled))
+    , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
     , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
     , line "NAGARE_MACHINE_TYPE" (tp ^. #machineType)
@@ -591,6 +598,8 @@ renderContextShellEnv name tp penv =
     line k v = "export " <> k <> "=" <> shellQuote v
     modeToken Cloud = "cloud"
     modeToken Local = "local"
+    boolToken True = "1"
+    boolToken False = "0"
 
 -- | Single-quote a value for POSIX shell. A literal single quote is closed,
 -- escaped, and reopened — @'@ becomes @'\\''@ — which is the only quoting that is
@@ -765,6 +774,8 @@ profileFromContextMap ctx =
       registryId = mapOr ctx "NAGARE_ARTIFACT_REGISTRY_ID" "nagare"
       imageBucket = mapOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
       backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
+      nixCacheEnabled = mapRaw ctx "NAGARE_NIX_CACHE_ENABLED" == Just "1"
+      nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
       machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -787,6 +798,8 @@ profileFromContextMap ctx =
         , artifactRegistryId = registryId
         , imageBucket = imageBucket
         , backupBucket = backupBucket
+        , nixCacheEnabled = nixCacheEnabled
+        , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
         , instanceName = instanceName
         , machineType = machineType
@@ -812,6 +825,8 @@ resolveProfileFrom ctx = do
   registryId <- ctxOr ctx "NAGARE_ARTIFACT_REGISTRY_ID" "nagare"
   imageBucket <- ctxOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
   backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
+  nixCacheEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_NIX_CACHE_ENABLED"
+  nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
   machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
@@ -835,6 +850,8 @@ resolveProfileFrom ctx = do
       , artifactRegistryId = registryId
       , imageBucket = imageBucket
       , backupBucket = backupBucket
+      , nixCacheEnabled = nixCacheEnabled
+      , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
       , instanceName = instanceName
       , machineType = machineType
@@ -870,6 +887,14 @@ resolveActiveContext arg = (^. #profile) <$> resolveActiveTarget arg
 -- | Back-compat entry point: resolve with no explicit context selection.
 resolveTargetProfile :: IO TargetProfile
 resolveTargetProfile = resolveActiveContext Nothing
+
+-- | Attic v1 depends on GCS and a GCP HMAC credential, so enabling it in a
+-- local context would describe resources that local bootstrap cannot provide.
+validateNixCacheMode :: TargetProfile -> Either Text ()
+validateNixCacheMode tp
+  | tp ^. #nixCacheEnabled && tp ^. #mode == Local =
+      Left "NAGARE_NIX_CACHE_ENABLED=1 is cloud-only; disable it for local contexts"
+  | otherwise = Right ()
 
 -- | The Kubernetes Secret (in the data-movement Job's namespace) holding the
 -- local MinIO credentials (@AWS_ACCESS_KEY_ID@ / @AWS_SECRET_ACCESS_KEY@). EP-84

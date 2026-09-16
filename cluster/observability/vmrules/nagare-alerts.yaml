@@ -1,4 +1,4 @@
-# Curated alerts for Nagare's single-node k3s platform. These six rules cover
+# Curated alerts for Nagare's single-node k3s platform. These seven rules cover
 # the five operator-relevant failure modes; the chart's broad multi-node rule
 # library is deliberately disabled in victoria-metrics/values.yaml.
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -24,6 +24,18 @@ spec:
           annotations:
             summary: 'Disk {{ $labels.mountpoint }} is {{ $value | printf "%.0f" }}% full'
             description: 'Filesystem {{ $labels.mountpoint }} has been above 80% for 15m. First find the consumer on the host with `sudo du -sh /var/lib/nagare/*` (observability stores are capped, so growth is app volumes, database data, or backups), then free space or grow the data disk. The boot disk (/) cannot be grown in place.'
+            runbook: 'docs/user/resizing-the-vm.md#growing-the-data-disk'
+        - alert: DiskUsageCritical
+          expr: |
+            (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}
+               / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}) * 100
+              > 90
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Disk {{ $labels.mountpoint }} is critically full at {{ $value | printf "%.0f" }}%'
+            description: 'Filesystem {{ $labels.mountpoint }} has been above 90% for 15m. Stop avoidable writes, identify the consumer, and grow or recover storage before databases or observability lose write capacity.'
             runbook: 'docs/user/resizing-the-vm.md#growing-the-data-disk'
         - alert: NodeNotReady
           expr: |

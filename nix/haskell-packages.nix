@@ -1,4 +1,4 @@
-{ pkgs, cradleSrc, platformPackage, sourceRevision ? null }:
+{ pkgs, cradleSrc, platformPackage, atticClient, sourceRevision ? null }:
 
 let
   inherit (pkgs) lib;
@@ -42,9 +42,11 @@ let
     text = builtins.readFile ../scripts/nix-builder-proxy.sh;
   };
   operatorTools = [
+    atticClient
     pkgs.pulumi
     pkgs.pulumiPackages.pulumi-nodejs
     pkgs.socat
+    pkgs.skopeo
     nixBuilderProxy
   ];
 
@@ -127,12 +129,15 @@ let
 
   nagare = pkgs.buildEnv {
     name = "nagare-${haskellPackages.nagarectl.version}";
-    paths = [ operatorNagarectl nagareLauncher nixBuilderProxy ];
+    # Attic and skopeo are also direct release outputs: clone-free operators
+    # can invoke them from #nagare, while the wrapper PATH continues to expose
+    # the complete operator tool set to recipes and nagarectl subprocesses.
+    paths = [ operatorNagarectl nagareLauncher nixBuilderProxy atticClient pkgs.skopeo ];
     pathsToLink = [ "/bin" "/share" "/nix-support" ];
     meta.mainProgram = "nagare";
   };
 in
 {
-  inherit checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
+  inherit atticClient checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }

@@ -17,6 +17,10 @@ export interface StackOutputs {
     dnsZoneName: pulumi.Output<string>;
     artifactRegistry: pulumi.Output<string>;
     backupBucket: pulumi.Output<string>;
+    nixCacheEnabled: pulumi.Output<boolean>;
+    nixCacheBucket: pulumi.Output<string>;
+    nixCacheHmacAccessId: pulumi.Output<string>;
+    nixCacheHmacSecret: pulumi.Output<string>;
     // MasterPlan 11 Integration Point 2 (EP-56) — the standing Google Cloud CDN
     // load balancer's anycast IP, CDN-enabled backend service name, and URL map
     // name. Read by EP-58 to write per-hostname DNS and per-path cache rules.

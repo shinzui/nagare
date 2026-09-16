@@ -67,6 +67,12 @@ node is the context-owned host. The same fail-closed ordering protects `cluster-
 `job-runs-bootstrap`, `observability`, and `deploy-hello`; local-mode recipes keep their separate
 local identity model.
 
+When the selected cloud context has `NAGARE_NIX_CACHE_ENABLED=1`, bootstrap also reconciles
+the optional Attic provider before writing the platform stamp. Its encrypted Secret must already
+exist; follow [In-cluster Nix binary cache](nix-binary-cache.md) for reviewed cloud enablement,
+one-time secret creation, smoke testing, and recovery. Disabled contexts create or delete no cache
+resources.
+
 which (per the `justfile`) creates namespaces and applies, in order:
 
 ```bash
