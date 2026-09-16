@@ -12,6 +12,11 @@ provenance:
       at: 2026-09-16T04:46:25Z
       mode: "update"
       note: "Reconcile child progress, live evidence, secret ownership, and remaining operator gates"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-16T17:57:59Z
+      mode: "implement"
+      note: "Record EP-3 labs preflight and vault access dependency under the private-operator boundary"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -177,8 +182,10 @@ defined by [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context
 Cluster secrets live under
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` (or
 `NAGARE_CLUSTER_SECRETS_DIR`); host secrets live in the generated context host flake.
-A source checkout may retain `cluster/secrets/` only as a compatibility fallback, and
-released payloads/workspaces exclude it. EP-4 established the Grafana Secret consumer,
+A source checkout's resolver retains `cluster/secrets/` compatibility, but ADR 13
+removed this operator's ciphertext and recipients from the public repository. Its
+current example policies and discarded-key fixture are excluded from recovery-key
+work. Released payloads/workspaces exclude cluster secrets. EP-4 established the Grafana Secret consumer,
 EP-5's installer now resolves the context-owned directory fail-closed, and EP-3 owns
 adding the recovery recipient and re-keying every actual context-owned ciphertext.
 
@@ -242,6 +249,9 @@ complete; the child plans hold the granular checklists.
 - [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
 - [x] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (2026-09-15 — the released program was applied to the fresh `tan-ng-labs` target and authoritative GCP/Kubernetes reads plus a 31-unchanged preview proved the intended protections)
 - [~] EP-3 M2: sops — an offline recovery recipient for every secret (2026-09-15 — policy cleanup and the context-owned secret boundary are complete; generating/vaulting the recovery key, re-keying live host and cluster secrets, and updating the runbook remain operator work)
+- [x] EP-3 M2 preflight (2026-09-16): inventoried the selected labs host and
+  nix-cache ciphertext and proved workstation decryption for both. Recovery-key
+  custody/access remains unresolved; the 1Password CLI has no configured account.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
@@ -318,6 +328,13 @@ implementation):
 
 Discoveries from implementation:
 
+- **EP-3's current files do not match its historical key assumptions** (2026-09-16).
+  The selected labs host already accepts the workstation identity and has its own
+  host recipient. Its operational host directory is a regular XDG directory, while
+  cluster secrets point into a private repository. Re-keying a repository host copy
+  alone can miss the deployed input. ADR 13's public fixture has a discarded key and
+  is excluded from recovery acceptance; EP-3 now records the actual inventory and
+  successful workstation decryption. Vault access remains unresolved.
 - **`shellcheck` is not in the dev shell** (EP-1, 2026-08-05). Every plan in this
   MasterPlan that lints shell should note this: `flake.nix` pulls
   `pkgs.shellcheck` only into the hermetic `shellcheck-scripts` check
@@ -418,6 +435,16 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: resume EP-3 against the selected `labs` context and apply ADR 13's
+  existing distinction between private operational ciphertext and public examples.
+  Rationale: the current host is already workstation-decryptable, uses its own host
+  recipient, and is a regular XDG directory; cluster secrets resolve into a separate
+  private repository. EP-3 now inventories those actual files and their backups,
+  excludes discarded-key fixtures, and requires isolated vault-retrieved recovery
+  decryption. No recipient changes can proceed until recovery-key custody/access
+  is established.
+  Date: 2026-09-16
 
 - Decision: Organize all review findings under one MasterPlan with seven themed
   child ExecPlans in three phases, rather than several MasterPlans or a
@@ -526,6 +553,13 @@ Discoveries from implementation:
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
+The 2026-09-16 EP-3 resumption verified existing workstation access to both selected
+labs secret files and corrected stale public-fixture and fixed-host-key instructions.
+No secret or cloud state changed. EP-3 remains In Progress pending the operator's
+vaulted recovery identity and retrieval method; the CLI reports no configured
+1Password accounts. The required re-key, independent recovery proof, live host
+rendering, and final runbook update remain open.
+
 EP-4's repository changes for resource bounds, observability storage caps,
 Grafana credential handling, datasource single-sourcing, immutable auth tags,
 dependency-owned migrations, and local MinIO pinning are complete and pass their
@@ -565,3 +599,8 @@ rewrote the remaining-work view around four independently runnable operator acce
 bundles. Cascaded the current auth-probe, two-migration-Job, and context-owned
 Grafana-secret assumptions into EP-4 so its remaining live rollout is executable. No
 architecture decision changed in this refresh.
+
+Revision note (2026-09-16): recorded EP-3's current labs inventory and successful
+workstation decryption, corrected recovery scope to the existing ADR 13 boundary,
+and retained the vault-access blocker. The child plan now accounts for differing
+host/cluster ownership paths and excludes intentionally undecryptable public fixtures.

@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-15T13:31:15Z
       mode: "update"
       note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-16T17:57:59Z
+      mode: "implement"
+      note: "Verify labs secret inventory and workstation access; correct recovery procedure and record vault blocker"
 ---
 
 # Protect stateful infrastructure and make secrets and state recoverable
@@ -36,11 +41,12 @@ is currently one mistake away from being unrecoverable:
   deleted backups are gone instantly.
 - The operational host secrets file now belongs to the selected context at
   `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/<context>/secrets.yaml`. A legacy
-  installation may still be sourced from the checked-in
-  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` compatibility fixture. In either case
-  it is encrypted only to the host's age key, whose private half exists only on the VM
-  at `/var/lib/sops-nix/age-key.txt`. If the VM dies before that key is copied to a
-  vault, the active secret is unrecoverable and the operator cannot edit it locally.
+  installation's ciphertext must be recovered from its private operator repository.
+  The original host file had only a host recipient. The active `labs` context now
+  has host and workstation recipients, but no independently vaulted recovery
+  recipient has been verified. Losing both identities would still lose the secrets.
+  The public checkout's `example.yaml` is an evaluation fixture with a discarded
+  private key, not an operational secret or a recovery source (ADR 13).
 - The VM's service account holds project-wide `roles/dns.admin` (it only needs the one
   zone), and the instance carries a contradictory `enable-oslogin: TRUE` metadata entry
   that NixOS force-disables.
@@ -99,20 +105,27 @@ recovery key, re-keying every context-owned secret, and the matching recovery ru
   commit `4148e68`; verified by a `sops -e`/`sops -d` round-trip of a scratch file
   under `cluster/secrets/`)
 - [ ] M2a (BLOCKED — needs operator key handling): generate the offline recovery age
-  key, store the private half in the password manager, and add its public half to the
-  source-checkout cluster-secret policy and the operator-owned policy governing the
-  active context's host/cluster secrets. Add the workstation key to the host rule.
+  key, store the private half in the password manager, and add its public half only
+  to the operator-owned policies governing the active context's host/cluster secrets.
+  Preserve existing consumer and workstation recipients. The public example policies
+  and intentionally undecryptable fixture are excluded under ADR 13.
   Deliberately not started: adding an unstored recovery recipient would create a key
   path nobody can use.
 - [ ] M2b (BLOCKED — needs the recovery key, active cloud context, and running VM):
   inventory and re-key every encrypted Secret in the context-owned cluster-secret
-  directory plus the actual host file returned by `nagarectl host path`. If the live
-  installation has not yet migrated to a generated host flake, decrypt and re-key the
-  legacy checked-in file over IAP first, then install that ciphertext into the new
-  context host flake with `nagarectl host init --sops-file`.
+  directory plus the actual host file returned by `nagarectl host path`. Resolve
+  policy paths and canonical ciphertext paths before updating keys; the current
+  labs host directory is a regular directory, while its cluster-secret directory
+  points into a different private repository.
 - [ ] M2c (BLOCKED — depends on M2a/M2b): rewrite the age-key section of
   `docs/runbooks/disaster-recovery.md` to name all three keys. Not written yet because
   it would document a three-key model that does not exist until the re-key lands.
+- [x] M2 preflight (2026-09-16): selected context is `labs`; both the generated
+  host `secrets.yaml` and context-owned `nix-cache.yaml` decrypt with the explicitly
+  selected workstation key, with plaintext discarded. The host has host plus
+  workstation recipients; nix-cache has only the workstation recipient. The
+  1Password CLI reports no configured accounts, so recovery-key custody/access
+  still needs operator input. No key or ciphertext was changed.
 - [x] M3 live state migration (reconciled 2026-09-15 from EP-116): the active
   `tan-nb-exp` context's 32-resource stack was exported and imported into
   `gs://tan-nb-exp-nagare-pulumi-state/nagare/tan-nb-exp`; outputs matched, the bucket is
@@ -268,6 +281,32 @@ M3.
 
 (Add further implementation discoveries here as they occur.)
 
+**The resumed secret inventory differs from the old plan (2026-09-16).**
+`nagarectl context current` returns `labs`. Its generated host file is in the regular
+XDG host directory, with host recipient `age174qfjlcm6dw3nwr5pcdwzgmv23a98239kmawfj5udxredhy8he0stxsa7z`
+and the existing workstation recipient. The cluster-secret directory resolves to
+`mori://shinzui/nagare-ops` at project-relative path `cluster-secrets/labs/`, containing
+`nix-cache.yaml`; artifact-level URI coverage is pending. The matching cluster policy
+is that project's `.sops.yaml`. The labs host policy and a versioned host copy exist
+in `mori://tan/tan-ng-labs` at project-relative paths `.sops.yaml` and
+`hosts/labs/secrets.yaml` (artifact-level URIs pending). Re-keying that repository
+copy alone would miss the current regular XDG host file. Inventory both and preserve
+any differences before synchronizing encrypted copies.
+
+The following checks printed no secret values:
+
+```text
+labs host: workstation decrypt PASS
+labs nix-cache: workstation decrypt PASS
+op account list --format json: []
+```
+
+ADR 13 removed the historical operator ciphertext from the public checkout. A raw
+`git grep` for `ENC[AES256_GCM` now finds test strings, documentation, and the
+deliberately undecryptable `nixos/hosts/nagare-01/secrets/example.yaml`. Those matches
+must not become recovery-key targets. The old fixed host-recipient assertion would
+also reject the valid labs host identity.
+
 
 ## Decision Log
 
@@ -377,6 +416,15 @@ Record every decision made while working on the plan.
 
 (Record further decisions as work proceeds.)
 
+- Decision: apply ADR 13's existing private-operator boundary to all remaining M2
+  steps, discover each host recipient from the selected context, and require a
+  vaulted recovery identity before changing recipients.
+  Rationale: the public example has no recoverable private key, labs already has
+  workstation access, and its effective host and cluster files have different
+  ownership paths. No new architecture decision is introduced. The missing vault
+  account/access cannot be replaced by generating an unvaulted identity.
+  Date: 2026-09-16
+
 
 ## Outcomes & Retrospective
 
@@ -397,6 +445,12 @@ payloads/workspaces no longer carry cluster secrets, and recovery work targets t
 host flake and context-owned encrypted Secret directory. The packaged asset and clone-free checks
 prove that boundary. Live GCP apply and state migration are no longer open; offline-key
 creation/re-keying, the truthful runbook update, and final MasterPlan closeout remain.
+
+The 2026-09-16 implementation preflight narrowed M2 to the actual labs files and
+proved workstation decryption for both without exposing plaintext. Recovery-key
+creation/retrieval is pending operator vault access; no recipients, cloud state,
+or running services changed. The public example is excluded by the existing ADR 13
+contract, and the plan no longer instructs an implementer to re-key it.
 
 
 ## Context and Orientation
@@ -438,7 +492,7 @@ via `NagareInstance` (lines 141–152).
 Secrets use **sops** with **age** keys. sops stores ciphertext plus age recipients
 (public keys) that can unwrap the file's data key. Released payloads exclude operator
 credentials. The active cloud context therefore has two operator-owned stores to
-inventory in addition to any legacy checkout ciphertext:
+inventory together with their private-repository backups:
 
 - `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` contains
   encrypted Kubernetes Secret manifests. `NAGARE_CLUSTER_SECRETS_DIR` may name an
@@ -446,15 +500,20 @@ inventory in addition to any legacy checkout ciphertext:
   permits tracked `cluster/secrets/` only as a source-checkout compatibility fallback.
 - `nagarectl host path --context <context>` returns a generated host flake whose
   `secrets.yaml` is the operational sops-nix input. Its policy is operator-owned and
-  may live beside that flake or in a private configuration repository. The checked-in
-  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` and `nixos/.sops.yaml` are legacy /
-  evaluation compatibility inputs, not an operational fallback after host generation.
+  may live beside that flake or in a private configuration repository. The historical
+  `nixos/hosts/nagare-01/secrets/nagare-01.yaml` has been removed; the public
+  `example.yaml` and `nixos/.sops.yaml` are evaluation inputs, never operational
+  recovery sources.
 
-The root `.sops.yaml` still governs tracked checkout examples with the workstation
-recipient `age1pqfv2y3…`; the existing host recipient is `age1rc26869…`, whose private
-half is on the VM at `/var/lib/sops-nix/age-key.txt`. Before re-keying, inventory both
-Git (`git grep -l 'ENC\[AES256_GCM'`) and the two context-owned directories. Acceptance
-covers the union, not merely the files committed in this repository.
+The public `.sops.yaml` files govern examples only, using a discarded example
+identity. They must never acquire operator recovery recipients. Before re-keying,
+inventory the selected context's actual files and their private-repository copies;
+classify public Git matches as fixtures, code, documentation, or actual operator
+ciphertext instead of blindly treating every match as a secret. Record the current
+consumer recipients from each file's sops metadata. The original context used
+`age1rc26869…`; labs uses `age174qfjl…`. The on-host private-key path remains
+`/var/lib/sops-nix/age-key.txt`. [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
+defines this public-example/private-operator distinction.
 
 Pulumi **state** (the ledger of which cloud resources Pulumi owns) lives, per target
 context, in a local `file://` backend under
@@ -645,66 +704,57 @@ and make boot disk config-driven`).
 
 ### Milestone 2 — sops: an offline recovery recipient for every secret
 
-Scope: the checkout's cluster-secret policy/examples, the active context's
-operator-owned cluster-secret directory and host flake, and the age-key section of
-`docs/runbooks/disaster-recovery.md`. At the end, every encrypted file used by the
-active context is decryptable by (a) its original consumer key, (b) the operator's
-workstation key, and (c) a new offline recovery key whose private half lives only in
-the operator's vault. Acceptance inventories both Git and XDG configuration, decrypts
-their union with the workstation and recovery keys, and proves the host still renders
-its generated flake's secrets with `nagare host-switch`.
+Scope: the active context's operator-owned secret policies, cluster-secret directory,
+host flake, their private-repository backups, and the runbook's age-key section.
+Every operational ciphertext must retain its consumer recipients and become
+decryptable independently with the workstation identity and a vaulted offline
+recovery identity. The public checkout's policies and discarded-key evaluation
+fixture are excluded by ADR 13.
 
-First generate the recovery key with `age-keygen` (age is in the dev shell). Record the
-public key (a string starting `age1`), store the private half (`AGE-SECRET-KEY-…`) in
-the password manager under a clearly-named entry ("nagare sops recovery age key"), and
-delete any on-disk copy after M2b's verification. **Never commit the private half; it
-must not permanently live on any machine.**
+First resolve the intended vaulted recovery identity, or generate a new identity
+using `age-keygen` in a private temporary directory after establishing how it will
+be stored in the operator's vault. Store and retrieve the private half through the
+vault before modifying any recipients. Record only the public recipient and vault
+item reference in the private operator repository. Never put the private key in
+chat, command arguments, logs, Git, or a platform payload. Remove temporary private
+material after successful vault retrieval and verification.
 
-Add the recovery public key to the root `.sops.yaml` rule that governs tracked
-checkout cluster-secret examples. Update or create the operator-owned sops policy that
-governs `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` and the
-file returned by `nagarectl host path`; its host rule lists the host key, workstation
-key, and recovery key. Do not make `nixos/.sops.yaml` the policy for a generated host
-flake: ADR 5 deliberately places that configuration outside the release.
+Resolve the active context's actual host and cluster ciphertext paths, following
+symlinks. Inventory their private-repository backups too. On the 2026-09-16 labs
+preflight the host was a regular XDG directory while cluster secrets were a symlink
+into a different private repository; updating only a versioned host copy would not
+change the operational file. Compare any copies before editing, preserve differences,
+and select an explicit private sops policy whose path rules match each canonical
+target. Do not run updatekeys against the public checkout's example policy.
 
-Re-key the encrypted files. `sops updatekeys` re-wraps the file's data key for the new
-recipient set, but it needs to *decrypt* the data key first, i.e. it requires access to
-some **existing** recipient's private key:
+Add the recovery recipient to the applicable private policy rules without dropping
+existing recipients or changing encrypted-field selection. The host rule must keep
+that context's host recipient and the workstation recipient. For labs, both the
+host file and `nix-cache.yaml` already decrypt with the workstation identity, so
+`sops updatekeys` can rewrap their data keys locally. If another context is still
+host-only, use its authenticated IAP connection for in-memory decryption and
+re-encryption; do not export its host private key. Missing operational ciphertext is
+a blocker, never a reason to substitute the public example.
 
-- `cluster/secrets/notes-db-url.yaml`: the workstation key is an existing recipient
-  and `~/.config/sops/age/keys.txt` holds it (confirm with `age-keygen -y
-  ~/.config/sops/age/keys.txt`, which must print `age1pqfv…`). Run
-  `sops updatekeys -y cluster/secrets/notes-db-url.yaml` from the repo root. The diff
-  touches only the sops metadata block (new `age:` recipient stanzas; MAC unchanged).
-- The actual host `secrets.yaml` returned by `nagarectl host path` may still have only
-  the host recipient, whose private key lives on the VM. If the generated flake does
-  not exist yet, use the legacy checked-in ciphertext as the migration source. Decrypt
-  over IAP SSH into a shell variable, re-encrypt under the operator-owned three-key
-  policy, then pass that encrypted file to `nagarectl host init --sops-file`. Whole-file
-  re-encryption changes every ciphertext byte; only the plaintext must round-trip.
+Keep pre-change ciphertext backups until each updated file passes independent
+workstation-only and recovery-only decryption, and compare the plaintext internally
+without printing it. The recovery-only proof must use the key retrieved from the
+vault and exclude all ambient workstation and SSH identities. Verify the original
+host recipient remains present. Synchronize the intended private-repository backup
+and actual context file only after reconciling any differences, then run the
+selected context's packaged `nagare host-switch` and verify sops-nix renders its
+expected `/run/secrets` entries. Inspect an activation failure before treating it
+as unrelated; retain the previous ciphertext and generation for rollback.
 
-Verify per Concrete Steps: decrypt each file with the workstation key; decrypt each
-with the recovery key (feed it via `SOPS_AGE_KEY` from the vault copy); statically
-confirm the host recipient `age1rc26…` still appears in the host file's metadata; and
-(recommended, live) run `nagare host-switch` so sops-nix re-activates and Tailscale stays
-up, proving the host still decrypts. Note the pre-existing wrinkle recorded in project
-memory: the host has a known sops age-key/Tailscale issue that can make `host-switch`
-exit non-zero for unrelated reasons — the assertion that matters is that sops-nix
-renders `/run/secrets/…` (check `ssh deploy@… 'sudo ls /run/secrets'` via the tunnel).
-
-Finally rewrite the runbook's key section, `docs/runbooks/disaster-recovery.md` lines
-25–31 ("The one thing that is NOT in Git or the bucket") — and only that section, since
-EP-103 owns the rest of the file — to a "The keys that are NOT in Git" section naming
-all three keys: the **host key** (`age1rc26869…`; private at
-`/var/lib/sops-nix/age-key.txt` on the VM; consumed by sops-nix at NixOS activation),
-the **workstation/project key** (`age1pqfv2y3…`; private at
-`~/.config/sops/age/keys.txt`; day-to-day `sops` editing of both secret trees), and the
-**offline recovery key** (public in both `.sops.yaml` files; private *only* in the
-vault; the disaster-recovery root of trust — with it alone, every secret in Git
-decrypts even if both machines are lost). Suggested commits:
-`feat(secrets): add offline recovery recipient to all sops rules` (policy files +
-re-keyed secrets) and `docs(runbooks): document the three sops age keys` (or one
-combined commit).
+Finally rewrite only the runbook's age-key section to describe the three roles:
+the context-specific host identity at its configured on-host age-key path, the
+workstation identity used for daily editing, and the offline recovery identity held
+in the vault. Public documentation describes roles and discovery paths; actual
+operator recipient and vault references belong in the private repository. Do not
+claim recovery acceptance until vault retrieval, isolated decryption, and live host
+rendering succeed. Suggested commits are `feat(secrets): add offline recovery recipients`
+for private policies and ciphertext, and `docs(runbooks): document verified secret recovery`
+for the public documentation. Include the required plan and intention trailers.
 
 ### Milestone 3 — Pulumi state: off the laptop, onto versioned GCS
 
@@ -822,71 +872,59 @@ git commit -m "feat(infra): protect stateful resources and harden backup buckets
 
 ### M2
 
-Generate and stash the recovery key, then inventory Git and the selected context:
+Begin with a read-only inventory in the selected context:
 
 ```bash
-age-keygen -o /tmp/nagare-recovery.txt      # prints "Public key: age1..."
-# Copy the file's contents into the password manager NOW ("nagare sops recovery age key").
 context="$(nagarectl context current)"
-host_root="$(nagarectl host path --context "${context}" 2>/dev/null || true)"
+host_root="$(nagarectl host path --context "${context}")"
 cluster_secret_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/${context}}"
-git grep -l 'ENC\[AES256_GCM'
-find "${cluster_secret_dir}" -maxdepth 1 -type f -name '*.yaml' -print
-test -n "${host_root}" && printf '%s\n' "${host_root}/secrets.yaml"
+test -f "${host_root}/secrets.yaml"
+test -d "${cluster_secret_dir}"
+ls -ld "${host_root}" "${cluster_secret_dir}"
+rg --files -L "${cluster_secret_dir}" -g '*.yaml' -g '*.yml'
+rg -n 'recipient:' "${host_root}/secrets.yaml"
 ```
 
-Update the checkout and operator-owned sops policies, then re-key every context-owned
-cluster secret. The workstation key is an existing recipient for the tracked examples:
+Record each encrypted manifest, including multi-document YAML, its canonical path,
+owning private policy, and original recipients. Check private-repository copies
+separately; an XDG host directory is not necessarily a symlink. Exclude plaintext
+examples and the public discarded-key fixture. Prove existing workstation access
+without showing decrypted output:
 
 ```bash
-age-keygen -y ~/.config/sops/age/keys.txt   # must print age1pqfv2y3...
-SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops updatekeys -y cluster/secrets/notes-db-url.yaml
-for secret in "${cluster_secret_dir}"/*.yaml; do
-  SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops updatekeys -y "${secret}"
-done
+env -u SOPS_AGE_KEY -u SOPS_AGE_KEY_CMD \
+  -u SOPS_AGE_SSH_PRIVATE_KEY_FILE -u SOPS_AGE_SSH_PRIVATE_KEY_CMD \
+  SOPS_AGE_KEY_FILE="${HOME}/.config/sops/age/keys.txt" \
+  sops -d "${host_root}/secrets.yaml" >/dev/null
 ```
 
-For the host, use `${host_root}/secrets.yaml` when it exists. If this legacy target has
-not generated a host flake yet, use the checked-in compatibility ciphertext as the
-migration source, re-encrypt it under the operator-owned host policy, then run
-`nagarectl host init --context "${context}" --sops-file <encrypted-file>` with the
-complete operator SSH-key arguments. The decrypt step requires the running VM:
+Repeat that check for every inventoried cluster file. A failure is a distinct
+existing-key/access problem and must be resolved before re-keying that file.
 
-```bash
-if [ -n "${host_root}" ] && [ -f "${host_root}/secrets.yaml" ]; then
-  source_secret="${host_root}/secrets.yaml"
-else
-  source_secret="nixos/hosts/nagare-01/secrets/nagare-01.yaml"
-fi
-TUNPID="$("${workspace}/scripts/iap-ssh.sh" tunnel "${NAGARE_INSTANCE_NAME}" 22 2222)"
-PLAINTEXT=$(ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -p 2222 deploy@127.0.0.1 \
-  "sudo SOPS_AGE_KEY_FILE=/var/lib/sops-nix/age-key.txt \
-   nix run nixpkgs#sops -- -d /dev/stdin" < "${source_secret}")
-# Re-encrypt with the operator-owned policy and write to a staging encrypted file;
-# never put plaintext on disk. Replace this command's --config path with the
-# operator policy that covers the context host file.
-printf '%s\n' "$PLAINTEXT" | sops --config /secure/operator/.sops.yaml \
-  -e --input-type yaml --output-type yaml /dev/stdin > /secure/operator/rekeyed-host-secrets.yaml
-unset PLAINTEXT; kill "$TUNPID"
-```
+For the 2026-09-16 labs selection, the inventory consists of the regular XDG host
+`secrets.yaml` and the cluster directory's `nix-cache.yaml`. The owning private
+projects and backup paths are recorded in Surprises & Discoveries. The 1Password
+CLI returns no configured accounts, so establish vault access or a secure
+operator-provided retrieval method before continuing. Do not generate an identity
+that cannot be vaulted.
 
-Verify every inventoried ciphertext with the workstation and recovery keys. The host
-metadata must retain its consumer recipient; then activate through the packaged recipe:
+After vault storage and retrieval are verified, update the discovered private
+policy, preserve a ciphertext backup, and invoke `sops --config <private-policy>
+updatekeys -y <canonical-ciphertext>` from that policy's repository root for each
+matched operational file. For the regular XDG host copy, use a private policy whose
+path rule explicitly covers it or reconcile through its versioned counterpart;
+never rely on a repository-relative rule matching an unrelated absolute path.
+Preserve symlinks and all pre-existing content differences.
 
-```bash
-recovery_key="$(grep AGE-SECRET-KEY /tmp/nagare-recovery.txt)"
-for secret in "${cluster_secret_dir}"/*.yaml "${host_root}/secrets.yaml"; do
-  SOPS_AGE_KEY_FILE=~/.config/sops/age/keys.txt sops -d "${secret}" >/dev/null
-  SOPS_AGE_KEY="${recovery_key}" sops -d "${secret}" >/dev/null
-done
-grep -q 'recipient: age1rc26869' "${host_root}/secrets.yaml"
-nagare host-switch
-shred -u /tmp/nagare-recovery.txt            # vault copy is now the only private copy
-```
-
-Then verify over the tunnel that `sudo ls /run/secrets` shows the rendered secrets and
-edit the runbook key section. Never commit the recovery private key or a generated host
-flake unless it lives in the operator's intended private configuration repository.
+Use only the workstation identity for one decryption pass and only the retrieved
+recovery identity for another. Explicitly disable the normal age key file, key
+command, and SSH identities during the recovery pass; merely adding
+`SOPS_AGE_KEY` while leaving workstation access enabled is not evidence. Keep all
+plaintext comparisons internal. Check every encrypted YAML document and retained
+consumer recipient, activate with `nagare host-switch`, and inspect the selected
+host's rendered secret paths without printing their values. Then remove temporary
+private-key material, retain the verified vault copy, update the runbook key section,
+and record acceptance. Never commit a private key to any repository.
 
 ### M3
 
@@ -945,12 +983,14 @@ explicitly "preview shows update-in-place only".
 and a certificate issuance or renewal completes (no `403` / `forbidden` events on the
 Challenge resources: `kubectl describe challenge -A` clean).
 
-**Secrets are recoverable and editable.** With only the recovery key
-(`SOPS_AGE_KEY=…`), `sops -d` succeeds on the union of files listed by
-`git grep -l 'ENC\[AES256_GCM'`, the active context's cluster-secret directory, and
-`$(nagarectl host path)/secrets.yaml`. With the workstation key, the same. The
-operational host file's metadata still lists the host recipient `age1rc26869…`, and
-after `nagare host-switch` sops-nix renders `/run/secrets` on the VM.
+**Secrets are recoverable and editable.** With only the recovery identity retrieved
+from the vault enabled, `sops -d` succeeds on every operational ciphertext in the
+active context's cluster-secret directory, `$(nagarectl host path)/secrets.yaml`,
+and their inventoried private-repository backups. Repeat with only the workstation
+identity enabled. Ambient workstation or SSH identities must not satisfy the
+recovery-only test. The host's own inventoried recipient remains present, and after
+`nagare host-switch` sops-nix renders `/run/secrets` on the selected VM. Public
+fixtures and textual `ENC[...]` examples are excluded. Plaintext remains unchanged.
 
 **State is off the laptop.** Workspace-resolved `pulumi whoami -v` reports the `gs://`
 backend for the active cloud context, and `pulumi preview` against it reports all resources
@@ -1016,8 +1056,8 @@ Infrastructure code: `@pulumi/pulumi` and `@pulumi/gcp` (already dependencies of
   bootDiskType: string;`; the instance sets `deletionProtection` and the explicit boot
   disk `size`/`type`; the `metadata` block is removed.
 
-Secrets tooling: `sops` and `age`. At the end of M2, tracked cluster-secret examples
-and the operator-owned context policy include the recovery recipient; the generated
+Secrets tooling: `sops` and `age`. At the end of M2, the operator-owned context
+policies include the recovery recipient; the generated
 host flake's file includes host + workstation + recovery recipients. sops-nix still
 reads `/var/lib/sops-nix/age-key.txt`. `scripts/lib/cluster-secrets.sh` resolves
 `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/`, permits
@@ -1063,3 +1103,10 @@ tagged-release contracts recorded in `docs/adr/0003-*.md` through
   `tan-nb-exp` export/import transcript. Updated Progress, Surprises, Decision Log, and Outcomes;
   kept the operator-held recovery-key and re-key work explicitly open. No cloud or secret state
   changed during this audit.
+
+- 2026-09-16 — Resumed M2 against the selected labs context, verified workstation
+  decryption of its host and nix-cache ciphertext, and recorded unresolved vault
+  access. Corrected the remaining procedure to follow ADR 13: exclude discarded-key
+  public fixtures, resolve private policies and actual context copies, retain the
+  context-specific host recipient, and isolate identities during recovery proof.
+  No operational ciphertext or running service was changed.
