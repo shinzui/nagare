@@ -76,9 +76,8 @@ observation. The new Grafana ciphertext backup is
 published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
 prove both phone delivery and the live metric/status paths. EP-7 must activate its
-tested kubeconfig parent-directory correction, finish the k3s Secret reencryption
-rotation, and prove a private image can be pulled more than 45 minutes after k3s
-starts without restarting it. Everything else in the registry is
+tested kubeconfig parent-directory correction and prove a private image can be pulled more than
+45 minutes after k3s starts without restarting it. Everything else in the registry is
 complete or repository-complete with its remaining live proof named explicitly below.
 
 Out of scope: new product features (workload kinds, brokers, the agent content
@@ -358,8 +357,9 @@ complete; the child plans hold the granular checklists.
   (2026-09-16 — the released configuration is live on labs, the kubeconfig file is
   `640 root:wheel`, and datastore encryption is enabled; a read-only audit found its
   `700 root:root` parent blocked wheel traversal. The tested repository correction makes the
-  directory `750 root:wheel`; activation/operator verification and rotation from stage `start`
-  to `reencrypt_finished` remain)
+  directory `750 root:wheel`; activation/operator verification remains. First-start evidence
+  proves encryption covered the datastore from birth; `Enabled` + stage `start` is normal before
+  optional key rotation, so no reencryption is required)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -561,11 +561,21 @@ Discoveries from implementation:
   infrastructure protections, host mode, fresh-start datastore encryption, and
   pull-secret timer. [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md)
   proves the active `tan-nb-exp` Pulumi stack's exact GCS
-  migration. Neither substitutes for human custody of the recovery key, late datastore
-  reencryption, or an expired-boot-token private pull, so those checks remain open.
+  migration. Neither substitutes for human custody of the recovery key or an expired-boot-token
+  private pull. A later first-start audit closed the supposed reencryption gap: labs used its
+  encryption provider from datastore creation, and stage `start` is normal while encryption is
+  Enabled.
 
 
 ## Decision Log
+
+- Decision: close EP-7 encryption-at-rest acceptance from first-start evidence; do not rotate
+  labs keys solely to obtain stage `reencrypt_finished`.
+  Rationale: upstream k3s documents `Enabled` + `start` as a normal state before optional key
+  rotation. Labs created its datastore and encryption config within the same first-boot second,
+  and its first API server loaded the encryption provider. No plaintext era exists to migrate, so
+  rotation would add a datastore rewrite and restart without improving the stated guarantee.
+  Date: 2026-09-16.
 
 - Decision: accept the later `DiskUsageCritical` addition as EP-5's seventh
   curated rule while keeping the failure-mode count at five.
@@ -769,8 +779,9 @@ curated rules, and status proves the correct empty fallback. Pushover configurat
 phone delivery, and a fresh live `databases/<name>` age remain open because labs has
 neither the ciphertext nor a managed database/backup. EP-7's host configuration is active on labs;
 its tested kubeconfig directory correction still needs activation, followed by operator-access
-verification, late datastore reencryption, and a private pull after the boot token expires. EP-3's
-successful secrets activation does not prove those behaviors.
+verification and a private pull after the boot token expires. First-start evidence now closes
+encryption-at-rest without an unnecessary key rotation. EP-3's successful secrets activation does
+not prove the remaining behaviors.
 
 The next child is EP-4. It and EP-5 can share a live cluster session, while
 EP-7 can use the same host window for its correction and remaining checks. The full disaster-
@@ -800,8 +811,9 @@ publication is authorized and verified, including its pre-existing unpublished h
 
 Revision note (2026-09-16, EP-7 audit): recorded the live kubeconfig parent-directory
 permission defect, the tested declarative correction, and the ready private-image candidate.
-EP-7 now requires activation/operator-access verification in addition to its reencryption and
-uncached-pull proofs; the read-only audit made no host or cluster mutation.
+EP-7 now requires activation/operator-access verification and an uncached-pull proof. First-start
+evidence plus current upstream k3s semantics closed the supposed reencryption gap without a risky
+datastore rewrite; the read-only audit made no host or cluster mutation.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

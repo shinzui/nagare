@@ -82,9 +82,11 @@ while every runbook step matches the real tree.
   pre-k3s registry bootstrap preserve that ownership and mode; focused evaluation/build checks pass.
 - [ ] M1 live activation and operator-access verification: apply the directory correction, prove
   `kubectl get nodes` works as `deploy` without sudo, and retain denial for a non-wheel user.
-- [ ] M1 remaining online migration: complete the rotation/reencryption procedure on the live
-  datastore and verify `Current Rotation Stage: reencrypt_finished`. The labs host currently reports
-  `Current Rotation Stage: start`; a fresh encrypted host does not prove the existing-data migration.
+- [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
+  and encryption config were created within the same first-boot second, and the first API-server
+  invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
+  treats `Enabled` + stage `start` as the normal pre-key-rotation state. No late-enable migration or
+  forced key rotation is required on this fresh host. (2026-09-16)
 - [x] M2: add the `nagare-registry-pull-secret` service + 30-minute timer to `nixos/hosts/nagare-01/registries.nix`
 - [x] M2: delete the `nagare-registries-reload` service and timer from `registries.nix`
 - [x] M2 live activation: the fresh labs host runs the released configuration. The old
@@ -116,12 +118,12 @@ while every runbook step matches the real tree.
   it is owned by `docs/plans/101-alerting-and-backup-freshness-monitoring.md`
   (Milestone 2), which rewrites the probe to enumerate `databases/<name>`.
 - Mori has no registered k3s corpus. The flags and online encryption procedure
-  were therefore checked against current upstream k3s documentation on
-  2026-08-24. The pinned v1.34.6+k3s1 is the first v1.34 release supporting
-  late enablement; its procedure uses `enable`, restart with the flag,
-  `rotate-keys`, another restart, and a final `reencrypt_finished` status. This
-  supersedes the single-restart legacy `reencrypt` sequence in the authored
-  Concrete Steps and will be reflected in the upgrade guide.
+  were therefore checked against current upstream k3s documentation. The `k3s_image`
+  v1.34.6 pin in the `justfile` is for local k3d rehearsal, not the NixOS host; labs currently
+  runs the nixpkgs-provided v1.35.8+k3s1. Supported existing-cluster late enablement uses
+  `enable`, restart with the flag, `rotate-keys`, and another restart. A fresh cluster that
+  reports `Enabled` at stage `start` is already encrypted; `reencrypt_finished` is the result
+  of key rotation, not a universal healthy-state requirement.
 - The NixOS host evaluation passes. The repo-wide `nix flake check` reaches the
   build phase but currently fails in the unrelated `nagare-access-build-test`
   because its sandboxed Cabal build cannot authenticate while cloning an
@@ -141,7 +143,7 @@ while every runbook step matches the real tree.
 
 - Live labs audit (2026-09-15): the released host configuration is active on
   `labs-nagare`. The kubeconfig is `640 root wheel`; encryption is Enabled with matching
-  hashes but remains at rotation stage `start`; the replacement pull-secret timer is enabled,
+  hashes at the normal pre-rotation stage `start`; the replacement pull-secret timer is enabled,
   active, and firing every 30 minutes; the old reload unit is absent; and its journal repeatedly
   shows the Secret configured and ServiceAccount patched. The only recorded k3s starts are the
   initial 2026-09-14 bootstrap/reboot, so the timer is not restarting the control plane.
@@ -151,8 +153,9 @@ while every runbook step matches the real tree.
   explicitly created that directory at `0700`, preventing `deploy` (a wheel member) from reaching
   the file; bare `kubectl get nodes` consequently fell back to localhost and failed. The repository
   now declares `0750 root wheel` in `k3s.nix`, preserves it in the registry script, and has a focused
-  flake check for both invariants. The same audit reconfirmed encryption stage `start`, 47 encrypted
-  datastore markers, the expected zram/sysctls, successful 30-minute pull-secret refresh, and zero
+  flake check for both invariants. The same audit reconfirmed `Enabled` encryption, 47 encrypted
+  datastore markers, first-boot use of the encryption config, the expected zram/sysctls,
+  successful 30-minute pull-secret refresh, and zero
   k3s starts in the preceding two hours. The exact private Attic digest is cached and available as
   the bounded M2 canary candidate; it was not evicted or run during the read-only audit.
 
@@ -247,12 +250,21 @@ while every runbook step matches the real tree.
   Date: 2026-08-24.
 
 - Decision: count a fresh released-host activation as evidence for the M1 configuration and M2
-  timer activation, but not as evidence for late-datastore reencryption or a private image pull.
-  Rationale: labs directly proves the desired steady-state units, mode, and encryption flag. It
-  began with the flag enabled, so it cannot prove migrating pre-existing plaintext Secret rows;
-  and no private application image has yet been pulled there. Splitting the checklist preserves
-  those two distinct gaps instead of treating “host is running” as blanket validation.
-  Date: 2026-09-15.
+  timer activation, but initially not as evidence for late-datastore reencryption or a private
+  image pull.
+  Rationale: labs directly proved the desired units and encryption flag, while the initial audit
+  had not yet inspected first-start evidence or exercised a private pull. The encryption caveat is
+  superseded by the 2026-09-16 decision below; the private-pull caveat remains.
+  Date: 2026-09-15 (partially superseded 2026-09-16).
+
+- Decision: do not rotate encryption keys merely to change labs from stage `start` to
+  `reencrypt_finished`.
+  Rationale: current upstream k3s documentation shows `Enabled` + `start` as a normal status and
+  reserves `reencrypt_finished` for completed key rotation. Labs' datastore and encryption config
+  were created within the same first-boot second, and its first API server already used the
+  encryption provider. There are no pre-flag rows to migrate; an unnecessary rotation would rewrite
+  the datastore and restart k3s without closing a real security gap.
+  Date: 2026-09-16.
 
 
 ## Outcomes & Retrospective
@@ -262,8 +274,8 @@ while every runbook step matches the real tree.
   zram/inotify/overcommit tuning is active. The follow-up audit found that `0700 root:root` on the
   kubeconfig's parent directory defeated the intended wheel access despite the file being
   `0640 root:wheel`; the tested repository correction now keeps the directory `0750 root:wheel`.
-  Live activation/operator verification and late encryption migration remain open; status is still
-  stage `start`, not `reencrypt_finished`.
+  Encryption-at-rest acceptance is complete; live activation/operator verification of the directory
+  correction remains open.
 - M2 repository work completed on 2026-08-24. The restart timer is removed;
   the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
   namespaces, treats an unavailable API as retryable, and preserves hard
@@ -280,10 +292,10 @@ while every runbook step matches the real tree.
   and whitespace check pass. The optional k3d rehearsal was skipped because no
   Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
   behind the active-context/authentication blocker.
-- EP-7 remains In Progress for one bounded host switch and three live assertions: activate and
-  verify the kubeconfig parent-directory correction, finish online encryption rotation to
-  `reencrypt_finished`, and perform a greater-than-45-minute uncached private-image pull without a
-  k3s restart. Labs has closed Enabled-status, tuning, timer-activation, and no-restart portions.
+- EP-7 remains In Progress for one bounded host switch and two live assertions: activate and verify
+  the kubeconfig parent-directory correction, and perform a greater-than-45-minute uncached
+  private-image pull without a k3s restart. Labs has closed encryption-at-rest, tuning,
+  timer-activation, and no-restart portions.
 
 
 ## Context and Orientation
@@ -437,22 +449,25 @@ exhausted on single-node clusters, surfacing as "too many open files"), and
 fork-heavy workloads expect; the managed-database Redis engine logs a warning
 without it).
 
-Then apply and enable encryption online. The current k3s procedure for the
-pinned v1.34.6+k3s1 distinguishes a fresh cluster (the flag suffices) from an
-existing one. On an existing single-node server: back up `state.db`, run
+Then apply and verify encryption. The current k3s procedure distinguishes a fresh cluster (the
+flag suffices) from an existing cluster that was started without encryption. On such an existing
+single-node server: back up `state.db`, run
 `k3s secrets-encrypt enable`, activate the flag and restart `k3s.service`,
 verify the `start` stage, run `k3s secrets-encrypt rotate-keys`, restart once
 more, then wait for `k3s secrets-encrypt status` to report `Encryption Status:
 Enabled` and `Current Rotation Stage: reencrypt_finished`. The second restart
-is required by the version-gated late-enablement workflow; the authored legacy
-`reencrypt` sequence is not used. Also record in
+is required by the version-gated late-enablement workflow; the legacy `reencrypt` sequence is not
+used. A fresh host that reports `Enabled` + `start`, whose first API server already loaded the
+encryption provider, is complete and must not be rotated merely to change the stage label. Also
+record in
 `docs/user/secrets.md`-adjacent docs nothing yet — doc updates are M3 — but
 verify mode and encryption per Validation below.
 
 Acceptance: on the host, `stat -c '%a %U %G' /etc/rancher/k3s` prints
 `750 root wheel` and the same command for `/etc/rancher/k3s/k3s.yaml` prints `640 root wheel`;
-`sudo k3s secrets-encrypt status` shows Enabled +
-reencrypt_finished; a binary grep of `state.db` finds `k8s:enc:aescbc` markers;
+`sudo k3s secrets-encrypt status` shows Enabled with matching hashes; first-start evidence or a
+completed late-enable workflow proves the provider covered the datastore's lifetime; a binary grep
+of `state.db` finds `k8s:enc:aescbc` markers;
 `swapon --show` lists a zram device; `sysctl fs.inotify.max_user_watches`
 prints 524288; `kubectl get nodes` still works as `deploy` without sudo.
 
@@ -749,8 +764,8 @@ scripts/iap-ssh.sh ssh nagare-01 -- 'k3s server --help 2>&1 | grep -o -- --write
 # 5. Apply (builds on the remote x86_64-linux builder, activates over Tailscale):
 just host-switch
 
-# 6. Enable encryption on this existing single-server cluster. The pinned
-#    v1.34.6+k3s1 uses the version-gated late-enablement procedure:
+# 6. Inspect encryption. On a cluster that predates the flag and reports Disabled,
+#    use the version-gated late-enablement procedure:
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo cp /var/lib/rancher/k3s/server/db/state.db /var/lib/rancher/k3s/server/db/state.db.pre-encryption.bak'
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo k3s secrets-encrypt enable'
 scripts/iap-ssh.sh ssh nagare-01 -- 'sudo systemctl restart k3s'
@@ -767,10 +782,11 @@ Encryption Status: Enabled
 Current Rotation Stage: reencrypt_finished
 ```
 
-If the first post-switch status already reports Enabled and
-`reencrypt_finished`, the cluster was already encrypted and the enable/rotation
-steps are unnecessary. Do not mix this procedure with the legacy
-`prepare`/`rotate`/`reencrypt` workflow.
+If status already reports Enabled, inspect first-start evidence. When the datastore and encryption
+config were created together and the first API server loaded `--encryption-provider-config`, the
+cluster was encrypted from birth; stage `start` is normal and the enable/rotation steps are
+unnecessary. Do not rotate solely to obtain `reencrypt_finished`, and do not mix the late-enable
+procedure with the legacy `prepare`/`rotate`/`reencrypt` workflow.
 
 ```bash
 # 7. Verify M1 acceptance:
@@ -885,8 +901,8 @@ Acceptance is behavior, observed:
    without sudo; a non-wheel test (`sudo -u nobody cat /etc/rancher/k3s/k3s.yaml`)
    is denied.
 2. **Secrets at rest:** `sudo k3s secrets-encrypt status` prints
-   `Encryption Status: Enabled` and `Current Rotation Stage:
-   reencrypt_finished`; `sudo grep -ac 'k8s:enc:aescbc'
+   `Encryption Status: Enabled` with matching hashes; first-start evidence or a completed
+   late-enable workflow proves the provider covered the datastore's lifetime; `sudo grep -ac 'k8s:enc:aescbc'
    /var/lib/rancher/k3s/server/db/state.db` prints a positive count, and
    creating a canary secret (`kubectl create secret generic canary
    --from-literal=x=supersecretvalue`) followed by
@@ -929,8 +945,9 @@ recovery action. `nix eval` / `nix flake check` are read-only. All kubectl
 steps are `apply`/`patch`-shaped and safe to repeat; the pull-secret script is
 designed to be re-run every 30 minutes forever.
 
-Risky step: **secrets-encrypt reencrypt** rewrites Secret rows in
-`state.db`. Mitigation: the pre-step `cp` backup
+Conditional risky step for a legacy host that actually requires late enablement: encryption
+rotation/reencryption rewrites Secret rows in `state.db`. Labs does not require and will not run
+this step. Mitigation where it is required: the pre-step `cp` backup
 (`state.db.pre-encryption.bak`). If the datastore is damaged, stop k3s
 (`sudo systemctl stop k3s`), restore the backup over `state.db`, start k3s.
 To back the feature out entirely: `sudo k3s secrets-encrypt disable`, restart
@@ -1021,4 +1038,7 @@ Revision note (2026-09-16): A guarded read-only host audit found the kubeconfig 
 still blocked wheel traversal even though the file itself was `0640 root:wheel`. Added and validated
 the declarative `0750 root:wheel` invariant in both the k3s module and pre-start registry writer,
 reopened live operator-access acceptance, and identified an exact private Attic digest for the
-still-operator-gated pull canary. No host or cluster state changed during the audit.
+still-operator-gated pull canary. First-start timestamps and logs also proved the encryption provider
+covered the datastore from birth; current upstream semantics show `Enabled` + `start` is healthy, so
+the unnecessary key-rotation requirement was removed. No host or cluster state changed during the
+audit.

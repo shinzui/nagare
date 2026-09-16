@@ -285,12 +285,17 @@ kernel and PID 1 change only after a reboot or VM replacement. Verify the host
 returns through both Tailscale and IAP before deleting an older image or boot
 generation.
 
-If enabling k3s Secret encryption on an existing v1.34.6+k3s1 host, use the
-version-gated upstream sequence: back up `state.db`, run `secrets-encrypt
-enable`, restart with `--secrets-encryption`, verify stage `start`, run
-`secrets-encrypt rotate-keys`, restart again, and wait for status `Enabled` /
-`reencrypt_finished`. Do not substitute the older
-`prepare`/`rotate`/`reencrypt` workflow.
+The host's k3s version comes from the locked nixpkgs input; `k3s_image` in the
+`justfile` pins only the local k3d rehearsal image. Check the host with `k3s --version`
+after reviewing `nixos/flake.lock`. If enabling Secret encryption on a supported existing
+host that reports `Disabled`, follow the
+[version-gated upstream sequence](https://docs.k3s.io/cli/secrets-encrypt#enable-secrets-encryption-on-an-existing-cluster):
+back up `state.db`, run `secrets-encrypt enable`, restart with `--secrets-encryption`,
+verify `Disabled` at stage `start`, run `secrets-encrypt rotate-keys`, restart again, and
+wait for `Enabled` / `reencrypt_finished`. Do not substitute the older
+`prepare`/`rotate`/`reencrypt` workflow. A fresh host that reports `Enabled` at stage
+`start` is already encrypted; that stage is normal before an optional key rotation and
+is not a reason to rewrite the datastore.
 
 ## Cluster components
 
