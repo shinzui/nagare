@@ -359,7 +359,9 @@ complete; the child plans hold the granular checklists.
   `700 root:root` parent blocked wheel traversal. The tested repository correction makes the
   directory `750 root:wheel`; activation/operator verification remains. First-start evidence
   proves encryption covered the datastore from birth; `Enabled` + stage `start` is normal before
-  optional key rotation, so no reencryption is required)
+  optional key rotation, so no reencryption is required. A guarded same-version platform-upgrade
+  rehearsal passed host evaluation, replacement-free Pulumi preview, and no-op Kubernetes diff;
+  apply awaits separate approval)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -436,6 +438,13 @@ Discoveries from implementation:
   despite the apparently correct file metadata. The repository now declares and tests
   `0750 root:wheel` on the directory while keeping `registries.yaml` root-only. Activation remains
   a separately approved host switch.
+- **EP-7 activation requires an immutable-payload repin, not a direct source-tree switch**
+  (2026-09-16). The first approved switch refused before mutation because the ambient CLI was
+  0.2.2 against a 0.4.0 context/host. The checkout-built 0.4.0 operator passed the guard, then showed
+  that the context-owned host flake correctly pins the prior immutable 0.4.0 payload. Its supported
+  same-version upgrade rehearsal passed host evaluation and a no-replacement Pulumi preview; after
+  fetching and explicitly selecting the labs kubeconfig, Kubernetes diff also passed with no
+  migration. The persisted apply remains a separate operator boundary.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -575,6 +584,14 @@ Discoveries from implementation:
   rotation. Labs created its datastore and encryption config within the same first-boot second,
   and its first API server loaded the encryption provider. No plaintext era exists to migrate, so
   rotation would add a datastore rewrite and restart without improving the stated guarantee.
+  Date: 2026-09-16.
+
+- Decision: use EP-7's successfully rehearsed same-version platform-upgrade transaction rather than
+  bypassing the version guard or editing the context-owned host flake.
+  Rationale: immutable payload pinning is the deployment contract. The transaction contains the
+  replacement-free infrastructure plan, corrected host closure, explicit labs cluster gate, release
+  stamp, and context-pin commit; applying only an ad hoc source tree would leave those identities
+  inconsistent.
   Date: 2026-09-16.
 
 - Decision: accept the later `DiskUsageCritical` addition as EP-5's seventh
@@ -814,6 +831,10 @@ permission defect, the tested declarative correction, and the ready private-imag
 EP-7 now requires activation/operator-access verification and an uncached-pull proof. First-start
 evidence plus current upstream k3s semantics closed the supposed reencryption gap without a risky
 datastore rewrite; the read-only audit made no host or cluster mutation.
+
+Revision note (2026-09-16, EP-7 activation rehearsal): recorded the stale-CLI refusal, immutable
+payload boundary, explicit labs kubeconfig recovery, and successful same-version upgrade plan. No
+cloud or host mutation occurred; transaction apply remains operator-gated.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

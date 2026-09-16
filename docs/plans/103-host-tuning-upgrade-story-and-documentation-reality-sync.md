@@ -81,7 +81,11 @@ while every runbook step matches the real tree.
 - [x] M1 repository correction: declare `/etc/rancher/k3s` as `0750 root:wheel` and make the
   pre-k3s registry bootstrap preserve that ownership and mode; focused evaluation/build checks pass.
 - [ ] M1 live activation and operator-access verification: apply the directory correction, prove
-  `kubectl get nodes` works as `deploy` without sudo, and retain denial for a non-wheel user.
+  `kubectl get nodes` works as `deploy` without sudo, and retain denial for a non-wheel user. The
+  direct switch refused before mutation because the ambient CLI was stale. Supported same-version
+  platform-upgrade transaction `20260916T22472374565-0.4.0-eacc2bab` now has a successful host
+  evaluation, replacement-free Pulumi preview, and no-op Kubernetes migration; apply awaits
+  separate operator approval. (2026-09-16)
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
   invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
@@ -158,6 +162,16 @@ while every runbook step matches the real tree.
   successful 30-minute pull-secret refresh, and zero
   k3s starts in the preceding two hours. The exact private Attic digest is cached and available as
   the bounded M2 canary candidate; it was not evicted or run during the read-only audit.
+
+- The first approved direct host switch made no change: the platform guard found the ambient
+  profile's `nagarectl` at 0.2.2 while the checkout, labs context, and host are 0.4.0. The full
+  checkout-built operator package passed the current guard, but the context-owned host flake was
+  correctly pinned to the previously deployed 0.4.0 payload and therefore could not see the new
+  commit. The supported `platform upgrade` rehearsal initially refused an unrelated ambient GKE
+  kube context; after `nagarectl kubeconfig fetch --context labs`, its explicit labs gate passed.
+  The final plan is same-version, has no GCE/DNS/bucket replacement and no Kubernetes migration,
+  and stages the corrected host flake. No cloud or host mutation occurred during these refusals or
+  previews.
 
 (More to be added during implementation.)
 
@@ -264,6 +278,15 @@ while every runbook step matches the real tree.
   were created within the same first-boot second, and its first API server already used the
   encryption provider. There are no pre-flag rows to migrate; an unnecessary rotation would rewrite
   the datastore and restart k3s without closing a real security gap.
+  Date: 2026-09-16.
+
+- Decision: deliver the host correction through the persisted same-version platform-upgrade
+  transaction, not by editing the context-owned flake or suppressing `nagarectl platform guard`.
+  Rationale: the context host flake intentionally pins the deployed immutable payload. The supported
+  transaction evaluates the new host closure, previews infrastructure, gates the exact labs cluster,
+  applies the host, stamps release identity, and commits the context pin as one resumable workflow.
+  The successful rehearsal reports no replacement and no Kubernetes migration, but its broader apply
+  boundary still requires explicit operator approval.
   Date: 2026-09-16.
 
 
@@ -1042,3 +1065,8 @@ still-operator-gated pull canary. First-start timestamps and logs also proved th
 covered the datastore from birth; current upstream semantics show `Enabled` + `start` is healthy, so
 the unnecessary key-rotation requirement was removed. No host or cluster state changed during the
 audit.
+
+Revision note (2026-09-16, activation rehearsal): the direct switch refused the stale ambient CLI
+before mutation. A checkout-built operator-package rehearsal then passed host evaluation,
+replacement-free Pulumi preview, and an explicit-labs no-op Kubernetes migration. Recorded the
+persisted same-version transaction and retained its apply as a separate operator approval boundary.
