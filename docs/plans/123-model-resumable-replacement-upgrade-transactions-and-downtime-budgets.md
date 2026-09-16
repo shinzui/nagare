@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:03Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:36Z
+      mode: "update"
+      note: "Adopt the existing replacement core as a compatibility-preserving implementation baseline"
 ---
 
 # Model resumable replacement-upgrade transactions and downtime budgets
@@ -36,6 +42,12 @@ candidate identities, phase state, evidence freshness, predicted downtime, rollb
 reserve, and the reasons that cutover is blocked. The existing in-place
 `nagarectl platform upgrade` transaction remains valid and unchanged.
 
+The current tree already contains a deliberately minimal `Nagare.Platform.Replacement` module
+landed by ExecPlan 127 so its provider-independent cutover engine could compile and be tested. This
+plan now adopts that schema version and extends it with complete preparation/evidence transitions,
+context-owned paths, and the read-only CLI; it must preserve the 14 existing cutover tests and JSON
+tokens rather than introducing a competing transaction type.
+
 
 ## Progress
 
@@ -43,10 +55,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Add the replacement transaction schema, phase graph, budget arithmetic, and JSON
-      codecs with deterministic unit tests.
-- [ ] Add atomic persistence, migration/version rejection behavior, and context ownership
-      guards for replacement transactions.
+- [x] (2026-09-13 21:28 PDT) ExecPlan 127 supplied the minimal version-1 replacement schema,
+      cutover phase checkpoints, downtime arithmetic, atomic persistence, future-version refusal,
+      stable JSON tokens, and deterministic executor coverage needed by its safety core.
+- [ ] Reconcile and extend the existing replacement schema into the complete preparation/evidence
+      phase graph with dedicated deterministic model tests.
+- [ ] Extend the existing atomic persistence and future-version refusal with context-owned paths,
+      evidence digests, migration behavior, and ownership guards.
 - [ ] Add read-only `platform replacement plan` and `status` command surfaces.
 - [ ] Document the transaction lifecycle and amend the feasibility ADR from ExecPlan 122
       if implementation establishes a durable detail not already captured there.
@@ -67,6 +82,12 @@ implementation. Provide concise evidence.
   sleep or a claim that every workload can move in 15 minutes.
   Evidence: final PostgreSQL dump/restore and retained-volume synchronization times depend
   on the actual data set, while address movement and rollback have separate measured costs.
+- Observation: `Nagare.Platform.Replacement` is no longer hypothetical, but it intentionally covers
+  only the cutover-facing contract and does not provide planning/status CLI, full evidence
+  references, or preparation transitions.
+  Evidence: the current module exports `ReplacementTransaction`, readiness/deadline arithmetic,
+  phase checkpoints, persistence, and rendering; `PlatformCutoverSpec` exercises 14 safety cases,
+  while `app/Main.hs` exposes no `platform replacement` command.
 
 
 ## Decision Log
@@ -92,6 +113,11 @@ Record every decision made while working on the plan.
   Rationale: An operator must be able to inspect feasibility before accepting temporary
   infrastructure cost or production risk.
   Date: 2026-09-13
+- Decision: Evolve the version-1 schema already consumed by `Nagare.Platform.Cutover` instead of
+  replacing it or creating a second planning record.
+  Rationale: the early implementation has persisted-token and executor tests that are now a
+  compatibility boundary; this plan owns completing that boundary while preserving those callers.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -101,17 +127,30 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The cutover-facing subset now exists: version-1 transaction persistence, deadline/readiness
+arithmetic, cutover checkpoints, stable JSON tokens, and the executor's deterministic compatibility
+tests. The complete preparation/evidence graph, context-owned evidence storage, model transition
+suite, and read-only planning/status CLI remain unimplemented, so this plan is In Progress rather
+than complete.
 
 
 ## Context and Orientation
 
-The current transaction engine is
+The current in-place transaction engine is
 `cli/nagarectl/src/Nagare/Platform/Upgrade.hs`. It stores a schema-versioned JSON record and
 runs preview phases followed by `PulumiApply`, `HostApply`, `KubernetesApply`,
 `ClusterStamp`, and `ContextCommit`. `cli/nagarectl/app/Main.hs` wires those phases to the
-active context. The tests live primarily in `cli/nagarectl/test/PlatformSpec.hs`, and the
-library module list and test-suite module list are in `cli/nagarectl/nagarectl.cabal`.
+active context. Its Pulumi phase now retains a reviewed plan through `Nagare.Infra.Plan` and
+records guarded completion/recovery through `Nagare.Platform.PulumiReceipt`; replacement planning
+must reuse those evidence conventions where it controls Pulumi. The tests live primarily in
+`cli/nagarectl/test/PlatformSpec.hs`, and the library module list and test-suite module list are in
+`cli/nagarectl/nagarectl.cabal`.
+
+The replacement safety core is already in `cli/nagarectl/src/Nagare/Platform/Replacement.hs`, with
+its executor in `Nagare.Platform.Cutover`, its minimal state-plan contract in
+`Nagare.Platform.StateTransfer`, and its 14 deterministic tests in
+`cli/nagarectl/test/PlatformCutoverSpec.hs`. Treat these as the current baseline, not as the final
+EP-123 design.
 
 `cli/nagarectl/src/Nagare/Platform/Paths.hs` and
 `cli/nagarectl/src/Nagare/Platform/Workspace.hs` define context-owned paths and staged
@@ -153,19 +192,21 @@ cross-repository ADR needed by this plan.
 
 ### Milestone 1: Pure transaction model and budget gate
 
-Add `cli/nagarectl/src/Nagare/Platform/Replacement.hs` and expose it from
-`cli/nagarectl/nagarectl.cabal`. Define the schema, complete phase vocabulary, legal state
+Extend the existing `cli/nagarectl/src/Nagare/Platform/Replacement.hs`, which is already exposed
+from `cli/nagarectl/nagarectl.cabal`. Reconcile its cutover phase vocabulary with the complete
+preparation/evidence phase graph and define legal state
 transitions, evidence references, drift token, and pure budget calculation. Do not import
 Pulumi or process-running code into this module. Add `PlatformReplacementSpec` to the test
 suite and test every legal transition, representative illegal transitions, boundary values
 at exactly 15 minutes, insufficient rollback reserve, expired evidence, and changed drift
-tokens. This milestone is complete when the model serializes deterministically and no state
-can reach `Ready` without the required fresh evidence.
+tokens. Keep `PlatformCutoverSpec` green and preserve existing version-1 stable tokens. This
+milestone is complete when the model serializes deterministically and no state can reach `Ready`
+without the required fresh evidence.
 
 ### Milestone 2: Atomic context-owned persistence
 
-Extend `Nagare.Platform.Paths` with a replacement transaction root and implement atomic
-write-then-rename persistence in `Nagare.Platform.Replacement`. Reject unknown future schema
+Extend `Nagare.Platform.Paths` with a replacement transaction root and strengthen the existing
+same-directory temporary-file/rename persistence in `Nagare.Platform.Replacement`. Reject unknown future schema
 versions with an actionable error; never silently coerce them. Store large evidence in
 separate canonical JSON files under the transaction directory and put the SHA-256 digest and
 relative path in the transaction. On resume, verify context, project, zone, target payload,
@@ -202,9 +243,10 @@ new command is documented without implying zero downtime.
 
 ## Concrete Steps
 
-Run all commands from the repository root.
+Run focused Cabal commands from `cli/nagarectl/` because this monorepo has no root
+`cabal.project`; run the flake command from the repository root.
 
-    nix develop -c cabal test nagarectl-test --test-show-details=direct
+    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
 
 Expected focused output includes:
 
@@ -333,3 +375,12 @@ a hard prerequisite because its address-handoff evidence determines whether
 `AddressHandoff` is a valid phase at all. ExecPlan 124 must not add candidate fields outside
 this schema; ExecPlans 125 and 126 attach evidence by `EvidenceRef`; ExecPlan 127 is the only
 child plan that executes the deadline and terminal transitions.
+
+The current version-1 records and types in `Nagare.Platform.Replacement` are the migration input to
+this plan. Any incompatible field or token change requires an explicit schema migration and fixtures;
+silently reusing schema version 1 for incompatible JSON is not acceptable.
+
+
+Revision note (2026-09-15): Refreshed the plan against the early EP-127 replacement core and the
+Nagare 0.3.0 reviewed-plan/receipt boundary, changing greenfield steps into compatibility-preserving
+extension work while retaining EP-123 ownership of the complete model and read-only CLI.

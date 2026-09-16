@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:03Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:37Z
+      mode: "update"
+      note: "Refresh candidate provisioning against current guarded plan and identity boundaries"
 ---
 
 # Provision ephemeral candidate hosts and promotable infrastructure slots
@@ -32,6 +38,11 @@ An operator sees this through `nagarectl platform replacement prepare <transacti
 `status`: preparation creates the inactive slot, reports its exact GCP resource identities,
 and leaves the current reserved IP on the old slot. A Pulumi preview proves that adopting
 the slot model does not replace the existing VM or disk.
+
+Since this plan was drafted, Nagare 0.3.0 made reviewed Pulumi plans and apply receipts the guarded
+infrastructure boundary, added explicit staged-host identity, and added context-safe kubeconfig
+fetching. Candidate preparation must extend those mechanisms with replacement bindings; it must not
+introduce a second direct `pulumi up`, ambient-host, or ambient-kubeconfig path.
 
 
 ## Progress
@@ -68,6 +79,12 @@ implementation. Provide concise evidence.
   volumes live on the attached data disk.
   Evidence: the NixOS k3s module uses `/var/lib/rancher`, and the local-path provisioner is
   rooted at `/var/lib/nagare/local-path`.
+- Observation: the current tree now has reusable guarded infrastructure and target-identity
+  primitives that were absent at plan creation.
+  Evidence: `Nagare.Infra.Plan` owns private retained plan bundles,
+  `Nagare.Platform.PulumiReceipt` owns apply/recovery evidence, `Nagare.Host.Config` reads the staged
+  host name used by an upgrade, and `Nagare.Cluster.Kubeconfig` fetches and normalizes an explicitly
+  selected context kubeconfig.
 
 
 ## Decision Log
@@ -100,6 +117,12 @@ Record every decision made while working on the plan.
   Rationale: Pulumi ownership and GCE attachment behavior must be demonstrated with forward
   and reverse handoff before production infrastructure depends on it.
   Date: 2026-09-13
+- Decision: Bind candidate preview/apply evidence to the replacement transaction by extending the
+  existing reviewed-plan and Pulumi-receipt contracts.
+  Rationale: provider execution and ambiguous crash recovery need the same private, immutable,
+  operator-reviewable evidence already required by ADR 18; a parallel unchecked apply path would
+  weaken the platform boundary.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -133,9 +156,16 @@ third identity is needed.
 `cli/nagarectl/src/Nagare/Host/Config.hs` stages context-owned host flakes and secrets.
 Candidate host material must live under the replacement transaction and must use a unique
 physical hostname and cluster identity. `scripts/iap-ssh.sh`, `scripts/host-switch.sh`, and
-`scripts/live-test.sh` demonstrate the existing IAP access and kubeconfig retrieval patterns;
-candidate operations must pass an explicit instance and kubeconfig rather than relying on
-the active context defaults.
+`scripts/live-test.sh` demonstrate the existing IAP access pattern. `Nagare.Cluster.Kubeconfig`
+now supplies the guarded fetch/normalize implementation, and `Nagare.Host.Config` separates the
+staged target hostname from the active host. Candidate operations extend both with explicit
+transaction-owned destinations rather than relying on active context defaults.
+
+`Nagare.Infra.Plan` and `Nagare.Platform.PulumiReceipt` are the current infrastructure execution
+boundary. A replacement plan bundle must additionally bind the replacement transaction ID, source
+slot, candidate slot, and expected resource manifest. Candidate resume must distinguish verified
+success, known failure, and ambiguous provider execution using the receipt protocol before it
+changes transaction state.
 
 Relevant decisions are [ADR 0005](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md)
 for context-owned host flakes, [ADR 0009](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md)
@@ -182,9 +212,13 @@ Extend `Nagare.Host.Config` to stage a candidate flake under
 overriding physical hostname, instance name, and cluster identity. Add an explicit host
 target record to the replacement schema from ExecPlan 123. Wire
 `platform replacement prepare` in `Main.hs` to stage the candidate, write replacement
-Pulumi config, preview, require the expected create-only candidate diff, apply, and record
-the actual outputs. Use existing Pulumi project/stack guards and GCP project/zone guards for
-every subprocess. Do not bootstrap k3s workloads here; ExecPlan 125 owns that step.
+Pulumi config, save and review the expected create-only candidate plan through
+`Nagare.Infra.Plan`, apply that exact plan, record the outcome through
+`Nagare.Platform.PulumiReceipt`, and retain the actual outputs. Use existing Pulumi project/stack
+guards and GCP project/zone guards for every subprocess. Fetch the candidate kubeconfig through the
+explicit identity contract in `Nagare.Cluster.Kubeconfig`, storing it under the transaction without
+changing the active context kubeconfig. Do not bootstrap k3s workloads here; ExecPlan 125 owns that
+step.
 
 ### Milestone 4: Reconciliation and disposable-project proof
 
@@ -198,11 +232,12 @@ configuration cannot delete active resources. Record command output as transacti
 
 ## Concrete Steps
 
-Run from the repository root:
+Run Pulumi commands from the repository root as shown. Run Cabal from `cli/nagarectl/` because the
+monorepo has no root `cabal.project`:
 
     npm --prefix infra/pulumi run build
     npm --prefix infra/pulumi test
-    nix develop -c cabal test nagarectl-test --test-show-details=direct
+    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
 
 If `infra/pulumi` still has no test script when implementation begins, invoke its committed
 test runner directly and add the stable script to `package.json`; do not silently skip mock
@@ -327,3 +362,8 @@ This plan has hard prerequisites on ExecPlans 122 and 123. ExecPlan 125 consumes
 host and kubeconfig identities. ExecPlan 126 consumes candidate storage identities. ExecPlan
 127 changes the active role and address attachment but must use this plan's outputs and the
 handoff primitive selected by ExecPlan 122.
+
+
+Revision note (2026-09-15): Refreshed candidate preparation against Nagare 0.3.0's reviewed Pulumi
+plan, apply-receipt, staged-host, and context-safe kubeconfig boundaries; no candidate infrastructure
+milestone is marked complete.

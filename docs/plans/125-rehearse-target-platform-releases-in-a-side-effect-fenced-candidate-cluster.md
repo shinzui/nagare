@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:04Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:37Z
+      mode: "update"
+      note: "Refresh rehearsal against current kubeconfig and certificate-policy boundaries"
 ---
 
 # Rehearse target platform releases in a side-effect-fenced candidate cluster
@@ -34,6 +40,12 @@ evidence bundle containing host activation, cluster component versions, readines
 audit, state restore checks, application probe results, durations, and log locations. A
 failed rehearsal leaves the live host untouched and can be repeated after fixing the target
 release or configuration.
+
+Nagare 0.3.0 now has context-safe kubeconfig fetching, staged target-host identity, fail-closed
+certificate-policy diagnostics, and a reviewed Kubernetes migration bundle for ordinary upgrades.
+Rehearsal should specialize these current guards for a transaction-owned candidate rather than
+reimplement kubeconfig normalization, trust ambient cluster state, or apply an unreviewed policy
+mutation.
 
 
 ## Progress
@@ -68,6 +80,11 @@ implementation. Provide concise evidence.
   account.
   Evidence: `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl` uses DNS-01 and the
   active node account has zone administration permissions.
+- Observation: certificate ownership and kubeconfig selection are now stricter than at plan
+  creation.
+  Evidence: `Nagare.Cluster.Kubeconfig` fetches and normalizes a named context kubeconfig;
+  `Nagare.Cluster.CertificatePolicy` rejects unintended public wildcard issuance; the in-place
+  upgrade retains reviewed certificate-migration evidence before Kubernetes mutation.
 
 
 ## Decision Log
@@ -97,6 +114,11 @@ Record every decision made while working on the plan.
   Rationale: Nagare cannot infer whether arbitrary application startup has external side
   effects.
   Date: 2026-09-13
+- Decision: Build candidate targeting and certificate-fence evidence on the existing kubeconfig,
+  cluster guard, certificate-policy, and reviewed Kubernetes-plan contracts.
+  Rationale: these guards already encode wrong-context refusal and explicit public-certificate
+  ownership; duplicating them for replacement rehearsal would create divergent safety semantics.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -134,6 +156,12 @@ replicas/minimum scale, and default-deny policies precede probe execution. It is
 that arbitrary hostile code is sandboxed perfectly; untrusted or undeclared workloads stay
 stopped.
 
+`Nagare.Cluster.Kubeconfig` is the baseline for fetching, permission-checking, normalizing, and
+validating candidate kubeconfig bytes. `Nagare.Ops.ClusterGuard` is the baseline for binding a
+Kubernetes mutation to the intended cluster. `Nagare.Cluster.CertificatePolicy` and the retained
+Kubernetes plan used by ordinary upgrades are the baseline for proving that rehearsal uses only the
+local issuer and cannot silently broaden public wildcard issuance.
+
 Relevant local decisions are [ADR 0004](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md),
 [ADR 0005](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md),
 [ADR 0006](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md),
@@ -148,11 +176,11 @@ candidate-cluster rehearsal.
 
 ### Milestone 1: Explicit candidate targeting
 
-Introduce `CandidateTarget` and `CandidateKubeconfig` in
-`cli/nagarectl/src/Nagare/Platform/Rehearsal.hs`. Extend host-switch and bootstrap wrappers to
+Introduce `CandidateTarget` and a transaction-owned wrapper around the existing kubeconfig identity
+in `cli/nagarectl/src/Nagare/Platform/Rehearsal.hs`. Extend host-switch and bootstrap wrappers to
 require an explicit instance, zone, project, host-flake path, kubeconfig path, and expected
-cluster identity. Retrieve the candidate kubeconfig through IAP into the transaction
-directory, rewrite only its server endpoint to a transaction-owned tunnel, and verify its CA
+cluster identity. Retrieve the candidate kubeconfig through IAP into the transaction directory,
+reuse `Nagare.Cluster.Kubeconfig` to rewrite only its server endpoint to a transaction-owned tunnel, and verify its CA
 and node identity before use. Add a process environment builder that removes ambient
 `KUBECONFIG` and sets the explicit path. This milestone ends when fake-process tests prove
 every `kubectl`, `helm`, or bootstrap invocation carries the candidate target.
@@ -164,7 +192,8 @@ guard and confirm a new IAP session before accepting it. Install target k3s and 
 components from the immutable target payload. Add a rehearsal bootstrap profile under
 `cluster/rehearsal/` that uses the local issuer, omits production DNS credentials, installs
 network policies first, and records exact NixOS, kernel, k3s, Kubernetes, Knative,
-cert-manager, Kourier, and Nagare component versions. Host activation and cluster bootstrap
+cert-manager, Kourier, and Nagare component versions. Run the current certificate-policy audit and
+retain its input/result beside rehearsal evidence. Host activation and cluster bootstrap
 must be separately resumable. This milestone ends when a fresh candidate becomes healthy
 without any public route or production DNS mutation.
 
@@ -203,9 +232,10 @@ without leaving probe pods or policy exceptions.
 
 ## Concrete Steps
 
-From the repository root, run:
+Run focused Cabal commands from `cli/nagarectl/` because this monorepo has no root
+`cabal.project`; run the flake command from the repository root:
 
-    nix develop -c cabal test nagarectl-test --test-show-details=direct
+    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
     nix flake check --print-build-logs
 
 Focused output must include candidate-target and fence tests, for example:
@@ -321,3 +351,8 @@ coordination dependency: this plan can bootstrap platform-only first, but it can
 final ready evidence until state checks pass. ExecPlan 127 consumes the report, temporarily
 arms production permissions/TLS while the old host still serves, reruns the affected fence
 and platform checks, and invalidates rehearsal if that arming changes any unrelated input.
+
+
+Revision note (2026-09-15): Refreshed candidate rehearsal against the current explicit kubeconfig,
+cluster-guard, certificate-policy, and reviewed Kubernetes-migration boundaries; all rehearsal
+milestones remain incomplete.

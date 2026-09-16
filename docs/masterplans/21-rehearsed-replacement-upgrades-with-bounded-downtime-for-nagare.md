@@ -10,6 +10,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:08:52Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:36Z
+      mode: "update"
+      note: "Refresh registry, shared boundaries, current repository state, and validation evidence"
 ---
 
 # Rehearsed replacement upgrades with bounded downtime for Nagare
@@ -58,6 +64,12 @@ databases; an explicit PostgreSQL major-version path; deadline-enforced static-I
 and cleanup; local deterministic tests; and one live end-to-end drill. It preserves the existing
 in-place `nagarectl platform upgrade` path for small changes.
 
+The repository has advanced to Nagare 0.3.0 since this initiative was drafted. In-place upgrades now
+retain a reviewed Pulumi plan, bind apply completion to a private receipt, refuse ambiguous resumes,
+stage the target host identity explicitly, fetch context-safe kubeconfigs, and enforce an explicit
+certificate policy. Replacement work must extend those current safety boundaries rather than revive
+the pre-0.3.0 direct-apply, ambient-target, or permissive-certificate assumptions.
+
 It does not promise zero downtime, generic cross-cluster replication, or a fifteen-minute result for
 every workload. If a final dump, restore, schema migration, or rollback cannot fit the requested
 budget with margin, Nagare must refuse the bounded claim and explain what must change. Redis and
@@ -83,6 +95,13 @@ interface to one plan. It also permits EP-125's platform rehearsal and EP-126's 
 to proceed in parallel once EP-124 is complete. Six plans stay within the recommended two-to-seven
 range while keeping the final safety-critical state machine separate from provisioning and database
 logic.
+
+Implementation did not follow that dependency order exactly: EP-127 landed a provider-independent
+safety core so its deadline, journalling, rollback, write-admission, and cleanup invariants could be
+tested without pretending the cloud and state adapters existed. That does not relax the graph.
+EP-127 remains In Progress, and EP-123 plus EP-126 must adopt and finish the minimal shared contracts
+already present in `Nagare.Platform.Replacement` and `Nagare.Platform.StateTransfer` before concrete
+cutover adapters or live drills can be enabled.
 
 The existing architecture decisions constrain the design. Immutable release assets and mutable
 context workspaces stay separated by
@@ -126,11 +145,11 @@ production drift, and rollback time must be part of the readiness calculation.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 122 | Prove isolated replacement rehearsal and static-IP handoff | docs/plans/122-prove-isolated-replacement-rehearsal-and-static-ip-handoff.md | None | None | Not Started |
-| 123 | Model resumable replacement-upgrade transactions and downtime budgets | docs/plans/123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md | EP-122 | None | Not Started |
+| 123 | Model resumable replacement-upgrade transactions and downtime budgets | docs/plans/123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md | EP-122 | None | In Progress |
 | 124 | Provision ephemeral candidate hosts and promotable infrastructure slots | docs/plans/124-provision-ephemeral-candidate-hosts-and-promotable-infrastructure-slots.md | EP-122, EP-123 | None | Not Started |
 | 125 | Rehearse target platform releases in a side-effect-fenced candidate cluster | docs/plans/125-rehearse-target-platform-releases-in-a-side-effect-fenced-candidate-cluster.md | EP-124 | EP-126 | Not Started |
-| 126 | Make stateful cutovers and PostgreSQL major upgrades budgetable | docs/plans/126-make-stateful-cutovers-and-postgresql-major-upgrades-budgetable.md | EP-123, EP-124 | EP-125 | Not Started |
-| 127 | Execute deadline-bound cutover rollback cleanup and operator drills | docs/plans/127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md | EP-125, EP-126 | None | Not Started |
+| 126 | Make stateful cutovers and PostgreSQL major upgrades budgetable | docs/plans/126-make-stateful-cutovers-and-postgresql-major-upgrades-budgetable.md | EP-123, EP-124 | EP-125 | In Progress |
+| 127 | Execute deadline-bound cutover rollback cleanup and operator drills | docs/plans/127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md | EP-125, EP-126 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -161,6 +180,8 @@ they must reconcile readiness evidence and maintenance hooks before either is ma
 EP-127 hard-depends on EP-125 and EP-126. Only then are candidate health and state readiness truthful
 inputs to the deadline state machine. It owns public-IP movement, maintenance timing, rollback,
 promotion, cleanup, the integrated local fault-injection scenario, and the live fifteen-minute drill.
+Its provider-independent engine and deterministic fault-injection suite exist already, but its
+concrete GCE, Kubernetes, Pulumi, and state-transfer wiring remains blocked by those hard dependencies.
 
 The implementation waves are therefore EP-122; EP-123; EP-124; EP-125 and EP-126 in parallel; then
 EP-127.
@@ -172,7 +193,10 @@ EP-127.
 EP-127).** `cli/nagarectl/src/Nagare/Platform/Replacement.hs` owns transaction identity, active and
 candidate resource references, requested downtime, rollback reserve, phase state, evidence,
 timestamps, and terminal states. Later plans add phase executors but do not invent parallel JSON
-files or alternate clocks. Existing in-place `UpgradeTransaction` remains readable and unchanged.
+files or alternate clocks. EP-127 has already supplied a minimal version-1 schema, atomic writer,
+readiness arithmetic, cutover checkpoints, and stable JSON tokens; EP-123 must reconcile and extend
+that implementation rather than replace it. Existing in-place `UpgradeTransaction` remains readable
+and unchanged.
 
 **2. Candidate resource and slot contract (defined by EP-124; consumed by EP-125 through EP-127).**
 `infra/pulumi/src/components/NagareHostSlot.ts`, Pulumi stack outputs, and the replacement
@@ -197,7 +221,10 @@ before downtime begins.
 `Nagare.Platform.StateTransfer` owns inventory classification, initial seed, read-only/quiesce,
 final synchronization, candidate verification, rollback safety, measured duration, and cleanup for
 each retained state item. PostgreSQL is the first version-aware adapter. Retained state without an
-adapter or an explicit discard policy makes the transaction ineligible for bounded cutover.
+adapter or an explicit discard policy makes the transaction ineligible for bounded cutover. EP-127
+has already supplied the minimal `StateTransferItem`, `StateTransferPlan`, validation, and final-
+evidence boundary required by its executor; EP-126 owns expanding that boundary into the complete
+inventory, evidence, volume, and PostgreSQL implementation.
 
 **6. Deadline and rollback semantics (types defined by EP-123; execution owned by EP-127).** The
 downtime clock starts at the first action that prevents the old platform from serving writes. EP-127
@@ -210,6 +237,14 @@ that bounded replacement upgrades use a temporary fresh cluster, independent sta
 handoff, explicit side-effect fencing, and refusal when the budget is unprovable. EP-127 performs the
 final ADR distillation pass across all child plans.
 
+**8. Guarded target and Pulumi evidence (existing platform boundary; consumed by EP-124, EP-125, and
+EP-127).** Candidate preparation and active-slot convergence reuse `Nagare.Infra.Plan` for retained
+reviewed Pulumi plans and `Nagare.Platform.PulumiReceipt` for explicit completion/recovery evidence.
+Candidate host and cluster targeting extend `Nagare.Host.Config` and `Nagare.Cluster.Kubeconfig`.
+Replacement code may add transaction-specific bindings, but it must not create an unreviewed Pulumi
+apply path, infer provider success from a phase label, select an ambient kubeconfig, or overwrite the
+context's active host identity before commit.
+
 
 ## Progress
 
@@ -219,15 +254,24 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [ ] EP-122: Build a disposable two-host spike with no load balancer or DNS change.
 - [ ] EP-122: Measure forward and reverse IP handoff, record failure behavior, and fix the replacement ADR.
 - [ ] EP-123: Add the versioned replacement transaction, deadline arithmetic, transitions, and CLI planning/status surface.
+- [x] EP-123: Land the minimal version-1 transaction, deadline, readiness, persistence, checkpoint,
+      and stable-token boundary consumed by the cutover safety core.
 - [ ] EP-123: Prove persistence, resume, expiry, drift, and rollback-deadline behavior with deterministic tests.
 - [ ] EP-124: Add optional transaction-owned candidate infrastructure and migrate the singleton stack without replacement.
 - [ ] EP-124: Generate candidate host/kubeconfig identity, provision and destroy it idempotently, and preserve protected resources.
 - [ ] EP-125: Fence the candidate against external side effects and bootstrap the exact target release.
 - [ ] EP-125: Produce expiring machine-readable host, cluster, application, and cost-readiness evidence.
 - [ ] EP-126: Inventory every retained state item and implement measured seed/finalize adapter contracts.
+- [x] EP-126: Land the minimal typed state-transfer plan, aggregate validation, and final-evidence
+      boundary consumed by the cutover safety core.
 - [ ] EP-126: Rehearse and verify a PostgreSQL major-version transfer or refuse the downtime claim.
+- [x] EP-127: Implement the provider-independent replacement transaction, deadline, cutover,
+      rollback, reconciliation, and exact-manifest cleanup core.
+- [x] EP-127: Prove the safety core with deterministic before/after fault injection, document
+      recovery, and record the durable commit/rollback boundary in ADR 0019.
 - [ ] EP-127: Execute the timed maintenance, final state transfer, static-IP handoff, verification, commit, and automatic rollback.
-- [ ] EP-127: Finalize cleanup, documentation, local fault injection, live fifteen-minute drill, and ADR distillation.
+- [ ] EP-127: Wire concrete provider/cluster/state adapters and complete forward plus forced-rollback
+      live fifteen-minute drills before advertising the mutating command.
 
 
 ## Surprises & Discoveries
@@ -250,6 +294,22 @@ interactions between child plans. Provide concise evidence.
   replication as out of scope. The fifteen-minute claim therefore needs new database behavior, not
   just faster VM switching.
   Evidence: `docs/user/managed-databases.md` names both exclusions.
+- Observation: EP-127 implemented its provider-independent core before EP-122 through EP-126, so the
+  registry's all-Not-Started state no longer described the repository.
+  Evidence: `Nagare.Platform.Replacement`, `Nagare.Platform.StateTransfer`, and
+  `Nagare.Platform.Cutover` are built by `nagarectl`; `PlatformCutoverSpec` has 14 passing tests, but
+  no replacement command or concrete provider adapter is exposed.
+- Observation: the ordinary upgrade path now has reusable safety primitives that did not exist when
+  this MasterPlan was drafted.
+  Evidence: `Nagare.Infra.Plan` retains reviewed Pulumi plans, `Nagare.Platform.PulumiReceipt` binds
+  provider completion and ambiguous recovery, `Nagare.Cluster.Kubeconfig` fetches a context-bound
+  kubeconfig, and `Nagare.Host.Config` keeps staged host identity distinct from the active context.
+- Observation: a 2026-09-15 validation rerun against the refreshed tree preserved the cutover core's
+  deterministic proof.
+  Evidence: all 14 focused `PlatformCutover` tests passed, the Pulumi TypeScript build passed, and
+  strict `docs/user` OKF validation passed for 37 concepts. The full native-system
+  `nix flake check --print-build-logs --max-jobs 1` also passed, including all 568 Haskell tests;
+  `x86_64-linux` was reported as incompatible with the native Darwin run, as expected.
 
 
 ## Decision Log
@@ -281,6 +341,17 @@ plan.
   Rationale: small compatible changes should not pay for duplicate disks or a second VM, while risky
   releases need a stronger path whose state and rollback semantics differ materially.
   Date: 2026-09-13.
+- Decision: keep the original six-plan dependency graph while marking EP-127 In Progress and making
+  EP-123 and EP-126 responsible for completing the minimal contracts EP-127 introduced.
+  Rationale: the local safety core is real, tested progress, but it does not satisfy the live
+  feasibility, candidate, rehearsal, or state-transfer prerequisites and therefore cannot justify
+  weakening the hard dependencies or exposing a production command.
+  Date: 2026-09-15.
+- Decision: replacement provisioning, targeting, and convergence extend the guarded 0.3.0 plan,
+  receipt, host-identity, kubeconfig, and certificate-policy boundaries.
+  Rationale: creating parallel unreviewed or ambient-target paths would reintroduce failure modes
+  already removed from in-place upgrades and would violate ADRs 6, 9, 10, and 18.
+  Date: 2026-09-15.
 
 
 ## Outcomes & Retrospective
@@ -290,4 +361,16 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-(To be filled during and after implementation.)
+The initiative is partially implemented. EP-127 has delivered the provider-independent safety core,
+14 deterministic cutover tests, operator recovery documentation, and ADR 0019. EP-123 and EP-126
+are In Progress because they inherit minimal contracts from that early EP-127 slice; their planned
+model/CLI and concrete inventory/adapter work remains outstanding. EP-122, EP-124, and EP-125 are
+Not Started. No concrete replacement command, live address handoff, candidate
+cluster rehearsal, PostgreSQL major-version transfer, or bounded live drill exists yet, so the
+original user-visible outcome remains incomplete.
+
+
+Revision note (2026-09-15): Refreshed the registry and coordination contracts against Nagare 0.3.0,
+recorded EP-127's provider-independent implementation, required later plans to reuse the current
+guarded Pulumi/targeting boundaries, and added a new validation pass without claiming the blocked
+provider-dependent work complete.

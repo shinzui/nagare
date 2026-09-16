@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:04Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:37Z
+      mode: "update"
+      note: "Adopt the existing state-transfer contract as the implementation baseline"
 ---
 
 # Make stateful cutovers and PostgreSQL major upgrades budgetable
@@ -33,6 +39,11 @@ window is accepted only if every required item is supported and the conservative
 final transfer fits alongside public verification and rollback reserve. Otherwise Nagare
 refuses to begin downtime and explains which item exceeds or prevents the budget.
 
+ExecPlan 127 has already introduced the small cutover-facing portion of this plan's API in
+`Nagare.Platform.StateTransfer`: item support/quiesce flags, an aggregate prediction and drift
+token, final evidence, and fail-closed validation. This plan owns evolving that existing module
+into the complete inventory and adapter system while keeping the cutover executor compatible.
+
 
 ## Progress
 
@@ -41,7 +52,10 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [ ] Add complete source-state discovery and fail-closed classification.
-- [ ] Add a typed, extensible state-transfer plan and evidence schema.
+- [x] (2026-09-13 20:58 PDT) ExecPlan 127 supplied the minimal typed state-transfer plan,
+      aggregate validation, JSON codecs, and final-evidence boundary required by its executor.
+- [ ] Extend the existing types into the complete inventory, measurement, adapter, and evidence
+      schema without breaking `Nagare.Platform.Cutover`.
 - [ ] Adapt retained volumes and currently supported logical database backups for candidate
       seed/finalize/verify operations.
 - [ ] Add PostgreSQL major-version preflight, seed, final restore, and compatibility checks.
@@ -69,6 +83,10 @@ implementation. Provide concise evidence.
   independent rollback copy under the current design.
   Evidence: the active VM has the protected disk attached `READ_WRITE`; the replacement
   topology therefore needs its own disk and application-level transfer.
+- Observation: `Nagare.Platform.StateTransfer` now exists, but it is explicitly documented as only
+  the cutover-facing contract and has no discovery, seed, volume, database, or PostgreSQL adapter.
+  Evidence: the module defines `StateTransferItem`, `StateTransferPlan`, `FinalStateEvidence`, and
+  `validateStateTransferPlan`; all concrete transfer operations remain absent.
 
 
 ## Decision Log
@@ -100,6 +118,11 @@ Record every decision made while working on the plan.
   not when the VM is stopped or the IP moves.
   Rationale: Users experience maintenance as soon as writes are unavailable.
   Date: 2026-09-13
+- Decision: Preserve the minimal plan and evidence fields already consumed by the cutover engine,
+  extending them through compatible records or an explicit schema migration.
+  Rationale: EP-127's 14 deterministic tests now enforce the aggregate prediction, drift-token,
+  quiesce, support, and verified-final-evidence boundary that concrete adapters must satisfy.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -109,7 +132,10 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The cutover-facing subset now exists: a typed item/plan shape, aggregate validation, JSON codecs,
+and verified final-evidence boundary used by `Nagare.Platform.Cutover`. Discovery, seed/finalize
+adapters, measurements, retained volumes, and PostgreSQL major-version work remain unimplemented, so
+this plan is In Progress rather than complete.
 
 
 ## Context and Orientation
@@ -120,6 +146,12 @@ Managed databases are discovered by `Nagare.Database.Discover` and backed up/res
 application volumes are discovered by `Nagare.Storage.Discover`, archived by
 `Nagare.Storage.Snapshot`, and restored by `Nagare.Storage.Restore`. Both use the context's
 object store. Managed databases are single replica and have no replication/failover path.
+
+`cli/nagarectl/src/Nagare/Platform/StateTransfer.hs` is the current owned module, not a file to be
+created. `Nagare.Platform.Cutover` validates its plan before downtime, checks the plan prediction and
+drift token against `ReplacementTransaction`, passes a monotonic `Deadline` to finalization, and
+accepts only verified `FinalStateEvidence`. Concrete adapters must populate this boundary rather
+than bypass it.
 
 The state inventory must also inspect managed brokers, platform PVCs, unlabelled PVC/PV
 objects, host directories beneath `/var/lib/nagare`, Kubernetes Secrets required to recreate
@@ -156,7 +188,7 @@ these constraints.
 
 ### Milestone 1: Complete inventory and transfer planning
 
-Add `cli/nagarectl/src/Nagare/Platform/StateTransfer.hs`. Build a pure inventory from
+Extend `cli/nagarectl/src/Nagare/Platform/StateTransfer.hs`. Build a pure inventory from
 explicitly candidate-targeted Kubernetes/GCP observations and typed application declarations.
 Correlate PVCs to databases, brokers, application volumes, and platform components; list
 unmatched PVCs and host directories as blockers. Redact Secret values while recording their
@@ -217,9 +249,10 @@ limit, and how to add an application quiesce/verification contract.
 
 ## Concrete Steps
 
-Run from the repository root:
+Run focused Cabal commands from `cli/nagarectl/` because this monorepo has no root
+`cabal.project`; run smoke and flake commands from the repository root:
 
-    nix develop -c cabal test nagarectl-test --test-show-details=direct
+    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
     just local-smoke
 
 Focused expected output includes:
@@ -342,3 +375,12 @@ the state allowlist and verification evidence but can implement their pure layer
 ExecPlan 127 calls `finalize` only after global quiesce and combines its duration with the
 address/verification budget. The initial unsupported result for broker state is an explicit
 product limitation, not permission to omit it from inventory.
+
+The existing `StateTransferItem`, `StateTransferPlan`, `FinalStateEvidence`, and
+`validateStateTransferPlan` definitions are compatibility inputs. Expand or version them; do not
+replace them with an unrelated plan that forces EP-127 to maintain a second adapter boundary.
+
+
+Revision note (2026-09-15): Refreshed the plan against the minimal state-transfer contract already
+landed by EP-127, clarified compatibility ownership, corrected the package-local Cabal working
+directory, and retained all concrete inventory, transfer, and PostgreSQL work as incomplete.

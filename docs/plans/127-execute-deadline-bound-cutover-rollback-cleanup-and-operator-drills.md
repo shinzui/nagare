@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-14T03:34:56Z
       mode: "implement"
       note: "Implement cutover executor, rollback, cleanup, drills, docs, and ADR distillation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:37Z
+      mode: "update"
+      note: "Record current adapter boundaries and a second successful validation pass"
 ---
 
 # Execute deadline-bound cutover rollback cleanup and operator drills
@@ -72,6 +77,9 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-13 21:02 PDT) Validated the stopping point with 14 focused cutover tests, all 486
       `nagarectl` tests, the Pulumi TypeScript build, strict user-documentation OKF validation,
       and the full native-system `nix flake check`.
+- [x] (2026-09-15 PDT) Revalidated the provider-independent stopping point against Nagare 0.3.0:
+      all 14 focused cutover tests, the Pulumi TypeScript build, strict validation of 37 user-doc
+      concepts, and the full native-system flake gate passed, including all 568 Haskell tests.
 
 
 ## Surprises & Discoveries
@@ -115,6 +123,13 @@ implementation. Provide concise evidence.
   to be a resumable input state, including when the last deletion succeeded before Pulumi convergence.
   Evidence: the focused suite resumes a `Finalizing` transaction with an empty remaining manifest,
   performs convergence/pruning, and reaches `Complete` without deleting anything twice.
+- Observation: later work strengthened the ordinary upgrade boundary without wiring replacement
+  cutover to providers.
+  Evidence: `Nagare.Infra.Plan` now retains reviewed Pulumi plans,
+  `Nagare.Platform.PulumiReceipt` distinguishes verified, failed, and ambiguous applies,
+  `Nagare.Cluster.Kubeconfig` provides explicit context-safe cluster identity, and
+  `Nagare.Cluster.CertificatePolicy` rejects unintended public certificate issuance. The
+  replacement executor still has only injected operations and exposes no mutating CLI command.
 
 
 ## Decision Log
@@ -158,6 +173,12 @@ Record every decision made while working on the plan.
   production writes without a proven final-transfer or recovery path. ADR 0019 requires the command
   to remain unavailable or fail closed at this boundary.
   Date: 2026-09-13
+- Decision: Concrete EP-127 adapters must consume the reviewed-plan/receipt, staged-host,
+  context-safe kubeconfig, cluster-guard, and certificate-policy boundaries now present in 0.3.0.
+  Rationale: promotion and recovery are not allowed to bypass safeguards added after the original
+  plan; replacement-specific evidence should add transaction bindings to those mechanisms instead
+  of creating parallel unguarded execution paths.
+  Date: 2026-09-15
 
 
 ## Outcomes & Retrospective
@@ -173,11 +194,13 @@ The provider-independent safety core is implemented and locally proven: transact
 intent and observation, forward work stops before rollback reserve, every pre-commit failpoint
 restores old service, write admission is observed as the irreversible boundary, and cleanup accepts
 only transaction-owned resource IDs. Operator-facing documentation and ADR 0019 now preserve these
-rules. Concrete cloud/cluster adapters and both live drills remain blocked by the entirely
-unimplemented prerequisite ExecPlans 122 through 126, so this plan is not complete and no production
-cutover command is advertised as available. The completed slice passes all 486 `nagarectl` tests,
-the Pulumi TypeScript build, strict user-documentation OKF validation, and the repository's full
-native-system flake check.
+rules. Concrete cloud/cluster adapters and both live drills remain blocked by incomplete prerequisite
+ExecPlans 122 through 126. EP-123 and EP-126 contain only the minimal contracts this early slice
+needed; the feasibility, full model/CLI, candidate, rehearsal, inventory, and concrete adapter work
+is still absent, so this plan is not complete and no production
+cutover command is advertised as available. A fresh 2026-09-15 validation pass preserved the 14
+focused cutover tests and passed the current Pulumi TypeScript build, strict validation of 37 user
+documentation concepts, and the full native-system flake gate with all 568 Haskell tests.
 
 
 ## Context and Orientation
@@ -186,6 +209,12 @@ The current in-place executor is wired in `cli/nagarectl/app/Main.hs` and modele
 `Nagare.Platform.Upgrade`. It previews infrastructure and Kubernetes, applies Pulumi, runs
 `scripts/host-switch.sh` on the active instance, applies cluster objects, stamps the cluster,
 and commits the context last. It does not manage two hosts or a downtime deadline.
+
+Since this plan's implementation slice, ordinary upgrades gained retained reviewed Pulumi plans in
+`Nagare.Infra.Plan`, apply and ambiguous-recovery receipts in `Nagare.Platform.PulumiReceipt`, staged
+host identity checks in `Nagare.Host.Config`, explicit context kubeconfigs in
+`Nagare.Cluster.Kubeconfig`, and retained certificate-migration evidence. Concrete replacement
+operations must reuse these current boundaries and add replacement transaction/slot bindings.
 
 ExecPlan 123 supplies the `ReplacementTransaction`, budget arithmetic, and legal transitions.
 ExecPlan 124 supplies two Pulumi host slots and authoritative resource IDs. ExecPlan 125
@@ -294,9 +323,10 @@ Perform the final Decision Log/Surprises distillation into the replacement ADR.
 
 ## Concrete Steps
 
-Run from the repository root:
+Run the focused Cabal command from `cli/nagarectl/` because the monorepo has no root
+`cabal.project`; run Pulumi and flake commands from the repository root:
 
-    nix develop -c cabal test nagarectl-test --test-show-details=direct
+    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
     npm --prefix infra/pulumi run build
     nix flake check --print-build-logs
 
@@ -448,3 +478,7 @@ required imports before rerunning repository validation.
 
 Revision note (2026-09-13): Recorded the successful full validation pass and retained the two
 provider-dependent adapter and live-drill items as explicit incomplete work.
+
+Revision note (2026-09-15): Refreshed the remaining adapter work against Nagare 0.3.0's guarded
+Pulumi, host, kubeconfig, and certificate boundaries and recorded a second successful focused plus
+full native validation pass; provider-dependent adapters and live drills remain incomplete.

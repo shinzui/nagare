@@ -11,6 +11,12 @@ provenance:
     model: "gpt-5.6-sol"
     harness: "codex-cli"
     at: 2026-09-13T22:09:03Z
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:38:36Z
+      mode: "update"
+      note: "Refresh feasibility gate against current bootstrap rehearsal and Pulumi evidence"
 ---
 
 # Prove isolated replacement rehearsal and static-IP handoff
@@ -34,6 +40,11 @@ reserved rollback fits a requested budget, or refuses with the failed invariant.
 the resource topology and operation order used by the remaining child plans. This plan is a
 feasibility gate, not the production cutover implementation.
 
+The current flake now includes a hermetic `gcp-bootstrap-rehearsal` that proves two reviewed Pulumi
+plans, context-bound builder/kubeconfig identity, first-boot readiness, and certificate confinement.
+That check supplies reusable setup/identity patterns but does not perform a live two-host reserved-
+address handoff, so none of this plan's milestones are complete.
+
 
 ## Progress
 
@@ -51,7 +62,11 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Observation: the repository gained a hermetic GCP bootstrap rehearsal after this plan was drafted,
+  but it deliberately fakes provider operations and cannot establish address detach/attach timing or
+  rollback behavior.
+  Evidence: `checks.aarch64-darwin.gcp-bootstrap-rehearsal` passes two reviewed-plan applications and
+  identity/certificate assertions in `nix flake check`; it creates no live GCE address users.
 
 
 ## Decision Log
@@ -66,6 +81,11 @@ Record every decision made while working on the plan.
 - Decision: require a live reverse handoff after an injected failed health check.
   Rationale: a fast forward move does not establish that the downtime budget can include rollback.
   Date: 2026-09-13.
+- Decision: reuse the bootstrap rehearsal's context, reviewed-plan, identity, and certificate
+  fixtures where applicable, while retaining a separate operator-approved live handoff proof.
+  Rationale: hermetic coverage should not be duplicated, but provider control-plane timing and
+  address ownership can only be established by the scoped live experiment this plan owns.
+  Date: 2026-09-15.
 
 
 ## Outcomes & Retrospective
@@ -108,6 +128,12 @@ why a rollback path must be mechanically observable rather than prose. [ADR 14](
 and [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md)
 require replacement work to remain explicit and guarded. No relevant cross-repository ADR was found
 through Mori.
+
+The current guarded Pulumi boundary is `Nagare.Infra.Plan` plus
+`Nagare.Platform.PulumiReceipt`. Although the spike uses explicit `gcloud` for the handoff operation
+being measured, any Pulumi setup or convergence step must use a retained reviewed plan and explicit
+completion/recovery evidence. The flake's `gcp-bootstrap-rehearsal` is the current hermetic reference
+for context-bound provisioning behavior.
 
 
 ## Plan of Work
@@ -241,3 +267,8 @@ Use the repository's existing Bash target/project guard in `scripts/lib/target.s
 ledger, and the repository's Nix shell/check infrastructure. Do not add a long-lived cloud resource
 or a runtime Haskell dependency. Inspect the locked `@pulumi/gcp` source declarations before any
 later plan chooses a Pulumi resource shape.
+
+
+Revision note (2026-09-15): Refreshed the feasibility gate against the new hermetic GCP bootstrap
+rehearsal and guarded Pulumi evidence boundary while keeping the live forward/reverse address proof
+explicitly unimplemented.
