@@ -256,12 +256,20 @@ jq -e --arg version "$version" '
 ' target-upgrade.json >/dev/null
 upgrade_id="$(jq -er '.id' target-upgrade.json)"
 reviewed_bundle="$XDG_STATE_HOME/nagare/local/upgrades/$upgrade_id/pulumi-plan"
+reviewed_kubernetes_bundle="$XDG_STATE_HOME/nagare/local/upgrades/$upgrade_id/kubernetes-plan"
 test -s "$reviewed_bundle/pulumi-plan.json"
 test -s "$reviewed_bundle/review.json"
 test -s "$reviewed_bundle/metadata.json"
+test -s "$reviewed_kubernetes_bundle/config-network.json"
+test -s "$reviewed_kubernetes_bundle/review.json"
+test -s "$reviewed_kubernetes_bundle/metadata.json"
+jq -e '.schemaVersion == 1 and .selectorChange == null and .preserve == [] and .remove == []' \
+  "$reviewed_kubernetes_bundle/review.json" >/dev/null
+jq -e --arg transaction "$upgrade_id" \
+  '.schemaVersion == 1 and .transactionId == $transaction and .context == "local"' \
+  "$reviewed_kubernetes_bundle/metadata.json" >/dev/null
 grep -q '^nix eval path:.*#packages\.x86_64-linux\.nagare-image\.drvPath$' "$upgrade_tool_log"
 test "$(grep -c 'pulumi .* preview --json --save-plan ' "$upgrade_tool_log")" = 1
-grep -q '^kubectl diff -f - --request-timeout=5s$' "$upgrade_tool_log"
 if grep -q 'pulumi .* up \|host-switch\.sh\|kubectl apply\|^gcloud ' "$upgrade_tool_log"; then
   die "clone-free upgrade plan reached a mutation or cloud command"
 fi
