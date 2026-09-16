@@ -878,7 +878,13 @@ resolveActiveTarget arg = do
   e <- loadActiveContextMap arg
   case e of
     Left err -> ioError (userError (T.unpack err))
-    Right (name, ctx) -> ActiveTarget name <$> resolveProfileFrom ctx
+    Right (name, ctx) -> do
+      profile <- resolveProfileFrom ctx
+      -- The platform version is persisted release intent, not an operational
+      -- override. In particular, a shell that sourced an older context must
+      -- not make status or a later upgrade transaction observe that stale pin.
+      let storedVersion = profileFromContextMap ctx ^. #platformVersion
+      pure (ActiveTarget name (profile & #platformVersion .~ storedVersion))
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile

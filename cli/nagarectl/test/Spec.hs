@@ -1627,6 +1627,7 @@ targetProfileTests =
       , "NAGARE_DATA_DISK_SIZE_GB"
       , "NAGARE_TARGET_PLATFORM"
       , "NAGARE_LOCAL_OBJECT_STORE"
+      , "NAGARE_PLATFORM_VERSION"
       ]
 
 contextResolutionTests :: TestTree

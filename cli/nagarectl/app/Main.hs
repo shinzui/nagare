@@ -2678,7 +2678,6 @@ runPlatformRoot mctx asJson = do
 gatherPlatformStatus :: Maybe String -> IO (ActiveTarget, PlatformStatus)
 gatherPlatformStatus mctx = do
   active <- activeTarget mctx
-  storedProfile <- readContextProfile (active ^. #contextName)
   (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   hostRoot <- hostConfigDir (active ^. #contextName)
@@ -2699,10 +2698,7 @@ gatherPlatformStatus mctx = do
         assessPlatformStatus
           (identityFromBuild currentBuildVersion)
           (identityFromPayload manifest)
-          -- Release intent belongs to the persisted context, not to an
-          -- ambient NAGARE_PLATFORM_VERSION override. The synthetic default
-          -- context has no stored file, so retain its resolved profile.
-          (identityFromContext (either (const (active ^. #profile)) (\profile -> profile) storedProfile))
+          (identityFromContext (active ^. #profile))
           hostIdentity
           hostDeployment
           clusterIdentity

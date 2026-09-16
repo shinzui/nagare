@@ -25,7 +25,7 @@ import Nagare.Platform.StackConfig
 import Nagare.Platform.Status
 import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
-import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, setCurrentContext, writeContextPlatformVersion)
+import Nagare.Target (contextFilePath, mergeContextOverrides, mkContextName, profileFromContextMap, readContextProfile, resolveActiveTarget, setCurrentContext, writeContextPlatformVersion)
 import Nagare.Version (BuildVersion (..), Compatibility (..))
 import System.Directory
   ( createDirectoryIfMissing
@@ -92,8 +92,8 @@ platformTests =
               path <- contextFilePath labs
               createDirectoryIfMissing True (takeDirectory path)
               TIO.writeFile path "export CLOUDSDK_CORE_PROJECT=labs\nexport NAGARE_PLATFORM_VERSION=0.4.0\n"
-              stored <- readContextProfile labs >>= either (assertFailure . T.unpack) pure
-              identityFromContext stored ^. #version @?= Just "0.4.0"
+              active <- resolveActiveTarget (Just "labs")
+              active ^. #profile . #platformVersion @?= Just "0.4.0"
     , testCase "EP-121: host identity is read from the indented comments a generated flake carries" $ do
         let flake =
               T.unlines
