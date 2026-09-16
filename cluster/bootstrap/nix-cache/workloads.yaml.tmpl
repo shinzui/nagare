@@ -61,6 +61,17 @@ spec:
   selector: {app.kubernetes.io/name: nix-cache}
   ports: [{name: http, port: 80, targetPort: http}]
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nix-cache-internal
+  namespace: nagare-system
+  labels: {app.kubernetes.io/name: nix-cache, app.kubernetes.io/part-of: nagare}
+spec:
+  clusterIP: None
+  selector: {app.kubernetes.io/name: nix-cache}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:

@@ -42,7 +42,7 @@ ConfigMap. Kotei and other workloads own whether and how they consume that stabl
 interface.
 
 When enabled, Attic runs in `nagare-system` and serves cache `nagare-cache` at
-`http://nix-cache.nagare-system.svc.cluster.local/nagare-cache`. An operator can push a
+`http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache`. An operator can push a
 store path through a guarded `kubectl port-forward` with a narrow token. A Job in
 `personal` opts in through the already-implemented `nagare-dsl` Job field, mounts
 ConfigMap `nagare-nix-cache-client`, and substitutes the same signed path instead of
@@ -776,9 +776,10 @@ Cluster contract:
 
 ```text
 Server namespace: nagare-system
-Deployment/Service: nix-cache
+Deployment/control Service: nix-cache
+Consumer headless Service: nix-cache-internal:8080
 Cache name: nagare-cache
-URL: http://nix-cache.nagare-system.svc.cluster.local/nagare-cache
+URL: http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache
 Database Secret: nagare-db-nix-cache-db, key DATABASE_URL
 Storage Secret: nagare-nix-cache-storage
 JWT Secret: nagare-nix-cache-token-key
@@ -790,7 +791,7 @@ Client opt-in label: nagare.dev/nix-cache-client: "true"
 The generated ConfigMap contains two logical settings:
 
 ```text
-substituters = http://nix-cache.nagare-system.svc.cluster.local/nagare-cache https://cache.nixos.org/
+substituters = http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache https://cache.nixos.org/
 trusted-public-keys = <complete-live-server-key> cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 ```
 

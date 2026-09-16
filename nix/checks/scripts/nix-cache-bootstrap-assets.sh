@@ -60,7 +60,7 @@ grep -Fq 'runAsUser: 65532' "${cache_dir}/workloads.yaml.tmpl"
 grep -Fq 'capabilities: {drop: ["ALL"]}' "${cache_dir}/workloads.yaml.tmpl"
 grep -Fq 'concurrencyPolicy: Forbid' "${cache_dir}/workloads.yaml.tmpl"
 grep -Fq 'nagare.dev/nix-cache-client: "true"' "${cache_dir}/networkpolicies.yaml"
-grep -Fq 'substituters = http://nix-cache.nagare-system.svc.cluster.local/nagare-cache' \
+grep -Fq 'substituters = http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache' \
   "${cache_dir}/client-configmap.yaml.tmpl"
 
 grep -Fq '> 80' cluster/observability/vmrules/nagare-alerts.yaml

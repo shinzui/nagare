@@ -2,10 +2,11 @@ listen = "[::]:8080"
 allowed-hosts = [
   "nix-cache.nagare-system.svc.cluster.local",
   "nix-cache.nagare-system.svc.cluster.local:80",
+  "nix-cache-internal.nagare-system.svc.cluster.local:8080",
   "127.0.0.1:18080",
 ]
 api-endpoint = "http://127.0.0.1:18080/"
-substituter-endpoint = "http://nix-cache.nagare-system.svc.cluster.local/"
+substituter-endpoint = "http://nix-cache-internal.nagare-system.svc.cluster.local:8080/"
 
 [database]
 heartbeat = true

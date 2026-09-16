@@ -7,5 +7,5 @@ metadata:
     app.kubernetes.io/part-of: nagare
 data:
   nix.conf: |
-    substituters = http://nix-cache.nagare-system.svc.cluster.local/nagare-cache https://cache.nixos.org/
+    substituters = http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache https://cache.nixos.org/
     trusted-public-keys = ${ATTIC_PUBLIC_KEY} cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=

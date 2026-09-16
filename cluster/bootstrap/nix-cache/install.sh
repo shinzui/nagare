@@ -147,7 +147,7 @@ curl -fsS -H 'Host: 127.0.0.1:18080' \
   http://127.0.0.1:18080/_api/v1/cache-config/nagare-cache \
   > "${private_dir}/cache.json"
 jq -e '
-  .substituter_endpoint == "http://nix-cache.nagare-system.svc.cluster.local/nagare-cache" and
+  .substituter_endpoint == "http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache" and
   .api_endpoint == "http://127.0.0.1:18080/" and
   .is_public == true and
   .retention_period.Period == 2592000 and
@@ -161,4 +161,4 @@ sed "s|\${ATTIC_PUBLIC_KEY}|${escaped_key}|g" \
   "${script_dir}/client-configmap.yaml.tmpl" > "${private_dir}/client-configmap.yaml"
 kubectl apply -f "${private_dir}/client-configmap.yaml"
 
-echo "Attic reconciled at http://nix-cache.nagare-system.svc.cluster.local/nagare-cache"
+echo "Attic reconciled at http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache"
