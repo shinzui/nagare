@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-09-16
+* **Addition**: Add UC-2 for the opt-in delivery of signed, prebuilt Nix closures to
+  Nagare Jobs, including the provider/consumer ownership boundary and a scoped cache-hit
+  performance claim.
+
 ## 2026-08-23
 * **Migration**: Repin to okf-profiles v0.12.0 and record catalog review provenance; the use-case
   contract is unchanged and the validating decoder moves to okf-core 0.8.0.0.
