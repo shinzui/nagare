@@ -32,7 +32,7 @@ spec:
           out="$(nix --extra-experimental-features 'nix-command flakes' build /source#default --no-write-lock-file --no-link --print-out-paths --max-jobs 0 --option fallback false -L)"
           test "$(cat "$out")" = nagare-attic-smoke-v1
           echo "substituted $out from http://nix-cache.nagare-system.svc.cluster.local/nagare-cache"
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"], add: ["CHOWN"]}}
       volumeMounts:
         - {name: nix-config, mountPath: /etc/nix/nix.conf, subPath: nix.conf, readOnly: true}
         - {name: source, mountPath: /source, readOnly: true}
@@ -70,7 +70,7 @@ spec:
           value: |
             substituters = http://nix-cache.nagare-system.svc.cluster.local/nagare-cache
             trusted-public-keys = nagare-cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"], add: ["CHOWN"]}}
       volumeMounts:
         - {name: source, mountPath: /source, readOnly: true}
   volumes:
