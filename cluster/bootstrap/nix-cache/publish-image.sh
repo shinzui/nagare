@@ -28,21 +28,29 @@ case "${destination}" in
     ;;
 esac
 
-source_digest="$(skopeo inspect --format '{{.Digest}}' "docker-archive:${archive}")"
+private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-attic-publish.XXXXXX")"
+chmod 700 "${private_dir}"
+trap 'rm -rf "${private_dir}"' EXIT
+policy="${private_dir}/policy.json"
+# Some supported systems do not install a host containers-policy file. This
+# policy controls signature verification only; registry TLS remains enabled,
+# and the archive plus published image are both checked against the immutable
+# digest in attic-pin.json.
+printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' > "${policy}"
+chmod 600 "${policy}"
+
+source_digest="$(skopeo --policy "${policy}" inspect --format '{{.Digest}}' "docker-archive:${archive}")"
 if [ "${source_digest}" != "${expected_digest}" ]; then
   echo "nagare: payload Attic digest ${source_digest} does not match pin ${expected_digest}" >&2
   exit 1
 fi
 
-private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-attic-publish.XXXXXX")"
-chmod 700 "${private_dir}"
-trap 'rm -rf "${private_dir}"' EXIT
 gcloud auth print-access-token | \
   skopeo login --username oauth2accesstoken --password-stdin \
     --authfile "${private_dir}/auth.json" "${registry}" >/dev/null
-skopeo copy --authfile "${private_dir}/auth.json" \
+skopeo --policy "${policy}" copy --authfile "${private_dir}/auth.json" \
   "docker-archive:${archive}" "docker://${destination}" >&2
-remote_digest="$(skopeo inspect --authfile "${private_dir}/auth.json" --format '{{.Digest}}' "docker://${destination}")"
+remote_digest="$(skopeo --policy "${policy}" inspect --authfile "${private_dir}/auth.json" --format '{{.Digest}}' "docker://${destination}")"
 if [ "${remote_digest}" != "${expected_digest}" ]; then
   echo "nagare: published Attic digest ${remote_digest} does not match pin ${expected_digest}" >&2
   exit 1

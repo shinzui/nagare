@@ -29,6 +29,8 @@ done
 grep -Fq 'openssl genrsa -traditional' "${cache_dir}/create-secret.sh"
 grep -Fq 'openssl genrsa -out' "${cache_dir}/create-secret.sh"
 grep -Fq 'cd "${secrets_dir}"' "${cache_dir}/create-secret.sh"
+grep -Fq 'skopeo --policy "${policy}" inspect' "${cache_dir}/publish-image.sh"
+grep -Fq 'skopeo --policy "${policy}" copy' "${cache_dir}/publish-image.sh"
 
 # Parse all committed YAML and rendered templates as one multi-document stream.
 {
