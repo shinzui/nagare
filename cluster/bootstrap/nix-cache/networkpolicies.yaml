@@ -59,7 +59,9 @@ spec:
             matchLabels: {kubernetes.io/metadata.name: nagare-system}
           podSelector:
             matchLabels: {app.kubernetes.io/name: nix-cache}
-      ports: [{protocol: TCP, port: 8080}]
+      ports:
+        - {protocol: TCP, port: 80}
+        - {protocol: TCP, port: 8080}
     - to:
         - ipBlock: {cidr: 0.0.0.0/0}
       ports: [{protocol: TCP, port: 443}]
