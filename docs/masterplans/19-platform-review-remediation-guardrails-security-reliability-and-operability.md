@@ -5,6 +5,13 @@ title: "Platform review remediation: guardrails, security, reliability, and oper
 kind: master-plan
 created_at: 2026-07-16T04:24:57Z
 intention: intention_01kzakvy1qeasagg3rpbn44749
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:46:25Z
+      mode: "update"
+      note: "Reconcile child progress, live evidence, secret ownership, and remaining operator gates"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -25,20 +32,30 @@ protects the data disk or backup bucket from deletion, host secrets are encrypte
 a single age key that lives only on the VM, and there is no alerting at all on a
 single-node platform where one full disk takes everything down.
 
-When this initiative is complete: the project guardrail genuinely fails closed and
+The repository implementation is now substantially complete. The project guardrail genuinely fails closed and
 the local-mode loopback assertion cannot be spoofed; the auth plane (nagared,
 nagare-access) is safe against fork-PR code execution, open redirects, timing
 oracles, and outage-amplifying denial caching; stateful GCP resources are protected,
-versioned, and snapshotted, and every sops-encrypted secret can be recovered with an
-operator-held key even if the VM is lost; every always-on cluster workload carries
+versioned, and snapshotted; every always-on cluster workload carries
 resource bounds, probes, and a hardened security context, and the log/trace stores
-cannot fill the shared data disk; vmalert pushes notifications for the five failure
+cannot fill the shared data disk; vmalert is configured with rules for the five failure
 modes that actually kill a personal PaaS (disk, backups, certificates, node, crash
 loops) and backup-freshness monitoring watches the prefixes backups actually land
 in; nagarectl's deploy and database paths fail cleanly instead of throwing or
 generating unparsable connection URLs; and the host is tuned for its 2-vCPU/8 GB
 reality with a written, rehearsable upgrade story and a disaster-recovery runbook
 that matches the tree.
+
+Four live/operator-owned acceptance bundles remain before the initiative is complete.
+EP-3 must create and vault the offline age recovery identity, re-key the active
+context's host and cluster secrets, and finish the matching recovery text. EP-4 must
+roll the bounded workloads and observability settings into a real cluster and record
+probe, migration-rerun, rollout, and steady-state resource evidence. EP-5 must replace
+the temporary blackhole notifier with an operator-owned Pushover configuration and
+prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
+Secret reencryption rotation and prove a private image can be pulled more than 45
+minutes after k3s starts without restarting it. Everything else in the registry is
+complete or repository-complete with its remaining live proof named explicitly below.
 
 Out of scope: new product features (workload kinds, brokers, the agent content
 plane), multi-node or high-availability work, replacing any major component
@@ -68,17 +85,20 @@ track's alerting finding lands in the same Helm values file as the cluster track
 Grafana finding); the chosen split gives each shared artifact exactly one owning
 plan (see Integration Points).
 
-Eight plans exceed the preferred two-to-five, so they are grouped into three phases
+Eight plans exceed the preferred two-to-seven, so they are grouped into three phases
 that act as implementation waves. All eight are mutually independent at the compile
 level; the only ordering pressure is the soft dependency of EP-5 on EP-4 (shared
 Helm values file and the sops-secret pattern), the soft dependency of EP-8 on EP-4
 (both edit the auth-plane manifests under `cluster/bootstrap/`), and the
 shared-file ownership rules in Integration Points.
 
-EP-8 was added on 2026-08-25. It is remediation of the same auth-plane surfaces
+EP-8 was added on 2026-08-25 and completed on 2026-08-28. It remediated the same auth-plane surfaces
 EP-4 began: an authorization service that runs without any caller authentication,
 health probes pointing at URLs the upstream service no longer serves, and Git pins
-120 and 155 commits stale. It is grouped into Phase 3 (hygiene).
+120 and 155 commits stale. Its post-completion M8 refresh moved Shomei to the official
+0.2.0.0 release and recorded the explicit disposable-database reset required by that
+release's checksum-breaking migration correction. It remains grouped into Phase 3
+(hygiene).
 
 
 ## Exec-Plan Registry
@@ -92,7 +112,7 @@ health probes pointing at URLs the upstream service no longer serves, and Git pi
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
 | 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | In Progress |
-| 8 | Upgrade nagare to the latest shomei and en | docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md | None | EP-4 | Not Started |
+| 8 | Upgrade nagare to the latest shomei and en | docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md | None | EP-4 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -103,9 +123,11 @@ alive) = EP-4, EP-5. Phase 3 (hygiene) = EP-6, EP-7, EP-8.
 
 ## Dependency Graph
 
-There are no hard dependencies: every plan compiles and verifies on its own, so all
-eight could in principle proceed in parallel. Four soft dependencies shape the
-sensible order.
+There are no hard dependencies: every plan compiles and verifies on its own. The
+original four soft dependencies shaped implementation order; EP-2, EP-4's repository
+work, EP-6, and EP-8 have now landed, so the remaining work is operational and can
+proceed in parallel when its required credentials, secrets, or live workload are
+available.
 
 EP-5 (alerting) benefits from EP-4 (cluster workloads) landing first because both
 edit `cluster/observability/victoria-metrics/values.yaml` and EP-4 establishes the
@@ -124,15 +146,17 @@ rewrites the age-key section of `docs/runbooks/disaster-recovery.md` while EP-7
 fixes the rest of that runbook; landing EP-3's key-model change first means EP-7
 documents the final two-recipient reality rather than the current fragile one.
 
-EP-8 (upgrade shomei and en) soft-depends on EP-4 (cluster workloads) because both
+EP-8 (upgrade shomei and en) soft-depended on EP-4 (cluster workloads) because both
 edit the four auth-plane manifests under `cluster/bootstrap/` and the shared image
 build script `cluster/bootstrap/auth-images/build-local-image.sh`. EP-4 established
 the resource bounds, `securityContext` blocks and the migration-Job-per-service
 shape those files now carry; EP-8 changes the probe paths, adds en's API-key
 environment and adds a second migration Job on top of that shape. Landing EP-4
-first avoids conflicting edits to the same five files. EP-8 also touches
+first avoided conflicting edits to the same five files. EP-8 also touched
 `cli/nagare-access/` and `cli/nagarectl/src/Nagare/Access/Grants.hs`, which EP-2
-and EP-6 own respectively — see Integration Points.
+and EP-6 own respectively — see Integration Points. EP-8 is complete; EP-4's remaining
+rollout must deploy the current combined manifests rather than reconstruct its older
+pre-EP-8 probe or migration shape.
 
 Within Phase 1 the three plans are fully parallel: EP-1 is pure bash/justfile, EP-2
 is pure Haskell, EP-3 is Pulumi TypeScript plus sops configuration.
@@ -146,13 +170,17 @@ deduplication) and defines the repository's sops-managed-Secret pattern for clus
 credentials. EP-5 owns the `vmalert` and `alertmanager` blocks and consumes the
 sops pattern for the push-channel credential. Neither plan edits the other's block.
 
-The sops-managed-Secret pattern (`cluster/secrets/*.yaml` encrypted via the root
-`.sops.yaml`, applied with `sops -d | kubectl apply -f -`) — established today by
-`cluster/secrets/notes-db-url.yaml`, extended by EP-4 (Grafana admin), reused by
-EP-5 (alert channel), and formalized in docs by EP-7 (secrets.md status change).
-EP-3 changes the age recipients in both `.sops.yaml` files; whichever of EP-3/EP-4/
-EP-5 lands last must run `sops updatekeys` on any secret files created in the
-meantime.
+The sops-managed-Secret pattern is now context-owned operator configuration, as
+defined by [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md),
+[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md), and
+[ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md).
+Cluster secrets live under
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` (or
+`NAGARE_CLUSTER_SECRETS_DIR`); host secrets live in the generated context host flake.
+A source checkout may retain `cluster/secrets/` only as a compatibility fallback, and
+released payloads/workspaces exclude it. EP-4 established the Grafana Secret consumer,
+EP-5's installer now resolves the context-owned directory fail-closed, and EP-3 owns
+adding the recovery recipient and re-keying every actual context-owned ciphertext.
 
 `scripts/lib/target.sh` and the guardrail-adjacent `justfile` recipes (`vm-stop`,
 `vm-start`, `cluster-bootstrap`) — owned exclusively by EP-1. EP-3 may change which
@@ -181,12 +209,14 @@ exactly the invariant its `EnResult` mapping restates.
 EP-4 owns the resource bounds, `securityContext` blocks, and the pattern of running
 each service's migrations from its own release image. EP-8 owns the probe paths,
 en's API-key Secret and environment, the new shomei migration Job, and the
-generated cabal-project tails. Landing EP-4 first is what makes EP-8's edits
-additive rather than conflicting.
+generated cabal-project tails. Both repository changes have landed. EP-4's remaining
+live validation consumes the resulting combined manifests, including EP-8's current
+health endpoints and both dependency-owned migration Jobs.
 
-`docs/runbooks/disaster-recovery.md` — EP-3 owns the age-key/root-of-trust section;
-EP-7 owns every other section (stale paths, contradictory power-management text,
-hardcoded image and bucket names, backup prefixes).
+`docs/runbooks/disaster-recovery.md` — EP-3 still owns the age-key/root-of-trust
+section and must update it only after the recovery key and re-keying exist. EP-7's
+reality-sync work for every other section is complete; EP-5 also corrected the managed
+database backup prefixes.
 
 `scripts/local-smoke.sh` — EP-1 owns the cleanup-trap safety changes; EP-5 appends
 the managed-DB backup/restore round-trip steps. Appending test steps does not
@@ -205,28 +235,29 @@ Milestone-level view across all child plans. Check items as child-plan milestone
 complete; the child plans hold the granular checklists.
 
 - [x] EP-1 M1: A guardrail that can actually fail (scripts/lib/target.sh) — fail-closed project assertion, loopback whitelist, fail-closed context pointer, passphrase-file guard (2026-08-05)
-- [x] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion (2026-08-05)
-- [x] EP-1 M3: Trap safety and hygiene, then the lint gate (2026-08-05 — `shellcheck --severity=error` clean and the hermetic `shellcheck-scripts` check passes; full `nix flake check` blocked on an unrelated `nagare-access-build-test` sandbox clone failure)
+- [x] EP-1 M2: Route the bypassing tooling through the guardrail — vm-power.sh, hard-fail cluster-bootstrap, migrate-pulumi-backend ownership assertion (2026-09-15 reconciliation — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) exercised the foreign-bucket refusal live after correcting gcloud's raw project-number output)
+- [x] EP-1 M3: Trap safety and hygiene, then the lint gate (2026-09-15 reconciliation — shellcheck and the hermetic gate pass; the later dependency-authentication fix also removed the stale repo-wide flake-check blocker. The positive full local-smoke run remains a deferred operator exercise, not a completion blocker for the already-proven loopback guardrail.)
 - [x] EP-2 M1: nagared — fork-PR gating and a runghc timeout (2026-08-05)
 - [x] EP-2 M2: nagare-access — cookie MAC, return destination, Host header (2026-08-05)
 - [x] EP-2 M3: nagare-access — unavailable-vs-denied and cache eviction (2026-08-05)
-- [~] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (re-verified 2026-08-24 — code complete and typechecking; the preview gate and apply remain blocked on interactive gcloud reauthentication and a restored cloud context)
-- [~] EP-3 M2: sops — an offline recovery recipient for every secret (re-verified 2026-08-24 — dead rule removed and the key-model comment corrected; the recovery key itself still needs operator vault handling and the running VM)
-- [ ] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS
+- [x] EP-3 M1: Pulumi — deletion protection, bucket hardening, snapshots, scoped IAM, instance fixes (2026-09-15 — the released program was applied to the fresh `tan-ng-labs` target and authoritative GCP/Kubernetes reads plus a 31-unchanged preview proved the intended protections)
+- [~] EP-3 M2: sops — an offline recovery recipient for every secret (2026-09-15 — policy cleanup and the context-owned secret boundary are complete; generating/vaulting the recovery key, re-keying live host and cluster secrets, and updating the runbook remain operator work)
+- [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
   live installer rerun remains)
-- [ ] EP-5 M1: vmalert + Alertmanager with a Pushover channel
+- [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
 - [~] EP-5 M2: Six rules covering five failure modes, and a truthful freshness
-  probe (2026-08-24 — exact chart render, scrape selector, PromQL validation,
-  Haskell implementation, and all 363 tests pass; live series/rule/status proof
-  remains behind cloud reauthentication)
-- [~] EP-5 M3: Prove backups restore, on a schedule (2026-08-24 — restore
-  round-trip and monthly explicit-failure workflow implemented; shell/YAML gates
-  pass; live local smoke remains blocked by the absent Docker daemon)
+  probe (2026-08-26 — exact chart render, scrape selector, PromQL validation,
+  Haskell implementation, and all 394 packaged tests pass; live series/rule/status
+  proof remains)
+- [x] EP-5 M3: Prove backups restore, on a schedule (2026-08-26 — packaged local
+  smoke repeatedly completed the database backup/restore round-trip and teardown;
+  the monthly cloud workflow exists and intentionally fails at its still-unwired
+  authentication step)
 - [x] EP-6 M1: URL-safe database credentials and total secret decoding
   (2026-08-24 — hex generation, percent-encoded URL userinfo, total UTF-8
   decoding, and all 368 tests pass)
@@ -237,24 +268,27 @@ complete; the child plans hold the granular checklists.
   (2026-08-24 — all six owned sites use `fromMaybe`; final build and all 372
   tests pass)
 - [~] EP-7 M1: Host tuning and k3s hardening flags
-  (2026-08-24 — declarative flags/tuning and NixOS evaluation complete; live
-  switch, encryption rotation, and host proof await an authenticated context)
+  (2026-09-15 — the released configuration is live on labs, kubeconfig is
+  `640 root:wheel`, and datastore encryption is enabled; the online rotation still
+  reports stage `start` and must reach `reencrypt_finished`)
 - [~] EP-7 M2: Registry credentials without k3s restarts
-  (2026-08-24 — restart timer removed and pull-Secret timer evaluates exactly;
-  live activation and the expiry-window pull proof await authenticated access)
+  (2026-09-15 — labs proves the replacement timer runs every 30 minutes and the old
+  restart unit is absent; a fresh private-image pull more than 45 minutes after the
+  last k3s start remains)
 - [x] EP-7 M3: Upgrade story and documentation reality sync (2026-08-24 —
   verified net-certmanager release assets and retained the live GCS pin; added
   the upgrade guide and IAP fallback; synchronized DR, secrets, kubeconfig, and
   active-context docs; parse, evaluation, stale-string, and path checks pass;
   optional k3d rehearsal skipped because Docker is unavailable)
-- [ ] EP-8 M0: Resolve the shomei/en pins and capture the baseline
-- [ ] EP-8 M1: Repin and make the nagare-access library compile
-- [ ] EP-8 M2: Make the nagare-access test suite compile and pass
-- [ ] EP-8 M3: Send en's mandatory API key from nagare-access
-- [ ] EP-8 M4: Fix nagarectl's hand-written en client
-- [ ] EP-8 M5: Cluster manifests and the image build script
-- [ ] EP-8 M6: Recreate the auth databases and prove access end to end
-- [ ] EP-8 M7: Documentation and ADR distillation
+- [x] EP-8 M0: Resolve the shomei/en pins and capture the baseline (2026-08-25)
+- [x] EP-8 M1: Repin and make the nagare-access library compile (2026-08-25)
+- [x] EP-8 M2: Make the nagare-access test suite compile and pass (2026-08-25)
+- [x] EP-8 M3: Send en's mandatory API key from nagare-access (2026-08-25)
+- [x] EP-8 M4: Fix nagarectl's hand-written en client (2026-08-25)
+- [x] EP-8 M5: Cluster manifests and the image build script (2026-08-25)
+- [x] EP-8 M6: Recreate the auth databases and prove access end to end (2026-08-25)
+- [x] EP-8 M7: Documentation and ADR distillation (2026-08-25 — ADRs 1 and 2 record dependency-plan and schema ownership)
+- [x] EP-8 M8: Refresh Shomei to the official 0.2.0.0 release (2026-08-28 — builds, 104 focused tests, native image build, migration reset proof, and native flake checks pass)
 
 
 ## Surprises & Discoveries
@@ -354,6 +388,33 @@ Discoveries from implementation:
   successful Job. EP-5 uses the exact port/current value key, explicit blackhole
   mode until Pushover is configured, and excludes successful Jobs from the
   backup-failure alert.
+- **Encrypted operational secrets moved out of immutable releases** (EP-3/EP-5,
+  2026-08-26). MasterPlan 20 and ADRs 4, 5, and 13 made the active context's
+  `cluster-secrets/<context>/` directory and generated host flake the operational
+  source of truth. Released payloads deliberately exclude `cluster/secrets/`.
+  Recovery and observability work must resolve those context-owned paths; re-keying
+  only the checkout compatibility files would leave the real deployment unrecoverable.
+- **Packaged local smoke now proves the managed-database restore path** (EP-5,
+  2026-08-26). The clone-free run repeatedly reached `DB RESTORE OK`, cleaned up the
+  deterministic backup CronJob, and exposed three integration defects that were fixed:
+  inherited cloud context, PostgreSQL readiness/socket assumptions, and backup-CronJob
+  leakage. M3 is complete rather than waiting on the formerly absent Docker daemon.
+- **The dependency upgrade completed and then advanced again** (EP-8,
+  2026-08-25 through 2026-08-28). Nagare now uses current En plus Shomei 0.2.0.0,
+  authenticates both En clients with role-appropriate keys, runs dependency-owned
+  migration Jobs, and passed a local grant → sign-in → allow → revoke → deny proof.
+  [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md)
+  and [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md)
+  preserve the durable dependency-plan and schema-ownership rules. Shomei 0.2.0.0's
+  rewritten migration history requires an explicit reset only because Nagare's current
+  auth data is disposable; that exception must not be generalized.
+- **A fresh labs target and the original context now provide complementary live
+  evidence** (EP-3/EP-7, 2026-09-15). `mori://tan/tan-ng-labs` proves the released
+  infrastructure protections, host mode, fresh-start datastore encryption, and
+  pull-secret timer. [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md)
+  proves the active `tan-nb-exp` Pulumi stack's exact GCS
+  migration. Neither substitutes for human custody of the recovery key, late datastore
+  reencryption, or an expired-boot-token private pull, so those checks remain open.
 
 
 ## Decision Log
@@ -422,6 +483,43 @@ Discoveries from implementation:
   it when enabling Alertmanager.
   Date: 2026-08-24
 
+- Decision: Treat context-owned host and cluster secret directories as the only
+  operational re-key targets; retain `cluster/secrets/` only as a source-checkout
+  compatibility fallback.
+  Rationale: ADRs 4, 5, and 13 moved mutable operator identity and ciphertext out of
+  immutable release payloads. Re-keying or backing up only checkout fixtures would not
+  make a packaged deployment recoverable, and shipping ciphertext in every release
+  would violate the established payload boundary.
+  Date: 2026-09-15
+
+- Decision: Mark EP-8 Complete and preserve its M8 Shomei 0.2.0.0 refresh as part of
+  the initiative rather than opening a ninth plan.
+  Rationale: M8 is the final compatibility correction on the same auth-plane surface,
+  passed its focused/native validation, and distilled its durable rules into ADRs 1 and
+  2. A separate child would add coordination overhead without creating an independent
+  remaining behavior.
+  Date: 2026-09-15
+
+- Decision: Use later authoritative cross-plan evidence to close stale child-plan
+  acceptance items, but split broad live gates so evidence is never allowed to imply
+  unobserved behavior.
+  Rationale: labs directly proves the released Pulumi resources and fresh-host state;
+  [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md)
+  directly proves the original stack's GCS migration. The same evidence does not
+  prove operator recovery-key custody, migration of pre-existing plaintext datastore
+  rows, or a private pull after the boot token expires. Keeping those narrower checks
+  open makes the remaining plan actionable and honest.
+  Date: 2026-09-15
+
+- Decision: Plan the remaining work as four parallel operator acceptance bundles —
+  EP-3 recovery identity, EP-4 live rollout, EP-5 notification/live observability, and
+  EP-7 host migration/pull proof — rather than by the original implementation phases.
+  Rationale: all hard dependencies remain absent, the shared repository edits have
+  landed, and each remaining bundle is gated by different live credentials or human
+  custody. Serializing them by the old phases would hide available work without
+  protecting a shared artifact.
+  Date: 2026-09-15
+
 
 ## Outcomes & Retrospective
 
@@ -431,12 +529,39 @@ Compare the result against the original vision.
 EP-4's repository changes for resource bounds, observability storage caps,
 Grafana credential handling, datasource single-sourcing, immutable auth tags,
 dependency-owned migrations, and local MinIO pinning are complete and pass their
-offline/rendered checks. Live local/cloud rollout remains open because this machine
-has neither a running Docker/k3d cluster nor an authenticated cloud context; those
-acceptance gates remain visible in EP-4 rather than being inferred from rendering.
+offline/rendered checks. Live rollout remains open because EP-4-specific resource,
+probe, installer-rerun, observability, and node-capacity evidence has not been
+recorded; EP-8's later local auth proof does not imply those broader observations.
 EP-5 M2's repository implementation is also complete offline: the exact chart
 renders, all six alert expressions validate, the pinned cert-manager selector is
-correct, and all 363 nagarectl tests pass. Live metric/rule evaluation and Pushover
+correct, and all 394 packaged nagarectl tests pass. Live metric/rule evaluation and Pushover
 delivery remain open rather than being simulated.
 EP-5 M3 now carries the managed-database restore assertion and monthly schedule;
-its k3d execution remains an explicit live gate because Docker is unavailable.
+its packaged k3d execution passed repeatedly on 2026-08-26, including teardown.
+
+As of 2026-09-15, four of eight child plans are complete (EP-1, EP-2, EP-6,
+EP-8). EP-3 has live infrastructure protection and remote-state evidence and is
+open only for the recovery-key/re-key/runbook bundle. EP-4's repository work is
+complete and awaits live rollout evidence. EP-5 has validated rules, truthful backup
+probing, and a proven packaged restore drill, but still needs a real Pushover channel
+and live metric/status proof. EP-7's configuration is active on labs and is open only
+for late datastore reencryption plus an expired-boot-token private pull. The remaining
+scope is therefore operator acceptance and secret custody, not another broad coding
+phase.
+
+The next practical sequence is opportunistic rather than dependency-driven. Create and
+vault the EP-3 recovery identity before touching ciphertext; it unlocks both re-keying
+and the final recovery text. EP-4 and EP-5 can share one authenticated cluster session:
+roll out the current combined manifests, observe workload resources/probes and both
+migration Jobs, then validate live metrics, backup status, Alertmanager, and a synthetic
+phone alert. EP-7 can use that same host window to finish datastore reencryption and,
+after the boot token is older than 45 minutes, force a fresh private-image pull while
+checking the k3s journal for no restart.
+
+Revision note (2026-09-15): reconciled all eight child plans, later live evidence,
+MasterPlan 20's packaged-operator boundary, and current ADRs. Marked EP-8 complete,
+closed EP-3 M1/M3 and EP-5 M3, narrowed EP-7 to its two unproven live behaviors, and
+rewrote the remaining-work view around four independently runnable operator acceptance
+bundles. Cascaded the current auth-probe, two-migration-Job, and context-owned
+Grafana-secret assumptions into EP-4 so its remaining live rollout is executable. No
+architecture decision changed in this refresh.

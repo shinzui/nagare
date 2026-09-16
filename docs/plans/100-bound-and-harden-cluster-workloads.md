@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T04:51:51Z
+      mode: "update"
+      note: "Reconcile live rollout with current auth manifests and context-owned secrets"
 ---
 
 # Bound and harden cluster workloads
@@ -24,16 +31,18 @@ Job that silently skips its work can leave the auth database behind the code tha
 talks to it. A July 2026 platform review (MasterPlan 19) found nine such gaps in
 the cluster manifests; this plan closes all of them.
 
-After this plan is implemented, an operator can observe the following, none of
-which is true today: every auth-plane pod (`en`, `shomei`, `nagared`,
+The repository now encodes the following target behavior; the remaining work is
+to observe it on the live platform. Every auth-plane pod (`en`, `shomei`, `nagared`,
 `nagare-access`) and every Victoria observability pod runs with explicit CPU
 requests and memory limits, so `kubectl describe node` shows a truthful
 reservation picture and a runaway build inside `nagared` gets OOM-killed at 1 GiB
 instead of taking the node with it; `en` has readiness and liveness probes on its
-real health endpoints; `en`, `shomei`, and the migration Job run under the same
+real health endpoints; `en`, `shomei`, and the migration Jobs run under the same
 hardened securityContext `nagare-access` already has; Grafana's admin password
-comes from a sops-encrypted Secret in `cluster/secrets/` instead of a literal
-committed to Git, and its datasource list has exactly one source of truth;
+comes from a sops-encrypted Secret in the active context's operator-owned
+`cluster-secrets/<context>/` directory instead of a literal committed to Git or
+an immutable release payload, and its datasource list has exactly one source of
+truth;
 VictoriaLogs and VictoriaTraces carry hard disk-usage caps below their PVC sizes,
 so they can never fill the data disk; re-running `cluster/bootstrap/auth-install.sh`
 after adding a migration actually applies that migration; and the auth images
@@ -50,12 +59,15 @@ opt-in.
 - [x] M1: add resources and securityContext to the Job in `cluster/bootstrap/en/migrations.yaml`. (2026-08-24)
 - [x] M1: render all five manifests and assert their resource, probe, and security
   fields with `yq`; all assertions passed. (2026-08-24)
-- [ ] M1 live validation: apply the manifests and run `just local-smoke` or the
-  local-auth install to observe pods Running with the declared limits. The configured
-  kube API requires expired gcloud credentials, and no local cluster exists yet.
+- [ ] M1 live validation: apply the current combined manifests after
+  `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` and run
+  `nagare local-smoke` or the local-auth install to observe pods Running with the
+  declared limits. ExecPlan 104 proved the upgraded auth plane reaches Ready locally,
+  but did not record the resource/probe observations required by this milestone.
 - [x] M1: commit the bounded auth-plane manifests and plan state. (2026-08-24)
 - [x] M2: create sops-encrypted `cluster/secrets/grafana-admin.yaml` without
-  exposing the generated password in tool output or plaintext Git state. (2026-08-24)
+  exposing the generated password in tool output or plaintext Git state. (2026-08-24;
+  this was the checkout-owned source before the packaging reconciliation below)
 - [x] M2: switch `grafana.adminPassword` to `grafana.admin.existingSecret` and
   pin the plugin to the current verified release, 0.31.0, in
   `cluster/observability/victoria-metrics/values.yaml`. (2026-08-24)
@@ -83,9 +95,17 @@ opt-in.
 - [x] M3: prove migration rerun behavior against disposable PostgreSQL: the first
   `en-migrate up` reported `applied_now`, the second `already_applied`, and
   `en-migrate verify` reported one applied, zero pending, zero unknown. (2026-08-24)
-- [ ] M3 live installer validation: run the local installer twice and confirm the
-  recreated Job succeeds against the cluster database. No local cluster is running.
+- [ ] M3 live installer validation: run the current local installer twice and confirm
+  both recreated migration Jobs succeed against their cluster databases. ExecPlan 104
+  (`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) proved one fresh
+  install of both Jobs; the second-run/idempotence observation remains.
 - [x] M3: commit the pg-migrate Job, immutable tag defaults, and MinIO pins. (2026-08-24)
+- [x] Packaging reconciliation: `cluster/observability/install.sh` now resolves
+  `grafana-admin.yaml` from the active context's operator-owned cluster-secret directory
+  via `scripts/lib/cluster-secrets.sh`, fails before mutation when it is absent, and
+  keeps checkout `cluster/secrets/` only as a compatibility fallback. Released payloads
+  and workspaces exclude encrypted credentials. (2026-08-26, implemented with
+  `docs/plans/101-alerting-and-backup-freshness-monitoring.md`)
 - [ ] Cloud rollout: apply M1/M2/M3 against the active cloud context and record observed steady-state usage
 - [ ] Write Outcomes & Retrospective
 
@@ -94,12 +114,12 @@ opt-in.
 
 These were found while authoring the plan (2026-07-15) and shape the steps below.
 
-- The en server's health endpoints are `GET /healthz` (unconditional 200 — "the
-  process serves HTTP") and `GET /readyz` (pings PostgreSQL through the
-  connection pool, 503 with a `store_error` JSON body while the store is
-  unreachable). Verified in the `en-server` source exposed by
-  `mori://shinzui/en/packages/en-server` (`en-server/app/Health.hs`, the
-  `healthRoutes` middleware).
+- At authoring, en exposed `GET /healthz` and `GET /readyz`.
+  `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` later upgraded
+  en to its servant-health interface, so the current combined manifest correctly uses
+  `GET /health/live` (process liveness) and `GET /health/ready` (dependency
+  readiness). Remaining validation must exercise those current paths rather than the
+  superseded endpoints recorded in the original implementation commit.
 - The Job-immutability problem in finding 5 is subtler than "apply fails": when
   only the ConfigMap SQL changes, `kubectl apply` on the Job succeeds (the Job
   spec is byte-identical) — but the completed Job never re-runs, so new
@@ -169,6 +189,15 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   exist in Docker Hub's authoritative registry for amd64 and arm64:
   `minio/minio:RELEASE.2025-09-07T16-13-09Z` and
   `minio/mc:RELEASE.2025-08-13T08-35-41Z`.
+
+- Integration reconciliation (2026-08-26): MasterPlan 20 and
+  [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md)
+  moved encrypted Kubernetes bootstrap credentials out of immutable payloads. The
+  installer now resolves
+  `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` or
+  `NAGARE_CLUSTER_SECRETS_DIR` before contacting Helm. A source checkout's
+  `cluster/secrets/` is only a compatibility fallback, so the remaining rollout must
+  not expect `grafana-admin.yaml` inside an installed platform workspace.
 
 
 ## Decision Log
@@ -293,14 +322,22 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
   edited by `docs/plans/101-alerting-and-backup-freshness-monitoring.md`, which
   enables the `vmalert:` and `alertmanager:` sections (currently
   `enabled: false`, lines 66-70). THIS plan owns the `grafana:` block and
-  establishes the sops-secret pattern (`cluster/secrets/` + `.sops.yaml` +
-  `sops -d | kubectl apply`); EP-101 consumes that pattern for its
+  establishes the Kubernetes Secret contract;
+  `docs/plans/101-alerting-and-backup-freshness-monitoring.md` consumes that contract for its
   alert-channel secrets and must not touch the `grafana:` block. The image-tag
   defaulting in M3 interacts with
   `docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md`'s
   registry-credential work only at the documentation level (103 syncs docs; no
   shared code).
   Date: 2026-07-15.
+- Decision: store the Grafana ciphertext with context-owned operator configuration,
+  not in the released platform payload; preserve `monitoring/grafana-admin` and its
+  `admin-user`/`admin-password` keys as the stable Kubernetes interface.
+  Rationale: ADR 4 makes platform payloads immutable and credential-free. The
+  location changed, but the chart and workload should not care where the operator
+  keeps the encrypted source. `scripts/lib/cluster-secrets.sh` centralizes resolution
+  and makes a missing file a pre-mutation failure.
+  Date: 2026-08-26.
 
 
 ## Outcomes & Retrospective
@@ -313,10 +350,19 @@ also eliminated a more serious form of drift than the original finding: Nagare
 no longer carries stale en SQL and instead consumes en's accepted migration
 interface from the same release image.
 
-The plan remains in progress because neither a local Docker/k3d cluster nor an
-authenticated cloud context is currently available. Live installer reruns,
-probe behavior, rollout status, and steady-state resource observations remain
-explicit acceptance work rather than inferred success.
+The plan remains in progress because the complete combined manifests have not yet
+been observed with their declared resources/probes on the target cluster, the
+observability stack has not been live-verified there, and the installer rerun plus
+steady-state resource observations remain. ExecPlan 104
+(`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) later proved the
+upgraded auth plane and both dependency-owned migrations on a disposable local
+cluster, but it did not record the EP-4-specific resource, probe, rerun, and
+node-capacity evidence. Those acceptance items remain explicit rather than inferred.
+
+The 2026-08-26 packaging reconciliation made the remaining rollout usable from an
+installed release: Grafana ciphertext is operator-owned, the installer finds it by
+active context, and a missing file is a pre-mutation refusal. This changes the source
+location, not the `monitoring/grafana-admin` Kubernetes contract.
 
 
 ## Context and Orientation
@@ -368,9 +414,10 @@ The **auth plane** lives under `cluster/bootstrap/`:
   webhook daemon. Per its own header comment it runs git checkouts, `runghc`
   config evaluation, docker build/push (via a daemon socket), and kubectl. No
   resources (container at line 31).
-- `cluster/bootstrap/auth-install.sh` — the cloud installer. Line 16 defaults
-  the image tag: `tag="${NAGARE_AUTH_TAG:-latest}"`. Lines 26-27 apply
-  `migrations.yaml` and wait for `job/en-migrate`.
+- `cluster/bootstrap/auth-install.sh` — the cloud installer. It defaults the
+  image tag to the current git SHA, recreates both dependency-owned migration
+  Jobs, and waits for `job/shomei-migrate` and `job/en-migrate` before applying
+  the service manifests.
 - `cluster/bootstrap/local-auth/install.sh` — the local-mode (k3d) installer;
   applies the same bases, then patches images/env for the local registry and
   loopback domain. Lines 62-64 apply migrations and wait for the same Job.
@@ -416,13 +463,15 @@ script):
   model file for the resource pattern.
 
 The **sops secret pattern** (sops is a tool that encrypts values inside YAML
-files with an age key so they can live in Git): the root `.sops.yaml` has a
-creation rule for `cluster/secrets/*.ya?ml` that encrypts only the
-`data`/`stringData` values; `cluster/secrets/notes-db-url.yaml` is the worked
-example. Decrypt-and-apply is `sops -d <file> | kubectl apply -f -` (documented
-in `docs/runbooks/disaster-recovery.md`, step 6). The private age key lives at
-`~/.config/sops/age/keys.txt` (and `/var/lib/sops-nix/age-key.txt` on the host);
-without it you can create new secrets but not decrypt existing ones.
+files with an age key): encrypted Kubernetes bootstrap Secrets are mutable
+operator configuration, not platform assets. They live under
+`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` by default,
+or under `NAGARE_CLUSTER_SECRETS_DIR`; the directory's operator-owned `.sops.yaml`
+encrypts only `data`/`stringData`. `scripts/lib/cluster-secrets.sh` implements this
+resolution and permits a source checkout's `cluster/secrets/` only as a compatibility
+fallback. Decrypt-and-apply remains `sops -d <file> | kubectl apply -f -`.
+The selected private identity must match the operator-owned recipient policy; this
+plan does not assume the public repository's historical workstation recipient.
 
 **Local testing path**: `just local-smoke` (justfile line 290) runs
 `scripts/local-smoke.sh`, which stands up a k3d cluster + local registry + MinIO
@@ -457,7 +506,7 @@ ExecPlan: docs/plans/100-bound-and-harden-cluster-workloads.md
 Scope: the four auth-plane workload manifests plus the migration Job. At the end
 of M1, every auth-plane container declares a CPU request, a memory request, and
 a memory limit (no CPU limits — see Decision Log); `en` has readiness/liveness
-probes on `/readyz` and `/healthz`; `en`, `shomei`, and the `en-migrate` Job
+probes on `/health/ready` and `/health/live`; `en`, `shomei`, and the `en-migrate` Job
 carry the same hardened securityContext block `nagare-access` already has.
 Verification: rendered manifests pass `kubectl apply --dry-run=client`, and on a
 live (local or cloud) cluster the pods reach Running/Ready with the limits
@@ -498,26 +547,25 @@ Then resources, with a rationale comment in the same voice as
               memory: 384Mi
 ```
 
-Then probes. en serves `GET /healthz` (unconditional 200 while the process can
-serve HTTP) and `GET /readyz` (200 only when PostgreSQL is reachable; 503
-otherwise) on its main port 8080 — verified in the en checkout
-(`en-server/app/Health.hs`); to re-verify against a running pod:
-`kubectl -n nagare-system exec deploy/en -- sh -c 'command -v curl' || kubectl -n nagare-system port-forward deploy/en 8080:8080` then `curl -s localhost:8080/readyz`.
+Then probes. Current en serves servant-health's `GET /health/live` and
+`GET /health/ready` endpoints on its main port 8080. Liveness confirms the
+process serves HTTP; readiness checks the dependencies needed to accept traffic. To
+re-verify against a running pod, port-forward the Deployment and request both paths.
 
 ```yaml
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: /health/ready
               port: 8080
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health/live
               port: 8080
 ```
 
-(Liveness on `/healthz` deliberately does NOT check the database: en's own
-health module documents that restarting replicas during a database outage helps
-nothing; readiness alone pulls the pod out of the Service.)
+(Liveness deliberately does not use the dependency-readiness path: restarting
+replicas during a database outage helps nothing; readiness alone pulls the pod
+out of the Service.)
 
 In `cluster/bootstrap/shomei/service.yaml` (container at line 26), add the same
 securityContext block and this resources block (probes already exist at lines
@@ -585,8 +633,9 @@ New CPU requests added by M1: 50+50+50+100+25 = 275m.
 ### Milestone M2 — Grafana secret, datasource single-sourcing, and disk-capped log/trace stores
 
 Scope: the observability stack. At the end of M2, Grafana's admin credentials
-come from a sops-encrypted Secret `grafana-admin` in `cluster/secrets/`; the
-plugin fetched at boot is version-pinned; the two datasources are declared once
+come from a sops-encrypted Secret `grafana-admin` in the active context's
+operator-owned cluster-secret directory; the plugin fetched at boot is
+version-pinned; the two datasources are declared once
 (as files applied by install.sh, not in chart values); VictoriaLogs and
 VictoriaTraces have disk-usage caps sized below their PVCs plus explicit
 resources; the Vector collector has resources. Verification: `helm template`
@@ -594,13 +643,16 @@ shows the retention flags and resources; after `install.sh`, Grafana login uses
 the secret password and lists exactly one VictoriaLogs and one VictoriaTraces
 datasource.
 
-First create the secret (working directory: repo root; requires `sops`,
-`openssl`, and the age key configured per `.sops.yaml` — the rule for
-`cluster/secrets/` already matches this path, nothing to add there):
+For a new context, create the secret in the operator-owned directory (working
+directory: repo root; requires `sops`, `openssl`, and an operator-owned
+`.sops.yaml` whose rule matches `grafana-admin.yaml`):
 
 ```bash
 umask 077
-cat > cluster/secrets/grafana-admin.yaml <<EOF
+context="$(nagarectl context current)"
+secret_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/${context}}"
+mkdir -p "$secret_dir"
+cat > "$secret_dir/grafana-admin.yaml" <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
@@ -611,20 +663,23 @@ stringData:
     admin-user: admin
     admin-password: $(openssl rand -base64 24)
 EOF
-sops -e -i cluster/secrets/grafana-admin.yaml
-grep -c 'ENC\[' cluster/secrets/grafana-admin.yaml   # must print >= 2 before committing
+sops --config "$secret_dir/.sops.yaml" -e -i "$secret_dir/grafana-admin.yaml"
+grep -c 'ENC\[' "$secret_dir/grafana-admin.yaml"   # must print >= 2 before committing
 ```
 
-To read the password later: `sops -d cluster/secrets/grafana-admin.yaml`.
+Store the encrypted file and its policy in the private operator repository, not
+in a Nagare release. To read the password later:
+`sops -d "$secret_dir/grafana-admin.yaml"`.
 
 In `cluster/observability/victoria-metrics/values.yaml`, rewrite the `grafana:`
 block (lines 80-114). Replace the `adminPassword` lines (83-86) with:
 
 ```yaml
   # Admin credentials come from the sops-managed Secret `grafana-admin`
-  # (cluster/secrets/grafana-admin.yaml), applied by install.sh BEFORE the
-  # chart so the grafana Deployment can mount it. Grafana persistence is not
-  # enabled, so credentials re-seed from the Secret on every pod start.
+  # from the active context's operator-owned cluster-secret directory and
+  # applied by install.sh BEFORE the chart so the Grafana Deployment can mount
+  # it. Grafana persistence is not enabled, so credentials re-seed from the
+  # Secret on every pod start.
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
@@ -657,21 +712,20 @@ sidecar is now load-bearing for our two ConfigMaps as well as the chart's own).
 Do NOT touch the `alertmanager:`/`vmalert:` section (lines 66-70) — it is owned
 by `docs/plans/101-alerting-and-backup-freshness-monitoring.md`.
 
-In `cluster/observability/install.sh`, add before the vmks `helm upgrade`
-(currently line 28):
+`cluster/observability/install.sh` now resolves the operator-owned input before
+the vmks `helm upgrade` through the shared helper:
 
 ```bash
-# Grafana admin credentials: sops-managed Secret, applied before the chart so
-# grafana.admin.existingSecret (victoria-metrics/values.yaml) can mount it.
+source "${PLATFORM_ROOT}/scripts/lib/cluster-secrets.sh"
+SECRETS_DIR="$(nagare_cluster_secrets_dir)"
+GRAFANA_SECRET="$(nagare_require_cluster_secret "${SECRETS_DIR}" grafana-admin.yaml)"
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-sops -d "$ROOT/../secrets/grafana-admin.yaml" | kubectl apply -f -
+sops -d "${GRAFANA_SECRET}" | kubectl apply -f -
 ```
 
-(Note `$ROOT` is defined at line 25 as the script's directory,
-`cluster/observability`, so `$ROOT/../secrets` is `cluster/secrets`. Moving the
-`ROOT=` line above this insertion is part of the edit.) Then, after the vmks
-install and next to the existing dashboard-ConfigMap block (lines 32-37), add
-the datasource ConfigMaps using the identical pattern:
+Resolution happens before Helm or any cluster mutation, so an absent packaged
+secret fails closed. After the vmks install and next to the existing
+dashboard-ConfigMap block, the datasource ConfigMaps use the identical pattern:
 
 ```bash
 for ds in victoria-logs victoria-traces; do
@@ -763,10 +817,12 @@ URI pending). Do not duplicate its SQL in Nagare.
 
 In `cluster/bootstrap/auth-images/build-local-image.sh`, build both
 `exe:en-server` and `exe:en-migrate` for service `en`, copy both into the
-runtime image, and keep Shomei's codd source/dependency isolated to service
-`shomei`. The generated en cabal-project tail must retain the currently pinned
-OpenAPI forks using canonical repository URIs so the image build matches the
-dependency checkout.
+runtime image. `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`
+subsequently removed codd and made the same-image contract
+apply to Shomei with `shomei-server` plus `shomei-migrate`; the generated Cabal
+project tails now mirror the current upstream dependency plans. Remaining M3
+validation consumes that combined result and must not restore the historical codd
+branch.
 
 In `cluster/bootstrap/en/migrations.yaml`, remove the SQL ConfigMap and mount.
 Use the same `${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}` image as the en
@@ -782,13 +838,12 @@ database environment remains sourced from `en-db-app`; pg-migrate supplies the
 ledger, checksum verification, advisory locking, and rerun semantics.
 
 In both `cluster/bootstrap/auth-install.sh` and
-`cluster/bootstrap/local-auth/install.sh`, delete `job/en-migrate` with
-`--ignore-not-found=true`, render `en/migrations.yaml` through
-`render-context-template.sh` using the installer-selected registry and tag,
-apply it on stdin, and wait for completion. A completed Job never reruns, and
-its pod template is immutable; recreation handles both facts without creating
-unbounded hash-suffixed Jobs. The local installer keeps its deliberate `dev`
-tag default.
+`cluster/bootstrap/local-auth/install.sh`, delete `job/shomei-migrate` and
+`job/en-migrate` with `--ignore-not-found=true`, render both migration manifests
+through `render-context-template.sh` using the installer-selected registry and tag,
+apply them, and wait for completion. A completed Job never reruns, and its pod
+template is immutable; recreation handles both facts without creating unbounded
+hash-suffixed Jobs. The local installer keeps its deliberate `dev` tag default.
 
 In the cloud installer and `cluster/bootstrap/render-context-template.sh`, make
 unset `NAGARE_AUTH_TAG` resolve to this repository's short git SHA. Preserve
@@ -843,10 +898,13 @@ ExecPlan: docs/plans/100-bound-and-harden-cluster-workloads.md
 Stage files explicitly (`git add cluster/bootstrap/...` path by path — never
 `git add -A` in this repo).
 
-Step 3 — implement M2: create and encrypt `cluster/secrets/grafana-admin.yaml`
-(exact commands in Plan of Work M2), edit the three values files and the two
-datasource files, edit `cluster/observability/install.sh`, then verify the
-chart-side rendering offline:
+Step 3 — implement M2: create and encrypt the active context's
+`cluster-secrets/<context>/grafana-admin.yaml` (exact commands in Plan of Work
+M2), edit the three values files and the two datasource files, edit
+`cluster/observability/install.sh`, then verify the chart-side rendering
+offline. The 2026-08-26 reconciliation is part of the final state: the
+installer must use `scripts/lib/cluster-secrets.sh`, and released payloads must
+not contain `cluster/secrets/`.
 
 ```bash
 helm repo add vm https://victoriametrics.github.io/helm-charts/ && helm repo update
@@ -874,9 +932,12 @@ sourced via `secretKeyRef` from `grafana-admin`, and
 `GF_PLUGINS_PREINSTALL_SYNC: victoriametrics-logs-datasource 0.31.0`. Also shellcheck
 the installer: `shellcheck cluster/observability/install.sh`.
 
-Step 4 — commit M2 (`feat(observability): ...` with the same trailers). Confirm
-the secret is encrypted in the staged copy:
-`git show :cluster/secrets/grafana-admin.yaml | grep -c 'ENC\['` prints ≥ 2.
+Step 4 — commit M2 (`feat(observability): ...` with the same trailers). The
+public repository stages only the installer/chart changes. Confirm the
+operator-owned file is encrypted with
+`grep -c 'ENC\[' "$secret_dir/grafana-admin.yaml"` (prints at least 2), and
+confirm the release checks prove `cluster/secrets/` is absent from both the
+payload and materialized workspace.
 
 Step 5 — implement M3 edits (auth-image builder, migrations.yaml, both
 installers, render script, minio.yaml, and en README), then:
@@ -930,12 +991,12 @@ Local path (no GCP; requires Docker):
    shows the memory limits from M1.
 3. The migration rerun proof (the behavior that was broken): run
    `cluster/bootstrap/local-auth/install.sh` twice without changing tags.
-   Acceptance: both runs complete; the installer recreates `job/en-migrate`;
-   `kubectl -n nagare-system logs job/en-migrate` on the second run reports the
-   embedded plan as already applied; and `en-migrate verify` against the same
-   database reports zero pending and zero unknown migrations. New migrations
-   are authored and tested in `mori://shinzui/en/packages/en-migrations`, not
-   by editing this repository's Job manifest.
+   Acceptance: both runs complete; the installer recreates `job/shomei-migrate`
+   and `job/en-migrate`; each second-run log reports its embedded plan as already
+   applied; and the corresponding verify command reports zero pending and zero
+   unknown migrations. New migrations are authored and tested in
+   `mori://shinzui/shomei/packages/shomei-migrations` or
+   `mori://shinzui/en/packages/en-migrations`, not by editing Nagare's Job manifests.
 4. Probe proof for en: `kubectl -n nagare-system get pod -l app.kubernetes.io/name=en`
    shows READY 1/1; then scale the en database to zero
    (`kubectl -n nagare-system scale statefulset/en-db --replicas=0` or the
@@ -948,11 +1009,13 @@ Cloud path (active cloud context, guardrail engaged):
    render git-SHA image tags (visible in
    `kubectl -n nagare-system get deploy en -o jsonpath='{.spec.template.spec.containers[0].image}'`)
    and complete idempotently on a second run.
-2. `cluster/observability/install.sh` — completes; then:
+2. `nagare observability` (or `cluster/observability/install.sh` from a
+   contributor checkout) — resolves `grafana-admin.yaml` from the active context
+   and completes; then:
    `kubectl -n logging get sts -o yaml | grep maxDiskSpaceUsageBytes` shows the
    15GiB cap (and 8GiB in `tracing`); Grafana at its Tailscale-only URL rejects
    `admin` / `change-me-nagare` and accepts `admin` plus the password from
-   `sops -d cluster/secrets/grafana-admin.yaml`; Grafana → Connections →
+   `sops -d "$secret_dir/grafana-admin.yaml"`; Grafana → Connections →
    Data sources lists exactly one VictoriaLogs and one VictoriaTraces entry
    (no duplicates), and Explore against each returns data.
 
@@ -1032,10 +1095,11 @@ harmless — the previous ReplicaSet/Revision keeps serving.
 
 ## Interfaces and Dependencies
 
-Tools (all from `nix develop` at the repo root): `kubectl`, `helm` (>= 3),
-`sops` with the project age key from root `.sops.yaml` (public recipient
-`age1pqfv2y...vcsf`; private key at `~/.config/sops/age/keys.txt`), `openssl`,
-`shellcheck`, `just`, `git`.
+Tools (all from `nix develop` at the repo root or the released operator
+package): `kubectl`, `helm` (>= 3), `sops` with an identity matching the active
+context's operator-owned `.sops.yaml`, `openssl`, `shellcheck`, `just`, and
+`git`. `NAGARE_CLUSTER_SECRETS_DIR` may override the default context-owned
+directory explicitly.
 
 Helm charts and the exact value keys this plan relies on (verified against the
 pinned versions with `helm show values` / `helm template`, most recently on
@@ -1056,7 +1120,8 @@ pinned versions with `helm show values` / `helm template`, most recently on
 
 Kubernetes objects and contracts that must hold at the end:
 
-- Deployments `en`, `shomei` and Job `en-migrate` (namespace `nagare-system`)
+- Deployments `en`, `shomei` and Jobs `en-migrate`, `shomei-migrate`
+  (namespace `nagare-system`)
   and Knative Services `nagare-access` (`nagare-system`) / `nagared`
   (`personal`): container 0 has `resources.requests.cpu`,
   `resources.requests.memory`, `resources.limits.memory`; `en`, `shomei`,
@@ -1064,20 +1129,27 @@ Kubernetes objects and contracts that must hold at the end:
   {`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`,
   `runAsNonRoot: true`, `runAsUser/runAsGroup: 10001`,
   `seccompProfile.type: RuntimeDefault`}.
-- en's probe endpoints: `GET /readyz` (readiness; 200 iff PostgreSQL
-  reachable) and `GET /healthz` (liveness; unconditional 200) on port 8080,
-  implemented by the `healthRoutes` middleware in
-  `mori://shinzui/en/packages/en-server`.
+- en's probe endpoints: `GET /health/ready` for readiness and
+  `GET /health/live` for liveness on port 8080, matching the current
+  servant-health interface in `mori://shinzui/en/packages/en-server`.
 - Job `en-migrate` uses the exact same registry prefix and tag as the en
   Deployment and invokes `/usr/local/bin/en-migrate up`. The image builder must
   therefore ship both `en-server` and `en-migrate`. The schema/manifest owner is
   `mori://shinzui/en/packages/en-migrations`; its released migration engine is
   `mori://shinzui/pg-migrate` 1.1.0.0.
+- Job `shomei-migrate` follows the same same-image contract for Shomei and is
+  owned by `mori://shinzui/shomei/packages/shomei-migrations`.
+  `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` added this
+  Job after EP-4 established the pattern; the remaining live rerun must cover both.
 - Secret `grafana-admin` (namespace `monitoring`, keys `admin-user`,
-  `admin-password`), stored encrypted at `cluster/secrets/grafana-admin.yaml`
-  under the existing `.sops.yaml` rule; applied by
-  `cluster/observability/install.sh` before the vmks chart. This is the
-  reusable sops-secret pattern that EP-101 consumes for alert-channel secrets.
+  `admin-password`), stored encrypted at
+  `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/grafana-admin.yaml`
+  (or below `NAGARE_CLUSTER_SECRETS_DIR`) under the operator-owned `.sops.yaml`
+  rule; applied by `cluster/observability/install.sh` before the vmks chart.
+  A source checkout's `cluster/secrets/` is only a compatibility fallback and
+  is absent from released payloads. This is the reusable sops-secret pattern
+  that `docs/plans/101-alerting-and-backup-freshness-monitoring.md` consumes for
+  alert-channel secrets.
 - ConfigMaps `grafana-datasource-victoria-logs` /
   `grafana-datasource-victoria-traces` (namespace `monitoring`, label
   `grafana_datasource=1`) built from the files in
@@ -1090,9 +1162,12 @@ Kubernetes objects and contracts that must hold at the end:
 
 Cross-plan boundaries (MasterPlan 19 integration points): this plan owns the
 `grafana:` block of `cluster/observability/victoria-metrics/values.yaml` and
-the sops-secret pattern; `docs/plans/101-alerting-and-backup-freshness-monitoring.md`
+the `monitoring/grafana-admin` Secret contract;
+`docs/plans/101-alerting-and-backup-freshness-monitoring.md`
 owns the `vmalert:`/`alertmanager:` sections of the same file and must not
-touch the `grafana:` block. Image-tag defaulting touches
+touch the `grafana:` block. ADR 4 owns the context-directory boundary, and the
+shared installer resolves it with `scripts/lib/cluster-secrets.sh`. Image-tag
+defaulting touches
 `docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md`
 only at the documentation level.
 
@@ -1109,3 +1184,10 @@ release image to carry both executables, updated the rerun/recovery contract,
 and refreshed Grafana plugin rendering details. Reason: the en dependency's
 accepted pg-migrate component made the original bootstrap approach both stale
 and unsafe.
+
+Revision note (2026-09-15): reconciled the remaining live rollout with
+`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`'s
+current servant-health paths and two migration Jobs, and with ADR 4's
+context-owned encrypted-secret boundary. The historical EP-4 implementation
+evidence remains intact; current operator commands now consume the combined
+manifests and packaged secret resolver instead of obsolete checkout paths.
