@@ -23,6 +23,11 @@ provenance:
       at: 2026-09-16T19:41:12Z
       mode: "implement"
       note: "Bound chart helpers and operator reloaders; validate pinned renders and labs admission; prepare gated rollout"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T21:22:32Z
+      mode: "implement"
+      note: "Record guarded live-audit refusal and bounded bash recovery gates"
 ---
 
 # Bound and harden cluster workloads
@@ -172,9 +177,25 @@ opt-in.
   Live log/trace args enforce 15GiB/8GiB disk caps and 512Mi memory limits; their
   20Gi/10Gi PVCs are Bound. Node reservations are 2245m CPU and 3098Mi memory,
   leaving 1755m CPU unreserved. No host/auth/public-ingress changes were made.
-- [ ] Follow up startup memory behavior: metrics had three initial OOM restarts;
-  logs had one initial OOM restart. Both recovered without changing limits; the
-  short-window successful checks do not prove clean startup or seven-day sizing.
+- [x] Recover the read-only labs follow-up (2026-09-16): the first preflight was
+  launched by zsh even though `scripts/lib/target.sh` is a Bash source library.
+  Its Bash-only `BASH_SOURCE[0]` root discovery therefore resolved
+  `/Users/shinzui/Keikaku`, refused the missing `release.json`/`justfile`, and
+  never defined `_require_target_project`. All attempted Kubernetes reads then
+  failed against an unrelated ambient kubeconfig; no guarded cloud read or
+  mutation succeeded. The bounded Bash recovery subsequently passed for guarded
+  project `tan-ng-labs`, kube context `labs`, and sole Ready node `labs-nagare`.
+- [x] Diagnose and prepare the startup-memory correction (2026-09-16): read-only
+  logs show both stores detected the 512Mi cgroup and assigned the default 60%
+  (307.2Mi) to caches immediately before their startup OOMs. Pinned upstream tags
+  exist; exact charts support the cache flag. Set both budgets to 40%, added exact
+  render assertions, and passed the five-chart regression, hermetic shell lint,
+  native `shellcheck-scripts`/`observability-grafana` checks, `just docs-validate`,
+  and `git diff --check`.
+- [ ] Apply the separately approved cache-budget rollout one store at a time and
+  prove clean startup without OOM/restart; then retain seven days of sizing data.
+  Current VictoriaMetrics history begins at 19:00/19:25 UTC on 2026-09-16, so the
+  7-day gate cannot yet pass.
 - [x] Publish private Grafana ciphertext (2026-09-16): operator explicitly approved
   commit `85826b1`; rechecked the clean private repository, exact two-file change
   and unchanged remote, pushed without force, and verified remote master equals
@@ -205,6 +226,33 @@ opt-in.
 
 ## Surprises & Discoveries
 
+- The 2026-09-16 continuation initially sourced the Bash-only target library from
+  zsh. In zsh, `BASH_SOURCE[0]` is empty, so the library derived its physical root
+  from the caller's working directory and climbed two directories to
+  `/Users/shinzui/Keikaku`. It failed closed before defining the project guard.
+  Subsequent `kubectl` reads in that same command inherited an unrelated ambient
+  kubeconfig and failed to parse its API response; they are not evidence about
+  labs. The recovery must use `bash -lc`, require the guarded labs identity, set
+  the labs kubeconfig explicitly, and prove `kubectl config current-context`
+  before any workload read. The first recovered identity check then rejected a
+  hard-coded `nagare-01` node name. Mori resolved the authoritative labs operator
+  documentation at `mori://tan/tan-ng-labs/docs/readme`, which distinguishes the
+  GCE instance `nagare-01` from the Kubernetes/Tailscale host `labs-nagare` and
+  requires the labs kubeconfig to list exactly the latter.
+- The recovered read-only audit found that VMSingle 1.144.0 and VictoriaLogs 1.50.0
+  both correctly saw 536870912 bytes of cgroup memory but applied the default 60%
+  cache budget (322122547 bytes), leaving 214748365 bytes to the runtime/OS. The
+  last VMSingle failure occurred nine seconds after start; VictoriaLogs failed 22
+  seconds after start. Both stores were empty, and both later opened successfully
+  under the same cap. This supports a smaller cache budget before any limit increase.
+  Current metrics retained only 25–30 five-minute samples (19:00/19:25 through
+  21:25 UTC), with observed maxima about 411Mi for VMSingle and 28Mi for logs;
+  that history is diagnostic only, not the required seven-day sizing evidence.
+- This repository has no `just check-adr` recipe, and Mori reports no profile for
+  `docs/adr/`. The attempted recipe therefore failed before validation. ADR 23
+  remains in the established local filesystem format; `just docs-validate` passed
+  the repository's actual profiled documentation bundles. No incidental ADR-profile
+  migration or invented validation command was introduced.
 - Labs kernel evidence (read-only SSH, 2026-09-16): three metrics cgroup OOMs
   at 18:55:27/35/55 UTC and one logs OOM at 19:21:59 UTC all hit a 524288KiB
   memory limit. The killed processes had about 510MiB/509MiB anonymous RSS.
@@ -408,6 +456,27 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 ## Decision Log
 
+- Decision: keep both store memory limits at 512Mi and set
+  `memory.allowedPercent` to 40 for VMSingle and VictoriaLogs, pending a separately
+  approved one-store-at-a-time rollout and clean-start proof.
+  Rationale: the official setting controls internal caches rather than total
+  process memory. At the default 60%, each store reserved 307.2Mi of its 512Mi
+  cgroup for caches and left only 204.8Mi for runtime/startup allocations; kernel
+  evidence shows each failure reached the cgroup ceiling. Forty percent leaves
+  307.2Mi for non-cache work without weakening the node-protecting hard cap.
+  Steady-state recovery under 512Mi makes a limit increase premature, while a
+  lower cache budget has an explicit cache-miss/I/O tradeoff that seven-day data
+  must validate. ADR 23 records this durable constraint.
+  Date: 2026-09-16.
+- Decision: execute live target preflights through Bash and treat a successful
+  `_require_target_project` plus an explicit labs kubeconfig/current-context check
+  as prerequisites even for read-only Kubernetes evidence.
+  Rationale: `scripts/lib/target.sh` is declared as a Bash source library and uses
+  `BASH_SOURCE[0]` to locate the operational root. The zsh invocation failed closed,
+  but allowing later commands to continue produced only ambient-context noise.
+  The recovery keeps the guard unchanged, stops on any failed prerequisite, and
+  authorizes no mutation.
+  Date: 2026-09-16.
 - Decision: add a server-side dry-run admission gate after cert-manager webhook
   rollout rather than a fixed sleep or retry of the mutating issuer apply.
   Rationale: actual webhook trust lags Deployment readiness; dry run exercises
@@ -650,6 +719,13 @@ resource reconciliation and query checks pass. The ten-minute stability gate als
 passed with 21 samples over 628 seconds, retaining all thirteen observed pod
 identities and restart counts. Local auth proof subsequently passed and private
 Grafana publication is verified. Startup reliability and cloud auth proof remain open.
+
+The read-only continuation now identifies a concrete startup-memory mechanism:
+both stores reserved 60% of their 512Mi cgroups for caches immediately before the
+four startup OOMs. The repository now sets 40% and tests the exact rendered flags,
+leaving the hard caps unchanged. This is a prepared remedy, not live acceptance;
+the two-stage rollout/restart proof still needs operator approval, and only about
+2.5 hours of history exists for the seven-day sizing gate.
 
 
 ## Context and Orientation
@@ -1375,6 +1451,62 @@ build, or cloud-context mutation is part of this recovery. A later local cluster
 must have its exact temporary kubeconfig and `k3d-` context verified before apply;
 existing unrelated k3d clusters are excluded from test mutation.
 
+### Target preflight recovery for the read-only labs audit (2026-09-16)
+
+The first continuation command failed before `_require_target_project` existed
+because zsh sourced a Bash-only library. Do not reuse that shell or its ambient
+kubeconfig. From the repository root, start a clean Bash command that sources
+`scripts/lib/target.sh`, immediately runs `_require_target_project`, and stops on
+any nonzero status. Require the resolved context to be `labs`, mode to be `cloud`,
+and the guarded project to equal the project declared by that context. Set
+`KUBECONFIG` explicitly to the labs context's generated kubeconfig, then require
+`kubectl config current-context` to equal `labs` and the sole node to equal
+`labs-nagare`, as specified by `mori://tan/tan-ng-labs/docs/readme`, before
+collecting pods, events, resource samples, or historical metrics. Do not compare
+the Kubernetes node name with `NAGARE_INSTANCE_NAME`; the latter is the distinct
+GCE instance name `nagare-01`.
+
+This recovery is read-only. It authorizes no Helm command, rollout/restart,
+delete, apply, image build/push, database/credential provisioning, host command,
+or private-repository publication. If the Bash target guard, kubeconfig identity,
+or node identity fails, stop and report that exact refusal. After those gates pass,
+collect only the evidence needed for the two open items: store restart history,
+current resources, historical memory/CPU series, live image versions/arguments,
+and non-secret events/logs. Record whether the retained history is long enough for
+the plan's seven-day sizing rule; absence of seven days remains an explicit wait,
+not evidence of success.
+
+The corrected recovery passed on 2026-09-16 for project `tan-ng-labs`, kube
+context `labs`, and sole Ready node `labs-nagare`. The resulting workload audit
+performed no mutation. It confirmed unchanged restart counts 3/1 and only about
+2.5 hours of retained container-memory history, so it informed the correction but
+did not close clean-start or long-term sizing acceptance.
+
+### Prepared cache-budget rollout gate (2026-09-16)
+
+Repository validation is complete for a 40% internal cache budget under each
+store's unchanged 512Mi memory limit. Before any live action, rerun
+`bash scripts/test-observability-resources.sh`, the Bash target/project guard, the
+explicit labs kubeconfig/node identity gate, and capture both current pod identities,
+restart counts, PVC bindings, and Helm revisions. Obtain one operator go-ahead for
+the bounded sequence below; the repository-only implementation does not authorize it.
+
+Upgrade only the `vmks` release first with chart 0.81.0 and the committed metrics
+values. Require the operator-reconciled VMSingle to carry
+`-memory.allowedPercent=40`, retain its existing PVC, become Ready without any
+OOM/restart during startup, and remain stable for ten minutes while metrics queries
+succeed. Stop on any failure; do not advance to logs, raise the cap, delete a PVC,
+or retry speculatively.
+
+After metrics passes, upgrade only `victoria-logs` with chart 0.13.5 and the
+committed logs values. Require `--memory.allowedPercent=40`, the existing PVC,
+clean readiness with no OOM/restart, ten stable minutes, and successful log
+ingestion/query. Recheck cache/database health and node reservation headroom after
+both stages. This sequence changes no credentials, auth workloads, notifier policy,
+host state, public ingress, or private repository. Continue collecting historical
+memory/CPU data until seven full days exist before adjusting requests or declaring
+long-term sizing complete.
+
 ### Approved bounded resource rollout (2026-09-16)
 
 Operator approval was received on 2026-09-16; revision 4 deployed and the
@@ -1699,3 +1831,16 @@ Revision note (2026-09-16, Grafana backup publication): explicit operator approv
 received, exact ciphertext/README commit published to `mori://shinzui/nagare-ops`,
 and remote master verified at `85826b1af8f04170a2308d2af44c67f4d1877d62`.
 No cluster mutation or additional private commit was included.
+
+Revision note (2026-09-16, guarded audit recovery): recorded that the first
+read-only labs continuation sourced the Bash target library from zsh and failed
+closed before the project guard existed. Added a Bash-only, explicit-kubeconfig,
+read-only recovery with stop conditions. Corrected the node gate from the GCE
+instance name to the authoritative labs Kubernetes node name after resolving
+`mori://tan/tan-ng-labs/docs/readme`; no workload evidence or mutation is claimed.
+
+Revision note (2026-09-16, startup-memory correction): the recovered read-only
+audit tied all four startup OOMs to the default 60% cache reservation inside a
+512Mi cgroup and confirmed that seven-day history does not yet exist. Added and
+validated 40% cache budgets for both exact pinned charts, updated ADR 23, and
+defined a separately approved one-store-at-a-time live acceptance gate.

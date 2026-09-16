@@ -10,6 +10,12 @@ server:
   # --retention.maxDiskSpaceUsageBytes=15GiB; VictoriaLogs drops the oldest data
   # once usage reaches the cap. Default unit is GiB.
   retentionDiskSpaceUsage: 15GiB
+  # The default 60% cache budget left only 204.8Mi of this 512Mi cgroup for
+  # runtime/startup allocations and the first empty-store start was OOM-killed.
+  # Keep the hard cap while leaving 60% to non-cache work. This flag constrains
+  # internal caches; it is not a total-process memory limit.
+  extraArgs:
+    memory.allowedPercent: "40"
   # Same pattern as vmsingle/vmagent/otel: CPU request floor (no CPU limit, so
   # ingest spikes can burst) + memory limit to guard the 8 GB node.
   resources:

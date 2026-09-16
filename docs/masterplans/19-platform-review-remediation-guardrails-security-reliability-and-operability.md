@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-16T19:41:12Z
       mode: "implement"
       note: "Record EP-4 resource correction rehearsal, operator ownership, ADR 23, and remaining live gates"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T21:22:32Z
+      mode: "implement"
+      note: "Record EP-4 guarded live-audit refusal and recovery boundary"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -313,9 +318,15 @@ complete; the child plans hold the granular checklists.
   exact ciphertext/README commit; pushed without force and verified remote master
   at `85826b1af8f04170a2308d2af44c67f4d1877d62` in `mori://shinzui/nagare-ops`.
   No cluster mutation was performed.
+- [x] EP-4 read-only follow-up recovery (2026-09-16): the first continuation
+  sourced the Bash target library from zsh, failed its operational-root guard,
+  and produced no valid labs reads. The child plan's bounded Bash/project/context/
+  node gates subsequently passed and the audit completed without mutation.
 - [ ] EP-4 remaining resource reliability: investigate startup OOMs (three metrics,
-  one logs) and record longer-term sizing.
-  Short-window recovery is not clean-start reliability.
+  one logs) and record longer-term sizing. Repository correction now sets both
+  store cache budgets to 40% under unchanged 512Mi caps and passes exact-chart
+  checks. Its separately approved two-stage rollout/clean-start proof and seven
+  days of history remain; current history covers only about 2.5 hours.
 - [x] EP-4 M3 local acceptance (2026-09-16): both installer runs recreated and
   completed both Jobs; En verifies 2 applied migrations and Shomei 36, with zero
   pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders
@@ -389,6 +400,23 @@ implementation):
 
 Discoveries from implementation:
 
+- **EP-4's read-only continuation failed closed before reaching labs**
+  (2026-09-16). `scripts/lib/target.sh` is a Bash source library; sourcing it from
+  zsh left `BASH_SOURCE[0]` empty and derived `/Users/shinzui/Keikaku` as the
+  operational root. The root check refused before the project guard was defined,
+  and later ambient-kubeconfig errors are not labs evidence. The child now requires
+  Bash, guarded context/project identity, and an explicit labs kubeconfig before
+  any read-only audit resumes. The authoritative operator documentation at
+  `mori://tan/tan-ng-labs/docs/readme` also corrected the identity gate:
+  `nagare-01` is the GCE instance, while the sole Kubernetes node is
+  `labs-nagare`.
+- **EP-4's startup OOMs share a bounded-cache mechanism** (2026-09-16). Both
+  stores detected the 512Mi cgroup correctly, then assigned the default 60%
+  (307.2Mi) to caches and reached the cgroup ceiling during empty-store startup.
+  The repository now renders 40% for both pinned charts, leaving 307.2Mi to
+  non-cache work without raising the cap. Exact-chart and native checks pass;
+  live clean-start and seven-day sizing evidence remain separate gates under
+  [ADR 23](../adr/0023-observability-resource-bounds-cover-chart-and-operator-created-containers.md).
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -519,6 +547,25 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: retain EP-4's 512Mi store caps and prepare a 40% internal cache budget,
+  with a separately approved one-store-at-a-time rollout before any clean-start
+  claim.
+  Rationale: read-only logs and kernel evidence connect all four startup OOMs to
+  the default 60% cache reservation, while both stores later ran under the same
+  hard cap. Reducing caches preserves node protection; raising limits is not yet
+  justified. Cache misses/I/O and long-term sizing still require seven-day data.
+  ADR 23 records the durable constraint.
+  Date: 2026-09-16.
+
+- Decision: recover EP-4's live read-only audit only through the child plan's
+  Bash target guard and explicit labs kubeconfig gates; do not infer authorization
+  for mutation from the audit.
+  Rationale: the first zsh invocation failed the operational-root check before
+  `_require_target_project` existed. The repository requires every cloud read to
+  pass the same fail-closed project isolation as mutations, and EP-4's remaining
+  Helm/auth operations still need a separate operator go-ahead.
+  Date: 2026-09-16.
 
 - Decision: EP-4 owns the shared chart operator/exporter resource blocks and global
   reloader defaults in addition to Grafana; EP-5 retains notification policy.
@@ -671,7 +718,10 @@ Grafana credentials, immutable auth tags, and dependency-owned migrations are co
 Its local auth resource/probe/migration-rerun acceptance now passes. The
 observability rollout/data paths/caps and current capacity are now verified;
 chart-default memory bounds are now live and passed a 628-second stability window.
-Startup OOM investigation remains open.
+The read-only follow-up tied the four startup OOMs to the stores' default 60%
+cache reservation inside unchanged 512Mi cgroups. A tested 40% repository
+correction preserves the hard caps, but deployment and clean-start observation
+remain operator-gated; only about 2.5 hours of the required seven-day history exist.
 The additional local checks directly establish EP-4's pod and rerun behavior.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
@@ -749,3 +799,15 @@ Grafana backup push passed rehearsal and awaits explicit publication approval.
 Revision note (2026-09-16, Grafana backup publication): operator approved the
 rehearsed private push; the exact ciphertext/README commit is now published and
 remote master verified. EP-4 remains In Progress for its other live acceptance gates.
+
+Revision note (2026-09-16, guarded EP-4 audit recovery): recorded the failed-closed
+zsh preflight and added the child plan's bounded Bash/read-only recovery boundary.
+Mori-resolved labs documentation corrected the node gate from the GCE instance
+name to `labs-nagare`. No workload evidence, cloud mutation, or completion claim
+resulted from the failed calls.
+
+Revision note (2026-09-16, EP-4 startup-memory correction): the recovered
+read-only audit identified the common default-cache mechanism, confirmed the
+seven-day evidence window is not yet available, and produced a validated 40%
+cache-budget correction plus a separately approved staged rollout gate. ADR 23
+now records the durable cache-versus-cgroup rule.

@@ -53,4 +53,22 @@ yq -o=json '.' "$tmp"/*.yaml | jq -s -e '
   .VM_CONFIG_RELOADER_LIMIT_MEMORY == "128Mi"
 ' > /dev/null
 
-echo 'All five pinned charts have bounded workload containers and Victoria reloader defaults.'
+# Both stores were OOM-killed during their first empty-store start with the
+# upstream 60% cache default under a 512Mi cgroup. Preserve the hard limit while
+# reserving most of it for runtime/startup allocations. Check the operator CR
+# and the direct StatefulSet separately because they render through different
+# charts.
+yq -o=json '.' "$tmp/vmks.yaml" | jq -s -e '
+  any(.[];
+    .kind == "VMSingle" and
+    .spec.extraArgs["memory.allowedPercent"] == "40")
+' > /dev/null
+
+yq -o=json '.' "$tmp/victoria-logs.yaml" | jq -s -e '
+  any(.[];
+    .kind == "StatefulSet" and
+    any(.spec.template.spec.containers[]?.args[]?;
+      . == "--memory.allowedPercent=40"))
+' > /dev/null
+
+echo 'All five pinned charts have bounded containers, reloader defaults, and 40% store cache budgets.'

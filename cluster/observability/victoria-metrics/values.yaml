@@ -24,6 +24,13 @@ vmsingle:
         memory: 200Mi
       limits:
         memory: 512Mi
+    # The default 60% cache budget left only 204.8Mi of this 512Mi cgroup for
+    # Go/runtime and startup allocations. Labs hit the cgroup ceiling three
+    # times during an empty-store start. Keep the hard cap and leave 60% to
+    # non-cache work; VictoriaMetrics documents this flag as a cache budget,
+    # not a total-process limit.
+    extraArgs:
+      memory.allowedPercent: "40"
     # Keep metrics 30 days (Decision Log: metrics 30d / logs 7d / traces 3d).
     retentionPeriod: "30d"
     # Pin the HTTP port to 8429. Chart 0.81.0 defaults to "8428"; pinning keeps the
