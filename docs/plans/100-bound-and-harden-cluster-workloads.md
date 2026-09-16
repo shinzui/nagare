@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-16T04:51:51Z
       mode: "update"
       note: "Reconcile live rollout with current auth manifests and context-owned secrets"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-16T18:33:59Z
+      mode: "implement"
+      note: "Record labs baseline, pinned chart rehearsal, auth server dry runs, and fresh bootstrap prerequisites"
 ---
 
 # Bound and harden cluster workloads
@@ -106,13 +111,43 @@ opt-in.
   keeps checkout `cluster/secrets/` only as a compatibility fallback. Released payloads
   and workspaces exclude encrypted credentials. (2026-08-26, implemented with
   `docs/plans/101-alerting-and-backup-freshness-monitoring.md`)
-- [ ] Cloud rollout: apply M1/M2/M3 against the active cloud context and record observed steady-state usage
+- [x] Cloud preflight and rehearsal (2026-09-16): verified the `labs` context/project
+  guard, inventoried workloads and registry images, rendered all five pinned
+  observability charts, and server-dry-ran En, Shomei, nagare-access, and both
+  migration Jobs successfully. No live resources were created or changed.
+- [ ] Cloud rollout: obtain the repository-required bounded mutation approval after
+  rehearsal; create context-owned Grafana ciphertext, install observability, build
+  auth images and provision fresh auth databases/credentials, then apply M1/M2/M3
+  and record observed steady-state usage. Do not treat the nagared scaffold as a
+  turnkey deployment or reset any existing database.
 - [ ] Write Outcomes & Retrospective
 
 
 ## Surprises & Discoveries
 
-These were found while authoring the plan (2026-07-15) and shape the steps below.
+Initial findings date from authoring (2026-07-15); later observations are dated below.
+
+- The 2026-09-16 `labs` inventory is a fresh bootstrap for this plan, not an auth
+  upgrade. The node is Ready on k3s v1.35.8+k3s1 with 4 allocatable CPUs and
+  16379592Ki memory. Existing workloads reserve 2000m CPU and 2240Mi memory;
+  the spot sample was 142m CPU and 1539Mi memory. These are baseline readings,
+  not post-rollout acceptance. No auth workloads, auth databases, or Helm releases
+  are installed, and the active project's registry contains only Attic images.
+  The context-owned cluster-secret directory contains the cache ciphertext but
+  no `grafana-admin.yaml`. New ciphertext must use the private labs policy already
+  enrolled in EP-3 recovery; public recipients and private credentials stay out
+  of this repository.
+- Rehearsal on 2026-09-16 rendered charts 0.81.0 (metrics), 0.13.5 (logs), 0.3.4
+  (log collector), 0.1.6 (traces), and 0.158.0 (OTel). Logs/traces carry
+  `--retention.maxDiskSpaceUsageBytes=15GiB` / `8GiB`, respectively, and each
+  has a 512Mi memory limit. Grafana's admin environment references both required
+  keys in `grafana-admin`. The live API accepted server-side dry runs of both auth
+  Deployments, nagare-access, and both migration Jobs. This proves admission and
+  rendering only, not image availability, readiness, migrations, or data ingestion.
+- `cluster/bootstrap/nagared/README.md` explicitly calls its manifest a starting
+  point: it requires a build runtime and currently carries example domains. The
+  cloud auth installer does not install nagared. Do not count the auth installer
+  as live nagared evidence or expose its example DomainMapping during this rollout.
 
 - At authoring, en exposed `GET /healthz` and `GET /readyz`.
   `docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md` later upgraded
@@ -202,6 +237,14 @@ These were found while authoring the plan (2026-07-15) and shape the steps below
 
 ## Decision Log
 
+- Decision: stage the fresh labs rollout, beginning with observability; obtain a
+  bounded operator approval after the rehearsal as required by `CLAUDE.md`.
+  Rationale: existing cluster workloads are healthy, but auth image builds,
+  databases, credential provisioning, and the non-turnkey nagared runtime are
+  distinct prerequisites. Leave all live acceptance unchecked until observed.
+  Alertmanager remains disabled under EP-5; this plan must not replace its
+  blackhole notifier without the separate notification credential.
+  Date: 2026-09-16.
 - Decision: no CPU limits anywhere; CPU requests as a guaranteed floor plus a
   memory limit only.
   Rationale: this is the established pattern of the carefully-trimmed
@@ -363,6 +406,11 @@ The 2026-08-26 packaging reconciliation made the remaining rollout usable from a
 installed release: Grafana ciphertext is operator-owned, the installer finds it by
 active context, and a missing file is a pre-mutation refusal. This changes the source
 location, not the `monitoring/grafana-admin` Kubernetes contract.
+
+On 2026-09-16, the labs preflight and rendering/admission rehearsal passed without
+live mutation. The remaining work is a first installation, with no auth images or
+Grafana ciphertext yet present. Baseline capacity is recorded above; bounded cloud
+approval and the live acceptance steps remain outstanding.
 
 
 ## Context and Orientation

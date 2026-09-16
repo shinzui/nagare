@@ -267,6 +267,11 @@ complete; the child plans hold the granular checklists.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
+- [x] EP-4 labs preflight/rehearsal (2026-09-16): five pinned observability charts
+  render; auth services and both migration Jobs pass server-side dry run. No cloud
+  mutation performed. Labs has no auth/observability installation or auth images;
+  its 4-CPU node currently reserves 2 CPUs. Fresh bootstrap and bounded deployment
+  approval are required, not merely an existing-workload update.
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
@@ -598,6 +603,12 @@ EP-4's repository changes for resource bounds, probes, observability storage cap
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
 Its live resource, probe, migration-rerun, observability, and capacity acceptance
 remains open. EP-8's local auth proof does not substitute for that broader evidence.
+The 2026-09-16 labs preflight confirmed that this is a first installation: auth
+images/databases and context-owned Grafana ciphertext are absent. Pinned chart
+renders and auth server-side dry runs passed; no live mutation was performed.
+The next bounded sequence is observability credential preparation and installation,
+followed by the auth bootstrap prerequisites and validation. The nagared manifest
+remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
 packaged database restore smoke tests. Pushover configuration, phone delivery, and live
