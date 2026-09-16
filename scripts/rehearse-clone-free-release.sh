@@ -172,7 +172,11 @@ cat > "$local_host/flake.nix" <<'HOST_FLAKE'
   # Nagare source revision: old
 }
 HOST_FLAKE
-printf '%s\n' '{ ... }: { }' > "$local_host/host.nix"
+printf '%s\n' \
+  '{ ... }:' \
+  '{' \
+  '  hostName = "local-nagare";' \
+  '}' > "$local_host/host.nix"
 printf '%s\n' 'token: ENC[AES256_GCM,data:test]' 'sops: {}' > "$local_host/secrets.yaml"
 
 fake_tools="$test_root/upgrade-tools"
