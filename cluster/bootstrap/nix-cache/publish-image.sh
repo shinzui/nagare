@@ -48,7 +48,7 @@ fi
 gcloud auth print-access-token | \
   skopeo login --username oauth2accesstoken --password-stdin \
     --authfile "${private_dir}/auth.json" "${registry}" >/dev/null
-skopeo --policy "${policy}" copy --authfile "${private_dir}/auth.json" \
+skopeo --policy "${policy}" copy --preserve-digests --authfile "${private_dir}/auth.json" \
   "docker-archive:${archive}" "docker://${destination}" >&2
 remote_digest="$(skopeo --policy "${policy}" inspect --authfile "${private_dir}/auth.json" --format '{{.Digest}}' "docker://${destination}")"
 if [ "${remote_digest}" != "${expected_digest}" ]; then
