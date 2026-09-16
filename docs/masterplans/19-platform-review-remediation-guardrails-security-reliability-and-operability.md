@@ -41,9 +41,10 @@ The repository implementation is now substantially complete. The project guardra
 the local-mode loopback assertion cannot be spoofed; the auth plane (nagared,
 nagare-access) is safe against fork-PR code execution, open redirects, timing
 oracles, and outage-amplifying denial caching; stateful GCP resources are protected,
-versioned, and snapshotted; every always-on cluster workload carries
-resource bounds, probes, and a hardened security context, and the log/trace stores
-cannot fill the shared data disk; vmalert is configured with rules for the five failure
+versioned, and snapshotted; the auth manifests carry resource bounds and applicable
+probes/security contexts, and the log/trace stores have disk caps. The live audit
+still found unbounded chart-default monitoring containers and startup OOMs to
+resolve before claiming full workload coverage. vmalert is configured for the five failure
 modes that actually kill a personal PaaS (disk, backups, certificates, node, crash
 loops) and backup-freshness monitoring watches the prefixes backups actually land
 in; nagarectl's deploy and database paths fail cleanly instead of throwing or
@@ -54,9 +55,11 @@ that matches the tree.
 Three live acceptance bundles remain before the initiative is complete.
 EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
-Its private recovery backups are now published with verified remote heads. EP-4 must
-roll the bounded workloads and observability settings into a real cluster and record
-probe, migration-rerun, rollout, and steady-state resource evidence. EP-5 must replace
+Its private recovery backups are now published with verified remote heads. EP-4's
+observability rollout and datasource/storage checks passed on labs; it must still
+finish auth probes/migration reruns, chart-default memory limits, startup-memory
+follow-up, and longer-term sizing evidence. The new Grafana ciphertext backup is
+committed privately but not yet published. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
 prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
 Secret reencryption rotation and prove a private image can be pulled more than 45
@@ -266,19 +269,26 @@ complete; the child plans hold the granular checklists.
   `mori://tan/tan-ng-labs` (commit `0a57197`). EP-3 is Complete.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
-- [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
+- [x] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace
+  stores (2026-09-16 — all five releases deployed; encrypted login/default rejection,
+  exactly one logs/traces datasource, real logs/synthetic traces, and live caps/PVCs
+  verified; private ciphertext publication remains tracked separately)
 - [x] EP-4 labs preflight/rehearsal (2026-09-16): five pinned observability charts
   render; auth services and both migration Jobs pass server-side dry run. No cloud
   mutation performed. Labs has no auth/observability installation or auth images;
   its 4-CPU node currently reserves 2 CPUs. Fresh bootstrap and bounded deployment
   approval are required, not merely an existing-workload update.
-- [~] EP-4 first observability rollout (2026-09-16): operator approved the bounded
+- [x] EP-4 first observability rollout and recovery (2026-09-16): operator approved the bounded
   sequence; recovery-encrypted Grafana credentials created/applied and committed
   privately (publication pending). Stopped at the metrics release when Grafana's
   plugin syntax caused startup failure; revision 1 is failed, resources retained.
-  Local syntax fix and regression/render tests pass. VMSingle also recorded three
-  OOM restarts. Recovery approval, stable metrics, and the remaining four releases
-  plus acceptance remain open; auth bootstrap was not authorized by this approval.
+  After separate recovery approval, the tested plugin syntax fix deployed,
+  VMSingle passed a 306-second no-restart window, and all five releases completed.
+  Datasource queries and live caps passed, with 1755m CPU unreserved. Auth bootstrap
+  was not authorized by this approval.
+- [ ] EP-4 remaining resource reliability: bound chart-default monitoring
+  containers; investigate startup OOMs (three metrics, one logs) and record
+  longer-term sizing. Short-window recovery is not clean-start reliability.
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
@@ -608,15 +618,19 @@ remain separate evidence.
 
 EP-4's repository changes for resource bounds, probes, observability storage caps,
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
-Its live resource, probe, migration-rerun, observability, and capacity acceptance
-remains open. EP-8's local auth proof does not substitute for that broader evidence.
+Its live auth resource/probe/migration-rerun acceptance remains open. The
+observability rollout/data paths/caps and current capacity are now verified;
+missing chart-default memory limits and startup OOMs remain follow-ups.
+EP-8's local auth proof does not substitute for the outstanding evidence.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
 but a plugin pin syntax error prevented Grafana startup. The installer was stopped
-at failed `vmks` revision 1; the other four releases are absent. VMSingle's three
-OOM restarts also need stability verification. The local syntax correction and
-regression tests pass. EP-4 now contains explicit recovery pass/fail gates awaiting
-approval; private ciphertext publication remains pending. Auth images/databases
+at failed `vmks` revision 1. A separately approved recovery applied the tested
+syntax correction, passed login and five-minute metrics stability, and completed
+all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queries
+and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
+recovered without changes. Full memory coverage and clean-start reliability are
+not claimed; private ciphertext publication remains pending. Auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 

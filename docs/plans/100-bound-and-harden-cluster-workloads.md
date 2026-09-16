@@ -127,13 +127,42 @@ opt-in.
 - [x] Local repair/rehearsal (2026-09-16): corrected the plugin pin to `id@version`,
   added a hermetic regression test and exact-chart render check; both pass.
   Native Nix checks `observability-grafana` and `shellcheck-scripts` also pass.
-- [ ] Execute the recovery gates below after operator approval: repair Grafana,
-  establish metrics-store stability, then resume the remaining observability
-  releases and verify credentials, datasources, ingestion, and storage caps.
+- [x] Recovery stages 1–2 and Grafana checks (2026-09-16 19:15–19:16 UTC):
+  operator approved the repair/resume sequence; existing encrypted/live credentials
+  match, node/cache/PVC preflight passed, and `vmks` revision 2 is deployed.
+  All monitoring pods are Ready. Grafana 13.0.1+security-01 health reports `ok`,
+  login with the encrypted credential returns 200, the old default returns 401,
+  and the installed VictoriaLogs plugin reports 0.31.0. Credentials/cookies were
+  not printed.
+- [x] Recovery stability gate (2026-09-16 19:15:52–19:20:57 UTC): eleven samples
+  over 306 seconds kept the same VMSingle pod Ready with restart count 3 unchanged.
+  Memory sampled 215468–288128Ki (about 210–281Mi), below the unchanged 512Mi cap.
+  Grafana also queried thirteen live `up` series through its metrics datasource.
+  This is a short-window recovery proof, not seven-day tuning or a clean-start
+  proof; the three original startup OOMs remain recorded. Stage 4 resumed after
+  the gate passed.
+- [x] Complete the approved observability recovery/install (2026-09-16 19:21–19:25 UTC):
+  `vmks` revision 3 and the other four releases at revision 1 are deployed. All
+  eleven observability pods are Ready. Grafana has exactly one VictoriaLogs and
+  one VictoriaTraces datasource; a logs aggregate returned 104 recent records,
+  and a fresh synthetic OTLP trace was retrieved through Grafana's Jaeger proxy.
+  Live log/trace args enforce 15GiB/8GiB disk caps and 512Mi memory limits; their
+  20Gi/10Gi PVCs are Bound. Node reservations are 2245m CPU and 3098Mi memory,
+  leaving 1755m CPU unreserved. No host/auth/public-ingress changes were made.
+- [ ] Follow up startup memory behavior: metrics had three initial OOM restarts;
+  logs had one initial OOM restart. Both recovered without changing limits; the
+  short-window successful checks do not prove clean startup or seven-day sizing.
+- [ ] Publish private Grafana ciphertext commit `85826b1`; it remains local-only.
 - [ ] Cloud rollout: separately approve/build auth images and provision fresh auth
   databases/credentials, then apply the remaining M1/M3 workloads
   and record observed steady-state usage. Do not treat the nagared scaffold as a
   turnkey deployment or reset any existing database.
+- [ ] Close the broader memory-bound acceptance gap: chart-default Grafana,
+  its two sidecars, kube-state-metrics, node-exporter, operator, and the two
+  metrics config-reloaders have no memory limits in the live render. The explicitly
+  configured VMSingle/VMAgent/VMAlert limits are present. Size/rehearse the omitted
+  chart resources before claiming every monitoring container is bounded; this
+  additional configuration change is not part of the plugin-only recovery.
 - [ ] Write Outcomes & Retrospective
 
 
@@ -149,6 +178,26 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
   A successful Helm render alone did not prove runtime parsing. The new
   `scripts/test-observability-grafana.sh` checks the exact pin and rejects the old
   shape; `--render` also asserts the ConfigMap/environment linkage.
+- The live resource inventory after the plugin repair exposed an acceptance gap
+  that offline M2 checks had not covered. The chart supplies no memory limits for
+  Grafana (including both sidecars), kube-state-metrics, node-exporter, the operator,
+  and both config-reloaders. The broad final assertion that every monitoring pod
+  is bounded therefore cannot be claimed from the existing values. Keep this
+  separate from successful installation and from the explicit store/collector caps.
+- After the successful installer exit, the first logs aggregate returned zero.
+  The logs server had one startup `OOMKilled` event and its headless Service had
+  temporarily lacked a Ready endpoint; the collector reported DNS failures and
+  retried. A subsequent read returned 104 recent records without any configuration
+  change. The pinned collector is native `vlagent`, not Vector as the old comments
+  said; the configured 25m/64Mi request and 256Mi cap apply to that container.
+- The OTel chart binds receivers to the pod IP, not loopback. A workstation
+  `kubectl port-forward` reached the pod namespace but failed on `127.0.0.1:4318`;
+  this was a test transport mismatch, not evidence of a broken receiver. The
+  authenticated [Kubernetes Service proxy](https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster-services/)
+  reached the unchanged service successfully. One synthetic span from service
+  `nagare-ep100-acceptance` was accepted with HTTP 200 and retrieved through the
+  Grafana VictoriaTraces datasource. No diagnostic pod, public listener, host
+  change, or altered receiver binding was needed.
 - During this attempt, VMSingle restarted three times with `OOMKilled`/exit 137
   under its 512Mi cap. It subsequently became Ready, but startup stability and
   sustained resource usage are not proven. No memory limit was changed. The
@@ -433,10 +482,12 @@ also eliminated a more serious form of drift than the original finding: Nagare
 no longer carries stale en SQL and instead consumes en's accepted migration
 interface from the same release image.
 
-The plan remains in progress because the complete combined manifests have not yet
-been observed with their declared resources/probes on the target cluster, the
-observability stack has not been live-verified there, and the installer rerun plus
-steady-state resource observations remain. ExecPlan 104
+The plan remains in progress because the auth manifests have not yet been
+observed with their declared resources/probes on the target cluster, the auth
+installer rerun remains, and the live audit found unbounded chart-default
+containers and startup OOM behavior needing follow-up. Observability installation,
+credential checks, datasource queries, store caps, and current node headroom have
+now been observed on labs. ExecPlan 104
 (`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) later proved the
 upgraded auth plane and both dependency-owned migrations on a disposable local
 cluster, but it did not record the EP-4-specific resource, probe, rerun, and
@@ -451,11 +502,17 @@ On 2026-09-16, the labs preflight and rendering/admission rehearsal passed witho
 live mutation. The operator subsequently approved the first observability install.
 Grafana ciphertext was created and applied, but the metrics release could not
 finish because Grafana's plugin pin used the wrong runtime syntax. Helm was
-cancelled, leaving revision 1 failed and its resources retained. The local repair
-and regression tests pass; live repair, metrics stability after three OOM restarts,
-the other four releases, and their acceptance checks remain outstanding. The
-private credential commit is local-only until published. Auth bootstrap remains a
-separate unapproved sequence.
+cancelled, retaining resources. After the operator approved recovery, the corrected
+pin deployed successfully, encrypted login and default-password rejection passed,
+and a 306-second VMSingle observation had no new restarts. The installer then
+completed all five releases. Grafana datasource API/proxy checks proved metrics,
+collected logs, and a synthetic OTel-to-VictoriaTraces round trip without exposing
+services publicly; no interactive Explore UI session is claimed. Current caps and
+PVCs match the plan, and 1755m CPU remains unreserved. The private credential
+commit is local-only until published. Missing chart-default memory limits and
+startup OOMs (three metrics, one logs) remain explicit follow-ups; do not claim
+all workloads are bounded or clean-start reliability is proven. Auth bootstrap
+remains a separate unapproved sequence.
 
 
 ## Context and Orientation
@@ -544,7 +601,7 @@ script):
   (release `victoria-logs`, namespace `logging`). Lines 5-9: `server:` with
   time-only `retentionPeriod: 7d` and a 20Gi PVC. No disk cap, no resources.
 - `victoria-logs/collector-values.yaml` — `vm/victoria-logs-collector` chart
-  0.3.4, a Vector-based DaemonSet (one pod per node — i.e. exactly one pod
+  0.3.4, a native vlagent DaemonSet (one pod per node — i.e. exactly one pod
   here) shipping container logs to VictoriaLogs. No resources.
 - `victoria-traces/values.yaml` — `vm/victoria-traces-single` chart 0.1.6
   (release `victoria-traces`, namespace `tracing`). Lines 8-12: `server:` with
@@ -731,7 +788,7 @@ operator-owned cluster-secret directory; the plugin fetched at boot is
 version-pinned; the two datasources are declared once
 (as files applied by install.sh, not in chart values); VictoriaLogs and
 VictoriaTraces have disk-usage caps sized below their PVCs plus explicit
-resources; the Vector collector has resources. Verification: `helm template`
+resources; the vlagent collector has resources. Verification: `helm template`
 shows the retention flags and resources; after `install.sh`, Grafana login uses
 the secret password and lists exactly one VictoriaLogs and one VictoriaTraces
 datasource.
@@ -880,7 +937,7 @@ Append to `cluster/observability/victoria-logs/collector-values.yaml`
 (top-level key — this chart does not nest under `server:`):
 
 ```yaml
-# Vector DaemonSet bounds (one pod per node = exactly one pod here). Same
+# vlagent DaemonSet bounds (one pod per node = exactly one pod here). Same
 # pattern as the rest of the stack: CPU floor, memory cap, no CPU limit.
 resources:
   requests:
@@ -1074,9 +1131,10 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 ### Recovery gates for the interrupted labs observability install (2026-09-16)
 
-This recovery is limited to the already-approved observability scope; it does not
+Executed successfully on 2026-09-16 after explicit operator approval; retained here
+as the reproducible recovery procedure. This recovery is limited to observability; it does not
 authorize auth installation, host changes, public ingress, credential regeneration,
-PVC deletion, or database resets. Obtain the operator's go-ahead before resuming.
+PVC deletion, or database resets. A future repeat still needs operator go-ahead.
 
 1. Recheck `labs` confinement with `scripts/lib/target.sh` and
    `_require_target_project`; explicitly set
