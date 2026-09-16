@@ -5,6 +5,14 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-16
+
+- **Optional in-cluster Nix binary cache.** Cloud contexts can opt into a context-local Attic
+  service backed by a protected GCS bucket and managed PostgreSQL. Nagare publishes a digest-pinned
+  server image, owns encrypted storage and JWT credentials, emits a public-read client ConfigMap,
+  restricts cache traffic with NetworkPolicies, schedules garbage collection and database backups,
+  and includes positive substitution and wrong-key smoke workloads.
+
 - **Provider-free Pulumi upgrade resume.** A private receipt now binds successful Pulumi apply to
   the exact upgrade transaction and retained reviewed plan. Later-phase resumes skip Pulumi without
   probing its executable or provider, while ambiguous crashes and successful legacy journals
