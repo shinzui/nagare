@@ -11,6 +11,8 @@ spec:
   template:
     metadata:
       labels: {app.kubernetes.io/name: nix-cache, app.kubernetes.io/part-of: nagare}
+      annotations:
+        nagare.dev/nix-cache-config-sha256: "${ATTIC_CONFIG_SHA256}"
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}

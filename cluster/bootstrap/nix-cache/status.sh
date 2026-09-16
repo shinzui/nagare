@@ -30,16 +30,26 @@ gc_schedule="$(kubectl -n nagare-system get cronjob nix-cache-gc -o jsonpath='{.
 backup_schedule="$(kubectl -n nagare-system get cronjob nagare-dbbackup-nix-cache -o jsonpath='{.spec.schedule}')"
 config_digest="$(kubectl -n personal get configmap nagare-nix-cache-client -o jsonpath='{.data.nix\.conf}' | sha256sum | cut -d' ' -f1)"
 
-kubectl -n nagare-system port-forward service/nix-cache 8080:80 > "${private_dir}/port-forward.log" 2>&1 &
+kubectl -n nagare-system port-forward service/nix-cache 18080:80 > "${private_dir}/port-forward.log" 2>&1 &
 port_forward_pid=$!
+ready=0
 for _attempt in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -fsS -H 'Host: 127.0.0.1:8080' \
-    http://127.0.0.1:8080/_api/v1/cache-config/nagare-cache \
+  if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+    break
+  fi
+  if curl -fsS -H 'Host: 127.0.0.1:18080' \
+    http://127.0.0.1:18080/_api/v1/cache-config/nagare-cache \
     > "${private_dir}/cache.json"; then
+    ready=1
     break
   fi
   sleep 1
 done
+if [ "${ready}" -ne 1 ]; then
+  cat "${private_dir}/port-forward.log" >&2
+  echo "nagare: Attic status port-forward did not become ready" >&2
+  exit 1
+fi
 jq -e '.is_public == true and (.public_key | length > 0)' "${private_dir}/cache.json" >/dev/null
 
 printf 'Nix cache: enabled\n'

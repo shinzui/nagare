@@ -303,7 +303,7 @@ identity.
   Date: 2026-09-15
 
 - Decision: Set `api-endpoint` to the fixed port-forward address
-  `http://127.0.0.1:8080/`, set `substituter-endpoint` to the internal Service URL, and
+  `http://127.0.0.1:18080/`, set `substituter-endpoint` to the internal Service URL, and
   enforce an exact `allowed-hosts` list.
   Rationale: v1 producers push only through the private port-forward path, while Pods use
   only the Nix substituter. Separate endpoints obey Attic's production requirement and
@@ -526,8 +526,8 @@ Render `server.toml` from the selected bucket and validate it with
 `atticd --mode check-config` before applying workloads. Run that check in a short-lived
 preflight Job using the published immutable image, rendered ConfigMap, and referenced
 Secrets; wait for it before migrations or the API rollout. The server listens on 8080,
-allows only the exact internal Service and `127.0.0.1:8080` port-forward Host headers,
-sets `api-endpoint` to `http://127.0.0.1:8080/`, fixes `substituter-endpoint` to the
+allows only the exact internal Service and `127.0.0.1:18080` port-forward Host headers,
+sets `api-endpoint` to `http://127.0.0.1:18080/`, fixes `substituter-endpoint` to the
 internal URL, reads PostgreSQL and JWT from environment, selects S3 storage with region
 `auto` and endpoint
 `https://storage.googleapis.com`, declares fixed chunking, uses zstd, and disables
@@ -652,7 +652,7 @@ retention, schedules, and ConfigMap digest without credentials.
 For the end-to-end proof, keep port-forward in one terminal:
 
 ```bash
-kubectl -n nagare-system port-forward service/nix-cache 8080:80
+kubectl -n nagare-system port-forward service/nix-cache 18080:80
 nix build ./cluster/bootstrap/nix-cache/smoke#default --print-out-paths
 attic push nagare-cache "$(nix path-info ./cluster/bootstrap/nix-cache/smoke#default)"
 kubectl -n personal apply -f cluster/bootstrap/nix-cache/smoke-pod.yaml

@@ -72,13 +72,16 @@ nagarectl db create postgres nix-cache \
 escaped_bucket="$(printf '%s' "${NAGARE_NIX_CACHE_BUCKET}" | sed -e 's/[&|]/\\&/g')"
 sed "s|\${NAGARE_NIX_CACHE_BUCKET}|${escaped_bucket}|g" \
   "${script_dir}/server.toml.tmpl" > "${private_dir}/server.toml"
+config_sha256="$(sha256sum "${private_dir}/server.toml" | cut -d' ' -f1)"
 kubectl -n nagare-system create configmap nagare-nix-cache-server \
   --from-file="server.toml=${private_dir}/server.toml" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 escaped_image="$(printf '%s' "${image_ref}" | sed -e 's/[&|]/\\&/g')"
 for template in config-check-job migration-job workloads; do
-  sed "s|\${ATTIC_IMAGE}|${escaped_image}|g" \
+  sed \
+    -e "s|\${ATTIC_IMAGE}|${escaped_image}|g" \
+    -e "s|\${ATTIC_CONFIG_SHA256}|${config_sha256}|g" \
     "${script_dir}/${template}.yaml.tmpl" > "${private_dir}/${template}.yaml"
 done
 
@@ -108,17 +111,21 @@ cat > "${private_dir}/attic/attic/config.toml" <<EOF
 default-server = "nagare"
 
 [servers.nagare]
-endpoint = "http://127.0.0.1:8080/"
+endpoint = "http://127.0.0.1:18080/"
 token-file = "${private_dir}/bootstrap.token"
 EOF
 chmod 600 "${private_dir}/attic/attic/config.toml"
 
-kubectl -n nagare-system port-forward service/nix-cache 8080:80 \
+kubectl -n nagare-system port-forward service/nix-cache 18080:80 \
   > "${private_dir}/port-forward.log" 2>&1 &
 port_forward_pid=$!
 ready=0
 for _attempt in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -sS -o /dev/null -H 'Host: 127.0.0.1:8080' http://127.0.0.1:8080/; then
+  if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+    break
+  fi
+  if curl -fsS -H 'Host: 127.0.0.1:18080' http://127.0.0.1:18080/ \
+    | grep -q 'Attic Binary Cache'; then
     ready=1
     break
   fi
@@ -136,12 +143,12 @@ fi
 XDG_CONFIG_HOME="${private_dir}/attic" attic cache configure nagare:nagare-cache \
   --public --retention-period '30 days'
 
-curl -fsS -H 'Host: 127.0.0.1:8080' \
-  http://127.0.0.1:8080/_api/v1/cache-config/nagare-cache \
+curl -fsS -H 'Host: 127.0.0.1:18080' \
+  http://127.0.0.1:18080/_api/v1/cache-config/nagare-cache \
   > "${private_dir}/cache.json"
 jq -e '
   .substituter_endpoint == "http://nix-cache.nagare-system.svc.cluster.local/nagare-cache" and
-  .api_endpoint == "http://127.0.0.1:8080/" and
+  .api_endpoint == "http://127.0.0.1:18080/" and
   .is_public == true and
   .retention_period.Period == 2592000 and
   (.public_key | type == "string" and length > 0)
