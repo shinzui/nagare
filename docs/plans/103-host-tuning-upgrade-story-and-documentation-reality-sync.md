@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-15T13:31:15Z
       mode: "update"
       note: "Reconcile deferred validation against tan-ng-labs and later plan evidence"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T21:44:52Z
+      mode: "implement"
+      note: "Audit EP-7 live state and preserve wheel traversal to the hardened kubeconfig"
 ---
 
 # Host tuning, upgrade story, and documentation reality sync
@@ -68,9 +73,15 @@ while every runbook step matches the real tree.
 - [x] M1: add `--secrets-encryption` to the k3s server flags
 - [x] M1: add zram swap and the three sysctls to `nixos/modules/gcp.nix`
 - [x] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
-- [x] M1 live activation and partial verification: the released configuration is active on the
+- [~] M1 live activation and partial verification: the released configuration is active on the
   fresh labs host; `/etc/rancher/k3s/k3s.yaml` is `640 root wheel` and `k3s secrets-encrypt status`
-  reports `Encryption Status: Enabled` with matching server hashes. (2026-09-15)
+  reports `Encryption Status: Enabled` with matching server hashes. A 2026-09-16 audit found its
+  parent directory was still `700 root root`, so `deploy` could not traverse to the file and
+  host-local `kubectl` failed. The repository correction is complete but not yet activated.
+- [x] M1 repository correction: declare `/etc/rancher/k3s` as `0750 root:wheel` and make the
+  pre-k3s registry bootstrap preserve that ownership and mode; focused evaluation/build checks pass.
+- [ ] M1 live activation and operator-access verification: apply the directory correction, prove
+  `kubectl get nodes` works as `deploy` without sudo, and retain denial for a non-wheel user.
 - [ ] M1 remaining online migration: complete the rotation/reencryption procedure on the live
   datastore and verify `Current Rotation Stage: reencrypt_finished`. The labs host currently reports
   `Current Rotation Stage: start`; a fresh encrypted host does not prove the existing-data migration.
@@ -80,7 +91,10 @@ while every runbook step matches the real tree.
   `nagare-registries-reload` unit is absent; `nagare-registry-pull-secret.timer` is enabled and
   active, fires every 30 minutes, and repeatedly configures the pull Secret and patches the default
   ServiceAccount without restarting k3s. (2026-09-15)
-- [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start, with no k3s restart in `journalctl`
+- [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start,
+  with no k3s restart in `journalctl`. The 2026-09-16 audit found an exact private Attic image digest,
+  a current pull Secret, and a k3s start more than two days old, so this is ready for an approved
+  cache-eviction/canary mutation rather than blocked on an image candidate or time window.
 - [x] M3: verify the `knative-v1.22.0` release assets; retain the independently verified v1.14.0 GCS pin and rewrite its README
 - [x] M3: write `docs/user/upgrades.md` (host, cluster components, observability, cadence) and link it from `docs/user/README.md`
 - [~] M3: optional in-place local re-bootstrap rehearsal skipped because no Docker daemon is running
@@ -132,6 +146,16 @@ while every runbook step matches the real tree.
   shows the Secret configured and ServiceAccount patched. The only recorded k3s starts are the
   initial 2026-09-14 bootstrap/reboot, so the timer is not restarting the control plane.
 
+- Live labs audit (2026-09-16): the kubeconfig file's `640 root wheel` metadata was insufficient
+  because `/etc/rancher/k3s` remained `700 root root`. The boot-time registry refresh script
+  explicitly created that directory at `0700`, preventing `deploy` (a wheel member) from reaching
+  the file; bare `kubectl get nodes` consequently fell back to localhost and failed. The repository
+  now declares `0750 root wheel` in `k3s.nix`, preserves it in the registry script, and has a focused
+  flake check for both invariants. The same audit reconfirmed encryption stage `start`, 47 encrypted
+  datastore markers, the expected zram/sysctls, successful 30-minute pull-secret refresh, and zero
+  k3s starts in the preceding two hours. The exact private Attic digest is cached and available as
+  the bounded M2 canary candidate; it was not evicted or run during the read-only audit.
+
 (More to be added during implementation.)
 
 
@@ -149,6 +173,15 @@ while every runbook step matches the real tree.
   (`k3s server --help | grep write-kubeconfig-group`); the documented fallback
   is dropping the mode flag entirely (default 0600) and using `sudo`.
   Date: 2026-07-15 (authoring).
+
+- Decision: pair the `0640 root:wheel` kubeconfig with an explicitly managed
+  `/etc/rancher/k3s` directory at `0750 root:wheel`, and require every pre-k3s writer to preserve
+  that mode.
+  Rationale: file permission checks happen only after every parent directory permits traversal.
+  The registry bootstrap's `install -d -m 0700` silently defeated the intended operator access even
+  though the kubeconfig's own metadata looked correct. `registries.yaml` remains `0600 root:root`,
+  so allowing wheel to traverse the directory does not expose the short-lived registry credential.
+  Date: 2026-09-16.
 
 - Decision: the registry-credential refresh is replaced by a **host systemd
   timer** that writes a `kubernetes.io/dockerconfigjson` Secret and patches it
@@ -224,12 +257,13 @@ while every runbook step matches the real tree.
 
 ## Outcomes & Retrospective
 
-- M1 repository work completed on 2026-08-24 and live steady state was observed on labs on
-  2026-09-15: kubeconfig access is narrowed to
-  `root:wheel` mode 0640, datastore Secret encryption is enabled for fresh
-  starts, and zram/inotify/overcommit tuning is declarative. The NixOS
-  configuration evaluates and is active. Late encryption migration remains open because
-  `k3s secrets-encrypt status` reports rotation stage `start`, not `reencrypt_finished`.
+- M1's original repository work completed on 2026-08-24 and live steady state was inspected on
+  labs on 2026-09-15 and 2026-09-16. Datastore Secret encryption is enabled for fresh starts and
+  zram/inotify/overcommit tuning is active. The follow-up audit found that `0700 root:root` on the
+  kubeconfig's parent directory defeated the intended wheel access despite the file being
+  `0640 root:wheel`; the tested repository correction now keeps the directory `0750 root:wheel`.
+  Live activation/operator verification and late encryption migration remain open; status is still
+  stage `start`, not `reencrypt_finished`.
 - M2 repository work completed on 2026-08-24. The restart timer is removed;
   the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
   namespaces, treats an unavailable API as retryable, and preserves hard
@@ -246,9 +280,10 @@ while every runbook step matches the real tree.
   and whitespace check pass. The optional k3d rehearsal was skipped because no
   Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
   behind the active-context/authentication blocker.
-- EP-7 remains In Progress solely for two live checks: finish the online encryption rotation to
-  `reencrypt_finished`, and perform a greater-than-45-minute uncached private-image pull without
-  a k3s restart. Labs has closed the mode, Enabled-status, timer-activation, and no-restart portions.
+- EP-7 remains In Progress for one bounded host switch and three live assertions: activate and
+  verify the kubeconfig parent-directory correction, finish online encryption rotation to
+  `reencrypt_finished`, and perform a greater-than-45-minute uncached private-image pull without a
+  k3s restart. Labs has closed Enabled-status, tuning, timer-activation, and no-restart portions.
 
 
 ## Context and Orientation
@@ -367,8 +402,9 @@ reality (kubeconfig mode, no restart timer).
 
 ### Milestone 1 — Host tuning and k3s hardening flags
 
-Scope: `nixos/hosts/nagare-01/k3s.nix` and `nixos/modules/gcp.nix`, then a
-live apply and the online secrets-encryption enablement. At the end, the host
+Scope: `nixos/hosts/nagare-01/k3s.nix`, the parent-directory writer in
+`nixos/hosts/nagare-01/registries.nix`, and `nixos/modules/gcp.nix`, then a live apply
+and the online secrets-encryption enablement. At the end, the host
 kubeconfig is `0640 root:wheel`, Kubernetes Secrets are encrypted at rest in
 `state.db`, and the node has zram swap plus raised inotify limits.
 
@@ -383,6 +419,11 @@ image no longer leaks every secret in plaintext. Note in the comment that on
 an *existing* cluster the flag alone does not encrypt already-stored rows —
 the online procedure below does — but the flag makes any fresh bootstrap (new
 image, DR rebuild, local rehearsal) encrypted from first boot.
+
+Declare `/etc/rancher/k3s` through `systemd.tmpfiles.rules` as `0750 root:wheel`.
+File group/mode alone is not sufficient when a parent directory is root-only. The boot-time
+writer in `nixos/hosts/nagare-01/registries.nix` must use the same directory ownership and mode
+instead of `0700`; keep `registries.yaml` itself at `0600`.
 
 In `nixos/modules/gcp.nix`, inside the `config = lib.mkIf cfg.enable { ... }`
 block: add `zramSwap.enable = true;` (compressed-RAM swap — on a small node
@@ -408,8 +449,9 @@ is required by the version-gated late-enablement workflow; the authored legacy
 `docs/user/secrets.md`-adjacent docs nothing yet — doc updates are M3 — but
 verify mode and encryption per Validation below.
 
-Acceptance: on the host, `stat -c '%a %U %G' /etc/rancher/k3s/k3s.yaml` prints
-`640 root wheel`; `sudo k3s secrets-encrypt status` shows Enabled +
+Acceptance: on the host, `stat -c '%a %U %G' /etc/rancher/k3s` prints
+`750 root wheel` and the same command for `/etc/rancher/k3s/k3s.yaml` prints `640 root wheel`;
+`sudo k3s secrets-encrypt status` shows Enabled +
 reencrypt_finished; a binary grep of `state.db` finds `k8s:enc:aescbc` markers;
 `swapon --show` lists a zram device; `sysctl fs.inotify.max_user_watches`
 prints 524288; `kubectl get nodes` still works as `deploy` without sudo.
@@ -686,7 +728,8 @@ over Tailscale is equivalent when the tailnet is up. The VM must be running
 **M1 edits and checks:**
 
 ```bash
-# 1. Edit nixos/hosts/nagare-01/k3s.nix and nixos/modules/gcp.nix per Plan of Work.
+# 1. Edit nixos/hosts/nagare-01/k3s.nix, nixos/hosts/nagare-01/registries.nix,
+#    and nixos/modules/gcp.nix per Plan of Work.
 
 # 2. Offline evaluation of the host config (works on aarch64-darwin, no builder):
 nix eval ./nixos#nixosConfigurations.nagare-01.config.system.build.toplevel.drvPath
@@ -836,7 +879,7 @@ ExecPlan: docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-syn
 
 Acceptance is behavior, observed:
 
-1. **Kubeconfig hardening:** on nagare-01,
+1. **Kubeconfig hardening:** on nagare-01, `/etc/rancher/k3s` is `750 root wheel` and
    `stat -c '%a %U %G' /etc/rancher/k3s/k3s.yaml` prints `640 root wheel`;
    `kubectl get nodes` as `deploy` (wheel member) returns the node `Ready`
    without sudo; a non-wheel test (`sudo -u nobody cat /etc/rancher/k3s/k3s.yaml`)
@@ -923,7 +966,8 @@ repo already depends on:
 - `nixos/hosts/nagare-01/k3s.nix`: `services.k3s.extraFlags` ends the plan
   containing `--disable=traefik`, `--write-kubeconfig-mode=0640`,
   `--write-kubeconfig-group=wheel`, `--secrets-encryption`,
-  `--default-local-storage-path=/var/lib/nagare/local-path`.
+  `--default-local-storage-path=/var/lib/nagare/local-path`; its tmpfiles rule keeps
+  `/etc/rancher/k3s` at `0750 root:wheel`.
 - `nixos/hosts/nagare-01/registries.nix`: ends the plan defining exactly three
   systemd objects — `services.nagare-registries-refresh` (unchanged boot-time
   oneshot), `services.nagare-registry-pull-secret` (new oneshot; script uses
@@ -972,3 +1016,9 @@ Revision note (2026-09-15): Split the previously bundled live checks using read-
 `mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`. Marked the released
 host configuration and replacement timer active, while retaining the unfinished reencryption stage
 and private-image pull as explicit acceptance work. No host state changed during the audit.
+
+Revision note (2026-09-16): A guarded read-only host audit found the kubeconfig parent directory
+still blocked wheel traversal even though the file itself was `0640 root:wheel`. Added and validated
+the declarative `0750 root:wheel` invariant in both the k3s module and pre-start registry writer,
+reopened live operator-access acceptance, and identified an exact private Attic digest for the
+still-operator-gated pull canary. No host or cluster state changed during the audit.

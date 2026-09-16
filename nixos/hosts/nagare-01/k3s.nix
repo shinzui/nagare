@@ -18,6 +18,14 @@
     ];
   };
 
+  # The kubeconfig is root:wheel 0640, so wheel members also need search
+  # permission on its parent directory. Keep this declarative: the registry
+  # bootstrap unit creates the same directory before k3s starts and must not
+  # accidentally reduce it back to root-only access.
+  systemd.tmpfiles.rules = [
+    "d /etc/rancher/k3s 0750 root wheel - -"
+  ];
+
   # k3s needs the storage mount AND the /var/lib/nagare subdirectory layout to
   # exist before it starts, so the local-path-provisioner's storage path
   # (/var/lib/nagare/local-path) is present. Order the unit after both the

@@ -75,9 +75,10 @@ monitoring resource correction is deployed and passed its 628-second stability
 observation. The new Grafana ciphertext backup is
 published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
-prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
-Secret reencryption rotation and prove a private image can be pulled more than 45
-minutes after k3s starts without restarting it. Everything else in the registry is
+prove both phone delivery and the live metric/status paths. EP-7 must activate its
+tested kubeconfig parent-directory correction, finish the k3s Secret reencryption
+rotation, and prove a private image can be pulled more than 45 minutes after k3s
+starts without restarting it. Everything else in the registry is
 complete or repository-complete with its remaining live proof named explicitly below.
 
 Out of scope: new product features (workload kinds, brokers, the agent content
@@ -354,13 +355,15 @@ complete; the child plans hold the granular checklists.
   (2026-08-24 — all six owned sites use `fromMaybe`; final build and all 372
   tests pass)
 - [~] EP-7 M1: Host tuning and k3s hardening flags
-  (2026-09-15 — the released configuration is live on labs, kubeconfig is
-  `640 root:wheel`, and datastore encryption is enabled; the online rotation still
-  reports stage `start` and must reach `reencrypt_finished`)
+  (2026-09-16 — the released configuration is live on labs, the kubeconfig file is
+  `640 root:wheel`, and datastore encryption is enabled; a read-only audit found its
+  `700 root:root` parent blocked wheel traversal. The tested repository correction makes the
+  directory `750 root:wheel`; activation/operator verification and rotation from stage `start`
+  to `reencrypt_finished` remain)
 - [~] EP-7 M2: Registry credentials without k3s restarts
-  (2026-09-15 — labs proves the replacement timer runs every 30 minutes and the old
-  restart unit is absent; a fresh private-image pull more than 45 minutes after the
-  last k3s start remains)
+  (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
+  restart unit is absent, and k3s has been up for more than two days. An exact private Attic
+  digest is available; its approved eviction and fresh canary pull remain)
 - [x] EP-7 M3: Upgrade story and documentation reality sync (2026-08-24 —
   verified net-certmanager release assets and retained the live GCS pin; added
   the upgrade guide and IAP fallback; synchronized DR, secrets, kubeconfig, and
@@ -427,6 +430,12 @@ Discoveries from implementation:
   seven rules healthy. Labs has no Alertmanager ciphertext, managed database, or
   objects under `databases/`, `litestream/`, or `volumes/`. Notification and fresh
   backup-age proof therefore remain genuine operator mutations, not code defects.
+- **EP-7's kubeconfig file was hardened but unreachable by its intended group** (2026-09-16).
+  Labs had `0640 root:wheel` on `k3s.yaml`, but `/etc/rancher/k3s` was `0700 root:root`
+  because the registry bootstrap created it that way. Consequently `kubectl` as `deploy` failed
+  despite the apparently correct file metadata. The repository now declares and tests
+  `0750 root:wheel` on the directory while keeping `registries.yaml` root-only. Activation remains
+  a separately approved host switch.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -758,12 +767,13 @@ EP-5 has validated alert rules, truthful backup-prefix probing, and repeated suc
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
 curated rules, and status proves the correct empty fallback. Pushover configuration,
 phone delivery, and a fresh live `databases/<name>` age remain open because labs has
-neither the ciphertext nor a managed database/backup. EP-7's host configuration is active on labs and
-still requires late datastore reencryption and a private pull after the boot token
-expires. EP-3's successful secrets activation does not prove either behavior.
+neither the ciphertext nor a managed database/backup. EP-7's host configuration is active on labs;
+its tested kubeconfig directory correction still needs activation, followed by operator-access
+verification, late datastore reencryption, and a private pull after the boot token expires. EP-3's
+successful secrets activation does not prove those behaviors.
 
 The next child is EP-4. It and EP-5 can share a live cluster session, while
-EP-7 can use the same host window for its two remaining checks. The full disaster-
+EP-7 can use the same host window for its correction and remaining checks. The full disaster-
 recovery drill remains a separate scratch-context exercise. ADR 13 captures the
 durable recovery decisions from EP-3; task-specific custody and test evidence stays
 in the child plan.
@@ -787,6 +797,11 @@ activation, and temporary-key cleanup. Updated the registry, remaining-work view
 runbook ownership, and retrospective; ADR 13 preserves the recovery decisions.
 Other contexts remain unenrolled. EP-3 stays In Progress until private backup
 publication is authorized and verified, including its pre-existing unpublished history.
+
+Revision note (2026-09-16, EP-7 audit): recorded the live kubeconfig parent-directory
+permission defect, the tested declarative correction, and the ready private-image candidate.
+EP-7 now requires activation/operator-access verification in addition to its reencryption and
+uncached-pull proofs; the read-only audit made no host or cluster mutation.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

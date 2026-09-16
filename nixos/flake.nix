@@ -119,6 +119,21 @@
           assert c.boot.loader.grub.configurationLimit == 20;
           pkgs.runCommand "nagare-boot-recovery-menu" { } "touch $out";
 
+        # ExecPlan 103: root:wheel 0640 on k3s.yaml is useful only when wheel
+        # members can traverse its parent. Prove both the declarative directory
+        # rule and the pre-k3s registry bootstrap preserve that access.
+        k3s-kubeconfig-wheel-access =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            c = compatibilitySystem.config;
+            registryRefresh = c.systemd.services.nagare-registries-refresh.serviceConfig.ExecStart;
+          in
+          assert builtins.elem "d /etc/rancher/k3s 0750 root wheel - -" c.systemd.tmpfiles.rules;
+          pkgs.runCommand "nagare-k3s-kubeconfig-wheel-access" { } ''
+            grep -Fq 'install -d -m 0750 -o root -g wheel /etc/rancher/k3s' ${registryRefresh}
+            touch "$out"
+          '';
+
         # ExecPlan 115: the self-reverting switch, proven by deliberately locking
         # a test host out. A good switch commits; a key-removing switch reverts by
         # itself and SSH comes back; a crash while unconfirmed boots the committed

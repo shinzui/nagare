@@ -22,7 +22,9 @@ let
       echo "nagare-registries-refresh: failed to mint a metadata access token" >&2
       exit 1
     fi
-    install -d -m 0700 /etc/rancher/k3s
+    # Preserve wheel traversal to the root:wheel 0640 kubeconfig. The registry
+    # credential itself remains root-only below.
+    install -d -m 0750 -o root -g wheel /etc/rancher/k3s
     umask 077
     cat > /etc/rancher/k3s/registries.yaml <<EOF
     configs:
