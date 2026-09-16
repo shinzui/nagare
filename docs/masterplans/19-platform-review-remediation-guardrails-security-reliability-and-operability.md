@@ -381,6 +381,15 @@ implementation):
 
 Discoveries from implementation:
 
+- **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
+  Colima can run the disposable test cluster again. A clean environment is required
+  when creating an isolated local context beneath an ambient cloud shell. The first
+  bootstrap then exposed cert-manager CA injection lagging webhook pod readiness;
+  both bootstrap recipes now gate on bounded server-side admission dry runs, with
+  retries restricted to known cert-manager startup errors. Local recovery passed;
+  the cloud recipe was rendered/tested without mutation. Native synthetic store
+  tests did not reproduce the labs startup OOMs, which remain open.
+
 - **EP-4 has a rehearsed resource correction** (2026-09-16). Six direct chart
   containers and two operator-created reloaders lacked limits. Pinned-chart source
   and the running operator confirm the supported settings; a new five-chart check
@@ -716,3 +725,8 @@ metrics-only update as Helm revision 4. All live observability containers are
 bounded, Grafana queries work, and reservations match the projection. The
 required ten-minute stability observation passed with 21 samples over 628 seconds;
 auth and startup-memory acceptance remain separate.
+
+Revision note (2026-09-16, local acceptance recovery): EP-4 restored the disposable
+local test path and fixed the cert-manager admission readiness race encountered
+before auth installation. The guardrail remains unchanged. The initial local store
+probe did not reproduce the cloud OOMs and does not close startup acceptance.

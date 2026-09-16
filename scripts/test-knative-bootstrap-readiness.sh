@@ -19,9 +19,13 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" > "$FAKE_KUBECTL_COUNT"
 printf '%s\n' "$*" >> "$FAKE_KUBECTL_LOG"
+if [ "${1:-}" = create ]; then
+  cat > "$FAKE_KUBECTL_LOG.manifest"
+fi
 
 if [ "${FAKE_KUBECTL_ALWAYS_FAIL:-0}" = 1 ] ||
    [ "$count" -le "${FAKE_KUBECTL_FAIL_UNTIL:-0}" ]; then
+  printf '%s\n' "${FAKE_KUBECTL_ERROR:-}" >&2
   exit "${FAKE_KUBECTL_FAILURE_STATUS:-23}"
 fi
 FAKE_KUBECTL
@@ -34,7 +38,7 @@ export FAKE_KUBECTL_FAILURE_STATUS=23
 
 reset_fake() {
   rm -f -- "$FAKE_KUBECTL_COUNT" "$FAKE_KUBECTL_LOG"
-  unset FAKE_KUBECTL_ALWAYS_FAIL FAKE_KUBECTL_FAIL_UNTIL
+  unset FAKE_KUBECTL_ALWAYS_FAIL FAKE_KUBECTL_FAIL_UNTIL FAKE_KUBECTL_ERROR
 }
 
 reset_fake
@@ -66,6 +70,42 @@ fi
 [ "$(cat "$FAKE_KUBECTL_COUNT")" -eq 3 ]
 grep -Fq 'config-features patch failed after 3 attempts' "$failure_stderr"
 echo "ok: Knative ConfigMap patches retry and preserve the final failure"
+
+reset_fake
+export FAKE_KUBECTL_FAIL_UNTIL=2
+export FAKE_KUBECTL_ERROR='failed calling webhook "webhook.cert-manager.io": x509: certificate signed by unknown authority'
+NAGARE_CERT_MANAGER_API_MAX_ATTEMPTS=3 NAGARE_CERT_MANAGER_API_RETRY_DELAY_SECONDS=0 \
+  bash "$repo_root/scripts/wait-cert-manager-api.sh"
+[ "$(cat "$FAKE_KUBECTL_COUNT")" -eq 3 ]
+[ "$(grep -Fxc 'create --dry-run=server --request-timeout=10s -f -' "$FAKE_KUBECTL_LOG")" -eq 3 ]
+grep -Fq 'kind: ClusterIssuer' "$FAKE_KUBECTL_LOG.manifest"
+grep -Fq 'selfSigned: {}' "$FAKE_KUBECTL_LOG.manifest"
+
+for error_kind in transient forbidden unrelated; do
+  reset_fake
+  export FAKE_KUBECTL_ALWAYS_FAIL=1
+  case "$error_kind" in
+    transient)
+      export FAKE_KUBECTL_ERROR='failed calling webhook "webhook.cert-manager.io": no endpoints available for service'
+      expected_attempts=3 ;;
+    forbidden)
+      export FAKE_KUBECTL_ERROR='Error from server (Forbidden): clusterissuers is forbidden'
+      expected_attempts=1 ;;
+    unrelated)
+      export FAKE_KUBECTL_ERROR='failed calling webhook "other.example.com": x509: certificate signed by unknown authority'
+      expected_attempts=1 ;;
+  esac
+  if NAGARE_CERT_MANAGER_API_MAX_ATTEMPTS=3 NAGARE_CERT_MANAGER_API_RETRY_DELAY_SECONDS=0 \
+    bash "$repo_root/scripts/wait-cert-manager-api.sh" 2> "$test_root/api-error"; then
+    echo "FAIL: cert-manager API gate accepted $error_kind error" >&2
+    exit 1
+  else
+    [ "$?" -eq 23 ]
+  fi
+  [ "$(cat "$FAKE_KUBECTL_COUNT")" -eq "$expected_attempts" ]
+  grep -Fq "$FAKE_KUBECTL_ERROR" "$test_root/api-error"
+done
+echo 'ok: cert-manager admission waits for trust and fails closed on unrelated errors'
 
 cloud_dry_run="$test_root/cluster-bootstrap"
 local_dry_run="$test_root/local-bootstrap"
@@ -109,6 +149,15 @@ assert_order "$local_dry_run" \
   'retry-knative-configmap-patch.sh config-network' \
   'retry-knative-configmap-patch.sh config-deployment' \
   'nagarectl platform stamp'
+
+for transcript in "$cloud_dry_run" "$local_dry_run"; do
+  assert_order "$transcript" \
+    'rollout status deploy/cert-manager-webhook --timeout=5m' \
+    'bash scripts/wait-cert-manager-api.sh'
+done
+assert_order "$local_dry_run" \
+  'bash scripts/wait-cert-manager-api.sh' \
+  'kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml'
 
 [ "$(grep -Fc 'rollout status deploy/cert-manager-webhook --timeout=5m' "$cloud_dry_run")" -eq 1 ]
 [ "$(grep -Fc 'rollout status deploy/cert-manager-webhook --timeout=5m' "$local_dry_run")" -eq 1 ]

@@ -62,6 +62,21 @@ opt-in.
 
 ## Progress
 
+- [x] Restore the disposable local acceptance path (2026-09-16): started the existing
+  Colima profile, corrected the test shell to use a clean environment after a
+  fail-closed target refusal, and created an isolated `nagare-local` cluster with
+  a temporary kubeconfig. Existing unrelated local clusters were not modified.
+- [x] Fix fresh cert-manager admission readiness (2026-09-16): the first local
+  bootstrap stopped on a CA-trust race. Added a bounded server-dry-run gate after
+  webhook Deployment readiness in both recipes; retry/failure/order tests pass.
+  The local recovery completed, including Ready local CA and Knative bootstrap.
+  Native `knative-bootstrap-readiness` and `shellcheck-scripts` checks pass.
+- [x] Local store diagnostic (2026-09-16): exact release tags, native arm64,
+  512Mi memory/no swap/no CPU caps, empty data directories, twelve batches of
+  1000 synthetic series/log records. Both stores stayed running with zero OOMs
+  and zero restarts; eventual queries returned 12000 series and 12000 log records.
+  This limited synthetic workload did not reproduce the labs amd64 startup OOMs.
+
 - [x] M1: add resources, probes, and securityContext to `cluster/bootstrap/en/service.yaml`. (2026-08-24)
 - [x] M1: add resources and securityContext to `cluster/bootstrap/shomei/service.yaml`. (2026-08-24)
 - [x] M1: add resources to `cluster/bootstrap/nagare-access/service.yaml`. (2026-08-24)
@@ -182,6 +197,15 @@ opt-in.
 
 
 ## Surprises & Discoveries
+
+- Local acceptance restart (2026-09-16): Colima was stopped and is now running
+  with its existing 4-CPU/8GiB profile. The cached auth images predate current
+  application changes. The first local build preflight refused before building:
+  clearing the context-resolution marker while preserving ambient cloud fields
+  kept `NAGARE_MODE=cloud` and the labs project above the local context file.
+  This is the documented environment-over-context precedence, not a guard defect.
+  Do not change gcloud defaults or weaken the assertion; use the clean-environment
+  recovery below.
 
 Initial findings date from authoring (2026-07-15); later observations are dated below.
 
@@ -364,6 +388,14 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 ## Decision Log
 
+- Decision: add a server-side dry-run admission gate after cert-manager webhook
+  rollout rather than a fixed sleep or retry of the mutating issuer apply.
+  Rationale: actual webhook trust lags Deployment readiness; dry run exercises
+  admission without creating resources. Only known cert-manager startup transport
+  and trust errors retry; unrelated/authorization failures stay terminal.
+  The official installation guide recommends an admission dry run for this reason.
+  Date: 2026-09-16.
+
 - Decision: bound chart-created helpers through their chart resources and the
   operator's global reloader defaults; retain EP-5's notifier blocks unchanged.
   Rationale: direct Pod templates alone miss operator-created containers. Initial
@@ -527,6 +559,17 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 
 ## Outcomes & Retrospective
+
+The 2026-09-16 local acceptance continuation restored Colima and discovered a
+separate fresh-bootstrap defect: cert-manager's Ready webhook pod could precede
+trusted admission. The new server-dry-run gate handles the narrow startup race
+without retrying terminal errors or weakening validation; regression and native
+checks pass and the disposable bootstrap recovered. Current auth-image builds
+and fresh local databases are now available/in progress for M1/M3 acceptance.
+The two local store probes accepted and eventually returned 12000 synthetic
+records/series each under the live limits with no OOM. This is diagnostic evidence
+only: architecture, workload and storage differ from labs, whose OOM cause remains
+unresolved. No cloud mutation occurred during this continuation.
 
 M1, M2, and the code portion of M3 are complete as of 2026-08-24. Offline
 manifest assertions, exact pinned Helm renders, sops shape checks, shell
@@ -1206,6 +1249,45 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 ## Validation and Acceptance
 
+### Fresh local cert-manager recovery (2026-09-16)
+
+The first isolated `just local-bootstrap` stopped when its local ClusterIssuer
+apply reported `x509: certificate signed by unknown authority`, after webhook
+Deployment readiness. No Knative/auth install ran. Official cert-manager guidance
+explains that CA injection and API-server trust may lag pod readiness.
+
+Add a read-only admission gate after the cert-manager webhook rollout in both
+bootstrap recipes. It submits a minimal self-signed ClusterIssuer with server-side
+dry run, retries only cert-manager webhook startup transport/trust errors within
+a bounded attempt count, and fails immediately on authorization, invalid-resource,
+or unrelated errors. Do not disable TLS verification or webhook validation.
+Verify the retry, permanent failure, timeout, and dry-run-only behavior using fake
+kubectl before resuming. Then require the new gate to pass against the isolated
+`k3d-nagare-local` context before rerunning the idempotent local bootstrap. Success
+means the local CA Certificate becomes Ready and bootstrap completes. Any further
+failure stops for inspection. The cloud recipe is tested by rendering only; no
+cloud bootstrap is authorized or needed for this recovery.
+
+### Local acceptance environment recovery (2026-09-16)
+
+The auth-build attempt stopped at `_require_target_project` without running the
+builder. Its temporary `ep100` context lives under
+`/tmp/nagare-ep100-local/config/nagare/contexts/ep100.env`, copied from the tracked
+local example. The recovery is local and reversible: retain the actual user HOME
+and tool PATH but launch the test shell with `env -i`, then source the temporary
+`/tmp/nagare-ep100-local/env.sh`. That helper selects the temporary XDG config/state,
+`NAGARE_CONTEXT=ep100`, Docker context `colima`, and a private temporary kubeconfig.
+It sources the unchanged target resolver and calls `_require_target_project`.
+
+Before building, require `NAGARE_MODE=local`, registry
+`k3d-registry.localhost:5000`, loopback domain `127-0-0-1.sslip.io`, target platform
+`linux/arm64`, and the temporary kubeconfig path. Failure stops the local work.
+Successful guard validation permits local image builds with `NAGARE_AUTH_PUSH=0`
+and explicit `nagare-ep100/<service>:9577009` image names. No registry push, cloud
+build, or cloud-context mutation is part of this recovery. A later local cluster
+must have its exact temporary kubeconfig and `k3d-` context verified before apply;
+existing unrelated k3d clusters are excluded from test mutation.
+
 ### Approved bounded resource rollout (2026-09-16)
 
 Operator approval was received on 2026-09-16; revision 4 deployed and the
@@ -1514,3 +1596,9 @@ metrics-only rollout completed as revision 4. All live container limits, Grafana
 queries, node reservations, and 21 stability samples over 628 seconds passed.
 Recorded short-history memory peaks without claiming an OOM diagnosis or clean
 store restart. No auth, host, credential, PVC, or private-publication change was made.
+
+Revision note (2026-09-16, local acceptance recovery): restored Colima, isolated
+local context resolution after an observed guard refusal, corrected the fresh
+cert-manager admission race, and resumed the local auth prerequisites. Native
+synthetic store tests did not reproduce the cloud startup OOMs; no live store
+configuration was changed on that evidence.

@@ -156,6 +156,7 @@ cluster-bootstrap:
     kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
+    bash scripts/wait-cert-manager-api.sh
     issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
       cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer" && \
       kubectl apply -f "$issuer"
@@ -296,6 +297,7 @@ local-bootstrap:
     kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
+    bash scripts/wait-cert-manager-api.sh
     # The public DNS-01 issuer is intentionally skipped. Install the local CA
     # counterpart so explicit DomainMappings can be exercised over trusted TLS.
     kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml
