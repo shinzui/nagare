@@ -3098,10 +3098,10 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
     bootstrapEnvironment =
       [ ("NAGARE_CONTEXT", T.unpack (contextNameText context))
       , ("NAGARE_NIX_CACHE_ENABLED", if profile ^. #nixCacheEnabled then "1" else "0")
-      -- Force shell helpers to discard any stale context variables inherited
-      -- from the operator's calling shell before they source the selected
-      -- persisted context.
-      , ("NAGARE_RESOLVED_CONTEXT", "upgrade-transaction")
+      , -- Force shell helpers to discard any stale context variables inherited
+        -- from the operator's calling shell before they source the selected
+        -- persisted context.
+        ("NAGARE_RESOLVED_CONTEXT", "upgrade-transaction")
       ]
     reviewedPlanBundle = takeDirectory staged </> "pulumi-plan"
     reviewedKubernetesBundle = takeDirectory staged </> "kubernetes-plan"

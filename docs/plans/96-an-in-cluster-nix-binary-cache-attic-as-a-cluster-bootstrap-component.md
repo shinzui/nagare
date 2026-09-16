@@ -433,6 +433,15 @@ follow-up should add a reusable labs release-verification command, reuse one res
 make cluster components individually resumable. Release day should consume existing green
 evidence instead of becoming the first assembled-system test.
 
+The `Service/nagare-system/nix-cache` collision also exposed an ownership gap between
+independent bootstrap reconcilers. Before adding a continuously running control plane,
+Nagare should render one complete desired-resource inventory, assign every managed object a
+stable component identity, reject duplicate `(cluster, namespace, kind, name)` claims, and
+refuse to adopt a live object whose ownership annotation names another component. That
+inventory and its collision check belong in CI and upgrade preflight; its schema can later
+become the input to a controller when continuous drift reconciliation and garbage collection
+justify one.
+
 The main cross-repository follow-up is to reconcile
 `mori://shinzui/kotei/masterplans/10-first-class-shared-nix-cache-infrastructure` with
 this provider boundary and replace the byte-identical `pod-nix.conf` fixture proposed by
