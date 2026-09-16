@@ -12,8 +12,10 @@ related:
 
 ## Status
 
-Accepted, 2026-09-16. Configuration and rendering checks are implemented; live
-deployment of the additional bounds remains tracked in ExecPlan 100.
+Accepted, 2026-09-16. Configuration and rendering checks are implemented. The
+operator-approved labs rollout applied the additional bounds on the same day and
+passed its ten-minute stability gate. Long-term sizing and startup-memory
+acceptance remain tracked in ExecPlan 100.
 
 ## Context
 

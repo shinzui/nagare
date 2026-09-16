@@ -48,8 +48,10 @@ nagare-access) is safe against fork-PR code execution, open redirects, timing
 oracles, and outage-amplifying denial caching; stateful GCP resources are protected,
 versioned, and snapshotted; the auth manifests carry resource bounds and applicable
 probes/security contexts, and the log/trace stores have disk caps. The live audit
-still found unbounded chart-default monitoring containers and startup OOMs to
-resolve before claiming full workload coverage. vmalert is configured for the five failure
+found unbounded chart-default monitoring containers; the
+2026-09-16 resource rollout now bounds those containers, while startup OOMs
+remain under investigation before claiming clean-start reliability. vmalert is
+configured for the five failure
 modes that actually kill a personal PaaS (disk, backups, certificates, node, crash
 loops) and backup-freshness monitoring watches the prefixes backups actually land
 in; nagarectl's deploy and database paths fail cleanly instead of throwing or
@@ -62,8 +64,9 @@ EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
 Its private recovery backups are now published with verified remote heads. EP-4's
 observability rollout and datasource/storage checks passed on labs; it must still
-finish auth probes/migration reruns, chart-default memory limits, startup-memory
-follow-up, and longer-term sizing evidence. The new Grafana ciphertext backup is
+finish auth probes/migration reruns, startup-memory follow-up, and longer-term
+sizing evidence. The monitoring resource correction is deployed and passed its
+628-second stability observation. The new Grafana ciphertext backup is
 committed privately but not yet published. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
 prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
@@ -296,10 +299,15 @@ complete; the child plans hold the granular checklists.
   chart-created containers and operator defaults for two reloaders; all five pinned
   chart checks and labs server admission dry runs pass. Proposed additional requests
   are 115m CPU/576Mi memory; labs retains a projected 1640m unreserved CPU.
-- [ ] EP-4 remaining resource reliability: approve/apply the prepared metrics-release
-  rollout and verify all live containers, investigate startup OOMs (three metrics,
-  one logs), and record longer-term sizing. Short-window recovery is not clean-start
-  reliability. The child contains the bounded rollout and pass/fail gates.
+- [x] EP-4 resource rollout (2026-09-16): operator approved the rehearsed sequence;
+  `vmks` revision 4 deployed and every observability container now has requests
+  and a memory cap, including both 128Mi reloaders. Grafana metrics/logs queries
+  and actual 2360m CPU/3674Mi memory reservations pass. Twenty-one samples over
+  628 seconds kept all eleven observability and both cache pods Ready with unchanged
+  UIDs/restart counts; end-of-window health, metrics and logs queries passed.
+- [ ] EP-4 remaining resource reliability: investigate startup OOMs (three metrics,
+  one logs) and record longer-term sizing.
+  Short-window recovery is not clean-start reliability.
 - [~] EP-4 M3: Dependency-owned migrations, immutable-by-default image tags,
   pinned MinIO (2026-08-24 — code complete; `en-migrate` rerun/verify proved
   against disposable PostgreSQL, rendered manifests and registry tags verified;
@@ -645,7 +653,8 @@ EP-4's repository changes for resource bounds, probes, observability storage cap
 Grafana credentials, immutable auth tags, and dependency-owned migrations are complete.
 Its live auth resource/probe/migration-rerun acceptance remains open. The
 observability rollout/data paths/caps and current capacity are now verified;
-the prepared chart-default memory bounds await rollout, and startup OOMs remain follow-ups.
+chart-default memory bounds are now live and passed a 628-second stability window.
+Startup OOM investigation remains open.
 EP-8's local auth proof does not substitute for the outstanding evidence.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
@@ -654,8 +663,9 @@ at failed `vmks` revision 1. A separately approved recovery applied the tested
 syntax correction, passed login and five-minute metrics stability, and completed
 all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queries
 and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
-recovered without changes. Full memory coverage and clean-start reliability are
-not claimed; private ciphertext publication remains pending. Auth images/databases
+recovered without changes. The subsequently approved revision 4 closes the live
+observability-container bounds gap and passed its ten-minute stability gate.
+Auth coverage and clean-start reliability remain open; private ciphertext publication remains pending. Auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
@@ -700,3 +710,9 @@ Revision note (2026-09-16, resource follow-up): EP-4 now has tested chart/helper
 bounds and a rehearsed metrics-only rollout, pending operator go-ahead. Expanded
 shared-file resource ownership and recorded ADR 23. Live acceptance, OOM root
 cause, auth bootstrap, and longer-term sizing remain open.
+
+Revision note (2026-09-16, approved resource rollout): applied the rehearsed
+metrics-only update as Helm revision 4. All live observability containers are
+bounded, Grafana queries work, and reservations match the projection. The
+required ten-minute stability observation passed with 21 samples over 628 seconds;
+auth and startup-memory acceptance remain separate.

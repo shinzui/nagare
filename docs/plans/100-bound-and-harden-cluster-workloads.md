@@ -165,16 +165,37 @@ opt-in.
 - [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart
   rendering and labs server admission dry runs pass; six direct containers gain
   limits and operator defaults cover both reloaders. Deployment remains pending.
-- [ ] Deploy and verify the broader memory-bound correction: Grafana, its two
-  sidecars, kube-state-metrics, node-exporter, operator, and the two metrics
-  config-reloaders still have no live memory limits. The configuration is now
-  rehearsed; use the bounded rollout below before claiming complete coverage.
+- [x] Apply the approved resource correction (2026-09-16): operator said
+  `continue` after the rehearsed rollout request. Guarded labs preflight passed;
+  `vmks` revision 4 deployed, affected Deployments/DaemonSet finished rollout,
+  and both operator-created reloaders now have 128Mi limits. Every observability
+  container has CPU/memory requests and a memory limit. Grafana credential,
+  datasource uniqueness, metrics and logs queries pass. Node requests are exactly
+  2360m CPU/3674Mi memory, leaving 1640m CPU unreserved.
+- [x] Resource-rollout stability (2026-09-16 19:49:05–19:59:32 UTC): 21 samples
+  over 628 seconds kept all eleven observability and both cache/database pods
+  Ready with unchanged UIDs/restart counts. Every regular/init observability
+  container passed the resource assertion. End-of-window Grafana health, fourteen
+  `up` series, and 330 log records over five minutes passed; node reservations
+  stayed at 2360m CPU/3674Mi memory. No clean restart of either store is claimed.
 - [x] Update Outcomes & Retrospective with the bounded rollout and remaining gates. (2026-09-16)
 
 
 ## Surprises & Discoveries
 
 Initial findings date from authoring (2026-07-15); later observations are dated below.
+
+- The resource rollout changed node reservations by exactly the projected
+  115m CPU/576Mi memory. Grafana API checks after the rollout returned fourteen
+  metrics `up` series and 2803 log records over five minutes. Metrics/logs retained
+  their original pod identities and restart counts 3/1; this update did not restart
+  either store and therefore does not constitute a clean-start proof.
+- A one-hour historical query during the observation found sampled working-set
+  peaks of 447.8Mi for metrics and 472.9Mi for logs, near their 512Mi limits.
+  Duplicate scrape series were considered by their maximum, not summed. The
+  running processes report the correct 512Mi available memory and 307.2Mi cache
+  budget; Go has no soft memory limit. These readings support continued startup
+  investigation but do not identify which transient allocation caused each OOM.
 
 - Follow-up on 2026-09-16: Mori has no registered Victoria/Helm source, so the
   exact published chart archive was inspected directly. The pinned operator is
@@ -517,8 +538,8 @@ interface from the same release image.
 
 The plan remains in progress because the auth manifests have not yet been
 observed with their declared resources/probes on the target cluster, the auth
-installer rerun remains, and the live audit found unbounded chart-default
-containers and startup OOM behavior needing follow-up. Observability installation,
+installer rerun remains, and startup OOM behavior needs follow-up. The formerly
+unbounded chart-default containers now have verified live limits. Observability installation,
 credential checks, datasource queries, store caps, and current node headroom have
 now been observed on labs. ExecPlan 104
 (`docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md`) later proved the
@@ -558,8 +579,11 @@ and reloader defaults. Labs admitted the affected objects in server dry run.
 The regression check rejects the original chart values for unbounded containers.
 Native Nix checks `shellcheck-scripts` and `observability-grafana` pass, as does
 `git diff --check`. The rendered Grafana plugin/Secret contract remains valid.
-The live bounds, startup reliability, auth proof, and private publication remain
-open; no cloud mutation was performed during this follow-up.
+The resource rollout was subsequently approved and applied as revision 4. Live
+resource reconciliation and query checks pass. The ten-minute stability gate also
+passed with 21 samples over 628 seconds, retaining all thirteen observed pod
+identities and restart counts. Startup reliability, auth proof, and private
+publication remain open.
 
 
 ## Context and Orientation
@@ -1182,9 +1206,12 @@ Step 7 — live validation, local first, then cloud (see next section).
 
 ## Validation and Acceptance
 
-### Pending bounded resource rollout (2026-09-16)
+### Approved bounded resource rollout (2026-09-16)
 
-Preparation is complete. Run `bash scripts/test-observability-resources.sh` and
+Operator approval was received on 2026-09-16; revision 4 deployed and the
+628-second observation passed at 19:59:32 UTC. Retain these steps as the
+reproducible procedure. For a future repeat, run
+`bash scripts/test-observability-resources.sh` and
 `bash scripts/test-observability-grafana.sh --render` from the checkout. The first
 checks all five exact pinned charts; the second guards the previously broken
 plugin syntax. The affected objects passed labs server-side dry run. Under
@@ -1481,3 +1508,9 @@ resource bounds and operator reloader defaults, added an exact-chart regression
 check, recorded current samples and admission rehearsal, and prepared the bounded
 metrics-release rollout. The startup OOM cause remains unresolved; Docker is
 unavailable for local auth acceptance. ADR 23 captures the coverage/evidence rule.
+
+Revision note (2026-09-16, live resource acceptance): operator approved and the
+metrics-only rollout completed as revision 4. All live container limits, Grafana
+queries, node reservations, and 21 stability samples over 628 seconds passed.
+Recorded short-history memory peaks without claiming an OOM diagnosis or clean
+store restart. No auth, host, credential, PVC, or private-publication change was made.
