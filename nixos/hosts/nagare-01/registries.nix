@@ -3,7 +3,10 @@
 let
   # The Artifact Registry Docker host the cluster pulls private images from.
   registryHost = config.nagare.host.registryHost;
-  appNamespaces = [ "personal" ];
+  # Private platform images (such as the in-cluster Attic cache) run in
+  # nagare-system, while user workloads run in personal.  Keep both default
+  # ServiceAccounts wired to the short-lived Artifact Registry pull Secret.
+  imagePullNamespaces = [ "personal" "nagare-system" ];
 
   # Refresh script: mint a fresh OAuth access token for the node service account
   # from the GCE metadata server and write k3s's per-registry credential file.
@@ -67,7 +70,7 @@ let
       exit 0
     fi
 
-    for ns in ${builtins.concatStringsSep " " appNamespaces}; do
+    for ns in ${builtins.concatStringsSep " " imagePullNamespaces}; do
       if ! kubectl get namespace "$ns" >/dev/null 2>&1; then
         echo "nagare-registry-pull-secret: namespace $ns does not exist; skipping" >&2
         continue
