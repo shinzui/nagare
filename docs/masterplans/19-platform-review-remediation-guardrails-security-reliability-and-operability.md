@@ -68,7 +68,7 @@ finish cloud auth bootstrap, startup-memory follow-up, and longer-term sizing
 evidence. Local auth resource/probe/migration-rerun acceptance now passes. The
 monitoring resource correction is deployed and passed its 628-second stability
 observation. The new Grafana ciphertext backup is
-committed privately but not yet published. EP-5 must replace
+published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
 prove both phone delivery and the live metric/status paths. EP-7 must finish the k3s
 Secret reencryption rotation and prove a private image can be pulled more than 45
@@ -285,7 +285,7 @@ complete; the child plans hold the granular checklists.
 - [x] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace
   stores (2026-09-16 — all five releases deployed; encrypted login/default rejection,
   exactly one logs/traces datasource, real logs/synthetic traces, and live caps/PVCs
-  verified; private ciphertext publication remains tracked separately)
+  verified; private ciphertext publication completed after separate approval)
 - [x] EP-4 labs preflight/rehearsal (2026-09-16): five pinned observability charts
   render; auth services and both migration Jobs pass server-side dry run. No cloud
   mutation performed. Labs has no auth/observability installation or auth images;
@@ -309,6 +309,10 @@ complete; the child plans hold the granular checklists.
   and actual 2360m CPU/3674Mi memory reservations pass. Twenty-one samples over
   628 seconds kept all eleven observability and both cache pods Ready with unchanged
   UIDs/restart counts; end-of-window health, metrics and logs queries passed.
+- [x] EP-4 private Grafana backup publication (2026-09-16): operator approved the
+  exact ciphertext/README commit; pushed without force and verified remote master
+  at `85826b1af8f04170a2308d2af44c67f4d1877d62` in `mori://shinzui/nagare-ops`.
+  No cluster mutation was performed.
 - [ ] EP-4 remaining resource reliability: investigate startup OOMs (three metrics,
   one logs) and record longer-term sizing.
   Short-window recovery is not clean-start reliability.
@@ -678,7 +682,8 @@ all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queri
 and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
 recovered without changes. The subsequently approved revision 4 closes the live
 observability-container bounds gap and passed its ten-minute stability gate.
-Cloud auth coverage and clean-start reliability remain open; private ciphertext publication remains pending. Auth images/databases
+Cloud auth coverage and clean-start reliability remain open. Private Grafana
+ciphertext publication is complete and the remote commit verified. Cloud auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
@@ -740,3 +745,7 @@ installer runs, migration verification, actual container resource/security check
 and the En database-outage readiness/liveness proof. Read-only kernel diagnostics
 confirm cgroup-limit OOMs but do not establish their allocation cause. The private
 Grafana backup push passed rehearsal and awaits explicit publication approval.
+
+Revision note (2026-09-16, Grafana backup publication): operator approved the
+rehearsed private push; the exact ciphertext/README commit is now published and
+remote master verified. EP-4 remains In Progress for its other live acceptance gates.

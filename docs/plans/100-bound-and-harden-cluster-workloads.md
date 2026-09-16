@@ -175,7 +175,11 @@ opt-in.
 - [ ] Follow up startup memory behavior: metrics had three initial OOM restarts;
   logs had one initial OOM restart. Both recovered without changing limits; the
   short-window successful checks do not prove clean startup or seven-day sizing.
-- [ ] Publish private Grafana ciphertext commit `85826b1`; it remains local-only.
+- [x] Publish private Grafana ciphertext (2026-09-16): operator explicitly approved
+  commit `85826b1`; rechecked the clean private repository, exact two-file change
+  and unchanged remote, pushed without force, and verified remote master equals
+  `85826b1af8f04170a2308d2af44c67f4d1877d62` at `mori://shinzui/nagare-ops`.
+  This publication performed no cluster mutation.
 - [ ] Cloud rollout: separately approve/build auth images and provision fresh auth
   databases/credentials, then apply the remaining M1/M3 workloads
   and record observed steady-state usage. Do not treat the nagared scaffold as a
@@ -597,7 +601,8 @@ no longer carries stale en SQL and instead consumes en's accepted migration
 interface from the same release image.
 
 The plan remains in progress because cloud auth bootstrap, startup OOM behavior,
-longer-term sizing and private ciphertext publication remain. Local auth resource,
+longer-term sizing remain. Private Grafana ciphertext is now published and verified.
+Local auth resource,
 probe and installer-rerun acceptance is now complete. The formerly
 unbounded chart-default containers now have verified live limits. Observability installation,
 credential checks, datasource queries, store caps, and current node headroom have
@@ -623,7 +628,8 @@ completed all five releases. Grafana datasource API/proxy checks proved metrics,
 collected logs, and a synthetic OTel-to-VictoriaTraces round trip without exposing
 services publicly; no interactive Explore UI session is claimed. Current caps and
 PVCs match the plan, and 1755m CPU remains unreserved. The private credential
-commit is local-only until published. Missing chart-default memory limits and
+commit was initially local-only; it is now published after separate approval.
+At this stage, missing chart-default memory limits and
 startup OOMs (three metrics, one logs) remain explicit follow-ups; do not claim
 all workloads are bounded or clean-start reliability is proven. Auth bootstrap
 remains a separate unapproved sequence.
@@ -642,8 +648,8 @@ Native Nix checks `shellcheck-scripts` and `observability-grafana` pass, as does
 The resource rollout was subsequently approved and applied as revision 4. Live
 resource reconciliation and query checks pass. The ten-minute stability gate also
 passed with 21 samples over 628 seconds, retaining all thirteen observed pod
-identities and restart counts. Startup reliability, auth proof, and private
-publication remain open.
+identities and restart counts. Local auth proof subsequently passed and private
+Grafana publication is verified. Startup reliability and cloud auth proof remain open.
 
 
 ## Context and Orientation
@@ -1304,6 +1310,12 @@ and interpretation are recorded in Surprises & Discoveries.
 
 ### Private Grafana backup publication gate (2026-09-16)
 
+Executed after the operator explicitly selected “Publish the private backup”.
+The preflight below was rechecked and the exact commit was pushed without force;
+`git ls-remote origin refs/heads/master` returned
+`85826b1af8f04170a2308d2af44c67f4d1877d62`. Publication is complete.
+The following records the rehearsed pre-publication state and gates.
+
 The working tree at `mori://shinzui/nagare-ops` is clean; GitHub confirms that
 repository is private. Its remote master is `f70d762`; the sole unpublished
 commit is `85826b1af8f04170a2308d2af44c67f4d1877d62`, containing encrypted Grafana
@@ -1682,3 +1694,8 @@ Revision note (2026-09-16, local auth acceptance): both installer runs, actual p
 resource/security checks, and En database-outage recovery passed. Kernel logs
 confirm four original cgroup OOM events without establishing their allocation cause.
 Private Grafana publication is rehearsed and awaits the separately requested approval.
+
+Revision note (2026-09-16, Grafana backup publication): explicit operator approval
+received, exact ciphertext/README commit published to `mori://shinzui/nagare-ops`,
+and remote master verified at `85826b1af8f04170a2308d2af44c67f4d1877d62`.
+No cluster mutation or additional private commit was included.
