@@ -291,6 +291,8 @@ platformTests =
           readVerifiedPulumiReceipt path tx fixturePlanMetadata >>= (@?= Right (Just succeeded))
           let staleMetadata = fixturePlanMetadata {planDigest = "other-plan"}
           readVerifiedPulumiReceipt path tx staleMetadata >>= assertBool "stale plan binding refused" . either (T.isInfixOf "planDigest") (const False)
+          let foreignTransaction = tx & #id .~ "tx-foreign"
+          readVerifiedPulumiReceipt path foreignTransaction fixturePlanMetadata >>= assertBool "foreign transaction binding refused" . either (T.isInfixOf "transactionId") (const False)
           writeRecoveryReceipt path tx fixturePlanMetadata RecoveryApplied fixtureNow >>= assertBool "automatic success cannot be overwritten" . either (const True) (const False)
     , testCase "Pulumi recovery is idempotent but conflicting outcomes and public modes refuse" $
         withSystemTempDirectory "nagare-pulumi-recovery" $ \root -> do
@@ -323,8 +325,8 @@ platformTests =
         resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
         resumed ^. #state @?= Completed
         assertBool "context commit ran after recovery" (last (resumed ^. #phases) ^. #state == Succeeded)
-    , testCase "failure at every apply phase leaves a resumable old-context commit point" $
-        traverse_ checkFailure applyPhases
+    , testCase "failure after Pulumi leaves a provider-free resumable old-context commit point" $
+        traverse_ checkFailure [HostApply, KubernetesApply, ClusterStamp, ContextCommit]
     ]
   where
     checkFailure failingPhase = do
@@ -335,7 +337,9 @@ platformTests =
             shouldFail <- readIORef failing
             pure (if shouldFail && phase == failingPhase then Left ("injected failure at " <> T.pack (show phase)) else Right "ok")
           tx = newUpgradeTransaction ("tx-" <> T.pack (show failingPhase)) "labs" (Just "0.1.0") "0.2.0" "payload" "digest" "/workspace" "/host" False fixtureNow
-          ops = fixtureUpgradeOps events saved run (\_ _ -> pure RunPhase)
+          decision PulumiApply Succeeded = pure (SkipPhase "verified success receipt")
+          decision _ _ = pure RunPhase
+          ops = fixtureUpgradeOps events saved run decision
       planned <- planUpgrade ops tx >>= either (assertFailure . T.unpack) pure
       applyUpgrade False ops planned >>= assertBool ("expected failure at " <> show failingPhase) . either (const True) (const False)
       Just persisted <- readIORef saved
@@ -346,6 +350,8 @@ platformTests =
       resumed <- applyUpgrade True ops persisted >>= either (assertFailure . T.unpack) pure
       resumed ^. #state @?= Completed
       last (resumed ^. #phases) ^. #state @?= Succeeded
+      observed <- readIORef events
+      length (filter (== PulumiApply) observed) @?= 1
     whenBeforeContext phase assertion = if phase == ContextCommit then pure () else assertion
 
 fixtureNow :: T.Text
