@@ -49,6 +49,21 @@ sops -d "${secret_file}" > "${private_dir}/secrets.yaml"
 kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
 kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
+
+# The Attic image is private.  The host timer keeps this Secret fresh in steady
+# state, but a platform upgrade must not race that timer after first creating or
+# adding nagare-system to its namespace set.  Seed a short-lived credential from
+# the same operator identity that published the image before creating any Pod.
+gcloud auth print-access-token > "${private_dir}/registry-token"
+chmod 600 "${private_dir}/registry-token"
+kubectl -n nagare-system create secret docker-registry nagare-registry-pull \
+  --docker-server="${NAGARE_REGISTRY_HOST}" \
+  --docker-username=oauth2accesstoken \
+  --docker-password="$(cat "${private_dir}/registry-token")" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nagare-system patch serviceaccount default \
+  -p '{"imagePullSecrets":[{"name":"nagare-registry-pull"}]}'
+
 kubectl apply -f "${private_dir}/secrets.yaml"
 
 nagarectl db create postgres nix-cache \
