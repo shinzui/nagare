@@ -49,7 +49,11 @@ fi
 
 pulumi -C "${pulumi_dir}" stack output nixCacheHmacAccessId | tr -d '\n' > "${private_dir}/AWS_ACCESS_KEY_ID"
 pulumi -C "${pulumi_dir}" stack output --show-secrets nixCacheHmacSecret | tr -d '\n' > "${private_dir}/AWS_SECRET_ACCESS_KEY"
-openssl genrsa -traditional -out "${private_dir}/attic-jwt.pem" 4096 >/dev/null 2>&1
+# OpenSSL 3 emits PKCS#8 unless asked for the traditional PKCS#1 encoding,
+# while macOS LibreSSL already emits PKCS#1 and rejects `-traditional`.
+if ! openssl genrsa -traditional -out "${private_dir}/attic-jwt.pem" 4096 >/dev/null 2>&1; then
+  openssl genrsa -out "${private_dir}/attic-jwt.pem" 4096 >/dev/null 2>&1
+fi
 base64 < "${private_dir}/attic-jwt.pem" | tr -d '\n' > "${private_dir}/ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64"
 
 kubectl -n nagare-system create secret generic nagare-nix-cache-storage \

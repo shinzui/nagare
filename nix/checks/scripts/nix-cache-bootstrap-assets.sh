@@ -24,6 +24,11 @@ do
   test -s "${cache_dir}/${file}"
 done
 
+# OpenSSL 3 needs `-traditional` for PKCS#1, while macOS LibreSSL rejects that
+# flag and already writes PKCS#1. Keep both branches in the operator script.
+grep -Fq 'openssl genrsa -traditional' "${cache_dir}/create-secret.sh"
+grep -Fq 'openssl genrsa -out' "${cache_dir}/create-secret.sh"
+
 # Parse all committed YAML and rendered templates as one multi-document stream.
 {
   for template in config-check-job migration-job workloads; do
