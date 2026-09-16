@@ -104,13 +104,18 @@ recovery key, re-keying every context-owned secret, and the matching recovery ru
   which wrongly claimed one private key lives in both key locations. (2026-08-05,
   commit `4148e68`; verified by a `sops -e`/`sops -d` round-trip of a scratch file
   under `cluster/secrets/`)
-- [ ] M2a (BLOCKED — needs operator key handling): generate the offline recovery age
-  key, store the private half in the password manager, and add its public half only
+- [x] M2a generation (2026-09-16): on the operator's explicit request, generated a
+  distinct recovery identity outside all repositories in a private temporary
+  directory under the Nagare config root. Verified directory mode 0700 and key-file
+  mode 0600. Only the public recipient was printed; the private file awaits manual
+  vault storage. The supplied labs-host key was independently confirmed to be the
+  existing host identity, not this new recovery identity.
+- [ ] M2a (BLOCKED — needs operator vault storage): store and retrieve the newly
+  generated private key through the password manager, and add its public half only
   to the operator-owned policies governing the active context's host/cluster secrets.
   Preserve existing consumer and workstation recipients. The public example policies
   and intentionally undecryptable fixture are excluded under ADR 13.
-  Deliberately not started: adding an unstored recovery recipient would create a key
-  path nobody can use.
+  Recipient changes remain unstarted until vault storage and retrieval are verified.
 - [ ] M2b (BLOCKED — needs the recovery key, active cloud context, and running VM):
   inventory and re-key every encrypted Secret in the context-owned cluster-secret
   directory plus the actual host file returned by `nagarectl host path`. Resolve
@@ -445,6 +450,11 @@ payloads/workspaces no longer carry cluster secrets, and recovery work targets t
 host flake and context-owned encrypted Secret directory. The packaged asset and clone-free checks
 prove that boundary. Live GCP apply and state migration are no longer open; offline-key
 creation/re-keying, the truthful runbook update, and final MasterPlan closeout remain.
+
+Following that preflight, the operator requested generation of a distinct recovery
+identity for manual vault storage. It now exists in a private staging file outside
+repositories, with modes 0700/0600 verified. Vault storage, retrieval, re-keying, and
+recovery proof remain outstanding; operational ciphertext remains unchanged.
 
 The 2026-09-16 implementation preflight narrowed M2 to the actual labs files and
 proved workstation decryption for both without exposing plaintext. Recovery-key
@@ -1082,6 +1092,11 @@ tagged-release contracts recorded in `docs/adr/0003-*.md` through
 
 
 ## Revision Notes
+
+- 2026-09-16 — On explicit operator request, generated a separate recovery key for
+  manual vault handoff after confirming their supplied file is the existing labs
+  host identity. Recorded generation and permission checks separately from pending
+  vault storage and recipient changes. Private material remains outside repositories.
 
 - 2026-07-15 — Initial authoring: rewrote the skeleton into a full ExecPlan from the
   verified platform-review findings (deletion protection, backup-bucket hardening,

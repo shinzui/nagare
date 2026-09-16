@@ -252,6 +252,9 @@ complete; the child plans hold the granular checklists.
 - [x] EP-3 M2 preflight (2026-09-16): inventoried the selected labs host and
   nix-cache ciphertext and proved workstation decryption for both. Recovery-key
   custody/access remains unresolved; the 1Password CLI has no configured account.
+- [x] EP-3 M2 recovery-key generation (2026-09-16): generated a distinct identity
+  at the operator's explicit request, staged outside repositories with directory
+  mode 0700 and key mode 0600. Manual vault storage/retrieval and re-keying remain.
 - [x] EP-3 M3: Pulumi state — off the laptop, onto versioned GCS (2026-09-15 — [ExecPlan 116](../plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md) migrated the active `tan-nb-exp` stack and verified matching outputs plus 31 unchanged)
 - [~] EP-4 M1: Resource bounds, probes, and securityContext for the auth plane (2026-08-24 — manifests implemented and rendered-field assertions pass; live pod validation remains)
 - [~] EP-4 M2: Grafana secret, datasource single-sourcing, and disk-capped log/trace stores (2026-08-24 — encrypted Secret and chart changes implemented; exact pinned charts render successfully; live install remains)
@@ -559,6 +562,11 @@ No secret or cloud state changed. EP-3 remains In Progress pending the operator'
 vaulted recovery identity and retrieval method; the CLI reports no configured
 1Password accounts. The required re-key, independent recovery proof, live host
 rendering, and final runbook update remain open.
+
+The operator subsequently requested a new recovery identity after the supplied key
+was confirmed to be the existing labs host identity. The new key is staged privately
+for manual vault handoff; generation is complete, but vault storage/retrieval and
+all recipient changes remain open.
 
 EP-4's repository changes for resource bounds, observability storage caps,
 Grafana credential handling, datasource single-sourcing, immutable auth tags,
