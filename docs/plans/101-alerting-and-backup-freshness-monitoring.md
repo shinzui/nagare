@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-16T04:25:03Z
 intention: intention_01kzakvy1qeasagg3rpbn44749
 master_plan: "docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md"
+provenance:
+  revisions:
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-16T21:36:18Z
+      mode: "implement"
+      note: "Record labs rule health, metric series, empty backup prefixes, and Pushover dependency"
 ---
 
 # Alerting and backup freshness monitoring
@@ -68,19 +75,26 @@ After this plan is implemented:
       are Running in `monitoring`.
 - [ ] M1: Inject a synthetic alert into Alertmanager and receive the push
       notification on the phone.
+- [x] M1/M2 live read-only audit (2026-09-16): guarded labs identity passed;
+      context-owned `alertmanager-config.yaml` is absent, live Alertmanager is
+      disabled, and vmalert intentionally retains its blackhole notifier. No
+      notification configuration or cluster resource was changed.
 - [x] M2: Enable vmalert with trimmed resources and an explicit blackhole
       notifier while M1's operator-owned Pushover credential is unavailable;
       disable the chart's bundled rules with the current `defaultRules.enabled`
       key. Exact chart 0.81.0 render passed. (2026-08-24)
-- [ ] M2: Verify metric names against the live cluster in vmui (node-exporter
-      filesystem metrics, kube-state-metrics CronJob/restart/node metrics). The
-      cloud context still requires interactive reauthentication.
+- [x] M2: Verify metric names against the live cluster (2026-09-16): both `/`
+      and `/var/lib/nagare` filesystem series exist; CronJob success, Job failure,
+      node readiness, pod restart, and certificate-expiry families all return
+      live series through VMSingle's authenticated Service proxy.
 - [x] M2: Add `cluster/observability/cert-manager/vmservicescrape.yaml` using
       the selector and port verified against upstream cert-manager v1.20.2.
       (2026-08-24)
-- [x] M2: Add `cluster/observability/vmrules/nagare-alerts.yaml` with six rules
+- [x] M2: Add `cluster/observability/vmrules/nagare-alerts.yaml` with seven rules
       covering five failure modes; wire both manifests into `install.sh`;
-      `promtool` reports all six rules valid. (2026-08-24)
+      `promtool` reports the original six rules valid; the later
+      `DiskUsageCritical` rule follows the same validated expression. (2026-08-24,
+      reconciled 2026-09-16)
 - [x] M2: Add pure `backupPrefixes` to `cli/nagarectl/src/Nagare/Ops/Probe.hs`,
       rewire `gatherInventory` in `cli/nagarectl/src/Nagare/Ops/Status.hs` to
       enumerate managed databases and probe `databases/<name>` prefixes; drop
@@ -90,7 +104,11 @@ After this plan is implemented:
 - [x] M2: Update `docs/runbooks/disaster-recovery.md` so the restore map has
       only the managed `databases/<name>/` layout. (2026-08-24)
 - [ ] M2: `nagarectl server status` against the live cluster shows
-      `backup databases/<name>` lines with fresh ages.
+      `backup databases/<name>` lines with fresh ages. The 2026-09-16 guarded
+      run proves the legacy `postgres` line is absent and the fallback is
+      `backup databases`, but labs has no managed database and all three bucket
+      prefixes are empty, so fresh-age acceptance needs an approved live database
+      plus backup rather than a reporting change.
 - [x] M3: Append the managed-DB backup→restore round-trip (new step 5) to
       `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap;
       use the managed password without printing it and pin the cleanup client.
@@ -110,6 +128,23 @@ After this plan is implemented:
 
 ## Surprises & Discoveries
 
+- The guarded labs audit on 2026-09-16 found seven live rules, not the six this
+  plan originally installed. `DiskUsageCritical` was added later by the optional
+  in-cluster cache work so disk pressure has warning and critical thresholds.
+  The live `nagare-alerts` VMRule is operational; vmalert's API reports all seven
+  rules `health: ok`, inactive, and without evaluation errors. Both required
+  filesystem mountpoints and every other metric family named by the rules return
+  live series.
+- Labs has no `nagarectl`-managed StatefulSet in `personal`, and direct guarded
+  `gsutil ls -l` reads confirm that `databases/`, `litestream/`, and `volumes/`
+  contain no readable objects. The packaged `nagarectl server status` correctly
+  emits `backup databases` rather than the removed `backup postgres`; its UNKNOWN
+  result is truthful for an empty prefix. Fresh-age acceptance requires creating
+  and backing up a live managed database, which is a separately approved mutation.
+- The labs context-owned secret directory has no `alertmanager-config.yaml`.
+  Live Helm values therefore correctly keep Alertmanager disabled and vmalert in
+  explicit blackhole mode. M1 still requires operator-owned Pushover account/token
+  material and phone observation; neither can be inferred from healthy rule evaluation.
 - Mori has no registered VictoriaMetrics, cert-manager, or kube-state-metrics
   project, so their pinned interfaces were checked against the exact Helm chart,
   upstream release tag/manifests, and upstream metric documentation instead.
@@ -153,6 +188,14 @@ After this plan is implemented:
 
 
 ## Decision Log
+
+- Decision: retain the later `DiskUsageCritical` rule as the seventh member of
+  EP-5's curated set and reconcile this plan to the live/current manifest.
+  Rationale: it is a second severity threshold for the existing disk failure mode,
+  not a new noisy multi-node rule family. The live rule API proves it evaluates
+  cleanly alongside the original six, so deleting it merely to preserve the
+  authored count would regress the operator's escalation signal.
+  Date: 2026-09-16.
 
 - Decision: Use **Pushover** (native `pushover_configs` Alertmanager receiver)
   as the push channel, not ntfy.sh.
@@ -258,11 +301,14 @@ After this plan is implemented:
 ## Outcomes & Retrospective
 
 M2's repository implementation is complete: the exact pinned chart renders,
-the cert-manager scrape matches the pinned upstream Service, all six PromQL
-rules pass `promtool`, and all 394 current nagarectl tests pass. Live series discovery,
-rule evaluation, and the status transcript remain open because the cloud context
-requires interactive gcloud reauthentication. M1 remains operator-gated on real
-Pushover credentials and phone delivery.
+the cert-manager scrape matches the pinned upstream Service, the original six
+PromQL rules pass `promtool`, the later seventh disk-critical rule shares the
+validated expression, and all 394 current nagarectl tests pass. The 2026-09-16
+guarded labs audit closes live series discovery and rule evaluation: all required
+families exist and all seven rules report healthy. The status transcript proves
+the correct `databases` fallback and no legacy `postgres` line, but labs has no
+managed database or backup objects, so a fresh `databases/<name>` age remains open.
+M1 remains operator-gated on an absent Pushover ciphertext and phone delivery.
 M3's restore round-trip and monthly workflow are implemented. The packaged local
 create→backup→restore assertion passes repeatedly, including teardown and an explicit
 post-run check that the database's deterministic backup CronJob is gone;
@@ -596,7 +642,7 @@ synthetic alert POSTed to Alertmanager's API produces a push notification on
 the phone within ~a minute (exact commands and transcripts in Concrete Steps).
 
 
-### Milestone 2 — six rules for five failure modes, and a truthful freshness probe
+### Milestone 2 — seven rules for five failure modes, and a truthful freshness probe
 
 Scope: give vmalert its rules, add the one missing scrape (cert-manager), and
 fix `nagarectl server status` to probe `databases/<name>/`. At the end, `kubectl
@@ -683,8 +729,8 @@ empty and the rule simply cannot fire yet; note that in the report).
 `cluster/observability/vmrules/nagare-alerts.yaml`:
 
 ```yaml
-# The curated Nagare alert set (EP-101). Five rules the operator will actually
-# act on; the chart's bundled kube-prometheus library is disabled
+# The curated Nagare alert set (EP-101). Seven rules cover five failure modes
+# the operator will actually act on; the chart's bundled library is disabled
 # (defaultRules.enabled: false in victoria-metrics/values.yaml) because it
 # false-fires on single-node k3s. Expressions are plain PromQL (valid
 # MetricsQL). Applied by cluster/observability/install.sh; vmalert discovers it
@@ -714,11 +760,26 @@ spec:
           annotations:
             summary: 'Disk {{ $labels.mountpoint }} is {{ $value | printf "%.0f" }}% full'
             description: 'Filesystem {{ $labels.mountpoint }} on nagare-01 has been above 80% for 15m. Free space or grow the disk (docs/user/resizing-the-vm.md).'
+        - alert: DiskUsageCritical
+          # The same disk failure mode escalates at 90%; the later cache plan
+          # added this rule without enabling the chart's broad default library.
+          expr: |
+            (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}
+               / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|iso9660", mountpoint=~"/|/var/lib/nagare"}) * 100
+              > 90
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Disk {{ $labels.mountpoint }} is critically full at {{ $value | printf "%.0f" }}%'
+            description: 'Stop avoidable writes, identify the consumer, and grow or recover storage before databases or observability lose write capacity.'
         - alert: NodeNotReady
           # The single k3s node reports NotReady (or the Ready condition is
           # false) for 5 minutes. On a one-node platform this is "everything
           # is down": page-worthy.
-          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          expr: |
+            kube_node_status_condition{condition="Ready",status="true"} == 0
+              or absent(kube_node_status_condition{condition="Ready",status="true"})
           for: 5m
           labels:
             severity: critical
@@ -878,7 +939,7 @@ Finally, update the restore map in `docs/runbooks/disaster-recovery.md` (~line
 and reality.
 
 Acceptance for M2: `cabal test` green; `kubectl get vmrule -n monitoring` shows
-only `nagare-alerts`; vmalert's rule status shows all six rules evaluating
+only `nagare-alerts`; vmalert's rule status shows all seven rules evaluating
 without errors; `nagarectl server status` shows `backup databases/<name>` lines
 (transcripts in Validation).
 
@@ -1125,7 +1186,7 @@ vmservicescrape.operator.victoriametrics.com/nagare-brokers
 ```
 
 Check vmalert accepted the rules (port-forward the vmalert service, open
-`http://127.0.0.1:8080/vmalert/groups` — all six rules listed, none in an
+`http://127.0.0.1:8080/vmalert/groups` — all seven rules listed, none in an
 error state; or grep the vmalert container logs for `error`).
 
 **M2.3 — the probe fix.** Apply the Haskell edits from Plan of Work 2d, then:
@@ -1202,6 +1263,25 @@ Intention: intention_01kzakvy1qeasagg3rpbn44749
 
 
 ## Validation and Acceptance
+
+### Observed labs M2 evidence (2026-09-16)
+
+The read-only audit ran through the guarded `labs` context, explicit labs
+kubeconfig, and sole Ready node `labs-nagare`. `VMRule/nagare-alerts` and both
+Nagare-owned `VMServiceScrape` objects report `operational`. VMSingle returns
+series for `node_filesystem_size_bytes` on both `/` and `/var/lib/nagare`,
+CronJob last success, Job failure, node readiness, pod restarts, and certificate
+expiry. Vmalert's API lists seven Nagare rules, all `health: ok`, inactive, and
+without a last error; its three-hour log window contains no error/failure match.
+
+The packaged `nagarectl server status` run contains `backup databases`,
+`backup litestream`, and `backup volumes`, with no legacy `backup postgres` line.
+All are UNKNOWN because labs has no managed database and guarded direct `gsutil`
+reads confirm all three prefixes have no readable objects. This proves truthful
+fallback behavior, not the required fresh `databases/<name>` age. Creating a
+managed database and backup remains a separately approved live mutation. The
+Pushover ciphertext is absent, so Alertmanager remains disabled and no delivery
+claim is made.
 
 The plan is done when all of the following observable behaviors hold:
 
@@ -1372,3 +1452,9 @@ runtime failures it exposed: stale inherited context resolution, PostgreSQL
 readiness/socket assumptions, and leaked managed-backup CronJobs. Reason: only an
 actual clone-free Docker run exercised the full package, target guardrail, database,
 backup, restore, and teardown sequence together.
+
+Revision note (2026-09-16, live read-only audit): closed M2's metric-family and
+rule-health checks on labs, reconciled the later `DiskUsageCritical` addition so
+the curated set is seven rules over five failure modes, and proved the status
+command's correct empty `databases` fallback. Fresh backup-age and Pushover phone
+delivery remain operator-gated; no cluster or secret mutation was performed.

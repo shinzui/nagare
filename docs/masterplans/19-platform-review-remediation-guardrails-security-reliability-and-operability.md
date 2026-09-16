@@ -332,10 +332,14 @@ complete; the child plans hold the granular checklists.
   pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders
   and MinIO pins retain their earlier verification; cloud installer proof remains.
 - [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
-- [~] EP-5 M2: Six rules covering five failure modes, and a truthful freshness
-  probe (2026-08-26 — exact chart render, scrape selector, PromQL validation,
-  Haskell implementation, and all 394 packaged tests pass; live series/rule/status
-  proof remains)
+- [~] EP-5 M1 live audit (2026-09-16): labs has no Alertmanager ciphertext;
+  Alertmanager remains disabled and vmalert's explicit blackhole notifier is live.
+  No credential, chart, or phone-delivery mutation was attempted.
+- [~] EP-5 M2: Seven rules covering five failure modes, and a truthful freshness
+  probe (2026-09-16 — exact chart/render/code tests pass; every required metric
+  family is live and all seven rules report healthy. `server status` proves the
+  correct empty `databases` fallback and no legacy `postgres` line, but labs has
+  no managed database or backup objects, so fresh `databases/<name>` age proof remains)
 - [x] EP-5 M3: Prove backups restore, on a schedule (2026-08-26 — packaged local
   smoke repeatedly completed the database backup/restore round-trip and teardown;
   the monthly cloud workflow exists and intentionally fails at its still-unwired
@@ -417,6 +421,12 @@ Discoveries from implementation:
   non-cache work without raising the cap. Exact-chart and native checks pass;
   live clean-start and seven-day sizing evidence remain separate gates under
   [ADR 23](../adr/0023-observability-resource-bounds-cover-chart-and-operator-created-containers.md).
+- **EP-5's live rule plane is healthy but has nothing to deliver or age yet**
+  (2026-09-16). Both filesystem mountpoints and every other required metric family
+  return series; the VMRule and scrapes are operational, and vmalert reports all
+  seven rules healthy. Labs has no Alertmanager ciphertext, managed database, or
+  objects under `databases/`, `litestream/`, or `volumes/`. Notification and fresh
+  backup-age proof therefore remain genuine operator mutations, not code defects.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -547,6 +557,13 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: accept the later `DiskUsageCritical` addition as EP-5's seventh
+  curated rule while keeping the failure-mode count at five.
+  Rationale: it adds critical escalation to the existing disk-pressure mode and
+  evaluates cleanly live; deleting it to preserve the authored count would reduce
+  operability. The chart's noisy multi-node defaults remain disabled.
+  Date: 2026-09-16.
 
 - Decision: retain EP-4's 512Mi store caps and prepare a 40% internal cache budget,
   with a separately approved one-store-at-a-time rollout before any clean-start
@@ -738,8 +755,10 @@ remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
-packaged database restore smoke tests. Pushover configuration, phone delivery, and live
-metric/status evidence remain open. EP-7's host configuration is active on labs and
+packaged database restore smoke tests. Live metric/rule evidence now passes for seven
+curated rules, and status proves the correct empty fallback. Pushover configuration,
+phone delivery, and a fresh live `databases/<name>` age remain open because labs has
+neither the ciphertext nor a managed database/backup. EP-7's host configuration is active on labs and
 still requires late datastore reencryption and a private pull after the boot token
 expires. EP-3's successful secrets activation does not prove either behavior.
 
@@ -811,3 +830,8 @@ read-only audit identified the common default-cache mechanism, confirmed the
 seven-day evidence window is not yet available, and produced a validated 40%
 cache-budget correction plus a separately approved staged rollout gate. ADR 23
 now records the durable cache-versus-cgroup rule.
+
+Revision note (2026-09-16, EP-5 live audit): verified every required metrics
+family and all seven live rules without mutation, reconciled the later critical
+disk threshold, and proved the status command's correct empty-prefix behavior.
+Pushover delivery and fresh managed-database backup age remain operator-gated.
