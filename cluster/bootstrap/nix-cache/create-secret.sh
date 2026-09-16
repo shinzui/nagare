@@ -71,11 +71,16 @@ kubectl -n nagare-system create secret generic nagare-nix-cache-token-key \
   printf '\n'
 } > "${private_dir}/plain.yaml"
 
-sops --encrypt \
-  --filename-override "${destination}" \
-  --input-type yaml \
-  --output-type yaml \
-  "${private_dir}/plain.yaml" > "${private_dir}/encrypted.yaml"
+# Discover the operator's nearest .sops.yaml from the private destination,
+# rather than from the immutable payload workspace.
+(
+  cd "${secrets_dir}"
+  sops --encrypt \
+    --filename-override "${destination}" \
+    --input-type yaml \
+    --output-type yaml \
+    "${private_dir}/plain.yaml"
+) > "${private_dir}/encrypted.yaml"
 chmod 600 "${private_dir}/encrypted.yaml"
 mv "${private_dir}/encrypted.yaml" "${destination}"
 printf '%s\n' "${destination}"

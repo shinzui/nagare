@@ -28,6 +28,7 @@ done
 # flag and already writes PKCS#1. Keep both branches in the operator script.
 grep -Fq 'openssl genrsa -traditional' "${cache_dir}/create-secret.sh"
 grep -Fq 'openssl genrsa -out' "${cache_dir}/create-secret.sh"
+grep -Fq 'cd "${secrets_dir}"' "${cache_dir}/create-secret.sh"
 
 # Parse all committed YAML and rendered templates as one multi-document stream.
 {
