@@ -28,6 +28,11 @@ provenance:
       at: 2026-09-16T21:22:32Z
       mode: "implement"
       note: "Record guarded live-audit refusal and bounded bash recovery gates"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-17T14:22:20Z
+      mode: "implement"
+      note: "Record the clean 40% cache rollout and remaining seven-day/auth gates"
 ---
 
 # Bound and harden cluster workloads
@@ -192,10 +197,19 @@ opt-in.
   render assertions, and passed the five-chart regression, hermetic shell lint,
   native `shellcheck-scripts`/`observability-grafana` checks, `just docs-validate`,
   and `git diff --check`.
-- [ ] Apply the separately approved cache-budget rollout one store at a time and
-  prove clean startup without OOM/restart; then retain seven days of sizing data.
-  Current VictoriaMetrics history begins at 19:00/19:25 UTC on 2026-09-16, so the
-  7-day gate cannot yet pass.
+- [x] Apply the separately approved cache-budget rollout one store at a time and
+  prove clean startup without OOM/restart (2026-09-17): `vmks` revision 5 created
+  a new VMSingle pod with `-memory.allowedPercent=40`, retained PVC UID
+  `71d3ba21-ce2c-472c-bcef-83a640e1a5d6`, and passed 21 Ready/zero-restart samples
+  over 613 seconds with 230–401Mi observed memory and 14 live `up` series. Only
+  after that gate passed, `victoria-logs` revision 2 created a new store pod with
+  `--memory.allowedPercent=40`, retained PVC UID
+  `f0b89311-ea63-446b-9c46-25b733271955`, and passed 21 Ready/zero-restart samples
+  over 622 seconds with 9–15Mi observed memory. Metrics remained clean throughout;
+  a final two-minute LogsQL aggregate returned 127 newly ingested records.
+- [ ] Retain seven full days of representative sizing data before adjusting
+  requests or declaring long-term sizing complete. History began at 19:00/19:25
+  UTC on 2026-09-16, so this gate cannot pass before 2026-09-23/24 UTC.
 - [x] Publish private Grafana ciphertext (2026-09-16): operator explicitly approved
   commit `85826b1`; rechecked the clean private repository, exact two-file change
   and unchanged remote, pushed without force, and verified remote master equals
@@ -226,6 +240,14 @@ opt-in.
 
 ## Surprises & Discoveries
 
+- The clean-start rollout on 2026-09-17 preserved both PVC objects and backing
+  volumes while replacing each store pod in sequence. VMSingle started once and
+  stayed Ready for 613 seconds at zero restarts; VictoriaLogs then did the same
+  for 622 seconds. A rolling five-minute log count is not monotonic because old
+  records age out of the window, so the final ingestion proof used the documented
+  two-minute LogsQL stats query and observed 127 records rather than comparing two
+  rolling totals. Node requests remained 2360m CPU/3674Mi memory, leaving 1640m
+  CPU unreserved.
 - The 2026-09-16 continuation initially sourced the Bash-only target library from
   zsh. In zsh, `BASH_SOURCE[0]` is empty, so the library derived its physical root
   from the caller's working directory and climbed two directories to
@@ -669,8 +691,8 @@ also eliminated a more serious form of drift than the original finding: Nagare
 no longer carries stale en SQL and instead consumes en's accepted migration
 interface from the same release image.
 
-The plan remains in progress because cloud auth bootstrap, startup OOM behavior,
-longer-term sizing remain. Private Grafana ciphertext is now published and verified.
+The plan remains in progress because cloud auth bootstrap and seven-day sizing
+remain. Private Grafana ciphertext is now published and verified.
 Local auth resource,
 probe and installer-rerun acceptance is now complete. The formerly
 unbounded chart-default containers now have verified live limits. Observability installation,
@@ -718,14 +740,19 @@ The resource rollout was subsequently approved and applied as revision 4. Live
 resource reconciliation and query checks pass. The ten-minute stability gate also
 passed with 21 samples over 628 seconds, retaining all thirteen observed pod
 identities and restart counts. Local auth proof subsequently passed and private
-Grafana publication is verified. Startup reliability and cloud auth proof remain open.
+Grafana publication is verified. The cache correction then deployed as `vmks`
+revision 5 and `victoria-logs` revision 2 on 2026-09-17. Both replacement pods
+retained their original PVCs, started with the 40% cache argument, and passed
+separate ten-minute Ready/zero-restart windows; metrics and fresh log ingestion
+also passed. Cloud auth proof and seven-day sizing remain open.
 
 The read-only continuation now identifies a concrete startup-memory mechanism:
 both stores reserved 60% of their 512Mi cgroups for caches immediately before the
-four startup OOMs. The repository now sets 40% and tests the exact rendered flags,
-leaving the hard caps unchanged. This is a prepared remedy, not live acceptance;
-the two-stage rollout/restart proof still needs operator approval, and only about
-2.5 hours of history exists for the seven-day sizing gate.
+four startup OOMs. The repository sets 40% and tests the exact rendered flags,
+leaving the hard caps unchanged. The staged live rollout now proves clean startup
+for both stores under that configuration. Representative seven-day history is still
+required before request or limit tuning; the earliest completion point is
+2026-09-23/24 UTC.
 
 
 ## Context and Orientation
@@ -1844,3 +1871,9 @@ audit tied all four startup OOMs to the default 60% cache reservation inside a
 512Mi cgroup and confirmed that seven-day history does not yet exist. Added and
 validated 40% cache budgets for both exact pinned charts, updated ADR 23, and
 defined a separately approved one-store-at-a-time live acceptance gate.
+
+Revision note (2026-09-17, clean-start acceptance): applied the approved cache
+correction as `vmks` revision 5 followed by `victoria-logs` revision 2. Both stores
+retained their PVCs, started once at the 40% cache budget, and passed independent
+ten-minute readiness/restart gates plus metrics/log-ingestion checks. Seven-day
+sizing and the separately gated cloud auth bootstrap remain open.

@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-16T21:22:32Z
       mode: "implement"
       note: "Record EP-4 guarded live-audit refusal and recovery boundary"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-17T14:22:20Z
+      mode: "implement"
+      note: "Record EP-4 cache rollout acceptance and remaining sizing/auth gates"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -322,11 +327,16 @@ complete; the child plans hold the granular checklists.
   sourced the Bash target library from zsh, failed its operational-root guard,
   and produced no valid labs reads. The child plan's bounded Bash/project/context/
   node gates subsequently passed and the audit completed without mutation.
-- [ ] EP-4 remaining resource reliability: investigate startup OOMs (three metrics,
-  one logs) and record longer-term sizing. Repository correction now sets both
-  store cache budgets to 40% under unchanged 512Mi caps and passes exact-chart
-  checks. Its separately approved two-stage rollout/clean-start proof and seven
-  days of history remain; current history covers only about 2.5 hours.
+- [x] EP-4 clean-start reliability (2026-09-17): the approved staged rollout
+  deployed `vmks` revision 5 before `victoria-logs` revision 2. Both stores retained
+  their original PVCs, started at `memory.allowedPercent=40` under unchanged 512Mi
+  caps, and passed independent 21-sample ten-minute Ready/zero-restart gates.
+  Metrics returned 14 live `up` series and a final two-minute logs query returned
+  127 records; node reservations stayed at 2360m CPU/3674Mi memory.
+- [ ] EP-4 longer-term sizing: retain seven full days of representative memory,
+  CPU, cache-miss, and I/O evidence before adjusting requests or limits. The
+  observation window began on 2026-09-16, so it cannot close before
+  2026-09-23/24 UTC.
 - [x] EP-4 M3 local acceptance (2026-09-16): both installer runs recreated and
   completed both Jobs; En verifies 2 applied migrations and Shomei 36, with zero
   pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders
@@ -413,6 +423,12 @@ implementation):
 
 Discoveries from implementation:
 
+- **EP-4's 40% cache correction closes the clean-start failure on labs while
+  preserving the existing storage** (2026-09-17). The staged rollout kept both
+  PVC UIDs and backing volumes, then observed each replacement store for more than
+  ten minutes with zero restarts. VMSingle used 230–401Mi and VictoriaLogs 9–15Mi
+  during their gates. This is startup evidence; the separate seven-day sizing
+  obligation remains open.
 - **EP-4's read-only continuation failed closed before reaching labs**
   (2026-09-16). `scripts/lib/target.sh` is a Bash source library; sourcing it from
   zsh left `BASH_SOURCE[0]` empty and derived `/Users/shinzui/Keikaku` as the
@@ -781,8 +797,8 @@ Discoveries from implementation:
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision.
 
-As of 2026-09-16, five of eight child plans are complete: EP-1, EP-2, EP-3,
-EP-6, and EP-8. EP-3 adds verified labs secret recovery to its previously
+As of 2026-09-17, six of eight child plans are complete: EP-1, EP-2, EP-3,
+EP-6, EP-7, and EP-8. EP-3 adds verified labs secret recovery to its previously
 accepted infrastructure protections and GCS migration. The operator confirmed vault
 storage of a distinct recovery identity; all three operational YAML documents pass
 isolated decryption with unchanged plaintext, the guarded host switch committed,
@@ -798,9 +814,10 @@ Its local auth resource/probe/migration-rerun acceptance now passes. The
 observability rollout/data paths/caps and current capacity are now verified;
 chart-default memory bounds are now live and passed a 628-second stability window.
 The read-only follow-up tied the four startup OOMs to the stores' default 60%
-cache reservation inside unchanged 512Mi cgroups. A tested 40% repository
-correction preserves the hard caps, but deployment and clean-start observation
-remain operator-gated; only about 2.5 hours of the required seven-day history exist.
+cache reservation inside unchanged 512Mi cgroups. The approved staged rollout
+deployed that 40% correction as `vmks` revision 5 and `victoria-logs` revision 2.
+Both stores retained their PVCs and passed independent ten-minute clean-start gates
+with zero restarts. Seven-day sizing evidence is still unavailable.
 The additional local checks directly establish EP-4's pod and rerun behavior.
 The 2026-09-16 labs preflight confirmed that this is a first installation. After
 the operator's observability-only approval, Grafana ciphertext was created/applied,
@@ -811,7 +828,7 @@ all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queri
 and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
 recovered without changes. The subsequently approved revision 4 closes the live
 observability-container bounds gap and passed its ten-minute stability gate.
-Cloud auth coverage and clean-start reliability remain open. Private Grafana
+Cloud auth coverage and longer-term sizing remain open. Private Grafana
 ciphertext publication is complete and the remote commit verified. Cloud auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
@@ -920,3 +937,9 @@ Revision note (2026-09-16, EP-5 live audit): verified every required metrics
 family and all seven live rules without mutation, reconciled the later critical
 disk threshold, and proved the status command's correct empty-prefix behavior.
 Pushover delivery and fresh managed-database backup age remain operator-gated.
+
+Revision note (2026-09-17, EP-4 clean-start acceptance): applied the approved
+40% cache correction in two guarded stages. Metrics revision 5 and logs revision 2
+retained their PVCs and passed separate ten-minute Ready/zero-restart windows;
+metrics, recent log ingestion, cache/database health, and node headroom passed.
+EP-4 remains In Progress for seven-day sizing and separately approved cloud auth.

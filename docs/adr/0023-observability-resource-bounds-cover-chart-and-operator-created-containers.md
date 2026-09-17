@@ -15,8 +15,10 @@ related:
 Accepted, 2026-09-16. Configuration and rendering checks are implemented. The
 operator-approved labs rollout applied the additional bounds on the same day and
 passed its ten-minute stability gate. A repository correction now limits the two
-store cache budgets to 40% of their 512Mi cgroups; clean-start and long-term sizing
-acceptance remain tracked in ExecPlan 100 and require a separately approved rollout.
+store cache budgets to 40% of their 512Mi cgroups. The separately approved staged
+rollout completed on 2026-09-17: both stores retained their PVCs, started once with
+zero restarts, and passed independent ten-minute stability and query gates.
+Long-term sizing acceptance remains tracked in ExecPlan 100.
 
 ## Context
 
@@ -80,8 +82,9 @@ the configuration and its coverage checks.
 
 Single-node rollouts may briefly interrupt dashboards, scraping, or rule evaluation.
 They use a bounded operator-approved sequence with readiness and restart gates.
-The cache-budget correction does not close the startup finding until each store is
-restarted deliberately with its PVC retained and reaches Ready without OOM/restart,
-then remains stable for the recorded observation window. Seven days of retained
-history remain a separate sizing gate; neither a changed render nor a later Ready
-snapshot substitutes for those observations.
+The cache-budget correction closed the labs startup finding only after each store
+was deliberately restarted with its PVC retained, reached Ready without OOM/restart,
+and remained stable for more than ten minutes while its query path passed. That
+acceptance completed on 2026-09-17. Seven days of retained history remain a separate
+sizing gate; neither this clean-start result nor a later Ready snapshot substitutes
+for representative memory, CPU, cache-miss, and I/O observations.
