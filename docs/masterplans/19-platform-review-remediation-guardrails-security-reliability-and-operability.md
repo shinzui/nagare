@@ -429,6 +429,11 @@ Discoveries from implementation:
   ten minutes with zero restarts. VMSingle used 230–401Mi and VictoriaLogs 9–15Mi
   during their gates. This is startup evidence; the separate seven-day sizing
   obligation remains open.
+- **EP-4's cloud-auth preflight is stopped on interactive GCP reauthentication**
+  (2026-09-17). The labs target guard passed, but the first service/registry
+  inventory read could not refresh the active account token. No build, image push,
+  credential/database creation, or workload apply occurred. The child remains
+  independently blocked until the operator runs `gcloud auth login`.
 - **EP-4's read-only continuation failed closed before reaching labs**
   (2026-09-16). `scripts/lib/target.sh` is a Bash source library; sourcing it from
   zsh left `BASH_SOURCE[0]` empty and derived `/Users/shinzui/Keikaku` as the
@@ -943,3 +948,8 @@ Revision note (2026-09-17, EP-4 clean-start acceptance): applied the approved
 retained their PVCs and passed separate ten-minute Ready/zero-restart windows;
 metrics, recent log ingestion, cache/database health, and node headroom passed.
 EP-4 remains In Progress for seven-day sizing and separately approved cloud auth.
+
+Revision note (2026-09-17, EP-4 cloud-auth preflight): Mori resolved the current
+En/Shomei source checkouts and the guarded build/install path was reviewed. The
+first GCP inventory read required interactive reauthentication, so work stopped
+before any cloud or cluster mutation. EP-4 remains In Progress.

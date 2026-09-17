@@ -218,7 +218,10 @@ opt-in.
 - [ ] Cloud rollout: separately approve/build auth images and provision fresh auth
   databases/credentials, then apply the remaining M1/M3 workloads
   and record observed steady-state usage. Do not treat the nagared scaffold as a
-  turnkey deployment or reset any existing database.
+  turnkey deployment or reset any existing database. The 2026-09-17 guarded
+  rehearsal stopped before registry/service inventory when the first GCP read
+  required interactive `gcloud auth login`; no build, push, credential/database
+  creation, or workload apply occurred.
 - [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart
   rendering and labs server admission dry runs pass; six direct containers gain
   limits and operator defaults cover both reloaders. Deployment remains pending.
@@ -240,6 +243,13 @@ opt-in.
 
 ## Surprises & Discoveries
 
+- The 2026-09-17 cloud-auth rehearsal passed the Bash target guard for
+  `tan-ng-labs`, then `gcloud services list` refused because the active account's
+  refresh token requires interactive reauthentication. Repository and Mori reads
+  established the intended source paths first; the refusal happened before Cloud
+  Build or Artifact Registry inventory and before any cloud or cluster mutation.
+  `CLAUDE.md` requires stopping at this boundary rather than changing accounts,
+  bypassing inventory, or starting a build speculatively.
 - The clean-start rollout on 2026-09-17 preserved both PVC objects and backing
   volumes while replacing each store pod in sequence. VMSingle started once and
   stayed Ready for 613 seconds at zero restarts; VictoriaLogs then did the same
@@ -1877,3 +1887,8 @@ correction as `vmks` revision 5 followed by `victoria-logs` revision 2. Both sto
 retained their PVCs, started once at the 40% cache budget, and passed independent
 ten-minute readiness/restart gates plus metrics/log-ingestion checks. Seven-day
 sizing and the separately gated cloud auth bootstrap remain open.
+
+Revision note (2026-09-17, cloud-auth preflight): resolved the current En and
+Shomei source checkouts through Mori and inspected the guarded build/install path.
+The first GCP inventory read required interactive reauthentication, so the rehearsal
+stopped before any build, push, credential/database creation, or workload apply.
