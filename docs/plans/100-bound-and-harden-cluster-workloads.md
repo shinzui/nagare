@@ -215,13 +215,20 @@ opt-in.
   and unchanged remote, pushed without force, and verified remote master equals
   `85826b1af8f04170a2308d2af44c67f4d1877d62` at `mori://shinzui/nagare-ops`.
   This publication performed no cluster mutation.
-- [ ] Cloud rollout: separately approve/build auth images and provision fresh auth
-  databases/credentials, then apply the remaining M1/M3 workloads
-  and record observed steady-state usage. Do not treat the nagared scaffold as a
-  turnkey deployment or reset any existing database. The 2026-09-17 guarded
-  rehearsal stopped before registry/service inventory when the first GCP read
-  required interactive `gcloud auth login`; no build, push, credential/database
-  creation, or workload apply occurred.
+- [x] Rehearse the cloud auth rollout after reauthentication (2026-09-17): guarded
+  labs inventory confirms Artifact Registry exists with only the Attic image,
+  Cloud Build is not enabled, and no auth image, database, credential, migration
+  Job, or service exists. Immutable tag `0b8926af4ec6` has no auth-code delta from
+  the successful local acceptance. All five rendered workload/Job manifests, both
+  config maps, and both managed Postgres stacks pass labs server-side dry run; the
+  database render uses the CLI's internal `--system-namespace` flag so
+  `nagare-system` retains its platform namespace contract.
+- [ ] Apply the separately approved cloud auth sequence: enable Cloud Build; build
+  and publish the three amd64 images at tag `0b8926af4ec6`; create the cookie key
+  and fresh `shomei-db`/`en-db`; run both migrations and all three services; rerun
+  the installer to prove ledger idempotence; then record readiness, resources,
+  migration verification, usage, and at least 550m unreserved CPU. Do not install
+  the nagared scaffold or reset any existing database.
 - [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart
   rendering and labs server admission dry runs pass; six direct containers gain
   limits and operator defaults cover both reloaders. Deployment remains pending.
@@ -243,6 +250,22 @@ opt-in.
 
 ## Surprises & Discoveries
 
+- After reauthentication, guarded inventory showed that Artifact Registry is
+  enabled and contains only Attic, while `cloudbuild.googleapis.com` is absent
+  from the enabled-service list. The Apple Silicon workstation path documented by
+  the auth image helpers uses Cloud Build for real linux/amd64 images, so the
+  bounded rollout must explicitly enable that API before submitting three builds.
+  The alternative k3s-import path would leave images only on the current node and
+  would not exercise the registry-backed immutable image contract this acceptance
+  is meant to prove.
+- Current `nagarectl db create` treats a named namespace as an application
+  namespace unless its internal `--system-namespace` switch is present. The
+  rehearsed auth database commands include that switch; without it, a create
+  could incorrectly label `nagare-system` as an application namespace. Both
+  resulting Postgres stacks pass server-side admission. Their containers have no
+  resource requests/limits because managed-database sizing is outside M1's
+  explicitly scoped five auth application/migration containers; the rollout must
+  still measure them and preserve the final 550m CPU headroom gate.
 - The 2026-09-17 cloud-auth rehearsal passed the Bash target guard for
   `tan-ng-labs`, then `gcloud services list` refused because the active account's
   refresh token requires interactive reauthentication. Repository and Mori reads
@@ -488,6 +511,17 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 ## Decision Log
 
+- Decision: build and publish the three labs auth images through Cloud Build and
+  Artifact Registry at the already rehearsed Nagare tag `0b8926af4ec6`, rather
+  than importing node-local `dev.local` images.
+  Rationale: the cloud acceptance is intended to prove immutable registry-backed
+  deployment and future kubelet pulls. The current workstation is arm64, the
+  cluster is amd64, Artifact Registry already exists, and the repository documents
+  Cloud Build as the cross-architecture path. En and Shomei source trees are clean;
+  Shomei's deployable code matches release 0.2.0.0, and the current En source is the
+  same code used by the successful local acceptance. Cloud Build API enablement is
+  therefore included in the single operator-approved sequence.
+  Date: 2026-09-17.
 - Decision: keep both store memory limits at 512Mi and set
   `memory.allowedPercent` to 40 for VMSingle and VictoriaLogs, pending a separately
   approved one-store-at-a-time rollout and clean-start proof.
@@ -763,6 +797,15 @@ leaving the hard caps unchanged. The staged live rollout now proves clean startu
 for both stores under that configuration. Representative seven-day history is still
 required before request or limit tuning; the earliest completion point is
 2026-09-23/24 UTC.
+
+After operator reauthentication on 2026-09-17, the cloud-auth rehearsal completed
+without mutation. Labs has the intended Artifact Registry but Cloud Build must be
+enabled; all auth objects are absent, confirming a fresh install. The exact current
+image tag, all credential references, both managed database stacks, five auth
+application/migration manifests, and two config maps now pass render and server
+admission checks. The rollout is ready for one bounded approval covering API
+enablement, three image builds, fresh credentials/databases, install/rerun proof,
+and a ten-minute resource/readiness observation.
 
 
 ## Context and Orientation
@@ -1519,6 +1562,62 @@ performed no mutation. It confirmed unchanged restart counts 3/1 and only about
 2.5 hours of retained container-memory history, so it informed the correction but
 did not close clean-start or long-term sizing acceptance.
 
+### Prepared labs cloud-auth rollout gate (2026-09-17)
+
+The guarded post-login rehearsal resolved project `tan-ng-labs`, context `labs`,
+and node `labs-nagare`. Artifact Registry repository `nagare` exists in `us-west1`
+and contains only Attic; Cloud Build is not enabled. The cluster has none of the
+five required Secrets (`nagare-db-shomei-db`, `nagare-db-en-db`,
+`nagare-en-api-keys`, `nagare-shomei-keys`, `nagare-access`), neither auth database,
+neither migration Job, and none of the three auth services. This is a first install;
+there is no database to delete or upgrade in place.
+
+The exact image tag is `0b8926af4ec6`. Auth-owned Nagare files are unchanged from
+the successful local acceptance. Mori resolves the clean dependency source trees
+at `mori://shinzui/en` and `mori://shinzui/shomei`; Shomei's deployable source is
+unchanged from its 0.2.0.0 release, while En has no upstream release tag and uses
+the same current source that passed local installation and two-migration
+verification. The three image builds use the repository's local-source Cloud Build
+path, producing linux/amd64 images in
+`us-west1-docker.pkg.dev/tan-ng-labs/nagare/<service>:0b8926af4ec6`.
+
+Before mutation, rerun the Bash target guard, explicit labs kubeconfig/current
+context, sole-node identity, current workload health, registry inventory, and node
+reservation check. Require at least 550m CPU to remain after the projected auth
+application requests. Stop if any target differs, an auth object unexpectedly
+exists, or the source trees are dirty. Obtain one operator go-ahead for this bounded
+sequence:
+
+1. Enable `cloudbuild.googleapis.com` in `tan-ng-labs`, then build and publish
+   `shomei`, `en`, and `nagare-access` sequentially with
+   `NAGARE_AUTH_BUILDER=cloud-build`, local sources, and explicit tag
+   `0b8926af4ec6`. Verify all three exact tags in Artifact Registry before creating
+   cluster credentials.
+2. Generate the `nagare-access` cookie key directly into a client-rendered Secret
+   and apply it without printing the value. Create `shomei-db` and `en-db` with
+   `nix run .#nagarectl -- db create postgres <name> -n nagare-system
+   --system-namespace`; require both StatefulSets Ready and both managed Secrets
+   present. These are new empty databases; never run a delete command.
+3. Run `cluster/bootstrap/auth-install.sh` with the explicit image tag. It creates
+   and preserves the En API-key and Shomei key-encryption Secrets, runs
+   `shomei-migrate` before `en-migrate`, applies the two services/config maps, and
+   installs the `nagare-access` Knative Service. Stop on the first failed Job or
+   rollout; preserve failed Jobs/logs and all PVCs for inspection.
+4. Require Shomei and En Deployments Available, `nagare-access` Ready, all five
+   application/migration containers bounded and hardened as specified by M1, and
+   `/health/live` plus `/health/ready` successful for both dependency services.
+   Run both migration `verify` executables and require zero pending/unknown entries.
+5. Record both migration Job UIDs/logs, rerun the installer once, and require new
+   Job UIDs with `already_applied` results and unchanged database/service identity.
+   Observe all auth/database pods for ten minutes with no restart after readiness,
+   record `kubectl top`, and require at least 550m CPU unreserved at the node.
+
+This sequence does not install nagared, expose public ingress, change hosts,
+rotate observability/notification credentials, delete a PVC/database, or publish a
+private repository. If API enablement, any build, migration, readiness, verification,
+or headroom gate fails, stop without advancing to the next stage or retrying
+speculatively.
+
 ### Prepared cache-budget rollout gate (2026-09-16)
 
 Repository validation is complete for a 40% internal cache budget under each
@@ -1892,3 +1991,9 @@ Revision note (2026-09-17, cloud-auth preflight): resolved the current En and
 Shomei source checkouts through Mori and inspected the guarded build/install path.
 The first GCP inventory read required interactive reauthentication, so the rehearsal
 stopped before any build, push, credential/database creation, or workload apply.
+
+Revision note (2026-09-17, cloud-auth rehearsal): after reauthentication, verified
+the empty auth inventory and existing Artifact Registry, identified Cloud Build API
+enablement as the only cloud prerequisite, and passed server-side dry runs for both
+database stacks and every auth manifest/config map at immutable tag
+`0b8926af4ec6`. Added a bounded operator-approved rollout and recovery contract.

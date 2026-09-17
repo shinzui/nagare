@@ -341,6 +341,15 @@ complete; the child plans hold the granular checklists.
   completed both Jobs; En verifies 2 applied migrations and Shomei 36, with zero
   pending/unknown. The rerun logs report `already_applied`. Immutable-tag renders
   and MinIO pins retain their earlier verification; cloud installer proof remains.
+- [x] EP-4 cloud-auth rehearsal (2026-09-17): after operator reauthentication,
+  guarded labs inventory confirmed a fresh install and the existing Artifact
+  Registry. Both managed Postgres stacks, all five auth application/migration
+  manifests, and both config maps pass server-side dry run at immutable tag
+  `0b8926af4ec6`. Cloud Build API enablement is the only cloud prerequisite.
+- [ ] EP-4 cloud-auth rollout: after one bounded operator approval, enable Cloud
+  Build; publish three amd64 images; create fresh credentials/databases; install
+  and rerun migrations/services; then prove readiness, zero pending/unknown
+  migrations, ten-minute stability, actual usage, and at least 550m CPU headroom.
 - [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
 - [~] EP-5 M1 live audit (2026-09-16): labs has no Alertmanager ciphertext;
   Alertmanager remains disabled and vmalert's explicit blackhole notifier is live.
@@ -429,11 +438,12 @@ Discoveries from implementation:
   ten minutes with zero restarts. VMSingle used 230–401Mi and VictoriaLogs 9–15Mi
   during their gates. This is startup evidence; the separate seven-day sizing
   obligation remains open.
-- **EP-4's cloud-auth preflight is stopped on interactive GCP reauthentication**
-  (2026-09-17). The labs target guard passed, but the first service/registry
-  inventory read could not refresh the active account token. No build, image push,
-  credential/database creation, or workload apply occurred. The child remains
-  independently blocked until the operator runs `gcloud auth login`.
+- **EP-4's resumed cloud-auth rehearsal found a disabled Cloud Build API, not a
+  workload conflict** (2026-09-17). After operator reauthentication, labs still
+  contained no auth objects and its Artifact Registry contained only Attic. Every
+  prospective database/auth object passed server-side admission. The bounded
+  rollout must enable Cloud Build before three cross-architecture image builds;
+  no mutation occurred during this discovery.
 - **EP-4's read-only continuation failed closed before reaching labs**
   (2026-09-16). `scripts/lib/target.sh` is a Bash source library; sourcing it from
   zsh left `BASH_SOURCE[0]` empty and derived `/Users/shinzui/Keikaku` as the
@@ -617,6 +627,16 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: complete EP-4's labs auth acceptance with Cloud Build and the existing
+  Artifact Registry at immutable tag `0b8926af4ec6`, rather than node-local image
+  imports.
+  Rationale: registry-backed images survive node replacement and exercise the same
+  pull contract the platform promises. The arm64 workstation cannot natively build
+  the amd64 runtime, Artifact Registry already exists, all auth/database objects
+  pass admission, and enabling Cloud Build can be included in one bounded operator
+  approval. The non-turnkey nagared scaffold remains excluded.
+  Date: 2026-09-17.
 
 - Decision: close EP-7 encryption-at-rest acceptance from first-start evidence; do not rotate
   labs keys solely to obtain stage `reencrypt_finished`.
@@ -837,6 +857,10 @@ Cloud auth coverage and longer-term sizing remain open. Private Grafana
 ciphertext publication is complete and the remote commit verified. Cloud auth images/databases
 remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
+After operator reauthentication, the cloud-auth rehearsal now passes for both
+managed database stacks and every auth manifest/config map at immutable tag
+`0b8926af4ec6`. Artifact Registry exists, but Cloud Build must be enabled as the
+first approved mutation before the three amd64 builds.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
@@ -953,3 +977,9 @@ Revision note (2026-09-17, EP-4 cloud-auth preflight): Mori resolved the current
 En/Shomei source checkouts and the guarded build/install path was reviewed. The
 first GCP inventory read required interactive reauthentication, so work stopped
 before any cloud or cluster mutation. EP-4 remains In Progress.
+
+Revision note (2026-09-17, EP-4 cloud-auth rehearsal): after reauthentication,
+verified the fresh auth inventory and existing Artifact Registry, passed admission
+for both managed database stacks and all auth objects, and identified Cloud Build
+API enablement as the only cloud prerequisite. Added the exact immutable-tag build,
+credential/database, install/rerun, observation, and stop gates; no mutation occurred.
