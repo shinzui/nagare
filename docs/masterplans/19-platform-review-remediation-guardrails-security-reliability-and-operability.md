@@ -64,7 +64,7 @@ generating unparsable connection URLs; and the host is tuned for its 2-vCPU/8 GB
 reality with a written, rehearsable upgrade story and a disaster-recovery runbook
 that matches the tree.
 
-Three live acceptance bundles remain before the initiative is complete.
+Two live acceptance bundles remain before the initiative is complete.
 EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
 Its private recovery backups are now published with verified remote heads. EP-4's
@@ -75,9 +75,8 @@ monitoring resource correction is deployed and passed its 628-second stability
 observation. The new Grafana ciphertext backup is
 published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
-prove both phone delivery and the live metric/status paths. EP-7 has activated and verified its
-kubeconfig parent-directory correction; it must complete a fresh fixed-payload transaction and
-prove a private image can be pulled more than 45 minutes after k3s starts without restarting it.
+prove both phone delivery and the live metric/status paths. EP-7 is complete: its corrected host,
+fixed payload transaction, and uncached private-image canary all passed without restarting k3s.
 Everything else in the registry is
 complete or repository-complete with its remaining live proof named explicitly below.
 
@@ -135,7 +134,7 @@ release's checksum-breaking migration correction. It remains grouped into Phase 
 | 4 | Bound and harden cluster workloads | docs/plans/100-bound-and-harden-cluster-workloads.md | None | None | In Progress |
 | 5 | Alerting and backup freshness monitoring | docs/plans/101-alerting-and-backup-freshness-monitoring.md | None | EP-4 | In Progress |
 | 6 | nagarectl correctness and robustness fixes | docs/plans/102-nagarectl-correctness-and-robustness-fixes.md | None | EP-2 | Complete |
-| 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | In Progress |
+| 7 | Host tuning, upgrade story, and documentation reality sync | docs/plans/103-host-tuning-upgrade-story-and-documentation-reality-sync.md | None | EP-3 | Complete |
 | 8 | Upgrade nagare to the latest shomei and en | docs/plans/104-upgrade-nagare-to-the-latest-shomei-and-en.md | None | EP-4 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -362,14 +361,15 @@ complete; the child plans hold the granular checklists.
   optional key rotation, so no reencryption is required. A guarded same-version platform-upgrade
   apply left all 37 Pulumi resources unchanged and safely committed the host closure without
   restarting k3s. Its later Kubernetes phase exposed an ambiguous Certificate resource lookup;
-  the fully qualified operator fix passes 572 tests and the live inventory, but a fresh payload is
-  still required to stamp the cluster and advance the context. Exact-commit replacement transaction
-  `20260917T04034279927-0.4.0-ca71a77c` passes host evaluation, replacement-free Pulumi preview,
-  no-op Kubernetes diff, and the packaged live policy check; apply remains operator-gated)
-- [~] EP-7 M2: Registry credentials without k3s restarts
-  (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
-  restart unit is absent, and k3s has been up for more than two days. An exact private Attic
-  digest is available; its approved eviction and fresh canary pull remain)
+  the fully qualified operator fix passes 572 tests and the live inventory. Exact-commit replacement transaction
+  `20260917T04034279927-0.4.0-ca71a77c` then completed with all 37 Pulumi resources unchanged,
+  the host closure already active, and Kubernetes reconciliation, cluster stamp, and context commit
+  successful)
+- [x] EP-7 M2: Registry credentials without k3s restarts
+  (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old restart unit is
+  absent, and k3s has been up since September 14. An approved canary proved the selected private
+  Attic digest uncached, pulled it in 599 ms through `nagare-registry-pull`, exited 0, reached
+  `Succeeded`, and was deleted. The k3s timestamp and journal prove no restart)
 - [x] EP-7 M3: Upgrade story and documentation reality sync (2026-08-24 —
   verified net-certmanager release assets and retained the live GCS pin; added
   the upgrade guide and IAP fallback; synchronized DR, secrets, kubeconfig, and
@@ -440,15 +440,15 @@ Discoveries from implementation:
   Labs had `0640 root:wheel` on `k3s.yaml`, but `/etc/rancher/k3s` was `0700 root:root`
   because the registry bootstrap created it that way. Consequently `kubectl` as `deploy` failed
   despite the apparently correct file metadata. The repository now declares and tests
-  `0750 root:wheel` on the directory while keeping `registries.yaml` root-only. Activation remains
-  a separately approved host switch.
+  `0750 root:wheel` on the directory while keeping `registries.yaml` root-only. The approved switch
+  later activated and verified that exact invariant.
 - **EP-7 activation requires an immutable-payload repin, not a direct source-tree switch**
   (2026-09-16). The first approved switch refused before mutation because the ambient CLI was
   0.2.2 against a 0.4.0 context/host. The checkout-built 0.4.0 operator passed the guard, then showed
   that the context-owned host flake correctly pins the prior immutable 0.4.0 payload. Its supported
   same-version upgrade rehearsal passed host evaluation and a no-replacement Pulumi preview; after
   fetching and explicitly selecting the labs kubeconfig, Kubernetes diff also passed with no
-  migration. The persisted apply remains a separate operator boundary.
+  migration. Its later approved apply preserved the immutable-payload boundary through completion.
 - **The self-reverting switch was safe but not portable to empty SSH options on macOS Bash 3.2**
   (2026-09-16). The approved transaction applied a no-change Pulumi plan, built and copied the host
   closure, then failed before arming or activation because nounset rejects expansion of an empty
@@ -820,16 +820,13 @@ EP-5 has validated alert rules, truthful backup-prefix probing, and repeated suc
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
 curated rules, and status proves the correct empty fallback. Pushover configuration,
 phone delivery, and a fresh live `databases/<name>` age remain open because labs has
-neither the ciphertext nor a managed database/backup. EP-7's corrected host generation is active
-on labs and its kubeconfig directory/operator-access proof passes without a k3s restart. A false
-certificate-policy failure after the host commit is fixed in the repository, but a fresh payload
-must complete cluster stamp/context commit before the private pull can close EP-7. First-start
-evidence closes encryption-at-rest without an unnecessary key rotation. EP-3's successful secrets
-activation does not prove the remaining behaviors.
+neither the ciphertext nor a managed database/backup. EP-7 is complete: the corrected host
+generation, wheel-only kubeconfig access, encryption-at-rest evidence, fixed-payload cluster/context
+commit, restart-free credential timer, and uncached private pull all pass on labs. The canary Pod
+was removed and k3s retained its September 14 start timestamp.
 
-The next child is EP-4. It and EP-5 can share a live cluster session, while
-EP-7 can use the same host window for its correction and remaining checks. The full disaster-
-recovery drill remains a separate scratch-context exercise. ADR 13 captures the
+The next child is EP-4. It and EP-5 can share a live cluster session. The full disaster-recovery
+drill remains a separate scratch-context exercise. ADR 13 captures the
 durable recovery decisions from EP-3; task-specific custody and test evidence stays
 in the child plan.
 
@@ -872,8 +869,9 @@ Revision note (2026-09-16, EP-7 host activation): the replacement transaction le
 unchanged and safely committed the corrected host generation. Live checks prove wheel-only
 kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
 failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
-tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` binds that
-exact payload and passes every plan phase; apply and the private-pull canary remain operator-gated.
+tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` bound that
+exact payload and completed every phase. The subsequent uncached private-pull canary succeeded and
+was removed without restarting k3s, closing EP-7 and leaving six of eight child plans complete.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

@@ -84,10 +84,10 @@ while every runbook step matches the real tree.
   phase failed before cluster stamp/context commit on a false certificate-policy result; that
   operator defect is corrected and requires a fresh immutable-payload transaction, but it does not
   invalidate the completed host acceptance. (2026-09-16)
-- [ ] Final transaction completion: exact-commit payload `nagare-0.4.0-1c55d6f54a3c` is rehearsed
-  as transaction `20260917T04034279927-0.4.0-ca71a77c`. Host evaluation, the replacement-free
-  reviewed Pulumi plan, and the no-op Kubernetes migration all pass; the exact packaged operator
-  also passes the live certificate-policy check. Apply remains a separate operator approval.
+- [x] Final transaction completion: exact-commit payload `nagare-0.4.0-1c55d6f54a3c` completed as
+  transaction `20260917T04034279927-0.4.0-ca71a77c`. The reviewed Pulumi plan kept all 37 resources
+  unchanged; host apply recognized the intended closure as already active; Kubernetes reconciliation,
+  certificate policy, cluster stamp, and context commit all succeeded. (2026-09-16)
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
   invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
@@ -99,10 +99,13 @@ while every runbook step matches the real tree.
   `nagare-registries-reload` unit is absent; `nagare-registry-pull-secret.timer` is enabled and
   active, fires every 30 minutes, and repeatedly configures the pull Secret and patches the default
   ServiceAccount without restarting k3s. (2026-09-15)
-- [ ] M2: verify a fresh private-image pull succeeds more than 45 minutes after the last k3s start,
-  with no k3s restart in `journalctl`. The 2026-09-16 audit found an exact private Attic image digest,
-  a current pull Secret, and a k3s start more than two days old, so this is ready for an approved
-  cache-eviction/canary mutation rather than blocked on an image candidate or time window.
+- [x] M2: an approved one-shot canary proved digest
+  `sha256:179db2cb40c631bfebd59e4692ff2e2c4a155bc8575eca83663b5dfb28fa0612` absent from the
+  node cache, then pulled it from the private Artifact Registry in 599 ms through the default
+  ServiceAccount's `nagare-registry-pull` Secret. `atticd --help` exited 0, the Pod reached
+  `Succeeded`, and the Pod was deleted. k3s retained its 2026-09-14 start timestamp, its journal
+  contained no start event during the transaction/canary, and the refresh timer remained enabled,
+  active, and successful. (2026-09-16)
 - [x] M3: verify the `knative-v1.22.0` release assets; retain the independently verified v1.14.0 GCS pin and rewrite its README
 - [x] M3: write `docs/user/upgrades.md` (host, cluster components, observability, cadence) and link it from `docs/user/README.md`
 - [~] M3: optional in-place local re-bootstrap rehearsal skipped because no Docker daemon is running
@@ -193,11 +196,16 @@ while every runbook step matches the real tree.
   `certificates.cert-manager.io` explicitly, an injected-capture regression locks that command,
   all 572 tests pass under the pinned GHC 9.12.4 shell, and the corrected operator passes against
   the live inventory. The failed transaction did not stamp the cluster or advance the context.
-  Fresh exact-commit transaction `20260917T04034279927-0.4.0-ca71a77c` now has successful host,
-  Pulumi, and Kubernetes plan phases and is waiting at the explicit apply boundary.
+  Fresh exact-commit transaction `20260917T04034279927-0.4.0-ca71a77c` then passed its host,
+  Pulumi, and Kubernetes plan phases before the approved apply completed it.
 
-(More to be added during implementation.)
-
+- Invoking the exact packaged operator by absolute path did not put that package first in `PATH`.
+  The first approved apply therefore consumed the reviewed no-change Pulumi plan, then the host
+  script found the ambient 0.2.2 CLI and failed on `nagarectl host name` before host mutation. Resume
+  with the exact operator directory prepended to `PATH` used the durable Pulumi success receipt,
+  skipped reapplying infrastructure, recognized the host closure as already active, and completed
+  every remaining phase. Clone-free operational commands must make the selected operator visible
+  to subprocesses, not merely invoke its outer command by absolute path.
 
 ## Decision Log
 
@@ -319,6 +327,13 @@ while every runbook step matches the real tree.
   option ordering and every existing SSH safety flag intact while supporting ordinary SSH config.
   Date: 2026-09-16.
 
+- Decision: when resuming an exact packaged upgrade transaction, prepend that package's `bin`
+  directory to `PATH` in addition to invoking its outer `nagarectl`.
+  Rationale: upgrade scripts deliberately invoke `nagarectl` subprocesses. Absolute-path invocation
+  alone can let an older ambient CLI handle those nested calls; PATH confinement keeps the entire
+  transaction on the reviewed operator while the durable receipt prevents duplicate Pulumi apply.
+  Date: 2026-09-16.
+
 
 ## Outcomes & Retrospective
 
@@ -327,15 +342,16 @@ while every runbook step matches the real tree.
   zram/inotify/overcommit tuning is active. The follow-up audit found that `0700 root:root` on the
   kubeconfig's parent directory defeated the intended wheel access despite the file being
   `0640 root:wheel`; the activated correction now keeps the directory `0750 root:wheel`.
-  Encryption-at-rest and live operator-access acceptance are complete. The containing platform
-  transaction still needs a fresh fixed payload to complete its Kubernetes stamp/context commit.
+  Encryption-at-rest and live operator-access acceptance are complete. The fixed-payload transaction
+  also completed Kubernetes reconciliation, cluster stamp, and context commit.
 - M2 repository work completed on 2026-08-24. The restart timer is removed;
   the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
   namespaces, treats an unavailable API as retryable, and preserves hard
   failures for token minting or Kubernetes mutations while the API is healthy.
   Evaluation proves the new timer's `2min`/`30min`/persistent settings, and labs proves the
-  old unit's absence plus repeated successful 30-minute executions without k3s restarts. The
-  >45-minute uncached private-image pull remains open because labs has no private app workload yet.
+  old unit's absence plus repeated successful 30-minute executions without k3s restarts. The final
+  live canary proved an uncached digest pull through the managed Secret more than three days after
+  k3s start, exited successfully, was deleted, and caused no control-plane restart.
 - M3 repository and documentation work completed on 2026-08-24. The verified
   net-certmanager pin remains v1.14.0; the new upgrade guide covers host,
   controller, observability, verification, cadence, rollback, and the exact IAP
@@ -345,9 +361,9 @@ while every runbook step matches the real tree.
   and whitespace check pass. The optional k3d rehearsal was skipped because no
   Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
   behind the active-context/authentication blocker.
-- EP-7 remains In Progress for a fresh fixed-payload transaction and the greater-than-45-minute
-  uncached private-image pull without a k3s restart. Labs has closed encryption-at-rest, tuning,
-  directory activation, operator access, timer activation, and no-restart portions.
+- EP-7 is Complete. Labs proves encryption at rest, small-node tuning, wheel-only operator access,
+  restart-free credential refresh, an uncached private-image pull long after boot, and consistent
+  payload/host/cluster/context commit points.
 
 
 ## Context and Orientation
@@ -1110,5 +1126,6 @@ Revision note (2026-09-16, host activation): the replacement transaction left in
 unchanged and safely committed the corrected host generation. Live checks prove wheel-only
 kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
 failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
-tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` binds that
-exact payload and passes every plan phase; apply and the private-pull canary remain operator-gated.
+tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` bound that
+exact payload and completed every phase. The subsequent uncached private-pull canary succeeded and
+was removed without restarting k3s, closing EP-7.
