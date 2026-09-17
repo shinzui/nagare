@@ -87,7 +87,11 @@ while every runbook step matches the real tree.
   evaluation, replacement-free Pulumi preview, and no-op Kubernetes migration; apply awaits
   separate operator approval. Its approved apply left all 37 Pulumi resources unchanged, then
   stopped before host activation on a macOS Bash 3.2 empty-array incompatibility. The portable
-  rollback-client fix and its full VM test now pass; a new immutable transaction is required.
+  rollback-client fix and its full VM test now pass. Replacement transaction
+  `20260916T23151494502-0.4.0-9d8c3017` is planned and its staged payload has been tested directly:
+  the host-switch dry run resolves `labs-nagare`, the closure builds, both directory invariants
+  evaluate exactly, and the packaged client passes the empty-options test under `/bin/bash` 3.2.
+  Apply remains operator-gated.
   (2026-09-16)
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
@@ -1093,4 +1097,5 @@ persisted same-version transaction and retained its apply as a separate operator
 Revision note (2026-09-16, activation recovery): the approved transaction left infrastructure
 unchanged and stopped before host activation because macOS Bash 3.2 rejects empty-array expansion
 under nounset. Added and fully tested the portable SSH-option branch; the host remained on its prior
-generation and a newly planned immutable transaction is required.
+generation. Planned and directly tested the replacement transaction's staged closure, invariants,
+dry-run target resolution, and packaged Bash 3.2 path; apply remains operator-gated.

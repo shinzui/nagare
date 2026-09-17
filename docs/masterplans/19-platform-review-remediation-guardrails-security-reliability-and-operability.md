@@ -363,7 +363,8 @@ complete; the child plans hold the granular checklists.
   rehearsal passed host evaluation, replacement-free Pulumi preview, and no-op Kubernetes diff;
   its approved apply left all 37 Pulumi resources unchanged, then stopped before host activation on
   a macOS Bash 3.2 empty-array incompatibility. The tested portable rollback-client fix now awaits a
-  new immutable transaction)
+  replacement transaction whose staged closure, exact directory invariants, dry-run target, and
+  packaged Bash 3.2 path all pass; apply remains operator-gated)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -853,8 +854,8 @@ cloud or host mutation occurred; transaction apply remains operator-gated.
 
 Revision note (2026-09-16, EP-7 activation recovery): the approved transaction kept all Pulumi
 resources unchanged and stopped before host activation on a Bash 3.2 compatibility bug. Recorded
-the unchanged live generation and fully tested portable rollback-client correction; a new immutable
-transaction remains operator-gated.
+the unchanged live generation and fully tested portable rollback-client correction. The replacement
+transaction's staged closure and client now pass direct rehearsal; apply remains operator-gated.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked
