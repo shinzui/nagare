@@ -1280,11 +1280,11 @@ Operation "operations/acf.p2-1087727631858-0356f4a1-1a9c-4e52-80f5-a6ecdd9136d6"
 $ NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/en/build-image.sh cloudbuild-test
 Creating temporary archive of 4243 file(s) totalling 305.0 MiB before compression.
 Uploading tarball of [/var/folders/.../nagare-auth-image.fmQvxV] to [gs://tan-nb-exp_cloudbuild/source/1782349952.506533-2476653fe03143f0b84b26eb23349013.tgz]
-ERROR: (gcloud.builds.submit) PERMISSION_DENIED: The caller does not have permission. This command is authenticated as [redacted operator] which is the active account specified by the [core/account] property
+ERROR: (gcloud.builds.submit) PERMISSION_DENIED: The caller does not have permission. This command used the active operator account.
 
 $ gcloud auth list --format='table(account,status)'
-ACCOUNT                     ACTIVE
-[redacted operator]  *
+ACCOUNT                  ACTIVE
+[redacted operator]      *
 ```
 
 The helper then gained a single-node remote import mode for the real `nagare-01` cluster.

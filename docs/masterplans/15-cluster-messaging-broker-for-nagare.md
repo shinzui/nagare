@@ -195,7 +195,7 @@ Document cross-plan insights, dependency changes, scope adjustments, or unexpect
 interactions between child plans. Provide concise evidence.
 
 - 2026-06-21: EP-75 started but live cluster access is blocked by expired non-interactive gcloud
-  reauthentication for IAP. The active account is `[redacted operator]`, project is
+  reauthentication for IAP. An operator account was active, project is
   `tan-nb-exp`, region `us-west1`, zone `us-west1-a`, and local kubectl context is `sennari`, so the
   spike must continue through the documented `sudo k3s kubectl` path after `gcloud auth login`
   refreshes credentials. No broker resources were applied before the blocker.

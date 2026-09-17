@@ -80,7 +80,7 @@ Please run:
 to obtain new credentials.
 ```
 
-  `gcloud auth list` shows active account `[redacted operator]`, and `gcloud config list`
+  `gcloud auth list` shows an active operator account, and `gcloud config list`
   shows project `tan-nb-exp`, region `us-west1`, and zone `us-west1-a`. No namespace, PVC, StatefulSet,
   Service, Helm release, or pod was created before this blocker.
 
@@ -254,7 +254,7 @@ kubectl get nodes
 ```
 
 Current resume point as of 2026-06-21: run `gcloud auth login` interactively for
-`[redacted operator]`, then continue through the VM path rather than local kubectl:
+the active operator account, then continue through the VM path rather than local kubectl:
 
 ```bash
 SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 \

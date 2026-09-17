@@ -233,7 +233,7 @@ opt-in.
   (2026-09-17): the guarded preflight passed, Cloud Build was enabled in
   `tan-ng-labs`, and the Shomei source archive reached the managed staging bucket.
   `gcloud builds submit` then returned `PERMISSION_DENIED` for active account
-  `[redacted operator]` before returning a build ID. The exact registry-tag
+  the active operator account before returning a build ID. The exact registry-tag
   query remained empty. No auth image, credential, database, migration, or service
   was created; En and nagare-access builds were not attempted.
 - [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart

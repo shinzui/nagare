@@ -353,7 +353,7 @@ complete; the child plans hold the granular checklists.
 - [x] EP-4 cloud-auth permission stop (2026-09-17): operator approved the bounded
   rollout, the guarded preflight passed, and Cloud Build was enabled. The first
   Shomei submission staged its source but returned `PERMISSION_DENIED` for
-  `[redacted operator]` before a build ID. The registry tag remains absent;
+  the active operator account before a build ID. The registry tag remains absent;
   no later build or cluster-auth mutation ran.
 - [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
 - [~] EP-5 M1 live audit (2026-09-16): labs has no Alertmanager ciphertext;
