@@ -75,9 +75,10 @@ monitoring resource correction is deployed and passed its 628-second stability
 observation. The new Grafana ciphertext backup is
 published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
-prove both phone delivery and the live metric/status paths. EP-7 must activate its
-tested kubeconfig parent-directory correction and prove a private image can be pulled more than
-45 minutes after k3s starts without restarting it. Everything else in the registry is
+prove both phone delivery and the live metric/status paths. EP-7 has activated and verified its
+kubeconfig parent-directory correction; it must complete a fresh fixed-payload transaction and
+prove a private image can be pulled more than 45 minutes after k3s starts without restarting it.
+Everything else in the registry is
 complete or repository-complete with its remaining live proof named explicitly below.
 
 Out of scope: new product features (workload kinds, brokers, the agent content
@@ -353,18 +354,16 @@ complete; the child plans hold the granular checklists.
 - [x] EP-6 M3: House-style sweep and final validation
   (2026-08-24 — all six owned sites use `fromMaybe`; final build and all 372
   tests pass)
-- [~] EP-7 M1: Host tuning and k3s hardening flags
-  (2026-09-16 — the released configuration is live on labs, the kubeconfig file is
-  `640 root:wheel`, and datastore encryption is enabled; a read-only audit found its
-  `700 root:root` parent blocked wheel traversal. The tested repository correction makes the
-  directory `750 root:wheel`; activation/operator verification remains. First-start evidence
+- [x] EP-7 M1: Host tuning and k3s hardening flags
+  (2026-09-16 — the corrected generation is live on labs, the kubeconfig file is
+  `640 root:wheel`, its parent is `750 root:wheel`, bare kubectl works as `deploy`, a non-wheel user
+  remains denied, and datastore encryption is enabled. First-start evidence
   proves encryption covered the datastore from birth; `Enabled` + stage `start` is normal before
   optional key rotation, so no reencryption is required. A guarded same-version platform-upgrade
-  rehearsal passed host evaluation, replacement-free Pulumi preview, and no-op Kubernetes diff;
-  its approved apply left all 37 Pulumi resources unchanged, then stopped before host activation on
-  a macOS Bash 3.2 empty-array incompatibility. The tested portable rollback-client fix now awaits a
-  replacement transaction whose staged closure, exact directory invariants, dry-run target, and
-  packaged Bash 3.2 path all pass; apply remains operator-gated)
+  apply left all 37 Pulumi resources unchanged and safely committed the host closure without
+  restarting k3s. Its later Kubernetes phase exposed an ambiguous Certificate resource lookup;
+  the fully qualified operator fix passes 572 tests and the live inventory, but a fresh payload is
+  still required to stamp the cluster and advance the context)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -454,6 +453,14 @@ Discoveries from implementation:
   array on Bash 3.2. Live verification confirmed the old generation remained active. The client now
   branches before expansion; a native reproduction and the full commit/lockout/crash rollback VM
   test pass.
+- **An ambiguous Kubernetes resource lookup failed after the EP-7 host commit** (2026-09-16).
+  The replacement transaction activated the intended generation and verified reconnect/commit, but
+  `cluster-bootstrap` then asked kubectl for bare `certificates`. Kubectl selected Knative's CRD,
+  whose objects do not carry cert-manager's `issuerRef`, and the policy emitted a false failure even
+  though `personal`'s cert-manager Certificate names `letsencrypt-dns`. The operator now queries
+  `certificates.cert-manager.io` explicitly and has an executable command-level regression. The
+  fixed command passes live; the failed transaction left cluster stamp and context commit pending,
+  so a fresh immutable payload must be reviewed before another apply.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -810,11 +817,12 @@ EP-5 has validated alert rules, truthful backup-prefix probing, and repeated suc
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
 curated rules, and status proves the correct empty fallback. Pushover configuration,
 phone delivery, and a fresh live `databases/<name>` age remain open because labs has
-neither the ciphertext nor a managed database/backup. EP-7's host configuration is active on labs;
-its tested kubeconfig directory correction still needs activation, followed by operator-access
-verification and a private pull after the boot token expires. First-start evidence now closes
-encryption-at-rest without an unnecessary key rotation. EP-3's successful secrets activation does
-not prove the remaining behaviors.
+neither the ciphertext nor a managed database/backup. EP-7's corrected host generation is active
+on labs and its kubeconfig directory/operator-access proof passes without a k3s restart. A false
+certificate-policy failure after the host commit is fixed in the repository, but a fresh payload
+must complete cluster stamp/context commit before the private pull can close EP-7. First-start
+evidence closes encryption-at-rest without an unnecessary key rotation. EP-3's successful secrets
+activation does not prove the remaining behaviors.
 
 The next child is EP-4. It and EP-5 can share a live cluster session, while
 EP-7 can use the same host window for its correction and remaining checks. The full disaster-
@@ -856,6 +864,13 @@ Revision note (2026-09-16, EP-7 activation recovery): the approved transaction k
 resources unchanged and stopped before host activation on a Bash 3.2 compatibility bug. Recorded
 the unchanged live generation and fully tested portable rollback-client correction. The replacement
 transaction's staged closure and client now pass direct rehearsal; apply remains operator-gated.
+
+Revision note (2026-09-16, EP-7 host activation): the replacement transaction left Pulumi
+unchanged and safely committed the corrected host generation. Live checks prove wheel-only
+kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
+failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
+tests plus the live inventory. Cluster stamp, context commit, and the private-pull canary await a
+fresh immutable payload.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

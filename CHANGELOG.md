@@ -5,6 +5,10 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Unambiguous certificate-policy inventory.** `nagarectl cluster certificate-policy` now queries
+  `certificates.cert-manager.io` explicitly, so clusters that also install Knative's distinct
+  `Certificate` resource do not produce a false issuer-policy failure during bootstrap or upgrade.
+
 ## [0.4.0] - 2026-09-16
 
 - **Optional in-cluster Nix binary cache.** Cloud contexts can opt into a context-local Attic

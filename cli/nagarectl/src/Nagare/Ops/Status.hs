@@ -14,6 +14,7 @@ module Nagare.Ops.Status
   , inventoryOptsFor
   , parseHostAgeKeyProbe
   , probeCertificatePolicy
+  , probeCertificatePolicyWith
   )
 where
 
@@ -204,11 +205,17 @@ probeTls = do
 -- namespace. Transport and parse failures remain UNKNOWN so doctor does not
 -- claim a policy violation without evidence.
 probeCertificatePolicy :: IO Probe
-probeCertificatePolicy = do
-  certificates <- captureTool "kubectl" ["get", "certificates", "-A", "-o", "json"]
+probeCertificatePolicy = probeCertificatePolicyWith (captureTool "kubectl")
+
+-- | Probe through an injected kubectl capture function. Qualify cert-manager's
+-- Certificate resource explicitly: clusters that also install Knative expose
+-- another @Certificate@ kind, and kubectl's short-name resolution is not a
+-- stable API contract.
+probeCertificatePolicyWith :: ([String] -> IO (Maybe ByteString)) -> IO Probe
+probeCertificatePolicyWith captureKubectl = do
+  certificates <- captureKubectl ["get", "certificates.cert-manager.io", "-A", "-o", "json"]
   namespaces <-
-    captureTool
-      "kubectl"
+    captureKubectl
       [ "get"
       , "namespaces"
       , "-l"

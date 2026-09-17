@@ -73,26 +73,17 @@ while every runbook step matches the real tree.
 - [x] M1: add `--secrets-encryption` to the k3s server flags
 - [x] M1: add zram swap and the three sysctls to `nixos/modules/gcp.nix`
 - [x] M1: build-check the NixOS config (eval of `nixosConfigurations.nagare-01`)
-- [~] M1 live activation and partial verification: the released configuration is active on the
-  fresh labs host; `/etc/rancher/k3s/k3s.yaml` is `640 root wheel` and `k3s secrets-encrypt status`
-  reports `Encryption Status: Enabled` with matching server hashes. A 2026-09-16 audit found its
-  parent directory was still `700 root root`, so `deploy` could not traverse to the file and
-  host-local `kubectl` failed. The repository correction is complete but not yet activated.
 - [x] M1 repository correction: declare `/etc/rancher/k3s` as `0750 root:wheel` and make the
   pre-k3s registry bootstrap preserve that ownership and mode; focused evaluation/build checks pass.
-- [ ] M1 live activation and operator-access verification: apply the directory correction, prove
-  `kubectl get nodes` works as `deploy` without sudo, and retain denial for a non-wheel user. The
-  direct switch refused before mutation because the ambient CLI was stale. Supported same-version
-  platform-upgrade transaction `20260916T22472374565-0.4.0-eacc2bab` now has a successful host
-  evaluation, replacement-free Pulumi preview, and no-op Kubernetes migration; apply awaits
-  separate operator approval. Its approved apply left all 37 Pulumi resources unchanged, then
-  stopped before host activation on a macOS Bash 3.2 empty-array incompatibility. The portable
-  rollback-client fix and its full VM test now pass. Replacement transaction
-  `20260916T23151494502-0.4.0-9d8c3017` is planned and its staged payload has been tested directly:
-  the host-switch dry run resolves `labs-nagare`, the closure builds, both directory invariants
-  evaluate exactly, and the packaged client passes the empty-options test under `/bin/bash` 3.2.
-  Apply remains operator-gated.
-  (2026-09-16)
+- [x] M1 live activation and operator-access verification: approved same-version transaction
+  `20260916T23151494502-0.4.0-9d8c3017` left all 37 Pulumi resources unchanged, armed the rollback
+  window, activated the reviewed closure, verified a fresh login, and committed it as the boot
+  generation. `/etc/rancher/k3s` is `750 root wheel`, `k3s.yaml` is `640 root wheel`, bare
+  `kubectl get nodes` works as `deploy`, and `nobody` cannot read the kubeconfig. k3s retains its
+  2026-09-14 start time, so activation did not restart the control plane. The later Kubernetes
+  phase failed before cluster stamp/context commit on a false certificate-policy result; that
+  operator defect is corrected and requires a fresh immutable-payload transaction, but it does not
+  invalidate the completed host acceptance. (2026-09-16)
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
   invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
@@ -188,6 +179,16 @@ while every runbook step matches the real tree.
   `0700 root:root` directory remained active. The client now branches before expanding empty
   `NIX_SSHOPTS`; a direct Bash 3.2 reproduction, shellcheck, formatting, flake evaluation, and the
   complete commit/lockout/crash rollback VM test all pass.
+
+- The replacement transaction safely activated and committed the corrected host generation, then
+  failed during `cluster-bootstrap` because `nagarectl cluster certificate-policy` queried the
+  ambiguous resource name `certificates`. On a cluster carrying both Knative and cert-manager
+  Certificate CRDs, kubectl selected Knative Certificates; those objects intentionally lack
+  `spec.issuerRef`, so the diagnostic falsely reported the `personal` wildcard as non-ACME. The
+  corresponding cert-manager Certificate already names `letsencrypt-dns`. The operator now queries
+  `certificates.cert-manager.io` explicitly, an injected-capture regression locks that command,
+  all 572 tests pass under the pinned GHC 9.12.4 shell, and the corrected operator passes against
+  the live inventory. The failed transaction did not stamp the cluster or advance the context.
 
 (More to be added during implementation.)
 
@@ -319,9 +320,9 @@ while every runbook step matches the real tree.
   labs on 2026-09-15 and 2026-09-16. Datastore Secret encryption is enabled for fresh starts and
   zram/inotify/overcommit tuning is active. The follow-up audit found that `0700 root:root` on the
   kubeconfig's parent directory defeated the intended wheel access despite the file being
-  `0640 root:wheel`; the tested repository correction now keeps the directory `0750 root:wheel`.
-  Encryption-at-rest acceptance is complete; live activation/operator verification of the directory
-  correction remains open.
+  `0640 root:wheel`; the activated correction now keeps the directory `0750 root:wheel`.
+  Encryption-at-rest and live operator-access acceptance are complete. The containing platform
+  transaction still needs a fresh fixed payload to complete its Kubernetes stamp/context commit.
 - M2 repository work completed on 2026-08-24. The restart timer is removed;
   the NixOS configuration now mints a pull Secret every 30 minutes, skips absent
   namespaces, treats an unavailable API as retryable, and preserves hard
@@ -338,10 +339,9 @@ while every runbook step matches the real tree.
   and whitespace check pass. The optional k3d rehearsal was skipped because no
   Docker daemon is running; an idempotent cloud re-bootstrap remains unavailable
   behind the active-context/authentication blocker.
-- EP-7 remains In Progress for one bounded host switch and two live assertions: activate and verify
-  the kubeconfig parent-directory correction, and perform a greater-than-45-minute uncached
-  private-image pull without a k3s restart. Labs has closed encryption-at-rest, tuning,
-  timer-activation, and no-restart portions.
+- EP-7 remains In Progress for a fresh fixed-payload transaction and the greater-than-45-minute
+  uncached private-image pull without a k3s restart. Labs has closed encryption-at-rest, tuning,
+  directory activation, operator access, timer activation, and no-restart portions.
 
 
 ## Context and Orientation
@@ -1099,3 +1099,10 @@ unchanged and stopped before host activation because macOS Bash 3.2 rejects empt
 under nounset. Added and fully tested the portable SSH-option branch; the host remained on its prior
 generation. Planned and directly tested the replacement transaction's staged closure, invariants,
 dry-run target resolution, and packaged Bash 3.2 path; apply remains operator-gated.
+
+Revision note (2026-09-16, host activation): the replacement transaction left infrastructure
+unchanged and safely committed the corrected host generation. Live checks prove wheel-only
+kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
+failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
+tests plus the live inventory. Cluster stamp, context commit, and the private-pull canary await a
+fresh immutable payload.

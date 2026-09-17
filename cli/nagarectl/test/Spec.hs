@@ -302,7 +302,7 @@ import Nagare.Ops.PulumiBackend
   , projectNumberArgs
   , pulumiStateBucket
   )
-import Nagare.Ops.Status (parseHostAgeKeyProbe)
+import Nagare.Ops.Status (parseHostAgeKeyProbe, probeCertificatePolicyWith)
 import Nagare.Platform.Paths (PlatformRootSource (InstalledRoot, SourceRoot))
 import Nagare.Server.Build
 import Nagare.Static.Build
@@ -2623,6 +2623,24 @@ certificatePolicyTests =
       parseCertificateObservations certificates
         @?= Just [namespaceWildcardCert "personal" "wildcard" "letsencrypt-dns" ["*.personal.apps.example.com"]]
       parseLabeledNamespaces namespaces @?= Just (Set.singleton "personal")
+  , testCase "queries the fully qualified cert-manager Certificate API" $ do
+      calls <- newIORef []
+      let certificates =
+            "{\"items\":[{\"metadata\":{\"name\":\"wildcard\",\"namespace\":\"personal\",\"labels\":{\"networking.knative.dev/wildcardDomain\":\"apps.example.com\"}},\"spec\":{\"issuerRef\":{\"name\":\"letsencrypt-dns\"},\"dnsNames\":[\"*.personal.apps.example.com\"]}}]}"
+          namespaces = "{\"items\":[{\"metadata\":{\"name\":\"personal\"}}]}"
+          capture arguments = do
+            modifyIORef' calls (<> [arguments])
+            pure $ case arguments of
+              ["get", "certificates.cert-manager.io", "-A", "-o", "json"] -> Just certificates
+              ["get", "namespaces", "-l", "nagare.dev/app-namespace=true", "-o", "json"] -> Just namespaces
+              _ -> Nothing
+      probe <- probeCertificatePolicyWith capture
+      probe ^. #status @?= StatusOk
+      readIORef calls
+        >>= (@?=)
+          [ ["get", "certificates.cert-manager.io", "-A", "-o", "json"]
+          , ["get", "namespaces", "-l", "nagare.dev/app-namespace=true", "-o", "json"]
+          ]
   , testCase "accepts CA certificates that omit dnsNames" $
       parseCertificateObservations
         "{\"items\":[{\"metadata\":{\"name\":\"root-ca\",\"namespace\":\"cert-manager\"},\"spec\":{\"issuerRef\":{\"name\":\"selfsigned-cluster-issuer\"}}}]}"
