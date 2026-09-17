@@ -48,3 +48,52 @@ All supported Nagare mutation entry points eventually use this protocol. Pure de
 Application deployments and platform upgrades can advance independently while detecting shared-resource conflicts. Existing installations need explicit adoption and old transactions need a versioned compatibility path; neither is inferred from matching names. The model enables deterministic tests for collision, lifecycle, and recovery policy, while real provider observations and integration tests remain necessary.
 
 This does not introduce a daemon, distributed scheduler, generic replacement for Pulumi/NixOS/Kubernetes, automatic data rollback, or a security boundary against administrators using raw provider tools. Types reduce invalid internal states; they do not establish live ownership, permission, freshness, or successful external effects.
+
+## Amendment — 2026-09-16: the shared interface was validated before implementation
+
+The interface proposed by MasterPlan 23 was checked against the working tree and compiled as stubs
+before any code was written. The architecture above is unchanged. Six rules came out of that check
+that will outlive the plans.
+
+1. **An address claim includes what a controller will create.** A declaration claims its own
+   address and reserves the deterministically named children of its controller. Databases here
+   name their Service after the database and applications are Knative Services, which create a core
+   Service of the same name, so comparing declared addresses alone misses that collision. Claims
+   held by retained incarnations and unresolved transactions are part of the validated snapshot.
+2. **A validated inventory has one construction route.** Composition returns the desired inventory
+   together with the base it was composed against and the explicit replace and retire changes.
+   Stored scope documents are decoded and composed again; nothing decodes bytes directly into a
+   validated inventory. This is what carries "omission never means deletion" across a file.
+3. **Digests identify content and revisions identify history.** No digest is stored beside the
+   inline content it digests, no revision enters a desired digest or provider metadata, and a shared
+   resource's effective digest follows its composed content. Otherwise an unchanged rerun is not a
+   no-op. The pure model stays free of a hashing dependency; one operator-side module derives every
+   digest.
+4. **Logical identity comes from a stable key, not the provider name.** A changed key is a new
+   resource. Only a reviewed migration makes a rename anything else.
+5. **Authority to cause effects exists only under the writer lock.** A plan verified against a
+   snapshot is evidence, not permission. Admission under the lock re-checks the head, reservations,
+   and live preconditions, and yields a value that cannot leave that lock's scope. Native evidence
+   is produced by an explicit adapter preparation step during planning. Adapters never re-enter a
+   command that takes the lock.
+6. **The store's correctness rests on conditional writes only.** Publish-if-absent,
+   append-at-sequence, and replace-head-if-generation-matches are sufficient, and the transaction
+   tests run against a store that has nothing else. The filesystem remains the only implementation,
+   and no distributed exclusion is claimed, but a shared store needs no protocol change.
+
+No type with a hidden constructor derives `Generic`, identity newtypes included: `GHC.Generics.to`
+rebuilds such a value without naming its constructor. This is the narrow exception to
+[ADR 16](0016-adopt-haskell-jitsurei-for-production-haskell.md)'s label convention that the
+Decision above anticipated.
+
+A cloud context may keep its inventory store in its state bucket, beside its Pulumi state. This
+was decided the same day and is delivered by MasterPlan 23's eighth child,
+[ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+Replicating a local store, or moving it by export and restore, lets two machines restore one history
+and both apply, and the state at risk is deletion authority;
+[ADR 13](0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) moved
+the less critical Pulumi state off the workstation for the same reason. The shared store stays
+narrow: one writer, refusal of a second machine through the head's conditional replacement, an
+explicit operator takeover instead of a lease, and the filesystem store retained for local mode and
+for a new context's first transaction. It does not detect whether another executor is alive.
+ExecPlan 151 amends ADR 13 when the store exists.

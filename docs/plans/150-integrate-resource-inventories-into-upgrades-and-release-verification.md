@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-16T17:23:45Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-09-17T04:04:49Z
+      mode: "update"
+      note: "Cascaded consequences of MasterPlan 23 API validation"
 ---
 
 # Integrate resource inventories into upgrades and release verification
@@ -54,7 +60,7 @@ Not implemented. Completion requires recorded disposable-context evidence and no
 
 ## Context and Orientation
 
-Hard dependencies are [cloud/host/artifact adapters](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [cluster components](147-compile-cluster-bootstrap-into-owned-resource-components.md), [independent application/data commands](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md), and [lifecycle/status](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md). Their foundation is the shared typed model and immutable store/executor from EP-144/145. Each scope has accepted and converged revisions; resource history survives retirement; a native executor group may cover many declarations.
+Hard dependencies are [the shared inventory store](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md), [cloud/host/artifact adapters](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [cluster components](147-compile-cluster-bootstrap-into-owned-resource-components.md), [independent application/data commands](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md), and [lifecycle/status](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md). Their foundation is the shared typed model and immutable store/executor from EP-144/145. Each scope has accepted and converged revisions; resource history survives retirement; a native executor group may cover many declarations.
 
 cli/nagarectl/src/Nagare/Platform/Upgrade.hs and app/Main.hs:upgradeOps currently use fixed Pulumi/host/Kubernetes/stamp/context phases. KubernetesApply replays the whole bootstrap. Platform/Status.hs reports five release identities. Platform/PulumiReceipt.hs skips proven cloud work without provider access. Platform/Paths.hs and Workspace.hs package/materialize payloads. nix/platform-package.nix, nix/nagare-packages.nix, nix/checks/{haskell,infra,platform,scripts}.nix, release.json, scripts/check-release.sh, scripts/test-release.sh, scripts/assemble-release.sh, and scripts/rehearse-clone-free-release.sh own distribution/verification. Inspect the actual release workflow under .github/workflows before editing its artifacts; this plan does not authorize publication.
 
@@ -83,7 +89,7 @@ Finish docs/architecture/managed-resource-coverage.md. Audit every supported mut
 
 Verify that removed installers/guards have equivalent tests at the new authoritative boundary. Keep narrow native transport and remote safe-switch protocols. Remove wrappers/tests that only reconstruct policy now represented by types and pure validators. Reject new provider writes outside adapter modules in review and add a focused mutation-registration test over the command registry; a grep-only policy check is not sufficient assurance.
 
-Update docs/user/upgrades.md, contexts.md, cluster-bootstrap.md, app-lifecycle.md, managed-databases.md, backups-and-disaster-recovery.md, env-and-secrets.md, nix-binary-cache.md, and reference.md as needed, following their profile/log contract. Explain independent scopes, adoption, partial state, secret-safe evidence, writer limitations, and history restoration. Do not promise distributed exclusion or automatic data rollback.
+Update docs/user/upgrades.md, contexts.md, cluster-bootstrap.md, app-lifecycle.md, managed-databases.md, backups-and-disaster-recovery.md, env-and-secrets.md, nix-binary-cache.md, and reference.md as needed, following their profile/log contract. Explain independent scopes, adoption, partial state, secret-safe evidence, writer limitations, and history restoration. Reconcile the documentation and [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) with the inventory store: that ADR says a new machine needs two clones and credentials, which stops being true once ownership history and every application deploy depend on a workstation-local store. The MasterPlan resolved this by adding EP-151, which keeps a cloud context's store in its state bucket and amends ADR 13 itself. Here, confirm that the documents and ADR 13 agree with what EP-151 delivered, that export/restore remains documented for local-store contexts, and run the production-shaped rehearsal of M3 with the GCS store selected. Do not promise distributed exclusion or automatic data rollback.
 
 ### M3 — Integrated acceptance
 
@@ -159,3 +165,10 @@ This plan integrates, rather than redefines, the EP-144 resource schema, EP-145 
 It also owns the GitHubRelease adapter and publication-only durable provider envelope. That envelope consumes the same review/receipt types but has explicit draft-to-published recovery semantics; it is not permission to put ordinary context inventory history in release assets. EP-145 remains the owner of general transaction types.
 
 The older replacement initiative in docs/masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md remains independent and partially implemented. This work preserves its existing safety core and exposes inventory bindings; it does not claim its pending live replacement adapters are delivered. Consult Mori for dependency APIs and authoritative releases before compatibility changes. No library/tool upgrade or external release publication is prescribed by this plan.
+
+
+## Revision Notes
+
+2026-09-16: EP-151 became a hard dependency and the ADR 13 question in M2 was replaced by a check of what EP-151 delivered, after the operator added the shared store as the eighth child.
+
+2026-09-16: Cascaded from the MasterPlan's pre-implementation API validation. M2 now requires reconciling ADR 13's new-machine consequence with the workstation-local inventory store.

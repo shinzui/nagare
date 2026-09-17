@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-16T17:23:45Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-09-17T04:04:49Z
+      mode: "update"
+      note: "Interface amended after pre-implementation API validation under MasterPlan 23"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -46,6 +52,8 @@ None yet; implementation has not started.
 
 2026-09-16: Status is a timestamped observation, never a hidden repair operation. Inaccessible and missing must remain distinct, including after a partial upgrade.
 
+2026-09-16: Validate proposals into opaque LifecycleDecisions for EP-145's single planner instead of exposing planAdoption, planMigration, and planRetirement. The earlier planners took no inventory, so a proposal restated owner, digest, and policy beside the declaration; retirement intent existed both here and in EP-144; and a change that adopts some resources while updating others had no expression.
+
 
 ## Outcomes & Retrospective
 
@@ -75,7 +83,7 @@ Compare only authoritative desired fields; adapter-owned projection rules exclud
 
 ### M2 — Adoption and transfer
 
-An adoption proposal maps each chosen logical resource to an observed native address and physical incarnation, expected owner absence or explicit previous owner, proposed owner, desired digest, lifecycle/data classification, dependencies, and evidence. Require exact inventory/target binding and per-resource decisions. Missing metadata is a decision to review, not permission to update.
+An adoption proposal maps each chosen logical resource to an observed native address and physical incarnation, the expected owner absence or explicit previous owner, and evidence. It does not restate the proposed owner, desired spec, lifecycle or data classification, or dependencies: those are already fixed by the resource's declaration in the composed candidate, and a proposal that could disagree with the declaration would be a second source of truth. Require exact candidate/target binding and per-resource decisions. Missing metadata is a decision to review, not permission to update.
 
 Observe all declared candidates before mutation; provider scope/account/cluster identity is part of the review. At apply, re-observe and require conditional updates/imports that reject incarnation or owner changes. Already-stamped metadata may be reused only when the private authoritative history verifies it. Conflicting legacy helpers are surfaced as alternatives, not silently merged.
 
@@ -89,13 +97,13 @@ Define MigrationSpec as explicit operations: prepare destination, back up or see
 
 Require a declared data compatibility/recovery contract. Before irreversible admission the adapter may compensate where proven safe; afterward it reports forward-recovery requirements. Retain old data and its recovery credentials/keys until verification and policy permit deletion. A database migration is not satisfied merely because its Kubernetes Job exited zero; its adapter supplies the required schema/data evidence.
 
-Compute retirement from explicit selected-scope removal and historical ownership. Retained resources remain in the context catalogue with their last owner and physical identity after active declarations disappear. Garbage collection requires exact current identity/owner, completed dependency/cutover gates, policy permission, retention age, and backup/restore evidence when required. Active consumers, controller children with retained data, unknown observations, incomplete history, or unproven global artifact consumer coverage block collection. Do not recursively delete a namespace or broad storage prefix because its top-level object was owned.
+Compute retirement from the RetireScope change and RetirementIntent carried by EP-144's CompositionCandidate, together with historical ownership. `inventory retire` builds that change and runs composeInventory like any other command, so a consumer in another scope that still references the retiring scope's exports is rejected by the composer, and this plan adds the history-based checks the composer cannot see. Do not define a second retirement intent here. Retained resources remain in the context catalogue with their last owner and physical identity after active declarations disappear. Garbage collection requires exact current identity/owner, completed dependency/cutover gates, policy permission, retention age, and backup/restore evidence when required. Active consumers, controller children with retained data, unknown observations, incomplete history, or unproven global artifact consumer coverage block collection. Do not recursively delete a namespace or broad storage prefix because its top-level object was owned.
 
 Integrate replacement-upgrade resources through the existing Replacement/Cutover contract, not generic delete/recreate. Candidate write admission remains the irreversible boundary, and reserved addresses/DNS/backups retain their special protection. This plan defines the bridge and deterministic tests; it does not enable currently unfinished replacement infrastructure.
 
 ### M4 — Commands and evidence
 
-Add `inventory adopt --input FILE --out DIRECTORY`, `inventory migrate --input FILE --out DIRECTORY`, and `inventory retire --scope SCOPE --out DIRECTORY` as proposal/review commands only. Their outputs are normal EP-145 reviewed bundles; `inventory apply DIRECTORY --yes` executes them after live preconditions. Add `inventory gc --plan --out DIRECTORY` to list collection candidates and reasons for retained entries. There is no implicit prune-on-apply.
+Add `inventory adopt --input FILE --out DIRECTORY`, `inventory migrate --input FILE --out DIRECTORY`, and `inventory retire --scope SCOPE --out DIRECTORY` as proposal/review commands only. Each validates its proposal into LifecycleDecisions against the composed candidate and passes them to EP-145's single planChanges, so one reviewed change can adopt most of an existing installation's resources while updating a few, which is what the first adoption of a real context will need. Their outputs are normal EP-145 reviewed bundles; `inventory apply DIRECTORY --yes` executes them after live preconditions. Add `inventory gc --plan --out DIRECTORY` to list collection candidates and reasons for retained entries. There is no implicit prune-on-apply.
 
 The input file formats are versioned proposal DTOs, not editable proof objects. Ship small examples in test/fixtures/inventory/lifecycle and docs/architecture/managed-resource-lifecycle.md, including legacy cache resources, a database Service rename, and app retirement. Extend the same public schema contract rather than inventing a parallel lifecycle config language. Define generic reviewed operator recovery through `inventory recover TRANSACTION --operation OPERATION --decision FILE`; the file names an exact permitted adapter recovery action and evidence, and --yes cannot override an unsupported recovery.
 
@@ -136,17 +144,32 @@ classifyDrift
   :: ValidatedInventory -> InventoryHistory -> ObservationSet
   -> [DriftFinding]
 
-planAdoption
-  :: AdoptionProposal -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) ChangeProposal
+decideAdoption
+  :: CompositionCandidate -> AdoptionProposal -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty LifecycleError) LifecycleDecisions
 
-planMigration
-  :: MigrationSpec -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) ChangeProposal
+decideMigration
+  :: CompositionCandidate -> MigrationSpec -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty LifecycleError) LifecycleDecisions
 
-planRetirement
-  :: RetirementIntent -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) ChangeProposal
+decideRetirement
+  :: CompositionCandidate -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty LifecycleError) LifecycleDecisions
+
+decideCollection
+  :: CompositionCandidate -> CollectionRequest -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty LifecycleError) LifecycleDecisions
+
+combineDecisions
+  :: LifecycleDecisions -> LifecycleDecisions
+  -> Either (NonEmpty LifecycleError) LifecycleDecisions
 ```
 
+LifecycleDecisions is the opaque type that EP-145's planChanges consumes. EP-145 exports only noLifecycleDecisions; this plan is the only place a non-empty value can be built, through an internal module that is not in nagarectl's exposed-modules list. Every function here takes the CompositionCandidate, so a decision is always checked against the declaration it concerns, and none of them returns a ChangeProposal: planning stays in one place. combineDecisions refuses two decisions about one resource. These signatures were type-checked as stubs with EP-144's and EP-145's under GHC 9.10.3 on 2026-09-16.
+
 Support types are explicit alternatives in Lifecycle/Migration; identity and policy primitives remain owned by EP-144, operation/journal types by EP-145. Adapters provide conditional mutation and data-specific verification; pure functions do not assert live success. Use existing libraries. Find dependency APIs through Mori and verify releases before changing bounds; never search/read /nix/store.
+
+
+## Revision Notes
+
+2026-09-16: Revised before implementation after an API validation pass requested by the operator. The separate lifecycle planners became decision validators over EP-144's CompositionCandidate that feed EP-145's single planChanges; AdoptionProposal no longer restates what the declaration fixes; RetirementIntent is consumed from EP-144 rather than redefined. The reason is one source of truth per fact and a planner that can express a mixed adopt-and-update change.

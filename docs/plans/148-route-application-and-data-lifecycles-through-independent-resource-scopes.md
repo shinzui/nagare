@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-16T17:23:45Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-09-17T04:04:49Z
+      mode: "update"
+      note: "Cascaded consequences of MasterPlan 23 API validation"
 ---
 
 # Route application and data lifecycles through independent resource scopes
@@ -69,7 +75,7 @@ Access/Resolve.hs writes shared auth backend configuration and shomei settings. 
 
 Add cli/nagarectl/src/Nagare/Inventory/Application.hs and DataService.hs, backed by pure builders in cli/nagare-dsl/src/Nagare/Resource/Application.hs and Broker.hs. Reuse Resource/Database.hs from EP-147. Feed the full validated application/database/broker values through these builders; eliminate alternate flag reconstruction.
 
-Give each independently deployed application a stable ScopeId. Standalone databases/brokers have their own scopes; application-owned data may be in the application's scope but is retained separately when the application retires. Referencing a platform database does not grant lifecycle ownership. ResourceId is stable across display-name or provider-name changes, with physical replacement recorded separately.
+Give each independently deployed application a stable ScopeId. Standalone databases/brokers have their own scopes; application-owned data may be in the application's scope but is retained separately when the application retires. Referencing a platform database does not grant lifecycle ownership. ResourceId is stable across display-name or provider-name changes, with physical replacement recorded separately. That stability has to be built: mint each ResourceId from the scope, a stable logical key, and the builder's role path, following EP-144. Add the optional logical key to the user-facing Deployment, broker, and volume values and their Config/Load wire forms; it defaults to the first declared name and is pinned explicitly to rename. A changed key is a new resource, and only EP-149's reviewed migration turns a rename into anything else.
 
 Compile workload manifests, routes, access contributions, schedules, one-shot Jobs, volumes, backup policy, credentials, image references, logical broker topics, and release metadata. Revisions record immutable compiled declarations plus source/config digest and explicit overrides, so reconstituting context intent does not require every application's source checkout to be available. Compilation cannot infer complete desired state from a partial live resource listing.
 
@@ -79,7 +85,7 @@ Make render/dry-run and live deploy consume the same ResourceBundle. Public rend
 
 Model configuration, separately submitted environment variables, secret references, and temporary preview overlays as explicit intent inputs with documented precedence. A deploy omitting an env key from its own input channel does not erase a separately managed env channel. Explicit removal changes that channel's revision. Secret rotations bind opaque version tokens and private access paths; unknown reads refuse instead of regenerating credentials.
 
-Submit namespace/certificate registration and auth backend/domain requests to EP-147's designated owners. The owner validates each contribution and composes the complete shared object. Shared effective resource digests depend on the contribution revision vector; an application transaction can execute only the derived change its contribution authorizes. The platform's base scope revision and release pin do not advance. Reject a forged contribution requesting arbitrary shared-object fields.
+Submit namespace/certificate registration and auth backend/domain requests to EP-147's designated owners. The owner validates each contribution and composes the complete shared object. A shared resource's effective digest is the digest of its composed content, as EP-144 and EP-147 define it; an application transaction can execute only the derived change its contribution authorizes, and a redeploy whose contribution is unchanged does not touch the shared object. The platform's base scope revision and release pin do not advance. Reject a forged contribution requesting arbitrary shared-object fields.
 
 Use EP-146 publication adapters for OCI images and assets. Move existing CDN/DNS decisions into Inventory/Adapters/Cdn.hs using explicit provider accounts/zones and canonical address claims. Provider configuration remains context/scope-bound. Where a resource is already owned by Pulumi/platform, applications contribute/reference it rather than mutate it through a second API. Cloudflare-managed application records have explicit separate ownership and observed physical identity.
 
@@ -97,7 +103,7 @@ Audit runHooks, interactive database shells, exec-like maintenance, and user-sup
 
 ### M4 — User surface and removal
 
-Keep existing command names where practical, adding review output and saved-plan use behind a shared Inventory.Command service. Standard non-destructive commands may prepare/display/apply their exact plan in one invocation under existing acknowledgement conventions; adoption, replacement, data restore, and deletion still need their explicit reviewed decisions. A generic --yes must never bypass a refused policy.
+Keep existing command names where practical, adding review output and saved-plan use behind a shared Inventory.Command service. Application commands observe only what EP-145's observationRequirements names for the selected scope, so a deploy needs cluster access and not cloud or Pulumi credentials. They do need the context's inventory store. With the local store that is one workstation's private directory, so a deploy from any other machine refuses. [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) lets a cloud context keep the store in its state bucket instead. It is a soft dependency of this plan: M1 through M3 do not need it, but do not remove the last legacy deploy path in this milestone until EP-151 is Complete, and state the store requirement plainly in the user documentation either way. Standard non-destructive commands may prepare/display/apply their exact plan in one invocation under existing acknowledgement conventions; adoption, replacement, data restore, and deletion still need their explicit reviewed decisions. A generic --yes must never bypass a refused policy.
 
 Refactor App/Deploy.hs and Nagare.Deploy so there is one declaration path and one internal guarded adapter path. Replace direct kubectl/gcloud/rpk/storage mutations in the command modules with typed operation requests. Do not create a parallel application journal. The developer package must include the pure model and command support it uses, while platform-only tooling remains in the operator package.
 
@@ -148,3 +154,10 @@ planOperationalAction
 ```
 
 DependencyExports contains typed capability witnesses and selected revision/physical bindings; raw names are not ownership authority. Command handlers submit intents through Inventory.Store/Plan/Execute. Resource and executor interfaces are owned by EP-144/145; Kubernetes/shared contributions/database declarations by EP-147; publication by EP-146; lifecycle proof by EP-149. No external library version changes are specified. Use Mori for dependency source discovery and never search/read /nix/store.
+
+
+## Revision Notes
+
+2026-09-16: Recorded EP-151 as a soft dependency that gates only M4's removal of the last legacy deploy path, after the operator added the shared store as the eighth child.
+
+2026-09-16: Cascaded from the MasterPlan's pre-implementation API validation. ResourceIds are minted from a stable logical key carried in the user-facing values; shared-resource digests follow composed content; application commands use observationRequirements; and the machine-local store's effect on application deploys is stated as a release constraint. The reasons are rename safety, no-op convergence, keeping deploys free of cloud credentials, and ADR 13's new-machine promise.

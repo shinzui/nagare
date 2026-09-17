@@ -1,0 +1,240 @@
+---
+id: 151
+slug: store-inventory-history-in-the-context-state-bucket-with-conditional-writes
+title: "Store inventory history in the context state bucket with conditional writes"
+kind: exec-plan
+created_at: 2026-09-17T04:11:08Z
+intention: "intention_01m2nkkn0deaht66kevpmkjjpp"
+master_plan: "docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md"
+provenance:
+  created_by:
+    model: "claude-fable-5-1"
+    harness: "claude-code"
+    at: 2026-09-17T04:11:08Z
+---
+
+# Store inventory history in the context state bucket with conditional writes
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+
+
+## Purpose / Big Picture
+
+After this change an operator can keep a cloud context's resource-inventory history in that context's state bucket, beside its Pulumi state, instead of in a private directory on one workstation. A second machine that has the two repository clones and gcloud credentials sees the same ownership history and can plan, apply, and resume. Two machines cannot both change the context: the second is refused and told which machine holds the work, rather than diverging silently. A lost laptop no longer takes with it the only record of which resources Nagare is allowed to delete.
+
+You can see it working in two ways. In the test suite, two store clients share one in-memory bucket and the second client's apply is refused until an explicit takeover. Against a real bucket, `nagarectl inventory store migrate --to gcs` moves an existing local history, and `nagarectl inventory store status` run from a second, empty state directory prints the same head digest as the first machine.
+
+This is the eighth child of [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). That initiative makes a typed inventory the authority for what Nagare owns and may delete. [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) already moved the comparable Pulumi state off the workstation so that "a new machine needs a clone of both repositories, the symlinks, and gcloud credentials". Without this plan the inventory would quietly break that promise, and after application deploys move onto the inventory, every deploy from any other machine would refuse.
+
+
+## Progress
+
+- [ ] M1 (prototype): write the pure `gcloud storage` argument builders and the read-back classifier with a recording fake.
+- [ ] M1 (prototype): with the operator's go-ahead, run the live probe against a disposable prefix and record semantics, messages, and timings in Surprises & Discoveries.
+- [ ] M1 (prototype): decide the transport by the stated criteria and record the decision.
+- [ ] M2: implement the in-memory `ObjectOps` fake with generations and fault injection.
+- [ ] M2: implement `Nagare.Inventory.Store.Object` over `ObjectOps`, with the verified local blob cache.
+- [ ] M2: run EP-145's transaction suite against it; add the two-client, takeover, superseded-executor, and ambiguous-write tests.
+- [ ] M3: add the `NAGARE_INVENTORY_STORE` and `NAGARE_INVENTORY_STORE_URL` context fields in Haskell and Bash, with the local-mode downgrade.
+- [ ] M3: open the store by context selection, with the project guard and bucket-ownership assertion before any write.
+- [ ] M3: implement `inventory store status` and `inventory store migrate`, including the source tombstone and resumable ordering.
+- [ ] M4: run the gated live conformance suite and the two-state-root rehearsal; archive evidence.
+- [ ] M4: update user documentation, CLAUDE.md's variable list, ADR 13, and ADR 22; distill this plan.
+
+
+## Surprises & Discoveries
+
+Recorded while drafting, 2026-09-16, with Google Cloud SDK 570.0.0 on the operator's workstation, from `gcloud storage <command> --help` only (no project was contacted): `gcloud storage cp` accepts `--if-generation-match=GENERATION`, `--if-metageneration-match`, `--no-clobber`, and `--print-created-message`; `gcloud storage rm` accepts `--if-generation-match`; `gcloud storage cat` and `gcloud storage objects describe` accept no precondition flag. Whether `--if-generation-match=0` is passed through as "must not exist", what a failed precondition prints, and how long one call takes are not yet known and are what M1 measures.
+
+
+## Decision Log
+
+- Decision: Implement the shared store as a single-writer home for one context's history, not as a distributed coordinator. There is no lease, heartbeat, or background process.
+  Rationale: The operator-driven CLI has no process that could renew a lease during a ten-minute Pulumi apply, and MasterPlan 23 excludes a daemon and a distributed scheduler. Conditional writes already give the property that matters: a second writer fails instead of diverging. What they cannot give is proof that a silent executor is dead, so that one judgment stays with the operator as an explicit takeover.
+  Date: 2026-09-16
+
+- Decision: Use a real shared store rather than replicating a local store to the bucket or relying on export/restore.
+  Rationale: With replication, two machines can restore the same copy, both apply, and each later believe it may retire what the other created. The state at risk is deletion authority. A head object replaced only when its generation still matches makes that impossible, and because EP-145 already specifies the store as conditional writes, the real store costs about what replication would.
+  Date: 2026-09-16
+
+- Decision: Select the store with its own context fields, `NAGARE_INVENTORY_STORE` and `NAGARE_INVENTORY_STORE_URL`, defaulting to `local`, rather than inferring it from `NAGARE_PULUMI_BACKEND`.
+  Rationale: Contexts that already use the GCS Pulumi backend will run the filesystem inventory store between EP-145 and this plan, so a migration step exists regardless; an explicit field makes the move a reviewed act instead of a side effect of upgrading the CLI. It mirrors how ExecPlan 93 introduced the Pulumi backend fields, including the local-mode downgrade.
+  Date: 2026-09-16
+
+- Decision: Default the store to the existing state bucket under a sibling prefix, `gs://<project>-nagare-pulumi-state/nagare/<context>/inventory`, and accept the same trust boundary as Pulumi state. No client-side encryption is added here.
+  Rationale: ADR 13 already accepts that principals who can read the state bucket can read Pulumi state, which contains plaintext inputs. Private native bundles in the inventory are the same class of data, and EP-145 keeps secret values out of reviews and evidence. An operator who wants a narrower audience sets the URL to a separate bucket.
+  Date: 2026-09-16
+
+- Decision: Classify the result of every conditional write by reading the object back, never by parsing a tool's error text; establish absence only by a successful listing that lacks the name.
+  Rationale: MasterPlan 23 requires that a failed query is "unknown", never "absent". A timeout can follow a write that landed. Comparing the bytes now stored with the bytes we sent distinguishes "our write landed", "someone else holds this name", and "nothing happened" with the same code for every transport.
+  Date: 2026-09-16
+
+- Decision: Choosing a remote store means the store itself needs GCS access. The property that a proven Pulumi phase is skipped without running Pulumi or calling the provider is kept; "fully offline resume" is not, for contexts that opt in.
+  Rationale: This is the same trade the GCS Pulumi backend made, and the local store remains available for contexts that need offline operation.
+  Date: 2026-09-16
+
+
+## Outcomes & Retrospective
+
+Not implemented. At completion record the measured per-write latency, the transport chosen, the conformance and live rehearsal evidence, and the limits that remain (no liveness detection across machines; store access requires credentials).
+
+
+## Context and Orientation
+
+Nagare is a personal platform-as-a-service. An operator's `nagarectl` command-line tool, written in Haskell under cli/nagarectl, provisions a GCP project with Pulumi, activates a NixOS host, bootstraps a single-node Kubernetes cluster, and deploys applications. Which project it targets is the active *context*: a flat file of `export VAR=value` lines under `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/<name>.env`, parsed in Haskell by cli/nagarectl/src/Nagare/Target.hs (the `TargetProfile` record) and in Bash by scripts/lib/target.sh. A context has `mode=cloud` or `mode=local`; local mode runs everything on loopback substitutes and has no GCP project.
+
+MasterPlan 23 introduces a *resource inventory*: typed declarations of everything Nagare manages, composed and validated before any change. Two earlier children matter here. [EP-144](144-define-typed-resource-scopes-and-validate-composed-inventories.md) defines the pure model in cli/nagare-dsl/src/Nagare/Resource. [EP-145](145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md) is this plan's one hard dependency. It delivers the *inventory store*, the durable record of accepted declarations, reviewed plans, and execution history for one context, in cli/nagarectl/src/Nagare/Inventory/Store.hs, with the journal in Journal.hs and execution in Execute.hs. That store holds three kinds of thing. *Immutable members* are files named by the SHA-256 digest of their bytes: scope documents, review bundles, native plan files, observations. The *journal* is a sequence of immutable, numbered event files per transaction, each linked to the previous by digest; an operation's intent is appended before its first effect and its completion afterward. The *head manifest* is one small mutable file naming the accepted and converged revisions, retained resources, any unresolved transaction, and the *executor claim*: which store client is currently executing which transaction.
+
+EP-145 deliberately specifies the store as a record of *conditional writes*: publish an immutable member only if absent, append a journal event only at an unused sequence number, and replace the head only if it is still the version that was read. It ships a filesystem implementation under `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/inventory/` and an in-memory implementation, and runs its whole transaction test suite against both. It also takes a *process lock* with `GHC.IO.Handle.Lock` so that two processes on one machine cannot execute at once. This plan adds a third implementation of the same record and changes nothing about the protocol. If implementing it seems to require a protocol change, stop and record that in the MasterPlan, because it means EP-145's contract was not sufficient.
+
+Google Cloud Storage (GCS) supplies the same three conditional writes. Every version of an object has a *generation*, a number GCS assigns. A write may carry the precondition "only if the current generation equals N"; N = 0 means "only if no live object has this name". A failed precondition is HTTP status 412 and changes nothing. Listing a prefix is strongly consistent. The state bucket has object versioning enabled, which keeps older versions of an overwritten object; this store overwrites only the head, so versioning gives the head a history for free.
+
+The code this plan builds on already exists. cli/nagarectl/src/Nagare/Ops/PulumiBackend.hs creates and configures the state bucket for a context whose `NAGARE_PULUMI_BACKEND` is `gcs`: pure argument builders such as `bucketDescribeArgs` and `bucketProjectNumberArgs`, an injectable `GcloudOps` record of `capture` and `execute` so tests use a recording fake, and `bucketOwnershipVerdict`, which refuses unless the bucket's owning project number equals the target project's. That last check exists because bucket names are global, so a bucket with the expected name may belong to someone else. cli/nagarectl/src/Nagare/Ops/ContextGuard.hs holds `projectGuardVerdict`, the Haskell form of the rule that no command acts on a project other than the active context's. In Target.hs, `PulumiBackendKind`, `parsePulumiBackendKind`, `effectivePulumiBackend` (which downgrades `gcs` to local for a local-mode context), `defaultGcsPulumiBackendUrl`, the context-file renderer near the `line "NAGARE_PULUMI_BACKEND"` entries, and `nagareStateDir` are the patterns to mirror. scripts/lib/target.sh resolves the same fields for shells. The `--pulumi-backend` options of `context create` and `init` are in cli/nagarectl/app/Main.hs. Unit tests for all of this live in cli/nagarectl/test/Spec.hs. scripts/migrate-pulumi-backend.sh is the precedent for moving state between backends, and docs/user/contexts.md documents it, including the warning that a shell opened before a migration keeps exporting the old backend.
+
+Relevant decisions. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps mutable context state out of release payload workspaces. [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) requires the project assertion and the bucket-ownership check on every cloud-mutating path; object writes to the state bucket are such a path. [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) puts Pulumi state in a versioned, uniform-access, public-access-prevented bucket owned by the target project and keeps state out of git. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) and its 2026-09-16 amendment define the inventory architecture and the rule that the store's correctness rests on conditional writes only. Mori was searched and no cross-repository ADR applies.
+
+Two integration points with sibling plans. [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md) brings the state bucket itself into the inventory and notes that the very first transaction of a new context must run on the local store, because the bucket does not exist yet; the migration command delivered here is how that first history moves. [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md) must not remove the last legacy application-deploy path, and [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md) cannot close, until this plan is complete.
+
+
+## Plan of Work
+
+### M1 (prototype) — Prove the bucket provides the three conditional writes
+
+This milestone is a labelled prototype. Its purpose is to replace assumptions about `gcloud storage` with recorded facts before the store is built on them, and to choose the transport. At its end there is a small module of pure argument builders, a read-back classifier with unit tests, a probe script, and a dated entry in Surprises & Discoveries.
+
+Create cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs. Define `ObjectOps`, a record of three injectable effects in the style of `GcloudOps`: get an object with its generation, put an object under a condition, and list the names under a prefix. Define the outcome types so that "unknown" is never confused with "absent" (see Interfaces). Write the `gcloud` implementation: a put writes the bytes to a private temporary file and runs `gcloud storage cp <file> gs://… --if-generation-match=<N> --print-created-message`; a get runs `gcloud storage objects describe … --format=value(generation)` and `gcloud storage cat`, re-describing afterward and retrying when the generation moved between the two; a list runs `gcloud storage ls`. Keep each argument builder pure and test it in cli/nagarectl/test/Spec.hs beside the PulumiBackend builders.
+
+Write the classifier that every put goes through. On tool success, return the new generation. On any failure, read the object back. If it now holds exactly the bytes we sent, our write landed and the failure was only in the reply. If it holds other bytes, or for a head replacement its generation is not the one we expected, the precondition failed. If a successful listing shows the name absent, or the head is unchanged at the expected generation, nothing happened and the caller may retry. If the read-back itself fails, the outcome is unknown and the caller must stop. Absence is established only by a successful listing that lacks the name; a failed `describe` proves nothing. Unit-test all four branches against a fake.
+
+Add scripts/probe-inventory-object-store.sh. It sources scripts/lib/target.sh, calls `_require_target_project`, takes `--url gs://bucket/prefix` and `--expected-project`, refuses a local-mode context, asserts bucket ownership with `_require_bucket_in_target_project`, and then under a unique child prefix performs: create-if-absent on a new name (expect success), the same again (expect failure and an unchanged object), replace with the matching generation (expect success), replace with a stale generation (expect failure), a listing, and a get. It prints each command's exit status, the first line of its error output, and wall-clock time, and it never deletes anything. Running it writes objects to a real bucket, so rehearse it with `--dry-run` first and then ask the operator once for that bounded run, naming the context, bucket, and prefix. A disposable cloud context is preferred. While there, list the context's Pulumi prefix and confirm every Pulumi object lives under `.pulumi/`, so that an `inventory/` sibling cannot collide with it.
+
+Decide the transport from the evidence. Keep `gcloud storage` if a failed precondition leaves the object unchanged and the median time for one conditional put including read-back on failure is at most three seconds. Otherwise implement the put and get effects against the GCS JSON API with http-client-tls, which nagarectl already depends on, using a token from `gcloud auth print-access-token` refreshed on a 401 response; find the library's API through Mori first. Either way the rest of the plan sees only `ObjectOps`. Record the measurements and the decision.
+
+### M2 — The object-backed store, proven by the shared conformance suite
+
+At the end of this milestone `Nagare.Inventory.Store.Object` implements EP-145's `InventoryStore` over `ObjectOps`, and EP-145's transaction suite passes against it using an in-memory bucket. No cloud access is involved.
+
+Write the in-memory `ObjectOps` fake in the test tree: a map from name to generation and bytes behind an `IORef`, a monotonically increasing generation counter, strict precondition checks, and injectable faults: fail before writing, fail after writing (the ambiguous case), fail a read, and fail a listing. It must let two store clients share one bucket.
+
+Create cli/nagarectl/src/Nagare/Inventory/Store/Object.hs. Use the same relative layout EP-145's filesystem store uses beneath `inventory/`, so that export, restore, and migration are a verified copy of members followed by a head install; do not invent a second layout. Publish-if-absent maps to a put with generation 0 under the member's digest name, and an existing member with equal bytes counts as success. Append-at-sequence maps to a put with generation 0 on the event's zero-padded sequence name. Replace-head maps to a put conditioned on the generation read with the snapshot. A `format` object, created once with generation 0, records the store format version and the ContextId; every open compares that ContextId with the local context binding and refuses a mismatch, so that a mistyped URL cannot attach one context to another's history.
+
+Reads go through a local cache at `${XDG_CACHE_HOME:-$HOME/.cache}/nagare/<context>/inventory-blobs/`, keyed by digest, with private file modes. Immutable members are verified against their digest on every read from the cache and on every download, so the cache is never an authority and may be deleted at any time. The head and the journal listing are always read from the bucket.
+
+Cross-machine exclusion uses EP-145's executor claim. Admission installs the claim with the head replacement that activates the transaction, so a second machine's admission fails its precondition, re-reads, finds the claim, and refuses with the claiming client's identity and start time. The store client identity is generated once per state root and kept at `<state root>/<context>/inventory-client-id`. When a claim belongs to another client, `inventory resume` refuses unless the operator passes `--take-over CLIENT_ID`, which is the operator's statement that the other executor is dead. Takeover replaces the claim and raises its epoch. Because intent is appended before every effect, an executor that was superseded loses its next append, re-reads the head, sees a claim that is not its own, and stops before causing that effect. State the remaining limit in the command's help and the documentation: if the other executor is alive and already inside an effect, takeover can let a recovery probe run beside it. The local process lock is still taken, under the state root, to serialize processes on one machine.
+
+Add cli/nagarectl/test/InventoryObjectStoreSpec.hs and register it in the existing test lists. Run EP-145's transaction suite against this store over the fake. Add: two clients where the second admission is refused; takeover followed by the superseded client stopping before its next effect, with the recording adapter proving the effect did not run; each fault position, including a put that fails after writing being recognized as success; a `format` mismatch refusing; a poisoned cache entry being rejected and refetched; and a listing failure never being read as an empty journal.
+
+### M3 — Context selection, guarded opening, and migration
+
+At the end of this milestone a cloud context can opt in, and an existing local history can be moved without a window in which both stores accept writes.
+
+Add `InventoryStoreKind` (`InventoryStoreLocal | InventoryStoreGcs`), `parseInventoryStoreKind`, `effectiveInventoryStore`, and `defaultGcsInventoryStoreUrl` to cli/nagarectl/src/Nagare/Target.hs, the two fields to `TargetProfile`, the two lines to the context-file renderer, and the parsing in both resolver paths, exactly as the Pulumi backend fields are handled. The default URL is `gs://<project>-nagare-pulumi-state/nagare/<context>/inventory`. A local-mode context is always downgraded to the local store. Mirror the fields in scripts/lib/target.sh with the same downgrade warning, add them to nagare.target.env.example, and add `--inventory-store` and `--inventory-store-url` to `context create` and `init` in cli/nagarectl/app/Main.hs. Update the canonical-variable list in CLAUDE.md's "GCP project isolation" section in the same change, since that file is the operating contract for agents.
+
+Open the store by selection in one function. For GCS it first evaluates `projectGuardVerdict`, then asserts bucket ownership with the existing `bucketProjectNumberArgs`, `projectNumberArgs`, and `bucketOwnershipVerdict`, once per process and before the first write, failing closed when either number is unreadable. Generalize `bootstrapPulumiStateBucket` so the bucket is ensured when either the Pulumi backend or the inventory store needs it; do not write a second bootstrap.
+
+Add `nagarectl inventory store status`, which prints the store kind and URL, the ContextId, the head digest and generation, any unresolved transaction, and the executor claim, and mutates nothing. Add `nagarectl inventory store migrate --to gcs|local [--dry-run] --yes`. It takes the process lock and refuses unless the source is quiescent: no unresolved transaction and no claim. It refuses a destination whose `format` names another ContextId. It copies immutable members and journal events with publish-if-absent, verifying digests, installs the head with generation 0, and then re-reads the entire destination through the normal open path and compares the head digest and every member. Only then does it write a tombstone into the source head, naming the destination, by an ordinary conditional head replacement; any command that opens a tombstoned store refuses, prints the destination, and reminds the operator to reload the shell. Last, it rewrites the two context fields through the existing context writer, which writes through symlinks as ADR 13 requires. The order matters. A crash after the tombstone and before the context rewrite leaves a context that still says `local` and a local store that refuses, which is safe and is finished by running the command again: it finds the tombstone, verifies the destination, and performs only the rewrite. The opposite order would leave a stale shell free to write to the old store. `--to local` is the same procedure in reverse and never deletes bucket objects.
+
+Extend Spec.hs for the parsing, downgrade, default URL, and renderer, and InventoryObjectStoreSpec.hs for migration: interrupted at each step and rerun, destination already populated with the same history, destination belonging to another context, a non-quiescent source, and a tombstoned source refusing every mutating command.
+
+### M4 — Live evidence, documentation, and durable decisions
+
+At the end of this milestone the store has been exercised against a real bucket from two state roots, and the documents say what is and is not guaranteed.
+
+Make InventoryObjectStoreSpec.hs able to run the same conformance group against a real bucket when `NAGARE_TEST_INVENTORY_STORE_URL` and `NAGARE_TEST_EXPECTED_PROJECT` are both set; otherwise that group reports itself skipped. It refuses when gcloud's active project is not the expected one or the bucket is not owned by it, works under a unique child prefix, uses only recording adapters inside the test binary, and deletes nothing. Add scripts/rehearse-inventory-store.sh as a thin launcher that, for a named context and expected project, runs `inventory store migrate --to gcs`, then sets `XDG_STATE_HOME` and `XDG_CACHE_HOME` to fresh temporary directories to stand in for a second machine and runs `inventory store status` and `inventory export`, comparing head digests and exported member digests with the first machine's. It contains no store logic. Both write to a real bucket: rehearse with their dry-run forms, then ask the operator once for the bounded sequence. Removing the rehearsal prefix afterward is a separate, separately approved command that names the exact prefix.
+
+Add a section to docs/user/contexts.md after "Remote GCS Pulumi state", covering the two fields, the default URL, migration in both directions, the reload-your-shell warning, takeover and its limit, the fact that any mutation now needs bucket access, and that readers of the bucket can read private native bundles. Update docs/user/backups-and-disaster-recovery.md to say which store kinds are covered by which recovery path. docs/user is an OKF bundle with a log; follow its profile and add the log entries its contract requires. Amend ADR 13's decision on remote state to include the inventory store and restore its new-machine consequence, and add a short amendment to ADR 22 recording that the conditional-write contract was sufficient, or what had to change if it was not. Then distill this plan.
+
+
+## Concrete Steps
+
+Run everything from the repository root inside the project's development environment. Find dependency sources through Mori before relying on an API, and never search or read /nix/store.
+
+```bash
+(cd cli/nagarectl && cabal test nagarectl-test --test-show-details=direct)
+bash scripts/check-haskell-style.sh
+bash scripts/probe-inventory-object-store.sh --dry-run \
+  --url "gs://${CLOUDSDK_CORE_PROJECT}-nagare-pulumi-state/nagare/${NAGARE_CONTEXT}/inventory-probe" \
+  --expected-project "${CLOUDSDK_CORE_PROJECT}"
+```
+
+The probe script, the rehearsal launcher, the `inventory store` commands, and InventoryObjectStoreSpec.hs are new surfaces delivered by this plan. The dry run prints the commands it would run and contacts nothing. The live probe prints one line per step; the second create-if-absent must report a failure and an unchanged object:
+
+```text
+create-if-absent  new-name        exit=0  0.9s  generation=1758000000000001
+create-if-absent  same-name       exit=1  0.8s  object unchanged
+replace           generation ok   exit=0  0.9s
+replace           generation old  exit=1  0.8s  object unchanged
+```
+
+The figures above illustrate the shape only; record the real output in Surprises & Discoveries. The gated live conformance run is:
+
+```bash
+: "${NAGARE_TEST_INVENTORY_STORE_URL:?set a gs:// prefix in a disposable context}"
+: "${NAGARE_TEST_EXPECTED_PROJECT:?set that context's exact GCP project}"
+(cd cli/nagarectl && cabal test nagarectl-test --test-show-details=direct \
+  --test-options='-p InventoryObjectStore')
+```
+
+
+## Validation and Acceptance
+
+EP-145's complete transaction suite passes against the object-backed store over the in-memory bucket, unchanged. That is the primary acceptance: it shows the store is a drop-in implementation of the contract rather than a variant of it.
+
+With two clients on one bucket, the second client's apply is refused and names the first client; after `--take-over`, the second client proceeds and the first stops before its next effect, which the recording adapter proves by showing that effect was never invoked. A put that fails after writing is treated as success; a put that fails before writing is retried; an unreadable read-back stops the transaction as unknown. A failed listing is never treated as an empty journal, and a failed get is never treated as absence. A store whose `format` names another context refuses to open. A corrupted cache file is rejected and refetched.
+
+A local-mode context that asks for the GCS store is downgraded with a warning. A cloud context pointing at a bucket owned by another project refuses before any write. Migration interrupted at any step completes when rerun and never leaves both stores writable; after migration, a shell still exporting `NAGARE_INVENTORY_STORE=local` is refused by the tombstone with a message naming the bucket URL.
+
+Live, the conformance group passes against a real bucket, and a second state root with an empty cache reports the same head digest and exports byte-identical members. Unit and fake-backed tests do not establish provider behavior; leave M4 incomplete if the live evidence cannot be obtained.
+
+
+## Idempotence and Recovery
+
+Every store write is conditional, so repeating any step is safe: republishing a member with equal bytes succeeds, re-appending an event with equal bytes succeeds, and a repeated head replacement either finds its own bytes or fails its precondition. The store never deletes or overwrites an immutable object. Migration is resumable by rerunning it and does not remove the source, which remains as a tombstoned, read-only fallback; reversing a migration is the same command with `--to local`. The probe, the live conformance run, and the rehearsal write only under their own unique prefixes and delete nothing; cleanup is a separate approved step naming the exact prefix. Object versioning on the bucket keeps earlier head versions should a head ever need to be inspected or restored by hand, which is a recovery action to plan and review, not something this store does on its own. If a guard or ownership check refuses, stop and report it; do not work around it.
+
+
+## Interfaces and Dependencies
+
+Hard dependency: [EP-145](145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md) must be complete, because this plan implements its `InventoryStore` record, reuses its conformance suite, its executor claim in the head manifest, its export/restore, and its digest module. It needs nothing from EP-146, EP-147, EP-148, or EP-149 and can run beside them. It does not change the head, journal, or member formats; those belong to EP-145.
+
+```haskell
+-- cli/nagarectl/src/Nagare/Inventory/Store/ObjectOps.hs
+newtype ObjectName = ObjectName Text
+newtype Generation = Generation Integer
+
+data PutCondition = IfAbsent | IfGenerationMatches !Generation
+
+data GetOutcome
+  = ObjectFound !Generation !ByteString
+  | ObjectAbsent          -- only after a successful listing that lacks the name
+  | GetUnknown !Text
+
+data PutOutcome
+  = PutWritten !Generation
+  | PutPreconditionFailed
+  | PutNoEffect !Text     -- confirmed unchanged; safe to retry
+  | PutUnknown !Text      -- read-back failed; stop
+
+data ObjectOps = ObjectOps
+  { getObject :: !(ObjectName -> IO GetOutcome)
+  , putObject :: !(PutCondition -> ObjectName -> ByteString -> IO PutOutcome)
+  , listObjects :: !(ObjectName -> IO (Either Text [ObjectName]))
+  }
+
+gcloudObjectOps :: GcloudOps -> Text -> ObjectOps -- bucket URL prefix
+
+-- cli/nagarectl/src/Nagare/Inventory/Store/Object.hs
+objectInventoryStore
+  :: ObjectOps -> StoreClientId -> ContextId -> FilePath -- cache directory
+  -> IO (Either StoreError InventoryStore)
+
+-- cli/nagarectl/src/Nagare/Inventory/Store/Open.hs
+openInventoryStore :: ResolvedContext -> IO (Either StoreError InventoryStore)
+
+migrateInventoryStore
+  :: MigrationDirection -> InventoryStore -> InventoryStore
+  -> IO (Either StoreError MigrationResult)
+```
+
+`GcloudOps` is the existing record in Nagare.Ops.PulumiBackend; move it to a shared module if importing it from there creates a cycle. `InventoryStore`, `StoreError`, `ContextId`, and the transaction suite are EP-145's and EP-144's. Use existing dependencies only: process, temporary, directory, filepath, bytestring, text, crypton for digests through EP-145's digest module, and, only if M1's criteria require it, http-client and http-client-tls, which nagarectl already lists. No dependency version changes are prescribed; if one becomes necessary, locate the source through Mori and verify the released version against the package registry and upstream tags first.

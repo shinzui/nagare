@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-09-16T17:23:45Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-09-17T04:04:49Z
+      mode: "update"
+      note: "Cascaded consequences of MasterPlan 23 API validation"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -46,6 +52,8 @@ None yet; implementation has not started.
 
 2026-09-16: Known migration Jobs have durable operation identities bound to inputs. Unconditional delete-and-recreate on every bootstrap is removed.
 
+2026-09-16: Kubernetes claims include derived reservations for controller children, and shared-resource digests follow composed content. Verified in the tree that a database Service is named after the database while applications are Knative Services, so direct claims alone miss a same-name collision.
+
 
 ## Outcomes & Retrospective
 
@@ -71,7 +79,9 @@ New modules are cli/nagare-dsl/src/Nagare/Resource/Kubernetes.hs and Database.hs
 
 Compile structured Kubernetes objects into declarations and exact canonical manifests together. Treat packaged YAML/chart renderings as versioned inputs parsed into structured objects, not shell text substitutions. Expand multi-document YAML and List objects before validation; preserve source/component provenance for each resource. Include cluster-scoped objects and normalize API-version aliases to the same address. Native manifests must not introduce resources after inventory validation.
 
-Observe using explicit cluster identity/credentials and separate confirmed absence, permission/network failure, malformed response, foreign/unowned identity, owned drift, and health. Stamp owner/context/logical ID/revision in the same guarded write as desired changes. Kubernetes UID records physical incarnation; deletion and adoption use UID/resource-version preconditions where supported. Create conflicts re-enter observation instead of overwriting an unexpected object. An ownership check followed by unrestricted apply is not sufficient: select a provider update strategy that preserves preconditions and refuses field-manager conflicts. Do not use force-conflicts as an adoption shortcut.
+Fill in EP-144's per-kind claim function for Kubernetes here. Beside each object's direct claim it must return derived reservations for the deterministically named children a controller will create: a Knative Service reserves the core Service of the same name, a Certificate its target Secret, a StatefulSet its ordinal Pods and template claims, and a Helm release its rendered objects. Children with generated names, such as a CronJob's Jobs or a Revision's Pods, need no reservation and are observed through their parent. The case is live in this repository: Nagare.Dsl.Database.Render sets `dbServiceName n = n` and applications are Knative Services, so an application and a database sharing a name in one namespace contend for one core Service although their declared kinds differ. Add that pair as a failing fixture next to the Attic one.
+
+Observe using explicit cluster identity/credentials and separate confirmed absence, permission/network failure, malformed response, foreign/unowned identity, owned drift, and health. Stamp owner, context, and logical ID in the same guarded write as desired changes. If a desired revision is stamped, use the object's own spec digest computed without the stamps, never the scope revision, which would rewrite every object in the scope on every deploy. Kubernetes UID records physical incarnation; deletion and adoption use UID/resource-version preconditions where supported. Create conflicts re-enter observation instead of overwriting an unexpected object. An ownership check followed by unrestricted apply is not sufficient: select a provider update strategy that preserves preconditions and refuses field-manager conflicts. Do not use force-conflicts as an adoption shortcut.
 
 Native server defaulting/status/generated metadata must be excluded from desired comparison by a typed per-kind projection. Explicitly delegated credential fields and controller-owned fields are compared according to their contract. If a safe mutation precondition is unsupported, refuse the operation rather than pretending a label is a lock. Preserve cluster/context guards at the mutation site.
 
@@ -91,7 +101,7 @@ Compile cloud/local foundations, cert-manager/issuers, Knative, Kourier, net-cer
 
 Prove the Helm rendering boundary itself: separate template and upgrade invocations can differ because of live lookup, randomness, or conditional hooks. The adapter must enforce the retained reviewed manifests through a verified native rendering boundary, or reject unsupported nondeterministic charts before mutation. Bind chart, values, capabilities, hook policy, and rendered object digests. A second unverified rendering is not evidence of parity. Add a chart fixture whose lookup/random output differs between review and apply and prove refusal before resource changes.
 
-Create a foundation-owned namespace registration API. The foundation composes requested namespace/certificate labels; consumers cannot overwrite arbitrary labels. Define the shared-owner contribution mechanism for auth backend/routes and shomei settings: application scopes own contributions, platform owners own resulting shared resources. Effective resource digests include the complete contribution revision vector, while the platform's base declaration revision remains unchanged. Validate contributor permissions and conflicts before review. Execution locks/revalidates the entire contribution vector to avoid lost entries.
+Create a foundation-owned namespace registration API. The foundation composes requested namespace/certificate labels; consumers cannot overwrite arbitrary labels. Define the shared-owner contribution mechanism for auth backend/routes and shomei settings: application scopes own contributions, platform owners own resulting shared resources. Effective resource digests cover the complete set of contributions, while the platform's base declaration revision remains unchanged. Validate contributor permissions and conflicts before review. Execution locks/revalidates the entire contribution vector to avoid lost entries. The contribution kinds and their pure composers are added to EP-144's closed dispatch in nagare-dsl, because composeInventory must derive contribution-made declarations, such as a registered Namespace, before it validates claims; a composer living only in nagarectl would run after validation. The effective digest of a shared resource is the digest of its composed content. It does not include the revisions of contributing scopes, so an application redeployed with an unchanged contribution leaves the shared object untouched and other reviews valid.
 
 Declare host timer authority over registry/forge credential values and ServiceAccount imagePullSecrets, without granting deletion/adoption. Include the expected namespace set and credential version/freshness evidence. Certificate Secrets, Knative Revisions/Pods, and observability operator children are observed descendants; direct declarations do not compete with their controllers.
 
@@ -99,7 +109,7 @@ Bootstrap's final version stamp becomes a control operation gated by all require
 
 ### M4 — Replacement of orchestration
 
-Expose `nagarectl platform bootstrap plan --out DIRECTORY` and `platform bootstrap apply DIRECTORY --yes` as thin uses of inventory compile/plan/apply. Existing just recipes and installer entry points call those commands and cannot directly mutate around them. Move decisions from cache/auth/local-auth/observability installers, namespace loops, TLS recipes, and retry/config-patch scripts into typed components/adapters. Retain unique transport/image import/dump operations only with typed inputs/results.
+Expose `nagarectl platform bootstrap plan --out DIRECTORY` and `platform bootstrap apply DIRECTORY --yes` as thin uses of inventory compile/plan/apply. Existing just recipes and installer entry points call those commands and cannot directly mutate around them. Adapters never call those entry points back: the context lock is held while an adapter runs, and EP-145 makes an inventory command refuse when it finds itself inside a transaction. Move decisions from cache/auth/local-auth/observability installers, namespace loops, TLS recipes, and retry/config-patch scripts into typed components/adapters. Retain unique transport/image import/dump operations only with typed inputs/results.
 
 Add a complete fixture for cloud bootstrap with cache/auth/observability enabled and a local-mode counterpart. Maintain docs/architecture/managed-resource-coverage.md with direct resources, delegated outputs, policy owners, retired scripts, and the tests covering each entry point. If this plan runs before EP-146, create the same agreed file with its cluster entries and preserve later additions; its shared format is defined in the MasterPlan.
 
@@ -151,4 +161,9 @@ composeOwnerContributions
   -> Either (NonEmpty InventoryError) ResourceBundle
 ```
 
-ResourceBundle carries declarations, typed exports, required conditions, and operation specifications from the EP-144 contract. It is not a list of executable commands. Kubernetes/Helm/Cache adapters implement EP-145's registry protocol and cannot independently update desired-state heads. Dependency APIs must be located through Mori before use; no version changes are prescribed. Never search/read /nix/store.
+ResourceBundle, ScopeDeclaration, and the DeclaredOperation values inside a bundle are defined by EP-144 in nagare-dsl. A bundle carries declarations, typed exports, required conditions, contributions, and declared operations; it is not a list of executable commands. composeOwnerContributions is the pure composer that EP-144's composition phase dispatches to for the kinds this plan adds, which is why it lives in nagare-dsl beside Resource/Kubernetes.hs. compileDatabase takes the database's stable logical key as an input and mints ResourceIds from it rather than from the provider name; add the optional key to Nagare.Dsl.Database's Database so a rename in configuration is not mistaken for a new resource. Kubernetes/Helm/Cache adapters implement EP-145's registry protocol and cannot independently update desired-state heads. Dependency APIs must be located through Mori before use; no version changes are prescribed. Never search/read /nix/store.
+
+
+## Revision Notes
+
+2026-09-16: Cascaded from the MasterPlan's pre-implementation API validation. This plan now supplies the Kubernetes derived-reservation table for EP-144's claim function, with the application/database same-name fixture; stamps identity and per-object spec digest rather than scope revision; places contribution composers in EP-144's dispatch with content-based effective digests; mints database ResourceIds from a stable logical key; and forbids adapter re-entry. The reasons are a collision class the direct-claim model missed, no-op convergence, composition ordering, rename safety, and lock re-entrancy.
