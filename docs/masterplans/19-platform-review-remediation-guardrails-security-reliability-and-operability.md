@@ -363,7 +363,9 @@ complete; the child plans hold the granular checklists.
   apply left all 37 Pulumi resources unchanged and safely committed the host closure without
   restarting k3s. Its later Kubernetes phase exposed an ambiguous Certificate resource lookup;
   the fully qualified operator fix passes 572 tests and the live inventory, but a fresh payload is
-  still required to stamp the cluster and advance the context)
+  still required to stamp the cluster and advance the context. Exact-commit replacement transaction
+  `20260917T04034279927-0.4.0-ca71a77c` passes host evaluation, replacement-free Pulumi preview,
+  no-op Kubernetes diff, and the packaged live policy check; apply remains operator-gated)
 - [~] EP-7 M2: Registry credentials without k3s restarts
   (2026-09-16 — labs proves the replacement timer runs every 30 minutes, the old
   restart unit is absent, and k3s has been up for more than two days. An exact private Attic
@@ -459,8 +461,9 @@ Discoveries from implementation:
   whose objects do not carry cert-manager's `issuerRef`, and the policy emitted a false failure even
   though `personal`'s cert-manager Certificate names `letsencrypt-dns`. The operator now queries
   `certificates.cert-manager.io` explicitly and has an executable command-level regression. The
-  fixed command passes live; the failed transaction left cluster stamp and context commit pending,
-  so a fresh immutable payload must be reviewed before another apply.
+  fixed command passes live; the failed transaction left cluster stamp and context commit pending.
+  Fresh exact-commit transaction `20260917T04034279927-0.4.0-ca71a77c` now passes all reviewed plan
+  phases and waits at the explicit apply boundary.
 - **EP-4 restored local acceptance and found a bootstrap race** (2026-09-16).
   Colima can run the disposable test cluster again. A clean environment is required
   when creating an isolated local context beneath an ambient cloud shell. The first
@@ -869,8 +872,8 @@ Revision note (2026-09-16, EP-7 host activation): the replacement transaction le
 unchanged and safely committed the corrected host generation. Live checks prove wheel-only
 kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
 failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
-tests plus the live inventory. Cluster stamp, context commit, and the private-pull canary await a
-fresh immutable payload.
+tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` binds that
+exact payload and passes every plan phase; apply and the private-pull canary remain operator-gated.
 
 Revision note (2026-09-16, publication): the operator approved both private pushes,
 including the disclosed pre-existing commits. Verified exact remote heads and marked

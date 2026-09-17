@@ -84,6 +84,10 @@ while every runbook step matches the real tree.
   phase failed before cluster stamp/context commit on a false certificate-policy result; that
   operator defect is corrected and requires a fresh immutable-payload transaction, but it does not
   invalidate the completed host acceptance. (2026-09-16)
+- [ ] Final transaction completion: exact-commit payload `nagare-0.4.0-1c55d6f54a3c` is rehearsed
+  as transaction `20260917T04034279927-0.4.0-ca71a77c`. Host evaluation, the replacement-free
+  reviewed Pulumi plan, and the no-op Kubernetes migration all pass; the exact packaged operator
+  also passes the live certificate-policy check. Apply remains a separate operator approval.
 - [x] M1 encryption-at-rest verification: labs reports `Encryption Status: Enabled`; its datastore
   and encryption config were created within the same first-boot second, and the first API-server
   invocation already carried `--encryption-provider-config`. Current upstream k3s documentation
@@ -189,6 +193,8 @@ while every runbook step matches the real tree.
   `certificates.cert-manager.io` explicitly, an injected-capture regression locks that command,
   all 572 tests pass under the pinned GHC 9.12.4 shell, and the corrected operator passes against
   the live inventory. The failed transaction did not stamp the cluster or advance the context.
+  Fresh exact-commit transaction `20260917T04034279927-0.4.0-ca71a77c` now has successful host,
+  Pulumi, and Kubernetes plan phases and is waiting at the explicit apply boundary.
 
 (More to be added during implementation.)
 
@@ -1104,5 +1110,5 @@ Revision note (2026-09-16, host activation): the replacement transaction left in
 unchanged and safely committed the corrected host generation. Live checks prove wheel-only
 kubeconfig access and no k3s restart. Its Kubernetes phase then exposed a false certificate-policy
 failure caused by an ambiguous resource name; the fully qualified fix and regression pass all 572
-tests plus the live inventory. Cluster stamp, context commit, and the private-pull canary await a
-fresh immutable payload.
+tests plus the live inventory. Fresh transaction `20260917T04034279927-0.4.0-ca71a77c` binds that
+exact payload and passes every plan phase; apply and the private-pull canary remain operator-gated.
