@@ -229,6 +229,13 @@ opt-in.
   the installer to prove ledger idempotence; then record readiness, resources,
   migration verification, usage, and at least 550m unreserved CPU. Do not install
   the nagared scaffold or reset any existing database.
+- [x] Stop the first approved cloud-auth attempt at the build permission boundary
+  (2026-09-17): the guarded preflight passed, Cloud Build was enabled in
+  `tan-ng-labs`, and the Shomei source archive reached the managed staging bucket.
+  `gcloud builds submit` then returned `PERMISSION_DENIED` for active account
+  `[redacted operator]` before returning a build ID. The exact registry-tag
+  query remained empty. No auth image, credential, database, migration, or service
+  was created; En and nagare-access builds were not attempted.
 - [x] Prepare the broader memory-bound correction (2026-09-16): exact five-chart
   rendering and labs server admission dry runs pass; six direct containers gain
   limits and operator defaults cover both reloaders. Deployment remains pending.
@@ -250,6 +257,12 @@ opt-in.
 
 ## Surprises & Discoveries
 
+- Enabling the Cloud Build API and submitting a build are separately authorized.
+  The active account could enable `cloudbuild.googleapis.com` and upload the
+  generated source archive, but the build-create request was refused. Because the
+  approved sequence says to stop on any build failure, this is an operator IAM
+  prerequisite rather than a reason to try another builder or identity. Cloud
+  Build remains enabled; Artifact Registry has no auth image at the intended tag.
 - After reauthentication, guarded inventory showed that Artifact Registry is
   enabled and contains only Attic, while `cloudbuild.googleapis.com` is absent
   from the enabled-service list. The Apple Silicon workstation path documented by
@@ -511,6 +524,14 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
 
 ## Decision Log
 
+- Decision: stop the approved labs auth rollout at the first Cloud Build
+  `PERMISSION_DENIED` response and retain the registry-backed rollout design.
+  Rationale: the failure occurred before a build ID or image existed, and the
+  rollout gate explicitly forbids speculative retries or advancing to credentials
+  and databases. Resume the same immutable-tag sequence only after the active
+  operator identity can submit builds in `tan-ng-labs`; do not substitute a
+  node-local import merely to bypass the permission boundary.
+  Date: 2026-09-17.
 - Decision: build and publish the three labs auth images through Cloud Build and
   Artifact Registry at the already rehearsed Nagare tag `0b8926af4ec6`, rather
   than importing node-local `dev.local` images.
@@ -806,6 +827,13 @@ application/migration manifests, and two config maps now pass render and server
 admission checks. The rollout is ready for one bounded approval covering API
 enablement, three image builds, fresh credentials/databases, install/rerun proof,
 and a ten-minute resource/readiness observation.
+
+The operator approved that bounded sequence. Guarded preflight passed and Cloud
+Build was enabled, but the first Shomei submission was refused for the active
+account after source staging and before a build ID was returned. The intended
+registry tag is still absent. The rollout stopped at that boundary; no later image
+build or cluster-auth mutation ran. Completion now requires build-submission
+permission for the same operator identity, followed by a fresh guarded preflight.
 
 
 ## Context and Orientation
@@ -1997,3 +2025,9 @@ the empty auth inventory and existing Artifact Registry, identified Cloud Build 
 enablement as the only cloud prerequisite, and passed server-side dry runs for both
 database stacks and every auth manifest/config map at immutable tag
 `0b8926af4ec6`. Added a bounded operator-approved rollout and recovery contract.
+
+Revision note (2026-09-17, cloud-auth permission stop): after operator approval,
+the guarded rollout enabled Cloud Build and stopped when the first Shomei build
+submission returned `PERMISSION_DENIED` for the active account. The source archive
+was staged, but no build ID or auth image was created; no credential, database,
+migration, or service mutation followed.

@@ -350,6 +350,11 @@ complete; the child plans hold the granular checklists.
   Build; publish three amd64 images; create fresh credentials/databases; install
   and rerun migrations/services; then prove readiness, zero pending/unknown
   migrations, ten-minute stability, actual usage, and at least 550m CPU headroom.
+- [x] EP-4 cloud-auth permission stop (2026-09-17): operator approved the bounded
+  rollout, the guarded preflight passed, and Cloud Build was enabled. The first
+  Shomei submission staged its source but returned `PERMISSION_DENIED` for
+  `[redacted operator]` before a build ID. The registry tag remains absent;
+  no later build or cluster-auth mutation ran.
 - [~] EP-5 M1: vmalert + Alertmanager with a Pushover channel (2026-08-26 — the packaged installer resolves context-owned secrets fail-closed; the Pushover account/token, encrypted Alertmanager config, chart enablement, and phone-delivery proof remain)
 - [~] EP-5 M1 live audit (2026-09-16): labs has no Alertmanager ciphertext;
   Alertmanager remains disabled and vmalert's explicit blackhole notifier is live.
@@ -432,6 +437,11 @@ implementation):
 
 Discoveries from implementation:
 
+- **EP-4's Cloud Build API and build submission have distinct permission
+  boundaries** (2026-09-17). The active operator could enable the API and stage
+  the generated build source, but could not create the first build. The approved
+  sequence stopped there. Cloud Build remains enabled, while auth images,
+  credentials, databases, migrations, and services remain absent.
 - **EP-4's 40% cache correction closes the clean-start failure on labs while
   preserving the existing storage** (2026-09-17). The staged rollout kept both
   PVC UIDs and backing volumes, then observed each replacement store for more than
@@ -627,6 +637,14 @@ Discoveries from implementation:
 
 
 ## Decision Log
+
+- Decision: retain EP-4's registry-backed Cloud Build path and stop at the first
+  build-submission permission refusal.
+  Rationale: no build ID or image was created, and the approved gate forbids
+  retries, identity changes, or later cluster mutations after a build failure.
+  Resume only after the active operator identity can submit builds in
+  `tan-ng-labs`, beginning with a new guarded preflight.
+  Date: 2026-09-17.
 
 - Decision: complete EP-4's labs auth acceptance with Cloud Build and the existing
   Artifact Registry at immutable tag `0b8926af4ec6`, rather than node-local image
@@ -859,8 +877,11 @@ remain absent and their bootstrap needs separate approval. The nagared manifest
 remains a non-turnkey scaffold and must not be mistaken for an installed service.
 After operator reauthentication, the cloud-auth rehearsal now passes for both
 managed database stacks and every auth manifest/config map at immutable tag
-`0b8926af4ec6`. Artifact Registry exists, but Cloud Build must be enabled as the
-first approved mutation before the three amd64 builds.
+`0b8926af4ec6`. The operator approved the rollout and Cloud Build was enabled, but
+the active account lacked permission to create the first Shomei build. Its source
+archive reached the managed staging bucket; no build ID or image followed, and the
+rollout stopped before every cluster-auth mutation. Cloud auth remains open until
+that build-submission permission is available and the guarded sequence is resumed.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
@@ -983,3 +1004,8 @@ verified the fresh auth inventory and existing Artifact Registry, passed admissi
 for both managed database stacks and all auth objects, and identified Cloud Build
 API enablement as the only cloud prerequisite. Added the exact immutable-tag build,
 credential/database, install/rerun, observation, and stop gates; no mutation occurred.
+
+Revision note (2026-09-17, EP-4 cloud-auth permission stop): after bounded operator
+approval, enabled Cloud Build and stopped when the active account could not create
+the first Shomei build. Source staging completed, but no build ID, image, or
+cluster-auth object was created. EP-4 remains In Progress.
