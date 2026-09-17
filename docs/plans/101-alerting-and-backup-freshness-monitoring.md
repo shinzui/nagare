@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-16T21:36:18Z
       mode: "implement"
       note: "Record labs rule health, metric series, empty backup prefixes, and Pushover dependency"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-17T21:10:30Z
+      mode: "implement"
+      note: "Reconcile system auth databases with the still-open application backup-age gate"
 ---
 
 # Alerting and backup freshness monitoring
@@ -104,11 +109,13 @@ After this plan is implemented:
 - [x] M2: Update `docs/runbooks/disaster-recovery.md` so the restore map has
       only the managed `databases/<name>/` layout. (2026-08-24)
 - [ ] M2: `nagarectl server status` against the live cluster shows
-      `backup databases/<name>` lines with fresh ages. The 2026-09-16 guarded
-      run proves the legacy `postgres` line is absent and the fallback is
-      `backup databases`, but labs has no managed database and all three bucket
-      prefixes are empty, so fresh-age acceptance needs an approved live database
-      plus backup rather than a reporting change.
+      `backup databases/<name>` lines with fresh ages. A guarded 2026-09-17 read
+      found no managed database in the `personal` namespace, so the command still
+      emits the truthful `backup databases` fallback and no legacy `postgres` line.
+      EP-4 created `en-db` and `shomei-db` in `nagare-system`, but the status probe
+      intentionally enumerates application databases in `personal`; those system
+      databases do not satisfy this acceptance gate. A fresh-age proof still needs
+      an approved live application database plus backup.
 - [x] M3: Append the managed-DB backup→restore round-trip (new step 5) to
       `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap;
       use the managed password without printing it and pin the cleanup client.
@@ -135,12 +142,13 @@ After this plan is implemented:
   rules `health: ok`, inactive, and without evaluation errors. Both required
   filesystem mountpoints and every other metric family named by the rules return
   live series.
-- Labs has no `nagarectl`-managed StatefulSet in `personal`, and direct guarded
-  `gsutil ls -l` reads confirm that `databases/`, `litestream/`, and `volumes/`
-  contain no readable objects. The packaged `nagarectl server status` correctly
-  emits `backup databases` rather than the removed `backup postgres`; its UNKNOWN
-  result is truthful for an empty prefix. Fresh-age acceptance requires creating
-  and backing up a live managed database, which is a separately approved mutation.
+- Labs has no `nagarectl`-managed StatefulSet in `personal`. A guarded 2026-09-17
+  follow-up found the EP-4 auth databases and their not-yet-run backup CronJobs in
+  `nagare-system`, plus a successful `nix-cache-db` backup object. The packaged
+  `nagarectl server status` intentionally enumerates application databases in
+  `personal`, so it correctly retains the `backup databases` fallback and no
+  legacy `backup postgres` line. Fresh-age acceptance still requires creating and
+  backing up a live application database, which is a separately approved mutation.
 - The labs context-owned secret directory has no `alertmanager-config.yaml`.
   Live Helm values therefore correctly keep Alertmanager disabled and vmalert in
   explicit blackhole mode. M1 still requires operator-owned Pushover account/token
@@ -306,8 +314,9 @@ PromQL rules pass `promtool`, the later seventh disk-critical rule shares the
 validated expression, and all 394 current nagarectl tests pass. The 2026-09-16
 guarded labs audit closes live series discovery and rule evaluation: all required
 families exist and all seven rules report healthy. The status transcript proves
-the correct `databases` fallback and no legacy `postgres` line, but labs has no
-managed database or backup objects, so a fresh `databases/<name>` age remains open.
+the correct `databases` fallback and no legacy `postgres` line. Labs now has
+system-namespace auth databases, but no application database in `personal`, so a
+fresh `databases/<name>` age remains open.
 M1 remains operator-gated on an absent Pushover ciphertext and phone delivery.
 M3's restore round-trip and monthly workflow are implemented. The packaged local
 create→backup→restore assertion passes repeatedly, including teardown and an explicit
@@ -1276,12 +1285,13 @@ without a last error; its three-hour log window contains no error/failure match.
 
 The packaged `nagarectl server status` run contains `backup databases`,
 `backup litestream`, and `backup volumes`, with no legacy `backup postgres` line.
-All are UNKNOWN because labs has no managed database and guarded direct `gsutil`
-reads confirm all three prefixes have no readable objects. This proves truthful
-fallback behavior, not the required fresh `databases/<name>` age. Creating a
-managed database and backup remains a separately approved live mutation. The
-Pushover ciphertext is absent, so Alertmanager remains disabled and no delivery
-claim is made.
+The 2026-09-17 follow-up still found no application database in `personal`.
+EP-4's `en-db` and `shomei-db` live in `nagare-system`, outside the probe's
+application-database scope, and their daily backup CronJobs had not yet run. A
+successful `nix-cache-db` object confirms the system backup path but does not prove
+the required `databases/<application-name>` status line. Creating an application
+database and backup remains a separately approved live mutation. The Pushover
+ciphertext is absent, so Alertmanager remains disabled and no delivery claim is made.
 
 The plan is done when all of the following observable behaviors hold:
 

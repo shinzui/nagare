@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-17T14:22:20Z
       mode: "implement"
       note: "Record EP-4 cache rollout acceptance and remaining sizing/auth gates"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-17T21:10:30Z
+      mode: "implement"
+      note: "Record EP-4 cloud-auth completion and reconcile remaining EP-4/EP-5 gates"
 ---
 
 # Platform review remediation: guardrails, security, reliability, and operability
@@ -73,10 +78,9 @@ Two live acceptance bundles remain before the initiative is complete.
 EP-3 completed labs recovery enrollment on 2026-09-16: operator-confirmed vault
 custody, independent decryption, guarded live activation, and updated recovery text.
 Its private recovery backups are now published with verified remote heads. EP-4's
-observability rollout and datasource/storage checks passed on labs; it must still
-finish cloud auth bootstrap, startup-memory follow-up, and longer-term sizing
-evidence. Local auth resource/probe/migration-rerun acceptance now passes. The
-monitoring resource correction is deployed and passed its 628-second stability
+observability rollout, datasource/storage checks, startup-memory correction, and
+cloud-auth bootstrap passed on labs; only its seven-day sizing evidence remains.
+The monitoring resource correction is deployed and passed its 628-second stability
 observation. The new Grafana ciphertext backup is
 published privately and its remote commit is verified. EP-5 must replace
 the temporary blackhole notifier with an operator-owned Pushover configuration and
@@ -346,10 +350,15 @@ complete; the child plans hold the granular checklists.
   Registry. Both managed Postgres stacks, all five auth application/migration
   manifests, and both config maps pass server-side dry run at immutable tag
   `0b8926af4ec6`. Cloud Build API enablement is the only cloud prerequisite.
-- [ ] EP-4 cloud-auth rollout: after one bounded operator approval, enable Cloud
-  Build; publish three amd64 images; create fresh credentials/databases; install
-  and rerun migrations/services; then prove readiness, zero pending/unknown
-  migrations, ten-minute stability, actual usage, and at least 550m CPU headroom.
+- [x] EP-4 cloud-auth rollout (2026-09-17): Cloud Build published all three amd64
+  images at immutable tag `0b8926af4ec6`; fresh credentials and managed databases
+  were created; both migrations and all three services passed health/readiness,
+  resource/security, and zero-pending/unknown gates. The installer rerun preserved
+  database, PVC, Deployment, and Knative Service identities and logged every
+  migration as `already_applied`. Twenty-one samples over 610 seconds held all five
+  auth/database pods Ready with zero restarts; scoped usage was about 34m CPU/102Mi
+  and the node retained 1465m unreserved CPU. Nagared was not installed and no
+  database was reset.
 - [x] EP-4 cloud-auth permission stop (2026-09-17): operator approved the bounded
   rollout, the guarded preflight passed, and Cloud Build was enabled. The first
   Shomei submission staged its source but returned `PERMISSION_DENIED` for
@@ -360,10 +369,11 @@ complete; the child plans hold the granular checklists.
   Alertmanager remains disabled and vmalert's explicit blackhole notifier is live.
   No credential, chart, or phone-delivery mutation was attempted.
 - [~] EP-5 M2: Seven rules covering five failure modes, and a truthful freshness
-  probe (2026-09-16 — exact chart/render/code tests pass; every required metric
+  probe (2026-09-17 — exact chart/render/code tests pass; every required metric
   family is live and all seven rules report healthy. `server status` proves the
-  correct empty `databases` fallback and no legacy `postgres` line, but labs has
-  no managed database or backup objects, so fresh `databases/<name>` age proof remains)
+  correct empty `databases` fallback and no legacy `postgres` line. EP-4's auth
+  databases are system-scoped; labs still has no application database in `personal`,
+  so fresh `databases/<name>` age proof remains)
 - [x] EP-5 M3: Prove backups restore, on a schedule (2026-08-26 — packaged local
   smoke repeatedly completed the database backup/restore round-trip and teardown;
   the monthly cloud workflow exists and intentionally fails at its still-unwired
@@ -471,12 +481,14 @@ Discoveries from implementation:
   non-cache work without raising the cap. Exact-chart and native checks pass;
   live clean-start and seven-day sizing evidence remain separate gates under
   [ADR 23](../adr/0023-observability-resource-bounds-cover-chart-and-operator-created-containers.md).
-- **EP-5's live rule plane is healthy but has nothing to deliver or age yet**
-  (2026-09-16). Both filesystem mountpoints and every other required metric family
+- **EP-5's live rule plane is healthy but has nothing to deliver or age for an
+  application database yet** (2026-09-17). Both filesystem mountpoints and every other required metric family
   return series; the VMRule and scrapes are operational, and vmalert reports all
-  seven rules healthy. Labs has no Alertmanager ciphertext, managed database, or
-  objects under `databases/`, `litestream/`, or `volumes/`. Notification and fresh
-  backup-age proof therefore remain genuine operator mutations, not code defects.
+  seven rules healthy. Labs has no Alertmanager ciphertext or application database
+  in `personal`. EP-4's auth databases and the existing cache database are
+  system-scoped; their backup state does not satisfy the application status gate.
+  Notification and fresh backup-age proof therefore remain genuine operator
+  mutations, not code defects.
 - **EP-7's kubeconfig file was hardened but unreachable by its intended group** (2026-09-16).
   Labs had `0640 root:wheel` on `k3s.yaml`, but `/etc/rancher/k3s` was `0700 root:root`
   because the registry bootstrap created it that way. Consequently `kubectl` as `deploy` failed
@@ -871,23 +883,23 @@ all five releases (`vmks` revision 3, the others revision 1). Metrics/logs queri
 and an OTel-to-Grafana trace round trip succeeded. Logs had one startup OOM but
 recovered without changes. The subsequently approved revision 4 closes the live
 observability-container bounds gap and passed its ten-minute stability gate.
-Cloud auth coverage and longer-term sizing remain open. Private Grafana
-ciphertext publication is complete and the remote commit verified. Cloud auth images/databases
-remain absent and their bootstrap needs separate approval. The nagared manifest
-remains a non-turnkey scaffold and must not be mistaken for an installed service.
-After operator reauthentication, the cloud-auth rehearsal now passes for both
-managed database stacks and every auth manifest/config map at immutable tag
-`0b8926af4ec6`. The operator approved the rollout and Cloud Build was enabled, but
-the active account lacked permission to create the first Shomei build. Its source
-archive reached the managed staging bucket; no build ID or image followed, and the
-rollout stopped before every cluster-auth mutation. Cloud auth remains open until
-that build-submission permission is available and the guarded sequence is resumed.
+Only longer-term sizing remains open in EP-4. Private Grafana ciphertext publication
+is complete and the remote commit verified. After the initial Cloud Build permission
+stop, a retry following service-agent propagation completed without an IAM-policy
+change. All three exact-tag amd64 images, both fresh managed databases, migrations,
+and all three auth services passed the rollout gates. The installer rerun preserved
+database, PVC, Deployment, and Knative Service identities; every migration reported
+`already_applied`, five pods stayed Ready with zero restarts for 610 seconds, and
+the node retained 1465m unreserved CPU. The nagared manifest remains a non-turnkey
+scaffold and was not installed.
 
 EP-5 has validated alert rules, truthful backup-prefix probing, and repeated successful
 packaged database restore smoke tests. Live metric/rule evidence now passes for seven
 curated rules, and status proves the correct empty fallback. Pushover configuration,
-phone delivery, and a fresh live `databases/<name>` age remain open because labs has
-neither the ciphertext nor a managed database/backup. EP-7 is complete: the corrected host
+phone delivery, and a fresh live `databases/<name>` age remain open. Labs now has the
+two system-scoped auth databases created by EP-4, but the backup-age acceptance still
+requires an application database in `personal`, a successful backup, and status
+proof. EP-7 is complete: the corrected host
 generation, wheel-only kubeconfig access, encryption-at-rest evidence, fixed-payload cluster/context
 commit, restart-free credential timer, and uncached private pull all pass on labs. The canary Pod
 was removed and k3s retained its September 14 start timestamp.
@@ -1009,3 +1021,10 @@ Revision note (2026-09-17, EP-4 cloud-auth permission stop): after bounded opera
 approval, enabled Cloud Build and stopped when the active account could not create
 the first Shomei build. Source staging completed, but no build ID, image, or
 cluster-auth object was created. EP-4 remains In Progress.
+
+Revision note (2026-09-17, EP-4 cloud-auth completion): retried after Cloud Build
+service-agent propagation and completed the bounded rollout without changing IAM
+policy. Three exact-tag images, two fresh managed databases, migrations, and three
+auth services passed digest, health, readiness, resource/security, idempotence,
+ten-minute stability, usage, and CPU-headroom gates. EP-4 remains In Progress only
+for seven-day sizing evidence.

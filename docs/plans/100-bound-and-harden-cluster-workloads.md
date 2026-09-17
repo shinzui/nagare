@@ -33,6 +33,11 @@ provenance:
       at: 2026-09-17T14:22:20Z
       mode: "implement"
       note: "Record the clean 40% cache rollout and remaining seven-day/auth gates"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-17T21:10:30Z
+      mode: "implement"
+      note: "Record completed cloud-auth rollout and narrow EP-4 to seven-day sizing"
 ---
 
 # Bound and harden cluster workloads
@@ -223,12 +228,17 @@ opt-in.
   config maps, and both managed Postgres stacks pass labs server-side dry run; the
   database render uses the CLI's internal `--system-namespace` flag so
   `nagare-system` retains its platform namespace contract.
-- [ ] Apply the separately approved cloud auth sequence: enable Cloud Build; build
-  and publish the three amd64 images at tag `0b8926af4ec6`; create the cookie key
-  and fresh `shomei-db`/`en-db`; run both migrations and all three services; rerun
-  the installer to prove ledger idempotence; then record readiness, resources,
-  migration verification, usage, and at least 550m unreserved CPU. Do not install
-  the nagared scaffold or reset any existing database.
+- [x] Apply the separately approved cloud auth sequence (2026-09-17): Cloud Build
+  published all three amd64 images at tag `0b8926af4ec6`; the rollout created the
+  cookie key and fresh `shomei-db`/`en-db`, ran both migrations and all three
+  services, and reran the installer without replacing database, PVC, Deployment,
+  or Knative Service identities. Shomei verifies 36 applied migrations and En 2,
+  both with zero pending/unknown; the rerun logged every migration as
+  `already_applied`. All five auth/database pods stayed Ready with zero restarts
+  across 21 samples over 610 seconds, scoped usage was about 34m CPU/102Mi, and
+  the node retained 1465m unreserved CPU. Exact image digests, health endpoints,
+  secrets, resources, and security contexts passed. Nagared was not installed and
+  no database was reset.
 - [x] Stop the first approved cloud-auth attempt at the build permission boundary
   (2026-09-17): the guarded preflight passed, Cloud Build was enabled in
   `tan-ng-labs`, and the Shomei source archive reached the managed staging bucket.
@@ -809,7 +819,8 @@ Grafana publication is verified. The cache correction then deployed as `vmks`
 revision 5 and `victoria-logs` revision 2 on 2026-09-17. Both replacement pods
 retained their original PVCs, started with the 40% cache argument, and passed
 separate ten-minute Ready/zero-restart windows; metrics and fresh log ingestion
-also passed. Cloud auth proof and seven-day sizing remain open.
+also passed. The later cloud-auth rollout passed every live gate; only seven-day
+sizing remains open.
 
 The read-only continuation now identifies a concrete startup-memory mechanism:
 both stores reserved 60% of their 512Mi cgroups for caches immediately before the
@@ -2031,3 +2042,12 @@ the guarded rollout enabled Cloud Build and stopped when the first Shomei build
 submission returned `PERMISSION_DENIED` for the active account. The source archive
 was staged, but no build ID or auth image was created; no credential, database,
 migration, or service mutation followed.
+
+Revision note (2026-09-17, cloud-auth completion): a retry after Cloud Build
+service-agent propagation completed without changing IAM policy. All three exact-tag
+amd64 images were built and verified in Artifact Registry. Fresh managed databases,
+credentials, migrations, Shomei, En, and nagare-access passed readiness, health,
+migration, resource/security, idempotence, ten-minute stability, usage, and node
+headroom gates. Existing object identities survived the installer rerun. Nagared,
+database reset/delete, public ingress, host changes, and observability changes stayed
+outside the rollout.
