@@ -46,7 +46,8 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M1a: Compile structured Kubernetes objects to typed declarations with controller reservations; the database Service/Knative collision and malformed Certificate fixtures pass (426 DSL tests).
 - [x] (2026-09-22) M1b partial: Parse multi-document YAML and expand Kubernetes List envelopes before compiling claims, retain member source locations, and reject malformed or unexpanded Lists; 430 DSL tests pass.
 - [x] (2026-09-22) M1b partial: Bind a structured declaration to canonical native JSON bytes and refuse a supplied digest that differs from those bytes; 610 CLI tests pass.
-- [ ] M1b remaining: Retain bound native bytes in reviewed operations and add guarded observation/apply adapters.
+- [x] (2026-09-22) M1b partial: Retain bound native bytes and reviewed observation preconditions in the private Kubernetes adapter plan; recording transport tests cover completion, foreign objects, changed resourceVersion, unknown observations, and changed bytes (614 CLI tests).
+- [ ] M1b remaining: Implement the production transport with API-server-enforced write preconditions and register it in the inventory command path.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
@@ -59,6 +60,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: A Kubernetes `List` previously compiled as a single opaque native object with no claims for its items. The pure parser now expands every YAML document and List member with stable source paths, and the object compiler refuses an unexpanded `List`.
 
 2026-09-22: The compiler's content digest was supplied by the caller and could disagree with the structured object. `Nagare.Inventory.Kubernetes.bindKubernetesObject` now checks the digest against canonical JSON and returns those exact bytes for future retained review. It is not yet called by a production adapter.
+
+2026-09-22: `Nagare.Inventory.Adapters.Kubernetes` now rebinds each native object to its declared address and controller claims during review, retains canonical JSON and the observed precondition privately, and rechecks the precondition before mutation. Recording tests pass. Its transport callback must enforce the UID/resourceVersion condition at the Kubernetes API server; no production transport or registry registration is installed yet, so this is not authorization for live mutation.
 
 2026-09-22: EP-144 already implemented the controller reservation rules in `Nagare.Resource.Inventory`, but no compiler consumed structured Kubernetes objects. `Nagare.Resource.Kubernetes.compileKubernetesObject` now derives the correct specialized specification from an object. The existing database renderer golden Service collides with a same-name Knative Service through this compiler, proving the reservation check operates on rendered shapes. The module is pure; native-byte retention, observation, and execution remain M1b.
 
@@ -78,6 +81,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-16: Kubernetes claims include derived reservations for controller children, and shared-resource digests follow composed content. Verified in the tree that a database Service is named after the database while applications are Knative Services, so direct claims alone miss a same-name collision.
 
 2026-09-22: Take the content digest as an explicit compiler input and return the structured declaration. Rationale: `nagare-dsl` remains free of hashing and execution dependencies, while a later adapter must retain and verify the native bytes that digest names.
+
+2026-09-22: Begin the native adapter with one resource per create/update operation and refuse adoption, retirement, and declared operations until their provider-specific preconditions exist. Rationale: the common planner already emits one resource per ordinary create/update, and a callback without an API-server conditional write would leave a check-then-apply race.
 
 
 ## Outcomes & Retrospective

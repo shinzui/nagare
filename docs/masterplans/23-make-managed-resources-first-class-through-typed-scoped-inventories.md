@@ -148,7 +148,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M1a: Structured Kubernetes objects compile to typed declarations; rendered database/Knative collision fixture passes.
 - [x] (2026-09-22) EP-147 M1b partial: Multi-document YAML and Kubernetes List items expand before claim validation with source-member diagnostics; 430 DSL tests pass.
 - [x] (2026-09-22) EP-147 M1b partial: Canonical native JSON bytes are checked against declaration digests; 610 CLI tests pass.
-- [ ] EP-147 M1b: Retain bound bytes in reviews, observe live objects, and perform guarded mutation.
+- [x] (2026-09-22) EP-147 M1b partial: Private adapter plans retain native bytes and observation preconditions; recording transport tests pass (614 CLI tests).
+- [ ] EP-147 M1b: Production observation and API-server-conditional mutation, then command registration.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
@@ -176,7 +177,9 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 2026-09-22: EP-147 found that a Kubernetes `List` could pass the structured compiler as one opaque resource, hiding the claims of its children. YAML stream and List expansion, plus an explicit refusal of unexpanded Lists, now close that pure validation gap.
 
-2026-09-22: EP-147 found that the Kubernetes declaration compiler trusted a supplied digest. The new CLI binding function checks it against canonical JSON and returns the same bytes for later native execution. Review retention and the production adapter still need to consume this boundary.
+2026-09-22: EP-147 found that the Kubernetes declaration compiler trusted a supplied digest. The CLI binding function checks it against canonical JSON and returns the same bytes for later native execution.
+
+2026-09-22: EP-147's Kubernetes adapter now records canonical native bytes and observed UID/resourceVersion in private review evidence, rebinds native membership to the declaration, and refuses changed or foreign objects in recording tests. The production transport remains absent because it must enforce the condition at the API server; a local recheck alone cannot authorize apply.
 
 2026-09-22: EP-147 found that controller reservations were already present in EP-144's inventory validator, while structured Kubernetes objects still lacked a compiler path into those declarations. The new pure compiler connects those boundaries and proves the database/Knative collision against the database renderer's golden manifest. It does not yet authorize Kubernetes mutation.
 
