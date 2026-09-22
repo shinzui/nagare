@@ -35,6 +35,7 @@ import Test.Tasty.HUnit
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Environment (lookupEnv)
+import System.Exit (ExitCode (ExitSuccess))
 import System.Process (readProcessWithExitCode)
 
 inventoryKubernetesTests :: TestTree
@@ -211,6 +212,17 @@ inventoryKubernetesTests =
                 changedNative = ok (bindKubernetesObject (input {inputObject = changedValue, objectDigest = contentDigest changedBytes}))
                 changedBound = Map.singleton resource changedNative
                 changedAdapter = mkKubernetesAdapter changedBound (mkKubernetesRuntimeOps config changedBound)
+                finalValue = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= ("final" :: Text)]
+                  ]
+                finalBytes = ok (canonicalValue finalValue)
+                finalNative = ok (bindKubernetesObject (input {inputObject = finalValue, objectDigest = contentDigest finalBytes}))
+                finalBound = Map.singleton resource finalNative
+                finalOps = mkKubernetesRuntimeOps config finalBound
+                finalAdapter = mkKubernetesAdapter finalBound finalOps
                 cleanup = do
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
@@ -224,6 +236,21 @@ inventoryKubernetesTests =
               adapterPreflight changedAdapter updateOperation updatePrepared >>= expectRight
               adapterExecute changedAdapter updateOperation updatePrepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify changedAdapter updateOperation updatePrepared >>= expectRight
+              stalePrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
+              let staleMutation = ok (eitherDecodeStrict (preparedNativeBytes stalePrepared)) :: KubernetesMutation
+              (annotateCode, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "annotate", "configmap", "nagare-ep147-runtime", "--namespace", "default", "probe=foreign", "--field-manager=foreign-probe"] ""
+              annotateCode @?= ExitSuccess
+              staleResult <- kubernetesMutateConditional finalOps staleMutation
+              case staleResult of
+                AdapterEffectAmbiguous {} -> pure ()
+                other -> assertFailure ("stale or foreign update changed the object: " <> show other)
+              foreignPrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
+              let foreignMutation = ok (eitherDecodeStrict (preparedNativeBytes foreignPrepared)) :: KubernetesMutation
+              foreignResult <- kubernetesMutateConditional finalOps foreignMutation
+              case foreignResult of
+                AdapterEffectAmbiguous {} -> pure ()
+                other -> assertFailure ("foreign field manager was overridden: " <> show other)
               pure ()) `finally` cleanup
     ]
 

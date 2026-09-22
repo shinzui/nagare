@@ -158,6 +158,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M1b transport probe: Disposable k3d ConfigMap checks ruled out server-side apply with resourceVersion zero as create-only and proved atomic stale-write refusal with JSON Patch UID/resourceVersion tests.
 - [x] (2026-09-22) EP-147 M1b partial: Packaged source binding, immutable private review reconstruction, explicit-context kubectl runtime, and CLI registration; a disposable ConfigMap create completed and verified.
 - [x] (2026-09-22) EP-147 M1b partial: A disposable ConfigMap completed reviewed create and update; update checks live field managers before a UID/resourceVersion-bound write.
+- [x] (2026-09-22) EP-147 M1b partial: The disposable native transport refused both stale-version and foreign-manager update attempts after a concurrent annotation write.
 - [ ] EP-147 M1b: Prove safe update ownership transitions and API-server preconditions across supported kinds through the registered command path.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
