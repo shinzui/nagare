@@ -386,6 +386,44 @@ inventoryKubernetesTests =
                 AdapterEffectAmbiguous {} -> pure ()
                 other -> assertFailure ("foreign field manager was overridden: " <> show other)
               pure ()) `finally` cleanup
+    , testCase "disposable cluster updates a reviewed Namespace label" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let namespaceValue label = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("Namespace" :: Text)
+                  , "metadata" .= object
+                      [ "name" .= ("nagare-ep147-foundation" :: Text)
+                      , "labels" .= object ["nagare.dev/app-namespace" .= (label :: Text)]
+                      ]
+                  ]
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                bound label = let value = namespaceValue label
+                                  bytes = ok (canonicalValue value)
+                               in Map.singleton resource (ok (bindKubernetesObject
+                                    (input {inputObject = value, objectDigest = contentDigest bytes})))
+                initial = bound "false"
+                changed = bound "true"
+                createAdapter = mkKubernetesAdapter initial (mkKubernetesRuntimeOps config initial)
+                updateAdapter = mkKubernetesAdapter changed (mkKubernetesRuntimeOps config changed)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
+                    "delete", "namespace", "nagare-ep147-foundation", "--ignore-not-found", "--wait=true"] ""
+                  pure ()
+            cleanup
+            (do
+              prepared <- adapterPrepare createAdapter createOperation >>= expectRight
+              adapterPreflight createAdapter createOperation prepared >>= expectRight
+              adapterExecute createAdapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify createAdapter createOperation prepared >>= expectRight
+              changedPrepared <- adapterPrepare updateAdapter updateOperation >>= expectRight
+              adapterPreflight updateAdapter updateOperation changedPrepared >>= expectRight
+              adapterExecute updateAdapter updateOperation changedPrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify updateAdapter updateOperation changedPrepared >>= expectRight
+              pure ()) `finally` cleanup
     , testCase "disposable cluster updates a reviewed Service selector and unnamed port" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of

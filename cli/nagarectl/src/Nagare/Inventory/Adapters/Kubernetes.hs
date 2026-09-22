@@ -160,7 +160,10 @@ buildMutation context operation resource declaration native before = do
   canonical <- first refusal (canonicalValue value)
   unless (canonical == native) (Left (refusal "native Kubernetes bytes are not canonical JSON"))
   let digest = contentDigest native
-  unless (specDigest (spec declaration) == Just digest) (Left (refusal "native Kubernetes bytes differ from the declared spec digest"))
+  let contributedNamespace = spec declaration == NamespaceSpec Nothing
+        && declaration ^. #source . #file == "contribution"
+  unless (specDigest (spec declaration) == Just digest || contributedNamespace)
+    (Left (refusal "native Kubernetes bytes differ from the declared spec digest"))
   cluster <- case address declaration of
     Kubernetes target _ _ _ _ -> Right target
     _ -> Left (refusal "bound declaration has no Kubernetes address")
@@ -176,7 +179,10 @@ buildMutation context operation resource declaration native before = do
           (declaration ^. #sensitivity)
           (declaration ^. #source)
   (recompiled, rebound) <- first (refusal . T.pack . show) (bindKubernetesObject input)
-  unless (address recompiled == address declaration && spec recompiled == spec declaration && rebound == native) (Left (refusal "native Kubernetes address or controller claims differ from the declaration"))
+  unless (address recompiled == address declaration
+      && (spec recompiled == spec declaration || contributedNamespace && spec recompiled == NamespaceSpec (Just digest))
+      && rebound == native)
+    (Left (refusal "native Kubernetes address or controller claims differ from the declaration"))
   stamped <- first refusal (stampNative context resource digest value)
   pure
     KubernetesMutation
@@ -199,6 +205,7 @@ specDigest = \case
   KnativeService digest -> Just digest
   Certificate _ digest -> Just digest
   StatefulSet _ _ digest -> Just digest
+  NamespaceSpec (Just digest) -> Just digest
   _ -> Nothing
 
 decodeMutation :: ContextId -> Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> PreparedNative -> Either Text KubernetesMutation
