@@ -9,6 +9,7 @@ module Nagare.Resource.Inventory
   , declarationSource
   , declarationDependencies
   , DeclaredOperation (..)
+  , OperationKind (..)
   , OperationInput (..)
   , Contribution (..)
   , ContributionGrant (..)
@@ -137,12 +138,15 @@ packInteger = Data.Text.pack . show
 data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
+data OperationKind = SchemaMigration | CreateLogicalCache | SnapshotData | RestoreData | PublishRelease
+  deriving stock (Eq, Ord, Show, Generic)
+
 data DeclaredOperation = DeclaredOperation
   { identity :: !ResourceId
   , affects :: !(NonEmpty ResourceId)
   , inputs :: ![OperationInput]
   , recovery :: !RecoveryClass
-  , operationKind :: !Name
+  , operationKind :: !OperationKind
   }
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -188,18 +192,19 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
     err m = inventoryError "invalid-declaration" m & #scopes .~ [r ^. #owner] & #resources .~ [r ^. #identity] & #sources .~ [r ^. #source]
     issues =
       ["durable resources require retention or protection" | Durable _ <- [r ^. #dataPolicy], r ^. #lifecycle == DeleteWhenUnreferenced]
-        <> ["invalid Pulumi URN" | PulumiUrn urn <- r ^. #address : r ^. #aliases, not ("urn:pulumi:" `Data.Text.isPrefixOf` urn) || length (Data.Text.splitOn "::" urn) /= 4]
+        <> [message | address <- r ^. #address : r ^. #aliases, Left message <- [mkProviderAddress address]]
         <> ["executor does not match address" | not executorMatches]
         <> ["controller kind requires its explicit reservation-producing spec" | not specMatches]
         <> ["invalid replica count or generated name" | StatefulSet count templates _ <- [r ^. #spec], count < 0 || count > 10000 || any (> 230) (map (Data.Text.length . nameText) templates) || addressNameLength > 230]
         <> ["generated controller address exceeds provider name bounds" | StatefulSet count templates _ <- [r ^. #spec], count >= 0, count <= 10000, toInteger (length (derived r)) /= count * (1 + toInteger (length templates))]
-        <> ["delegated fields overlap" | not (null (duplicates (concatMap (NE.toList . (^. #fields)) (r ^. #delegations))))]
+        <> ["delegated fields overlap" | or [x == y || (x <> ".") `Data.Text.isPrefixOf` y || (y <> ".") `Data.Text.isPrefixOf` x | (i, x) <- zip [0 :: Int ..] delegatedFields, (j, y) <- zip [0 :: Int ..] delegatedFields, i < j]]
         <> ["duplicate address within declaration" | length claimSet /= Set.size (Set.fromList claimSet)]
     -- Avoid expanding an invalid StatefulSet before reporting its bounds.
     claimSet = case r ^. #spec of
       StatefulSet n _ _ | n < 0 || n > 10000 || addressNameLength > 230 -> []
       _ -> map snd (NE.toList (claimsOf d))
     addressNameLength = case r ^. #address of Kubernetes _ _ _ _ n -> Data.Text.length (nameText n); _ -> 0
+    delegatedFields = map nameText (concatMap (NE.toList . (^. #fields)) (r ^. #delegations))
     executorMatches = case r ^. #address of
       Kubernetes {} -> r ^. #executor == KubernetesExecutor
       GlobalBucket {} -> r ^. #executor == PulumiExecutor
@@ -217,7 +222,9 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (_, NativeObject _) -> True
       (_, HelmRelease {}) -> True
       _ -> False
-validateDeclaration _ = []
+validateDeclaration d = [inventoryError "invalid-address" message & #resources .~ [declarationId d] & #sources .~ [declarationSource d] | address <- addresses, Left message <- [mkProviderAddress address]]
+  where
+    addresses = case d of External _ a _ _ -> [a]; ObservedChild _ _ a _ _ -> [a]; Managed _ -> []
 
 data ReservationReason = RetainedIncarnation | CandidateIncarnation | UnresolvedTransaction
   deriving stock (Eq, Ord, Show, Generic)
@@ -342,6 +349,9 @@ validateGraph ss ds reservations =
     <> [inventoryError "condition-mismatch" "required condition has no compatible exported output" | b <- bundles, ref <- b ^. #conditions, not (matches ref)]
     <> [inventoryError "invalid-export" "export producer must be declared in its exporting scope" & #scopes .~ [s] & #resources .~ [r] | (s, sc) <- Map.toList ss, b <- scopeBundles sc, e <- b ^. #exports, let (r, _, _, _, _) = exportSignature e, r `notElem` map declarationId (scopeDeclarations sc)]
     <> [inventoryError "duplicate-export" "producer and output key exported more than once" | not (null (duplicates [(r, k) | (r, k, _, _, _) <- exports]))]
+    <> [inventoryError "incompatible-constraints" "output cannot belong to multiple namespaces or projects" & #resources .~ [r] | (r, _, _, cs, _) <- exports, Set.size (Set.fromList [n | InNamespace n <- cs]) > 1 || Set.size (Set.fromList [n | InProject n <- cs]) > 1]
+    <> [issue "condition-kind" "readiness requires a readiness or TLS capability" [d] [] | d <- ds, ReadyAfter ref <- declarationDependencies d, not (isCondition ref)]
+    <> [inventoryError "condition-kind" "required condition must have a readiness or TLS capability" | b <- bundles, ref <- b ^. #conditions, not (isCondition ref)]
     <> [issue "dependency-cycle" "dependency graph contains a cycle" cycleDs [] | CyclicSCC cycleDs <- stronglyConnComp [(d, declarationId d, map dependencyProducer (declarationDependencies d)) | d <- ds]]
     <> [issue "unreserved-child" "observed child lacks a reservation from its named parent" [d] [canonicalClaim a] | d@(ObservedChild _ p a _ _) <- ds, not (maybe False (elem (DerivedReservation, canonicalClaim a) . NE.toList . claimsOf) (Map.lookup p byId))]
     <> [inventoryError "operation-reference" "declared operation affects an absent resource or has incompatible inputs" & #resources .~ [op ^. #identity] | op <- ops, any (`Map.notMember` byId) (NE.toList (op ^. #affects)) || any (not . matches) [r | CapabilityInput r <- op ^. #inputs]]
@@ -352,11 +362,18 @@ validateGraph ss ds reservations =
     ops = concatMap (^. #operations) bundles
     exports = map exportSignature (concatMap (^. #exports) bundles)
     matches r = let (p, k, c, cs, s) = refSignature r in any (\(p', k', c', cs', s') -> (p, k, c, s) == (p', k', c', s') && all (`elem` cs') cs) exports
+    isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d@(Managed _) <- ds, (_, c) <- NE.toList (claimsOf d)]
     issue c m involved cs =
       inventoryError c m
         & #scopes
-        .~ [s | (s, sc) <- Map.toList ss, any (`elem` scopeDeclarations sc) involved]
+        .~ Set.toAscList
+          ( Set.fromList
+              ( [s | (s, sc) <- Map.toList ss, any (`elem` scopeDeclarations sc) involved]
+                  <> [r ^. #owner | Managed r <- involved]
+                  <> [s | (s, sc) <- Map.toList ss, b <- scopeBundles sc, contribution <- b ^. #contributions, mintResourceId s (contribution ^. #key) (known "namespace") `elem` map declarationId involved]
+              )
+          )
         & #resources
         .~ map declarationId involved
         & #claims

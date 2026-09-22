@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "context": {
+    "identity": "context-1",
+    "project": "project"
+  },
+  "base": [],
+  "snapshot": [],
+  "reservations": [],
+  "changes": [
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Platform",
+          "name": "foundation"
+        },
+        "bundles": [
+          {
+            "declarations": [],
+            "exports": [],
+            "conditions": [],
+            "contributions": [],
+            "operations": [],
+            "grants": [
+              [
+                {
+                  "kind": "Application",
+                  "name": "app"
+                },
+                "platform:foundation/cluster/resource"
+              ],
+              [
+                {
+                  "kind": "Application",
+                  "name": "other"
+                },
+                "platform:foundation/cluster/resource"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Application",
+          "name": "app"
+        },
+        "bundles": [
+          {
+            "declarations": [],
+            "exports": [],
+            "conditions": [],
+            "contributions": [
+              {
+                "owner": {
+                  "kind": "Platform",
+                  "name": "foundation"
+                },
+                "cluster": "platform:foundation/cluster/resource",
+                "namespace": "same",
+                "key": "namespace"
+              }
+            ],
+            "operations": [],
+            "grants": []
+          }
+        ]
+      }
+    },
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Application",
+          "name": "other"
+        },
+        "bundles": [
+          {
+            "declarations": [],
+            "exports": [],
+            "conditions": [],
+            "contributions": [
+              {
+                "owner": {
+                  "kind": "Platform",
+                  "name": "foundation"
+                },
+                "cluster": "platform:foundation/cluster/resource",
+                "namespace": "same",
+                "key": "namespace"
+              }
+            ],
+            "operations": [],
+            "grants": []
+          }
+        ]
+      }
+    }
+  ]
+}

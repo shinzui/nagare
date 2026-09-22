@@ -37,8 +37,8 @@ compileInput bytes = do
       references s = object ["scope" .= scopeId s, "member" .= memberPath s, "digest" .= contentDigest (encodeCanonicalScope s)]
       desiredValue = object ["context" .= inventoryBinding (candidateInventory candidate), "scopes" .= map references (Map.elems desired)]
   desiredBytes <- canonical desiredValue
-  -- The fixture input is retained for exact reconstruction, with member digests
-  -- covering every base and selected declaration. Loading verifies both copies.
+  -- Retain the explicit base and changes using digest-bound member references.
+  -- Loading verifies the references and composes the declarations again.
   inputBytes <- canonical (referenceScopes (candidateInputValue input))
   manifest <-
     canonical
@@ -142,7 +142,7 @@ compileInventory input output json = do
                 renameDirectory staging output
         case published of
           Left (e :: IOException) -> report [inventoryError "output" (T.pack (show e))]
-          Right () -> BC.putStrLn (fromMaybe "" (lookup "candidate.sha256" files))
+          Right () -> BC.putStr (fromMaybe "" (lookup "candidate.sha256" files))
   where
     report es = do
       if json

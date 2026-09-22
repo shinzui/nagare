@@ -147,6 +147,26 @@ resourceInventoryTests =
     , testCase "unknown fields and schema versions refuse" $ do
         rejects "wire" (decodeScope "{\"version\":2,\"scope\":{},\"bundles\":[]}")
         rejects "wire" (decodeScope "{\"version\":1,\"scope\":{\"kind\":\"Application\",\"name\":\"app\"},\"bundles\":[],\"delete\":true}")
+    , testCase "duplicate JSON keys and decimal tokens refuse before normalization" $ do
+        rejects "wire" (decodeScope "{\"version\":1,\"version\":2,\"scope\":{\"kind\":\"Application\",\"name\":\"app\"},\"bundles\":[]}")
+        rejects "wire" (decodeScope "{\"version\":1.0,\"scope\":{\"kind\":\"Application\",\"name\":\"app\"},\"bundles\":[]}")
+    , testCase "API versions normalize to one collision domain" $ do
+        let v1 = ok (kubernetesAddress cluster "apps/v1" "Deployment" (Just "ns") "same")
+            beta = ok (kubernetesAddress cluster "apps/v1beta1" "Deployment" (Just "ns") "same")
+        canonicalClaim v1 @?= canonicalClaim beta
+        rejects "claim-conflict" (compileScopes [scope p [Managed (resource p "v1" v1 (NativeObject digest))], scope a [Managed (resource a "beta" beta (NativeObject digest))]])
+    , testCase "certificate and StatefulSet reserve controller children" $ do
+        let cert = Managed (resource p "certificate" (Kubernetes cluster "cert-manager.io" (n "certificate") (Just (n "ns")) (n "tls")) (Certificate (n "tls-secret") digest))
+            secret = Managed (resource a "secret" (Kubernetes cluster "" (n "secret") (Just (n "ns")) (n "tls-secret")) (NativeObject digest))
+            stateful = Managed (resource p "database" (Kubernetes cluster "apps" (n "statefulset") (Just (n "ns")) (n "db")) (StatefulSet 1 [n "data"] digest))
+            volume = Managed (resource a "volume" (Kubernetes cluster "" (n "persistentvolumeclaim") (Just (n "ns")) (n "data-db-0")) (NativeObject digest))
+        rejects "claim-conflict" (compileScopes [scope p [cert], scope a [secret]])
+        rejects "claim-conflict" (compileScopes [scope p [stateful], scope a [volume]])
+    , testCase "observed children require exact parent reservations" $ do
+        let parent = Managed (resource p "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "ns")) (n "web")) (KnativeService digest))
+            child name = ObservedChild (rid p "child") (declarationId parent) (Kubernetes cluster "" (n "service") (Just (n "ns")) (n name)) (ok (mkPhysicalIdentity "uid")) (SourceLocation "fixture" "child")
+        assertBool "reserved child accepted" (either (const False) (const True) (compileScopes [scope p [parent, child "web"]]))
+        rejects "unreserved-child" (compileScopes [scope p [parent, child "different"]])
     , testCase "fixture snapshot must contain every base scope" $ do
         let bytes = ok (canonicalValue (object ["version" .= (1 :: Int), "context" .= binding, "base" .= [object ["scope" .= p, "generation" .= (1 :: Int)]], "snapshot" .= ([] :: [Int]), "reservations" .= ([] :: [Int]), "changes" .= [object ["replace" .= scopeValue (scope a [])]]]))
         rejects "wire" (decodeCandidateInput bytes)

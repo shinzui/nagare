@@ -1,9 +1,8 @@
-module BadGenericPhysicalIdentity where
+module BadGenericCanonicalClaim where
 
 import GHC.Generics (to)
-import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 
-bad :: PhysicalIdentity
+bad :: CanonicalClaim
 bad = to undefined

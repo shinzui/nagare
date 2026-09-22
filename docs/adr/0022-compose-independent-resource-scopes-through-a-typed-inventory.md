@@ -97,3 +97,34 @@ narrow: one writer, refusal of a second machine through the head's conditional r
 explicit operator takeover instead of a lease, and the filesystem store retained for local mode and
 for a new context's first transaction. It does not detect whether another executor is alive.
 ExecPlan 151 amends ADR 13 when the store exists.
+
+## Amendment — 2026-09-22: the read-only foundation
+
+EP-144 implements the pure model and `nagarectl inventory compile`. This does not
+claim that existing mutating commands use inventory authority. The compiled bundle
+stores each scope once under its SHA-256 identity; a member request retains the
+complete base vector, reservation holders, and explicit replacements/retirements.
+The manifest binds both this request and the desired content. Reopening verifies
+all members and recomposes; JSON decoding never creates a validated inventory.
+Generations are absent from desired identity and present in candidate identity.
+
+Version-one canonical bytes are a protocol contract, pinned by scope and candidate
+goldens. The encoder sorts object keys itself and normalizes unordered declaration
+collections. The decoder rejects duplicate JSON keys before aeson discards them,
+non-integer number tokens, unknown fields, and unsupported variants. Future readers
+must retain the old canonical encoder for old member versions. Hashes provide
+integrity, not authority against an actor who rewrites a complete candidate: EP-145
+must bind its base to persisted history under admission.
+
+The first contribution composer is owner-authorized namespace registration.
+Generated Namespaces participate in ordinary claim validation and expose their
+contributing scopes through `contributionDependents` for later retention policy.
+Controller reservations include Knative core Services, Certificate Secrets,
+StatefulSet Pods/PVCs, and declared Helm members. StatefulSet expansion is bounded;
+invalid generated names refuse rather than throwing during graph validation.
+Native parity, observed ownership, and additional provider semantics remain the
+responsibility of the adapter plans. The public declaration operation vocabulary
+is closed and contains no shell-text alternative.
+
+See [the compiler contract](../architecture/resource-inventory.md) for wire layout,
+scope lifecycle behavior, verification commands, and the boundary with EP-145.

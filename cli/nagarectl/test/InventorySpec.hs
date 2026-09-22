@@ -6,8 +6,11 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.Either (isLeft, isRight)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
+import Data.List (reverse)
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Command
 import Nagare.Resource.Inventory
@@ -50,13 +53,24 @@ inventoryTests =
         doesPathExist output >>= (@?= False)
     , testCase "all negative fixtures fail for the intended diagnostic"
         $ forM_
-          [("collision-service.json", "claim-conflict"), ("collision-knative-database.json", "claim-conflict"), ("collision-bucket.json", "claim-conflict"), ("duplicate-id.json", "wire"), ("missing-snapshot.json", "wire"), ("retained-claim.json", "reserved-claim")]
+          [("collision-service.json", "claim-conflict"), ("collision-knative-database.json", "claim-conflict"), ("collision-bucket.json", "claim-conflict"), ("collision-version-alias.json", "claim-conflict"), ("collision-namespace-contributions.json", "claim-conflict"), ("duplicate-id.json", "wire"), ("missing-snapshot.json", "wire"), ("retained-claim.json", "reserved-claim")]
         $ \(file, code) -> do
           result <- compileInput <$> fixture file
           case result of Left es -> assertBool (show es) (code `elem` map (^. #code) (NE.toList es)); Right _ -> assertFailure file
     , testCase "typed unresolved output compiles" $ do
         result <- compileInput <$> fixture "unresolved-output.json"
         assertBool (show result) (isRight result)
+    , testCase "shuffled scope selection produces identical member bytes and digest" $ do
+        bytes <- fixture "valid.json"
+        let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
+            snapshotChanges = map (ReplaceScope . snd) (Map.elems (snapshotScopes snapshot))
+            selected = NE.toList changes <> snapshotChanges
+            firstInput = CandidateInput snapshot (NE.fromList selected)
+            secondInput = CandidateInput snapshot (NE.fromList (reverse selected))
+        compileInput (ok (canonicalValue (candidateInputValue firstInput))) @?= compileInput (ok (canonicalValue (candidateInputValue secondInput)))
+    , testCase "version-one candidate golden digest" $ do
+        bytes <- fixture "valid.json"
+        lookup "candidate.sha256" (ok (compileInput bytes)) @?= Just "d29d70896d10117d2cd550b5a17804d1da9a45a0a0706192dd3b03fd54e13632\n"
     , testCase "desired digest excludes base generation but candidate digest binds it" $ do
         bytes <- fixture "valid.json"
         let input = ok (eitherDecodeStrict bytes :: Either String Value)

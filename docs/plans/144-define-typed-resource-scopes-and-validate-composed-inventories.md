@@ -41,13 +41,16 @@ This is the foundation of [IR-24](../improvement-requests/make-managed-resources
 - [x] (2026-09-22) M1: Define opaque identities, resource alternatives, lifecycle policies, and typed references; positive API control and constructor tests compile, Generic and capability-coercion attacks refuse.
 - [x] (2026-09-22) M2: Implement deterministic composition, graph validation, and the versioned wire contract; 420 DSL tests pass, including 18 inventory cases.
 - [x] (2026-09-22) M3 implementation: read-only CLI, canonical scope members, SHA-256 manifest binding, verified recomposition, and immutable private publication; 578 CLI tests pass.
-- [ ] M3 acceptance: finish schema/fixture parity, the expanded negative API suite, adversarial boundary review, formatting, documentation, and final command evidence.
-- [ ] M3: Expose read-only compilation and prove structural and graph guarantees.
+- [x] (2026-09-22) M3 acceptance: schema/fixture and compiled-output parity, 23 expected-diagnostic negative fixtures plus positive control, boundary review, formatting, documentation, and provider-free command evidence complete.
+- [x] (2026-09-22) M3: Expose read-only compilation and prove structural and graph guarantees.
 
 
 ## Surprises & Discoveries
 
 2026-09-22: The local GHC is 9.12.4. Cabal downloaded missing existing dependencies without changing bounds. DSL tests passed 420/420 and CLI tests passed 578/578. The strengthened negative runner caught an unrelated ambiguous aeson import caused by explicitly exposing aeson in addition to Cabal's chosen package environment; the runner now uses the environment and its positive control imports aeson too. This validates why matching the intended compiler diagnostic is required.
+
+
+2026-09-22: The final boundary pass found two normalization hazards. Aeson intentionally collapses duplicate object keys, so token validation now rejects duplicates and non-integer tokens before conversion to its map representation. Native Kubernetes API versions must be normalized before computing claims; kubernetesAddress maps apps/v1 and apps/v1beta1 to the same address, and provider-address validation rejects noncanonical groups. Controller-generated name overflow is reported as a diagnostic, not a partial constructor exception. Diagnostic matching also flattens wrapped compiler messages so qualified aeson instance errors are recognized without accepting unrelated failures.
 
 
 ## Decision Log
@@ -71,9 +74,26 @@ This is the foundation of [IR-24](../improvement-requests/make-managed-resources
 2026-09-16: No hidden-constructor type in Nagare.Resource derives Generic, identities included. A GHC 9.10.3 check confirmed that Generic permits forging a value whose constructor is not exported, that coerce retags a phantom index without the constructor in scope, and that a nominal role or GADT witness stops it.
 
 
+2026-09-22: Keep the compiled fixture request in input.json using immutable scope-member references, with candidate.json binding its digest and resulting desired identity/generations. Rationale: the complete base and explicit retirements remain inspectable without duplicating scope documents or creating a bytes-to-proof decoder. EP-145 must compare this base to its authoritative store; a self-consistent fixture is not authenticated ownership history.
+
+2026-09-22: Ship namespace registration as the first closed contribution composer and expose contributionDependents for retention policy. Controller-specific specs reserve their deterministic children; native content is referenced by digest. Operation kinds are a closed vocabulary. Rationale: later adapters extend explicit alternatives while preserving the composition signature, and no executor may invent new members or interpret arbitrary operation text. ADR 22 and docs/architecture/resource-inventory.md record the durable contract; ADR 16 records the opaque-type exception.
+
+
 ## Outcomes & Retrospective
 
-The typed model and local compiler are implemented. M3's final acceptance audit remains in progress. No provider mutation or migration of existing deployment entry points is included in this foundation.
+Complete on 2026-09-22. The typed model, canonical scope wire contract, graph validator, immutable private compiler output, and verified recomposition loader are implemented. All 424 DSL tests and 580 CLI tests pass, including 22 pure inventory cases and eight compiler cases. The API positive control and all 23 negative compilation fixtures pass. Haskell style, Fourmolu, Cabal Gild, JSON Schema metaschema validation, ten fixture shape checks, compiled-output schema checks, and git diff whitespace checks pass.
+
+The actual built executable compiled the valid fixture twice with PATH=/nonexistent and returned the same candidate digest. The collision fixture returned a nonzero exit with both owners and the canonical Service claim and created no output directory. Output directory/file permissions were verified as 0700/0600. This proves the command needs no provider executable. It does not prove live ownership, health, concurrency, native declaration parity, or persisted-history admission; those remain the named later plans' responsibilities. Existing deployment paths are unchanged.
+
+```text
+GHC 9.12.4
+nagare-dsl-test: All 424 tests passed
+nagarectl-test: All 580 tests passed
+public API: positive control + 23 intended negative rejections
+candidate: d29d70896d10117d2cd550b5a17804d1da9a45a0a0706192dd3b03fd54e13632
+PATH=/nonexistent: two identical valid compilations; collision refuses
+JSON Schema: fixture inputs and compiled manifest/request/scope members validate
+```
 
 
 ## Context and Orientation
@@ -216,3 +236,5 @@ ScopeSnapshot records the context binding, every accepted scope's generation and
 ## Revision Notes
 
 2026-09-16: Revised before implementation after an API validation pass requested by the operator. The interface was checked against the working tree and type-checked as stubs under GHC 9.10.3. Changes: composeInventory now returns a CompositionCandidate and there is no bytes-to-ValidatedInventory decoder; the wire format is one document per scope plus a manifest; ScopeSnapshot carries full declarations and reserved claims; claims include derived reservations for controller children; this plan now owns ScopeDeclaration, ResourceBundle, DeclaredOperation, RetirementIntent, and the contribution composition phase; declarations no longer store their own digest and nagare-dsl stays hash-free; a scope revision is a derived generation plus a nagarectl digest; ResourceId is minted from a stable logical key; no hidden-constructor type derives Generic; the canonical encoder is hand-written and pinned by golden bytes. The reason in every case is that the earlier text either contradicted itself, left a consumed type unowned, or would have passed a collision or a silent deletion that this initiative exists to stop.
+
+2026-09-22: Implemented all three milestones, recorded 424 DSL and 580 CLI test passes, 23 intended negative API rejections, schema/style checks, and provider-free CLI evidence. The compiled wire request now references immutable scope members; the initial operation and contribution vocabularies are closed. Durable invariants were distilled into ADRs 16 and 22. No dependency bounds, existing deployment paths, or operator deployments changed.

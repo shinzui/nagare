@@ -23,6 +23,7 @@ module Nagare.Resource.Reference
   )
 where
 
+import Data.List (nub, sort)
 import Data.Type.Equality ((:~:) (Refl))
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Policy
@@ -63,7 +64,7 @@ type role CapabilityRef nominal
 data CapabilityRef (c :: Capability) = CapabilityRef (Witness c) ResourceId Name [OutputConstraint] Sensitivity
 
 outputRef :: Witness c -> ResourceId -> Name -> [OutputConstraint] -> Sensitivity -> CapabilityRef c
-outputRef = CapabilityRef
+outputRef w r k constraints sensitivity = CapabilityRef w r k (nub (sort constraints)) sensitivity
 
 refProducer :: CapabilityRef c -> ResourceId
 refProducer (CapabilityRef _ r _ _ _) = r

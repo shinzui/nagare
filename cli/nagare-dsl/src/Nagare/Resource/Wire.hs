@@ -17,6 +17,8 @@ where
 
 import Control.Monad (forM)
 import Data.Aeson
+import Data.Aeson.Decoding.ByteString (bsToTokens)
+import Data.Aeson.Decoding.Tokens qualified as Tokens
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
@@ -31,6 +33,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory
@@ -172,7 +175,30 @@ decodeScope :: ByteString -> Either (NonEmpty InventoryError) ScopeDeclaration
 decodeScope = decodeWith parseScope
 
 decodeWith :: (Value -> Parser a) -> ByteString -> Either (NonEmpty InventoryError) a
-decodeWith parser bytes = first (\e -> inventoryError "wire" (T.pack e) :| []) (eitherDecodeStrict bytes >>= parseEither parser)
+decodeWith parser bytes = first (\e -> inventoryError "wire" (T.pack e) :| []) $ do
+  _ <- checkTokens (bsToTokens bytes)
+  eitherDecodeStrict bytes >>= parseEither parser
+
+-- Aeson intentionally collapses duplicate object keys; inventory intent must
+-- refuse that ambiguity before conversion to a KeyMap loses the evidence.
+checkTokens :: Tokens.Tokens k String -> Either String k
+checkTokens = \case
+  Tokens.TkLit _ k -> Right k
+  Tokens.TkText _ k -> Right k
+  Tokens.TkNumber (Tokens.NumInteger _) k -> Right k
+  Tokens.TkNumber _ _ -> Left "resource JSON permits integer tokens only"
+  Tokens.TkArrayOpen xs -> checkArray xs
+  Tokens.TkRecordOpen fields -> checkRecord Set.empty fields
+  Tokens.TkErr e -> Left e
+  where
+    checkArray (Tokens.TkItem xs) = checkTokens xs >>= checkArray
+    checkArray (Tokens.TkArrayEnd k) = Right k
+    checkArray (Tokens.TkArrayErr e) = Left e
+    checkRecord seen (Tokens.TkPair key xs)
+      | Set.member key seen = Left ("duplicate JSON field: " <> show key)
+      | otherwise = checkTokens xs >>= checkRecord (Set.insert key seen)
+    checkRecord _ (Tokens.TkRecordEnd k) = Right k
+    checkRecord _ (Tokens.TkRecordErr e) = Left e
 
 data CandidateInput = CandidateInput !ScopeSnapshot !(NonEmpty ScopeChange) deriving stock (Eq, Show)
 
@@ -251,7 +277,7 @@ instance FromJSON ContextBinding where parseJSON = genericParseJSON options
 
 instance ToJSON ProviderAddress where toJSON = genericToJSON options
 
-instance FromJSON ProviderAddress where parseJSON = genericParseJSON options
+instance FromJSON ProviderAddress where parseJSON v = genericParseJSON options v >>= either (fail . T.unpack) pure . mkProviderAddress
 
 instance ToJSON SourceLocation where toJSON = genericToJSON options
 
@@ -261,7 +287,7 @@ instance ToJSON Sensitivity where toJSON = genericToJSON options
 
 instance FromJSON Sensitivity where parseJSON = genericParseJSON options
 
-instance ToJSON RecoveryIntent where toJSON = genericToJSON options
+instance ToJSON RecoveryIntent where toJSON (RecoveryIntent method secrets) = toJSON (method, NE.sort secrets)
 
 instance FromJSON RecoveryIntent where parseJSON = genericParseJSON options
 
@@ -281,7 +307,7 @@ instance ToJSON DelegatedOperation where toJSON = genericToJSON options
 
 instance FromJSON DelegatedOperation where parseJSON = genericParseJSON options
 
-instance ToJSON Delegation where toJSON = genericToJSON options
+instance ToJSON Delegation where toJSON = genericToJSON options . (\d -> d & #fields %~ NE.sort & #operations %~ NE.sort)
 
 instance FromJSON Delegation where parseJSON = genericParseJSON options
 
@@ -305,7 +331,12 @@ instance ToJSON Executor where toJSON = genericToJSON options
 
 instance FromJSON Executor where parseJSON = genericParseJSON options
 
-instance ToJSON DesiredSpec where toJSON = genericToJSON options
+instance ToJSON DesiredSpec where
+  toJSON =
+    genericToJSON options . \case
+      StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
+      HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
+      other -> other
 
 instance FromJSON DesiredSpec where parseJSON = genericParseJSON options
 
@@ -321,7 +352,11 @@ instance ToJSON OperationInput where toJSON = genericToJSON options
 
 instance FromJSON OperationInput where parseJSON = genericParseJSON options
 
-instance ToJSON DeclaredOperation where toJSON = genericToJSON options
+instance ToJSON OperationKind where toJSON = genericToJSON options
+
+instance FromJSON OperationKind where parseJSON = genericParseJSON options
+
+instance ToJSON DeclaredOperation where toJSON = genericToJSON options . (\operation -> operation & #affects %~ NE.sort & #inputs %~ sortOn show)
 
 instance FromJSON DeclaredOperation where parseJSON = genericParseJSON options
 

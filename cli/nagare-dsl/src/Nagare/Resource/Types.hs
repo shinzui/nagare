@@ -31,6 +31,8 @@ module Nagare.Resource.Types
   , nameText
   , ContextBinding (..)
   , ProviderAddress (..)
+  , mkProviderAddress
+  , kubernetesAddress
   , CanonicalClaim
   , canonicalClaim
   , claimParts
@@ -160,6 +162,26 @@ data ProviderAddress
   deriving stock (Eq, Ord, Show, Generic)
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
+
+mkProviderAddress :: ProviderAddress -> Either Text ProviderAddress
+mkProviderAddress address = case address of
+  Kubernetes _ group _ _ _ -> do
+    unless (T.null group) (void (mkName group))
+    pure address
+  PulumiUrn urn -> do
+    unless ("urn:pulumi:" `T.isPrefixOf` urn && length (T.splitOn "::" urn) == 4 && all (not . T.null) (T.splitOn "::" urn) && not (T.any (< ' ') urn)) (Left "invalid Pulumi URN")
+    pure address
+  _ -> Right address
+
+-- | Convert native apiVersion/kind presentation to the version-independent key.
+kubernetesAddress :: ResourceId -> Text -> Text -> Maybe Text -> Text -> Either Text ProviderAddress
+kubernetesAddress target apiVersion kind namespace name = do
+  group <- case T.splitOn "/" apiVersion of
+    [version] | not (T.null version) -> Right ""
+    [g, version] | not (T.null g), not (T.null version) -> Right g
+    _ -> Left "invalid Kubernetes apiVersion"
+  address <- Kubernetes target group <$> mkName (T.toLower kind) <*> traverse mkName namespace <*> mkName name
+  mkProviderAddress address
 
 canonicalClaim :: ProviderAddress -> CanonicalClaim
 canonicalClaim =

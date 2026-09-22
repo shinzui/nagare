@@ -1,9 +1,8 @@
-module BadGenericPhysicalIdentity where
+module BadGenericRawCredential where
 
 import GHC.Generics (to)
-import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 
-bad :: PhysicalIdentity
+bad :: RawCredential
 bad = to undefined

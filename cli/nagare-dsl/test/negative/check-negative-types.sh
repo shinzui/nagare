@@ -56,7 +56,7 @@ expect_failure() {
     echo "FAIL: $fixture compiled"
     exit 1
   fi
-  if ! grep -qE "$pattern" "$OUT"; then
+  if ! tr '\n' ' ' <"$OUT" | grep -qE "$pattern"; then
     echo "FAIL: $fixture failed for an unexpected reason"
     cat "$OUT"
     exit 1
@@ -69,5 +69,7 @@ done
 expect_failure test/negative/BadCapabilityCoerce.hs 'OciImage.*DatabaseConnection|DatabaseConnection.*OciImage'
 expect_failure test/negative/BadIdentityCoerce.hs 'Couldn.t match representation of type.*ContextId'
 expect_failure test/negative/BadSecretShow.hs 'No instance for.*Show RawCredential'
-expect_failure test/negative/BadSecretJSON.hs 'No instance for.*ToJSON RawCredential'
-expect_failure test/negative/BadValidatedDecode.hs 'No instance for.*FromJSON ValidatedInventory'
+expect_failure test/negative/BadSecretJSON.hs 'No instance for.*ToJSON.*RawCredential'
+expect_failure test/negative/BadValidatedDecode.hs 'No instance for.*FromJSON.*ValidatedInventory'
+expect_failure test/negative/BadResourceConstructor.hs 'Illegal term-level use of the type constructor.*ResourceId|Not in scope.*ResourceId|data constructor.*ResourceId'
+expect_failure test/negative/BadInventoryConstructor.hs 'Illegal term-level use of the type constructor.*ValidatedInventory|Not in scope.*ValidatedInventory|data constructor.*ValidatedInventory'

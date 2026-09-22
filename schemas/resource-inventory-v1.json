@@ -2,7 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Nagare resource inventory v1",
   "description": "Fixture candidate inputs and immutable scope documents. Haskell decoding and composition additionally enforce semantic graph, ownership, reservation and completeness checks. Compiled manifests reference scope documents by exact SHA-256 bytes.",
-  "oneOf": [
+  "anyOf": [
+    { "$ref": "#/$defs/compiledManifest" },
+    { "$ref": "#/$defs/memberRequest" },
     {
       "$ref": "#/$defs/candidate"
     },
@@ -11,6 +13,48 @@
     }
   ],
   "$defs": {
+    "memberRef": {
+      "type": "object",
+      "properties": {"member": {"type": "string", "pattern": "^scopes/[a-f0-9]{64}\\.json$"}, "digest": {"$ref": "#/$defs/digest"}},
+      "required": ["member", "digest"], "additionalProperties": false
+    },
+    "memberRequest": {
+      "type": "object",
+      "properties": {
+        "version": {"const": 1}, "context": {"$ref": "#/$defs/context"},
+        "base": {"type": "array", "items": {"$ref": "#/$defs/base"}},
+        "snapshot": {"type": "array", "items": {
+          "type": "object", "properties": {"generation": {"type": "integer", "minimum": 1}, "declaration": {"$ref": "#/$defs/memberRef"}},
+          "required": ["generation", "declaration"], "additionalProperties": false
+        }},
+        "reservations": {"type": "array", "items": {"$ref": "#/$defs/reservation"}},
+        "changes": {"type": "array", "minItems": 1, "items": {"oneOf": [
+          {"type": "object", "properties": {"replace": {"$ref": "#/$defs/memberRef"}}, "required": ["replace"], "additionalProperties": false},
+          {"type": "object", "properties": {"retire": {"$ref": "#/$defs/scopeId"}, "intent": {"$ref": "#/$defs/retirement"}}, "required": ["retire", "intent"], "additionalProperties": false}
+        ]}}
+      },
+      "required": ["version", "context", "base", "snapshot", "reservations", "changes"], "additionalProperties": false
+    },
+    "compiledManifest": {
+      "type": "object",
+      "properties": {
+        "version": {"const": 1}, "inputDigest": {"$ref": "#/$defs/digest"}, "desiredDigest": {"$ref": "#/$defs/digest"},
+        "generations": {"type": "array", "items": {"$ref": "#/$defs/base"}},
+        "members": {"type": "array", "items": {
+          "type": "object", "properties": {"path": {"type": "string", "pattern": "^scopes/[a-f0-9]{64}\\.json$"}, "digest": {"$ref": "#/$defs/digest"}},
+          "required": ["path", "digest"], "additionalProperties": false
+        }},
+        "desired": {
+          "type": "object", "properties": {
+            "context": {"$ref": "#/$defs/context"},
+            "scopes": {"type": "array", "items": {
+              "type": "object", "properties": {"scope": {"$ref": "#/$defs/scopeId"}, "member": {"type": "string", "pattern": "^scopes/[a-f0-9]{64}\\.json$"}, "digest": {"$ref": "#/$defs/digest"}},
+              "required": ["scope", "member", "digest"], "additionalProperties": false
+            }}
+          }, "required": ["context", "scopes"], "additionalProperties": false
+        }
+      }, "required": ["version", "inputDigest", "desiredDigest", "generations", "members", "desired"], "additionalProperties": false
+    },
     "name": {
       "type": "string",
       "minLength": 1,
@@ -967,7 +1011,7 @@
           ]
         },
         "operationKind": {
-          "$ref": "#/$defs/name"
+          "enum": ["SchemaMigration", "CreateLogicalCache", "SnapshotData", "RestoreData", "PublishRelease"]
         }
       },
       "required": [
