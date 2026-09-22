@@ -1,6 +1,7 @@
 -- | Explicit-context kubectl transport for reviewed Kubernetes objects.
--- Create is a server-side create-only request. Updates are server-side apply
--- with UID and resourceVersion in the request. A forced transfer from the
+-- Create is a server-side create-only request. Ordinary updates are server-side
+-- apply; an unnamed Service port transition uses a guarded JSON Patch.
+-- Both include UID and resourceVersion checks. A forced transfer from the
 -- create operation is allowed only after a live managed-fields check proves
 -- there is no foreign owner of the object's non-status fields. A
 -- transport failure is ambiguous until a new observation proves its outcome.
@@ -79,9 +80,16 @@ mkKubernetesRuntimeOps config specs =
             (UpdateResource, KubernetesPresent uid revision _ _) -> do
               ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
               pure $ do
-                ownership
-                body <- addPreconditions uid revision native
-                pure (["apply", "--server-side", "--force-conflicts", "--field-manager=nagare-inventory", "-f", "-"], body)
+                observed <- ownership
+                case mutationAddress mutation of
+                  Kubernetes _ "" kind namespace name | nameText kind == "service" ->
+                    case servicePortPatch uid revision native observed of
+                      Left reason -> Left reason
+                      Right (Just patch) -> Right
+                        (["patch", "service", T.unpack (nameText name)] <> namespaceArgs namespace
+                          <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch], "")
+                      Right Nothing -> applyRequest uid revision native
+                  _ -> applyRequest uid revision native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
             Left reason -> pure (AdapterEffectAmbiguous reason)
@@ -144,6 +152,53 @@ addPreconditions uid revision native = do
     Object root -> TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "metadata" (Object guarded) root))
     _ -> Left "Kubernetes native object is not an object"
 
+applyRequest :: PhysicalIdentity -> Text -> Text -> Either Text ([String], Text)
+applyRequest uid revision native = do
+  body <- addPreconditions uid revision native
+  pure (["apply", "--server-side", "--force-conflicts", "--field-manager=nagare-inventory", "-f", "-"], body)
+
+-- | Service ports use a merge key that includes the port number. SSA can
+-- temporarily retain both unnamed entries while changing that number, which
+-- fails Service validation. For a port-only transition, replace the entire
+-- reviewed port list atomically after testing UID and resourceVersion. Refuse
+-- if any other desired field differs, so the patch cannot silently omit it.
+servicePortPatch :: PhysicalIdentity -> Text -> Text -> Value -> Either Text (Maybe Text)
+servicePortPatch uid revision native observed = do
+  desired <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 native))
+  desiredSpec <- specOf desired
+  observedSpec <- specOf observed
+  ports <- maybe (Left "reviewed Service lacks spec.ports") Right (KM.lookup "ports" desiredSpec)
+  oldPorts <- maybe (Left "observed Service lacks spec.ports") Right (KM.lookup "ports" observedSpec)
+  if desiredFieldsMatch ports oldPorts then Right Nothing else do
+    desiredMetadata <- metadataOf desired
+    observedMetadata <- metadataOf observed
+    desiredAnnotations <- annotationsOf desiredMetadata
+    observedAnnotations <- annotationsOf observedMetadata
+    newDigest <- maybe (Left "reviewed Service lacks spec digest") Right (KM.lookup "nagare.dev/spec-digest" desiredAnnotations)
+    let projectedSpec = KM.insert "ports" ports observedSpec
+        projectedAnnotations = KM.insert "nagare.dev/spec-digest" newDigest observedAnnotations
+        projectedMetadata = KM.insert "annotations" (Object projectedAnnotations) observedMetadata
+        projected = case observed of
+          Object root -> Object (KM.insert "metadata" (Object projectedMetadata) (KM.insert "spec" (Object projectedSpec) root))
+          _ -> observed
+    unless (desiredFieldsMatch desired projected)
+      (Left "Service port transition also changes other fields; a guarded per-kind patch is required")
+    patch <- canonicalValue (toJSON
+      [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= physicalIdentityText uid]
+      , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= revision]
+      , object ["op" .= ("replace" :: Text), "path" .= ("/spec/ports" :: Text), "value" .= ports]
+      , object ["op" .= ("replace" :: Text), "path" .= ("/metadata/annotations/nagare.dev~1spec-digest" :: Text), "value" .= newDigest]
+      ])
+    pure (Just (TE.decodeUtf8 patch))
+  where
+    specOf (Object root) = case KM.lookup "spec" root of
+      Just (Object value) -> Right value
+      _ -> Left "Service lacks spec object"
+    specOf _ = Left "Service is not an object"
+    annotationsOf metadata = case KM.lookup "annotations" metadata of
+      Just (Object value) -> Right value
+      _ -> Left "Service inventory annotations are missing"
+
 -- | A create is recorded as an Update field manager even when it uses the
 -- same manager name as later server-side apply. Force is safe only while all
 -- non-status fields still belong exclusively to that manager. The subsequent
@@ -175,7 +230,7 @@ confirmInventoryFieldOwnership uid revision observed = do
     isInventoryOwner _ = False
     statusOnly fields = all (== "f:status") (KM.keys fields)
 
-verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text ())
+verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text Value)
 verifyLiveOwnership config target uid revision = case target of
   Kubernetes _ group kind namespace name -> do
     result <- invoke config
@@ -186,6 +241,7 @@ verifyLiveOwnership config target uid revision = case target of
       Right (ExitSuccess, output, _) -> do
         observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
         confirmInventoryFieldOwnership uid revision observed
+        pure observed
       _ -> Left "could not verify Kubernetes field ownership before update"
   _ -> pure (Left "Kubernetes mutation has no Kubernetes address")
 

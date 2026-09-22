@@ -252,37 +252,41 @@ inventoryKubernetesTests =
                 AdapterEffectAmbiguous {} -> pure ()
                 other -> assertFailure ("foreign field manager was overridden: " <> show other)
               pure ()) `finally` cleanup
-    , testCase "disposable cluster updates a reviewed Service without replacing server defaults" $ do
+    , testCase "disposable cluster updates a reviewed Service selector and unnamed port" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let service selectorValue = object
+            let service selectorValue port = object
                   [ "apiVersion" .= ("v1" :: Text)
                   , "kind" .= ("Service" :: Text)
                   , "metadata" .= object ["name" .= ("nagare-ep147-service" :: Text), "namespace" .= ("default" :: Text)]
-                  , "spec" .= object ["ports" .= [object ["port" .= (8080 :: Int), "targetPort" .= (8080 :: Int)]], "selector" .= object ["app" .= (selectorValue :: Text)]]
+                  , "spec" .= object ["ports" .= [object ["port" .= (port :: Int), "targetPort" .= (8080 :: Int)]], "selector" .= object ["app" .= (selectorValue :: Text)]]
                   ]
-                mkBound selectorValue =
-                  let value = service selectorValue
+                mkBound selectorValue port =
+                  let value = service selectorValue port
                       bytes = ok (canonicalValue value)
                    in Map.singleton resource (ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes})))
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
-                adapter selectorValue = let bound = mkBound selectorValue in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                adapter selectorValue port = let bound = mkBound selectorValue port in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "service", "nagare-ep147-service", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
             cleanup
             (do
-              let initial = adapter "ep147"
-                  changed = adapter "ep147-next"
+              let initial = adapter "ep147" 8080
+                  changed = adapter "ep147-next" 8080
+                  portChanged = adapter "ep147-next" 8081
               created <- adapterPrepare initial createOperation >>= expectRight
               adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify initial createOperation created >>= expectRight
               updated <- adapterPrepare changed updateOperation >>= expectRight
               adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify changed updateOperation updated >>= expectRight
+              portPrepared <- adapterPrepare portChanged updateOperation >>= expectRight
+              adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
               pure ()) `finally` cleanup
     ]
 
