@@ -221,12 +221,17 @@ upload_if_missing() {
 }
 
 register_if_missing() {
-  local name="$1" uri="$2"
-  if gcloud --project="${PROJECT}" compute images describe "${name}" --format='value(name)' >/dev/null 2>&1; then
+  local name="$1" uri="$2" digest="$3" description
+  if description="$(gcloud --project="${PROJECT}" compute images describe "${name}" --format='value(description)' 2>/dev/null)"; then
+    if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${description}" != "nagare-content-digest=${digest}" ]; then
+      echo "refusing existing GCE image ${name}: content digest ownership stamp differs from ${digest}" >&2
+      return 1
+    fi
     log "Already registered: ${name}"
   else
     log "Registering GCE image ${name} from ${uri}"
-    gcloud --project="${PROJECT}" compute images create "${name}" --source-uri "${uri}" --quiet
+    gcloud --project="${PROJECT}" compute images create "${name}" --source-uri "${uri}" \
+      --description "nagare-content-digest=${digest}" --quiet
   fi
 }
 
@@ -255,6 +260,17 @@ verify_tarball() {
   fi
 }
 
+tarball_digest() {
+  local path="$1" value q
+  if [ -f "${path}" ]; then
+    value="$(shasum -a 256 "${path}" | awk '{print $1}')"
+  else
+    q="$(printf '%q' "${path}")"
+    value="$(ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "sha256sum ${q}" | awk '{print $1}')"
+  fi
+  printf 'sha256:%s\n' "${value}"
+}
+
 store_path="$(build_image)"
 hash="$(image_hash "${store_path}")"
 image_name="${OUTPUT}-${hash}"
@@ -262,8 +278,21 @@ gs_uri="gs://${BUCKET}/${image_name}.raw.tar.gz"
 tarball="$(locate_tarball "${store_path}")"
 
 verify_tarball "${tarball}"
+content_digest="$(tarball_digest "${tarball}")"
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
+  [ -n "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" ] || { echo "inventory publication requires NAGARE_ARTIFACT_EXPECTED_DIGEST" >&2; exit 2; }
+  [ "${content_digest}" = "${NAGARE_ARTIFACT_EXPECTED_DIGEST}" ] || {
+    echo "refusing publication: built content ${content_digest} differs from reviewed ${NAGARE_ARTIFACT_EXPECTED_DIGEST}" >&2
+    exit 2
+  }
+  expected_destination="projects/${PROJECT}/global/images/${image_name}"
+  [ "${NAGARE_ARTIFACT_DESTINATION:-}" = "${expected_destination}" ] || {
+    echo "refusing publication: built destination ${expected_destination} differs from reviewed ${NAGARE_ARTIFACT_DESTINATION:-<unset>}" >&2
+    exit 2
+  }
+fi
 upload_if_missing "${tarball}" "${gs_uri}"
-register_if_missing "${image_name}" "${gs_uri}"
+register_if_missing "${image_name}" "${gs_uri}" "${content_digest}"
 
 self_link="$(gcloud --project="${PROJECT}" compute images describe "${image_name}" --format='value(selfLink)')"
 # The self-link embeds the project (.../projects/<project>/global/images/...), so it
@@ -271,7 +300,7 @@ self_link="$(gcloud --project="${PROJECT}" compute images describe "${image_name
 # foreign project (MasterPlan-12 Integration Point 3). `pulumi config set` writes it
 # into the local stack config, which is a derived projection of the profile.
 if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
-  printf 'nagare-artifact\tgce-image\t%s\t%s\n' "${self_link}" "${hash}"
+  printf 'nagare-artifact\tgce-image\t%s\t%s\n' "${self_link}" "${content_digest}"
   log "bounded publication complete; a new Pulumi review must bind nagareImageSelfLink"
 else
   log "legacy path: pulumi config set nagareImageSelfLink ${self_link}"

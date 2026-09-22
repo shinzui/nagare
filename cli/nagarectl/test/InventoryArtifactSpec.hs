@@ -7,12 +7,16 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Artifact
+import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Artifact
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -60,6 +64,32 @@ inventoryArtifactTests =
         case retirement of
           Left (PrepareRefused _ message) | "consumer completeness is unknown" `Text.isInfixOf` message -> pure ()
           other -> assertFailure ("expected collection refusal, got " <> show other)
+    , testCase "subprocess runtime binds the reviewed destination and digest" $
+        withSystemTempDirectory "nagare-artifact-runtime-test" $ \temporary -> do
+          let executable = temporary </> "artifact-transport"
+              absent = contentDigest "runtime-absence"
+              body =
+                unlines
+                  [ "#!/bin/sh"
+                  , "set -eu"
+                  , "request=$(cat)"
+                  , "printf '%s' \"$request\" | grep -F 'projects/example/global/images/nagare-image-abc' >/dev/null"
+                  , "printf '%s' \"$request\" | grep -F '" <> Text.unpack (digestText expectedDigest) <> "' >/dev/null"
+                  , "if [ \"$1\" = publish ]; then"
+                  , "  printf '%s\\n' '{\"tag\":\"TransportPresent\",\"contents\":[\"gce://projects/example/global/images/nagare-image-abc\",\"" <> Text.unpack (digestText expectedDigest) <> "\"]}'"
+                  , "else"
+                  , "  printf '%s\\n' '{\"tag\":\"TransportMissing\",\"contents\":\"" <> Text.unpack (digestText absent) <> "\"}'"
+                  , "fi"
+                  ]
+          writeFile executable body
+          setFileMode executable 0o700
+          let runtime = ArtifactRuntimeConfig executable [] specs
+              adapter = mkArtifactAdapter specs (mkArtifactRuntimeOps runtime)
+          observed <- adapterObserve adapter [artifactResource] >>= expectRight
+          Map.lookup artifactResource (observationMap observed) @?= Just (ConfirmedAbsent absent)
+          prepared <- adapterPrepare adapter publishOperation >>= expectRight
+          adapterPreflight adapter publishOperation prepared >>= expectRight
+          adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)
     ]
   where
     isExternal External {} = True

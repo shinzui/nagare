@@ -89,6 +89,7 @@ library
     Nagare.Inventory.Command
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.Artifact
+    Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime

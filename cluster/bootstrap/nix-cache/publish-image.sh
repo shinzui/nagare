@@ -25,6 +25,17 @@ expected_digest="$(jq -er '.linuxAmd64Digest' "${pin_file}")"
 registry="${NAGARE_REGISTRY_HOST}"
 destination="${NAGARE_REGISTRY_PREFIX}/attic:${commit}"
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
+  [ "${NAGARE_ARTIFACT_DESTINATION:-}" = "${destination}" ] || {
+    echo "nagare: reviewed Attic destination differs from ${destination}" >&2
+    exit 2
+  }
+  [ "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" = "${expected_digest}" ] || {
+    echo "nagare: reviewed Attic digest differs from ${expected_digest}" >&2
+    exit 2
+  }
+fi
+
 case "${destination}" in
   "${registry}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/"*) ;;
   *)

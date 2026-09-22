@@ -16,6 +16,7 @@ assert_refused() {
 }
 
 assert_refused 'artifact adapter child marker' bash scripts/upload-images.sh --dry-run
+assert_refused 'artifact adapter child marker' bash scripts/inventory-artifact-transport.sh observe
 assert_refused 'host adapter child marker' bash scripts/host-switch.sh --dry-run
 assert_refused 'artifact adapter child marker' bash scripts/setup-nix-builder.sh
 assert_refused 'host adapter child marker' bash scripts/vm-power.sh start

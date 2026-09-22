@@ -236,8 +236,11 @@ import Nagare.Init
   , writeTargetEnv
   )
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
+import Nagare.Inventory.Adapters.ArtifactRuntime
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
+import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -4031,7 +4034,8 @@ runInventoryPlan mctx candidateDirectory output = do
   candidate <- Inventory.loadCandidate candidateDirectory >>= either dieT pure
   let declarations = ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
-  if null registrations
+  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  if null registrations && Map.null artifactSpecs
     then Inventory.planInventory target candidateDirectory output
     else do
       (active, workspace) <- prepareInfraMutation mctx
@@ -4054,13 +4058,21 @@ inventoryExecutionRegistry mctx bundle = do
   scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
   let declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
-  if null registrations
+  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  if null registrations && Map.null artifactSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]))
     else do
       (active, workspace) <- prepareInfraMutation mctx
       let binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
-      adapter <- inventoryPulumiAdapter active workspace binding scopes registrations
-      let adapters = adapter : map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]
+      pulumi <-
+        if null registrations
+          then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
+          else inventoryPulumiAdapter active workspace binding scopes registrations
+      artifact <-
+        if Map.null artifactSpecs
+          then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
+          else pure (inventoryArtifactAdapter active workspace artifactSpecs)
+      let adapters = [pulumi, artifact] <> map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -4069,9 +4081,28 @@ inventoryPlanRegistry active workspace candidate history = do
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
-  pulumi <- inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes registrations
-  let adapters = pulumi : map (Inventory.manifestAdapterFor history) [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]
+  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  pulumi <-
+    if null registrations
+      then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
+      else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes registrations
+  let artifact =
+        if Map.null artifactSpecs
+          then Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor
+          else inventoryArtifactAdapter active workspace artifactSpecs
+      adapters = [pulumi, artifact] <> map (Inventory.manifestAdapterFor history) [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
+
+inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> InventoryAdapter.Adapter
+inventoryArtifactAdapter active workspace specs =
+  mkArtifactAdapter specs (mkArtifactRuntimeOps config)
+  where
+    config =
+      ArtifactRuntimeConfig
+        { runtimeArtifactExecutable = workspace ^. #scriptsDir </> "inventory-artifact-transport.sh"
+        , runtimeArtifactEnvironment = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))]
+        , runtimeArtifactSpecs = specs
+        }
 
 inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
 inventoryPulumiAdapter active workspace binding scopes registrations = do
