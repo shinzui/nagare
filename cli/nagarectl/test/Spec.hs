@@ -100,7 +100,7 @@ import Nagare.Database.Backup
   , renderDbBackupCronJob
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
-import Nagare.Database.Create (DbCreateParams (..), buildDatabase, passwordKey)
+import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
 import Nagare.Database.Restore (RestoreJobInputs (..), isObjectUrl, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
@@ -395,7 +395,7 @@ import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.Exit (ExitCode (ExitFailure), exitWith)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitWith)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
@@ -3854,6 +3854,11 @@ databaseTests =
           assertBool "should reject" (isLeft (buildDatabase Postgres "Bad_Name" (mkParams Nothing Nothing)))
       , testCase "rejects latest version" $
           assertBool "should reject" (isLeft (buildDatabase Postgres "pg" (mkParams (Just "latest") Nothing)))
+      , testCase "only a confirmed absent Secret can generate a password" $ do
+          classifyPasswordObservation Postgres ExitSuccess "" @?= Right Nothing
+          assertLeftText (classifyPasswordObservation Postgres (ExitFailure 1) "")
+          assertLeftText (classifyPasswordObservation Postgres ExitSuccess "{\"data\":{}}")
+          assertLeftText (classifyPasswordObservation Postgres ExitSuccess "invalid json")
       ]
   , testGroup
       "Nagare.Database.Discover"

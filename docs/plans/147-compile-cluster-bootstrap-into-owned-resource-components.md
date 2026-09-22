@@ -40,7 +40,8 @@ A component is an independently identified group of resources and operations, su
 
 - [x] (2026-09-22) M1a: Compile structured Kubernetes objects to typed declarations with controller reservations; the database Service/Knative collision and malformed Certificate fixtures pass (426 DSL tests).
 - [ ] M1b: Add multi-document/List expansion, canonical native-byte binding, and guarded observation/apply adapters.
-- [ ] M2: Compile cache and managed database resources from one declaration path.
+- [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
+- [ ] M2b: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
 
@@ -48,6 +49,8 @@ A component is an independently identified group of resources and operations, su
 ## Surprises & Discoveries
 
 2026-09-22: EP-144 already implemented the controller reservation rules in `Nagare.Resource.Inventory`, but no compiler consumed structured Kubernetes objects. `Nagare.Resource.Kubernetes.compileKubernetesObject` now derives the correct specialized specification from an object. The existing database renderer golden Service collides with a same-name Knative Service through this compiler, proving the reservation check operates on rendered shapes. The module is pure; native-byte retention, observation, and execution remain M1b.
+
+2026-09-22: `Nagare.Database.Create.readOrGeneratePassword` treated every failed or malformed Secret read as absence and generated a fresh password. A successful empty `kubectl get --ignore-not-found` response now uniquely authorizes generation; command failure and malformed/non-password Secrets refuse. This safety fix precedes the full database bundle migration.
 
 
 ## Decision Log

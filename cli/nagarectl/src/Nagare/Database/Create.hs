@@ -14,11 +14,13 @@ module Nagare.Database.Create
   , runDbCreate
   , buildDatabase
   , passwordKey
+  , classifyPasswordObservation
   )
 where
 
 import Cradle
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Text qualified as T
@@ -180,13 +182,19 @@ readOrGeneratePassword ns name eng = do
   (code, StdoutRaw out) <-
     run $
       cmd "kubectl"
-        & addArgs ["get", "secret", T.unpack (dbSecretName name), "-n", T.unpack ns, "-o", "json"]
+        & addArgs ["get", "secret", T.unpack (dbSecretName name), "-n", T.unpack ns, "-o", "json", "--ignore-not-found"]
         & silenceStderr
-  case code of
-    ExitFailure _ -> generatePassword
-    ExitSuccess -> case extractSecretData out of
-      Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> pure pw
-      _ -> generatePassword
+  either dieT (maybe generatePassword pure) (classifyPasswordObservation eng code out)
+
+-- | Only a successful, empty --ignore-not-found response proves absence.
+-- Failed or malformed reads never authorize a replacement credential.
+classifyPasswordObservation :: Engine -> ExitCode -> ByteString -> Either Text (Maybe Text)
+classifyPasswordObservation eng code out = case code of
+  ExitFailure _ -> Left "could not read database Secret; refusing to create a new password from an unknown observation"
+  ExitSuccess | BS.null out -> Right Nothing
+  ExitSuccess -> case extractSecretData out of
+    Right kvs | Just pw <- Map.lookup (passwordKey eng) kvs, not (T.null pw) -> Right (Just pw)
+    _ -> Left "database Secret is malformed or lacks its password; refusing to rotate it"
 
 -- | Generate a strong URL-safe password via @openssl rand -hex 24@ (192 bits).
 generatePassword :: IO Text
