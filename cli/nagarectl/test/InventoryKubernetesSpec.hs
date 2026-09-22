@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, jobCompleted, mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -186,6 +186,36 @@ inventoryKubernetesTests =
         assertBool "running Job proved complete" (not (jobCompleted (job [condition "Complete" "False"])))
         assertBool "failed Job proved complete" (not (jobCompleted (job [condition "Failed" "True"])))
         assertBool "completed Job was not recognized" (jobCompleted (job [condition "Complete" "True"]))
+    , testCase "cache client fills only the typed generated-key slot after review" $ do
+        let template = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("ConfigMap" :: Text)
+              , "metadata" .= object
+                  [ "name" .= ("nagare-nix-cache-client" :: Text)
+                  , "namespace" .= ("personal" :: Text)
+                  , "annotations" .= object
+                      [ "nagare.dev/cache-client-template" .= ("v1" :: Text)
+                      , "nagare.dev/cache-key-producer" .= resourceIdText resource
+                      ]
+                  ]
+              , "data" .= object ["nix.conf" .= ("trusted-public-keys = ${ATTIC_PUBLIC_KEY} cache.nixos.org-1:example" :: Text)]
+              ]
+            native = TE.decodeUtf8 (ok (canonicalValue template))
+            resolver producer
+              | producer == resource = pure (Right "nagare-cache:AAAA=")
+              | otherwise = pure (Left "unexpected cache output producer")
+        filled <- materializeCacheKey resolver native >>= expectRight
+        let observed = ok (eitherDecodeStrict (TE.encodeUtf8 filled))
+        assertBool "generated key did not fill client config" ("nagare-cache:AAAA=" `T.isInfixOf` filled)
+        assertBool "template placeholder escaped execution" (not ("${ATTIC_PUBLIC_KEY}" `T.isInfixOf` filled))
+        assertBool "generated key was not verified as delegated data" (cacheClientDataMatches template observed)
+        assertBool "client metadata projection changed" (desiredFieldsMatch (withoutCacheClientData template) observed)
+        let observedState = KubernetesPresent physical "4" (Just resource) (contentDigest (TE.encodeUtf8 native))
+        observeCacheClientOutput resolver (TE.encodeUtf8 native) filled observedState >>= (@?= observedState)
+        wrongKey <- observeCacheClientOutput (\_ -> pure (Right "nagare-cache:BBBB=")) (TE.encodeUtf8 native) filled observedState
+        assertBool "a different cache output was accepted as current" (wrongKey /= observedState)
+        missing <- materializeCacheKey (\_ -> pure (Left "cache key unavailable")) native
+        assertBool "missing generated key was accepted" (either (const True) (const False) missing)
     , testCase "update ownership refuses a foreign field manager" $ do
         let metadata fields = object
               [ "metadata" .= object

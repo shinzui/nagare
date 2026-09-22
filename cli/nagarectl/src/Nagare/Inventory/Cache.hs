@@ -25,6 +25,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.CacheKubernetes
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
+import Nagare.Resource.CacheClient (CacheClientInput (..), compileCacheClient)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
@@ -52,6 +53,7 @@ compileCacheComponent
   -> IO (Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
 compileCacheComponent databaseInput backend cacheInput = do
   coreResult <- compileCacheNative cacheInput
+  clientTemplate <- try (BS.readFile (renderTemplateRoot cacheInput </> "client-configmap.yaml.tmpl")) :: IO (Either IOException ByteString)
   pure $ do
     unless (directOwnerScope databaseInput == renderOwner cacheInput
         && directClusterId databaseInput == renderCluster cacheInput)
@@ -62,15 +64,26 @@ compileCacheComponent databaseInput backend cacheInput = do
       (Left (single (invalid "cache prerequisites differ from the compiled database identities")))
     (databaseBundle, databaseNative) <- compileDatabaseForBackend databaseInput backend
     (coreBundle, coreNative) <- coreResult
+    templateBytes <- first (single . invalid . ("cannot read cache client template: " <>) . T.pack . show) clientTemplate
+    clientObjects <- first single (parseKubernetesManifest (SourceLocation (T.pack (renderTemplateRoot cacheInput)) "client-config") templateBytes)
+    clientTemplateValue <- case clientObjects of
+      [(_, value)] -> Right value
+      _ -> Left (single (invalid "cache client template must contain exactly one ConfigMap"))
+    let logicalResource = mintResourceId (renderOwner cacheInput) (renderLogicalKey cacheInput) (known "logical-cache")
+    clientObject <- first (single . invalid) (setClientProducer logicalResource clientTemplateValue)
+    (clientBundle, clientId, clientValue) <- compileCacheClient (fmap contentDigest . canonicalValue)
+      (CacheClientInput (renderOwner cacheInput) (renderCluster cacheInput) (renderLogicalKey cacheInput)
+        logicalResource clientObject (SourceLocation (T.pack (renderTemplateRoot cacheInput)) "client-config"))
+    clientNative <- bindMember cacheInput clientBundle (clientId, clientValue)
     let logicalCache = compileLogicalCache (LogicalCacheInput
           (renderOwner cacheInput) (renderCluster cacheInput) (renderLogicalKey cacheInput)
           (known "nagare-cache") logicalConfigurationDigest expectedDatabase
           (mintResourceId (renderOwner cacheInput) (renderLogicalKey cacheInput) (known "deployment"))
           (SourceLocation (T.pack (renderTemplateRoot cacheInput)) "logical-cache"))
-    scope <- mkScopeDeclaration (renderOwner cacheInput) [databaseBundle, coreBundle, logicalCache]
+    scope <- mkScopeDeclaration (renderOwner cacheInput) [databaseBundle, coreBundle, logicalCache, clientBundle]
     unless (Map.null (Map.intersection databaseNative coreNative))
       (Left (single (invalid "database and cache native members share a logical identity")))
-    pure (scope, Map.union databaseNative coreNative)
+    pure (scope, Map.insert clientId (snd clientNative) (Map.union databaseNative coreNative))
   where
     invalid message = inventoryError "invalid-cache-component" message
       & #scopes .~ [renderOwner cacheInput]
@@ -185,6 +198,22 @@ setObjectName name (Object root) = case KM.lookup "metadata" root of
   Just (Object metadata) -> Right (Object (KM.insert "metadata" (Object (KM.insert "name" (String name) metadata)) root))
   _ -> Left "cache Job has no metadata object"
 setObjectName _ _ = Left "cache Job is not an object"
+
+setClientProducer :: ResourceId -> Value -> Either Text Value
+setClientProducer producer (Object root) = case KM.lookup "metadata" root of
+  Just (Object metadata) -> do
+    annotations <- case KM.lookup "annotations" metadata of
+      Nothing -> Right KM.empty
+      Just (Object values) -> Right values
+      _ -> Left "cache client annotations are malformed"
+    unless (not (KM.member "nagare.dev/cache-key-producer" annotations)
+        && not (KM.member "nagare.dev/cache-client-template" annotations))
+      (Left "cache client template preclaims generated-key annotations")
+    let stamped = KM.insert "nagare.dev/cache-key-producer" (String (resourceIdText producer))
+          (KM.insert "nagare.dev/cache-client-template" (String "v1") annotations)
+    pure (Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object stamped) metadata)) root))
+  _ -> Left "cache client ConfigMap has no metadata object"
+setClientProducer _ _ = Left "cache client template is not an object"
 
 bindMember
   :: CacheRenderInput

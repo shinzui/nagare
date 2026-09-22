@@ -8,10 +8,15 @@
 module Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
   , mkKubernetesRuntimeOps
+  , mkKubernetesRuntimeOpsWithCacheKey
   , desiredFieldsMatch
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
+  , materializeCacheKey
+  , cacheClientDataMatches
+  , withoutCacheClientData
+  , observeCacheClientOutput
   ) where
 
 import Control.Exception (IOException, try)
@@ -49,7 +54,14 @@ mkKubernetesRuntimeOps
   :: KubernetesRuntimeConfig
   -> Map ResourceId (ManagedResource, ByteString)
   -> KubernetesAdapterOps
-mkKubernetesRuntimeOps config specs =
+mkKubernetesRuntimeOps config = mkKubernetesRuntimeOpsWithCacheKey config (\_ -> pure (Left "cache public-key resolver is not installed"))
+
+mkKubernetesRuntimeOpsWithCacheKey
+  :: KubernetesRuntimeConfig
+  -> (ResourceId -> IO (Either Text Text))
+  -> Map ResourceId (ManagedResource, ByteString)
+  -> KubernetesAdapterOps
+mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
   KubernetesAdapterOps
     { kubernetesContext = runtimeContext config
     , kubernetesObserve = observe
@@ -68,27 +80,34 @@ mkKubernetesRuntimeOps config specs =
                 (["get", kindToken group kind, T.unpack (nameText name)]
                   <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
                 ""
-              pure $ case result of
-                Left reason -> KubernetesUnknown reason
-                Right (ExitFailure _, _, _) -> KubernetesUnknown "kubectl get failed"
+              case result of
+                Left reason -> pure (KubernetesUnknown reason)
+                Right (ExitFailure _, _, _) -> pure (KubernetesUnknown "kubectl get failed")
                 Right (ExitSuccess, output, _)
-                  | null output -> KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))
-                  | otherwise -> either KubernetesUnknown id (parseObserved config resource native (T.pack output))
+                  | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+                  | otherwise -> case parseObserved config resource native (T.pack output) of
+                      Left reason -> pure (KubernetesUnknown reason)
+                      Right state -> observeCacheClientOutput resolveCacheKey native (T.pack output) state
             _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address")
     mutate mutation = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (AdapterEffectAmbiguous ("cluster guard refused before Kubernetes write: " <> reason))
         Right () -> do
-          let native = mutationNativeJson mutation
+          materialized <- case mutationAction mutation of
+            CreateResource -> materializeCredential (mutationNativeJson mutation)
+            _ -> pure (Right (mutationNativeJson mutation))
+          resolved <- case materialized of
+            Left reason -> pure (Left reason)
+            Right native -> materializeCacheKey resolveCacheKey native
           request <- case (mutationAction mutation, mutationBefore mutation) of
-            (CreateResource, KubernetesAbsent _) -> do
-              materialized <- materializeCredential native
-              pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> materialized)
+            (CreateResource, KubernetesAbsent _) ->
+              pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
             (UpdateResource, KubernetesPresent uid revision _ _) -> do
               ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
               pure $ do
                 observed <- ownership
+                native <- resolved
                 case mutationAddress mutation of
                   Kubernetes _ "" kind namespace name | nameText kind == "service" ->
                     case servicePortPatch uid revision native observed of
@@ -119,6 +138,40 @@ waitForJob config (Kubernetes _ "batch" kind namespace name)
         _ -> AdapterEffectAmbiguous "Kubernetes Job did not prove completion; reobserve before retry"
 waitForJob _ _ = pure AdapterEffectCompleted
 
+-- The client ConfigMap's data is delegated at review time, but observation
+-- still compares it with the current output of the named logical cache.
+observeCacheClientOutput
+  :: (ResourceId -> IO (Either Text Text))
+  -> ByteString
+  -> Text
+  -> KubernetesState
+  -> IO KubernetesState
+observeCacheClientOutput resolve native response state = case eitherDecodeStrict native of
+  Left (_ :: String) -> pure (KubernetesUnknown "cache client review bytes are malformed")
+  Right desired -> case cacheClientTemplate desired of
+    Left reason -> pure (KubernetesUnknown reason)
+    Right Nothing -> pure state
+    Right (Just (producer, template)) -> do
+      resolved <- resolve producer
+      pure $ case resolved of
+        Left reason -> KubernetesUnknown reason
+        Right key | not (validCachePublicKey key) -> KubernetesUnknown "cache public key is invalid"
+        Right key -> case eitherDecodeStrict (TE.encodeUtf8 response) of
+          Left (_ :: String) -> KubernetesUnknown "cache client observation is malformed"
+          Right observed
+            | observedClientText observed == Just (T.replace "${ATTIC_PUBLIC_KEY}" key template) -> state
+            | otherwise -> case state of
+                KubernetesPresent physical revision owner _ ->
+                  KubernetesPresent physical revision owner (contentDigest (TE.encodeUtf8 response))
+                _ -> state
+  where
+    observedClientText (Object root) = case KM.lookup "data" root of
+      Just (Object entries) -> case KM.lookup "nix.conf" entries of
+        Just (String value) -> Just value
+        _ -> Nothing
+      _ -> Nothing
+    observedClientText _ = Nothing
+
 -- | Compare only fields present in the retained desired object. Server-added
 -- metadata, defaults and status do not count as drift. Arrays stay ordered;
 -- this deliberately reports uncertain associative-list reorderings as drift.
@@ -144,8 +197,9 @@ parseObserved config resource native response = do
       stampedOwner = textAt "nagare.dev/resource-id" annotations >>= either (const Nothing) Just . mkResourceId
       owner = if stampedContext == Just (contextIdText (runtimeContext config)) then stampedOwner else Nothing
       desiredDigest = contentDigest native
-      desiredMatches = desiredFieldsMatch desired observed
+      desiredMatches = desiredFieldsMatch (withoutCacheClientData desired) observed
         && credentialDataMatches desired observed
+        && cacheClientDataMatches desired observed
         && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
   case observed of
     Object root | KM.lookup "kind" root == Just (String "Job") ->
@@ -250,6 +304,80 @@ credentialDataMatches desired observed = case databaseCredentialKind desired of
               && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
       _ -> False
     _ -> False
+
+cacheClientTemplate :: Value -> Either Text (Maybe (ResourceId, Text))
+cacheClientTemplate value = case value of
+  Object root | KM.lookup "kind" root == Just (String "ConfigMap") -> do
+    metadata <- metadataOf value
+    annotations <- case KM.lookup "annotations" metadata of
+      Just (Object fields) -> Right fields
+      Nothing -> Right KM.empty
+      _ -> Left "cache client annotations are malformed"
+    case textAt "nagare.dev/cache-client-template" annotations of
+      Nothing -> Right Nothing
+      Just "v1" -> do
+        name <- fieldText "name" metadata
+        namespace <- fieldText "namespace" metadata
+        unless (name == "nagare-nix-cache-client" && namespace == "personal")
+          (Left "cache client template has an unexpected address")
+        producerText <- fieldText "nagare.dev/cache-key-producer" annotations
+        producer <- mkResourceId producerText
+        entries <- case KM.lookup "data" root of
+          Just (Object fields) -> Right fields
+          _ -> Left "cache client template has no data"
+        template <- case KM.toList entries of
+          [("nix.conf", String textValue)] -> Right textValue
+          _ -> Left "cache client template must contain only nix.conf"
+        unless (T.count "${ATTIC_PUBLIC_KEY}" template == 1)
+          (Left "cache client template has no unique public-key slot")
+        pure (Just (producer, template))
+      Just _ -> Left "unknown cache client template"
+  _ -> Right Nothing
+
+withoutCacheClientData :: Value -> Value
+withoutCacheClientData value@(Object root) = case cacheClientTemplate value of
+  Right (Just _) -> Object (KM.delete "data" root)
+  _ -> value
+withoutCacheClientData value = value
+
+cacheClientDataMatches :: Value -> Value -> Bool
+cacheClientDataMatches desired observed = case cacheClientTemplate desired of
+  Right Nothing -> True
+  Left _ -> False
+  Right (Just (_, template)) -> case observed of
+    Object root -> case KM.lookup "data" root of
+      Just (Object entries) -> case KM.toList entries of
+        [("nix.conf", String actual)] ->
+          let (prefix, markerAndSuffix) = T.breakOn "${ATTIC_PUBLIC_KEY}" template
+              suffix = T.drop (T.length "${ATTIC_PUBLIC_KEY}") markerAndSuffix
+           in case T.stripPrefix prefix actual >>= T.stripSuffix suffix of
+                Just key -> validCachePublicKey key
+                Nothing -> False
+        _ -> False
+      _ -> False
+    _ -> False
+
+materializeCacheKey :: (ResourceId -> IO (Either Text Text)) -> Text -> IO (Either Text Text)
+materializeCacheKey resolve native = case eitherDecodeStrict (TE.encodeUtf8 native) of
+  Left (_ :: String) -> pure (Left "reviewed cache client object is malformed")
+  Right value -> case cacheClientTemplate value of
+    Left reason -> pure (Left reason)
+    Right Nothing -> pure (Right native)
+    Right (Just (producer, template)) -> do
+      resolved <- resolve producer
+      pure $ do
+        key <- resolved
+        unless (validCachePublicKey key) (Left "cache resolver returned an invalid public key")
+        case value of
+          Object root -> do
+            let dataValue = object ["nix.conf" .= T.replace "${ATTIC_PUBLIC_KEY}" key template]
+            TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "data" dataValue root))
+          _ -> Left "cache client object is malformed"
+
+validCachePublicKey :: Text -> Bool
+validCachePublicKey key =
+  not (T.null key) && T.count ":" key == 1
+    && T.all (\character -> character > ' ' && character /= '\DEL') key
 
 addPreconditions :: PhysicalIdentity -> Text -> Text -> Either Text Text
 addPreconditions uid revision native = do

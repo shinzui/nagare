@@ -46,8 +46,8 @@ inventoryCacheTests = testGroup "cache inventory adapter"
           cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential"}
           binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
       (scope, native) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
-      length (concatMap declarations (scopeBundles scope)) @?= 15
-      Map.size native @?= 14
+      length (concatMap declarations (scopeBundles scope)) @?= 16
+      Map.size native @?= 15
       let candidate = composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scope :| [])
       assertBool "complete cache scope failed inventory validation" (either (const False) (const True) candidate)
   , testCase "lost cache creation acknowledgement recovers from the public key and configuration" $ do

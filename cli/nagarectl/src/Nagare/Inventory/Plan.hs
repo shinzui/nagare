@@ -271,11 +271,22 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
               | resource <- NE.toList (plannedResources operation)
               , Just declaration <- [Map.lookup resource desiredDeclarations]
               , dependency <- declarationDependencies declaration
-              , Just dependencyOperation <- [Map.lookup (dependencyResource dependency) operationByDependency]
+              , Just dependencyOperation <- [operationForDependency dependency]
               , dependencyOperation /= plannedOperationId operation
               ]
         }
     declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
+    cacheOutputOperations = Map.fromList
+      [ (resource, plannedOperationId planned)
+      | (declaredOperation, planned) <- declaredSeeds
+      , declaredOperation ^. #operationKind == CreateLogicalCache
+      , resource <- NE.toList (declaredOperation ^. #affects)
+      ]
+    operationForDependency dependency = case dependency of
+      Consumes ref | refCapability ref == NixCachePublicKey ->
+        Map.lookup (dependencyResource dependency) cacheOutputOperations
+      _ -> Map.lookup (dependencyResource dependency) operationByDependency
+    refCapability (SomeRef ref) = let (_, _, capability, _, _) = refSignature (SomeRef ref) in capability
     scopeDeclared declaration = mapMaybe declared (concatMap (^. #operations) (scopeBundles declaration))
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]

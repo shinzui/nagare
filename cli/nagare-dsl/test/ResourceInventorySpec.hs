@@ -178,9 +178,12 @@ resourceInventoryTests =
         let cache = service p "cache" "cache"
             key = outputRef NixCachePublicKeyW (declarationId cache) (n "public-key") [NonEmptyOutput] Public
             wrong = outputRef DatabaseConnectionW (declarationId cache) (n "public-key") [NonEmptyOutput] Public
-            producer = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key]])
+            cacheOperation = DeclaredOperation (rid p "configure-cache") (declarationId cache :| []) [] VerifyBeforeRetry CreateLogicalCache
+            producer = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key] & #operations .~ [cacheOperation]])
+            missingOperation = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key]])
             consumer ref = let Managed x = service a "client" "client" in scope a [Managed (x & #dependencies .~ [Consumes ref])]
         assertBool "cache key reference did not compose" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef key)]))
+        rejects "output-operation" (compileScopes [missingOperation, consumer (SomeRef key)])
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef wrong)])
         decodeScope (encodeCanonicalScope producer) @?= Right producer
     , testCase "logical Attic cache has its own executor and claim" $ do

@@ -352,6 +352,9 @@ validateGraph ss ds reservations =
     <> concatMap validateDeclaration ds
     <> [issue "dangling-reference" "dependency producer is absent" [d] [] | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId && Set.notMember p operationIds]
     <> [issue "reference-mismatch" "output capability, constraints, or sensitivity disagree with its export" [d] [] | d <- ds, ref <- dependencyRefs (declarationDependencies d), not (matches ref)]
+    <> [issue "output-operation" "cache signing-key consumer has no logical-cache operation" [d] []
+       | d <- ds, ref <- dependencyRefs (declarationDependencies d), cacheKeyRef ref
+       , Set.notMember (dependencyRefProducer ref) cacheOutputProducers]
     <> [inventoryError "condition-mismatch" "required condition has no compatible exported output" | b <- bundles, ref <- b ^. #conditions, not (matches ref)]
     <> [inventoryError "invalid-export" "export producer must be declared in its exporting scope" & #scopes .~ [s] & #resources .~ [r] | (s, sc) <- Map.toList ss, b <- scopeBundles sc, e <- b ^. #exports, let (r, _, _, _, _) = exportSignature e, r `notElem` map declarationId (scopeDeclarations sc)]
     <> [inventoryError "duplicate-export" "producer and output key exported more than once" | not (null (duplicates [(r, k) | (r, k, _, _, _) <- exports]))]
@@ -367,11 +370,15 @@ validateGraph ss ds reservations =
     bundles = concatMap scopeBundles (Map.elems ss)
     ops = concatMap (^. #operations) bundles
     operationIds = Set.fromList (map (^. #identity) ops)
+    cacheOutputProducers = Set.fromList
+      [resource | operation <- ops, operation ^. #operationKind == CreateLogicalCache, resource <- NE.toList (operation ^. #affects)]
     graph =
       [(declarationId d, declarationId d, map dependencyProducer (declarationDependencies d)) | d <- ds]
         <> [(op ^. #identity, op ^. #identity, NE.toList (op ^. #affects)) | op <- ops]
     exports = map exportSignature (concatMap (^. #exports) bundles)
     matches r = let (p, k, c, cs, s) = refSignature r in any (\(p', k', c', cs', s') -> (p, k, c, s) == (p', k', c', s') && all (`elem` cs') cs) exports
+    cacheKeyRef ref = let (_, _, capability, _, _) = refSignature ref in capability == NixCachePublicKey
+    dependencyRefProducer (SomeRef ref) = refProducer ref
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]
     claims = Map.fromListWith (<>) [(c, [d]) | d@(Managed _) <- ds, (_, c) <- NE.toList (claimsOf d)]
     issue c m involved cs =

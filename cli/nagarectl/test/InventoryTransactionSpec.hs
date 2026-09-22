@@ -24,7 +24,7 @@ import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.Policy
-import Nagare.Resource.Reference (Dependency (OrderedAfter))
+import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import System.Directory (doesFileExist, listDirectory, removeFile)
@@ -51,9 +51,14 @@ inventoryTransactionTests =
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
             database = member owner cluster "database"
             workload = member owner cluster "workload"
+            cacheId = mintResourceId owner (ok (mkLogicalKey "cache")) (ok (mkName "logical-cache"))
+            publicKey = outputRef NixCachePublicKeyW cacheId (ok (mkName "public-key")) [NonEmptyOutput] Public
+            client = case member owner cluster "client" of
+              Managed resource -> Managed (resource {dependencies = [Consumes (SomeRef publicKey)]})
+              _ -> error "client fixture is not managed"
             cache = compileLogicalCache (LogicalCacheInput owner cluster (ok (mkLogicalKey "cache")) (ok (mkName "cache")) (contentDigest "config")
               (declarationId database) (declarationId workload) (SourceLocation "test" "cache"))
-            scope = ok (mkScopeDeclaration owner [ResourceBundle [database, workload] [] [] [] [] [], cache])
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [database, workload, client] [] [] [] [] [], cache])
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
             candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
@@ -64,9 +69,15 @@ inventoryTransactionTests =
             observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList (requiredResources requirements)])
             proposal = ok (planChanges candidate noLifecycleDecisions history observations)
             allOperations = proposalOperations proposal
-            creates = [plannedOperationId operation | operation <- allOperations, plannedAction operation == CreateResource]
+            creates = [plannedOperationId operation | operation <- allOperations, plannedAction operation == CreateResource,
+              declarationId client `notElem` NE.toList (plannedResources operation)]
         case [operation | operation <- allOperations, plannedAction operation == RunDeclaredOperation] of
-          [operation] -> Set.fromList (plannedDependencies operation) @?= Set.fromList creates
+          [operation] -> do
+            Set.fromList (plannedDependencies operation) @?= Set.fromList creates
+            case [clientCreate | clientCreate <- allOperations, plannedAction clientCreate == CreateResource,
+                  declarationId client `elem` NE.toList (plannedResources clientCreate)] of
+              [clientCreate] -> plannedDependencies clientCreate @?= [plannedOperationId operation]
+              other -> assertFailure ("expected one client creation, got " <> show other)
           other -> assertFailure ("expected one declared cache operation, got " <> show other)
     , testCase "workload creation waits for its declared migration operation" $ do
         let owner = ok (mkScopeId Platform "migration")
