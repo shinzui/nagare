@@ -38,6 +38,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
+import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventorySpec (inventoryTests)
@@ -419,6 +420,7 @@ main = do
           testGroup "nagarectl" $
             [ testGroup "Nagare.Static.Image" dockerfileTests
             , hostTests
+            , inventoryArtifactTests
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryTests

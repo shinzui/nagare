@@ -190,3 +190,18 @@ instance, destination, configuration and lock digests, old and new closures, and
 activation identity. Only a fresh-login acknowledgement followed by the existing
 self-reverting protocol's committed response proves completion. Current reachability
 and health remain observations, not historical completion evidence.
+
+Artifact declarations distinguish content owned in the current scope from immutable
+release payloads consumed as external references. Owned OCI images, GCS image
+objects, GCE images, build jobs, temporary builders, and control markers carry exact
+content and specification digests. A named remote object with a different digest or
+owner refuses before mutation. A matching immutable object proves completion without
+republishing. Unknown global consumer completeness forbids automatic collection;
+lifecycle policy must later supply explicit authority.
+
+Bootstrap helpers do not acquire lifecycle ownership because a prerequisite is
+missing. In particular, the image publisher no longer creates the Pulumi-owned image
+bucket. Inventory-child publication returns a bounded, digest-bound result and does
+not silently rewrite Pulumi configuration; a resolved image self-link requires a new
+native plan and review. The necessarily local first context transaction and later
+store migration remain the separate EP-151 boundary.

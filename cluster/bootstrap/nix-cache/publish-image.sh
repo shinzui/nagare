@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
+  echo "nagare: refusing inventory re-entry without the artifact adapter child marker" >&2
+  exit 2
+fi
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 platform_root="$(cd "${script_dir}/../../.." && pwd)"
 # shellcheck disable=SC1091
@@ -56,3 +61,6 @@ if [ "${remote_digest}" != "${expected_digest}" ]; then
   exit 1
 fi
 printf '%s@%s\n' "${destination%:*}" "${remote_digest}"
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
+  printf 'nagare-artifact\toci-image\t%s\t%s\n' "${destination%:*}" "${remote_digest}"
+fi

@@ -40,7 +40,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 - [x] (2026-09-22) M1: Compiled cloud declarations, enforced TypeScript native-registration parity, and bound exact Pulumi saved-plan bytes to review.
 - [x] (2026-09-22) M2: Bound guarded host activation, physical identity, committed closure, and fresh-login acknowledgement to durable receipts.
-- [ ] M3: Declare artifact publication, bootstrap prerequisites, and control metadata.
+- [x] (2026-09-22) M3: Declared owned/external artifacts, bootstrap dependencies, control metadata, digest-bound publication, and consumer-completeness gates.
 - [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy.
 
 
@@ -49,6 +49,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: EP-145 plans one common operation per changed declaration, while a Pulumi preview and saved plan cover the whole stack. The Pulumi adapter therefore validates every mutating preview URN against the complete declaration bundle and binds each common operation to the same exact native bytes; apply may verify an already-converged later operation rather than replaying a changed native plan. This preserves one Pulumi saved-plan authority without introducing per-resource cloud mutations.
 
 2026-09-22: The existing safe-switch protocol already distinguished arm, test activation, commit, and automatic reversion, but its successful client output was only human-readable. It now emits one machine-readable receipt after both a fresh SSH login and the on-host `COMMITTED` response. The adapter hashes that exact record and refuses local flake/version evidence as completion.
+
+2026-09-22: `scripts/upload-images.sh` was a second lifecycle owner for the Pulumi-declared image bucket. It now refuses a missing bucket instead of creating one. When invoked as an inventory artifact child it publishes a bounded result and does not rewrite `nagareImageSelfLink`; the resolved value requires a subsequent Pulumi review. The legacy direct invocation retains its config write until M4 routes the entry point.
 
 
 ## Decision Log
@@ -64,6 +66,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: Use a canonical Haskell cloud bundle as the ownership source and a Pulumi stack transformation as the TypeScript consumption boundary. The transformation sees component and provider registrations before creation, rejects undeclared `gcp:` or `nagare:` registrations, and requires every declared registration to be consumed. The retained adapter bundle is a canonical redacted header followed by the exact opaque Pulumi plan bytes.
 
 2026-09-22: Add `ActivateHost` to the closed declared-operation vocabulary rather than treating host switching as an arbitrary shell action. Recovery is automatic only before activation or after a proven reversion; a timer-armed, unreachable, wrong-instance, or wrong-closure host remains unresolved. The adapter never cancels a rollback timer to satisfy inventory execution.
+
+2026-09-22: Model deployment-context release payloads as external artifact references, while context-built OCI/GCS/GCE outputs, builders, build jobs, and control markers can be owned resources. Publication verifies exact remote content and ownership. Automatic collection refuses when global consumer completeness is unknown; EP-149 remains responsible for the eventual lifecycle decision rather than this adapter inventing deletion authority.
 
 
 ## Outcomes & Retrospective

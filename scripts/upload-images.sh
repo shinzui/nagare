@@ -155,8 +155,9 @@ if [ -z "${BUCKET}" ]; then
 fi
 log "Target bucket: gs://${BUCKET}/"
 if ! gsutil ls -b "gs://${BUCKET}/" >/dev/null 2>&1; then
-  log "Creating bucket gs://${BUCKET}/ in ${REGION}"
-  gsutil mb -p "${PROJECT}" -l "${REGION}" -b on "gs://${BUCKET}/"
+  echo "refusing to publish: inventory-owned image bucket gs://${BUCKET}/ does not exist" >&2
+  echo "create or adopt the declared cloud foundation first; upload-images.sh never owns the bucket" >&2
+  exit 2
 fi
 # GCS bucket names are GLOBAL, so a pre-existing same-named bucket in a FOREIGN
 # project would answer "yes, it exists" and then receive the multi-gigabyte host
@@ -264,6 +265,15 @@ self_link="$(gcloud --project="${PROJECT}" compute images describe "${image_name
 # is target-specific: it must be regenerated per target and never committed for a
 # foreign project (MasterPlan-12 Integration Point 3). `pulumi config set` writes it
 # into the local stack config, which is a derived projection of the profile.
-log "pulumi config set nagareImageSelfLink ${self_link}"
-pulumi --cwd "${PULUMI_DIR}" config set nagareImageSelfLink "${self_link}"
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
+  if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
+    echo "refusing inventory re-entry: upload-images.sh requires the artifact adapter child marker" >&2
+    exit 2
+  fi
+  printf 'nagare-artifact\tgce-image\t%s\t%s\n' "${self_link}" "${hash}"
+  log "bounded publication complete; a new Pulumi review must bind nagareImageSelfLink"
+else
+  log "legacy path: pulumi config set nagareImageSelfLink ${self_link}"
+  pulumi --cwd "${PULUMI_DIR}" config set nagareImageSelfLink "${self_link}"
+fi
 log "Done."

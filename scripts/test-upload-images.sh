@@ -119,5 +119,9 @@ if grep -q '/etc/nix/machines' "$work/tools.log"; then
   echo "ambient Nix builders leaked into the host-image invocation" >&2
   exit 1
 fi
+if grep -q 'gsutil mb' "$work/tools.log"; then
+  echo "upload-images.sh attempted to claim the inventory-owned image bucket" >&2
+  exit 1
+fi
 
 printf '%s\n' 'upload-images builder confinement tests passed'

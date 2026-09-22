@@ -133,7 +133,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-145 M4: Commands, backup/restore, and crash tests.
 - [x] (2026-09-22) EP-146 M1: Cloud declarations/native registration parity and exact Pulumi saved-plan binding.
 - [x] (2026-09-22) EP-146 M2: Guarded host receipts, physical identity, committed closure, and fresh-login acknowledgement.
-- [ ] EP-146 M3: Artifact/bootstrap/control resources.
+- [x] (2026-09-22) EP-146 M3: Artifact/bootstrap/control resources, digest verification, and bounded publication review barriers.
 - [ ] EP-146 M4: Migrated entry points and duplicate-policy removal.
 - [ ] EP-147 M1: Typed cluster adapter and observation/preconditions.
 - [ ] EP-147 M2: Complete cache/database composition.
