@@ -157,6 +157,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M1b partial: Apply constructs adapters from the verified store-backed review rather than the public directory; private native members remain absent from public output.
 - [x] (2026-09-22) EP-147 M1b transport probe: Disposable k3d ConfigMap checks ruled out server-side apply with resourceVersion zero as create-only and proved atomic stale-write refusal with JSON Patch UID/resourceVersion tests.
 - [x] (2026-09-22) EP-147 M1b partial: Packaged source binding, immutable private review reconstruction, explicit-context kubectl runtime, and CLI registration; a disposable ConfigMap create completed and verified.
+- [x] (2026-09-22) EP-147 M1b partial: A disposable ConfigMap completed reviewed create and update; update checks live field managers before a UID/resourceVersion-bound write.
 - [ ] EP-147 M1b: Prove safe update ownership transitions and API-server preconditions across supported kinds through the registered command path.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
@@ -184,7 +185,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Surprises & Discoveries
 
-2026-09-22: EP-147 registered a first Kubernetes runtime for packaged manifest declarations. It binds source at plan time, reconstructs native objects from the private review for apply/resume, and verified create-only execution on a disposable cluster. Non-forced server-side updates still conflict with fields owned by the same manager's earlier create; M1b remains open for a per-kind transition and broader live proof. Generated namespace contributions still need the M3 native composer.
+2026-09-22: EP-147 registered a first Kubernetes runtime for packaged manifest declarations. It binds source at plan time, reconstructs native objects from the private review for apply/resume, and verified create and update on a disposable ConfigMap. Update permits forced transfer from its own create manager only after a live managed-fields check excludes foreign non-status owners, with UID/resourceVersion in the write. M1b remains open for per-kind projection and broader live command proof. Generated namespace contributions still need the M3 native composer.
 
 2026-09-22: EP-147 closed an immediate credential race in the legacy database create path: a create-only Secret write now rereads a concurrent winner, and dry-run omits generated Secret data. This does not complete the reviewed inventory migration. A further disposable Kubernetes probe showed that no-op server-side apply after create does not transfer Update field ownership; subsequent changed apply still conflicts, so production update transport remains gated on per-kind ownership and atomic UID/resourceVersion handling.
 

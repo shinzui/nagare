@@ -144,6 +144,9 @@ validateBefore operation resource state =
 buildMutation :: ContextId -> PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation
 buildMutation context operation resource declaration native before = do
   value <- first (refusal . T.pack) (eitherDecodeStrict native)
+  case value of
+    Object root | KM.member "status" root -> Left (refusal "desired Kubernetes object may not set controller-owned status")
+    _ -> pure ()
   canonical <- first refusal (canonicalValue value)
   unless (canonical == native) (Left (refusal "native Kubernetes bytes are not canonical JSON"))
   let digest = contentDigest native

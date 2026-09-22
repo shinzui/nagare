@@ -15,7 +15,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), desiredFieldsMatch, mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, desiredFieldsMatch, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Database (compileDatabaseNative)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
@@ -137,6 +137,25 @@ inventoryKubernetesTests =
               ]
         assertBool "server extras should not drift" (desiredFieldsMatch desired (observed "reviewed"))
         assertBool "desired data change must drift" (not (desiredFieldsMatch desired (observed "changed")))
+    , testCase "update ownership refuses a foreign field manager" $ do
+        let metadata fields = object
+              [ "metadata" .= object
+                  [ "uid" .= ("kubernetes-uid-1" :: Text)
+                  , "resourceVersion" .= ("4" :: Text)
+                  , "managedFields" .= fields
+                  ]
+              ]
+            entry manager fields = object
+              [ "manager" .= (manager :: Text)
+              , "fieldsV1" .= fields
+              ]
+            own = entry "nagare-inventory" (object ["f:data" .= object []])
+            foreignEntry = entry "another-writer" (object ["f:data" .= object []])
+            status = entry "controller" (object ["f:status" .= object []])
+        confirmInventoryFieldOwnership physical "4" (metadata [own, status]) @?= Right ()
+        assertBool "foreign field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [own, foreignEntry])))
+        assertBool "stale version accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "5" (metadata [own])))
+        assertBool "missing inventory field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [status])))
     , testCase "packaged source is bound once and changed source refuses review" $
         withSystemTempDirectory "nagare-kubernetes-source" $ \root -> do
           let source = SourceLocation "object.json" "#document[0]"
@@ -165,7 +184,7 @@ inventoryKubernetesTests =
         snapshotBefore <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
         kubernetesSpecsFromReview bundle @?= Right specs
-    , testCase "disposable cluster executes a create-only reviewed object" $ do
+    , testCase "disposable cluster creates and conditionally updates a reviewed object" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
@@ -182,6 +201,16 @@ inventoryKubernetesTests =
                 bound = Map.singleton resource native
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                changedValue = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= ("updated" :: Text)]
+                  ]
+                changedBytes = ok (canonicalValue changedValue)
+                changedNative = ok (bindKubernetesObject (input {inputObject = changedValue, objectDigest = contentDigest changedBytes}))
+                changedBound = Map.singleton resource changedNative
+                changedAdapter = mkKubernetesAdapter changedBound (mkKubernetesRuntimeOps config changedBound)
                 cleanup = do
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
@@ -191,6 +220,10 @@ inventoryKubernetesTests =
               adapterPreflight adapter createOperation prepared >>= expectRight
               adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify adapter createOperation prepared >>= expectRight
+              updatePrepared <- adapterPrepare changedAdapter updateOperation >>= expectRight
+              adapterPreflight changedAdapter updateOperation updatePrepared >>= expectRight
+              adapterExecute changedAdapter updateOperation updatePrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changedAdapter updateOperation updatePrepared >>= expectRight
               pure ()) `finally` cleanup
     ]
 

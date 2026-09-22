@@ -1,11 +1,14 @@
 -- | Explicit-context kubectl transport for reviewed Kubernetes objects.
 -- Create is a server-side create-only request. Updates are server-side apply
--- with UID and resourceVersion in the request, without force-conflicts. A
+-- with UID and resourceVersion in the request. A forced transfer from the
+-- create operation is allowed only after a live managed-fields check proves
+-- there is no foreign owner of the object's non-status fields. A
 -- transport failure is ambiguous until a new observation proves its outcome.
 module Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
   , mkKubernetesRuntimeOps
   , desiredFieldsMatch
+  , confirmInventoryFieldOwnership
   ) where
 
 import Control.Exception (IOException, try)
@@ -72,9 +75,13 @@ mkKubernetesRuntimeOps config specs =
         Right () -> do
           let native = mutationNativeJson mutation
           request <- case (mutationAction mutation, mutationBefore mutation) of
-            (CreateResource, KubernetesAbsent _) -> pure (Right (["create", "-f", "-"], native))
-            (UpdateResource, KubernetesPresent uid revision _ _) ->
-              pure ((["apply", "--server-side", "--field-manager=nagare-inventory", "-f", "-"],) <$> addPreconditions uid revision native)
+            (CreateResource, KubernetesAbsent _) -> pure (Right (["create", "--field-manager=nagare-inventory", "-f", "-"], native))
+            (UpdateResource, KubernetesPresent uid revision _ _) -> do
+              ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
+              pure $ do
+                ownership
+                body <- addPreconditions uid revision native
+                pure (["apply", "--server-side", "--force-conflicts", "--field-manager=nagare-inventory", "-f", "-"], body)
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
             Left reason -> pure (AdapterEffectAmbiguous reason)
@@ -136,6 +143,51 @@ addPreconditions uid revision native = do
   case value of
     Object root -> TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "metadata" (Object guarded) root))
     _ -> Left "Kubernetes native object is not an object"
+
+-- | A create is recorded as an Update field manager even when it uses the
+-- same manager name as later server-side apply. Force is safe only while all
+-- non-status fields still belong exclusively to that manager. The subsequent
+-- apply includes the observed UID/resourceVersion, so a change after this
+-- read makes the API server reject the write.
+confirmInventoryFieldOwnership :: PhysicalIdentity -> Text -> Value -> Either Text ()
+confirmInventoryFieldOwnership uid revision observed = do
+  metadata <- metadataOf observed
+  actualUid <- fieldText "uid" metadata
+  actualRevision <- fieldText "resourceVersion" metadata
+  unless (actualUid == physicalIdentityText uid && actualRevision == revision)
+    (Left "Kubernetes object changed after the reviewed observation")
+  fields <- case KM.lookup "managedFields" metadata of
+    Just (Array entries) | not (null entries) -> Right (foldr (:) [] entries)
+    _ -> Left "Kubernetes managed fields are missing; update ownership is unknown"
+  mapM_ checkEntry fields
+  unless (any isInventoryOwner fields)
+    (Left "Kubernetes object has no inventory-managed fields to update")
+  where
+    checkEntry (Object entry) = do
+      manager <- fieldText "manager" entry
+      fieldSet <- case KM.lookup "fieldsV1" entry of
+        Just (Object value) -> Right value
+        _ -> Left "Kubernetes managed-field entry is malformed"
+      unless (manager == "nagare-inventory" || statusOnly fieldSet)
+        (Left "Kubernetes object has fields managed by another writer")
+    checkEntry _ = Left "Kubernetes managed-field entry is malformed"
+    isInventoryOwner (Object entry) = textAt "manager" entry == Just "nagare-inventory"
+    isInventoryOwner _ = False
+    statusOnly fields = all (== "f:status") (KM.keys fields)
+
+verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text ())
+verifyLiveOwnership config target uid revision = case target of
+  Kubernetes _ group kind namespace name -> do
+    result <- invoke config
+      (["get", kindToken group kind, T.unpack (nameText name)]
+        <> namespaceArgs namespace <> ["-o", "json", "--show-managed-fields"])
+      ""
+    pure $ case result of
+      Right (ExitSuccess, output, _) -> do
+        observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+        confirmInventoryFieldOwnership uid revision observed
+      _ -> Left "could not verify Kubernetes field ownership before update"
+  _ -> pure (Left "Kubernetes mutation has no Kubernetes address")
 
 kindToken :: Text -> Name -> String
 kindToken group kind = T.unpack (nameText kind <> if T.null group then "" else "." <> group)
