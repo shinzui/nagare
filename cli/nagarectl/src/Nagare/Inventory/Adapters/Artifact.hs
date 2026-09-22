@@ -50,7 +50,7 @@ data ArtifactAdapterOps = ArtifactAdapterOps
   , artifactPublish :: !(ArtifactMutationPlan -> IO AdapterExecution)
   }
 
-mkArtifactAdapter :: Map ResourceId ArtifactResourceSpec -> ArtifactAdapterOps -> Adapter
+mkArtifactAdapter :: Map ResourceId ArtifactExecutionSpec -> ArtifactAdapterOps -> Adapter
 mkArtifactAdapter specs ops =
   Adapter
     { adapterExecutor = ArtifactExecutor
@@ -98,7 +98,7 @@ mkArtifactAdapter specs ops =
       Left err -> pure (RecoveryUnresolved err)
       Right plan -> recoveryObservation plan <$> artifactInspectRemote ops plan
 
-validatePlan :: Map ResourceId ArtifactResourceSpec -> PlannedOperation -> ArtifactMutationPlan -> Either PrepareError ()
+validatePlan :: Map ResourceId ArtifactExecutionSpec -> PlannedOperation -> ArtifactMutationPlan -> Either PrepareError ()
 validatePlan specs operation plan
   | artifactPlanVersion plan /= 1 = refusal "unsupported artifact plan version"
   | artifactPlanOperation plan /= plannedOperationId operation = refusal "artifact operation identity changed"
@@ -107,14 +107,15 @@ validatePlan specs operation plan
   | otherwise = case Map.lookup (artifactPlanResource plan) specs of
       Nothing -> refusal "artifact resource is absent from the declaration bundle"
       Just spec
-        | artifactKind spec /= artifactPlanKind plan -> refusal "artifact kind changed"
-        | artifactContentDigest spec /= artifactPlanExpectedDigest plan -> refusal "artifact content digest changed"
-        | plannedAction operation == RetireResource && artifactConsumers spec == ConsumerCompletenessUnknown -> refusal "artifact consumer completeness is unknown; automatic collection is forbidden"
+        | executionArtifactKind spec /= artifactPlanKind plan -> refusal "artifact kind changed"
+        | executionArtifactDestination spec /= artifactPlanDestination plan -> refusal "artifact destination changed"
+        | executionArtifactContentDigest spec /= artifactPlanExpectedDigest plan -> refusal "artifact content digest changed"
+        | plannedAction operation == RetireResource && not (executionArtifactConsumersComplete spec) -> refusal "artifact consumer completeness is unknown; automatic collection is forbidden"
         | otherwise -> Right ()
   where
     refusal = Left . PrepareRefused (plannedOperationId operation)
 
-decodePlan :: Map ResourceId ArtifactResourceSpec -> PlannedOperation -> ByteString -> Either Text ArtifactMutationPlan
+decodePlan :: Map ResourceId ArtifactExecutionSpec -> PlannedOperation -> ByteString -> Either Text ArtifactMutationPlan
 decodePlan specs operation bytes = do
   plan <- first T.pack (eitherDecodeStrict bytes)
   first renderPrepare (validatePlan specs operation plan)

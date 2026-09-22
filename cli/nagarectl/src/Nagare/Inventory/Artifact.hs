@@ -4,9 +4,12 @@ module Nagare.Inventory.Artifact
   , ArtifactOwnership (..)
   , ConsumerCoverage (..)
   , ArtifactResourceSpec (..)
+  , ArtifactExecutionSpec (..)
   , ArtifactDeclarationBundle (..)
   , compileArtifactScope
   , artifactSpecsById
+  , artifactExecutionSpecs
+  , artifactExecutionSpecsFromDeclarations
   )
 where
 
@@ -46,6 +49,7 @@ data ArtifactResourceSpec = ArtifactResourceSpec
   { artifactLogicalKey :: !LogicalKey
   , artifactRole :: !Name
   , artifactName :: !Name
+  , artifactDestination :: !Text
   , artifactContentDigest :: !ContentDigest
   , artifactSpecDigest :: !ContentDigest
   , artifactKind :: !ArtifactKind
@@ -60,6 +64,15 @@ data ArtifactResourceSpec = ArtifactResourceSpec
   }
   deriving stock (Eq, Ord, Show, Generic)
 
+data ArtifactExecutionSpec = ArtifactExecutionSpec
+  { executionArtifactKind :: !ArtifactKind
+  , executionArtifactDestination :: !Text
+  , executionArtifactContentDigest :: !ContentDigest
+  , executionArtifactSpecDigest :: !ContentDigest
+  , executionArtifactConsumersComplete :: !Bool
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
 data ArtifactDeclarationBundle = ArtifactDeclarationBundle
   { artifactBundleVersion :: !Int
   , artifactScope :: !ScopeId
@@ -71,6 +84,22 @@ artifactSpecsById :: ArtifactDeclarationBundle -> Map ResourceId ArtifactResourc
 artifactSpecsById bundle = Map.fromList [(resourceId resource, resource) | resource <- NE.toList (artifactResources bundle)]
   where
     resourceId resource = mintResourceId (artifactScope bundle) (artifactLogicalKey resource) (artifactRole resource)
+
+artifactExecutionSpecs :: ArtifactDeclarationBundle -> Map ResourceId ArtifactExecutionSpec
+artifactExecutionSpecs bundle = fmap executionSpec (artifactSpecsById bundle)
+
+artifactExecutionSpecsFromDeclarations :: [Declaration] -> Either Text (Map ResourceId ArtifactExecutionSpec)
+artifactExecutionSpecsFromDeclarations declarations = Map.fromList <$> traverse fromDeclaration managedArtifacts
+  where
+    managedArtifacts = [resource | Managed resource <- declarations, resource ^. #executor == ArtifactExecutor]
+    fromDeclaration resource = case (resource ^. #address, resource ^. #spec) of
+      (Artifact _ contentDigest, ArtifactPublication kind destination specDigest hasCompleteConsumers) -> do
+        artifactKind <- kindFromName kind
+        pure
+          ( resource ^. #identity
+          , ArtifactExecutionSpec artifactKind destination contentDigest specDigest hasCompleteConsumers
+          )
+      _ -> Left ("artifact declaration lacks its typed publication specification: " <> resourceIdText (resource ^. #identity))
 
 compileArtifactScope :: ArtifactDeclarationBundle -> Either (NonEmpty InventoryError) ScopeDeclaration
 compileArtifactScope bundle
@@ -98,7 +127,12 @@ compileArtifactScope bundle
             , executor = ArtifactExecutor
             , address = address resource
             , aliases = []
-            , spec = NativeObject (artifactSpecDigest resource)
+            , spec =
+                ArtifactPublication
+                  (kindName (artifactKind resource))
+                  (artifactDestination resource)
+                  (artifactSpecDigest resource)
+                  (consumersComplete (artifactConsumers resource))
             , lifecycle = artifactLifecycle resource
             , dataPolicy = artifactDataPolicy resource
             , sensitivity = artifactSensitivity resource
@@ -118,3 +152,39 @@ compileArtifactScope bundle
 
 knownName :: Text -> Name
 knownName = either (error . show) id . mkName
+
+executionSpec :: ArtifactResourceSpec -> ArtifactExecutionSpec
+executionSpec resource =
+  ArtifactExecutionSpec
+    { executionArtifactKind = artifactKind resource
+    , executionArtifactDestination = artifactDestination resource
+    , executionArtifactContentDigest = artifactContentDigest resource
+    , executionArtifactSpecDigest = artifactSpecDigest resource
+    , executionArtifactConsumersComplete = consumersComplete (artifactConsumers resource)
+    }
+
+consumersComplete :: ConsumerCoverage -> Bool
+consumersComplete KnownConsumers {} = True
+consumersComplete ConsumerCompletenessUnknown = False
+
+kindName :: ArtifactKind -> Name
+kindName =
+  knownName . \case
+    OciImageArtifact -> "oci-image"
+    GcsImageObjectArtifact -> "gcs-image-object"
+    GceImageArtifact -> "gce-image"
+    BuildJobArtifact -> "build-job"
+    TemporaryBuilderArtifact -> "temporary-builder"
+    ReleasePayloadArtifact -> "release-payload"
+    ControlMetadataArtifact -> "control-metadata"
+
+kindFromName :: Name -> Either Text ArtifactKind
+kindFromName value = case nameText value of
+  "oci-image" -> Right OciImageArtifact
+  "gcs-image-object" -> Right GcsImageObjectArtifact
+  "gce-image" -> Right GceImageArtifact
+  "build-job" -> Right BuildJobArtifact
+  "temporary-builder" -> Right TemporaryBuilderArtifact
+  "release-payload" -> Right ReleasePayloadArtifact
+  "control-metadata" -> Right ControlMetadataArtifact
+  token -> Left ("unsupported artifact kind " <> token)

@@ -66,6 +66,7 @@ data DesiredSpec
   | Certificate !Name !ContentDigest
   | StatefulSet !Integer ![Name] !ContentDigest
   | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
+  | ArtifactPublication !Name !Text !ContentDigest !Bool
   | NamespaceSpec
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -221,6 +222,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (_, NativeObject _) -> True
       (_, HelmRelease {}) -> True
+      (Artifact _ _, ArtifactPublication {}) -> True
       _ -> False
 validateDeclaration d = [inventoryError "invalid-address" message & #resources .~ [declarationId d] & #sources .~ [declarationSource d] | address <- addresses, Left message <- [mkProviderAddress address]]
   where

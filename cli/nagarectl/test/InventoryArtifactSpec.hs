@@ -27,6 +27,8 @@ inventoryArtifactTests =
             length declared @?= 3
             length declaredOperations @?= 1
             any isExternal declared @? "release payload should remain an external reference in a deployment context"
+            reconstructed <- expectRight (artifactExecutionSpecsFromDeclarations declared)
+            Map.lookup artifactResource reconstructed @?= Map.lookup artifactResource specs
           values -> assertFailure ("expected one artifact bundle, got " <> show (length values))
     , testCase "matching immutable content resumes without republishing" $ do
         calls <- newIORef (0 :: Int)
@@ -81,6 +83,7 @@ imageSpec =
     { artifactLogicalKey = logicalKey "host-image"
     , artifactRole = name "gce-image"
     , artifactName = name "nagare-image-abc"
+    , artifactDestination = "projects/example/global/images/nagare-image-abc"
     , artifactContentDigest = expectedDigest
     , artifactSpecDigest = contentDigest "image-spec"
     , artifactKind = GceImageArtifact
@@ -118,8 +121,8 @@ controlSpec =
     , artifactSource = SourceLocation "cli/nagarectl/src/Nagare/Platform/Deployment.hs" "version-marker"
     }
 
-specs :: Map.Map ResourceId ArtifactResourceSpec
-specs = artifactSpecsById artifactBundle
+specs :: Map.Map ResourceId ArtifactExecutionSpec
+specs = artifactExecutionSpecs artifactBundle
 
 artifactResource :: ResourceId
 artifactResource = mintResourceId scope (artifactLogicalKey imageSpec) (artifactRole imageSpec)

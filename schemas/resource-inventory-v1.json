@@ -583,6 +583,39 @@
           "type": "object",
           "properties": {
             "tag": {
+              "const": "ArtifactPublication"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/digest"
+                },
+                {
+                  "type": "boolean"
+                }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
               "const": "NamespaceSpec"
             }
           },
