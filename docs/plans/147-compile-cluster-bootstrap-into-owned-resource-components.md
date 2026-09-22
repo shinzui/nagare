@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Cascaded consequences of MasterPlan 23 API validation"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T18:29:14Z
+      mode: "implement"
+      note: "Begin typed Kubernetes component declarations"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -33,7 +38,8 @@ A component is an independently identified group of resources and operations, su
 
 ## Progress
 
-- [ ] M1: Build typed Kubernetes declarations and guarded observation/apply adapters.
+- [x] (2026-09-22) M1a: Compile structured Kubernetes objects to typed declarations with controller reservations; the database Service/Knative collision and malformed Certificate fixtures pass (426 DSL tests).
+- [ ] M1b: Add multi-document/List expansion, canonical native-byte binding, and guarded observation/apply adapters.
 - [ ] M2: Compile cache and managed database resources from one declaration path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -41,7 +47,7 @@ A component is an independently identified group of resources and operations, su
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-22: EP-144 already implemented the controller reservation rules in `Nagare.Resource.Inventory`, but no compiler consumed structured Kubernetes objects. `Nagare.Resource.Kubernetes.compileKubernetesObject` now derives the correct specialized specification from an object. The existing database renderer golden Service collides with a same-name Knative Service through this compiler, proving the reservation check operates on rendered shapes. The module is pure; native-byte retention, observation, and execution remain M1b.
 
 
 ## Decision Log
@@ -53,6 +59,8 @@ None yet; implementation has not started.
 2026-09-16: Known migration Jobs have durable operation identities bound to inputs. Unconditional delete-and-recreate on every bootstrap is removed.
 
 2026-09-16: Kubernetes claims include derived reservations for controller children, and shared-resource digests follow composed content. Verified in the tree that a database Service is named after the database while applications are Knative Services, so direct claims alone miss a same-name collision.
+
+2026-09-22: Take the content digest as an explicit compiler input and return the structured declaration. Rationale: `nagare-dsl` remains free of hashing and execution dependencies, while a later adapter must retain and verify the native bytes that digest names.
 
 
 ## Outcomes & Retrospective

@@ -61,6 +61,7 @@ library
     Nagare.Dsl.Worker.Render
     Nagare.Resource.Compile
     Nagare.Resource.Inventory
+    Nagare.Resource.Kubernetes
     Nagare.Resource.Policy
     Nagare.Resource.Reference
     Nagare.Resource.Types
@@ -118,3 +119,4 @@ test-suite nagare-dsl-test
     tasty-quickcheck >=0.10,
     temporary,
     text,
+    yaml,

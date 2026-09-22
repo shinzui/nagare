@@ -1,6 +1,6 @@
 module ResourceInventorySpec (resourceInventoryTests) where
 
-import Data.Aeson (object, (.=))
+import Data.Aeson (Value, object, (.=))
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -8,12 +8,14 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
+import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import Test.Tasty
 import Test.Tasty.HUnit
+import Data.Yaml qualified as Yaml
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
@@ -81,6 +83,26 @@ resourceInventoryTests =
     , testCase "Knative child Service conflicts with database Service" $ do
         let app = Managed (resource a "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "nagare-system")) (n "same")) (KnativeService digest))
         rejects "claim-conflict" (compileScopes [scope p [service p "db" "same"], scope a [app]])
+    , testCase "database renderer Service collides with a same-name Knative Service" $ do
+        bytes <- BC.readFile "test/golden/db-postgres.service.yaml"
+        let dbObject = ok (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+            knativeObject = object
+              [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+              , "kind" .= ("Service" :: Text)
+              , "metadata" .= object ["name" .= ("pg-main" :: Text), "namespace" .= ("personal" :: Text)]
+              ]
+            compiled owner key value = Managed (ok (compileKubernetesObject (KubernetesInput (rid owner key) owner cluster value digest Retain Stateless Public (SourceLocation "fixture" key))))
+        rejects "claim-conflict" (compileScopes [scope p [compiled p "database" dbObject], scope a [compiled a "application" knativeObject]])
+    , testCase "malformed Certificate cannot evade its Secret reservation" $ do
+        let cert = object
+              [ "apiVersion" .= ("cert-manager.io/v1" :: Text)
+              , "kind" .= ("Certificate" :: Text)
+              , "metadata" .= object ["name" .= ("tls" :: Text), "namespace" .= ("personal" :: Text)]
+              , "spec" .= object []
+              ]
+        case compileKubernetesObject (KubernetesInput (rid p "certificate") p cluster cert digest Retain Stateless Public (SourceLocation "fixture" "certificate")) of
+          Left e -> e ^. #code @?= "invalid-kubernetes-object"
+          Right _ -> assertFailure "Certificate without secretName was accepted"
     , testCase "controller spec cannot omit derived claims" $ do
         let app = Managed (resource a "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "ns")) (n "same")) (NativeObject digest))
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [app]])

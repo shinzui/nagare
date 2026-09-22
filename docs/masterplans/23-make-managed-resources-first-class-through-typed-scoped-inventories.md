@@ -31,6 +31,11 @@ provenance:
       at: 2026-09-22T13:49:36Z
       mode: "implement"
       note: "Begin EP-146 cloud host and artifact adapters"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T18:29:14Z
+      mode: "implement"
+      note: "Begin EP-147 cluster bootstrap inventory migration"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -71,7 +76,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | Complete |
 | 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Complete |
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Complete |
-| 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Not Started |
+| 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | In Progress |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Not Started |
 | 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
@@ -135,7 +140,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-146 M2: Guarded host receipts, physical identity, committed closure, and fresh-login acknowledgement.
 - [x] (2026-09-22) EP-146 M3: Artifact/bootstrap/control resources, digest verification, and bounded publication review barriers.
 - [x] (2026-09-22) EP-146 M4: Production domain registration, confined transports, and compatibility handoff to EP-150.
-- [ ] EP-147 M1: Typed cluster adapter and observation/preconditions.
+- [x] (2026-09-22) EP-147 M1a: Structured Kubernetes objects compile to typed declarations; rendered database/Knative collision fixture passes.
+- [ ] EP-147 M1b: Multi-document expansion, retained native evidence, observation, and guarded mutation.
 - [ ] EP-147 M2: Complete cache/database composition.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.
@@ -158,6 +164,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-22: EP-147 found that controller reservations were already present in EP-144's inventory validator, while structured Kubernetes objects still lacked a compiler path into those declarations. The new pure compiler connects those boundaries and proves the database/Knative collision against the database renderer's golden manifest. It does not yet authorize Kubernetes mutation.
 
 2026-09-22: EP-145 is complete. Consumers use Nagare.Inventory.Adapter, Plan, Journal, Store, and Execute; only lock-scoped admission can create execution authority. Native evidence stays in the private store while the operator-facing review directory contains the canonical public document and scopes. The CLI currently installs a deterministic manifest-only adapter whose preflight always refuses; EP-146 and EP-147 replace it with real provider adapters. The store suite now covers both conditional backends, re-entry, backup integrity, actual independent-process exclusion, and lock release after process death. Filesystem export excludes the lock and atomic-write temporaries. ADR 22 records this implemented boundary.
 
