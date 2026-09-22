@@ -12,6 +12,8 @@ module Nagare.Inventory.Cloud
   , RegistrationParityError (..)
   , compileCloudScope
   , expectedRegistrations
+  , registrationsFromDeclarations
+  , encodeRegistrationBundle
   , validateNativeRegistrationParity
   , encodeCloudDeclarationBundle
   , decodeCloudDeclarationBundle
@@ -22,7 +24,7 @@ import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Foldable (asum, traverse_)
-import Data.List (sortOn)
+import Data.List (nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -131,7 +133,8 @@ providerAddress (PulumiAddress urn) = PulumiUrn urn
 
 expectedRegistrations :: CloudDeclarationBundle -> [NativeRegistration]
 expectedRegistrations bundle =
-  sortOn registrationResource
+  sortOn
+    registrationResource
     [ NativeRegistration
         { registrationResource = mintResourceId (cloudScope bundle) (cloudLogicalKey resource) (cloudRole resource)
         , registrationPulumiType = cloudNativeType resource
@@ -142,6 +145,58 @@ expectedRegistrations bundle =
         }
     | resource <- cloudResources bundle
     ]
+
+-- | Recover the TypeScript registration mapping from compiled Pulumi-managed
+-- declarations. The common scope remains authoritative for identity/policy;
+-- the Pulumi URN alias supplies only the provider type and logical name.
+registrationsFromDeclarations :: [Declaration] -> Either Text [NativeRegistration]
+registrationsFromDeclarations declarations =
+  sortOn registrationResource <$> traverse registration pulumiResources
+  where
+    pulumiResources = [resource | Managed resource <- declarations, resource ^. #executor == PulumiExecutor]
+    registration resource = do
+      urn <- case nub [value | PulumiUrn value <- resource ^. #address : resource ^. #aliases] of
+        [value] -> Right value
+        [] -> Left (resourceError resource "has no Pulumi URN address or alias")
+        _ -> Left (resourceError resource "has more than one Pulumi URN address or alias")
+      (nativeType, nativeName) <- parseUrn resource urn
+      specDigest <- case resource ^. #spec of
+        NativeObject digest -> Right digest
+        _ -> Left (resourceError resource "does not use a native-object specification")
+      pure
+        NativeRegistration
+          { registrationResource = resource ^. #identity
+          , registrationPulumiType = nativeType
+          , registrationPulumiName = nativeName
+          , registrationPulumiUrn = urn
+          , registrationSpecDigest = specDigest
+          , registrationClass = ManagedRegistration
+          }
+    parseUrn resource urn = case reverse (T.splitOn "::" urn) of
+      nameToken : typeToken : _ | "urn:pulumi:" `T.isPrefixOf` urn -> do
+        nativeName <- first (const (resourceError resource "has an invalid Pulumi logical name")) (mkName nameToken)
+        unless (not (T.null typeToken) && not (T.any (< ' ') typeToken)) (Left (resourceError resource "has an invalid Pulumi type token"))
+        pure (typeToken, nativeName)
+      _ -> Left (resourceError resource "has an invalid Pulumi URN")
+    resourceError resource message = resourceIdText (resource ^. #identity) <> " " <> message
+
+-- | Runtime wire document consumed by the Pulumi stack transformation. The
+-- resource declarations have already been validated by composition; this
+-- projection contains only the native mapping needed during registration.
+encodeRegistrationBundle :: ContextId -> Name -> Name -> [ScopeId] -> [NativeRegistration] -> ByteString
+encodeRegistrationBundle context project stack scopes registrations =
+  either (error . T.unpack) id $
+    canonicalValue $
+      object
+        [ "version" .= (1 :: Int)
+        , "context" .= context
+        , "project" .= project
+        , "stack" .= stack
+        , "scope" .= scopes
+        , "resources" .= ([] :: [Value])
+        , "registrations" .= registrations
+        , "bundleDigest" .= contentDigest (either (error . T.unpack) id (canonicalValue (toJSON registrations)))
+        ]
 
 validateNativeRegistrationParity :: [NativeRegistration] -> [NativeRegistration] -> Either (NonEmpty RegistrationParityError) ()
 validateNativeRegistrationParity declared native =

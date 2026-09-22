@@ -25,7 +25,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude hiding ((.=), op)
+import Nagare.Dsl.Prelude hiding (op, (.=))
 import Nagare.Infra.Plan (PlanStep (..), StepOp (..), parsePreview)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Cloud
@@ -40,6 +40,8 @@ data PulumiIdentity = PulumiIdentity
   , pulumiProject :: !Text
   , pulumiStack :: !Text
   , pulumiBackend :: !Text
+  , pulumiPayloadId :: !Text
+  , pulumiPayloadDigest :: !ContentDigest
   , pulumiProgramDigest :: !ContentDigest
   , pulumiConfigDigest :: !ContentDigest
   , pulumiToolVersion :: !Text
@@ -210,6 +212,8 @@ instance ToJSON PulumiIdentity where
       , "project" .= pulumiProject identity
       , "stack" .= pulumiStack identity
       , "backend" .= pulumiBackend identity
+      , "payloadId" .= pulumiPayloadId identity
+      , "payloadDigest" .= pulumiPayloadDigest identity
       , "programDigest" .= pulumiProgramDigest identity
       , "configDigest" .= pulumiConfigDigest identity
       , "pulumiVersion" .= pulumiToolVersion identity
@@ -217,7 +221,7 @@ instance ToJSON PulumiIdentity where
 
 instance FromJSON PulumiIdentity where
   parseJSON = withObject "Pulumi identity" $ \o ->
-    PulumiIdentity <$> o .: "context" <*> o .: "project" <*> o .: "stack" <*> o .: "backend" <*> o .: "programDigest" <*> o .: "configDigest" <*> o .: "pulumiVersion"
+    PulumiIdentity <$> o .: "context" <*> o .: "project" <*> o .: "stack" <*> o .: "backend" <*> o .: "payloadId" <*> o .: "payloadDigest" <*> o .: "programDigest" <*> o .: "configDigest" <*> o .: "pulumiVersion"
 
 instance ToJSON PulumiBundleHeader where
   toJSON header =

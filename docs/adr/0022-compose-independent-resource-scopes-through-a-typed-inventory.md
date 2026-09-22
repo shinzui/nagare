@@ -220,3 +220,11 @@ transport cannot turn a held inventory lock into an unreviewed nested mutation.
 `Inventory.Command` accepts concrete registry injection at its plan/apply/resume
 boundary; the default CLI remains deliberately refusing until each production
 domain registration is supplied.
+
+The Pulumi domain now has a production subprocess runtime behind that boundary.
+It derives registrations from composed declarations, installs the declaration
+guard for preview/apply/verification, creates a saved plan only in preparation,
+and writes retained bytes to a private temporary file for `pulumi up --plan`.
+Physical observation comes from stack export and completion requires a no-change
+preview. Its identity binds payload ID/digest as well as context, project, stack,
+backend, program, configuration, and Pulumi version.

@@ -58,6 +58,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 2026-09-22: Separating registry injection from `Inventory.Command` exposed the remaining M4 boundary precisely. The common planner/executor can now accept real domain adapters without provider orchestration in `app/Main.hs`, but the shipped CLI still selects the refusing registry. `docs/architecture/managed-resource-coverage.md` records those public entry points as `adapter-ready`, not migrated; M4 remains open until production registry construction replaces the old infra/host/publication paths.
 
+2026-09-22: The prior Pulumi adapter stopped at an injected interface. A production subprocess runtime now derives native registrations back from compiled declarations, installs the TypeScript declaration guard for every provider invocation, creates a saved plan only during preparation, applies the exact retained bytes, observes physical IDs from stack export, and verifies with `preview --expect-no-changes`. A recording test proves only one `--save-plan` call and checks the retained plan reaches `pulumi up`. The runtime identity also now includes payload ID and digest, which the first header had accidentally omitted.
+
 
 ## Decision Log
 
@@ -78,6 +80,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: Treat the retained native bundle as an input to verification, not only to preflight, execution, and recovery. Regenerating a host, artifact, or Pulumi preparation after an effect would sever the completion proof from the operator-reviewed bytes.
 
 2026-09-22: Export a closed executor token (`kubernetes`, `pulumi`, `host`, or `artifact`) beside the transaction identity for adapter child processes. A transport accepts inventory-scoped execution only for its owning token and refuses all others before side effects. Public command routing still goes through a separately injected adapter registry.
+
+2026-09-22: Treat Pulumi's subprocess runtime as part of the adapter, not `Main.hs` orchestration. Preparation alone may use `--save-plan`; execution consumes retained plan bytes; verification may observe a no-change preview but cannot create new authority. Bind payload identity/digest alongside context, project, stack, backend, program, config, and tool version.
 
 
 ## Outcomes & Retrospective

@@ -1,18 +1,27 @@
 module InventoryCloudSpec (inventoryCloudTests) where
 
 import Data.ByteString.Char8 qualified as BC
+import Data.Either (isRight)
+import Data.List (isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Infra.Plan (StepOp (OpCreate))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
+import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Cloud
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import System.Directory (createDirectory)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -27,6 +36,7 @@ inventoryCloudTests =
         declaration <- expectRight (compileCloudScope decoded)
         length (scopeBundles declaration) @?= 1
         expectedRegistrations decoded @?= [registration]
+        registrationsFromDeclarations [managed | resourceBundle <- scopeBundles declaration, managed <- declarations resourceBundle] @?= Right [registration]
     , testCase "registration parity refuses an undeclared native object" $ do
         let foreignRegistration = registration {registrationResource = resource "platform:cloud/foreign/bucket"}
         case validateNativeRegistrationParity [registration] [registration, foreignRegistration] of
@@ -53,7 +63,71 @@ inventoryCloudTests =
         case validatePulumiPreparation [registration] wrong prepared of
           Left (PulumiActionMismatch _ RetireResource OpCreate) -> pure ()
           other -> assertFailure ("expected action mismatch, got " <> show other)
+    , testCase "Pulumi runtime applies retained plan bytes and verifies convergence" $
+        withSystemTempDirectory "pulumi-inventory-runtime" $ \temporary -> do
+          let program = temporary </> "program"
+              executable = temporary </> "pulumi"
+              stackConfig = temporary </> "Pulumi.dev.yaml"
+              logPath = temporary </> "calls.log"
+          createDirectory program
+          writeFile (program </> "index.ts") "export {};\n"
+          writeFile stackConfig "config: {}\n"
+          writeFile executable (fakePulumi logPath)
+          setFileMode executable 0o700
+          let config =
+                PulumiRuntimeConfig
+                  { runtimeContext = "dev"
+                  , runtimeProject = "example-project"
+                  , runtimeStack = "dev"
+                  , runtimeBackend = "gs://example-state"
+                  , runtimePayloadId = "payload-v1"
+                  , runtimePayloadDigest = contentDigest "payload"
+                  , runtimePulumiExecutable = executable
+                  , runtimePulumiDirectory = program
+                  , runtimeStackConfig = stackConfig
+                  , runtimeDeclarationBundle = encodeCloudDeclarationBundle bundle
+                  , runtimeRegistrations = [registration]
+                  }
+              adapter = mkPulumiAdapter [registration] (mkPulumiRuntimeOps config)
+          prepared <- adapterPrepare adapter operation >>= expectRight
+          adapterPreflight adapter operation prepared >>= expectRight
+          adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+          proofResult <- adapterVerify adapter operation prepared
+          assertBool "convergence produced a proof" (isRight proofResult)
+          observations <- adapterObserve adapter [registrationResource registration] >>= expectRight
+          case Map.lookup (registrationResource registration) (observationMap observations) of
+            Just ObservedPresent {} -> pure ()
+            other -> assertFailure ("expected physical Pulumi observation, got " <> show other)
+          calls <- readFile logPath
+          assertBool "saved plan bytes reached pulumi up" (" up --plan " `isInfixOf` calls)
+          length (filter (isInfixOf "--save-plan") (lines calls)) @?= 1
     ]
+
+fakePulumi :: FilePath -> String
+fakePulumi logPath =
+  unlines
+    [ "#!/usr/bin/env bash"
+    , "set -euo pipefail"
+    , "printf '%s\\n' \"$*\" >> " <> show logPath
+    , "case \" $* \" in"
+    , "  *\" version \"*) printf '%s\\n' 'v3.255.0' ;;"
+    , "  *\" stack export \"*) printf '%s\\n' '" <> stackExport <> "' ;;"
+    , "  *\" preview \"*\" --expect-no-changes \"*) printf '%s\\n' '{\"steps\":[]}' ;;"
+    , "  *\" preview \"*\" --save-plan \"*)"
+    , "    test -s \"${NAGARE_RESOURCE_DECLARATIONS:?}\""
+    , "    while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --save-plan ]; then shift; printf '%s' 'opaque-pulumi-plan' > \"$1\"; break; fi; shift; done"
+    , "    printf '%s\\n' '" <> T.unpack (TE.decodeUtf8 (preview (registrationPulumiUrn registration))) <> "'"
+    , "    ;;"
+    , "  *\" up \"*)"
+    , "    test -s \"${NAGARE_RESOURCE_DECLARATIONS:?}\""
+    , "    while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --plan ]; then shift; test \"$(cat \"$1\")\" = opaque-pulumi-plan; printf '%s\\n' 'up retained-plan-ok'; exit 0; fi; shift; done"
+    , "    exit 64"
+    , "    ;;"
+    , "  *) exit 64 ;;"
+    , "esac"
+    ]
+  where
+    stackExport = "{\"deployment\":{\"resources\":[{\"urn\":\"" <> T.unpack (registrationPulumiUrn registration) <> "\",\"id\":\"bucket-123\"}]}}"
 
 bundle :: CloudDeclarationBundle
 bundle =
@@ -105,6 +179,8 @@ pulumiIdentityFixture =
     , pulumiProject = "example-project"
     , pulumiStack = "dev"
     , pulumiBackend = "gs://example-state"
+    , pulumiPayloadId = "payload-v1"
+    , pulumiPayloadDigest = contentDigest "payload"
     , pulumiProgramDigest = contentDigest "program"
     , pulumiConfigDigest = contentDigest "config"
     , pulumiToolVersion = "3.140.0"
