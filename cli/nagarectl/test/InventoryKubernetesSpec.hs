@@ -8,12 +8,16 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Database (compileDatabaseNative)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
 import Nagare.Resource.Inventory hiding (cluster)
+import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -76,6 +80,18 @@ inventoryKubernetesTests =
         result <- adapterPrepare adapter createOperation
         case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("mismatched native address accepted: " <> show other)
         readIORef calls >>= (@?= 0)
+    , testCase "database direct bundle retains canonical native members" $ do
+        let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
+              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")
+            (bundle, bound) = ok (compileDatabaseNative direct)
+        length (declarations bundle) @?= 3
+        Map.size bound @?= 3
+        mapM_ (\(decl, bytes) -> case spec decl of
+          NativeObject digest -> digest @?= contentDigest bytes
+          StatefulSet _ _ digest -> digest @?= contentDigest bytes
+          other -> assertFailure ("unexpected database spec: " <> show other)) (Map.elems bound)
     ]
 
 ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps

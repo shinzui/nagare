@@ -97,6 +97,7 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud
     Nagare.Inventory.Artifact
+    Nagare.Inventory.Database
     Nagare.Inventory.Host
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute

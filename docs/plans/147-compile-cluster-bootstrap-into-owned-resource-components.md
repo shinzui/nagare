@@ -57,7 +57,7 @@ A component is an independently identified group of resources and operations, su
 - [ ] M1b remaining: Implement the production transport with API-server-enforced write preconditions and register it in the inventory command path.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
-- [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy and returns the corresponding native objects; 431 DSL tests pass.
+- [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy, and nagarectl binds each declaration to canonical native bytes before review; 431 DSL tests and 10 focused CLI tests pass.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -66,6 +66,8 @@ A component is an independently identified group of resources and operations, su
 ## Surprises & Discoveries
 
 2026-09-22: The database YAML renderer already had one shared set of structured values internally. Exposing those values lets the typed direct-object compiler use precisely the same shapes, without reparsing YAML or reimplementing resource settings. Credential creation and backup CronJob rendering remain in nagarectl and are not yet members of this bundle; the old create path remains active.
+
+2026-09-22: The CLI binding helper recompiles each database native object and compares its full declaration with the pure bundle before retaining canonical bytes. This closes the mismatch between a supplied digest and the actual object at this boundary. The initial targeted Cabal invocation with a space-containing test pattern failed argument parsing; the corrected `--test-option=--pattern=Kubernetes` ran 10 tests successfully.
 
 2026-09-22: A Kubernetes `List` previously compiled as a single opaque native object with no claims for its items. The pure parser now expands every YAML document and List member with stable source paths, and the object compiler refuses an unexpanded `List`.
 
