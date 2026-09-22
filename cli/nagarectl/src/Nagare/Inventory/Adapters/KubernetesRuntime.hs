@@ -10,6 +10,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , mkKubernetesRuntimeOps
   , desiredFieldsMatch
   , confirmInventoryFieldOwnership
+  , confirmInventoryFieldOwnershipFor
   ) where
 
 import Control.Exception (IOException, try)
@@ -284,7 +285,10 @@ servicePortPatch uid revision native observed = do
 -- apply includes the observed UID/resourceVersion, so a change after this
 -- read makes the API server reject the write.
 confirmInventoryFieldOwnership :: PhysicalIdentity -> Text -> Value -> Either Text ()
-confirmInventoryFieldOwnership uid revision observed = do
+confirmInventoryFieldOwnership = confirmInventoryFieldOwnershipFor Nothing
+
+confirmInventoryFieldOwnershipFor :: Maybe ProviderAddress -> PhysicalIdentity -> Text -> Value -> Either Text ()
+confirmInventoryFieldOwnershipFor target uid revision observed = do
   metadata <- metadataOf observed
   actualUid <- fieldText "uid" metadata
   actualRevision <- fieldText "resourceVersion" metadata
@@ -302,12 +306,37 @@ confirmInventoryFieldOwnership uid revision observed = do
       fieldSet <- case KM.lookup "fieldsV1" entry of
         Just (Object value) -> Right value
         _ -> Left "Kubernetes managed-field entry is malformed"
-      unless (manager == "nagare-inventory" || statusOnly fieldSet)
-        (Left "Kubernetes object has fields managed by another writer")
+      unless (manager == "nagare-inventory" || statusOnly fieldSet || expectedControllerFields target manager fieldSet)
+        (Left ("Kubernetes object has fields managed by another writer: " <> manager))
     checkEntry _ = Left "Kubernetes managed-field entry is malformed"
     isInventoryOwner (Object entry) = textAt "manager" entry == Just "nagare-inventory"
     isInventoryOwner _ = False
     statusOnly fields = all (== "f:status") (KM.keys fields)
+
+-- PVC provisioners add these annotations after the create-only write. They
+-- do not intersect inventory's desired fields. Any other controller field is
+-- still a refusal until its specific owner and path have been established.
+expectedControllerFields :: Maybe ProviderAddress -> Text -> Object -> Bool
+expectedControllerFields (Just (Kubernetes _ "" kind _ _)) "k3s" fields
+  | nameText kind == "persistentvolumeclaim" =
+      not (null paths) && all (`elem` allowed) paths
+  where
+    paths = managedPaths [] fields
+    allowed =
+      [ ["f:metadata", "f:annotations", "f:volume.beta.kubernetes.io/storage-provisioner"]
+      , ["f:metadata", "f:annotations", "f:volume.kubernetes.io/selected-node"]
+      , ["f:metadata", "f:annotations", "f:volume.kubernetes.io/storage-provisioner"]
+      , ["f:spec", "f:volumeName"]
+      ]
+expectedControllerFields _ _ _ = False
+
+managedPaths :: [Text] -> Object -> [[Text]]
+managedPaths prefix fields = concatMap one (KM.toList fields)
+  where
+    one (key, Object nested)
+      | KM.null nested = [prefix <> [Key.toText key]]
+      | otherwise = managedPaths (prefix <> [Key.toText key]) nested
+    one (key, _) = [prefix <> [Key.toText key]]
 
 verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text Value)
 verifyLiveOwnership config target uid revision = case target of
@@ -319,7 +348,7 @@ verifyLiveOwnership config target uid revision = case target of
     pure $ case result of
       Right (ExitSuccess, output, _) -> do
         observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
-        confirmInventoryFieldOwnership uid revision observed
+        confirmInventoryFieldOwnershipFor (Just target) uid revision observed
         pure observed
       _ -> Left "could not verify Kubernetes field ownership before update"
   _ -> pure (Left "Kubernetes mutation has no Kubernetes address")

@@ -1,7 +1,8 @@
 module InventoryKubernetesSpec (inventoryKubernetesTests) where
 
 import Control.Exception (finally)
-import Data.Aeson (Value, eitherDecodeStrict, object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -19,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, desiredFieldsMatch, mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -177,6 +178,22 @@ inventoryKubernetesTests =
         assertBool "foreign field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [own, foreignEntry])))
         assertBool "stale version accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "5" (metadata [own])))
         assertBool "missing inventory field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [status])))
+    , testCase "PVC controller annotation exception is exact and kind-specific" $ do
+        let address = Kubernetes cluster "" (ok (mkName "persistentvolumeclaim")) (Just (ok (mkName "default"))) (ok (mkName "data"))
+            otherAddress = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "default"))) (ok (mkName "data"))
+            entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
+            own = entry "nagare-inventory" (object ["f:spec" .= object ["f:resources" .= object []]])
+            provisioner = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
+              ["f:volume.kubernetes.io/storage-provisioner" .= object []]]])
+            foreignFields = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
+              ["f:nagare.dev/spec-digest" .= object []]]])
+            observed members = object ["metadata" .= object
+              ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]]
+        confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, provisioner]) @?= Right ()
+        assertBool "controller-owned inventory stamp was accepted" (either (const True) (const False)
+          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignFields])))
+        assertBool "PVC exception applied to ConfigMap" (either (const True) (const False)
+          (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, provisioner])))
     , testCase "packaged source is bound once and changed source refuses review" $
         withSystemTempDirectory "nagare-kubernetes-source" $ \root -> do
           let source = SourceLocation "object.json" "#document[0]"
@@ -409,8 +426,47 @@ inventoryKubernetesTests =
               counts <- readIORef calls
               Map.lookup credentialId counts @?= Just 1
               Map.lookup statefulId counts @?= Just 1
+              let (statefulDeclaration, statefulBytes) = maybe (error "database bundle lacks StatefulSet") id (Map.lookup statefulId bound)
+                  annotated = addProbeAnnotation (ok (eitherDecodeStrict statefulBytes))
+                  annotatedBytes = ok (canonicalValue annotated)
+                  annotatedInput = KubernetesInput statefulId scope cluster annotated (contentDigest annotatedBytes)
+                    (statefulDeclaration ^. #lifecycle) (statefulDeclaration ^. #dataPolicy)
+                    (statefulDeclaration ^. #sensitivity) (statefulDeclaration ^. #source)
+                  annotatedBound = Map.singleton statefulId (ok (bindKubernetesObject annotatedInput))
+                  annotatedAdapter = mkKubernetesAdapter annotatedBound (mkKubernetesRuntimeOps config annotatedBound)
+                  statefulUpdate = updateOperation {plannedResources = statefulId :| []}
+              updatePrepared <- adapterPrepare annotatedAdapter statefulUpdate >>= expectRight
+              adapterExecute annotatedAdapter statefulUpdate updatePrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify annotatedAdapter statefulUpdate updatePrepared >>= expectRight
+              mapM_ (\role -> do
+                let memberId = ok (databaseResourceId scope (ok (mkName role)) db)
+                    (memberDeclaration, memberBytes) = maybe (error "database bundle lacks update member") id (Map.lookup memberId bound)
+                    updatedValue = addProbeAnnotation (ok (eitherDecodeStrict memberBytes))
+                    updatedBytes = ok (canonicalValue updatedValue)
+                    updatedInput = KubernetesInput memberId scope cluster updatedValue (contentDigest updatedBytes)
+                      (memberDeclaration ^. #lifecycle) (memberDeclaration ^. #dataPolicy)
+                      (memberDeclaration ^. #sensitivity) (memberDeclaration ^. #source)
+                    updatedBound = Map.singleton memberId (ok (bindKubernetesObject updatedInput))
+                    updatedAdapter = mkKubernetesAdapter updatedBound (mkKubernetesRuntimeOps config updatedBound)
+                    memberUpdate = updateOperation {plannedResources = memberId :| []}
+                prepared <- adapterPrepare updatedAdapter memberUpdate >>= expectRight
+                adapterExecute updatedAdapter memberUpdate prepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify updatedAdapter memberUpdate prepared >>= expectRight
+                pure ()) ["pvc", "backup"]
+              pure ()
               ) `finally` cleanup
     ]
+
+addProbeAnnotation :: Value -> Value
+addProbeAnnotation (Object root) = case KM.lookup "metadata" root of
+  Just (Object metadata) ->
+    let annotations = case KM.lookup "annotations" metadata of
+          Just (Object existing) -> existing
+          _ -> KM.empty
+        updated = Object (KM.insert "annotations" (Object (KM.insert "nagare.dev/ep147-probe" (String "updated") annotations)) metadata)
+     in Object (KM.insert "metadata" updated root)
+  _ -> error "StatefulSet has no metadata"
+addProbeAnnotation _ = error "StatefulSet is not an object"
 
 ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps
 ops state calls =

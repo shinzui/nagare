@@ -30,6 +30,8 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       assertBool "mutable image was accepted" (either (const True) (const False) refused)
       unsafeBucket <- compileCacheNative (renderInput {renderBucket = "bucket\"\n[storage]"})
       assertBool "unsafe bucket was accepted" (either (const True) (const False) unsafeBucket)
+      missingTemplate <- compileCacheNative (renderInput {renderTemplateRoot = "../../cluster/bootstrap/missing-cache-assets"})
+      assertBool "missing packaged templates were accepted" (either (const True) (const False) missingTemplate)
   , testCase "lost cache creation acknowledgement recovers from the public key and configuration" $ do
       state <- newIORef CacheMissing
       creates <- newIORef (0 :: Int)

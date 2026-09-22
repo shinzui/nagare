@@ -6,6 +6,7 @@ module Nagare.Inventory.Cache
   ) where
 
 import Data.Aeson
+import Control.Exception (IOException, try)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -45,10 +46,13 @@ compileCacheNative input = case validateInputs input of
   Right () -> do
     let root = renderTemplateRoot input
         source = SourceLocation (T.pack root) "cache-core"
-    serverTemplate <- BS.readFile (root </> "server.toml.tmpl")
-    workloadTemplate <- BS.readFile (root </> "workloads.yaml.tmpl")
-    policyTemplate <- BS.readFile (root </> "networkpolicies.yaml")
+    templates <- traverse (\file -> try (BS.readFile (root </> file)) :: IO (Either IOException ByteString))
+      ["server.toml.tmpl", "workloads.yaml.tmpl", "networkpolicies.yaml"]
     pure $ do
+      (serverTemplate, workloadTemplate, policyTemplate) <- case sequence templates of
+        Right [server, workloadBytes, policyBytes] -> Right (server, workloadBytes, policyBytes)
+        Right _ -> Left (single (invalid "cache template set is incomplete"))
+        Left err -> Left (single (invalid ("cannot read packaged cache template: " <> T.pack (show err))))
       serverText <- first (single . invalid . T.pack . show) (TE.decodeUtf8' serverTemplate)
       unless (T.count "${NAGARE_NIX_CACHE_BUCKET}" serverText == 1)
         (Left (single (invalid "cache server template must contain one bucket placeholder")))
