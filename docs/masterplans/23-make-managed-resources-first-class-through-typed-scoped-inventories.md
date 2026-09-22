@@ -169,6 +169,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2c partial: Backend-specific backup CronJob rendering is bound into the same database bundle with stable identity and dependencies; real renderer parity and wrong-address refusal pass.
 - [x] (2026-09-22) EP-147 M2c partial: Explicit throwaway database retention compiles to collectable stateless resources with no scheduled backup; retained PVC and credential keep recovery intent.
 - [x] (2026-09-22) EP-147 M2c partial: Disposable Kubernetes execution creates and verifies the generated Secret and backend-rendered backup CronJob as reviewed native members.
+- [x] (2026-09-22) EP-147 M2c partial: A disposable five-member database bundle converges in one reviewed transaction; after a simulated lost StatefulSet acknowledgement, resume proves completion and creates the backup without recreating the credential or StatefulSet. Shared transaction preflight now defers ambiguous effects to adapter recovery.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.
@@ -191,6 +192,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-22: The first complete database-bundle transaction exposed a shared resume bug in EP-145: preflight rejected an ambiguous create because the old reviewed absence no longer held, before adapter recovery could prove the effect. Resume now skips that old preflight for ambiguous/intent/partial effects, while still preflighting known-no-effect retries. Deterministic and disposable Kubernetes tests cover this order.
 
 2026-09-22: EP-147 registered a first Kubernetes runtime for packaged manifest declarations. It binds source at plan time, reconstructs native objects from the private review for apply/resume, and verified create and update on a disposable ConfigMap. Update permits forced transfer from its own create manager only after a live managed-fields check excludes foreign non-status owners, with UID/resourceVersion in the write. M1b remains open for per-kind projection and broader live command proof. Generated namespace contributions still need the M3 native composer.
 

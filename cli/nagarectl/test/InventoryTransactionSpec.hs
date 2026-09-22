@@ -65,6 +65,27 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged value -> value @?= transaction; other -> assertFailure (show other)
         length <$> readIORef calls >>= (@?= 1)
+    , testCase "resume recovers an ambiguous effect before checking its old precondition" $ do
+        store <- newMemoryStore
+        effected <- newIORef False
+        calls <- newIORef (0 :: Int)
+        let preflight _ _ = do
+              changed <- readIORef effected
+              pure (if changed then Left "old absent precondition changed" else Right ())
+            executeOnce _ _ = do
+              modifyIORef' calls (+ 1)
+              writeIORef effected True
+              pure (AdapterEffectAmbiguous "lost acknowledgement after effect")
+            recover operation _ = do
+              changed <- readIORef effected
+              pure (if changed then RecoveryProvedComplete (proof operation) else RecoveryUnresolved "effect missing")
+        (reviewed, _) <- preparedFixtureWith store executeOnce recover
+        let registry = recordingRegistryWith preflight executeOnce recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        resumed <- resumeTransaction store registry transaction >>= expectRight
+        resumed @?= Converged transaction
+        readIORef calls >>= (@?= 1)
     , testCase "known no-effect failure retries the same reviewed operation" $ do
         store <- newMemoryStore
         attempts <- newIORef (0 :: Int)

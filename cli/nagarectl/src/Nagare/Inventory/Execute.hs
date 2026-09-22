@@ -168,7 +168,7 @@ resumeTransaction store registry transaction = do
                         (Right bundle, Right snapshot) -> case verifyActiveReview snapshot (transactionIdText transaction) bundle of
                           Left errors -> releaseClaim lock transaction False >> pure (Left (fmap reviewAdmission errors))
                           Right reviewed -> do
-                            preflightErrors <- preflightOperations registry reviewed (completedOperations transaction events)
+                            preflightErrors <- preflightOperations registry reviewed (operationStates transaction events)
                             case preflightErrors of
                               firstError : rest -> releaseClaim lock transaction False >> pure (Left (firstError :| rest))
                               [] -> Right <$> execute lock registry (ExecutablePlan transaction reviewed)
@@ -241,9 +241,9 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                             Right completedEvent -> go (events <> [intentEvent, completedEvent]) rest
 
 preflightOperations :: AdapterRegistry -> ReviewedPlan -> Map OperationId OperationState -> IO [AdmissionError]
-preflightOperations registry reviewed completed = fmap concat $ forM (reviewOperations (reviewedDocument reviewed)) $ \reviewOperation -> do
+preflightOperations registry reviewed previous = fmap concat $ forM (reviewOperations (reviewedDocument reviewed)) $ \reviewOperation -> do
   let operation = reviewPlannedOperation reviewOperation
-  if Map.member (plannedOperationId operation) completed || isNothing (reviewNativeDigest reviewOperation)
+  if maybe False deferredToRecovery (Map.lookup (plannedOperationId operation) previous) || isNothing (reviewNativeDigest reviewOperation)
     then pure []
     else case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
       (Left err, _) -> pure [AdmissionError "adapter" err]
@@ -254,6 +254,17 @@ preflightOperations registry reviewed completed = fmap concat $ forM (reviewOper
         | otherwise -> do
             result <- adapterPreflight adapter operation prepared
             pure [AdmissionError "preflight" err | Left err <- [result]]
+  where
+    -- A possibly completed effect must be inspected by adapterRecover before
+    -- comparing it with the old reviewed precondition. Completed operations
+    -- likewise no longer need the original preflight. Known-no-effect failures
+    -- are retried through ordinary preflight.
+    deferredToRecovery = \case
+      Completed {} -> True
+      Ambiguous -> True
+      IntentRecorded -> True
+      Failed (PartialOrUnknown _) -> True
+      _ -> False
 
 preparedFor :: ReviewedPlan -> ReviewOperation -> Either Text PreparedNative
 preparedFor reviewed reviewOperation = do
@@ -329,12 +340,6 @@ operationStates transaction =
   foldl
     (\states event -> case eventOperation event of Just operation | eventTransaction event == transaction -> Map.insert operation (eventState event) states; _ -> states)
     Map.empty
-
-completedOperations :: TransactionId -> [JournalEvent] -> Map OperationId OperationState
-completedOperations transaction = Map.filter isCompleted . operationStates transaction
-  where
-    isCompleted Completed {} = True
-    isCompleted _ = False
 
 transactionConverged :: TransactionId -> [JournalEvent] -> Bool
 transactionConverged transaction = any (\event -> eventTransaction event == transaction && isNothing (eventOperation event) && "converged" `T.isInfixOf` eventDetail event)

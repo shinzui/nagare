@@ -22,6 +22,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, desiredFieldsMatch, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
@@ -343,6 +344,69 @@ inventoryKubernetesTests =
               adapterExecute backupAdapter createBackup backupPrepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify backupAdapter createBackup backupPrepared >>= expectRight
               pure ()) `finally` cleanup
+    , testCase "disposable cluster applies the complete reviewed database bundle" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let db = Database (ok (mkDatabaseName "ep147-full")) Nothing Postgres (defaultEngineVersion Postgres)
+                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
+                recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
+                binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+                scopeDeclaration = ok (mkScopeDeclaration scope [bundle])
+                candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scopeDeclaration :| []))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
+                statefulId = ok (databaseResourceId scope (ok (mkName "statefulset")) db)
+                cleanup = do
+                  mapM_ (\(kind, name) -> do
+                    _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", kind, name, "--namespace", "default", "--ignore-not-found", "--wait=false"] ""
+                    pure ())
+                    [ ("statefulset", "ep147-full")
+                    , ("service", "ep147-full")
+                    , ("pvc", "nagare-db-ep147-full-data")
+                    , ("secret", "nagare-db-ep147-full")
+                    , ("cronjob", "nagare-dbbackup-ep147-full")
+                    ]
+            cleanup
+            (do
+              calls <- newIORef Map.empty
+              interrupted <- newIORef False
+              let nativeOps = mkKubernetesRuntimeOps config bound
+                  guardedOps = nativeOps
+                    { kubernetesMutateConditional = \mutation -> do
+                        modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
+                        effect <- kubernetesMutateConditional nativeOps mutation
+                        alreadyInterrupted <- readIORef interrupted
+                        if mutationResource mutation == statefulId && effect == AdapterEffectCompleted && not alreadyInterrupted
+                          then writeIORef interrupted True >> pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
+                          else pure effect
+                    }
+                  adapter = mkKubernetesAdapter bound guardedOps
+                  registry = ok (mkAdapterRegistry [adapter])
+              store <- newMemoryStore
+              _ <- initializeStore store binding "client-test" >>= expectRight
+              history <- loadInventoryHistory store >>= expectRight
+              let requirements = observationRequirements candidate history
+              observed <- observeWithRegistry registry (requirementsByExecutor requirements) >>= expectRight
+              let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
+              snapshotBefore <- readStoreSnapshot store >>= expectRight
+              reviewBundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+              _ <- publishReview store reviewBundle >>= expectRight
+              snapshotAfter <- readStoreSnapshot store >>= expectRight
+              reviewed <- expectRight (verifyReview snapshotAfter reviewBundle)
+              result <- applyReviewed store registry reviewed >>= expectRight
+              transaction <- case result of
+                StoppedAmbiguous token _ -> pure token
+                other -> assertFailure ("database component did not pause after the lost acknowledgement: " <> show other)
+              resumed <- resumeTransaction store registry transaction >>= expectRight
+              resumed @?= Converged transaction
+              counts <- readIORef calls
+              Map.lookup credentialId counts @?= Just 1
+              Map.lookup statefulId counts @?= Just 1
+              ) `finally` cleanup
     ]
 
 ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps
