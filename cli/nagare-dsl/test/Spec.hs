@@ -23,6 +23,7 @@ import Nagare.Dsl.Broker.Render
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
+import Nagare.Resource.Types (mkLogicalKey)
 import Nagare.Dsl.Database.Render
   ( renderDatabaseConfigMap
   , renderDatabasePvc
@@ -614,6 +615,7 @@ pgDb :: Database
 pgDb =
   Database
     { name = unsafe (mkDatabaseName "pg-main")
+    , logicalKey = Nothing
     , engine = Postgres
     , version = unsafe (mkEngineVersion Postgres "18")
     , namespace = unsafe (mkNamespace "personal")
@@ -626,6 +628,7 @@ redisDb :: Database
 redisDb =
   Database
     { name = unsafe (mkDatabaseName "redis-cache")
+    , logicalKey = Nothing
     , engine = Redis
     , version = unsafe (mkEngineVersion Redis "8")
     , namespace = unsafe (mkNamespace "personal")
@@ -638,6 +641,7 @@ clickhouseDb :: Database
 clickhouseDb =
   Database
     { name = unsafe (mkDatabaseName "analytics")
+    , logicalKey = Nothing
     , engine = ClickHouse
     , version = unsafe (mkEngineVersion ClickHouse "25.8")
     , namespace = unsafe (mkNamespace "personal")
@@ -682,6 +686,12 @@ databaseTests =
           decodeDatabase (toStrict (encodeDatabase redisDb)) @?= Right redisDb
       , testCase "clickhouse database round-trips" $
           decodeDatabase (toStrict (encodeDatabase clickhouseDb)) @?= Right clickhouseDb
+      , testCase "explicit logical key survives a database rename and JSON round-trip" $ do
+          let stable = pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))
+              renamed = stable & #name .~ unsafe (mkDatabaseName "pg-renamed")
+          decodeDatabase (toStrict (encodeDatabase renamed)) @?= Right renamed
+          renamed ^. #logicalKey @?= stable ^. #logicalKey
+          assertBool "provider name changed" (renderDatabaseService renamed /= renderDatabaseService stable)
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of
             Left (UnexpectedKind "Deployment" "Database") -> pure ()

@@ -17,6 +17,7 @@ database = do
   pure
     Database
       { name = name'
+      , logicalKey = Nothing
       , engine = Redis
       , version = ver'
       , namespace = defaultNamespace

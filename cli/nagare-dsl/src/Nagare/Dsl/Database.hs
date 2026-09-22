@@ -47,6 +47,7 @@ where
 import Data.Char (isDigit)
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Types (LogicalKey)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Namespace
@@ -189,6 +190,7 @@ engineVersionText (EngineVersion t) = t
 -- (mirrors 'Nagare.Dsl.Types.Deployment').
 data Database = Database
   { name :: !DatabaseName
+  , logicalKey :: !(Maybe LogicalKey)
   , engine :: !Engine
   , version :: !EngineVersion
   , namespace :: !Namespace

@@ -97,6 +97,7 @@ buildDatabase eng nameT params = do
   Right
     Database
       { name = name'
+      , logicalKey = Nothing
       , engine = eng
       , version = ver'
       , namespace = ns'

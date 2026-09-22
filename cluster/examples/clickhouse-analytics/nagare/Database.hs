@@ -22,6 +22,7 @@ database = do
   pure
     Database
       { name = name'
+      , logicalKey = Nothing
       , engine = ClickHouse
       , version = ver'
       , namespace = defaultNamespace

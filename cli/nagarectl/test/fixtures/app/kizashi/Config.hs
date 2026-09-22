@@ -58,6 +58,7 @@ application = do
   let db =
         DB.Database
           { DB.name = dbn
+          , DB.logicalKey = Nothing
           , DB.engine = DB.Postgres
           , DB.version = ver
           , DB.namespace = ns

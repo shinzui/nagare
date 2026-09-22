@@ -41,7 +41,8 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M1a: Compile structured Kubernetes objects to typed declarations with controller reservations; the database Service/Knative collision and malformed Certificate fixtures pass (426 DSL tests).
 - [ ] M1b: Add multi-document/List expansion, canonical native-byte binding, and guarded observation/apply adapters.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
-- [ ] M2b: Build the complete database/cache resource bundles and remove the alternate create path.
+- [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; rename fixture passes with unchanged key (427 DSL tests, nagarectl suite).
+- [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
 
@@ -51,6 +52,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: EP-144 already implemented the controller reservation rules in `Nagare.Resource.Inventory`, but no compiler consumed structured Kubernetes objects. `Nagare.Resource.Kubernetes.compileKubernetesObject` now derives the correct specialized specification from an object. The existing database renderer golden Service collides with a same-name Knative Service through this compiler, proving the reservation check operates on rendered shapes. The module is pure; native-byte retention, observation, and execution remain M1b.
 
 2026-09-22: `Nagare.Database.Create.readOrGeneratePassword` treated every failed or malformed Secret read as absence and generated a fresh password. A successful empty `kubectl get --ignore-not-found` response now uniquely authorizes generation; command failure and malformed/non-password Secrets refuse. This safety fix precedes the full database bundle migration.
+
+2026-09-22: The existing `Database` model had no identity independent of its provider name. It now accepts an optional `LogicalKey`, serialized only when present to preserve existing config output. All repository constructors default to `Nothing`; owners that need rename-safe identity must set an explicit key. No inventory builder consumes it yet.
 
 
 ## Decision Log

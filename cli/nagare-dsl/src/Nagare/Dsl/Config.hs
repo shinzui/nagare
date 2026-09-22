@@ -41,6 +41,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Resource.Types (logicalKeyText)
 import Nagare.Dsl.Job
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
@@ -135,7 +136,7 @@ encodeDatabase = encode . databaseJSON
 databaseJSON :: Database -> Value
 databaseJSON db =
   object
-    [ "kind" .= ("Database" :: Text)
+    ( [ "kind" .= ("Database" :: Text)
     , "name" .= databaseNameText (db ^. #name)
     , "engine" .= engineToken (db ^. #engine)
     , "version" .= engineVersionText (db ^. #version)
@@ -147,6 +148,8 @@ databaseJSON db =
     , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
     , "retention" .= retentionToken (db ^. #retention)
     ]
+      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
+    )
   where
     res = db ^. #resources
     retentionToken Retain = "Retain" :: Text

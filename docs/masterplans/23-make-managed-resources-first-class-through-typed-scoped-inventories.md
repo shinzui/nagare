@@ -143,7 +143,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M1a: Structured Kubernetes objects compile to typed declarations; rendered database/Knative collision fixture passes.
 - [ ] EP-147 M1b: Multi-document expansion, retained native evidence, observation, and guarded mutation.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
-- [ ] EP-147 M2b: Complete cache/database composition and inventory execution.
+- [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
+- [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.
 - [ ] EP-149 M1: Read-only drift/status/explanation.
@@ -169,6 +170,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 2026-09-22: EP-147 found that controller reservations were already present in EP-144's inventory validator, while structured Kubernetes objects still lacked a compiler path into those declarations. The new pure compiler connects those boundaries and proves the database/Knative collision against the database renderer's golden manifest. It does not yet authorize Kubernetes mutation.
 
 2026-09-22: EP-147 found the legacy database create path generated a fresh password after any failed or malformed Secret read. It now requires confirmed absence, closing that immediate credential risk while the inventory adapter is built.
+
+2026-09-22: EP-147 added an optional logical key to the existing Database config so later inventory compilation can mint identity independently of the provider name. Existing configs omit it and remain wire-compatible; a rename-safe database must supply one explicitly. The DSL and CLI suites pass.
 
 2026-09-22: EP-145 is complete. Consumers use Nagare.Inventory.Adapter, Plan, Journal, Store, and Execute; only lock-scoped admission can create execution authority. Native evidence stays in the private store while the operator-facing review directory contains the canonical public document and scopes. The CLI currently installs a deterministic manifest-only adapter whose preflight always refuses; EP-146 and EP-147 replace it with real provider adapters. The store suite now covers both conditional backends, re-entry, backup integrity, actual independent-process exclusion, and lock release after process death. Filesystem export excludes the lock and atomic-write temporaries. ADR 22 records this implemented boundary.
 

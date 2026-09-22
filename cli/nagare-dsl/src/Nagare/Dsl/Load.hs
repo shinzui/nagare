@@ -55,6 +55,7 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
+import Nagare.Resource.Types (mkLogicalKey)
 import Nagare.Dsl.Job
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types
@@ -776,6 +777,7 @@ decodeBroker bs =
 
 data JsonDatabase = JsonDatabase
   { name :: !Text
+  , logicalKey :: !(Maybe Text)
   , engine :: !Text
   , version :: !Text
   , namespace :: !Text
@@ -792,6 +794,7 @@ instance FromJSON JsonDatabase where
   parseJSON = withObject "Database" $ \o ->
     JsonDatabase
       <$> o .: "name"
+      <*> o .:? "logicalKey"
       <*> o .: "engine"
       <*> o .: "version"
       <*> o .: "namespace"
@@ -805,6 +808,7 @@ instance FromJSON JsonDatabase where
 toDatabase :: JsonDatabase -> Either LoadError Database
 toDatabase j = do
   name' <- first (MarshalError "name") $ mkDatabaseName (j ^. #name)
+  key' <- traverse (first (MarshalError "logicalKey") . mkLogicalKey) (j ^. #logicalKey)
   eng' <- case parseEngine (j ^. #engine) of
     Just e -> Right e
     Nothing -> Left (MarshalError "engine" ("unknown engine: " <> j ^. #engine))
@@ -819,6 +823,7 @@ toDatabase j = do
   Right
     Database
       { name = name'
+      , logicalKey = key'
       , engine = eng'
       , version = ver'
       , namespace = ns'

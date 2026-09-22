@@ -19,6 +19,7 @@ database = do
   Right
     Database
       { name = n
+      , logicalKey = Nothing
       , engine = Redis
       , version = v
       , namespace = ns

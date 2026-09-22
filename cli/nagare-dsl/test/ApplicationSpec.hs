@@ -51,6 +51,7 @@ kizashiDb :: Database
 kizashiDb =
   Database
     { name = dbNameKizashi
+    , logicalKey = Nothing
     , engine = Postgres
     , version = unsafe (mkEngineVersion Postgres "18")
     , namespace = unsafe (mkNamespace "personal")

@@ -21,6 +21,7 @@ database = do
   Right
     Database
       { name = n
+      , logicalKey = Nothing
       , engine = Postgres
       , version = v
       , namespace = ns

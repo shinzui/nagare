@@ -19,6 +19,7 @@ database = do
   pure
     Database
       { name = name'
+      , logicalKey = Nothing
       , engine = Postgres
       , version = ver'
       , namespace = defaultNamespace
