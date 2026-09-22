@@ -350,7 +350,7 @@ validateGraph ss ds reservations =
     <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1]
     <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
     <> concatMap validateDeclaration ds
-    <> [issue "dangling-reference" "dependency producer is absent" [d] [] | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId]
+    <> [issue "dangling-reference" "dependency producer is absent" [d] [] | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId && Set.notMember p operationIds]
     <> [issue "reference-mismatch" "output capability, constraints, or sensitivity disagree with its export" [d] [] | d <- ds, ref <- dependencyRefs (declarationDependencies d), not (matches ref)]
     <> [inventoryError "condition-mismatch" "required condition has no compatible exported output" | b <- bundles, ref <- b ^. #conditions, not (matches ref)]
     <> [inventoryError "invalid-export" "export producer must be declared in its exporting scope" & #scopes .~ [s] & #resources .~ [r] | (s, sc) <- Map.toList ss, b <- scopeBundles sc, e <- b ^. #exports, let (r, _, _, _, _) = exportSignature e, r `notElem` map declarationId (scopeDeclarations sc)]
@@ -358,7 +358,7 @@ validateGraph ss ds reservations =
     <> [inventoryError "incompatible-constraints" "output cannot belong to multiple namespaces or projects" & #resources .~ [r] | (r, _, _, cs, _) <- exports, Set.size (Set.fromList [n | InNamespace n <- cs]) > 1 || Set.size (Set.fromList [n | InProject n <- cs]) > 1]
     <> [issue "condition-kind" "readiness requires a readiness or TLS capability" [d] [] | d <- ds, ReadyAfter ref <- declarationDependencies d, not (isCondition ref)]
     <> [inventoryError "condition-kind" "required condition must have a readiness or TLS capability" | b <- bundles, ref <- b ^. #conditions, not (isCondition ref)]
-    <> [issue "dependency-cycle" "dependency graph contains a cycle" cycleDs [] | CyclicSCC cycleDs <- stronglyConnComp [(d, declarationId d, map dependencyProducer (declarationDependencies d)) | d <- ds]]
+    <> [inventoryError "dependency-cycle" "resource and operation dependency graph contains a cycle" & #resources .~ cycleIds | CyclicSCC cycleIds <- stronglyConnComp graph]
     <> [issue "unreserved-child" "observed child lacks a reservation from its named parent" [d] [canonicalClaim a] | d@(ObservedChild _ p a _ _) <- ds, not (maybe False (elem (DerivedReservation, canonicalClaim a) . NE.toList . claimsOf) (Map.lookup p byId))]
     <> [inventoryError "operation-reference" "declared operation affects an absent resource or has incompatible inputs" & #resources .~ [op ^. #identity] | op <- ops, any (`Map.notMember` byId) (NE.toList (op ^. #affects)) || any (not . matches) [r | CapabilityInput r <- op ^. #inputs]]
     <> [issue "delegation-controller" "delegation controller is absent" [d] [] | d@(Managed r) <- ds, del <- r ^. #delegations, Map.notMember (del ^. #controller) byId]
@@ -366,6 +366,10 @@ validateGraph ss ds reservations =
     byId = Map.fromList [(declarationId d, d) | d <- ds]
     bundles = concatMap scopeBundles (Map.elems ss)
     ops = concatMap (^. #operations) bundles
+    operationIds = Set.fromList (map (^. #identity) ops)
+    graph =
+      [(declarationId d, declarationId d, map dependencyProducer (declarationDependencies d)) | d <- ds]
+        <> [(op ^. #identity, op ^. #identity, NE.toList (op ^. #affects)) | op <- ops]
     exports = map exportSignature (concatMap (^. #exports) bundles)
     matches r = let (p, k, c, cs, s) = refSignature r in any (\(p', k', c', cs', s') -> (p, k, c, s) == (p', k', c', s') && all (`elem` cs') cs) exports
     isCondition ref = let (_, _, c, _, _) = refSignature ref in c `elem` [ReadinessCondition, TlsReady]

@@ -247,7 +247,7 @@ planChanges candidate decisions history observations = do
 
 buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) [PlannedOperation]
 buildOperations candidate (LifecycleDecisions decisions) history observations =
-  if null errors then Right (map addDependencies preliminary <> declaredOperations) else Left (NE.fromList errors)
+  if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
@@ -258,6 +258,11 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     errors = concatMap fst classified <> concatMap retireError retired
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
     operationByResource = Map.fromList [(resource, plannedOperationId operation) | operation <- preliminary, resource <- NE.toList (plannedResources operation)]
+    operationByDeclaration = Map.fromList
+      [ (declaredOperation ^. #identity, plannedOperationId operation)
+      | (declaredOperation, operation) <- declaredSeeds
+      ]
+    operationByDependency = Map.union operationByResource operationByDeclaration
     addDependencies operation =
       operation
         { plannedDependencies =
@@ -266,27 +271,28 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
               | resource <- NE.toList (plannedResources operation)
               , Just declaration <- [Map.lookup resource desiredDeclarations]
               , dependency <- declarationDependencies declaration
-              , Just dependencyOperation <- [Map.lookup (dependencyResource dependency) operationByResource]
+              , Just dependencyOperation <- [Map.lookup (dependencyResource dependency) operationByDependency]
               , dependencyOperation /= plannedOperationId operation
               ]
         }
-    declaredOperations = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
+    declaredSeeds = concatMap scopeDeclared (Map.elems (inventoryScopes (candidateInventory candidate)))
     scopeDeclared declaration = mapMaybe declared (concatMap (^. #operations) (scopeBundles declaration))
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
+      pure (operation, mkPlanned RunDeclaredOperation executor (operation ^. #affects) digest (operation ^. #recovery))
+    declaredOperations = map addDeclaredDependencies declaredSeeds
+    addDeclaredDependencies (operation, planned) =
       let affected = NE.toList (operation ^. #affects)
           prerequisites =
             [ prerequisite
             | resourceId <- affected
             , Just resource <- [Map.lookup resourceId desiredDeclarations]
             , dependency <- declarationDependencies resource
-            , Just prerequisite <- [Map.lookup (dependencyResource dependency) operationByResource]
+            , Just prerequisite <- [Map.lookup (dependencyResource dependency) operationByDependency]
             ]
           affectedChanges = mapMaybe (`Map.lookup` operationByResource) affected
-      pure
-        ((mkPlanned RunDeclaredOperation executor (operation ^. #affects) digest (operation ^. #recovery))
-          {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
+       in (operation, planned {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->

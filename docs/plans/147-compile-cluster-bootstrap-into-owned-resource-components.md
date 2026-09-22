@@ -76,6 +76,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M2c partial: Add a reviewed cache adapter that binds native plan bytes to the typed logical cache declaration, refuses adoption/retirement and foreign or unavailable state, verifies a nonempty generated public key, and recovers a lost create acknowledgement from observed configuration and key. Two focused adapter tests pass. The Attic transport and output slot remain outstanding.
 - [x] (2026-09-22) M2c partial: Compile the seven direct cache Kubernetes roles from structured objects with stable identities, exact addresses, and database/credential/workload dependencies. The existing workload and network-policy templates pass the compiler fixture; a same-address database/cache Service collision and swapped cache Services refuse. Template rendering, private binding, migration, and client key materialization remain open.
 - [x] (2026-09-22) M2c partial: The CLI now renders packaged cache templates once with an immutable image digest, validated bucket, and computed server-config hash, then recompiles all seven structured objects against their typed declarations and retains canonical private bytes. Focused tests reject mutable image references, unsafe bucket text, and unresolved placeholders. No bootstrap command consumes this bundle yet.
+- [x] (2026-09-22) M2c partial: Extend the validated dependency graph so a resource can order itself after a declared operation identity; graph cycles across resources and operations refuse. The planner maps that operation identity to its planned operation ID. DSL and CLI regressions prove a workload waits for migration and the reverse cycle refuses. The cache migration operation and native Job transport are still outstanding.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -104,6 +105,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: The installer owns seven persistent direct Kubernetes objects in addition to its database and one-off Jobs. Compiling their structured template values behind role-specific address checks prevents a renderer from silently changing which Service or NetworkPolicy a reviewed cache component claims.
 
 2026-09-22: Cache template substitution previously ran on YAML text through `sed`. The new renderer substitutes exact structured string placeholders after YAML parsing and refuses leftovers; the server TOML bucket substitution is restricted to a safe name alphabet and the image must be a sha256-pinned reference.
+
+2026-09-22: A resource could only depend on other resources, so a cache Deployment could not wait for a proven schema migration operation. The graph and planner now accept operation identities as `OrderedAfter` targets, include them in cycle detection, and order the planned resource mutation after the operation's planned ID.
 
 2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
 
@@ -155,6 +158,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: Begin the native adapter with one resource per create/update operation and refuse adoption, retirement, and declared operations until their provider-specific preconditions exist. Rationale: the common planner already emits one resource per ordinary create/update, and a callback without an API-server conditional write would leave a check-then-apply race.
 
 2026-09-22: Represent Attic's named logical cache separately from its Kubernetes Deployment and Service, and retain its configuration as an explicit recoverable operation with a typed `NixCachePublicKey` export. The cache adapter's completion proof binds the generated key's digest to the reviewed mutation and physical identity; the public key itself is not invented by rendering.
+
+2026-09-22: Permit `OrderedAfter` to name a declared operation and validate resource-operation cycles in one graph. This allows the cache workload to wait for schema migration proof without treating a one-off Job as a persistent workload prerequisite.
 
 
 ## Outcomes & Retrospective

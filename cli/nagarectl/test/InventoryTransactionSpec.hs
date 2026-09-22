@@ -24,6 +24,7 @@ import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import System.Directory (doesFileExist, listDirectory, removeFile)
@@ -67,6 +68,30 @@ inventoryTransactionTests =
         case [operation | operation <- allOperations, plannedAction operation == RunDeclaredOperation] of
           [operation] -> Set.fromList (plannedDependencies operation) @?= Set.fromList creates
           other -> assertFailure ("expected one declared cache operation, got " <> show other)
+    , testCase "workload creation waits for its declared migration operation" $ do
+        let owner = ok (mkScopeId Platform "migration")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            database = member owner cluster "database"
+            workload = member owner cluster "workload"
+            migrationId = mintResourceId owner (ok (mkLogicalKey "migration")) (ok (mkName "operation"))
+            migration = DeclaredOperation migrationId (declarationId database :| []) [] VerifyBeforeRetry SchemaMigration
+            waiting = case workload of
+              Managed resource -> Managed (resource {dependencies = [OrderedAfter migrationId]})
+              _ -> error "workload fixture is not managed"
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [database, waiting] [] [] [] [migration] []])
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scope :| []))
+        store <- newMemoryStore
+        _ <- initializeStore store binding "migration-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let requirements = observationRequirements candidate history
+            observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList (requiredResources requirements)])
+            allOperations = proposalOperations (ok (planChanges candidate noLifecycleDecisions history observations))
+        case ([op | op <- allOperations, plannedAction op == RunDeclaredOperation],
+              [op | op <- allOperations, plannedAction op == CreateResource, declarationId waiting `elem` NE.toList (plannedResources op)]) of
+          ([migrationOperation], [workloadOperation]) ->
+            assertBool "workload does not wait for migration" (plannedOperationId migrationOperation `elem` plannedDependencies workloadOperation)
+          other -> assertFailure ("expected migration and workload operations, got " <> show other)
     , testCase "reviewed execution converges and skips no completed operation" $ do
         store <- newMemoryStore
         calls <- newIORef ([] :: [OperationId])

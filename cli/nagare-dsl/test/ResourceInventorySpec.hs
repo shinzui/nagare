@@ -243,6 +243,16 @@ resourceInventoryTests =
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])
         rejects "dangling-reference" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)])]])
+    , testCase "resource can wait for a declared migration; reverse dependency cycles refuse" $ do
+        let database = service a "database" "database"
+            Managed workload = service a "workload" "workload"
+            migrationId = rid a "migration"
+            migration affected = DeclaredOperation migrationId (affected :| []) [] VerifyBeforeRetry SchemaMigration
+            waiting = Managed (workload & #dependencies .~ [OrderedAfter migrationId])
+            good = ok (mkScopeDeclaration a [ResourceBundle [database, waiting] [] [] [] [migration (declarationId database)] []])
+            cyclic = ok (mkScopeDeclaration a [ResourceBundle [database, waiting] [] [] [] [migration (workload ^. #identity)] []])
+        assertBool "migration dependency did not compose" (either (const False) (const True) (compileScopes [good]))
+        rejects "dependency-cycle" (compileScopes [cyclic])
     , testCase "delegated fields cannot overlap" $ do
         let Managed x = service a "app" "app"
             del = Delegation cluster (n "spec" :| []) (ReconcileChildren :| [])
