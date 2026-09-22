@@ -24,7 +24,7 @@ import Nagare.Dsl.Broker.Render
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
-import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseDirect, databaseResourceId)
+import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -731,6 +731,24 @@ databaseTests =
           renamedAgain @?= renamed
           _ <- check clickhouseDb 5
           pure ()
+      , testCase "database backup member has a stable address and ordered dependencies" $ do
+          let owner = unsafe (mkScopeId Platform "foundation")
+              cluster = mintResourceId owner (unsafe (mkLogicalKey "cluster")) (unsafe (mkName "resource"))
+              recovery = RecoveryIntent (unsafe (mkName "database-backup")) (mkSecretRef (unsafe (mkName "db-password")) (unsafe (mkName "v1")) :| [])
+              input = DatabaseDirectInput pgDb owner cluster recovery (SourceLocation "fixture" "database")
+              digest _ = Right (unsafe (mkContentDigest (Text.replicate 64 "a")))
+              backup = either (error . show) id (Yaml.decodeEither' "{\"apiVersion\":\"batch/v1\",\"kind\":\"CronJob\",\"metadata\":{\"name\":\"nagare-dbbackup-pg-main\",\"namespace\":\"personal\"},\"spec\":{\"schedule\":\"17 3 * * *\"}}")
+              wrong = either (error . show) id (Yaml.decodeEither' "{\"apiVersion\":\"batch/v1\",\"kind\":\"CronJob\",\"metadata\":{\"name\":\"other\",\"namespace\":\"personal\"}}")
+              (bundle, native) = either (error . show) id (compileDatabaseBundle digest input backup)
+          length native @?= 5
+          case reverse (declarations bundle) of
+            Managed cron : _ -> dependencies cron @?=
+              map OrderedAfter
+                [ unsafe (databaseResourceId owner (unsafe (mkName "credential")) pgDb)
+                , unsafe (databaseResourceId owner (unsafe (mkName "statefulset")) pgDb)
+                ]
+            _ -> assertFailure "database backup CronJob missing"
+          assertBool "wrong CronJob address accepted" (either (const True) (const False) (compileDatabaseBundle digest input wrong))
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of
             Left (UnexpectedKind "Deployment" "Database") -> pure ()

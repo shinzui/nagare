@@ -1,10 +1,11 @@
 -- | Stable inventory identity and direct Kubernetes declarations for a database.
--- Credential creation and backup operations are deliberately separate: their
--- private inputs cannot be represented by the public rendered object set.
+-- Credential material is generated at guarded execution from a data-free
+-- template; the backend-specific backup CronJob is supplied as a typed object.
 module Nagare.Resource.Database
   ( databaseResourceId
   , DatabaseDirectInput (..)
   , compileDatabaseDirect
+  , compileDatabaseBundle
   ) where
 
 import Data.Aeson (Value)
@@ -13,7 +14,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Nagare.Dsl.Database (Database (..), engineMemoryConfig)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, databaseObjects)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Types (databaseNameText)
+import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
@@ -36,8 +37,8 @@ data DatabaseDirectInput = DatabaseDirectInput
   , directSourceLocation :: !SourceLocation
   }
 
--- | Compile every direct object emitted by the database renderer, preserving
--- its full typed resources and the same stable logical key for each role.
+-- | Compile the credential template and every direct object emitted by the
+-- database renderer, preserving one stable logical key across all roles.
 -- The returned objects are the native members corresponding to the bundle.
 compileDatabaseDirect
   :: (Value -> Either Text ContentDigest)
@@ -80,4 +81,46 @@ compileDatabaseDirect digestOf input = do
       & #scopes .~ [directOwnerScope input]
       & #sources .~ [directSourceLocation input]
       & single
+    single err = err :| []
+
+-- | Extend the direct database objects with the exact scheduled backup
+-- CronJob supplied by the caller's selected storage backend. Checking its
+-- address here prevents a backend renderer from silently adding a different
+-- resource after the inventory has validated ownership.
+compileDatabaseBundle
+  :: (Value -> Either Text ContentDigest)
+  -> DatabaseDirectInput
+  -> Value
+  -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
+compileDatabaseBundle digestOf input backupObject = do
+  (bundle, native) <- compileDatabaseDirect digestOf input
+  role <- first invalid (mkName "backup")
+  resource <- first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
+  credential <- first invalid (databaseResourceId (directOwnerScope input) (known "credential") (directDatabase input))
+  stateful <- first invalid (databaseResourceId (directOwnerScope input) (known "statefulset") (directDatabase input))
+  digest <- first invalid (digestOf backupObject)
+  declaration <- first single $ compileKubernetesObject
+    KubernetesInput
+      { resourceId = resource
+      , ownerScope = directOwnerScope input
+      , clusterId = directClusterId input
+      , inputObject = backupObject
+      , objectDigest = digest
+      , lifecyclePolicy = Retain
+      , inputDataPolicy = Stateless
+      , inputSensitivity = Private
+      , sourceLocation = directSourceLocation input
+      }
+  expectedName <- first invalid (mkName ("nagare-dbbackup-" <> databaseNameText (directDatabase input ^. #name)))
+  expectedNamespace <- first invalid (mkName (namespaceText (directDatabase input ^. #namespace)))
+  unless (address declaration == Kubernetes (directClusterId input) "batch" (known "cronjob") (Just expectedNamespace) expectedName)
+    (Left (invalid "database backup CronJob has an unexpected address"))
+  let guarded = declaration {dependencies = [OrderedAfter credential, OrderedAfter stateful]}
+  pure (bundle {declarations = declarations bundle <> [Managed guarded]}, native <> [(resource, backupObject)])
+  where
+    known value = either (error . show) id (mkName value)
+    invalid :: Text -> NonEmpty InventoryError
+    invalid message = single (inventoryError "invalid-database-backup" message
+      & #scopes .~ [directOwnerScope input]
+      & #sources .~ [directSourceLocation input])
     single err = err :| []

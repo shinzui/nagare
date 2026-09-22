@@ -11,13 +11,16 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Yaml qualified as Yaml
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, desiredFieldsMatch, mkKubernetesRuntimeOps)
-import Nagare.Inventory.Database (compileDatabaseNative)
+import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
@@ -127,6 +130,21 @@ inventoryKubernetesTests =
           NativeObject digest -> digest @?= contentDigest bytes
           StatefulSet _ _ digest -> digest @?= contentDigest bytes
           other -> assertFailure ("unexpected database spec: " <> show other)) (Map.elems bound)
+    , testCase "database backup bundle binds the real CronJob renderer" $ do
+        let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
+              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+            recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct = DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")
+            rendered = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
+            backup = ok (Yaml.decodeEither' rendered)
+            (bundle, bound) = ok (compileDatabaseNativeWithBackup direct backup)
+            compiledFromBackend = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
+        length (declarations bundle) @?= 5
+        Map.size bound @?= 5
+        compiledFromBackend @?= (bundle, bound)
+        assertBool "backup native member omitted" (any (\(member, _) -> case address member of
+          Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
+          _ -> False) (Map.elems bound))
     , testCase "desired projection ignores server fields but detects changed desired data" $ do
         let desired = object
               [ "metadata" .= object ["name" .= ("config" :: Text)]
