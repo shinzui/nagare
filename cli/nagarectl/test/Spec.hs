@@ -40,6 +40,7 @@ import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryCacheSpec (inventoryCacheTests)
+import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -424,6 +425,7 @@ main = do
             , hostTests
             , inventoryArtifactTests
             , inventoryCacheTests
+            , inventoryFoundationTests
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests
