@@ -145,7 +145,7 @@ inventoryKubernetesTests =
         let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
               (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-            direct = DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")
+            direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
             (bundle, bound) = ok (compileDatabaseNative direct)
         length (declarations bundle) @?= 4
         Map.size bound @?= 4
@@ -157,7 +157,7 @@ inventoryKubernetesTests =
         let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
               (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-            direct = DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")
+            direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
             rendered = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
             backup = ok (Yaml.decodeEither' rendered)
             (bundle, bound) = ok (compileDatabaseNativeWithBackup direct backup)
@@ -431,7 +431,7 @@ inventoryKubernetesTests =
             let db = Database (ok (mkDatabaseName "ep147-credential")) Nothing Postgres (defaultEngineVersion Postgres)
                   (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
                 credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
                 backupId = ok (databaseResourceId scope (ok (mkName "backup")) db)
                 credential = maybe (error "database bundle lacks credential") id (Map.lookup credentialId bound)
@@ -467,7 +467,7 @@ inventoryKubernetesTests =
             let db = Database (ok (mkDatabaseName "ep147-full")) Nothing Postgres (defaultEngineVersion Postgres)
                   (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
                 binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
                 scopeDeclaration = ok (mkScopeDeclaration scope [bundle])
                 candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scopeDeclaration :| []))

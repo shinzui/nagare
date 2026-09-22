@@ -33,6 +33,7 @@ import Nagare.Resource.CacheClient (CacheClientInput (..), compileCacheClient)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import System.FilePath ((</>))
@@ -46,6 +47,7 @@ data CacheRenderInput = CacheRenderInput
   , renderImage :: !Text
   , renderBucket :: !Text
   , renderTemplateRoot :: !FilePath
+  , renderNamespaceId :: !(Maybe ResourceId)
   }
 
 -- | Compose one owner scope from the complete database bundle, the nine
@@ -60,8 +62,9 @@ compileCacheComponent databaseInput backend cacheInput = do
   clientTemplate <- try (BS.readFile (renderTemplateRoot cacheInput </> "client-configmap.yaml.tmpl")) :: IO (Either IOException ByteString)
   pure $ do
     unless (directOwnerScope databaseInput == renderOwner cacheInput
-        && directClusterId databaseInput == renderCluster cacheInput)
-      (Left (single (invalid "cache and database must share one owner and cluster")))
+        && directClusterId databaseInput == renderCluster cacheInput
+        && directNamespaceId databaseInput == renderNamespaceId cacheInput)
+      (Left (single (invalid "cache and database must share one owner, cluster, and namespace dependency")))
     unless (databaseNameText (directDatabase databaseInput ^. #name) == "nix-cache-db"
         && namespaceText (directDatabase databaseInput ^. #namespace) == "nagare-system"
         && directDatabase databaseInput ^. #engine == Postgres)
@@ -82,13 +85,15 @@ compileCacheComponent databaseInput backend cacheInput = do
     (clientBundle, clientId, clientValue) <- compileCacheClient (fmap contentDigest . canonicalValue)
       (CacheClientInput (renderOwner cacheInput) (renderCluster cacheInput) (renderLogicalKey cacheInput)
         logicalResource clientObject (SourceLocation (T.pack (renderTemplateRoot cacheInput)) "client-config"))
-    clientNative <- bindMember cacheInput clientBundle (clientId, clientValue)
+    let namespaceEdges = maybe [] (pure . OrderedAfter) (renderNamespaceId cacheInput)
+        guardedClient = clientBundle {declarations = map (addDependency namespaceEdges) (declarations clientBundle)}
+    clientNative <- bindMember cacheInput guardedClient (clientId, clientValue)
     let logicalCache = compileLogicalCache (LogicalCacheInput
           (renderOwner cacheInput) (renderCluster cacheInput) (renderLogicalKey cacheInput)
           (known "nagare-cache") logicalConfigurationDigest expectedDatabase
           (mintResourceId (renderOwner cacheInput) (renderLogicalKey cacheInput) (known "deployment"))
           (SourceLocation (T.pack (renderTemplateRoot cacheInput)) "logical-cache"))
-    scope <- mkScopeDeclaration (renderOwner cacheInput) [databaseBundle, coreBundle, logicalCache, clientBundle]
+    scope <- mkScopeDeclaration (renderOwner cacheInput) [databaseBundle, coreBundle, logicalCache, guardedClient]
     unless (Map.null (Map.intersection databaseNative coreNative))
       (Left (single (invalid "database and cache native members share a logical identity")))
     pure (scope, Map.insert clientId (snd clientNative) (Map.union databaseNative coreNative))
@@ -96,6 +101,9 @@ compileCacheComponent databaseInput backend cacheInput = do
     invalid message = inventoryError "invalid-cache-component" message
       & #scopes .~ [renderOwner cacheInput]
     known = either (error . show) id . mkName
+    addDependency edges (Managed resource) = Managed
+      (resource {dependencies = edges <> resource ^. #dependencies})
+    addDependency _ declaration = declaration
 
 -- | Compose the generated component against a caller-supplied snapshot. The
 -- native map is held in memory until plan preparation retains it privately.
@@ -179,12 +187,17 @@ compileCacheNative input = case validateInputs input of
             (renderDatabase input) (renderCredential input) revision
             configMap checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy source
       (bundle, native) <- compileCacheCore (fmap contentDigest . canonicalValue) core
-      bound <- traverse (bindMember input bundle) native
-      pure (bundle, Map.fromList bound)
+      let namespaceEdges = maybe [] (pure . OrderedAfter) (renderNamespaceId input)
+          guarded = bundle {declarations = map (addNamespaceDependency namespaceEdges) (declarations bundle)}
+      bound <- traverse (bindMember input guarded) native
+      pure (guarded, Map.fromList bound)
   where
     invalid message = inventoryError "invalid-cache-native" message
       & #scopes .~ [renderOwner input]
       & #sources .~ [SourceLocation (T.pack (renderTemplateRoot input)) "cache-core"]
+    addNamespaceDependency edges (Managed resource) = Managed
+      (resource {dependencies = edges <> resource ^. #dependencies})
+    addNamespaceDependency _ declaration = declaration
 
 validateInputs :: CacheRenderInput -> Either InventoryError ()
 validateInputs input

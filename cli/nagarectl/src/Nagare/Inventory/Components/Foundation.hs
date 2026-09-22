@@ -2,6 +2,7 @@
 -- labels are composed here so consumers cannot patch shared labels directly.
 module Nagare.Inventory.Components.Foundation
   ( FoundationInput (..)
+  , foundationNamespaceId
   , compileFoundation
   , compileContributedNamespaces
   ) where
@@ -89,6 +90,12 @@ compileFoundation input = do
         })
       unless (bound == native) (Left (single (invalid "foundation native bytes changed during binding")))
       pure (resource {dependencies = dependencies}, bound, value)
+
+foundationNamespaceId :: FoundationInput -> Name -> ResourceId
+foundationNamespaceId input namespaceName =
+  mintResourceId (foundationOwner input)
+    (either (error . T.unpack) id (mkLogicalKey "foundation"))
+    (either (error . T.unpack) id (mkName ("namespace-" <> nameText namespaceName)))
 
 -- | Materialize only the closed namespace contribution shape emitted by the
 -- pure inventory composer. Its owner has already granted the contributor.

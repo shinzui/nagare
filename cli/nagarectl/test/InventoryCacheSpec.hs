@@ -13,6 +13,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cache
 import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
+import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -20,6 +21,7 @@ import Nagare.Resource.Cache
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -46,7 +48,7 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       let databaseSpec = Database (ok (mkDatabaseName "nix-cache-db")) Nothing Postgres (defaultEngineVersion Postgres)
             (ok (Dsl.mkNamespace "nagare-system")) (ok (Dsl.mkQuantity "5Gi")) Nothing Dsl.Retain
           recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-          databaseInput = DatabaseDirectInput databaseSpec cacheOwner fixtureCluster recovery (SourceLocation "test" "database")
+          databaseInput = DatabaseDirectInput databaseSpec cacheOwner fixtureCluster Nothing recovery (SourceLocation "test" "database")
           databaseId role = ok (databaseResourceId cacheOwner (ok (mkName role)) databaseSpec)
           cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential"}
           binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
@@ -89,6 +91,28 @@ inventoryCacheTests = testGroup "cache inventory adapter"
         other -> assertFailure (show other)
       _ <- adapterVerify adapter createOperation prepared >>= expectRight
       readIORef creates >>= (@?= 1)
+  , testCase "database and cache wait for their foundation namespace" $ do
+      let fixtureFoundationOwner = ok (mkScopeId Platform "foundation")
+          foundationInput = FoundationInput fixtureFoundationOwner fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          namespaceId = foundationNamespaceId foundationInput (ok (mkName "nagare-system"))
+          databaseSpec = Database (ok (mkDatabaseName "nix-cache-db")) Nothing Postgres (defaultEngineVersion Postgres)
+            (ok (Dsl.mkNamespace "nagare-system")) (ok (Dsl.mkQuantity "5Gi")) Nothing Dsl.Retain
+          recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+          databaseInput = DatabaseDirectInput databaseSpec cacheOwner fixtureCluster (Just namespaceId) recovery (SourceLocation "test" "database")
+          databaseId role = ok (databaseResourceId cacheOwner (ok (mkName role)) databaseSpec)
+          cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential", renderNamespaceId = Just namespaceId}
+          binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+      (foundationBundle, _) <- compileFoundation foundationInput >>= expectRight
+      (cacheScope, _) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
+      let foundationScope = ok (mkScopeDeclaration fixtureFoundationOwner [foundationBundle])
+          candidate = composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+            (ReplaceScope foundationScope :| [ReplaceScope cacheScope])
+      assertBool "foundation and cache scopes failed composition" (either (const False) (const True) candidate)
+      let nativeMembers = [member | bundle <- scopeBundles cacheScope, Managed member <- declarations bundle,
+            member ^. #executor == KubernetesExecutor]
+      assertBool "namespaced cache member lacks foundation dependency"
+        (all (elem (OrderedAfter namespaceId) . (^. #dependencies)) nativeMembers)
   , testCase "foreign and unavailable cache state never authorizes creation" $ do
       state <- newIORef (CacheForeign "owned elsewhere")
       calls <- newIORef (0 :: Int)
@@ -145,7 +169,7 @@ bundle = compileLogicalCache (LogicalCacheInput cacheOwner fixtureCluster (ok (m
 renderInput :: CacheRenderInput
 renderInput = CacheRenderInput cacheOwner fixtureCluster (ok (mkLogicalKey "cache")) database workload
   ("registry.example/cache@sha256:" <> "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-  "example-cache-bucket" "../../cluster/bootstrap/nix-cache"
+  "example-cache-bucket" "../../cluster/bootstrap/nix-cache" Nothing
 
 createOperation :: PlannedOperation
 createOperation = PlannedOperation (ok (mkOperationId "op-cache-create")) CreateResource CacheExecutor (resource :| []) (contentDigest "declaration") [] Idempotent

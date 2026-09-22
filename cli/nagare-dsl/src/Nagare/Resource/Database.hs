@@ -34,6 +34,7 @@ data DatabaseDirectInput = DatabaseDirectInput
   { directDatabase :: !Database
   , directOwnerScope :: !ScopeId
   , directClusterId :: !ResourceId
+  , directNamespaceId :: !(Maybe ResourceId)
   , directRecoveryIntent :: !RecoveryIntent
   , directSourceLocation :: !SourceLocation
   }
@@ -74,7 +75,7 @@ compileDatabaseDirect digestOf input = do
           , inputSensitivity = if roleText == "credential" then Secret else Private
           , sourceLocation = directSourceLocation input
           }
-      pure (declaration {dependencies = map OrderedAfter prerequisites}, value)
+      pure (declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> prerequisites)}, value)
     prerequisite roleText = do
       role <- first invalid (mkName roleText)
       first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
@@ -119,7 +120,7 @@ compileDatabaseBundle digestOf input backupObject = do
   expectedNamespace <- first invalid (mkName (namespaceText (directDatabase input ^. #namespace)))
   unless (address declaration == Kubernetes (directClusterId input) "batch" (known "cronjob") (Just expectedNamespace) expectedName)
     (Left (invalid "database backup CronJob has an unexpected address"))
-  let guarded = declaration {dependencies = [OrderedAfter credential, OrderedAfter stateful]}
+  let guarded = declaration {dependencies = map OrderedAfter (maybe [] pure (directNamespaceId input) <> [credential, stateful])}
   pure (bundle {declarations = declarations bundle <> [Managed guarded]}, native <> [(resource, backupObject)])
   where
     known value = either (error . show) id (mkName value)
