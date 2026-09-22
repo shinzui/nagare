@@ -68,6 +68,14 @@ inventoryKubernetesTests =
         bad <- adapterPrepare badAdapter createOperation
         case bad of Left PrepareRefused {} -> pure (); other -> assertFailure ("unbound native bytes accepted: " <> show other)
         readIORef calls >>= (@?= 0)
+    , testCase "native address cannot be changed behind a matching digest" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let wrong = declaration {address = Kubernetes cluster "" (ok (mkName "service")) (Just (ok (mkName "personal"))) (ok (mkName "other"))}
+            adapter = mkKubernetesAdapter (Map.singleton resource (wrong, nativeBytes)) (ops state calls)
+        result <- adapterPrepare adapter createOperation
+        case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("mismatched native address accepted: " <> show other)
+        readIORef calls >>= (@?= 0)
     ]
 
 ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps
