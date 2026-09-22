@@ -89,6 +89,7 @@ library
     Nagare.Inventory.Command
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.Artifact
+    Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
@@ -230,6 +231,7 @@ test-suite nagarectl-test
     DomainBindingSpec
     HostSpec
     InventoryArtifactSpec
+    InventoryCacheSpec
     InventoryCloudSpec
     InventoryHostSpec
     InventoryKubernetesSpec

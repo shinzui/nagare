@@ -39,6 +39,7 @@ import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventoryArtifactSpec (inventoryArtifactTests)
+import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -422,6 +423,7 @@ main = do
             [ testGroup "Nagare.Static.Image" dockerfileTests
             , hostTests
             , inventoryArtifactTests
+            , inventoryCacheTests
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests

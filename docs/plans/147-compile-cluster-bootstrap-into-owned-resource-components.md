@@ -73,6 +73,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M2c partial: Introduce a distinct typed `NixCachePublicKey` capability and witness so a cache client cannot substitute a database connection or image output for its signing key; composition and scope wire round-trip tests pass.
 - [x] (2026-09-22) M2c partial: Add an `AtticCache` logical provider address, `LogicalCache` desired spec, and `CacheExecutor` with distinct claim validation and scope wire round-trip. Default command registries refuse cache execution until its native adapter is installed; the CLI executable builds.
 - [x] (2026-09-22) M2c partial: Compile a logical cache declaration with stable identity, database/workload ordering, an explicit recoverable configuration operation, and a typed generated signing-key export. The planner orders the operation after changes to its affected resource and prerequisites; the focused DSL and CLI tests pass. Cache runtime and actual output resolution remain open.
+- [x] (2026-09-22) M2c partial: Add a reviewed cache adapter that binds native plan bytes to the typed logical cache declaration, refuses adoption/retirement and foreign or unavailable state, verifies a nonempty generated public key, and recovers a lost create acknowledgement from observed configuration and key. Two focused adapter tests pass. The Attic transport and output slot remain outstanding.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -95,6 +96,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: A logical Attic cache cannot be claimed as a Kubernetes object: it lives in Attic's database and has a separate native reconciliation boundary. The shared inventory now has a dedicated address, spec, and executor; no cache runtime is registered yet, so command execution explicitly refuses instead of treating it as a Kubernetes manifest.
 
 2026-09-22: The generic planner previously appended declared operations with no dependency edges. A logical cache configuration could therefore run before its database or workload. It now carries operation dependencies from both the affected resource's own mutation and its declared prerequisites.
+
+2026-09-22: A logical cache command's exit status is insufficient completion evidence. The cache adapter requires an observation containing the intended configuration digest and a nonempty public key; its transport must obtain and authenticate that observation from Attic. Its current callback boundary is recording-tested, with no production transport installed.
 
 2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
 
@@ -144,6 +147,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: Take the content digest as an explicit compiler input and return the structured declaration. Rationale: `nagare-dsl` remains free of hashing and execution dependencies, while a later adapter must retain and verify the native bytes that digest names.
 
 2026-09-22: Begin the native adapter with one resource per create/update operation and refuse adoption, retirement, and declared operations until their provider-specific preconditions exist. Rationale: the common planner already emits one resource per ordinary create/update, and a callback without an API-server conditional write would leave a check-then-apply race.
+
+2026-09-22: Represent Attic's named logical cache separately from its Kubernetes Deployment and Service, and retain its configuration as an explicit recoverable operation with a typed `NixCachePublicKey` export. The cache adapter's completion proof binds the generated key's digest to the reviewed mutation and physical identity; the public key itself is not invented by rendering.
 
 
 ## Outcomes & Retrospective
