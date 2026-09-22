@@ -39,6 +39,7 @@ import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventoryCloudSpec (inventoryCloudTests)
+import InventoryHostSpec (inventoryHostTests)
 import InventorySpec (inventoryTests)
 import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe)
 import Nagare.App
@@ -419,6 +420,7 @@ main = do
             [ testGroup "Nagare.Static.Image" dockerfileTests
             , hostTests
             , inventoryCloudTests
+            , inventoryHostTests
             , inventoryTests
             , inventoryTransactionTests
             , platformTests

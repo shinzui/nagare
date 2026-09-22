@@ -39,7 +39,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 ## Progress
 
 - [x] (2026-09-22) M1: Compiled cloud declarations, enforced TypeScript native-registration parity, and bound exact Pulumi saved-plan bytes to review.
-- [ ] M2: Bind guarded host activation and host identity to durable receipts.
+- [x] (2026-09-22) M2: Bound guarded host activation, physical identity, committed closure, and fresh-login acknowledgement to durable receipts.
 - [ ] M3: Declare artifact publication, bootstrap prerequisites, and control metadata.
 - [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy.
 
@@ -47,6 +47,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 ## Surprises & Discoveries
 
 2026-09-22: EP-145 plans one common operation per changed declaration, while a Pulumi preview and saved plan cover the whole stack. The Pulumi adapter therefore validates every mutating preview URN against the complete declaration bundle and binds each common operation to the same exact native bytes; apply may verify an already-converged later operation rather than replaying a changed native plan. This preserves one Pulumi saved-plan authority without introducing per-resource cloud mutations.
+
+2026-09-22: The existing safe-switch protocol already distinguished arm, test activation, commit, and automatic reversion, but its successful client output was only human-readable. It now emits one machine-readable receipt after both a fresh SSH login and the on-host `COMMITTED` response. The adapter hashes that exact record and refuses local flake/version evidence as completion.
 
 
 ## Decision Log
@@ -60,6 +62,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-16: Stamp identity and the resource's own spec digest, never the scope revision, and produce saved plans through the shared prepare method. A scope revision in provider metadata would make every deploy rewrite every resource in the scope.
 
 2026-09-22: Use a canonical Haskell cloud bundle as the ownership source and a Pulumi stack transformation as the TypeScript consumption boundary. The transformation sees component and provider registrations before creation, rejects undeclared `gcp:` or `nagare:` registrations, and requires every declared registration to be consumed. The retained adapter bundle is a canonical redacted header followed by the exact opaque Pulumi plan bytes.
+
+2026-09-22: Add `ActivateHost` to the closed declared-operation vocabulary rather than treating host switching as an arbitrary shell action. Recovery is automatic only before activation or after a proven reversion; a timer-armed, unreachable, wrong-instance, or wrong-closure host remains unresolved. The adapter never cancels a rollback timer to satisfy inventory execution.
 
 
 ## Outcomes & Retrospective

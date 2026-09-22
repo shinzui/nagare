@@ -1011,7 +1011,7 @@
           ]
         },
         "operationKind": {
-          "enum": ["SchemaMigration", "CreateLogicalCache", "SnapshotData", "RestoreData", "PublishRelease"]
+          "enum": ["SchemaMigration", "CreateLogicalCache", "SnapshotData", "RestoreData", "PublishRelease", "ActivateHost"]
         }
       },
       "required": [

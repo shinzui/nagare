@@ -138,7 +138,7 @@ packInteger = Data.Text.pack . show
 data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | CreateLogicalCache | SnapshotData | RestoreData | PublishRelease
+data OperationKind = SchemaMigration | CreateLogicalCache | SnapshotData | RestoreData | PublishRelease | ActivateHost
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation

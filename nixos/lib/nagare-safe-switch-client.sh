@@ -67,7 +67,12 @@ nagare_safe_switch() {
   if [ "$verified" -eq 1 ]; then
     out="$(_nagare_remote commit "$new" 2>&1)" || true
     printf '%s\n' "$out"
-    case "$out" in *COMMITTED\ new=*) return 0 ;; esac
+    case "$out" in
+      *COMMITTED\ new=*)
+        printf 'nagare-host-activation\tcommitted\t%s\tfresh-login\n' "$new"
+        return 0
+        ;;
+    esac
   fi
 
   echo "NOT COMMITTED: access could not be verified. The host reverts to the previous configuration within ${window} s of arming (and on any reboot). Do not run further commands against it; wait, then check with a fresh ssh."

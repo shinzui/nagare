@@ -90,6 +90,15 @@ carry no signature, and `nix copy` otherwise rejects them on the workstation sid
 host trusts `deploy`. The first live switch (ExecPlan 114) failed this way before arming and left
 the host untouched. The host still has to trust the deploy user for the copy to be accepted.
 
+The successful workstation helper emits one tab-delimited
+`nagare-host-activation committed <closure> fresh-login` receipt only after the fresh SSH login
+and the on-host `COMMITTED` response. Inventory execution hashes that exact record and binds it to
+the physical GCE instance, expected old closure, new closure, configuration/lock digests, and
+activation identity. A matching local flake or version is not completion evidence. Recovery may
+retry only when activation never started or the old closure is proven restored; a timer-armed,
+unreachable, wrong-instance, or wrong-closure observation remains unresolved, and inventory never
+cancels the rollback timer merely to advance a transaction.
+
 ## Amendment — 2026-09-13: agent guard removed
 
 The operator removed `.claude/hooks/guard_host_mutation.py` and `.claude/settings.json` (commit

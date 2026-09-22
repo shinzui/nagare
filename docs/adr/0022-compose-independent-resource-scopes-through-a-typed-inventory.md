@@ -181,3 +181,12 @@ preflight refuses if any binding changed. Pulumi remains the native stack-wide
 executor. The common journal may name several declaration-level operations covered
 by one native plan, so later operations verify convergence rather than replaying a
 different plan after the first stack apply.
+
+Host configuration is likewise a typed executor boundary rather than a set of
+independently deletable Nix derivations. The declaration covers the evaluated
+system, durable mounts, identity inputs, credential references, and delegated
+services, plus a closed `ActivateHost` operation. Its receipt binds the physical
+instance, destination, configuration and lock digests, old and new closures, and
+activation identity. Only a fresh-login acknowledgement followed by the existing
+self-reverting protocol's committed response proves completion. Current reachability
+and health remain observations, not historical completion evidence.
