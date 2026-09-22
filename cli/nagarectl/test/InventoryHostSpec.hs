@@ -1,18 +1,22 @@
 module InventoryHostSpec (inventoryHostTests) where
 
+import Data.ByteString.Char8 qualified as BC
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.ByteString.Char8 qualified as BC
 import Data.Text (Text)
 import Data.Text qualified
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Host
+import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Host
 import Nagare.Inventory.Journal
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -61,6 +65,49 @@ inventoryHostTests =
         case parseHostCommitReceipt "COMMITTED new=/nix/store/new\n" of
           Left _ -> pure ()
           Right _ -> assertFailure "plain success text was accepted as committed-closure evidence"
+    , testCase "subprocess runtime retains the prepared closure across execution" $
+        withSystemTempDirectory "nagare-host-runtime-test" $ \temporary -> do
+          let executable = temporary </> "host-transport"
+              statePath = temporary </> "committed"
+              body =
+                unlines
+                  [ "#!/bin/sh"
+                  , "set -eu"
+                  , "request=$(cat)"
+                  , "printf '%s' \"$request\" | grep -F 'example-project' >/dev/null"
+                  , "case \"$1\" in"
+                  , "  observe|prepare) printf '%s\\n' '{\"tag\":\"HostTransportPrepared\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/nix/store/old\",\"/nix/store/new\"]}' ;;"
+                  , "  inspect)"
+                  , "    if [ -f '" <> statePath <> "' ]; then"
+                  , "      printf '%s\\n' '{\"tag\":\"HostTransportCommitted\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/nix/store/new\",\"" <> Data.Text.unpack (digestText acknowledgement) <> "\"]}'"
+                  , "    else"
+                  , "      printf '%s\\n' '{\"tag\":\"HostTransportBefore\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/nix/store/old\"]}'"
+                  , "    fi ;;"
+                  , "  activate)"
+                  , "    : >'" <> statePath <> "'"
+                  , "    printf '%s\\n' '{\"tag\":\"HostTransportCommitted\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/nix/store/new\",\"" <> Data.Text.unpack (digestText acknowledgement) <> "\"]}' ;;"
+                  , "esac"
+                  ]
+              runtime =
+                HostRuntimeConfig
+                  executable
+                  []
+                  (ok (mkContextId "dev"))
+                  (name "dev-nagare")
+                  "example-project"
+                  "us-west1-a"
+                  "dev-nagare"
+                  "deploy@dev-nagare"
+                  (contentDigest "configuration")
+                  (contentDigest "lock")
+          writeFile executable body
+          setFileMode executable 0o700
+          let adapter = mkHostAdapter (mkHostRuntimeOps runtime)
+          prepared <- adapterPrepare adapter operation >>= expectRight
+          adapterPreflight adapter operation prepared >>= expectRight
+          adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
+          _ <- adapterVerify adapter operation prepared >>= expectRight
+          pure ()
     ]
 
 ops :: IORef HostActivationState -> HostAdapterOps

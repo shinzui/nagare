@@ -79,9 +79,19 @@ if [ -z "${operator_key}" ] || ! printf '%s' "${authorized}" \
   exit 3
 fi
 
-# 3. Build, and make the toplevel present in the host's store.
+# 3. Build (or consume the exact inventory-reviewed closure), and make the
+# toplevel present in the host's store.
 TOPLEVEL_REF="${CONFIG_REF}.system.build.toplevel"
-if [ "${BUILD_ON_HOST}" -eq 1 ]; then
+if [ -n "${NAGARE_HOST_PREPARED_CLOSURE:-}" ]; then
+  [ "${BUILD_ON_HOST}" -eq 0 ] || { echo "host-switch: --build-on-host cannot alter a reviewed closure" >&2; exit 2; }
+  NEW="${NAGARE_HOST_PREPARED_CLOSURE}"
+  CURRENT="$(ssh -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
+  [ -z "${NAGARE_HOST_EXPECTED_OLD_CLOSURE:-}" ] || [ "${CURRENT}" = "${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" ] || {
+    echo "host-switch: current closure ${CURRENT} differs from reviewed ${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" >&2
+    exit 4
+  }
+  nix copy --no-check-sigs --to "ssh-ng://${TARGET_HOST}" "${NEW}"
+elif [ "${BUILD_ON_HOST}" -eq 1 ]; then
   NEW="$(nix build --no-link --print-out-paths --eval-store auto --store "ssh-ng://${TARGET_HOST}" "${TOPLEVEL_REF}")"
 else
   NEW="$(nix build --no-link --print-out-paths "${TOPLEVEL_REF}")"

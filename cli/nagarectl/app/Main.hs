@@ -35,7 +35,7 @@ import Data.Generics.Labels ()
 import Data.List (find, sort)
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Set (Set)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -238,11 +238,14 @@ import Nagare.Init
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
+import Nagare.Inventory.Adapters.Host (mkHostAdapter)
+import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
@@ -4032,10 +4035,13 @@ runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory output = do
   target <- activeTarget mctx
   candidate <- Inventory.loadCandidate candidateDirectory >>= either dieT pure
-  let declarations = ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)
+  let inventory = ResourceInventory.candidateInventory candidate
+      declarations = ResourceInventory.inventoryDeclarations inventory
+      scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
-  if null registrations && Map.null artifactSpecs
+  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs
     then Inventory.planInventory target candidateDirectory output
     else do
       (active, workspace) <- prepareInfraMutation mctx
@@ -4059,7 +4065,8 @@ inventoryExecutionRegistry mctx bundle = do
   let declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
-  if null registrations && Map.null artifactSpecs
+  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]))
     else do
       (active, workspace) <- prepareInfraMutation mctx
@@ -4072,7 +4079,8 @@ inventoryExecutionRegistry mctx bundle = do
         if Map.null artifactSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
           else pure (inventoryArtifactAdapter active workspace artifactSpecs)
-      let adapters = [pulumi, artifact] <> map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor]
+      host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
+      let adapters = [pulumi, artifact, host, Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -4082,6 +4090,7 @@ inventoryPlanRegistry active workspace candidate history = do
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
@@ -4090,7 +4099,8 @@ inventoryPlanRegistry active workspace candidate history = do
         if Map.null artifactSpecs
           then Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor
           else inventoryArtifactAdapter active workspace artifactSpecs
-      adapters = [pulumi, artifact] <> map (Inventory.manifestAdapterFor history) [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor]
+  host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
+  let adapters = [pulumi, artifact, host, Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> InventoryAdapter.Adapter
@@ -4103,6 +4113,31 @@ inventoryArtifactAdapter active workspace specs =
         , runtimeArtifactEnvironment = [("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))]
         , runtimeArtifactSpecs = specs
         }
+
+inventoryHostAdapter :: ActiveTarget -> PlatformWorkspace -> (Resource.ContentDigest, Resource.ContentDigest) -> IO InventoryAdapter.Adapter
+inventoryHostAdapter active workspace (configurationDigest, lockDigest) = do
+  hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
+  hostRoot <- hostConfigDir (active ^. #contextName)
+  context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+  attribute <- either dieT pure (Resource.mkName hostName)
+  let profile = active ^. #profile
+      config =
+        HostRuntimeConfig
+          { runtimeHostExecutable = workspace ^. #scriptsDir </> "inventory-host-transport.sh"
+          , runtimeHostEnvironment =
+              [ ("NAGARE_CONTEXT", T.unpack (contextNameText (active ^. #contextName)))
+              , ("NAGARE_HOST_FLAKE", hostRoot)
+              ]
+          , runtimeHostContext = context
+          , runtimeHostAttribute = attribute
+          , runtimeHostProject = profile ^. #project
+          , runtimeHostZone = profile ^. #zone
+          , runtimeHostInstanceName = profile ^. #instanceName
+          , runtimeHostDestination = "deploy@" <> hostName
+          , runtimeHostConfigurationDigest = configurationDigest
+          , runtimeHostLockDigest = lockDigest
+          }
+  pure (mkHostAdapter (mkHostRuntimeOps config))
 
 inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
 inventoryPulumiAdapter active workspace binding scopes registrations = do

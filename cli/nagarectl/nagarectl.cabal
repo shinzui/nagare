@@ -91,6 +91,7 @@ library
     Nagare.Inventory.Adapters.Artifact
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Host
+    Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud

@@ -4,6 +4,7 @@ module Nagare.Inventory.Host
   , HostDeclarationBundle (..)
   , compileHostScope
   , hostSystemResourceId
+  , hostExecutionInputsFromScopes
   )
 where
 
@@ -91,3 +92,18 @@ knownName = either (error . show) id . mkName
 
 knownKey :: Text -> LogicalKey
 knownKey = either (error . show) id . mkLogicalKey
+
+hostExecutionInputsFromScopes :: [ScopeDeclaration] -> Either Text (Maybe (ContentDigest, ContentDigest))
+hostExecutionInputsFromScopes scopes = case activationInputs of
+  [] -> Right Nothing
+  [[ContentInput configuration, ContentInput lock]] -> Right (Just (configuration, lock))
+  [_] -> Left "host activation must retain exactly its configuration and lock digests"
+  _ -> Left "inventory contains more than one host activation operation"
+  where
+    activationInputs =
+      [ operation ^. #inputs
+      | scope <- scopes
+      , bundle <- scopeBundles scope
+      , operation <- bundle ^. #operations
+      , operation ^. #operationKind == ActivateHost
+      ]
