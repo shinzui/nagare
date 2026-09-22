@@ -4,6 +4,7 @@ module Nagare.Inventory.Cache
   ( CacheRenderInput (..)
   , compileCacheNative
   , compileCacheComponent
+  , logicalConfigurationDigest
   ) where
 
 import Data.Aeson
@@ -20,6 +21,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Dsl.Database (Database (..), Engine (Postgres))
+import Nagare.Dsl.Types (databaseNameText, namespaceText)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -58,6 +61,10 @@ compileCacheComponent databaseInput backend cacheInput = do
     unless (directOwnerScope databaseInput == renderOwner cacheInput
         && directClusterId databaseInput == renderCluster cacheInput)
       (Left (single (invalid "cache and database must share one owner and cluster")))
+    unless (databaseNameText (directDatabase databaseInput ^. #name) == "nix-cache-db"
+        && namespaceText (directDatabase databaseInput ^. #namespace) == "nagare-system"
+        && directDatabase databaseInput ^. #engine == Postgres)
+      (Left (single (invalid "cache transport requires the nix-cache-db PostgreSQL database in nagare-system")))
     expectedDatabase <- first (single . invalid) (databaseResourceId (renderOwner cacheInput) (known "statefulset") (directDatabase databaseInput))
     expectedCredential <- first (single . invalid) (databaseResourceId (renderOwner cacheInput) (known "credential") (directDatabase databaseInput))
     unless (renderDatabase cacheInput == expectedDatabase && renderCredential cacheInput == expectedCredential)

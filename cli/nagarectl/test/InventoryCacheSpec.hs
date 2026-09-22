@@ -11,6 +11,7 @@ import Data.ByteString.Char8 qualified as BC
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cache
+import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
@@ -21,6 +22,9 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
 
 inventoryCacheTests :: TestTree
 inventoryCacheTests = testGroup "cache inventory adapter"
@@ -50,6 +54,9 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       Map.size native @?= 15
       let candidate = composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scope :| [])
       assertBool "complete cache scope failed inventory validation" (either (const False) (const True) candidate)
+      let renamed = databaseInput {directDatabase = databaseSpec & #name .~ ok (mkDatabaseName "other-db")}
+      refused <- compileCacheComponent renamed (GcsBackend "project" "bucket") cacheInput
+      assertBool "cache transport's fixed database address was not validated" (either (const True) (const False) refused)
   , testCase "lost cache creation acknowledgement recovers from the public key and configuration" $ do
       state <- newIORef CacheMissing
       creates <- newIORef (0 :: Int)
@@ -89,13 +96,41 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       writeIORef state (CacheUnavailable "observation failed")
       adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectAmbiguous "observation failed")
       readIORef calls >>= (@?= 0)
+  , testCase "cache subprocess transport binds observation and generated key" $
+      withSystemTempDirectory "cache-transport" $ \root -> do
+        let executable = root </> "transport"
+            statePath = root </> "state.json"
+            cacheJson = "{\"kind\":\"present\",\"cache\":{\"is_public\":true,\"retention_period\":{\"Period\":2592000},\"substituter_endpoint\":\"http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache\",\"api_endpoint\":\"http://127.0.0.1:18080/\",\"public_key\":\"cache:AAAA=\"}}"
+            script = unlines
+              [ "#!/bin/sh"
+              , "set -eu"
+              , "request=$(cat)"
+              , "printf '%s' \"$request\" | grep -F 'k3d-cache-test' >/dev/null"
+              , "case \"$1\" in"
+              , "  observe) cat '" <> statePath <> "' ;;"
+              , "  create|configure) printf '%s' '" <> cacheJson <> "' > '" <> statePath <> "'; cat '" <> statePath <> "' ;;"
+              , "esac"
+              ]
+            config = CacheRuntimeConfig executable "k3d-cache-test" (ok (mkContextId "test")) (pure (Right ())) specs
+            adapter = mkCacheAdapter specs (mkCacheRuntimeOps config)
+        writeFile executable script
+        setFileMode executable 0o700
+        writeFile statePath "{\"kind\":\"missing\"}"
+        prepared <- adapterPrepare adapter createOperation >>= expectRight
+        adapterPreflight adapter createOperation prepared >>= expectRight
+        adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+        _ <- adapterVerify adapter createOperation prepared >>= expectRight
+        publicKey <- cachePublicKeyFromObservation (mkCacheRuntimeOps config) (CacheMutationPlan 1
+          (plannedOperationId createOperation) CreateResource (plannedInputDigest createOperation)
+          resource fixtureCluster (ok (mkName "nagare-cache")) logicalConfigurationDigest) >>= expectRight
+        publicKey @?= "cache:AAAA="
   ]
 
 specs :: Map.Map ResourceId ManagedResource
 specs = either (error . show) id (cacheSpecsFromDeclarations (declarations bundle))
 
 bundle :: ResourceBundle
-bundle = compileLogicalCache (LogicalCacheInput cacheOwner fixtureCluster (ok (mkLogicalKey "cache")) (ok (mkName "cache")) (contentDigest "configuration") database workload (SourceLocation "test" "cache"))
+bundle = compileLogicalCache (LogicalCacheInput cacheOwner fixtureCluster (ok (mkLogicalKey "cache")) (ok (mkName "nagare-cache")) logicalConfigurationDigest database workload (SourceLocation "test" "cache"))
 
 renderInput :: CacheRenderInput
 renderInput = CacheRenderInput cacheOwner fixtureCluster (ok (mkLogicalKey "cache")) database workload

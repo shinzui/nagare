@@ -238,10 +238,12 @@ import Nagare.Init
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Artifact (mkArtifactAdapter)
 import Nagare.Inventory.Adapters.ArtifactRuntime
+import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapter)
+import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
@@ -4044,9 +4046,10 @@ runInventoryPlan mctx candidateDirectory output = do
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && Map.null cacheSpecs
     then Inventory.planInventory target candidateDirectory output
     else do
       (active, workspace) <-
@@ -4074,9 +4077,10 @@ inventoryExecutionRegistry mctx bundle = do
   let declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   kubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor]))
     else do
       (active, workspace) <-
@@ -4096,8 +4100,9 @@ inventoryExecutionRegistry mctx bundle = do
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
           else pure (inventoryArtifactAdapter active workspace artifactSpecs)
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
-      kubernetes <- inventoryKubernetesAdapter active binding kubernetesSpecs
-      let adapters = [pulumi, artifact, host, kubernetes, Inventory.executionBlockedAdapterFor ResourceInventory.CacheExecutor]
+      (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+      kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
+      let adapters = [pulumi, artifact, host, kubernetes, cache]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -4107,6 +4112,7 @@ inventoryPlanRegistry active workspace candidate history = do
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
   kubernetesSpecs <- if null kubernetesResources
@@ -4121,20 +4127,38 @@ inventoryPlanRegistry active workspace candidate history = do
           then Inventory.manifestAdapterFor history ResourceInventory.ArtifactExecutor
           else inventoryArtifactAdapter active workspace artifactSpecs
   host <- maybe (pure (Inventory.manifestAdapterFor history ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
+  (cache, cacheKey) <- if Map.null cacheSpecs
+    then pure (Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
+    else inventoryCacheAdapter active workspace (ResourceInventory.inventoryBinding inventory) cacheSpecs
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
-    else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
-  let adapters = [pulumi, artifact, host, kubernetes, Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor]
+    else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
+  let adapters = [pulumi, artifact, host, kubernetes, cache]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
-inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
-inventoryKubernetesAdapter active binding specs
+inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
+inventoryKubernetesAdapter active binding cacheKey specs
   | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor)
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
-      pure (mkKubernetesAdapter specs (mkKubernetesRuntimeOps config specs))
+      pure (mkKubernetesAdapter specs (mkKubernetesRuntimeOpsWithCacheKey config cacheKey specs))
+
+inventoryCacheAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource -> IO (InventoryAdapter.Adapter, Resource.ResourceId -> IO (Either Text Text))
+inventoryCacheAdapter active workspace binding specs
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.CacheExecutor, \_ -> pure (Left "cache output resolver is not installed"))
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity) (dieT "cache inventory review belongs to a different context")
+      let config = CacheRuntime.CacheRuntimeConfig
+            { CacheRuntime.runtimeCacheExecutable = workspace ^. #scriptsDir </> "inventory-cache-transport.sh"
+            , CacheRuntime.runtimeCacheKubectlContext = contextNameText (active ^. #contextName)
+            , CacheRuntime.runtimeCacheContextId = context
+            , CacheRuntime.runtimeCacheGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+            , CacheRuntime.runtimeCacheSpecs = specs
+            }
+      pure (mkCacheAdapter specs (CacheRuntime.mkCacheRuntimeOps config), CacheRuntime.cachePublicKeyForResource config)
 
 inventoryArtifactAdapter :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId InventoryArtifact.ArtifactExecutionSpec -> InventoryAdapter.Adapter
 inventoryArtifactAdapter active workspace specs =

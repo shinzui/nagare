@@ -19,6 +19,7 @@ assert_refused 'artifact adapter child marker' bash scripts/upload-images.sh --d
 assert_refused 'artifact adapter child marker' bash scripts/inventory-artifact-transport.sh observe
 assert_refused 'host adapter child marker' bash scripts/host-switch.sh --dry-run
 assert_refused 'host adapter child marker' bash scripts/inventory-host-transport.sh observe
+assert_refused 'cache adapter child marker' bash scripts/inventory-cache-transport.sh observe
 assert_refused 'artifact adapter child marker' bash scripts/setup-nix-builder.sh
 assert_refused 'host adapter child marker' bash scripts/vm-power.sh start
 assert_refused 'artifact adapter child marker' bash cluster/bootstrap/nix-cache/publish-image.sh
