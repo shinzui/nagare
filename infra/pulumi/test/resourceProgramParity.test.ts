@@ -1,4 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type Registration = { pulumiType: string; pulumiName: string };
 
@@ -25,7 +29,11 @@ async function observeProgram(variant: string): Promise<void> {
         config["nagare:cdnCertificateMode"] = "prepare";
     }
     process.env.PULUMI_CONFIG = JSON.stringify(config);
-    delete process.env.NAGARE_RESOURCE_DECLARATIONS;
+    if (process.env.NAGARE_TEST_DECLARATIONS) {
+        process.env.NAGARE_RESOURCE_DECLARATIONS = process.env.NAGARE_TEST_DECLARATIONS;
+    } else {
+        delete process.env.NAGARE_RESOURCE_DECLARATIONS;
+    }
     const pulumi = await import("@pulumi/pulumi");
     await pulumi.runtime.setMocks({
         call: (args) => args.inputs,
@@ -50,17 +58,56 @@ async function observeProgram(variant: string): Promise<void> {
             };
         },
     }, "nagare", "dev", true);
-    const program = await import("../index");
-    void program;
+    await pulumi.runtime.runInPulumiStack(async () => {
+        await import("../index");
+        return {};
+    });
     await pulumi.runtime.disconnect();
     observed.sort((left, right) => `${left.pulumiType}\0${left.pulumiName}`.localeCompare(`${right.pulumiType}\0${right.pulumiName}`));
     process.stdout.write(`${JSON.stringify(observed)}\n`);
 }
 
-function runVariant(variant: string): Registration[] {
-    const result = spawnSync(process.execPath, [__filename, variant], { encoding: "utf8" });
+function runVariant(variant: string, declarations?: string): Registration[] {
+    const env = { ...process.env };
+    if (declarations) env.NAGARE_TEST_DECLARATIONS = declarations;
+    const result = spawnSync(process.execPath, [__filename, variant], { encoding: "utf8", env });
     if (result.status !== 0) throw new Error(`resource program fixture ${variant} failed: ${result.stderr}${result.stdout}`);
     return JSON.parse(result.stdout.trim()) as Registration[];
+}
+
+function canonicalJson(value: unknown): string {
+    if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(",")}}`;
+}
+
+function verifyGuardedVariant(variant: string, observed: Registration[]): void {
+    const temporary = mkdtempSync(join(tmpdir(), "nagare-resource-parity-"));
+    try {
+        const registrations = observed.map((registration, index) => ({
+            resourceId: `platform:cloud/native-${index}/resource`,
+            ...registration,
+            pulumiUrn: `urn:pulumi:dev::nagare::${registration.pulumiType}::${registration.pulumiName}`,
+            specDigest: "1".repeat(64),
+            class: "managed",
+        }));
+        const declarationPath = join(temporary, "declarations.json");
+        writeFileSync(declarationPath, canonicalJson({
+            version: 1,
+            context: "dev",
+            project: "example-project",
+            stack: "dev",
+            scope: [{ kind: "Platform", name: "cloud" }],
+            resources: [],
+            registrations,
+            bundleDigest: createHash("sha256").update(canonicalJson(registrations), "utf8").digest("hex"),
+        }));
+        const guarded = runVariant(variant, declarationPath);
+        assert(JSON.stringify(guarded) === JSON.stringify(observed), `${variant} declaration guard changed complete membership`);
+    } finally {
+        rmSync(temporary, { recursive: true, force: true });
+    }
 }
 
 function names(values: Registration[]): Set<string> {
@@ -86,6 +133,12 @@ async function main(): Promise<void> {
     for (const [label, registrations] of Object.entries({ base, image, cache, legacyCdn, prepareCdn, managerCdn })) {
         assert(names(registrations).size === registrations.length, `${label} contains duplicate native registrations`);
     }
+    verifyGuardedVariant("base", base);
+    verifyGuardedVariant("image", image);
+    verifyGuardedVariant("cache", cache);
+    verifyGuardedVariant("cdn-legacy", legacyCdn);
+    verifyGuardedVariant("cdn-prepare", prepareCdn);
+    verifyGuardedVariant("cdn-manager", managerCdn);
     assert(base.length === 31, `base cloud topology changed: expected 31 registrations, got ${base.length}`);
     assert(image.length === base.length + 2, "image-enabled topology must add the instance component and GCE instance");
     assert(cache.length === base.length + 3, "cache-enabled topology must add its bucket, IAM member, and HMAC key");
