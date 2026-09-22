@@ -9,6 +9,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
+import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -187,6 +188,26 @@ resourceInventoryTests =
         decodeScope (encodeCanonicalScope ownerScope) @?= Right ownerScope
         rejects "claim-conflict" (compileScopes [ownerScope, scope a [logical second]])
         rejects "invalid-declaration" (mkScopeDeclaration p [bundle [Managed (first {address = AtticCache cluster (n "nagare-cache"), executor = CacheExecutor})]])
+    , testCase "logical cache exports its generated public key after database and workload" $ do
+        let database = service p "nix-cache-db" "nix-cache-db"
+            workload = service p "nix-cache-workload" "nix-cache"
+            cacheBundle = compileLogicalCache (LogicalCacheInput p cluster (ok (mkLogicalKey "nix-cache")) (n "nagare-cache") digest
+              (declarationId database) (declarationId workload) (SourceLocation "cache" "logical"))
+            fullScope = ok (mkScopeDeclaration p [bundle [database, workload], cacheBundle])
+        length (exports cacheBundle) @?= 1
+        case cacheBundle ^. #operations of
+          [operation] -> do
+            operationKind operation @?= CreateLogicalCache
+            recovery operation @?= VerifyBeforeRetry
+            affects operation @?= mintResourceId p (ok (mkLogicalKey "nix-cache")) (n "logical-cache") :| []
+          _ -> assertFailure "logical cache configuration operation missing"
+        case exports cacheBundle of
+          [value] -> let (_, _, capability, constraints, sensitivity) = exportSignature value in do
+            capability @?= NixCachePublicKey
+            constraints @?= [NonEmptyOutput]
+            sensitivity @?= Public
+          _ -> assertFailure "logical cache public key export missing"
+        assertBool "logical cache dependencies did not compose" (either (const False) (const True) (compileScopes [fullScope]))
     , testCase "dependency cycles and dangling references refuse" $ do
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])

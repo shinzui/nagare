@@ -275,7 +275,18 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
-      pure (mkPlanned RunDeclaredOperation executor (operation ^. #affects) digest (operation ^. #recovery))
+      let affected = NE.toList (operation ^. #affects)
+          prerequisites =
+            [ prerequisite
+            | resourceId <- affected
+            , Just resource <- [Map.lookup resourceId desiredDeclarations]
+            , dependency <- declarationDependencies resource
+            , Just prerequisite <- [Map.lookup (dependencyResource dependency) operationByResource]
+            ]
+          affectedChanges = mapMaybe (`Map.lookup` operationByResource) affected
+      pure
+        ((mkPlanned RunDeclaredOperation executor (operation ^. #affects) digest (operation ^. #recovery))
+          {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->

@@ -8,8 +8,10 @@ import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty qualified as NE
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -20,6 +22,8 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
+import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import System.Directory (doesFileExist, listDirectory, removeFile)
@@ -41,6 +45,28 @@ inventoryTransactionTests =
         withSystemTempDirectory "inventory-store" $ \root -> do
           filesystem <- openFilesystemStore root >>= expectRight
           exerciseStore filesystem
+    , testCase "declared cache operation waits for its resource, database, and workload" $ do
+        let owner = ok (mkScopeId Platform "cache")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            database = member owner cluster "database"
+            workload = member owner cluster "workload"
+            cache = compileLogicalCache (LogicalCacheInput owner cluster (ok (mkLogicalKey "cache")) (ok (mkName "cache")) (contentDigest "config")
+              (declarationId database) (declarationId workload) (SourceLocation "test" "cache"))
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [database, workload] [] [] [] [] [], cache])
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
+        store <- newMemoryStore
+        _ <- initializeStore store binding "cache-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let requirements = observationRequirements candidate history
+            observations = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- Set.toAscList (requiredResources requirements)])
+            proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+            allOperations = proposalOperations proposal
+            creates = [plannedOperationId operation | operation <- allOperations, plannedAction operation == CreateResource]
+        case [operation | operation <- allOperations, plannedAction operation == RunDeclaredOperation] of
+          [operation] -> Set.fromList (plannedDependencies operation) @?= Set.fromList creates
+          other -> assertFailure ("expected one declared cache operation, got " <> show other)
     , testCase "reviewed execution converges and skips no completed operation" $ do
         store <- newMemoryStore
         calls <- newIORef ([] :: [OperationId])
@@ -286,6 +312,22 @@ transactionToken reviewed = "tx-" <> T.unpack (digestText (contentDigest (encode
 
 fixtureBinding :: ContextBinding
 fixtureBinding = ContextBinding (ok (mkContextId "context-1")) (ok (mkName "project"))
+
+member :: ScopeId -> ResourceId -> Text -> Declaration
+member owner cluster role = Managed ManagedResource
+  { identity = mintResourceId owner (ok (mkLogicalKey role)) (ok (mkName "resource"))
+  , owner = owner
+  , executor = KubernetesExecutor
+  , address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName role))
+  , aliases = []
+  , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
+  , lifecycle = Retain
+  , dataPolicy = Stateless
+  , sensitivity = Public
+  , dependencies = []
+  , delegations = []
+  , source = SourceLocation "test" role
+  }
 
 expectRight :: (Show e) => Either e a -> IO a
 expectRight result = case result of
