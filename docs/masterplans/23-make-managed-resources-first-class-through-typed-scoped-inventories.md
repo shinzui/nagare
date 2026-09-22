@@ -172,6 +172,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2c partial: A disposable five-member database bundle converges in one reviewed transaction; after a simulated lost StatefulSet acknowledgement, resume proves completion and creates the backup without recreating the credential or StatefulSet. Shared transaction preflight now defers ambiguous effects to adapter recovery.
 - [x] (2026-09-22) EP-147 M2c partial: Apply/resume reconstructs the complete database native map from private review evidence before executing the disposable transaction.
 - [x] (2026-09-22) EP-147 M2c partial: Cache signing keys now have a distinct typed capability and scope-wire witness; logical cache execution remains open.
+- [x] (2026-09-22) EP-147 M2c partial: Logical Attic caches have a distinct provider address, desired spec, and executor; the command registry refuses native execution until the cache adapter is installed.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

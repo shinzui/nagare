@@ -55,7 +55,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -68,6 +68,7 @@ data DesiredSpec
   | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
   | ArtifactPublication !Name !Text !ContentDigest !Bool
   | NamespaceSpec
+  | LogicalCache !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
 data ManagedResource = ManagedResource
@@ -213,6 +214,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       PulumiUrn {} -> r ^. #executor == PulumiExecutor
       Host {} -> r ^. #executor == HostExecutor
       Artifact {} -> r ^. #executor == ArtifactExecutor
+      AtticCache {} -> r ^. #executor == CacheExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
@@ -220,6 +222,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "apps" k (Just _) _, StatefulSet {}) -> nameText k == "statefulset"
       (Kubernetes _ "" k Nothing _, NamespaceSpec) -> nameText k == "namespace"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
+      (AtticCache _ _, LogicalCache _) -> True
+      (AtticCache {}, _) -> False
       (_, NativeObject _) -> True
       (_, HelmRelease {}) -> True
       (Artifact _ _, ArtifactPublication {}) -> True

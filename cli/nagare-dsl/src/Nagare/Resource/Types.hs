@@ -159,6 +159,7 @@ data ProviderAddress
   | Hostname Name
   | DatabaseName ResourceId Name
   | BackendRoute ResourceId Name
+  | AtticCache ResourceId Name
   deriving stock (Eq, Ord, Show, Generic)
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
@@ -195,6 +196,7 @@ canonicalClaim =
     Hostname n -> ["hostname", nameText n]
     DatabaseName r n -> ["database", resourceIdText r, nameText n]
     BackendRoute r n -> ["route", resourceIdText r, nameText n]
+    AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
 
 claimParts :: CanonicalClaim -> [Text]
 claimParts (CanonicalClaim xs) = xs

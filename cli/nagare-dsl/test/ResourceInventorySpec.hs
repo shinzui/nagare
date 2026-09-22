@@ -179,6 +179,14 @@ resourceInventoryTests =
         assertBool "cache key reference did not compose" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef key)]))
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef wrong)])
         decodeScope (encodeCanonicalScope producer) @?= Right producer
+    , testCase "logical Attic cache has its own executor and claim" $ do
+        let Managed first = service p "logical-cache" "cache"
+            Managed second = service a "other-cache" "cache"
+            logical member = Managed (member {address = AtticCache cluster (n "nagare-cache"), executor = CacheExecutor, spec = LogicalCache digest})
+            ownerScope = scope p [logical first]
+        decodeScope (encodeCanonicalScope ownerScope) @?= Right ownerScope
+        rejects "claim-conflict" (compileScopes [ownerScope, scope a [logical second]])
+        rejects "invalid-declaration" (mkScopeDeclaration p [bundle [Managed (first {address = AtticCache cluster (n "nagare-cache"), executor = CacheExecutor})]])
     , testCase "dependency cycles and dangling references refuse" $ do
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])

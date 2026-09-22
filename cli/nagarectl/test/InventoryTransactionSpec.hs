@@ -259,7 +259,7 @@ recordingRegistry execution recovery =
 
 recordingRegistryWith :: (PlannedOperation -> PreparedNative -> IO (Either T.Text ())) -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry
 recordingRegistryWith preflight execution recovery =
-  ok (mkAdapterRegistry (map adapter [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
+  ok (mkAdapterRegistry (map adapter [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor, CacheExecutor]))
   where
     adapter executor =
       Adapter

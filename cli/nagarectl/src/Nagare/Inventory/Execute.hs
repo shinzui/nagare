@@ -412,6 +412,7 @@ withAdapterEnv transaction operation action = do
       PulumiExecutor -> "pulumi"
       HostExecutor -> "host"
       ArtifactExecutor -> "artifact"
+      CacheExecutor -> "cache"
 
 timestamp :: IO Text
 timestamp = T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" <$> getCurrentTime

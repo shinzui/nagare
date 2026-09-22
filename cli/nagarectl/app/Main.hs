@@ -4077,7 +4077,7 @@ inventoryExecutionRegistry mctx bundle = do
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   kubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]))
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor]))
     else do
       (active, workspace) <-
         if null registrations && Map.null artifactSpecs && isNothing hostInputs
@@ -4097,7 +4097,7 @@ inventoryExecutionRegistry mctx bundle = do
           else pure (inventoryArtifactAdapter active workspace artifactSpecs)
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
       kubernetes <- inventoryKubernetesAdapter active binding kubernetesSpecs
-      let adapters = [pulumi, artifact, host, kubernetes]
+      let adapters = [pulumi, artifact, host, kubernetes, Inventory.executionBlockedAdapterFor ResourceInventory.CacheExecutor]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -4124,7 +4124,7 @@ inventoryPlanRegistry active workspace candidate history = do
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
-  let adapters = [pulumi, artifact, host, kubernetes]
+  let adapters = [pulumi, artifact, host, kubernetes, Inventory.manifestAdapterFor history ResourceInventory.CacheExecutor]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter

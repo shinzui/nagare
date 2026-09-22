@@ -287,7 +287,7 @@ manifestOnlyRegistry :: InventoryHistory -> AdapterRegistry
 manifestOnlyRegistry history =
   either (error . T.unpack) id (mkAdapterRegistry (map (manifestAdapterFor history) executors))
   where
-    executors = [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]
+    executors = [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor, CacheExecutor]
 
 manifestAdapterFor :: InventoryHistory -> Executor -> Adapter
 manifestAdapterFor history executor =
@@ -312,7 +312,7 @@ manifestAdapterFor history executor =
 
 executionBlockedRegistry :: AdapterRegistry
 executionBlockedRegistry =
-  either (error . T.unpack) id (mkAdapterRegistry (map executionBlockedAdapterFor [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
+  either (error . T.unpack) id (mkAdapterRegistry (map executionBlockedAdapterFor [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor, CacheExecutor]))
 
 executionBlockedAdapterFor :: Executor -> Adapter
 executionBlockedAdapterFor executor =
