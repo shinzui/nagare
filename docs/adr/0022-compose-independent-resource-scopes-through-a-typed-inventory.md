@@ -128,3 +128,36 @@ is closed and contains no shell-text alternative.
 
 See [the compiler contract](../architecture/resource-inventory.md) for wire layout,
 scope lifecycle behavior, verification commands, and the boundary with EP-145.
+
+## Amendment — 2026-09-22: reviewed transactions and recovery
+
+EP-145 implements the provider-independent state, review, admission, journal, and
+recovery boundary. The filesystem and in-memory stores expose the same conditional
+operations. Scope revisions combine generation with content identity; the head
+separates accepted and converged vectors and records an active transaction and
+executor claim. Journal members are canonical, immutable, sequence-numbered, and
+linked by the previous member digest. A private checksummed export excludes process
+locks and unpublished temporary files and refuses missing or altered members on
+restore.
+
+A public review directory contains the canonical review document and public scope
+declarations, but never its retained native provider bytes. Those bytes are
+published immutably in the selected context store. Apply resolves the public
+document digest there, checks the public scopes byte-for-byte, verifies all native
+member digests, then rechecks the head and live preconditions under the process
+lock. `ReviewedPlan` therefore remains evidence, while the rank-2 lock callback is
+the only place an `ExecutablePlan s` can exist. A negative compiler fixture pins
+that boundary.
+
+Execution records intent before effects and completion only after adapter
+verification. Resume skips completed operations, asks the adapter to prove or
+safely retry interrupted work, and preserves ambiguous transactions for operator
+resolution. Adapter children receive the transaction identity and are refused if
+they re-enter the inventory lock. Independent-process tests prove concurrent
+exclusion and kernel release after process death.
+
+The shipped CLI planner is deliberately manifest-only until EP-146 and EP-147
+supply native adapters. It can publish deterministic review evidence, but its
+preflight always refuses execution. Thus this amendment records an implemented
+authority boundary, not a claim that existing cloud, host, cluster, or application
+mutation paths have migrated.

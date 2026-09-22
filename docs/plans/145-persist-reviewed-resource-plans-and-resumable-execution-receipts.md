@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Interface amended after pre-implementation API validation under MasterPlan 23"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T04:32:10Z
+      mode: "implement"
+      note: "Implement conditional inventory store, review admission, and recovery protocol"
 ---
 
 # Persist reviewed resource plans and resumable execution receipts
@@ -33,15 +38,21 @@ This plan delivers the provider-independent planner, store, executor protocol, a
 
 ## Progress
 
-- [ ] M1: Persist independent scope revisions, immutable snapshots, and context identity.
-- [ ] M2: Bind reviewed plans to observations, native bundles, and operation dependencies.
-- [ ] M3: Journal execution, recover interruptions, and enforce writer exclusion.
-- [ ] M4: Expose plan/apply/resume/export and prove crash/recovery behavior.
+- [x] (2026-09-22) M1: Persist independent scope revisions, immutable snapshots, and context identity.
+- [x] (2026-09-22) M2: Bind reviewed plans to observations, native bundles, and operation dependencies.
+- [x] (2026-09-22) M3: Journal execution, recover interruptions, and enforce writer exclusion.
+- [x] (2026-09-22) M4: Expose plan/apply/resume/export and prove crash/recovery behavior.
 
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-22: The in-memory backend needs separate MVars for object state, conditional-write serialization, and the process lock. Reusing one guard deadlocked the conformance suite before an adapter ran. The separation also makes the store contract explicit: conditional object mutation and executor exclusion are different capabilities.
+
+2026-09-22: Operator-facing review directories cannot carry retained native plans. They now contain only the canonical review document, checksum, and public scope declarations; apply uses that document digest to retrieve the issued native evidence from the private store and verifies that the public scopes are byte-identical. The deterministic manifest-only adapter can therefore produce review fixtures without exposing or authorizing a production mutation.
+
+2026-09-22: The filesystem lock file is not a store member. The first CLI export attempted to read its own locked handle and failed with `resource busy`; object enumeration now excludes the lock and unpublished atomic-write temporaries. A filesystem export/restore test guards this boundary and also exposed an `Either` value being mistaken for the returned key list in the empty-store check.
+
+2026-09-22: A fresh child process is necessary to test the kernel lock. A fork inherits enough process state to make the result platform-dependent. The suite launches the test executable in probe modes, proves concurrent refusal, terminates a lock-holding process, and then proves immediate reacquisition.
 
 
 ## Decision Log
@@ -64,10 +75,18 @@ None yet; implementation has not started.
 
 2026-09-16: Lock with base's GHC.IO.Handle.Lock and forbid adapter children from re-entering inventory commands. unix's setLock is an fcntl record lock that is lost on any close of the file and not inherited; re-entry under a held lock deadlocks the transaction against itself.
 
+2026-09-22: Keep native evidence exclusively in the private store. The directory handed to an operator is a redacted review projection, and apply hydrates it only from the immutable review previously published by the selected context store. Rationale: a review must bind exact native bytes without turning saved provider plans or private paths into public evidence.
+
+2026-09-22: Ship a manifest-only CLI planner until the real adapters arrive in EP-146 and EP-147. It creates deterministic, inspectable review evidence and its preflight always refuses, so the new generic commands are testable without pretending that provider execution exists.
+
 
 ## Outcomes & Retrospective
 
-Not implemented. Record crash-test evidence and storage limitations at completion.
+Completed on 2026-09-22. The implementation adds the conditional filesystem and in-memory stores, canonical digest-linked journals, pure planner and observation coverage, private native preparation, opaque ReviewedPlan and lock-scoped ExecutablePlan boundaries, admission/recovery, and the plan/apply/resume/export command surface. The negative fixture proves an ExecutablePlan cannot escape its lock scope. Eleven focused transaction tests cover backend conformance, convergence, safe retry, proof-based ambiguous recovery without duplicate effects, stale-review refusal before preflight, redacted public reviews, adapter re-entry, verified backup/restore refusal, journal gaps, cross-process exclusion, and lock release on process death.
+
+The full acceptance pass reports 591 nagarectl tests and 424 nagare-dsl tests, the Haskell style scan, Fourmolu check, and the negative type fixture passing. CLI acceptance compiled the inventory fixture, emitted review digest `5ffb4e7f61f889d9822db57f85258506b048cf84783f736ee96ab06cd13958c9`, refused manifest-only apply at preflight, and exported the complete private store without including its lock file. No provider mutation was enabled.
+
+The filesystem backup is a private checksummed recovery artifact with restrictive modes, not a defense against an actor able to rewrite the store. Its destination is responsible for transport/at-rest encryption; EP-151 supplies the context state bucket and its provider-side encryption. Real observation, native preparation, and execution remain the responsibility of EP-146 and EP-147, and lifecycle decisions remain EP-149's responsibility.
 
 
 ## Context and Orientation

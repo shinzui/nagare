@@ -21,6 +21,11 @@ provenance:
       at: 2026-09-22T03:21:48Z
       mode: "implement"
       note: "Implement EP-144 typed inventory foundation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T04:27:14Z
+      mode: "implement"
+      note: "Begin EP-145 reviewed plan persistence and resumable execution"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -59,7 +64,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | Complete |
-| 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Not Started |
+| 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Complete |
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Not Started |
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Not Started |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
@@ -117,10 +122,10 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-144 M1: Typed identities, policies, references, and opaque boundaries.
 - [x] (2026-09-22) EP-144 M2: Deterministic composition and wire validation.
 - [x] (2026-09-22) EP-144 M3: Read-only compiler and structural/collision fixtures; 424 DSL tests, 580 CLI tests, 23 negative API fixtures, schema/style checks, and provider-free CLI acceptance pass.
-- [ ] EP-145 M1: Durable independent scope state and identity.
-- [ ] EP-145 M2: Reviewed operation plans and exact binding.
-- [ ] EP-145 M3: Journal, recovery, locking, and head consistency.
-- [ ] EP-145 M4: Commands, backup/restore, and crash tests.
+- [x] (2026-09-22) EP-145 M1: Durable independent scope state and identity.
+- [x] (2026-09-22) EP-145 M2: Reviewed operation plans and exact binding.
+- [x] (2026-09-22) EP-145 M3: Journal, recovery, locking, and head consistency.
+- [x] (2026-09-22) EP-145 M4: Commands, backup/restore, and crash tests.
 - [ ] EP-146 M1: Cloud declarations/native registration parity.
 - [ ] EP-146 M2: Guarded host receipts and committed identity.
 - [ ] EP-146 M3: Artifact/bootstrap/control resources.
@@ -148,6 +153,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-22: EP-145 is complete. Consumers use Nagare.Inventory.Adapter, Plan, Journal, Store, and Execute; only lock-scoped admission can create execution authority. Native evidence stays in the private store while the operator-facing review directory contains the canonical public document and scopes. The CLI currently installs a deterministic manifest-only adapter whose preflight always refuses; EP-146 and EP-147 replace it with real provider adapters. The store suite now covers both conditional backends, re-entry, backup integrity, actual independent-process exclusion, and lock release after process death. Filesystem export excludes the lock and atomic-write temporaries. ADR 22 records this implemented boundary.
 
 2026-09-22: EP-144 is complete. Consumers use the six Nagare.Resource modules, Nagare.Inventory.Digest.contentDigest, and Inventory.Command.loadCandidate. Compiled requests retain full base generations/reservations and explicit replacements/retirements through immutable scope-member references. Loading verifies and recomposes, but does not authenticate ownership history; EP-145 must compare the supplied base against its store during admission. Namespace contribution dependents are exposed separately for retention policy. API-version normalization, duplicate JSON-key rejection, and bounded controller reservation expansion are now part of the shared wire/claim boundary. ADRs 16 and 22 and docs/architecture/resource-inventory.md record the durable contract.
 
@@ -212,7 +219,7 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Outcomes & Retrospective
 
-EP-144 is complete as of 2026-09-22; seven children remain, with EP-145 next and ready. Completion requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, typed public-boundary tests, complete declaration/execution parity, removed duplicate policy paths, legacy recovery compatibility, inventory-history restore evidence, and production-shaped disposable-context convergence/no-op/removal evidence. Record any unavailable live/native evidence as remaining work rather than treating deterministic tests as a substitute.
+EP-144 and EP-145 are complete as of 2026-09-22; six children remain. EP-146, EP-147, EP-149, and EP-151 are now independently implementable. The foundation supplies typed composition plus a conditional store, redacted digest-bound review, lock-scoped admission, durable receipts, and recovery semantics; it intentionally supplies no real provider executor. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed duplicate policy paths, legacy recovery compatibility, shared inventory-history evidence, and production-shaped disposable-context convergence/no-op/removal evidence. Record unavailable live/native evidence as remaining work rather than treating deterministic tests as a substitute.
 
 At completion, compare these outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected existing ADRs. Do not publish a release or modify existing operator deployments as a side effect of updating plan status.
 
@@ -224,3 +231,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-16: Added EP-151, "Store inventory history in the context state bucket with conditional writes", at the operator's decision, resolving the open question from the validation pass. The registry, dependency graph, waves, Integration Points, Progress, Vision & Scope, and Outcomes now reflect eight children in four phases. EP-151 hard-depends on EP-145 only; it became a soft dependency of EP-148 (gating only the removal of the last legacy deploy path) and a hard dependency of EP-150. EP-145 gained the executor claim in its head manifest; EP-146, EP-148, and EP-150 gained the references that reach them. ADR 22's amendment was updated to record the decision; ADR 13 is amended by EP-151 when the store exists.
 
 2026-09-22: Marked EP-144 complete and recorded its compiler, typed-boundary, schema, and command evidence. EP-145 is now the next implementable child. The decomposition and dependency graph are unchanged; ADRs 16 and 22 describe the implemented foundation and the remaining admission boundary.
+
+2026-09-22: Marked EP-145 complete after the conditional-store, review/admission, journal/recovery, process-lock, backup, negative-type, and CLI acceptance suites passed. Four children in phase 2 are now implementable; no dependency edge or child scope changed. ADR 22 now distinguishes the implemented generic authority boundary from the still-refusing manifest-only CLI adapter.
