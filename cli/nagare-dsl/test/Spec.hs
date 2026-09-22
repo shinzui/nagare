@@ -23,7 +23,8 @@ import Nagare.Dsl.Broker.Render
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
-import Nagare.Resource.Types (mkLogicalKey)
+import Nagare.Resource.Database (databaseResourceId)
+import Nagare.Resource.Types (mkLogicalKey, mkName, mkScopeId, ScopeKind (..))
 import Nagare.Dsl.Database.Render
   ( renderDatabaseConfigMap
   , renderDatabasePvc
@@ -689,8 +690,11 @@ databaseTests =
       , testCase "explicit logical key survives a database rename and JSON round-trip" $ do
           let stable = pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))
               renamed = stable & #name .~ unsafe (mkDatabaseName "pg-renamed")
+              owner = unsafe (mkScopeId Platform "foundation")
+              role = unsafe (mkName "service")
           decodeDatabase (toStrict (encodeDatabase renamed)) @?= Right renamed
           renamed ^. #logicalKey @?= stable ^. #logicalKey
+          databaseResourceId owner role renamed @?= databaseResourceId owner role stable
           assertBool "provider name changed" (renderDatabaseService renamed /= renderDatabaseService stable)
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of

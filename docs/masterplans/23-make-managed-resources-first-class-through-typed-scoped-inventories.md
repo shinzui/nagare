@@ -171,7 +171,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 2026-09-22: EP-147 found the legacy database create path generated a fresh password after any failed or malformed Secret read. It now requires confirmed absence, closing that immediate credential risk while the inventory adapter is built.
 
-2026-09-22: EP-147 added an optional logical key to the existing Database config so later inventory compilation can mint identity independently of the provider name. Existing configs omit it and remain wire-compatible; a rename-safe database must supply one explicitly. The DSL and CLI suites pass.
+2026-09-22: EP-147 added an optional logical key to the existing Database config and an identity builder that mints the same resource ID across provider renames. Existing configs omit the key and remain wire-compatible; a rename-safe database must supply one explicitly. The DSL and CLI suites pass.
 
 2026-09-22: EP-145 is complete. Consumers use Nagare.Inventory.Adapter, Plan, Journal, Store, and Execute; only lock-scoped admission can create execution authority. Native evidence stays in the private store while the operator-facing review directory contains the canonical public document and scopes. The CLI currently installs a deterministic manifest-only adapter whose preflight always refuses; EP-146 and EP-147 replace it with real provider adapters. The store suite now covers both conditional backends, re-entry, backup integrity, actual independent-process exclusion, and lock release after process death. Filesystem export excludes the lock and atomic-write temporaries. ADR 22 records this implemented boundary.
 
