@@ -103,5 +103,11 @@ validateSuppliedKubernetesMembers declarations supplied =
           , inputSensitivity = declaration ^. #sensitivity
           , sourceLocation = declaration ^. #source
           }
-      unless (recompiled {dependencies = declaration ^. #dependencies} == declaration && rebound == bytes)
+      let generatedNamespace = declaration ^. #spec == NamespaceSpec Nothing
+            && declaration ^. #source . #file == "contribution"
+          reboundDeclaration = recompiled
+            { dependencies = declaration ^. #dependencies
+            , spec = if generatedNamespace then NamespaceSpec Nothing else recompiled ^. #spec
+            }
+      unless (reboundDeclaration == declaration && rebound == bytes)
         (Left "generated native member does not match its typed declaration")

@@ -8,6 +8,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
@@ -283,14 +284,25 @@ resourceInventoryTests =
         let Managed x = service a "db" "db"
             recovery = RecoveryIntent (n "restore") (mkSecretRef (n "credential") (n "v1") :| [])
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [Managed (x & #dataPolicy .~ Durable recovery & #lifecycle .~ DeleteWhenUnreferenced)]])
-    , testCase "namespace contributions require authorization and collide after composition" $ do
+    , testCase "authorized namespace contributions coalesce under the platform owner" $ do
         let other = s Application "other"
             contribution = RegisterNamespace p cluster (n "same") (ok (mkLogicalKey "namespace"))
             owner = ok (mkScopeDeclaration p [bundle [] & #grants .~ [NamespaceGrant a cluster, NamespaceGrant other cluster]])
             consumer who = ok (mkScopeDeclaration who [bundle [] & #contributions .~ [contribution]])
         rejects "unauthorized-contribution" (compileScopes [scope p [], consumer a])
-        rejects "claim-conflict" (compileScopes [owner, consumer a, consumer other])
-        length (inventoryDeclarations (candidateInventory (ok (compileScopes [owner, consumer a])))) @?= 1
+        let one = candidateInventory (ok (compileScopes [owner, consumer a]))
+            shared = candidateInventory (ok (compileScopes [owner, consumer a, consumer other]))
+        length (inventoryDeclarations one) @?= 1
+        inventoryDeclarations one @?= inventoryDeclarations shared
+        contributionDependents shared @?= Map.singleton
+          (mintResourceId p (ok (mkLogicalKey "same")) (n "namespace")) (Set.fromList [a, other])
+        let direct = Managed (resource p "direct-namespace"
+              (Kubernetes cluster "" (n "namespace") Nothing (n "same")) (NamespaceSpec Nothing))
+        let ownerWithDirect = ok (mkScopeDeclaration p [bundle [direct] & #grants .~ [NamespaceGrant a cluster]])
+        rejects "claim-conflict" (compileScopes [ownerWithDirect, consumer a])
+        let reserved = ok (mkScopeDeclaration a [bundle [] & #contributions .~
+              [RegisterNamespace p cluster (n "kube-system") (ok (mkLogicalKey "system"))]])
+        rejects "reserved-namespace-contribution" (compileScopes [owner, reserved])
     , testCase "canonical scope ignores declaration order and roundtrips" $ do
         let x = service a "x" "x"
             y = service a "y" "y"

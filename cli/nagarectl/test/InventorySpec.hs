@@ -73,12 +73,15 @@ inventoryTests =
           Right _ -> assertFailure "changed native object retained stale review digest"
     , testCase "all negative fixtures fail for the intended diagnostic"
         $ forM_
-          [("collision-service.json", "claim-conflict"), ("collision-knative-database.json", "claim-conflict"), ("collision-bucket.json", "claim-conflict"), ("collision-version-alias.json", "claim-conflict"), ("collision-namespace-contributions.json", "claim-conflict"), ("duplicate-id.json", "wire"), ("missing-snapshot.json", "wire"), ("retained-claim.json", "reserved-claim")]
+          [("collision-service.json", "claim-conflict"), ("collision-knative-database.json", "claim-conflict"), ("collision-bucket.json", "claim-conflict"), ("collision-version-alias.json", "claim-conflict"), ("duplicate-id.json", "wire"), ("missing-snapshot.json", "wire"), ("retained-claim.json", "reserved-claim")]
         $ \(file, code) -> do
           result <- compileInput <$> fixture file
           case result of Left es -> assertBool (show es) (code `elem` map (^. #code) (NE.toList es)); Right _ -> assertFailure file
     , testCase "typed unresolved output compiles" $ do
         result <- compileInput <$> fixture "unresolved-output.json"
+        assertBool (show result) (isRight result)
+    , testCase "shared namespace contributions compile to one owner declaration" $ do
+        result <- compileInput <$> fixture "shared-namespace-contributions.json"
         assertBool (show result) (isRight result)
     , testCase "shuffled scope selection produces identical member bytes and digest" $ do
         bytes <- fixture "valid.json"

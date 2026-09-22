@@ -135,8 +135,12 @@ integrity, not authority against an actor who rewrites a complete candidate: EP-
 must bind its base to persisted history under admission.
 
 The first contribution composer is owner-authorized namespace registration.
-Generated Namespaces participate in ordinary claim validation and expose their
-contributing scopes through `contributionDependents` for later retention policy.
+Requests for one namespace under one owner and cluster compose to one stable
+owner-owned declaration. Generated Namespaces participate in ordinary claim
+validation, expose the complete set of contributing scopes through
+`contributionDependents`, and bind a fixed native Namespace object in the private
+review. Contributors cannot request Kubernetes system or platform foundation
+namespaces. Directly owned Namespace declarations bind their label content digest.
 Controller reservations include Knative core Services, Certificate Secrets,
 StatefulSet Pods/PVCs, and declared Helm members. StatefulSet expansion is bounded;
 invalid generated names refuse rather than throwing during graph validation.

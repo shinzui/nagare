@@ -249,6 +249,7 @@ import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -4119,15 +4120,19 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
-  let suppliedIds = Map.keysSet suppliedNative
+  contributionNative <- either dieT pure (compileContributedNamespaces declarations)
+  unless (Map.null (Map.intersection suppliedNative contributionNative))
+    (dieT "generated native members overlap a contributed Namespace")
+  let allSuppliedNative = Map.union suppliedNative contributionNative
+      suppliedIds = Map.keysSet allSuppliedNative
       declaredIds = Set.fromList (map (^. #identity) kubernetesResources)
   unless (suppliedIds `Set.isSubsetOf` declaredIds) (dieT "generated native members include an undeclared Kubernetes resource")
-  either dieT pure (validateSuppliedKubernetesMembers kubernetesResources suppliedNative)
+  either dieT pure (validateSuppliedKubernetesMembers kubernetesResources allSuppliedNative)
   let fileBacked = filter (\resource -> Set.notMember (resource ^. #identity) suppliedIds) kubernetesResources
   loaded <- if null fileBacked
     then pure Map.empty
     else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
-  let kubernetesSpecs = Map.union suppliedNative loaded
+  let kubernetesSpecs = Map.union allSuppliedNative loaded
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)

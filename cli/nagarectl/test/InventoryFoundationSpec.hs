@@ -48,10 +48,27 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
   , testCase "missing quota source refuses before any native mutation" $ do
       result <- compileFoundation (foundationInput {foundationQuotaPath = "../../cluster/bootstrap/missing-quota.yaml"})
       assertBool "missing quota was accepted" (either (const True) (const False) result)
+  , testCase "granted namespace contributions materialize once for shared callers" $ do
+      let appA = ok (mkScopeId Application "a")
+          appB = ok (mkScopeId Application "b")
+          input = foundationInput {foundationGrantedScopes = [appA, appB]}
+          request = RegisterNamespace fixtureOwner fixtureCluster (known "sandbox") (ok (mkLogicalKey "sandbox"))
+          consumer scopeId = ok (mkScopeDeclaration scopeId [ResourceBundle [] [] [] [request] [] []])
+          binding = ContextBinding (ok (mkContextId "fixture")) (known "project")
+          snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+      (bundle, _) <- compileFoundation input >>= expectRight
+      let platformScope = ok (mkScopeDeclaration fixtureOwner [bundle])
+          candidate = ok (composeInventory snapshot (ReplaceScope platformScope :| [ReplaceScope (consumer appA), ReplaceScope (consumer appB)]))
+          declarations = inventoryDeclarations (candidateInventory candidate)
+      native <- expectRight (compileContributedNamespaces declarations)
+      Map.size native @?= 1
+      let resources = [member | Managed member <- declarations, member ^. #executor == KubernetesExecutor]
+      _ <- expectRight (validateSuppliedKubernetesMembers resources native)
+      pure ()
   ]
 
 foundationInput :: FoundationInput
-foundationInput = FoundationInput fixtureOwner fixtureCluster ("../../cluster/bootstrap/job-runs" </> "resourcequota.yaml")
+foundationInput = FoundationInput fixtureOwner fixtureCluster ("../../cluster/bootstrap/job-runs" </> "resourcequota.yaml") []
 
 fixtureOwner :: ScopeId
 fixtureOwner = ok (mkScopeId Platform "foundation")

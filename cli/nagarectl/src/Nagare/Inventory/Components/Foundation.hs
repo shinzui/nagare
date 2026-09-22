@@ -3,6 +3,7 @@
 module Nagare.Inventory.Components.Foundation
   ( FoundationInput (..)
   , compileFoundation
+  , compileContributedNamespaces
   ) where
 
 import Control.Exception (IOException, try)
@@ -29,6 +30,7 @@ data FoundationInput = FoundationInput
   { foundationOwner :: !ScopeId
   , foundationCluster :: !ResourceId
   , foundationQuotaPath :: !FilePath
+  , foundationGrantedScopes :: ![ScopeId]
   }
 
 compileFoundation
@@ -49,7 +51,8 @@ compileFoundation input = do
         (Just (known "personal")) (known "nagare-terminating-jobs"))
       (Left (single (invalid "Job quota has an unexpected Kubernetes address")))
     let members = namespaceMembers <> [quotaMember]
-        bundle = ResourceBundle (map (Managed . fst3) members) [] [] [] [] []
+        bundle = ResourceBundle (map (Managed . fst3) members) [] [] [] []
+          [NamespaceGrant scope (foundationCluster input) | scope <- foundationGrantedScopes input]
     pure (bundle, Map.fromList [(resource ^. #identity, (resource, native)) | (resource, native, _) <- members])
   where
     source = SourceLocation (T.pack (foundationQuotaPath input)) "foundation"
@@ -86,3 +89,43 @@ compileFoundation input = do
         })
       unless (bound == native) (Left (single (invalid "foundation native bytes changed during binding")))
       pure (resource {dependencies = dependencies}, bound, value)
+
+-- | Materialize only the closed namespace contribution shape emitted by the
+-- pure inventory composer. Its owner has already granted the contributor.
+compileContributedNamespaces
+  :: [Declaration]
+  -> Either Text (Map ResourceId (ManagedResource, ByteString))
+compileContributedNamespaces declarations = Map.fromList <$> traverse compileOne contributed
+  where
+    contributed =
+      [resource | Managed resource <- declarations,
+        resource ^. #spec == NamespaceSpec Nothing,
+        resource ^. #source . #file == "contribution"]
+    compileOne resource = do
+      (cluster, namespaceName) <- case resource ^. #address of
+        Kubernetes target "" kind Nothing name | nameText kind == "namespace" -> Right (target, name)
+        _ -> Left "contributed namespace has an unexpected address"
+      let value = object
+            [ "apiVersion" .= ("v1" :: Text)
+            , "kind" .= ("Namespace" :: Text)
+            , "metadata" .= object
+                [ "name" .= nameText namespaceName
+                , "labels" .= object ["nagare.dev/app-namespace" .= ("true" :: Text)]
+                ]
+            ]
+      bytes <- canonicalValue value
+      (compiled, bound) <- first (T.pack . show) (bindKubernetesObject KubernetesInput
+        { resourceId = resource ^. #identity
+        , ownerScope = resource ^. #owner
+        , clusterId = cluster
+        , inputObject = value
+        , objectDigest = contentDigest bytes
+        , lifecyclePolicy = resource ^. #lifecycle
+        , inputDataPolicy = resource ^. #dataPolicy
+        , inputSensitivity = resource ^. #sensitivity
+        , sourceLocation = resource ^. #source
+        })
+      unless (compiled {spec = NamespaceSpec Nothing, dependencies = resource ^. #dependencies} == resource
+          && bound == bytes)
+        (Left "contributed namespace native object differs from its typed declaration")
+      pure (resource ^. #identity, (resource, bound))

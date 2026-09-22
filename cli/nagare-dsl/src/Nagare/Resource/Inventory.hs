@@ -285,10 +285,10 @@ inventoryBinding (ValidatedInventory b _ _) = b
 
 -- | The contributor retains a dependency on the owner-composed Namespace even
 -- though that Namespace is absent from its own lifecycle-owned declarations.
-contributionDependents :: ValidatedInventory -> Map ResourceId ScopeId
+contributionDependents :: ValidatedInventory -> Map ResourceId (Set.Set ScopeId)
 contributionDependents inventory =
-  Map.fromList
-    [ (mintResourceId s (c ^. #key) (known "namespace"), s)
+  Map.fromListWith Set.union
+    [ (namespaceContributionId c, Set.singleton s)
     | (s, d) <- Map.toList (inventoryScopes inventory)
     , b <- scopeBundles d
     , c <- b ^. #contributions
@@ -323,12 +323,17 @@ composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty Invento
 composeContributions ss = checked errors generated
   where
     requests = [(s, c) | (s, d) <- Map.toList ss, b <- scopeBundles d, c <- b ^. #contributions]
+    grouped = Map.fromListWith (<>)
+      [ ((c ^. #owner, c ^. #cluster, c ^. #namespace), (s, c) :| []) | (s, c) <- requests ]
     authorized s c = maybe False (elem (NamespaceGrant s (c ^. #cluster)) . concatMap (^. #grants) . scopeBundles) (Map.lookup (c ^. #owner) ss)
     errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c) <- requests, not (authorized s c)]
+      <> [inventoryError "reserved-namespace-contribution" "shared platform and Kubernetes system namespaces cannot be requested by a contributor" & #scopes .~ [s, c ^. #owner]
+         | (s, c) <- requests, nameText (c ^. #namespace) `elem`
+           ["default", "kube-system", "kube-public", "kube-node-lease", "cert-manager", "knative-serving", "kourier-system", "nagare-system", "personal"]]
     generated =
       [ Managed
           ( ManagedResource
-              (mintResourceId s (c ^. #key) (known "namespace"))
+              (namespaceContributionId c)
               (c ^. #owner)
               KubernetesExecutor
               (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing (c ^. #namespace))
@@ -339,10 +344,16 @@ composeContributions ss = checked errors generated
               Public
               []
               []
-              (SourceLocation "contribution" (scopeIdText s))
+              (SourceLocation "contribution" (scopeIdText (c ^. #owner)))
           )
-      | (s, c) <- requests
+      | (_, (_, c) :| _) <- Map.toAscList grouped
       ]
+
+namespaceContributionId :: Contribution -> ResourceId
+namespaceContributionId contribution =
+  mintResourceId (contribution ^. #owner)
+    (either (error . Data.Text.unpack) id (mkLogicalKey (nameText (contribution ^. #namespace))))
+    (known "namespace")
 
 validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalClaim ClaimHolder -> [InventoryError]
 validateGraph ss ds reservations =
@@ -388,7 +399,7 @@ validateGraph ss ds reservations =
           ( Set.fromList
               ( [s | (s, sc) <- Map.toList ss, any (`elem` scopeDeclarations sc) involved]
                   <> [r ^. #owner | Managed r <- involved]
-                  <> [s | (s, sc) <- Map.toList ss, b <- scopeBundles sc, contribution <- b ^. #contributions, mintResourceId s (contribution ^. #key) (known "namespace") `elem` map declarationId involved]
+                  <> [s | (s, sc) <- Map.toList ss, b <- scopeBundles sc, contribution <- b ^. #contributions, namespaceContributionId contribution `elem` map declarationId involved]
               )
           )
         & #resources
