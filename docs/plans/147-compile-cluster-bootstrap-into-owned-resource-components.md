@@ -57,7 +57,7 @@ A component is an independently identified group of resources and operations, su
 - [ ] M1b remaining: Implement the production transport with API-server-enforced write preconditions and register it in the inventory command path.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
-- [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy, and nagarectl binds each declaration to canonical native bytes before review; 431 DSL tests and 10 focused CLI tests pass.
+- [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy, and nagarectl binds each declaration to canonical native bytes before review; 431 DSL tests and 616 CLI tests pass.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
