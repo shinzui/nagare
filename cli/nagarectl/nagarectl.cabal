@@ -87,7 +87,12 @@ library
     Nagare.Infra.Plan
     Nagare.Init
     Nagare.Inventory.Command
+    Nagare.Inventory.Adapter
     Nagare.Inventory.Digest
+    Nagare.Inventory.Execute
+    Nagare.Inventory.Journal
+    Nagare.Inventory.Plan
+    Nagare.Inventory.Store
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
@@ -210,6 +215,7 @@ test-suite nagarectl-test
     DomainBindingSpec
     HostSpec
     InventorySpec
+    InventoryTransactionSpec
     PlatformCutoverSpec
     PlatformSpec
 

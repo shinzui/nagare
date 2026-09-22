@@ -616,6 +616,10 @@ data DepLogsOpts = DepLogsOpts
 data Command
   = Version VersionOpts
   | InventoryCompile FilePath FilePath Bool
+  | InventoryPlan FilePath FilePath
+  | InventoryApply FilePath Bool
+  | InventoryResume String Bool
+  | InventoryExport FilePath
   | PlatformRoot Bool
   | PlatformStatusCmd Bool
   | PlatformGuard
@@ -1739,7 +1743,7 @@ opts =
     commandParser =
       subparser
         ( command "version" versionCmd
-            <> command "inventory" (info (subparser (command "compile" (info (InventoryCompile <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <*> switch (long "json") <**> helper) (progDesc "Compile complete resource scopes without contacting providers"))) <**> helper) (progDesc "Typed resource inventory"))
+            <> command "inventory" inventoryCmd
             <> command "platform" platformCmd
             <> command "host" hostCmd
             <> command "kubeconfig" kubeconfigCmd
@@ -1775,6 +1779,28 @@ opts =
               <**> helper
         )
         (progDesc "Print the nagarectl version")
+    inventoryCmd =
+      info
+        ( subparser
+            ( command
+                "compile"
+                (info (InventoryCompile <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <*> switch (long "json") <**> helper) (progDesc "Compile complete resource scopes without contacting providers"))
+                <> command
+                  "plan"
+                  (info (InventoryPlan <$> strOption (long "inventory" <> metavar "DIRECTORY") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Prepare and publish a digest-bound inventory review"))
+                <> command
+                  "apply"
+                  (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
+                <> command
+                  "resume"
+                  (info (InventoryResume <$> strArgument (metavar "TRANSACTION") <*> switch (long "yes") <**> helper) (progDesc "Resume an unresolved inventory transaction"))
+                <> command
+                  "export"
+                  (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
+            )
+            <**> helper
+        )
+        (progDesc "Typed resource inventory")
     platformCmd =
       info
         ( subparser
@@ -2615,6 +2641,10 @@ main = do
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
     InventoryCompile input output json -> Inventory.compileInventory input output json
+    InventoryPlan input output -> activeTarget mctx >>= \target -> Inventory.planInventory target input output
+    InventoryApply directory yes -> activeTarget mctx >>= \target -> Inventory.applyInventory target directory yes
+    InventoryResume transaction yes -> activeTarget mctx >>= \target -> Inventory.resumeInventory target (T.pack transaction) yes
+    InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
 
 runVersion :: VersionOpts -> IO ()
 runVersion options = do

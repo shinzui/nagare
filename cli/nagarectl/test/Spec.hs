@@ -39,6 +39,7 @@ import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventorySpec (inventoryTests)
+import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockProbe)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -391,7 +392,7 @@ import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import System.Directory (createDirectoryIfMissing, createFileLink, getCurrentDirectory, pathIsSymbolicLink, setCurrentDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.Exit (ExitCode (ExitFailure))
+import System.Exit (ExitCode (ExitFailure), exitWith)
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
@@ -403,14 +404,18 @@ import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
 main = do
-  taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
-  defaultMain $
-    localOption (NumThreads 1) $
-      testGroup
-        "nagarectl"
+  lockProbe <- lookupEnv "NAGARE_INVENTORY_LOCK_PROBE"
+  case lockProbe of
+    Just root -> runInventoryLockProbe root >>= exitWith
+    Nothing -> do
+      taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
+      defaultMain $
+        localOption (NumThreads 1) $
+          testGroup "nagarectl" $
         [ testGroup "Nagare.Static.Image" dockerfileTests
         , hostTests
         , inventoryTests
+        , inventoryTransactionTests
         , platformTests
         , platformCutoverTests
         , testGroup "Nagare.Static.Build" prepareTests

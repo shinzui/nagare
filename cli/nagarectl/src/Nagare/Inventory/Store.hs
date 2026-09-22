@@ -1,0 +1,489 @@
+{-# LANGUAGE RankNTypes #-}
+
+-- | Conditional-write inventory storage with filesystem and in-memory backends.
+module Nagare.Inventory.Store
+  ( InventoryStore
+  , LockedStore
+  , StoreError (..)
+  , ScopeRevision (..)
+  , ExecutorClaim (..)
+  , HeadManifest (..)
+  , StoreSnapshot (..)
+  , openFilesystemStore
+  , newMemoryStore
+  , inventoryStoreRoot
+  , initializeStore
+  , readHead
+  , readStoreSnapshot
+  , publishIfAbsent
+  , readObject
+  , appendAtSequence
+  , replaceHeadIfGenerationMatches
+  , withProcessLock
+  , lockedStore
+  , exportStore
+  , restoreStore
+  , objectKeyFor
+  , reviewKey
+  , scopeKey
+  , journalKey
+  )
+where
+
+import Control.Concurrent.MVar
+import Control.Exception (IOException, bracket, catch, finally, try)
+import Control.Monad (forM)
+import Data.Aeson
+import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (parseEither)
+import Data.Bits ((.&.))
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.List (sort)
+import Data.Kind (Type)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text (Text)
+import Data.Text qualified as T
+import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hTryLock, hUnlock)
+import Nagare.Dsl.Prelude hiding ((.=), (<.>))
+import Nagare.Inventory.Digest
+import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
+import System.Directory
+import System.Environment (lookupEnv)
+import System.FilePath
+import System.IO
+import System.IO.Error (isAlreadyExistsError, isDoesNotExistError)
+import System.IO.Temp (withTempDirectory)
+import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
+import System.Posix.IO (OpenMode (ReadOnly), closeFd, defaultFileFlags, openFd)
+import System.Posix.Unistd (fileSynchronise)
+
+data StoreError
+  = StoreIoError !Text
+  | StoreInvalidPath !FilePath
+  | StoreInvalidObject !FilePath !Text
+  | StoreObjectConflict !FilePath
+  | StoreConditionFailed !Text
+  | StoreBusy
+  | StoreReentry
+  deriving stock (Eq, Show)
+
+data ScopeRevision = ScopeRevision
+  { revisionGeneration :: !ScopeGeneration
+  , revisionDigest :: !ContentDigest
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ExecutorClaim = ExecutorClaim
+  { claimTransaction :: !Text
+  , claimClientIdentity :: !Text
+  , claimEpoch :: !Integer
+  , claimTimestamp :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+data HeadManifest = HeadManifest
+  { headSchemaVersion :: !Int
+  , headGeneration :: !Integer
+  , headSequence :: !Integer
+  , headBinding :: !ContextBinding
+  , headClientIdentity :: !Text
+  , headAccepted :: !(Map ScopeId ScopeRevision)
+  , headConverged :: !(Map ScopeId ScopeRevision)
+  , headActiveTransaction :: !(Maybe Text)
+  , headExecutorClaim :: !(Maybe ExecutorClaim)
+  }
+  deriving stock (Eq, Show, Generic)
+
+data StoreSnapshot = StoreSnapshot
+  { storeSnapshotHead :: !HeadManifest
+  , storeSnapshotReviewDigests :: !(Set ContentDigest)
+  }
+  deriving stock (Eq, Show, Generic)
+
+data MemoryState = MemoryState
+  { memoryObjects :: !(Map FilePath ByteString)
+  }
+
+data Backend
+  = FilesystemBackend !FilePath !(MVar ())
+  | MemoryBackend !(MVar MemoryState) !(MVar ()) !(MVar ())
+
+newtype InventoryStore = InventoryStore Backend
+
+newtype LockedStore (s :: Type) = LockedStore InventoryStore
+
+lockedStore :: LockedStore s -> InventoryStore
+lockedStore (LockedStore store) = store
+
+instance ToJSON ScopeRevision where
+  toJSON revision = object ["generation" .= revisionGeneration revision, "digest" .= revisionDigest revision]
+
+instance FromJSON ScopeRevision where
+  parseJSON = withObject "ScopeRevision" $ \o -> ScopeRevision <$> o .: "generation" <*> o .: "digest"
+
+instance ToJSON ExecutorClaim where
+  toJSON claim =
+    object
+      [ "transaction" .= claimTransaction claim
+      , "clientIdentity" .= claimClientIdentity claim
+      , "epoch" .= claimEpoch claim
+      , "timestamp" .= claimTimestamp claim
+      ]
+
+instance FromJSON ExecutorClaim where
+  parseJSON = withObject "ExecutorClaim" $ \o ->
+    ExecutorClaim <$> o .: "transaction" <*> o .: "clientIdentity" <*> o .: "epoch" <*> o .: "timestamp"
+
+instance ToJSON HeadManifest where
+  toJSON headValue =
+    object
+      [ "version" .= headSchemaVersion headValue
+      , "generation" .= headGeneration headValue
+      , "sequence" .= headSequence headValue
+      , "binding" .= headBinding headValue
+      , "clientIdentity" .= headClientIdentity headValue
+      , "accepted" .= revisionsValue (headAccepted headValue)
+      , "converged" .= revisionsValue (headConverged headValue)
+      , "activeTransaction" .= headActiveTransaction headValue
+      , "executorClaim" .= headExecutorClaim headValue
+      ]
+    where
+      revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
+
+instance FromJSON HeadManifest where
+  parseJSON = withObject "HeadManifest" $ \o -> do
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "activeTransaction", "executorClaim"]
+    unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
+    version <- o .: "version"
+    unless (version == 1) (fail "unsupported inventory head schema version")
+    generation <- o .: "generation"
+    sequenceNumber <- o .: "sequence"
+    unless (generation >= 0 && sequenceNumber >= 0) (fail "head counters must not be negative")
+    accepted <- parseRevisions =<< o .: "accepted"
+    converged <- parseRevisions =<< o .: "converged"
+    unless (all (`Map.member` accepted) (Map.keys converged)) (fail "converged scopes must also be accepted")
+    HeadManifest version generation sequenceNumber
+      <$> o .: "binding"
+      <*> o .: "clientIdentity"
+      <*> pure accepted
+      <*> pure converged
+      <*> o .: "activeTransaction"
+      <*> o .: "executorClaim"
+    where
+      parseRevisions values = do
+        revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
+        unless (length revisions == Map.size (Map.fromList revisions)) (fail "duplicate scope revision")
+        pure (Map.fromList revisions)
+
+openFilesystemStore :: FilePath -> IO (Either StoreError InventoryStore)
+openFilesystemStore root = ioResult $ do
+  exists <- doesPathExist root
+  when exists $ do
+    linked <- pathIsSymbolicLink root
+    when linked (ioError (userError "inventory store root is a symlink"))
+    status <- getFileStatus root
+    unless (isDirectory status) (ioError (userError "inventory store root is not a directory"))
+  createDirectoryIfMissing True root
+  setFileMode root 0o700
+  guardVar <- newMVar ()
+  pure (InventoryStore (FilesystemBackend root guardVar))
+
+newMemoryStore :: IO InventoryStore
+newMemoryStore = InventoryStore <$> (MemoryBackend <$> newMVar (MemoryState Map.empty) <*> newMVar () <*> newMVar ())
+
+inventoryStoreRoot :: InventoryStore -> Maybe FilePath
+inventoryStoreRoot (InventoryStore (FilesystemBackend root _)) = Just root
+inventoryStoreRoot _ = Nothing
+
+initializeStore :: InventoryStore -> ContextBinding -> Text -> IO (Either StoreError HeadManifest)
+initializeStore store binding clientIdentity = do
+  existing <- readHead store
+  case existing of
+    Left err -> pure (Left err)
+    Right (Just headValue)
+      | headBinding headValue == binding -> pure (Right headValue)
+      | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
+    Right Nothing -> do
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Nothing Nothing
+      replaced <- replaceHeadIfGenerationMatches store Nothing initial
+      pure (initial <$ replaced)
+
+readHead :: InventoryStore -> IO (Either StoreError (Maybe HeadManifest))
+readHead store = do
+  loaded <- readObject store "head.json"
+  pure $ loaded >>= traverse decodeHead
+
+decodeHead :: ByteString -> Either StoreError HeadManifest
+decodeHead bytes = do
+  headValue <- first (StoreInvalidObject "head.json" . T.pack) (eitherDecodeStrict' bytes)
+  canonical <- first (StoreInvalidObject "head.json") (canonicalValue (toJSON headValue))
+  unless (canonical == bytes) (Left (StoreInvalidObject "head.json" "head manifest is not canonical"))
+  pure headValue
+
+readStoreSnapshot :: InventoryStore -> IO (Either StoreError StoreSnapshot)
+readStoreSnapshot store = do
+  headResult <- readHead store
+  case headResult of
+    Left err -> pure (Left err)
+    Right Nothing -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+    Right (Just headValue) -> do
+      keysResult <- listObjectKeys store
+      pure $ do
+        keys <- keysResult
+        StoreSnapshot headValue . Set.fromList <$> traverse digestFromReviewKey (filter ("reviews/" `isPrefixOf`) keys)
+  where
+    isPrefixOf prefix value = take (length prefix) value == prefix
+    digestFromReviewKey key =
+      let token = T.pack (dropExtension (takeFileName key))
+       in first (const (StoreInvalidObject key "review key does not contain a valid digest")) (mkContentDigest token)
+
+publishIfAbsent :: InventoryStore -> FilePath -> ByteString -> IO (Either StoreError ContentDigest)
+publishIfAbsent store key bytes = withBackendGuard store $
+  case checkedKey key of
+    Left err -> pure (Left err)
+    Right safeKey -> do
+      existing <- readObjectUnlocked store safeKey
+      case existing of
+        Left err -> pure (Left err)
+        Right (Just old)
+          | old == bytes -> pure (Right (contentDigest bytes))
+          | otherwise -> pure (Left (StoreObjectConflict safeKey))
+        Right Nothing -> do
+          written <- writeObjectUnlocked store False safeKey bytes
+          pure (contentDigest bytes <$ written)
+
+readObject :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
+readObject store key = case checkedKey key of
+  Left err -> pure (Left err)
+  Right safeKey -> readObjectUnlocked store safeKey
+
+appendAtSequence :: InventoryStore -> Integer -> ByteString -> IO (Either StoreError ContentDigest)
+appendAtSequence store sequenceNumber bytes
+  | sequenceNumber < 0 = pure (Left (StoreConditionFailed "journal sequence must not be negative"))
+  | otherwise = publishIfAbsent store (journalKey sequenceNumber) bytes
+
+replaceHeadIfGenerationMatches :: InventoryStore -> Maybe Integer -> HeadManifest -> IO (Either StoreError ())
+replaceHeadIfGenerationMatches store expected replacement = withBackendGuard store $ do
+  currentResult <- readObjectUnlocked store "head.json"
+  case currentResult >>= traverse decodeHead of
+    Left err -> pure (Left err)
+    Right current -> do
+      let actual = headGeneration <$> current
+          next = maybe 0 (+ 1) expected
+      if actual /= expected
+        then pure (Left (StoreConditionFailed "inventory head generation changed"))
+        else
+          if headGeneration replacement /= next
+            then pure (Left (StoreConditionFailed "replacement head generation is not the next generation"))
+            else case canonicalValue (toJSON replacement) of
+              Left err -> pure (Left (StoreInvalidObject "head.json" err))
+              Right bytes -> writeObjectUnlocked store True "head.json" bytes
+
+withProcessLock :: forall a. InventoryStore -> (forall s. LockedStore s -> IO a) -> IO (Either StoreError a)
+withProcessLock store action = do
+  inherited <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  if maybe False (not . null) inherited
+    then pure (Left StoreReentry)
+    else case store of
+      InventoryStore (MemoryBackend _ _ processLock) ->
+        maskMVar processLock (Right <$> action (LockedStore store))
+      InventoryStore (FilesystemBackend root _) -> do
+        createDirectoryIfMissing True root
+        let path = root </> "process.lock"
+        attempted <- try $ bracket (openFile path AppendMode) hClose $ \handle -> do
+          setFileMode path 0o600
+          acquired <- hTryLock handle ExclusiveLock
+          if not acquired
+            then pure (Left StoreBusy)
+            else (Right <$> action (LockedStore store)) `finally` hUnlock handle
+        pure (either (Left . StoreIoError . T.pack . show) id (attempted :: Either IOException (Either StoreError a)))
+  where
+    maskMVar lock work = do
+      acquired <- tryTakeMVar lock
+      case acquired of
+        Nothing -> pure (Left StoreBusy)
+        Just () -> work `finally` putMVar lock ()
+
+exportStore :: LockedStore s -> FilePath -> IO (Either StoreError ())
+exportStore locked output = do
+  let store = lockedStore locked
+  keysResult <- listObjectKeys store
+  case keysResult of
+    Left err -> pure (Left err)
+    Right keys -> do
+      membersResult <- traverse (\key -> fmap ((key,) <$>) (readObject store key)) keys
+      case sequence membersResult >>= traverse requireMember of
+        Left err -> pure (Left err)
+        Right members -> ioResult $ do
+          exists <- doesPathExist output
+          when exists (ioError (userError "backup output already exists"))
+          let parent = takeDirectory output
+          createDirectoryIfMissing True parent
+          withTempDirectory parent ".inventory-backup-" $ \staging -> do
+            setFileMode staging 0o700
+            mapM_ (writeMember staging) members
+            let manifestValue = object ["version" .= (1 :: Int), "members" .= [object ["path" .= key, "digest" .= contentDigest bytes] | (key, bytes) <- members]]
+                manifestBytes = either (error . T.unpack) id (canonicalValue manifestValue)
+            atomicWrite (staging </> "backup.json") manifestBytes
+            renameDirectory staging output
+            syncDirectory parent
+  where
+    requireMember (_, Nothing) = Left (StoreConditionFailed "store changed while export was reading it")
+    requireMember (key, Just bytes) = Right (key, bytes)
+    writeMember staging (key, bytes) = atomicWrite (staging </> key) bytes
+
+restoreStore :: InventoryStore -> FilePath -> IO (Either StoreError ())
+restoreStore store backup = withBackendGuard store $ do
+  current <- listObjectKeysUnlocked store
+  if not (null current)
+    then pure (Left (StoreConditionFailed "restore requires an empty inventory store"))
+    else do
+      manifestResult <- readVerifiedFile (backup </> "backup.json")
+      case manifestResult >>= decodeBackupManifest of
+        Left err -> pure (Left err)
+        Right members -> do
+          loaded <- traverse (loadMember backup) members
+          case sequence loaded of
+            Left err -> pure (Left err)
+            Right values -> do
+              writes <- traverse (uncurry (writeObjectUnlocked store False)) values
+              pure (void (sequence writes))
+
+decodeBackupManifest :: ByteString -> Either StoreError [(FilePath, ContentDigest)]
+decodeBackupManifest bytes = do
+  value <- first (StoreInvalidObject "backup.json" . T.pack) (eitherDecodeStrict' bytes)
+  canonical <- first (StoreInvalidObject "backup.json") (canonicalValue value)
+  unless (canonical == bytes) (Left (StoreInvalidObject "backup.json" "backup manifest is not canonical"))
+  first (StoreInvalidObject "backup.json" . T.pack) (parseEither parser value)
+  where
+    parser = withObject "backup manifest" $ \o -> do
+      version <- o .: "version"
+      unless (version == (1 :: Int)) (fail "unsupported backup schema")
+      o .: "members" >>= traverse (withObject "backup member" (\v -> (,) <$> v .: "path" <*> v .: "digest"))
+
+loadMember :: FilePath -> (FilePath, ContentDigest) -> IO (Either StoreError (FilePath, ByteString))
+loadMember backup (key, expected) = case checkedKey key of
+  Left err -> pure (Left err)
+  Right safeKey -> do
+    loaded <- readVerifiedFile (backup </> safeKey)
+    pure $ do
+      bytes <- loaded
+      unless (contentDigest bytes == expected) (Left (StoreInvalidObject safeKey "backup member digest mismatch"))
+      pure (safeKey, bytes)
+
+objectKeyFor :: Text -> ContentDigest -> FilePath
+objectKeyFor category digest = T.unpack category </> T.unpack (digestText digest) <.> "json"
+
+reviewKey :: ContentDigest -> FilePath
+reviewKey = objectKeyFor "reviews"
+
+scopeKey :: ContentDigest -> FilePath
+scopeKey = objectKeyFor "scopes"
+
+journalKey :: Integer -> FilePath
+journalKey sequenceNumber = "journal" </> pad 20 (show sequenceNumber) <.> "json"
+  where
+    pad width value = replicate (max 0 (width - length value)) '0' <> value
+
+withBackendGuard :: InventoryStore -> IO (Either StoreError a) -> IO (Either StoreError a)
+withBackendGuard (InventoryStore (FilesystemBackend _ guardVar)) action = withMVar guardVar (const action)
+withBackendGuard (InventoryStore (MemoryBackend _ guardVar _)) action = withMVar guardVar (const action)
+
+readObjectUnlocked :: InventoryStore -> FilePath -> IO (Either StoreError (Maybe ByteString))
+readObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) key =
+  Right . Map.lookup key . memoryObjects <$> readMVar stateVar
+readObjectUnlocked (InventoryStore (FilesystemBackend root _)) key = do
+  let path = root </> key
+  exists <- doesPathExist path
+  if not exists then pure (Right Nothing) else fmap Just <$> readVerifiedFile path
+
+readVerifiedFile :: FilePath -> IO (Either StoreError ByteString)
+readVerifiedFile path = do
+  attempted <- try $ do
+    linked <- pathIsSymbolicLink path
+    when linked (ioError (userError "file is a symlink"))
+    status <- getFileStatus path
+    unless (isRegularFile status) (ioError (userError "path is not a regular file"))
+    unless (fileMode status .&. 0o077 == 0) (ioError (userError "file is accessible by group or other users"))
+    BS.readFile path
+  pure $ case attempted of
+    Left (err :: IOException) -> Left (StoreInvalidObject path (T.pack (show err)))
+    Right bytes -> Right bytes
+
+writeObjectUnlocked :: InventoryStore -> Bool -> FilePath -> ByteString -> IO (Either StoreError ())
+writeObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) replace key bytes = do
+  modifyMVar stateVar $ \state ->
+    let objects = memoryObjects state
+     in if not replace && Map.member key objects
+          then pure (state, Left (StoreObjectConflict key))
+          else pure (state {memoryObjects = Map.insert key bytes objects}, Right ())
+writeObjectUnlocked (InventoryStore (FilesystemBackend root _)) replace key bytes = do
+  let path = root </> key
+  exists <- doesPathExist path
+  if exists && not replace
+    then pure (Left (StoreObjectConflict key))
+    else ioResult (atomicWrite path bytes)
+
+listObjectKeys :: InventoryStore -> IO (Either StoreError [FilePath])
+listObjectKeys store = withBackendGuard store (listObjectKeysUnlocked store)
+
+listObjectKeysUnlocked :: InventoryStore -> IO (Either StoreError [FilePath])
+listObjectKeysUnlocked (InventoryStore (MemoryBackend stateVar _ _)) =
+  Right . sort . Map.keys . memoryObjects <$> readMVar stateVar
+listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _)) = ioResult (sort <$> walk root "")
+  where
+    walk base relative = do
+      let directory = if null relative then base else base </> relative
+      entries <- listDirectory directory
+      fmap concat $ forM entries $ \entry -> do
+        let rel = if null relative then entry else relative </> entry
+            path = base </> rel
+        linked <- pathIsSymbolicLink path
+        when linked (ioError (userError ("store member is a symlink: " <> rel)))
+        status <- getFileStatus path
+        if isDirectory status then walk base rel else if isRegularFile status then pure [rel] else ioError (userError ("invalid store member: " <> rel))
+
+checkedKey :: FilePath -> Either StoreError FilePath
+checkedKey key
+  | isAbsolute key = Left (StoreInvalidPath key)
+  | null key = Left (StoreInvalidPath key)
+  | any (`elem` ["", ".", ".."]) (splitDirectories key) = Left (StoreInvalidPath key)
+  | normalise key /= key = Left (StoreInvalidPath key)
+  | otherwise = Right key
+
+atomicWrite :: FilePath -> ByteString -> IO ()
+atomicWrite path bytes = do
+  let parent = takeDirectory path
+  createDirectoryIfMissing True parent
+  setFileMode parent 0o700
+  (temporary, handle) <- openBinaryTempFile parent ".inventory-object.tmp"
+  let cleanup = do
+        hClose handle `catch` (\(_ :: IOException) -> pure ())
+        removeFile temporary `catch` (\(_ :: IOException) -> pure ())
+  ( do
+      setFileMode temporary 0o600
+      BS.hPut handle bytes
+      hFlush handle
+      hClose handle
+      syncFile temporary
+      renameFile temporary path
+      setFileMode path 0o600
+      syncDirectory parent
+    )
+    `catch` \(err :: IOException) -> cleanup >> ioError err
+
+syncFile :: FilePath -> IO ()
+syncFile path = bracket (openFd path ReadOnly defaultFileFlags) closeFd fileSynchronise
+
+syncDirectory :: FilePath -> IO ()
+syncDirectory path = bracket (openFd path ReadOnly defaultFileFlags) closeFd fileSynchronise
+
+ioResult :: forall a. IO a -> IO (Either StoreError a)
+ioResult action = do
+  attempted <- try action
+  pure $ first (StoreIoError . T.pack . show) (attempted :: Either IOException a)

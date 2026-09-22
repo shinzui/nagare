@@ -1,4 +1,13 @@
-module Nagare.Inventory.Command (compileInput, compileInventory, loadCandidate) where
+module Nagare.Inventory.Command
+  ( compileInput
+  , compileInventory
+  , loadCandidate
+  , planInventory
+  , applyInventory
+  , resumeInventory
+  , exportInventory
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM, forM_)
@@ -8,17 +17,30 @@ import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.Generics.Labels ()
+import Data.IORef
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Execute hiding (withProcessLock)
+import Nagare.Inventory.Journal
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
+import Nagare.Target
 import System.Directory
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (stderr)
@@ -149,3 +171,136 @@ compileInventory input output json = do
         then BC.hPutStrLn stderr (either (error . T.unpack) id (canonicalValue (toJSON (map errorValue es))))
         else BC.hPutStrLn stderr (BC.pack (show es))
       exitFailure
+
+planInventory :: ActiveTarget -> FilePath -> FilePath -> IO ()
+planInventory target candidateDirectory output = do
+  rejectReentry
+  candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  validateTarget target candidate
+  store <- openTargetStore target
+  let binding = inventoryBinding (candidateInventory candidate)
+  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
+  _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
+  history <- loadInventoryHistory store >>= either (dieText . showText) pure
+  let registry = manifestOnlyRegistry history
+      requirements = observationRequirements candidate history
+  observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
+  proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate noLifecycleDecisions history observations)
+  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  bundle <- prepareReview registry snapshot proposal >>= either (dieText . showText . NE.toList) pure
+  digest <- publishReview store bundle >>= either (dieText . showText) pure
+  _ <- writeReviewBundle output bundle >>= either dieText pure
+  TIO.putStrLn (digestText digest)
+
+applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
+applyInventory target reviewDirectory yes = do
+  rejectReentry
+  unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
+  bundle <- loadReviewBundle reviewDirectory >>= either dieText pure
+  validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
+  store <- openTargetStore target
+  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+  reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
+  result <- applyReviewed store executionBlockedRegistry reviewed >>= either (dieText . showText . NE.toList) pure
+  TIO.putStrLn (renderTransactionResult result)
+
+resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
+resumeInventory target transactionToken yes = do
+  rejectReentry
+  unless yes (dieText "inventory resume requires --yes")
+  transaction <- either dieText pure (mkTransactionId transactionToken)
+  store <- openTargetStore target
+  result <- resumeTransaction store executionBlockedRegistry transaction >>= either (dieText . showText . NE.toList) pure
+  TIO.putStrLn (renderTransactionResult result)
+
+exportInventory :: ActiveTarget -> FilePath -> IO ()
+exportInventory target output = do
+  rejectReentry
+  store <- openTargetStore target
+  result <- withProcessLock store (\locked -> exportStore locked output)
+  case result of
+    Left err -> dieText (showText err)
+    Right (Left err) -> dieText (showText err)
+    Right (Right ()) -> TIO.putStrLn (T.pack output)
+
+openTargetStore :: ActiveTarget -> IO InventoryStore
+openTargetStore target = do
+  stateRoot <- nagareStateDir
+  let path = stateRoot </> T.unpack (contextNameText (target ^. #contextName)) </> "inventory"
+  openFilesystemStore path >>= either (dieText . showText) pure
+
+validateTarget :: ActiveTarget -> CompositionCandidate -> IO ()
+validateTarget target candidate = do
+  let binding = inventoryBinding (candidateInventory candidate)
+      expectedProject = target ^. #profile . #project
+  unless (nameText (binding ^. #project) == expectedProject) $
+    dieText ("inventory candidate targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
+
+validateReviewTarget :: ActiveTarget -> ContextBinding -> IO ()
+validateReviewTarget target binding = do
+  let expectedProject = target ^. #profile . #project
+  unless (nameText (binding ^. #project) == expectedProject) $
+    dieText ("inventory review targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
+
+clientIdentity :: ActiveTarget -> Text
+clientIdentity target =
+  "client-" <> T.take 24 (digestText (contentDigest (TE.encodeUtf8 (contextNameText (target ^. #contextName)))))
+
+manifestOnlyRegistry :: InventoryHistory -> AdapterRegistry
+manifestOnlyRegistry history =
+  either (error . T.unpack) id (mkAdapterRegistry (map adapter executors))
+  where
+    executors = [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]
+    acceptedIds = Set.fromList [declarationId declaration | (_, (_, scope)) <- Map.toAscList (historyAccepted history), bundle <- scopeBundles scope, declaration <- bundle ^. #declarations]
+    adapter executor =
+      Adapter
+        { adapterExecutor = executor
+        , adapterIdentity = "manifest-only"
+        , adapterVersion = "1"
+        , adapterObserve = \resources -> pure (observationSet [(resource, observation resource) | resource <- resources])
+        , adapterPrepare = \operation -> pure (Right (PreparedNative (canonicalOperation operation) "manifest-only review; a provider adapter is required before apply"))
+        , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
+        , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
+        , adapterVerify = \_ -> pure (Left "manifest-only adapter cannot verify provider state")
+        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
+        }
+    observation resource
+      | Set.member resource acceptedIds = ObservedPresent (physical ("accepted:" <> resourceIdText resource))
+      | otherwise = ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("manifest-only-absence:" <> resourceIdText resource)))
+    physical value = either (error . T.unpack) id (mkPhysicalIdentity value)
+    canonicalOperation = either (error . T.unpack) id . canonicalValue . toJSON
+
+executionBlockedRegistry :: AdapterRegistry
+executionBlockedRegistry =
+  either (error . T.unpack) id (mkAdapterRegistry (map adapter [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
+  where
+    adapter executor =
+      Adapter
+        { adapterExecutor = executor
+        , adapterIdentity = "manifest-only"
+        , adapterVersion = "1"
+        , adapterObserve = \_ -> pure (Left "manifest-only execution registry does not observe")
+        , adapterPrepare = \operation -> pure (Left (PrepareRefused (plannedOperationId operation) "manifest-only execution registry does not prepare"))
+        , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
+        , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
+        , adapterVerify = \_ -> pure (Left "manifest-only adapter cannot verify provider state")
+        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
+        }
+
+renderTransactionResult :: TransactionResult -> Text
+renderTransactionResult result = case result of
+  Converged transaction -> "converged " <> transactionIdText transaction
+  PausedAtBarrier transaction barriers -> "paused " <> transactionIdText transaction <> " at " <> T.pack (show (NE.length barriers)) <> " review barrier(s)"
+  StoppedFailed transaction operation failureClass -> "stopped " <> transactionIdText transaction <> " at " <> operationIdText operation <> ": " <> showText failureClass
+  StoppedAmbiguous transaction operation -> "ambiguous " <> transactionIdText transaction <> " at " <> operationIdText operation
+
+rejectReentry :: IO ()
+rejectReentry = do
+  active <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (maybe False (not . null) active) (dieText "an adapter child may not re-enter an inventory command")
+
+dieText :: Text -> IO a
+dieText message = TIO.hPutStrLn stderr message >> exitFailure
+
+showText :: (Show a) => a -> Text
+showText = T.pack . show
