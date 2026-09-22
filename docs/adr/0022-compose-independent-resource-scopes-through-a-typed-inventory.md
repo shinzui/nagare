@@ -144,8 +144,11 @@ A public review directory contains the canonical review document and public scop
 declarations, but never its retained native provider bytes. Those bytes are
 published immutably in the selected context store. Apply resolves the public
 document digest there, checks the public scopes byte-for-byte, verifies all native
-member digests, then rechecks the head and live preconditions under the process
-lock. `ReviewedPlan` therefore remains evidence, while the rank-2 lock callback is
+member digests, and constructs provider adapters from that store-backed bundle,
+as resume does. Constructing an apply adapter from the public directory alone
+cannot supply immutable native evidence. Apply then rechecks the head and live
+preconditions under the process lock. `ReviewedPlan` therefore remains evidence,
+while the rank-2 lock callback is
 the only place an `ExecutablePlan s` can exist. A negative compiler fixture pins
 that boundary.
 

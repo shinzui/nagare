@@ -6,6 +6,7 @@ module Nagare.Inventory.Command
   , planInventoryWith
   , applyInventory
   , applyInventoryWith
+  , applyInventoryWithFactory
   , resumeInventory
   , resumeInventoryWith
   , resumeInventoryWithFactory
@@ -208,7 +209,12 @@ applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory = applyInventoryWith executionBlockedRegistry
 
 applyInventoryWith :: AdapterRegistry -> ActiveTarget -> FilePath -> Bool -> IO ()
-applyInventoryWith registry target reviewDirectory yes = do
+applyInventoryWith registry = applyInventoryWithFactory (const (pure registry))
+
+-- | Construct adapters only after the private, immutable review has been
+-- loaded. Public review directories intentionally omit native provider bytes.
+applyInventoryWithFactory :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> Bool -> IO ()
+applyInventoryWithFactory registryFor target reviewDirectory yes = do
   rejectReentry
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
   publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
@@ -220,6 +226,7 @@ applyInventoryWith registry target reviewDirectory yes = do
         && reviewBundleScopes bundle == reviewBundleScopes publicBundle
     )
     (dieText "review directory differs from the immutable review published by this store")
+  registry <- registryFor bundle
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure

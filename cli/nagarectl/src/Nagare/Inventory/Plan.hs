@@ -24,6 +24,7 @@ module Nagare.Inventory.Plan
   , ReviewBundle
   , reviewBundleDocument
   , reviewBundleScopes
+  , reviewBundleNative
   , ReviewError (..)
   , ReviewedPlan
   , reviewedDocument
@@ -345,6 +346,12 @@ reviewBundleDocument = bundleDocument
 
 reviewBundleScopes :: ReviewBundle -> Map ContentDigest ByteString
 reviewBundleScopes = bundleScopes
+
+-- | Private retained native evidence. A public review directory loads with an
+-- empty map; command factories receive the store-backed bundle after matching
+-- its public document and scope members byte-for-byte.
+reviewBundleNative :: ReviewBundle -> Map ContentDigest ByteString
+reviewBundleNative = bundleNative
 
 data ReviewError = ReviewError
   { reviewErrorCode :: !Text

@@ -101,6 +101,8 @@ inventoryTransactionTests =
           publicBundle <- loadReviewBundle (root </> "review") >>= expectRight
           reviewBundleDocument publicBundle @?= reviewBundleDocument fullBundle
           reviewBundleScopes publicBundle @?= reviewBundleScopes fullBundle
+          assertBool "store-backed bundle carries native evidence for adapter construction" (not (Map.null (reviewBundleNative fullBundle)))
+          assertBool "public bundle carries no native evidence" (Map.null (reviewBundleNative publicBundle))
           snapshot <- readStoreSnapshot store >>= expectRight
           assertBool "public bundle alone is not executable" (isLeft (verifyReview snapshot publicBundle))
     , testCase "adapter execution cannot re-enter the inventory lock" $ do

@@ -4050,9 +4050,7 @@ runInventoryPlan mctx candidateDirectory output = do
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
-  publicBundle <- InventoryPlan.loadReviewBundle reviewDirectory >>= either dieT pure
-  registry <- inventoryExecutionRegistry mctx publicBundle
-  Inventory.applyInventoryWith registry target reviewDirectory yes
+  Inventory.applyInventoryWithFactory (inventoryExecutionRegistry mctx) target reviewDirectory yes
 
 runInventoryResume :: Maybe String -> Text -> Bool -> IO ()
 runInventoryResume mctx transaction yes = do
