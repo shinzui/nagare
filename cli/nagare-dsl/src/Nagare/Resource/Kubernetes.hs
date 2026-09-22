@@ -136,7 +136,7 @@ compileKubernetesObject input = do
           Just (Array entries) -> traverse templateName (foldr (:) [] entries)
           _ -> Left (bad "spec.volumeClaimTemplates must be an array")
         Right (StatefulSet count templates (objectDigest input))
-      Kubernetes _ "" kind Nothing _ | nameText kind == "namespace" -> Right NamespaceSpec
+      Kubernetes _ "" kind Nothing _ | nameText kind == "namespace" -> Right (NamespaceSpec (Just (objectDigest input)))
       _ -> Right (NativeObject (objectDigest input))
     templateName value = do
       entry <- asObject "volumeClaimTemplate" value

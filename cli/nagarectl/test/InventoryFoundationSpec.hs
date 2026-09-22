@@ -1,14 +1,19 @@
 module InventoryFoundationSpec (inventoryFoundationTests) where
 
 import Data.Generics.Labels ()
+import Data.Aeson (object, (.=))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.Foundation
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.FilePath ((</>))
@@ -23,6 +28,18 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
       _ <- expectRight (validateSuppliedKubernetesMembers resources native)
       let quota = [member | member <- resources, member ^. #address == Kubernetes fixtureCluster "" (known "resourcequota") (Just (known "personal")) (known "nagare-terminating-jobs")]
       length quota @?= 1
+      case [member | member <- resources, member ^. #address == Kubernetes fixtureCluster "" (known "namespace") Nothing (known "personal")] of
+        [personal] -> do
+          let changed = object ["apiVersion" .= ("v1" :: Text), "kind" .= ("Namespace" :: Text),
+                "metadata" .= object ["name" .= ("personal" :: Text), "labels" .= object ["nagare.dev/app-namespace" .= ("false" :: Text)]]]
+              changedBytes = ok (canonicalValue changed)
+              changedInput = KubernetesInput (personal ^. #identity) fixtureOwner fixtureCluster changed
+                (contentDigest changedBytes) (personal ^. #lifecycle) (personal ^. #dataPolicy)
+                (personal ^. #sensitivity) (personal ^. #source)
+          (changedDeclaration, _) <- expectRight (bindKubernetesObject changedInput)
+          assertBool "namespace label change did not change desired specification"
+            (changedDeclaration ^. #spec /= personal ^. #spec)
+        _ -> assertFailure "personal Namespace declaration missing"
       let binding = ContextBinding (ok (mkContextId "fixture")) (known "project")
           scope = ok (mkScopeDeclaration fixtureOwner [bundle])
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)

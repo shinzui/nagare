@@ -67,7 +67,7 @@ data DesiredSpec
   | StatefulSet !Integer ![Name] !ContentDigest
   | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
   | ArtifactPublication !Name !Text !ContentDigest !Bool
-  | NamespaceSpec
+  | NamespaceSpec !(Maybe ContentDigest)
   | LogicalCache !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -220,7 +220,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
       (Kubernetes _ "cert-manager.io" k (Just _) _, Certificate {}) -> nameText k == "certificate"
       (Kubernetes _ "apps" k (Just _) _, StatefulSet {}) -> nameText k == "statefulset"
-      (Kubernetes _ "" k Nothing _, NamespaceSpec) -> nameText k == "namespace"
+      (Kubernetes _ "" k Nothing _, NamespaceSpec _) -> nameText k == "namespace"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
@@ -333,7 +333,7 @@ composeContributions ss = checked errors generated
               KubernetesExecutor
               (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing (c ^. #namespace))
               []
-              NamespaceSpec
+              (NamespaceSpec Nothing)
               Retain
               Stateless
               Public
