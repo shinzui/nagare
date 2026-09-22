@@ -60,6 +60,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 2026-09-22: The prior Pulumi adapter stopped at an injected interface. A production subprocess runtime now derives native registrations back from compiled declarations, installs the TypeScript declaration guard for every provider invocation, creates a saved plan only during preparation, applies the exact retained bytes, observes physical IDs from stack export, and verifies with `preview --expect-no-changes`. A recording test proves only one `--save-plan` call and checks the retained plan reaches `pulumi up`. The runtime identity also now includes payload ID and digest, which the first header had accidentally omitted.
 
+2026-09-22: Cloud command registration is now live without changing the existing reviewed-plan format in place. `nagarectl infra preview --inventory COMPILED_DIRECTORY --save-plan REVIEW` selects the shared planner and Pulumi adapter; `infra apply --plan REVIEW --yes` recognizes an inventory review by its checksum member; and `inventory resume` reconstructs the same runtime from the private retained review. The old Pulumi-only preview path remains for compatibility and must be removed only after all generated production declarations and upgrade callers have migrated.
+
 
 ## Decision Log
 

@@ -235,7 +235,12 @@ import Nagare.Init
   , seedPulumiConfig
   , writeTargetEnv
   )
+import Nagare.Inventory.Adapter qualified as InventoryAdapter
+import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
+import Nagare.Inventory.Adapters.PulumiRuntime
+import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
   , defaultKeepReleases
@@ -341,6 +346,9 @@ import Nagare.Platform.Workspace
   , readPayloadManifest
   , renderWorkspaceError
   )
+import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Types qualified as Resource
+import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Server.Deploy
   ( ServerDeployInputs (..)
   , ServerManifests (..)
@@ -789,6 +797,7 @@ data InfraCommand
 
 data InfraPreviewOpts = InfraPreviewOpts
   { savePlan :: !FilePath
+  , inventory :: !(Maybe FilePath)
   , allowReplacement :: !Bool
   }
   deriving stock (Generic, Show)
@@ -1995,6 +2004,7 @@ opts =
                           . InfraPreview
                           <$> ( InfraPreviewOpts
                                   <$> strOption (long "save-plan" <> metavar "DIR" <> help "Write one private context-bound reviewed-plan bundle")
+                                  <*> optional (strOption (long "inventory" <> metavar "COMPILED_DIRECTORY" <> help "Plan the compiled typed inventory through the shared executor"))
                                   <*> switch (long "allow-replacement" <> help "Record approval for protected replacements in this review")
                               )
                             <**> helper
@@ -2641,9 +2651,9 @@ main = do
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
     InventoryCompile input output json -> Inventory.compileInventory input output json
-    InventoryPlan input output -> activeTarget mctx >>= \target -> Inventory.planInventory target input output
-    InventoryApply directory yes -> activeTarget mctx >>= \target -> Inventory.applyInventory target directory yes
-    InventoryResume transaction yes -> activeTarget mctx >>= \target -> Inventory.resumeInventory target (T.pack transaction) yes
+    InventoryPlan input output -> runInventoryPlan mctx input output
+    InventoryApply directory yes -> runInventoryApply mctx directory yes
+    InventoryResume transaction yes -> runInventoryResume mctx (T.pack transaction) yes
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
 
 runVersion :: VersionOpts -> IO ()
@@ -3980,18 +3990,28 @@ runInfraGuard mctx allowReplacementFlag = do
     ensureNewline t = if "\n" `T.isSuffixOf` t then t else t <> "\n"
 
 runInfraPreview :: Maybe String -> InfraPreviewOpts -> IO ()
-runInfraPreview mctx options = do
-  (active, workspace) <- prepareInfraMutation mctx
-  result <- saveReviewedPlan active workspace (options ^. #savePlan) (options ^. #allowReplacement)
-  either dieT TIO.putStr result
+runInfraPreview mctx options = case options ^. #inventory of
+  Just candidate -> do
+    when (options ^. #allowReplacement) (dieT "--allow-replacement belongs to the reviewed lifecycle decision; it cannot be attached to an inventory preview")
+    runInventoryPlan mctx candidate (options ^. #savePlan)
+  Nothing -> do
+    (active, workspace) <- prepareInfraMutation mctx
+    result <- saveReviewedPlan active workspace (options ^. #savePlan) (options ^. #allowReplacement)
+    either dieT TIO.putStr result
 
 runInfraApply :: Maybe String -> InfraApplyOpts -> IO ()
 runInfraApply mctx options = do
   unless (options ^. #yes) $
     dieT "refusing to apply a reviewed infrastructure plan without --yes"
-  (active, workspace) <- prepareInfraMutation mctx
-  result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
-  either dieT TIO.putStr result
+  inventoryReview <- doesFileExist (options ^. #plan </> "review.sha256")
+  if inventoryReview
+    then do
+      when (options ^. #allowReplacement) (dieT "--allow-replacement belongs to the reviewed lifecycle decision and cannot alter an inventory review")
+      runInventoryApply mctx (options ^. #plan) True
+    else do
+      (active, workspace) <- prepareInfraMutation mctx
+      result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
+      either dieT TIO.putStr result
 
 runInfraDestroy :: Maybe String -> Bool -> IO ()
 runInfraDestroy mctx yes = do
@@ -4001,6 +4021,89 @@ runInfraDestroy mctx yes = do
   let stack = T.unpack (contextNameText (active ^. #contextName))
   result <- runExternal [ExitSuccess] "pulumi" ["-C", workspace ^. #pulumiDir, "destroy", "--stack", stack, "--yes", "--non-interactive"] ""
   either dieT TIO.putStr result
+
+-- | Build the production cloud adapter from the same composed declarations the
+-- generic planner sees. Other domains retain their refusing adapters until
+-- their production runtimes are registered by this child or later children.
+runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
+runInventoryPlan mctx candidateDirectory output = do
+  target <- activeTarget mctx
+  candidate <- Inventory.loadCandidate candidateDirectory >>= either dieT pure
+  let declarations = ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory candidate)
+  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  if null registrations
+    then Inventory.planInventory target candidateDirectory output
+    else do
+      (active, workspace) <- prepareInfraMutation mctx
+      Inventory.planInventoryWith (inventoryPlanRegistry active workspace) target candidateDirectory output
+
+runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
+runInventoryApply mctx reviewDirectory yes = do
+  target <- activeTarget mctx
+  publicBundle <- InventoryPlan.loadReviewBundle reviewDirectory >>= either dieT pure
+  registry <- inventoryExecutionRegistry mctx publicBundle
+  Inventory.applyInventoryWith registry target reviewDirectory yes
+
+runInventoryResume :: Maybe String -> Text -> Bool -> IO ()
+runInventoryResume mctx transaction yes = do
+  target <- activeTarget mctx
+  Inventory.resumeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction yes
+
+inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+inventoryExecutionRegistry mctx bundle = do
+  scopes <- traverse (either (dieT . T.pack . show) pure . ResourceWire.decodeScope) (Map.elems (InventoryPlan.reviewBundleScopes bundle))
+  let declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
+  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  if null registrations
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]))
+    else do
+      (active, workspace) <- prepareInfraMutation mctx
+      let binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
+      adapter <- inventoryPulumiAdapter active workspace binding scopes registrations
+      let adapters = adapter : map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]
+      either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
+
+inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryPlanRegistry active workspace candidate history = do
+  let inventory = ResourceInventory.candidateInventory candidate
+      declarations = ResourceInventory.inventoryDeclarations inventory
+      scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
+  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  pulumi <- inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes registrations
+  let adapters = pulumi : map (Inventory.manifestAdapterFor history) [ResourceInventory.KubernetesExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor]
+  either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
+
+inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
+inventoryPulumiAdapter active workspace binding scopes registrations = do
+  stateRoot <- nagareStateDir
+  stackConfig <- contextStackConfigPath (active ^. #contextName)
+  stackName <- either dieT pure (Resource.mkName (contextNameText (active ^. #contextName)))
+  payloadDigest <- either dieT pure (Resource.mkContentDigest (workspace ^. #digest))
+  let profile = active ^. #profile
+      context = contextNameText (active ^. #contextName)
+      pulumiEnvironment = pulumiEnvFor stateRoot context profile
+      declarationBundle =
+        InventoryCloud.encodeRegistrationBundle
+          (binding ^. #identity)
+          (binding ^. #project)
+          stackName
+          (map ResourceInventory.scopeId scopes)
+          registrations
+      config =
+        PulumiRuntimeConfig
+          { runtimeContext = context
+          , runtimeProject = profile ^. #project
+          , runtimeStack = pulumiEnvironment ^. #stack
+          , runtimeBackend = pulumiEnvironment ^. #backendUrl
+          , runtimePayloadId = workspace ^. #payloadId
+          , runtimePayloadDigest = payloadDigest
+          , runtimePulumiExecutable = "pulumi"
+          , runtimePulumiDirectory = workspace ^. #pulumiDir
+          , runtimeStackConfig = stackConfig
+          , runtimeDeclarationBundle = declarationBundle
+          , runtimeRegistrations = registrations
+          }
+  pure (mkPulumiAdapter registrations (mkPulumiRuntimeOps config))
 
 -- | Compose the release and project/ADC guards before any standalone
 -- infrastructure mutation. ADC is validated before workspace preparation,

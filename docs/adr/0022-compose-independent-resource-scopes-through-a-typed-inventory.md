@@ -228,3 +228,10 @@ and writes retained bytes to a private temporary file for `pulumi up --plan`.
 Physical observation comes from stack export and completion requires a no-change
 preview. Its identity binds payload ID/digest as well as context, project, stack,
 backend, program, configuration, and Pulumi version.
+
+Cloud inventory reviews are reachable through the established infrastructure
+namespace: `infra preview --inventory` invokes the shared planner, `infra apply`
+recognizes the inventory review layout, and resume reconstructs the runtime from
+the retained private review. The older Pulumi-only review path remains a temporary
+compatibility surface while complete production declaration generation and upgrade
+callers migrate; it does not accept or execute an inventory review as a native one.

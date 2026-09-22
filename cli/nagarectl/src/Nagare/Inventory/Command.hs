@@ -8,7 +8,10 @@ module Nagare.Inventory.Command
   , applyInventoryWith
   , resumeInventory
   , resumeInventoryWith
+  , resumeInventoryWithFactory
   , exportInventory
+  , manifestAdapterFor
+  , executionBlockedAdapterFor
   )
 where
 
@@ -226,11 +229,17 @@ resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry
 
 resumeInventoryWith :: AdapterRegistry -> ActiveTarget -> Text -> Bool -> IO ()
-resumeInventoryWith registry target transactionToken yes = do
+resumeInventoryWith registry = resumeInventoryWithFactory (const (pure registry))
+
+resumeInventoryWithFactory :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Bool -> IO ()
+resumeInventoryWithFactory registryFor target transactionToken yes = do
   rejectReentry
   unless yes (dieText "inventory resume requires --yes")
   transaction <- either dieText pure (mkTransactionId transactionToken)
   store <- openTargetStore target
+  digest <- either dieText pure (mkContentDigest (T.drop 3 (transactionIdText transaction)))
+  bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
+  registry <- registryFor bundle
   result <- resumeTransaction store registry transaction >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
 
@@ -269,22 +278,25 @@ clientIdentity target =
 
 manifestOnlyRegistry :: InventoryHistory -> AdapterRegistry
 manifestOnlyRegistry history =
-  either (error . T.unpack) id (mkAdapterRegistry (map adapter executors))
+  either (error . T.unpack) id (mkAdapterRegistry (map (manifestAdapterFor history) executors))
   where
     executors = [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]
+
+manifestAdapterFor :: InventoryHistory -> Executor -> Adapter
+manifestAdapterFor history executor =
+  Adapter
+    { adapterExecutor = executor
+    , adapterIdentity = "manifest-only"
+    , adapterVersion = "1"
+    , adapterObserve = \resources -> pure (observationSet [(resource, observation resource) | resource <- resources])
+    , adapterPrepare = \operation -> pure (Right (PreparedNative (canonicalOperation operation) "manifest-only review; a provider adapter is required before apply"))
+    , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
+    , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
+    , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
+    , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
+    }
+  where
     acceptedIds = Set.fromList [declarationId declaration | (_, (_, scope)) <- Map.toAscList (historyAccepted history), bundle <- scopeBundles scope, declaration <- bundle ^. #declarations]
-    adapter executor =
-      Adapter
-        { adapterExecutor = executor
-        , adapterIdentity = "manifest-only"
-        , adapterVersion = "1"
-        , adapterObserve = \resources -> pure (observationSet [(resource, observation resource) | resource <- resources])
-        , adapterPrepare = \operation -> pure (Right (PreparedNative (canonicalOperation operation) "manifest-only review; a provider adapter is required before apply"))
-        , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
-        , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
-        , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
-        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
-        }
     observation resource
       | Set.member resource acceptedIds = ObservedPresent (physical ("accepted:" <> resourceIdText resource))
       | otherwise = ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("manifest-only-absence:" <> resourceIdText resource)))
@@ -293,20 +305,21 @@ manifestOnlyRegistry history =
 
 executionBlockedRegistry :: AdapterRegistry
 executionBlockedRegistry =
-  either (error . T.unpack) id (mkAdapterRegistry (map adapter [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
-  where
-    adapter executor =
-      Adapter
-        { adapterExecutor = executor
-        , adapterIdentity = "manifest-only"
-        , adapterVersion = "1"
-        , adapterObserve = \_ -> pure (Left "manifest-only execution registry does not observe")
-        , adapterPrepare = \operation -> pure (Left (PrepareRefused (plannedOperationId operation) "manifest-only execution registry does not prepare"))
-        , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
-        , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
-        , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
-        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
-        }
+  either (error . T.unpack) id (mkAdapterRegistry (map executionBlockedAdapterFor [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
+
+executionBlockedAdapterFor :: Executor -> Adapter
+executionBlockedAdapterFor executor =
+  Adapter
+    { adapterExecutor = executor
+    , adapterIdentity = "manifest-only"
+    , adapterVersion = "1"
+    , adapterObserve = \_ -> pure (Left "manifest-only execution registry does not observe")
+    , adapterPrepare = \operation -> pure (Left (PrepareRefused (plannedOperationId operation) "manifest-only execution registry does not prepare"))
+    , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
+    , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
+    , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
+    , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
+    }
 
 renderTransactionResult :: TransactionResult -> Text
 renderTransactionResult result = case result of
