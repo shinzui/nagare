@@ -6,6 +6,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as Text
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Kubernetes
@@ -103,6 +104,38 @@ resourceInventoryTests =
         case compileKubernetesObject (KubernetesInput (rid p "certificate") p cluster cert digest Retain Stateless Public (SourceLocation "fixture" "certificate")) of
           Left e -> e ^. #code @?= "invalid-kubernetes-object"
           Right _ -> assertFailure "Certificate without secretName was accepted"
+    , testCase "Kubernetes Lists expand before claim validation and retain member paths" $ do
+        let item name = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Service" :: Text)
+              , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
+              ]
+            list = object ["kind" .= ("List" :: Text), "items" .= [item ("same" :: Text), item ("same" :: Text)]]
+            source = SourceLocation "fixture.yaml" "document[0]"
+            expanded = ok (expandKubernetesList source list)
+            compiled (ordinal, (location, value)) =
+              Managed (ok (compileKubernetesObject (KubernetesInput (rid p ("item-" <> Text.pack (show ordinal))) p cluster value digest Retain Stateless Public location)))
+        map (path . fst) expanded @?= ["document[0][0]", "document[0][1]"]
+        rejects "claim-conflict" (compileScopes [scope p (map compiled (zip [0 :: Int ..] expanded))])
+        case compileKubernetesObject (KubernetesInput (rid p "list") p cluster list digest Retain Stateless Public source) of
+          Left e -> e ^. #code @?= "invalid-kubernetes-object"
+          Right _ -> assertFailure "List envelope was accepted as a resource"
+    , testCase "malformed Kubernetes List cannot hide a missing object" $ do
+        let source = SourceLocation "fixture.yaml" "document[1]"
+            malformed = object ["kind" .= ("List" :: Text), "items" .= [item]]
+            item = object ["kind" .= ("List" :: Text), "items" .= ([] :: [Value])]
+        case expandKubernetesList source malformed of
+          Left e -> do
+            e ^. #code @?= "invalid-kubernetes-object"
+            e ^. #sources @?= [SourceLocation "fixture.yaml" "document[1][0]"]
+          Right _ -> assertFailure "empty nested List was accepted"
+    , testCase "multi-document YAML expands all resources before collision checks" $ do
+        let manifest = BC.pack "apiVersion: v1\nkind: List\nitems:\n  - apiVersion: v1\n    kind: Service\n    metadata: {name: same, namespace: personal}\n---\napiVersion: v1\nkind: Service\nmetadata: {name: same, namespace: personal}\n"
+            parsed = ok (parseKubernetesManifest (SourceLocation "fixture.yaml" "cache") manifest)
+            compiled (ordinal, (location, value)) =
+              Managed (ok (compileKubernetesObject (KubernetesInput (rid p ("yaml-" <> Text.pack (show ordinal))) p cluster value digest Retain Stateless Public location)))
+        map (path . fst) parsed @?= ["cache#document[0][0]", "cache#document[1]"]
+        rejects "claim-conflict" (compileScopes [scope p (map compiled (zip [0 :: Int ..] parsed))])
     , testCase "controller spec cannot omit derived claims" $ do
         let app = Managed (resource a "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "ns")) (n "same")) (NativeObject digest))
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [app]])

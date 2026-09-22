@@ -3,6 +3,8 @@
 -- content digest; this module does not render or execute the object.
 module Nagare.Resource.Kubernetes
   ( KubernetesInput (..)
+  , parseKubernetesManifest
+  , expandKubernetesList
   , compileKubernetesObject
   )
 where
@@ -10,7 +12,9 @@ where
 import Data.Aeson (Result (..), Value (..), fromJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString (ByteString)
 import Data.Text qualified as Text
+import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -28,6 +32,43 @@ data KubernetesInput = KubernetesInput
   , sourceLocation :: !SourceLocation
   }
 
+-- | Parse every YAML document before assigning resource identities. Each
+-- document and List member keeps a source path for collision diagnostics.
+parseKubernetesManifest :: SourceLocation -> ByteString -> Either InventoryError [(SourceLocation, Value)]
+parseKubernetesManifest source bytes = do
+  documents <- case Yaml.decodeAllEither' bytes of
+    Left failure -> Left (bad (Text.pack (show failure)))
+    Right [] -> Left (bad "Kubernetes manifest has no documents")
+    Right values -> Right values
+  concat <$> traverse expandDocument (zip [0 :: Int ..] documents)
+  where
+    expandDocument (ordinal, value) =
+      expandKubernetesList
+        (source {path = path source <> "#document[" <> Text.pack (show ordinal) <> "]"})
+        value
+    bad message = (inventoryError "invalid-kubernetes-object" message) {sources = [source]}
+
+-- | Expand the Kubernetes @List@ envelope before assigning identities or
+-- validating claims. An empty or malformed list cannot silently become one
+-- opaque managed object. The source suffix identifies the original member in
+-- diagnostics and remains stable when unrelated documents are added.
+expandKubernetesList :: SourceLocation -> Value -> Either InventoryError [(SourceLocation, Value)]
+expandKubernetesList source value = case value of
+  Object root | KeyMap.lookup "kind" root == Just (String "List") ->
+    case KeyMap.lookup "items" root of
+      Just (Array items) | not (null items) ->
+        concat <$> traverse expandMember (zip [0 :: Int ..] (foldr (:) [] items))
+      _ -> Left (bad source "Kubernetes List.items must be a nonempty array")
+  Object _ -> Right [(source, value)]
+  _ -> Left (bad source "Kubernetes document must be an object")
+  where
+    expandMember (ordinal, item) =
+      expandKubernetesList
+        (source {path = path source <> "[" <> Text.pack (show ordinal) <> "]"})
+        item
+    bad location message =
+      (inventoryError "invalid-kubernetes-object" message) {sources = [location]}
+
 -- | Parse identity and controller reservations from the actual object. A
 -- malformed controller object is refused rather than downgraded to NativeObject,
 -- which would silently drop its derived claims.
@@ -36,6 +77,7 @@ compileKubernetesObject input = do
   root <- asObject "object" (inputObject input)
   apiVersion <- textField "apiVersion" root
   kind <- textField "kind" root
+  when (kind == "List") (Left (bad "Kubernetes List must be expanded before compilation"))
   metadata <- field "metadata" root >>= asObject "metadata"
   name <- textField "name" metadata
   namespace <- case KeyMap.lookup "namespace" metadata of

@@ -36,6 +36,11 @@ provenance:
       at: 2026-09-22T18:29:14Z
       mode: "implement"
       note: "Begin EP-147 cluster bootstrap inventory migration"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T20:05:31Z
+      mode: "implement"
+      note: "Record partial EP-147 Kubernetes List expansion"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -141,7 +146,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-146 M3: Artifact/bootstrap/control resources, digest verification, and bounded publication review barriers.
 - [x] (2026-09-22) EP-146 M4: Production domain registration, confined transports, and compatibility handoff to EP-150.
 - [x] (2026-09-22) EP-147 M1a: Structured Kubernetes objects compile to typed declarations; rendered database/Knative collision fixture passes.
-- [ ] EP-147 M1b: Multi-document expansion, retained native evidence, observation, and guarded mutation.
+- [x] (2026-09-22) EP-147 M1b partial: Multi-document YAML and Kubernetes List items expand before claim validation with source-member diagnostics; 430 DSL tests pass.
+- [ ] EP-147 M1b: Retained native evidence, observation, and guarded mutation.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
@@ -166,6 +172,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-22: EP-147 found that a Kubernetes `List` could pass the structured compiler as one opaque resource, hiding the claims of its children. YAML stream and List expansion, plus an explicit refusal of unexpanded Lists, now close that pure validation gap. Native-byte binding and guarded execution are still required.
 
 2026-09-22: EP-147 found that controller reservations were already present in EP-144's inventory validator, while structured Kubernetes objects still lacked a compiler path into those declarations. The new pure compiler connects those boundaries and proves the database/Knative collision against the database renderer's golden manifest. It does not yet authorize Kubernetes mutation.
 
