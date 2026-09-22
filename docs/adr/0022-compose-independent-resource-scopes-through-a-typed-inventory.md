@@ -211,3 +211,12 @@ bucket. Inventory-child publication returns a bounded, digest-bound result and d
 not silently rewrite Pulumi configuration; a resolved image self-link requires a new
 native plan and review. The necessarily local first context transaction and later
 store migration remain the separate EP-151 boundary.
+
+Adapter child processes are confined by two scoped environment values: the durable
+transaction identity and a closed executor token. The executor installs and restores
+both around execution, verification, and recovery. Host and artifact transports
+check the token before context resolution or provider work, so invoking the wrong
+transport cannot turn a held inventory lock into an unreviewed nested mutation.
+`Inventory.Command` accepts concrete registry injection at its plan/apply/resume
+boundary; the default CLI remains deliberately refusing until each production
+domain registration is supplied.

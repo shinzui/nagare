@@ -3,8 +3,11 @@ module Nagare.Inventory.Command
   , compileInventory
   , loadCandidate
   , planInventory
+  , planInventoryWith
   , applyInventory
+  , applyInventoryWith
   , resumeInventory
+  , resumeInventoryWith
   , exportInventory
   )
 where
@@ -173,7 +176,13 @@ compileInventory input output json = do
       exitFailure
 
 planInventory :: ActiveTarget -> FilePath -> FilePath -> IO ()
-planInventory target candidateDirectory output = do
+planInventory = planInventoryWith (\_ history -> pure (manifestOnlyRegistry history))
+
+-- | Provider domains install their concrete adapters here. Keeping the factory
+-- outside the command service lets cloud/host/artifact entry points share one
+-- planner without moving provider orchestration back into @app/Main.hs@.
+planInventoryWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> FilePath -> IO ()
+planInventoryWith registryFor target candidateDirectory output = do
   rejectReentry
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
   validateTarget target candidate
@@ -182,8 +191,8 @@ planInventory target candidateDirectory output = do
   _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
   _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
-  let registry = manifestOnlyRegistry history
-      requirements = observationRequirements candidate history
+  registry <- registryFor candidate history
+  let requirements = observationRequirements candidate history
   observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
   proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate noLifecycleDecisions history observations)
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
@@ -193,7 +202,10 @@ planInventory target candidateDirectory output = do
   TIO.putStrLn (digestText digest)
 
 applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
-applyInventory target reviewDirectory yes = do
+applyInventory = applyInventoryWith executionBlockedRegistry
+
+applyInventoryWith :: AdapterRegistry -> ActiveTarget -> FilePath -> Bool -> IO ()
+applyInventoryWith registry target reviewDirectory yes = do
   rejectReentry
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
   publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
@@ -207,16 +219,19 @@ applyInventory target reviewDirectory yes = do
     (dieText "review directory differs from the immutable review published by this store")
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- applyReviewed store executionBlockedRegistry reviewed >>= either (dieText . showText . NE.toList) pure
+  result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
-resumeInventory target transactionToken yes = do
+resumeInventory = resumeInventoryWith executionBlockedRegistry
+
+resumeInventoryWith :: AdapterRegistry -> ActiveTarget -> Text -> Bool -> IO ()
+resumeInventoryWith registry target transactionToken yes = do
   rejectReentry
   unless yes (dieText "inventory resume requires --yes")
   transaction <- either dieText pure (mkTransactionId transactionToken)
   store <- openTargetStore target
-  result <- resumeTransaction store executionBlockedRegistry transaction >>= either (dieText . showText . NE.toList) pure
+  result <- resumeTransaction store registry transaction >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
 
 exportInventory :: ActiveTarget -> FilePath -> IO ()

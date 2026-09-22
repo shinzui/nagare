@@ -41,7 +41,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 - [x] (2026-09-22) M1: Compiled cloud declarations, enforced TypeScript native-registration parity, and bound exact Pulumi saved-plan bytes to review.
 - [x] (2026-09-22) M2: Bound guarded host activation, physical identity, committed closure, and fresh-login acknowledgement to durable receipts.
 - [x] (2026-09-22) M3: Declared owned/external artifacts, bootstrap dependencies, control metadata, digest-bound publication, and consumer-completeness gates.
-- [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy.
+- [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy. (2026-09-22 partial: the command service accepts concrete registry injection; executor-scoped child markers and early transport refusals are tested; the coverage catalogue records the remaining production registrations.)
 
 
 ## Surprises & Discoveries
@@ -53,6 +53,10 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: `scripts/upload-images.sh` was a second lifecycle owner for the Pulumi-declared image bucket. It now refuses a missing bucket instead of creating one. When invoked as an inventory artifact child it publishes a bounded result and does not rewrite `nagareImageSelfLink`; the resolved value requires a subsequent Pulumi review. The legacy direct invocation retains its config write until M4 routes the entry point.
 
 2026-09-22: EP-145's initial `adapterVerify` shape omitted the retained native bundle. Host and artifact verification therefore had no sound choice except re-running preparation against mutable inputs. The shared interface now passes `PreparedNative` into verification, and all three adapters decode the exact reviewed bytes. This also preserves offline recovery: already completed operations remain journal proofs and do not require a provider executable merely to be skipped.
+
+2026-09-22: A transaction marker alone cannot safely authorize a retained shell transport. Without an executor-specific child marker, a host adapter could accidentally invoke an artifact publisher (or a nested public wrapper) while holding the same context lock. Execution, verification, and recovery now scope both variables and restore their prior values; every retained EP-146 transport checks its closed child token before resolving context or invoking a provider.
+
+2026-09-22: Separating registry injection from `Inventory.Command` exposed the remaining M4 boundary precisely. The common planner/executor can now accept real domain adapters without provider orchestration in `app/Main.hs`, but the shipped CLI still selects the refusing registry. `docs/architecture/managed-resource-coverage.md` records those public entry points as `adapter-ready`, not migrated; M4 remains open until production registry construction replaces the old infra/host/publication paths.
 
 
 ## Decision Log
@@ -72,6 +76,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: Model deployment-context release payloads as external artifact references, while context-built OCI/GCS/GCE outputs, builders, build jobs, and control markers can be owned resources. Publication verifies exact remote content and ownership. Automatic collection refuses when global consumer completeness is unknown; EP-149 remains responsible for the eventual lifecycle decision rather than this adapter inventing deletion authority.
 
 2026-09-22: Treat the retained native bundle as an input to verification, not only to preflight, execution, and recovery. Regenerating a host, artifact, or Pulumi preparation after an effect would sever the completion proof from the operator-reviewed bytes.
+
+2026-09-22: Export a closed executor token (`kubernetes`, `pulumi`, `host`, or `artifact`) beside the transaction identity for adapter child processes. A transport accepts inventory-scoped execution only for its owning token and refuses all others before side effects. Public command routing still goes through a separately injected adapter registry.
 
 
 ## Outcomes & Retrospective

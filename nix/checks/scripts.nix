@@ -75,6 +75,20 @@
       touch "$out"
     '';
 
+  # MP-23 EP-146: a transport invoked while the inventory lock is held must
+  # belong to the current typed adapter. Foreign/nested entry points fail
+  # before context resolution or any provider process can run.
+  inventory-transport-guards = pkgs.runCommand "nagare-inventory-transport-guards-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep ];
+      inherit src;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-inventory-transport-guards.sh
+      touch "$out"
+    '';
+
   # MP-22 EP-139 / IR-11: rehearse the complete public GCP bootstrap ordering
   # and its focused refusals without cloud access. The check also locks the
   # truthful boot-disk replacement wording in rendered CLI help and user docs.

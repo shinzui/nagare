@@ -72,6 +72,8 @@ EOF
 chmod +x "$work/bin/"*
 : >"$work/tools.log"
 
+unset CLOUDSDK_CORE_PROJECT CLOUDSDK_COMPUTE_REGION CLOUDSDK_COMPUTE_ZONE
+unset NAGARE_BUILDER_PROJECT NAGARE_BUILDER_ZONE NAGARE_BUILDER_INSTANCE
 export PATH="$work/bin:$PATH"
 export XDG_CONFIG_HOME="$work/config"
 export XDG_STATE_HOME="$work/state"
@@ -80,6 +82,17 @@ export NAGARE_WORKSPACE_ROOT="$repo_root"
 export NAGARE_HOST_FLAKE="$work/host"
 export NAGARE_TEST_LOG="$work/tools.log"
 export NAGARE_TEST_STORE_PATH="$work/store/image"
+
+if NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=host \
+  bash scripts/upload-images.sh --dry-run >"$work/reentry.out" 2>"$work/reentry.err"; then
+  echo "upload-images accepted the wrong inventory adapter child" >&2
+  exit 1
+fi
+grep -q 'requires the artifact adapter child marker' "$work/reentry.err"
+
+NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  bash scripts/upload-images.sh --dry-run >"$work/artifact-child.out"
+grep -q '^context: labs$' "$work/artifact-child.out"
 
 same_output="$(bash scripts/upload-images.sh --dry-run)"
 grep -q '^context: labs$' <<<"$same_output"

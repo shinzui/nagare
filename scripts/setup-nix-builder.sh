@@ -22,6 +22,11 @@
 
 set -euo pipefail
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
+  echo "setup-nix-builder: refusing inventory re-entry without the artifact adapter child marker" >&2
+  exit 2
+fi
+
 # Load the target profile and run the configurable, fail-closed project-isolation
 # preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
 source "$(dirname "$0")/lib/target.sh"

@@ -7,6 +7,11 @@
 # --project/--zone to the active context's values.
 set -euo pipefail
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "host" ]; then
+  echo "vm-power: refusing inventory re-entry without the host adapter child marker" >&2
+  exit 2
+fi
+
 if [ "$#" -ne 1 ] || { [ "$1" != "start" ] && [ "$1" != "stop" ]; }; then
   echo "usage: scripts/vm-power.sh <start|stop>" >&2
   exit 2

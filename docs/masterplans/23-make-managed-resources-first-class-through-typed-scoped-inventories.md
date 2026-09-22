@@ -134,7 +134,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-146 M1: Cloud declarations/native registration parity and exact Pulumi saved-plan binding.
 - [x] (2026-09-22) EP-146 M2: Guarded host receipts, physical identity, committed closure, and fresh-login acknowledgement.
 - [x] (2026-09-22) EP-146 M3: Artifact/bootstrap/control resources, digest verification, and bounded publication review barriers.
-- [ ] EP-146 M4: Migrated entry points and duplicate-policy removal.
+- [ ] EP-146 M4: Migrated entry points and duplicate-policy removal. (Partial 2026-09-22: concrete registry injection, executor-scoped child markers, early transport refusals, and the coverage catalogue are implemented; production command registration remains.)
 - [ ] EP-147 M1: Typed cluster adapter and observation/preconditions.
 - [ ] EP-147 M2: Complete cache/database composition.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
@@ -160,6 +160,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 ## Surprises & Discoveries
 
 2026-09-22: EP-145 is complete. Consumers use Nagare.Inventory.Adapter, Plan, Journal, Store, and Execute; only lock-scoped admission can create execution authority. Native evidence stays in the private store while the operator-facing review directory contains the canonical public document and scopes. The CLI currently installs a deterministic manifest-only adapter whose preflight always refuses; EP-146 and EP-147 replace it with real provider adapters. The store suite now covers both conditional backends, re-entry, backup integrity, actual independent-process exclusion, and lock release after process death. Filesystem export excludes the lock and atomic-write temporaries. ADR 22 records this implemented boundary.
+
+2026-09-22: EP-146 adapter integration found that transaction identity alone is insufficient for child-process confinement and that verification must retain the reviewed native bytes. The executor now scopes a closed executor child token during execution, verification, and recovery, and the shared verification callback receives `PreparedNative`. Cloud, host, and artifact transports fail before side effects for a foreign token. The public CLI still installs the refusing registry, so the coverage catalogue truthfully marks these families adapter-ready rather than migrated and EP-146 M4 remains open.
 
 2026-09-22: EP-144 is complete. Consumers use the six Nagare.Resource modules, Nagare.Inventory.Digest.contentDigest, and Inventory.Command.loadCandidate. Compiled requests retain full base generations/reservations and explicit replacements/retirements through immutable scope-member references. Loading verifies and recomposes, but does not authenticate ownership history; EP-145 must compare the supplied base against its store during admission. Namespace contribution dependents are exposed separately for retention policy. API-version normalization, duplicate JSON-key rejection, and bounded controller reservation expansion are now part of the shared wire/claim boundary. ADRs 16 and 22 and docs/architecture/resource-inventory.md record the durable contract.
 

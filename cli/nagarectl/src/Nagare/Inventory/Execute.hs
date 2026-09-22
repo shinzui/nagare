@@ -31,6 +31,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Resource.Inventory (Executor (..))
 import Nagare.Resource.Types
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 
@@ -188,18 +189,19 @@ runOperations locked registry transaction reviewed initialEvents operations = go
         Just IntentRecorded -> recoverOrStop events reviewOperation rest
         _ -> executeOne events reviewOperation rest
     recoverOrStop events reviewOperation rest =
-      case preparedFor reviewed reviewOperation of
-        Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
-        Right prepared -> case lookupAdapter registry (plannedExecutor (reviewPlannedOperation reviewOperation)) of
-          Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
-          Right adapter -> do
-            decision <- withTransactionEnv transaction (adapterRecover adapter (reviewPlannedOperation reviewOperation) prepared)
-            case decision of
-              RecoveryProvedComplete proof -> do
-                appended <- appendEvent locked transaction (Just (plannedOperationId (reviewPlannedOperation reviewOperation))) (Completed proof) "adapter recovery proved completion"
-                case appended of Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation)))); Right event -> go (events <> [event]) rest
-              RecoverySafeToRetry -> executeOne events reviewOperation rest
-              RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+      let operation = reviewPlannedOperation reviewOperation
+       in case preparedFor reviewed reviewOperation of
+            Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+            Right prepared -> case lookupAdapter registry (plannedExecutor (reviewPlannedOperation reviewOperation)) of
+              Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+              Right adapter -> do
+                decision <- withAdapterEnv transaction operation (adapterRecover adapter operation prepared)
+                case decision of
+                  RecoveryProvedComplete proof -> do
+                    appended <- appendEvent locked transaction (Just (plannedOperationId (reviewPlannedOperation reviewOperation))) (Completed proof) "adapter recovery proved completion"
+                    case appended of Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation)))); Right event -> go (events <> [event]) rest
+                  RecoverySafeToRetry -> executeOne events reviewOperation rest
+                  RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
     executeOne events reviewOperation rest = do
       let operation = reviewPlannedOperation reviewOperation
           operationId = plannedOperationId operation
@@ -215,7 +217,7 @@ runOperations locked registry transaction reviewed initialEvents operations = go
               case intent of
                 Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
                 Right intentEvent -> do
-                  result <- withTransactionEnv transaction (adapterExecute adapter operation prepared)
+                  result <- withAdapterEnv transaction operation (adapterExecute adapter operation prepared)
                   case result of
                     AdapterEffectFailed failureClass -> do
                       let state = case failureClass of KnownNoEffect _ -> Failed failureClass; PartialOrUnknown _ -> Ambiguous
@@ -227,7 +229,7 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                       _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter result was ambiguous"
                       pure (Just (StoppedAmbiguous transaction operationId))
                     AdapterEffectCompleted -> do
-                      verification <- withTransactionEnv transaction (adapterVerify adapter operation prepared)
+                      verification <- withAdapterEnv transaction operation (adapterVerify adapter operation prepared)
                       case verification of
                         Left _ -> do
                           _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter completion could not be verified"
@@ -384,14 +386,27 @@ topological operations = go [] operations
       , [value | value <- values, not (all (`elem` completed) (plannedDependencies (reviewPlannedOperation value)))]
       )
 
-withTransactionEnv :: TransactionId -> IO a -> IO a
-withTransactionEnv transaction action = do
-  previous <- lookupEnv variable
-  bracket (setEnv variable (T.unpack (transactionIdText transaction))) (const (restore previous)) (const action)
+withAdapterEnv :: TransactionId -> PlannedOperation -> IO a -> IO a
+withAdapterEnv transaction operation action = do
+  previousTransaction <- lookupEnv transactionVariable
+  previousChild <- lookupEnv childVariable
+  let restore = do
+        restoreVariable transactionVariable previousTransaction
+        restoreVariable childVariable previousChild
+  bracket install (const restore) (const action)
   where
-    variable = "NAGARE_INVENTORY_TRANSACTION"
-    restore Nothing = unsetEnv variable
-    restore (Just value) = setEnv variable value
+    transactionVariable = "NAGARE_INVENTORY_TRANSACTION"
+    childVariable = "NAGARE_INVENTORY_ADAPTER_CHILD"
+    install = do
+      setEnv transactionVariable (T.unpack (transactionIdText transaction))
+      setEnv childVariable (executorChild (plannedExecutor operation))
+    restoreVariable variable Nothing = unsetEnv variable
+    restoreVariable variable (Just value) = setEnv variable value
+    executorChild executor = case executor of
+      KubernetesExecutor -> "kubernetes"
+      PulumiExecutor -> "pulumi"
+      HostExecutor -> "host"
+      ArtifactExecutor -> "artifact"
 
 timestamp :: IO Text
 timestamp = T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" <$> getCurrentTime

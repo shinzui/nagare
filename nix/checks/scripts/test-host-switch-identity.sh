@@ -78,6 +78,17 @@ export NAGARE_WORKSPACE_ROOT="$repo_root"
 export NAGARE_SSH_PUBLIC_KEY_FILE="$fixture/operator.pub"
 
 touch "$NAGARE_IDENTITY_LOG"
+if NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  bash "$repo_root/scripts/host-switch.sh" --dry-run > "$fixture/reentry.out" 2> "$fixture/reentry.err"; then
+  echo "host-switch accepted the wrong inventory adapter child" >&2
+  exit 1
+fi
+grep -q 'host adapter child marker' "$fixture/reentry.err"
+
+NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=host \
+  bash "$repo_root/scripts/host-switch.sh" --dry-run > "$fixture/host-child.out"
+grep -q '^attribute: labs-nagare$' "$fixture/host-child.out"
+
 bash "$repo_root/scripts/host-switch.sh" --dry-run > "$fixture/dry-run.out"
 grep -q '^GCE instance: nagare-01$' "$fixture/dry-run.out"
 grep -q '^attribute: labs-nagare$' "$fixture/dry-run.out"

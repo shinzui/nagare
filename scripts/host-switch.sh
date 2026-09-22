@@ -10,6 +10,11 @@
 # 4 not committed (the host reverts by itself), other non-zero for earlier failures.
 set -euo pipefail
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "host" ]; then
+  echo "host-switch: refusing inventory re-entry without the host adapter child marker" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/target.sh
 source "${SCRIPT_DIR}/lib/target.sh"

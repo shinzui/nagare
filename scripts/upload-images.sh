@@ -9,6 +9,11 @@
 # therefore a new name, so old and new images coexist.
 set -euo pipefail
 
+if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
+  echo "refusing inventory re-entry: upload-images.sh requires the artifact adapter child marker" >&2
+  exit 2
+fi
+
 DRY_RUN=0
 ALLOW_SHARED_BUILDER=""
 while [ "$#" -gt 0 ]; do
@@ -266,10 +271,6 @@ self_link="$(gcloud --project="${PROJECT}" compute images describe "${image_name
 # foreign project (MasterPlan-12 Integration Point 3). `pulumi config set` writes it
 # into the local stack config, which is a derived projection of the profile.
 if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
-  if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
-    echo "refusing inventory re-entry: upload-images.sh requires the artifact adapter child marker" >&2
-    exit 2
-  fi
   printf 'nagare-artifact\tgce-image\t%s\t%s\n' "${self_link}" "${hash}"
   log "bounded publication complete; a new Pulumi review must bind nagareImageSelfLink"
 else

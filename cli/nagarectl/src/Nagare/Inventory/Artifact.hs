@@ -10,11 +10,11 @@ module Nagare.Inventory.Artifact
   )
 where
 
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), defaultOptions, genericParseJSON, genericToJSON)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), defaultOptions, genericParseJSON, genericToJSON)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy

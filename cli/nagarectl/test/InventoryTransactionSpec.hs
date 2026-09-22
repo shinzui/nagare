@@ -23,7 +23,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import System.Directory (doesFileExist, listDirectory, removeFile)
-import System.Environment (getEnvironment, getExecutablePath)
+import System.Environment (getEnvironment, getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp
@@ -113,6 +113,22 @@ inventoryTransactionTests =
         (reviewed, registry) <- preparedFixtureWith store reenter (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
         result <- applyReviewed store registry reviewed >>= expectRight
         case result of Converged _ -> pure (); other -> assertFailure (show other)
+    , testCase "adapter children receive scoped transaction and executor markers" $ do
+        store <- newMemoryStore
+        observed <- newIORef Nothing
+        let inspect operation _ = do
+              transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+              child <- lookupEnv "NAGARE_INVENTORY_ADAPTER_CHILD"
+              writeIORef observed (Just (plannedExecutor operation, transaction, child))
+              pure AdapterEffectCompleted
+        transactionBefore <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+        childBefore <- lookupEnv "NAGARE_INVENTORY_ADAPTER_CHILD"
+        (reviewed, registry) <- preparedFixtureWith store inspect (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        readIORef observed >>= (@?= Just (KubernetesExecutor, Just (transactionToken reviewed), Just "kubernetes"))
+        lookupEnv "NAGARE_INVENTORY_TRANSACTION" >>= (@?= transactionBefore)
+        lookupEnv "NAGARE_INVENTORY_ADAPTER_CHILD" >>= (@?= childBefore)
     , testCase "complete backup restores and incomplete backup is refused" $
         withSystemTempDirectory "inventory-backup" $ \root -> do
           source <- openFilesystemStore (root </> "source") >>= expectRight
@@ -241,6 +257,9 @@ proof = contentDigest . TE.encodeUtf8 . operationIdText . plannedOperationId
 
 proofOperation :: OperationId -> ContentDigest
 proofOperation = contentDigest . TE.encodeUtf8 . operationIdText
+
+transactionToken :: ReviewedPlan -> String
+transactionToken reviewed = "tx-" <> T.unpack (digestText (contentDigest (encodeReviewDocument (reviewedDocument reviewed))))
 
 fixtureBinding :: ContextBinding
 fixtureBinding = ContextBinding (ok (mkContextId "context-1")) (ok (mkName "project"))
