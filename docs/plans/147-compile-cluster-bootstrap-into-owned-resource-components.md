@@ -57,6 +57,7 @@ A component is an independently identified group of resources and operations, su
 - [ ] M1b remaining: Implement the production transport with API-server-enforced write preconditions and register it in the inventory command path.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
+- [x] (2026-09-22) M2c partial: The legacy database create command now uses create-only Secret admission, rereads a concurrent winner, and omits generated Secret data from dry-run output. Focused credential race and unknown-read tests pass; the legacy path still requires migration to the reviewed inventory adapter.
 - [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy and orders StatefulSet creation after its PVC, Service, and optional ConfigMap; nagarectl binds each declaration to canonical native bytes before review. The 431 DSL and 616 CLI tests pass, including 10 focused Kubernetes tests after the ordering change.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
@@ -66,6 +67,10 @@ A component is an independently identified group of resources and operations, su
 ## Surprises & Discoveries
 
 2026-09-22: The database YAML renderer already had one shared set of structured values internally. Exposing those values lets the typed direct-object compiler use precisely the same shapes, without reparsing YAML or reimplementing resource settings. Credential creation and backup CronJob rendering remain in nagarectl and are not yet members of this bundle; the old create path remains active.
+
+2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
+
+2026-09-22: On a disposable k3d ConfigMap, create-only writes retained Update field ownership. A same-value server-side apply added Apply co-ownership but did not release Update ownership; a later changed apply still conflicted. A force-conflicts apply of an actual changed value transferred the field, but that cannot be used as a generic ownership shortcut. Production mutation remains gated on a per-kind strategy with server-enforced UID/resourceVersion and foreign-field safeguards.
 
 2026-09-22: The CLI binding helper recompiles each database native object and compares its full declaration with the pure bundle before retaining canonical bytes. This closes the mismatch between a supplied digest and the actual object at this boundary. The initial targeted Cabal invocation with a space-containing test pattern failed argument parsing; the corrected `--test-option=--pattern=Kubernetes` ran 10 tests successfully.
 

@@ -26,7 +26,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
@@ -101,7 +101,7 @@ import Nagare.Database.Backup
   , renderDbBackupCronJob
   )
 import Nagare.Database.Connection (ConnIdentity (..), connectionEnv, mergeConnectionEnvs)
-import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, passwordKey)
+import Nagare.Database.Create (DbCreateParams (..), buildDatabase, classifyPasswordObservation, ensureCredential, passwordKey)
 import Nagare.Database.Discover (DbRow (..), dbLabelSelector, extractDbRows, formatDbTable)
 import Nagare.Database.Restore (RestoreJobInputs (..), isObjectUrl, renderRestoreJob, resolveBackupObject)
 import Nagare.Database.Secret
@@ -3861,6 +3861,25 @@ databaseTests =
           assertLeftText (classifyPasswordObservation Postgres (ExitFailure 1) "")
           assertLeftText (classifyPasswordObservation Postgres ExitSuccess "{\"data\":{}}")
           assertLeftText (classifyPasswordObservation Postgres ExitSuccess "invalid json")
+      , testCase "a concurrent Secret creator wins without credential overwrite" $ do
+          observations <- newIORef [Right Nothing, Right (Just "winner")]
+          generated <- newIORef (0 :: Int)
+          writes <- newIORef ([] :: [Text])
+          let observe = do
+                pending <- readIORef observations
+                case pending of
+                  next : rest -> writeIORef observations rest >> pure next
+                  [] -> pure (Left "unexpected read")
+              generate = modifyIORef' generated (+ 1) >> pure "candidate"
+              createOnly candidate = modifyIORef' writes (candidate :) >> pure False
+          ensureCredential observe generate createOnly >>= (@?= Right "winner")
+          readIORef generated >>= (@?= 1)
+          readIORef writes >>= (@?= ["candidate"])
+      , testCase "unknown Secret observation never generates a credential" $ do
+          generated <- newIORef (0 :: Int)
+          let generate = modifyIORef' generated (+ 1) >> pure "candidate"
+          ensureCredential (pure (Left "API unavailable")) generate (const (pure True)) >>= (@?= Left "API unavailable")
+          readIORef generated >>= (@?= 0)
       ]
   , testGroup
       "Nagare.Database.Discover"

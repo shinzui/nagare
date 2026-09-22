@@ -7,14 +7,15 @@
 -- smart constructors (full validation, no config file needed); a @--config@ path
 -- loads a typed 'Database' instead. The password is generated once and reused on
 -- re-create (idempotent): the create path never issues @kubectl delete@, so it
--- can never wipe data. @--dry-run@ prints the Secret (with an illustrative
--- password) and the manifests and applies nothing.
+-- can never wipe data. @--dry-run@ names the credential Secret without
+-- generating or printing a password, then prints non-secret manifests.
 module Nagare.Database.Create
   ( DbCreateParams (..)
   , runDbCreate
   , buildDatabase
   , passwordKey
   , classifyPasswordObservation
+  , ensureCredential
   )
 where
 
@@ -56,6 +57,8 @@ import Nagare.Env.Store (extractSecretData)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
+import System.IO (hClose)
+import System.IO.Temp (withSystemTempFile)
 
 -- | The create inputs, unpacked from @Main@'s @DbCreateOpts@ so the library does
 -- not depend on the executable's option types.
@@ -149,12 +152,7 @@ runDbCreate eng nameT params = do
       TIO.putStrLn "--- Namespace manifest ---"
       TIO.putStr (TE.decodeUtf8 namespaceManifest)
       TIO.putStrLn ""
-      pw <- generatePassword
-      let kvs = secretKeysFor engine' (mkParts pw)
-          secret = renderDbSecret (DbSecretInputs name ns engine' kvs)
-      TIO.putStrLn "--- Secret manifest ---"
-      TIO.putStr (TE.decodeUtf8 secret)
-      TIO.putStrLn ""
+      TIO.putStrLn ("--- Credential Secret " <> dbSecretName name <> " (data generated at apply; omitted from dry run) ---")
       mapM_ printManifest manifests
       when backsUp $ do
         TIO.putStrLn "--- Backup CronJob manifest ---"
@@ -164,10 +162,7 @@ runDbCreate eng nameT params = do
         ("Would create database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
     else do
       ensureNamespace purpose ns >>= orDie
-      pw <- readOrGeneratePassword ns name engine'
-      let kvs = secretKeysFor engine' (mkParts pw)
-          secret = renderDbSecret (DbSecretInputs name ns engine' kvs)
-      applyManifests [secret]
+      _ <- ensureDatabaseSecret ns name engine' mkParts
       applyManifests manifests
       stampMetadata ns name db
       when backsUp (applyManifests [cronJob])
@@ -176,16 +171,51 @@ runDbCreate eng nameT params = do
       TIO.putStrLn
         ("Created database " <> name <> " (" <> engineToken engine' <> ") at " <> host)
 
--- | Read the existing password from the managed Secret (idempotent re-create) or
--- generate a fresh one when the Secret is absent.
-readOrGeneratePassword :: Text -> Text -> Engine -> IO Text
-readOrGeneratePassword ns name eng = do
+-- | Read the existing credential or create it with the API server's create-only
+-- operation. A concurrent creator wins; its value is reread rather than
+-- overwritten. No failure to read may authorize a new credential.
+ensureDatabaseSecret :: Text -> Text -> Engine -> (Text -> ConnectionParts) -> IO Text
+ensureDatabaseSecret ns name eng makeConnection =
+  ensureCredential (readPasswordObservation ns name eng) generatePassword createOnly >>= either dieT pure
+  where
+    createOnly password = do
+      let secret = renderDbSecret (DbSecretInputs name ns eng (secretKeysFor eng (makeConnection password)))
+      created <- withSystemTempFile "nagare-db-secret.json" $ \path handle -> do
+        BS.hPut handle secret
+        hClose handle
+        run $ cmd "kubectl" & addArgs ["create", "-f", path] & silenceStderr
+      pure (created == ExitSuccess)
+
+-- | Creation is conditional at the API server. On a race, use the winner's
+-- credential only after a second confirmed read; never overwrite it.
+ensureCredential
+  :: IO (Either Text (Maybe Text))
+  -> IO Text
+  -> (Text -> IO Bool)
+  -> IO (Either Text Text)
+ensureCredential observe generate createOnly = do
+  firstRead <- observe
+  case firstRead of
+    Left reason -> pure (Left reason)
+    Right (Just password) -> pure (Right password)
+    Right Nothing -> do
+      password <- generate
+      created <- createOnly password
+      if created then pure (Right password) else do
+        secondRead <- observe
+        pure $ case secondRead of
+          Right (Just winner) -> Right winner
+          Right Nothing -> Left "database Secret create failed and no valid concurrent Secret exists"
+          Left reason -> Left reason
+
+readPasswordObservation :: Text -> Text -> Engine -> IO (Either Text (Maybe Text))
+readPasswordObservation ns name eng = do
   (code, StdoutRaw out) <-
     run $
       cmd "kubectl"
         & addArgs ["get", "secret", T.unpack (dbSecretName name), "-n", T.unpack ns, "-o", "json", "--ignore-not-found"]
         & silenceStderr
-  either dieT (maybe generatePassword pure) (classifyPasswordObservation eng code out)
+  pure (classifyPasswordObservation eng code out)
 
 -- | Only a successful, empty --ignore-not-found response proves absence.
 -- Failed or malformed reads never authorize a replacement credential.

@@ -183,6 +183,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Surprises & Discoveries
 
+2026-09-22: EP-147 closed an immediate credential race in the legacy database create path: a create-only Secret write now rereads a concurrent winner, and dry-run omits generated Secret data. This does not complete the reviewed inventory migration. A further disposable Kubernetes probe showed that no-op server-side apply after create does not transfer Update field ownership; subsequent changed apply still conflicts, so production update transport remains gated on per-kind ownership and atomic UID/resourceVersion handling.
+
 2026-09-22: EP-147 now compiles direct database objects from the renderer's structured values, with stable IDs and a retained PVC recovery policy. EP-148 can consume this pure bundle once EP-147 adds credential, backup, and native-byte binding; the old create path remains active until then.
 
 2026-09-22: EP-147 found that a Kubernetes `List` could pass the structured compiler as one opaque resource, hiding the claims of its children. YAML stream and List expansion, plus an explicit refusal of unexpanded Lists, now close that pure validation gap.
