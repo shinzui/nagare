@@ -37,6 +37,7 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -251,7 +252,7 @@ import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
+import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
@@ -4106,7 +4107,10 @@ inventoryExecutionRegistry mctx bundle = do
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
-inventoryPlanRegistry active workspace candidate history = do
+inventoryPlanRegistry active workspace = inventoryPlanRegistryWithNative active workspace Map.empty
+
+inventoryPlanRegistryWithNative :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryPlanRegistryWithNative active workspace suppliedNative candidate history = do
   let inventory = ResourceInventory.candidateInventory candidate
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
@@ -4115,9 +4119,15 @@ inventoryPlanRegistry active workspace candidate history = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
-  kubernetesSpecs <- if null kubernetesResources
+  let suppliedIds = Map.keysSet suppliedNative
+      declaredIds = Set.fromList (map (^. #identity) kubernetesResources)
+  unless (suppliedIds `Set.isSubsetOf` declaredIds) (dieT "generated native members include an undeclared Kubernetes resource")
+  either dieT pure (validateSuppliedKubernetesMembers kubernetesResources suppliedNative)
+  let fileBacked = filter (\resource -> Set.notMember (resource ^. #identity) suppliedIds) kubernetesResources
+  loaded <- if null fileBacked
     then pure Map.empty
-    else loadKubernetesSources (workspace ^. #root) kubernetesResources >>= either dieT pure
+    else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
+  let kubernetesSpecs = Map.union suppliedNative loaded
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)

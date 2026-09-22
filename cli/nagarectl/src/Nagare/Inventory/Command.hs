@@ -4,6 +4,7 @@ module Nagare.Inventory.Command
   , loadCandidate
   , planInventory
   , planInventoryWith
+  , planInventoryCandidateWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -187,8 +188,14 @@ planInventory = planInventoryWith (\_ history -> pure (manifestOnlyRegistry hist
 -- planner without moving provider orchestration back into @app/Main.hs@.
 planInventoryWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> FilePath -> IO ()
 planInventoryWith registryFor target candidateDirectory output = do
-  rejectReentry
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  planInventoryCandidateWith registryFor target candidate output
+
+-- | Plan a freshly compiled component candidate with native member bytes held
+-- by the caller. Publication still retains those bytes in the private review.
+planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWith registryFor target candidate output = do
+  rejectReentry
   validateTarget target candidate
   store <- openTargetStore target
   let binding = inventoryBinding (candidateInventory candidate)

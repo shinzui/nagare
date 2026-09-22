@@ -1,10 +1,11 @@
 -- | Resolve packaged Kubernetes source members during review preparation.
 -- The exact bytes are retained in the private review; apply never reopens the
 -- source file. Sources must resolve within the immutable platform workspace.
-module Nagare.Inventory.KubernetesSources (loadKubernetesSources) where
+module Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers) where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM)
+import Data.Aeson (eitherDecodeStrict')
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
@@ -70,3 +71,37 @@ loadKubernetesSources workspace declarations = do
                         (Left "packaged Kubernetes source differs from the typed declaration")
                       pure (declaration ^. #identity, (declaration, bound))
       _ -> pure (Left "Kubernetes source loader received a non-Kubernetes resource")
+
+-- | Generated members enter the planner directly. Rebind their exact bytes so
+-- a caller cannot pair a valid declaration with different native content.
+validateSuppliedKubernetesMembers
+  :: [ManagedResource]
+  -> Map ResourceId (ManagedResource, BS.ByteString)
+  -> Either Text ()
+validateSuppliedKubernetesMembers declarations supplied =
+  mapM_ validateOne (Map.toList supplied)
+  where
+    byId = Map.fromList [(resource ^. #identity, resource) | resource <- declarations]
+    validateOne (resource, (declaration, bytes)) = do
+      unless (Map.lookup resource byId == Just declaration)
+        (Left "generated native member differs from the composed declaration")
+      value <- first T.pack (eitherDecodeStrict' bytes)
+      canonical <- canonicalValue value
+      unless (canonical == bytes) (Left "generated native member is not canonical")
+      cluster <- case declaration ^. #address of
+        Kubernetes target _ _ _ _ -> Right target
+        _ -> Left "generated native member has no Kubernetes address"
+      (recompiled, rebound) <- first (T.pack . show) $ bindKubernetesObject
+        KubernetesInput
+          { resourceId = resource
+          , ownerScope = declaration ^. #owner
+          , clusterId = cluster
+          , inputObject = value
+          , objectDigest = contentDigest bytes
+          , lifecyclePolicy = declaration ^. #lifecycle
+          , inputDataPolicy = declaration ^. #dataPolicy
+          , inputSensitivity = declaration ^. #sensitivity
+          , sourceLocation = declaration ^. #source
+          }
+      unless (recompiled {dependencies = declaration ^. #dependencies} == declaration && rebound == bytes)
+        (Left "generated native member does not match its typed declaration")

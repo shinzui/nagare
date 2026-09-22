@@ -4,6 +4,7 @@ module Nagare.Inventory.Cache
   ( CacheRenderInput (..)
   , compileCacheNative
   , compileCacheComponent
+  , compileCacheCandidate
   , logicalConfigurationDigest
   ) where
 
@@ -95,6 +96,21 @@ compileCacheComponent databaseInput backend cacheInput = do
     invalid message = inventoryError "invalid-cache-component" message
       & #scopes .~ [renderOwner cacheInput]
     known = either (error . show) id . mkName
+
+-- | Compose the generated component against a caller-supplied snapshot. The
+-- native map is held in memory until plan preparation retains it privately.
+compileCacheCandidate
+  :: ScopeSnapshot
+  -> DatabaseDirectInput
+  -> StoreBackend
+  -> CacheRenderInput
+  -> IO (Either (NonEmpty InventoryError) (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compileCacheCandidate snapshot databaseInput backend cacheInput = do
+  compiled <- compileCacheComponent databaseInput backend cacheInput
+  pure $ do
+    (scope, native) <- compiled
+    candidate <- composeInventory snapshot (ReplaceScope scope :| [])
+    pure (candidate, native)
 
 logicalConfigurationDigest :: ContentDigest
 logicalConfigurationDigest = contentDigest (either (error . T.unpack) id (canonicalValue (object

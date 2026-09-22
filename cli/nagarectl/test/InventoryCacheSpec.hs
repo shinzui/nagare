@@ -15,6 +15,7 @@ import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
+import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Cache
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -52,8 +53,17 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       (scope, native) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
       length (concatMap declarations (scopeBundles scope)) @?= 16
       Map.size native @?= 15
-      let candidate = composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scope :| [])
-      assertBool "complete cache scope failed inventory validation" (either (const False) (const True) candidate)
+      let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+      (candidate, candidateNative) <- compileCacheCandidate snapshot databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
+      Map.size candidateNative @?= Map.size native
+      Map.size (inventoryScopes (candidateInventory candidate)) @?= 1
+      let members = [member | Managed member <- inventoryDeclarations (candidateInventory candidate), member ^. #executor == KubernetesExecutor]
+      _ <- expectRight (validateSuppliedKubernetesMembers members candidateNative)
+      case Map.toList candidateNative of
+        (memberId, (declaration, _)) : _ ->
+          assertBool "changed generated native bytes were accepted" (either (const True) (const False)
+            (validateSuppliedKubernetesMembers members (Map.insert memberId (declaration, "{}") candidateNative)))
+        [] -> assertFailure "cache candidate has no native members"
       let renamed = databaseInput {directDatabase = databaseSpec & #name .~ ok (mkDatabaseName "other-db")}
       refused <- compileCacheComponent renamed (GcsBackend "project" "bucket") cacheInput
       assertBool "cache transport's fixed database address was not validated" (either (const True) (const False) refused)
