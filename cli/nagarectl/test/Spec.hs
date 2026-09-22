@@ -39,7 +39,7 @@ import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventorySpec (inventoryTests)
-import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockProbe)
+import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -404,77 +404,80 @@ import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
 main = do
+  lockHolder <- lookupEnv "NAGARE_INVENTORY_LOCK_HOLD"
+  lockReady <- lookupEnv "NAGARE_INVENTORY_LOCK_READY"
   lockProbe <- lookupEnv "NAGARE_INVENTORY_LOCK_PROBE"
-  case lockProbe of
-    Just root -> runInventoryLockProbe root >>= exitWith
-    Nothing -> do
+  case (lockHolder, lockReady, lockProbe) of
+    (Just root, Just ready, _) -> runInventoryLockHoldProbe root ready >>= exitWith
+    (_, _, Just root) -> runInventoryLockProbe root >>= exitWith
+    _ -> do
       taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
       defaultMain $
         localOption (NumThreads 1) $
           testGroup "nagarectl" $
-        [ testGroup "Nagare.Static.Image" dockerfileTests
-        , hostTests
-        , inventoryTests
-        , inventoryTransactionTests
-        , platformTests
-        , platformCutoverTests
-        , testGroup "Nagare.Static.Build" prepareTests
-        , testGroup "Nagare.Static.Release" releaseTests
-        , testGroup "Nagare.Static.Preview" previewTests
-        , testGroup "Nagare.Static.Webhook" webhookTests
-        , testGroup "Nagare.Server.Build" serverBuildTests
-        , testGroup "Nagare.Build" buildModeTests
-        , testGroup "Nagare.Env.Store" envStoreTests
-        , testGroup "Nagare.Env.Dotenv" dotenvTests
-        , testGroup "Nagare.Env reconcile mode" reconcileModeTests
-        , testGroup "Nagare.Env.Generated" generatedEnvTests
-        , testGroup "EP-26 render demonstration" renderDemonstrationTests
-        , testGroup "Nagare.Env.BuildArgs" buildArgsTests
-        , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
-        , testGroup "Nagare.Ops" opsTests
-        , testGroup "Nagare.Ops.Doctor" doctorTests
-        , testGroup "Nagare.Ops.Domains" domainsTests
-        , testGroup "Nagare.Ops.Cleanup" cleanupTests
-        , testGroup "Nagare.App" appTests
-        , testGroup "Nagare.App.Deployments" deploymentsTests
-        , testGroup "Nagare.Storage.Discover" storageDiscoverTests
-        , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
-        , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
-        , testGroup "Nagare.Cluster.Namespace" namespaceTests
-        , testGroup "Nagare.Cluster.CertificatePolicy" certificatePolicyTests
-        , certificateMigrationTests
-        , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
-        , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
-        , testGroup "Nagare.Version" versionTests
-        , testGroup "Nagare.Database (EP-45)" databaseTests
-        , testGroup "Nagare.Broker (EP-78)" brokerTests
-        , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
-        , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
-        , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
-        , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
-        , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
-        , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
-        , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
-        , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
-        , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
-        , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
-        , contextResolutionTests
-        , testGroup "EP-62 rendered Job project" backupProjectTests
-        , testGroup "EP-62 qualifyImage" qualifyImageTests
-        , modeResolutionTests
-        , dockerAuthPlanTests
-        , initTests
-        , infraPlanTests
-        , pulumiBackendBootstrapTests
-        , contextGuardTests
-        , adcTests
-        , clusterGuardTests
-        , domainBindingTests
-        , testGroup "Nagare.Domain.Tls" domainTlsTests
-        , accessGrantsTests
-        , accessResolveTests
-        , appDeployTests
-        ]
+            [ testGroup "Nagare.Static.Image" dockerfileTests
+            , hostTests
+            , inventoryTests
+            , inventoryTransactionTests
+            , platformTests
+            , platformCutoverTests
+            , testGroup "Nagare.Static.Build" prepareTests
+            , testGroup "Nagare.Static.Release" releaseTests
+            , testGroup "Nagare.Static.Preview" previewTests
+            , testGroup "Nagare.Static.Webhook" webhookTests
+            , testGroup "Nagare.Server.Build" serverBuildTests
+            , testGroup "Nagare.Build" buildModeTests
+            , testGroup "Nagare.Env.Store" envStoreTests
+            , testGroup "Nagare.Env.Dotenv" dotenvTests
+            , testGroup "Nagare.Env reconcile mode" reconcileModeTests
+            , testGroup "Nagare.Env.Generated" generatedEnvTests
+            , testGroup "EP-26 render demonstration" renderDemonstrationTests
+            , testGroup "Nagare.Env.BuildArgs" buildArgsTests
+            , testGroup "Nagare.Env.PreviewOverlay" previewOverlayTests
+            , testGroup "Nagare.Ops" opsTests
+            , testGroup "Nagare.Ops.Doctor" doctorTests
+            , testGroup "Nagare.Ops.Domains" domainsTests
+            , testGroup "Nagare.Ops.Cleanup" cleanupTests
+            , testGroup "Nagare.App" appTests
+            , testGroup "Nagare.App.Deployments" deploymentsTests
+            , testGroup "Nagare.Storage.Discover" storageDiscoverTests
+            , testGroup "Nagare.Storage.Snapshot" storageSnapshotTests
+            , testGroup "GCS data-movement Job hostAliases (EP-1)" gcsJobHostAliasesTests
+            , testGroup "Nagare.Cluster.Namespace" namespaceTests
+            , testGroup "Nagare.Cluster.CertificatePolicy" certificatePolicyTests
+            , certificateMigrationTests
+            , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
+            , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
+            , testGroup "Nagare.Version" versionTests
+            , testGroup "Nagare.Database (EP-45)" databaseTests
+            , testGroup "Nagare.Broker (EP-78)" brokerTests
+            , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests
+            , testGroup "Nagare.Database.Connection (EP-46)" connectionEnvTests
+            , testGroup "Nagare.Database.Backup/Restore (EP-47)" backupRestoreTests
+            , testGroup "Nagare.Task.Discover (EP-51)" (taskDiscoverTests taskFixture)
+            , testGroup "Nagare.Task.Run / Logs (EP-51)" taskRunTests
+            , testGroup "Nagare.Task.Resolve (EP-52)" taskResolveTests
+            , testGroup "Nagare.Cdn (EP-57)" cloudflareTests
+            , testGroup "Nagare.Cdn.Provision (EP-58)" cdnProvisionTests
+            , testGroup "Nagare.Cdn.Status (EP-58)" cdnStatusTests
+            , testGroup "Nagare.Target (EP-62)" [targetProfileTests]
+            , contextResolutionTests
+            , testGroup "EP-62 rendered Job project" backupProjectTests
+            , testGroup "EP-62 qualifyImage" qualifyImageTests
+            , modeResolutionTests
+            , dockerAuthPlanTests
+            , initTests
+            , infraPlanTests
+            , pulumiBackendBootstrapTests
+            , contextGuardTests
+            , adcTests
+            , clusterGuardTests
+            , domainBindingTests
+            , testGroup "Nagare.Domain.Tls" domainTlsTests
+            , accessGrantsTests
+            , accessResolveTests
+            , appDeployTests
+            ]
 
 versionTests :: [TestTree]
 versionTests =

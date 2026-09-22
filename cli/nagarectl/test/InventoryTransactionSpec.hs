@@ -1,5 +1,6 @@
-module InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson (toJSON)
 import Data.ByteString qualified as BS
@@ -21,11 +22,12 @@ import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
+import System.Directory (doesFileExist, listDirectory, removeFile)
 import System.Environment (getEnvironment, getExecutablePath)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp
-import System.Process (CreateProcess (env), createProcess, proc, waitForProcess)
+import System.Process (CreateProcess (env), createProcess, proc, terminateProcess, waitForProcess)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -75,6 +77,58 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged _ -> pure (); other -> assertFailure (show other)
         readIORef attempts >>= (@?= 2)
+    , testCase "stale review is refused before adapter preflight" $ do
+        store <- newMemoryStore
+        calls <- newIORef (0 :: Int)
+        (reviewed, _) <- preparedFixtureWith store (\_ _ -> pure AdapterEffectCompleted) (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        current <- readHead store >>= expectRight >>= maybe (assertFailure "missing head" >> undefined) pure
+        let advanced = current {headGeneration = headGeneration current + 1}
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration current)) advanced >>= expectRight
+        let registry = recordingRegistryWith (\_ _ -> modifyIORef' calls (+ 1) >> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        refused <- applyReviewed store registry reviewed
+        assertBool "stale review refused" (isLeft refused)
+        readIORef calls >>= (@?= 0)
+    , testCase "operator-facing review excludes private native evidence" $
+        withSystemTempDirectory "inventory-review" $ \root -> do
+          store <- newMemoryStore
+          (reviewed, _) <- preparedFixtureWith store (\_ _ -> pure AdapterEffectCompleted) (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+          let document = reviewedDocument reviewed
+              transactionDigest = contentDigest (encodeReviewDocument document)
+          fullBundle <- loadPublishedReview store transactionDigest >>= expectRight
+          _ <- writeReviewBundle (root </> "review") fullBundle >>= expectRight
+          entries <- listDirectory (root </> "review")
+          assertBool "native directory is absent" ("native" `notElem` entries)
+          publicBundle <- loadReviewBundle (root </> "review") >>= expectRight
+          reviewBundleDocument publicBundle @?= reviewBundleDocument fullBundle
+          reviewBundleScopes publicBundle @?= reviewBundleScopes fullBundle
+          snapshot <- readStoreSnapshot store >>= expectRight
+          assertBool "public bundle alone is not executable" (isLeft (verifyReview snapshot publicBundle))
+    , testCase "adapter execution cannot re-enter the inventory lock" $ do
+        store <- newMemoryStore
+        let reenter _ _ = do
+              result <- withProcessLock store (\_ -> pure ())
+              pure $ case result of
+                Left StoreReentry -> AdapterEffectCompleted
+                _ -> AdapterEffectFailed (PartialOrUnknown "inventory re-entry was not rejected")
+        (reviewed, registry) <- preparedFixtureWith store reenter (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+    , testCase "complete backup restores and incomplete backup is refused" $
+        withSystemTempDirectory "inventory-backup" $ \root -> do
+          source <- openFilesystemStore (root </> "source") >>= expectRight
+          _ <- initializeStore source fixtureBinding "client-test" >>= expectRight
+          _ <- publishIfAbsent source (objectKeyFor "objects" (contentDigest "retained")) "retained" >>= expectRight
+          let backup = root </> "backup"
+          exported <- withProcessLock source (\locked -> exportStore locked backup) >>= expectRight
+          _ <- expectRight exported
+          restored <- newMemoryStore
+          readHead restored >>= (@?= Right Nothing)
+          _ <- restoreStore restored backup >>= expectRight
+          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Nothing Nothing))
+          removeFile (backup </> "head.json")
+          incomplete <- newMemoryStore
+          refused <- restoreStore incomplete backup
+          assertBool "missing backup member refused" (isLeft refused)
     , testCase "a second process is refused while the filesystem process lock is held" $
         withSystemTempDirectory "inventory-lock" $ \root -> do
           store <- openFilesystemStore root >>= expectRight
@@ -86,6 +140,22 @@ inventoryTransactionTests =
             status <- waitForProcess process
             status @?= ExitSuccess
           case held of Right () -> pure (); other -> assertFailure (show other)
+    , testCase "filesystem process lock is released when its holder dies" $
+        withSystemTempDirectory "inventory-lock-death" $ \root -> do
+          store <- openFilesystemStore root >>= expectRight
+          executable <- getExecutablePath
+          environment <- getEnvironment
+          let ready = root </> "child-ready"
+              childEnvironment =
+                ("NAGARE_INVENTORY_LOCK_HOLD", root)
+                  : ("NAGARE_INVENTORY_LOCK_READY", ready)
+                  : filter (\(name, _) -> name /= "NAGARE_INVENTORY_LOCK_HOLD" && name /= "NAGARE_INVENTORY_LOCK_READY") environment
+          (_, _, _, process) <- createProcess (proc executable []) {env = Just childEnvironment}
+          waitUntilReady ready 100
+          withProcessLock store (\_ -> pure ()) >>= (@?= Left StoreBusy)
+          terminateProcess process
+          _ <- waitForProcess process
+          withProcessLock store (\_ -> pure ()) >>= (@?= Right ())
     , testCase "journal validation rejects a missing or reordered event" $ do
         let transaction = ok (mkTransactionId ("tx-" <> T.replicate 64 "a"))
             operation = ok (mkOperationId "op-one")
@@ -146,6 +216,10 @@ preparedFixtureWith store execution recovery = do
 
 recordingRegistry :: (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry
 recordingRegistry execution recovery =
+  recordingRegistryWith (\_ _ -> pure (Right ())) execution recovery
+
+recordingRegistryWith :: (PlannedOperation -> PreparedNative -> IO (Either T.Text ())) -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> AdapterRegistry
+recordingRegistryWith preflight execution recovery =
   ok (mkAdapterRegistry (map adapter [KubernetesExecutor, PulumiExecutor, HostExecutor, ArtifactExecutor]))
   where
     adapter executor =
@@ -155,7 +229,7 @@ recordingRegistry execution recovery =
         , adapterVersion = "1"
         , adapterObserve = \_ -> pure (Left "tests inject observations")
         , adapterPrepare = \operation -> pure (Right (PreparedNative (canonical operation) "recording adapter"))
-        , adapterPreflight = \_ _ -> pure (Right ())
+        , adapterPreflight = preflight
         , adapterExecute = execution
         , adapterVerify = \operation -> pure (Right (proof operation))
         , adapterRecover = recovery
@@ -187,3 +261,21 @@ runInventoryLockProbe root = do
     Right store -> do
       result <- withProcessLock store (\_ -> pure ())
       pure $ case result of Left StoreBusy -> ExitSuccess; _ -> ExitFailure 1
+
+runInventoryLockHoldProbe :: FilePath -> FilePath -> IO ExitCode
+runInventoryLockHoldProbe root ready = do
+  storeResult <- openFilesystemStore root
+  case storeResult of
+    Left _ -> pure (ExitFailure 2)
+    Right store -> do
+      result <- withProcessLock store $ \_ -> do
+        writeFile ready "ready"
+        threadDelay 30000000
+      pure $ case result of Right () -> ExitSuccess; Left _ -> ExitFailure 1
+
+waitUntilReady :: FilePath -> Int -> Assertion
+waitUntilReady path attempts
+  | attempts <= 0 = assertFailure "child did not acquire the inventory process lock"
+  | otherwise = do
+      ready <- doesFileExist path
+      unless ready (threadDelay 10000 >> waitUntilReady path (attempts - 1))

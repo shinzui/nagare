@@ -165,8 +165,8 @@ observeWithRegistry :: AdapterRegistry -> Map Executor [ResourceId] -> IO (Eithe
 observeWithRegistry registry requests = do
   results <- traverse observeOne (Map.toAscList requests)
   pure $ do
-    sets <- sequence results
-    observationSet (concatMap (Map.toList . observationMap) sets)
+    observedSets <- sequence results
+    observationSet (concatMap (Map.toList . observationMap) observedSets)
   where
     observeOne (executor, resources) = case lookupAdapter registry executor of
       Left err -> pure (Left err)

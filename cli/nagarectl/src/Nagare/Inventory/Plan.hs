@@ -23,6 +23,7 @@ module Nagare.Inventory.Plan
   , ReviewDocument (..)
   , ReviewBundle
   , reviewBundleDocument
+  , reviewBundleScopes
   , ReviewError (..)
   , ReviewedPlan
   , reviewedDocument
@@ -342,6 +343,9 @@ data ReviewBundle = ReviewBundle
 reviewBundleDocument :: ReviewBundle -> ReviewDocument
 reviewBundleDocument = bundleDocument
 
+reviewBundleScopes :: ReviewBundle -> Map ContentDigest ByteString
+reviewBundleScopes = bundleScopes
+
 data ReviewError = ReviewError
   { reviewErrorCode :: !Text
   , reviewErrorMessage :: !Text
@@ -514,13 +518,11 @@ writeReviewBundle output bundle = do
     withTempDirectory parent ".inventory-review-" $ \staging -> do
       setFileMode staging 0o700
       createPrivateDirectory (staging </> "scopes")
-      createPrivateDirectory (staging </> "native")
       let documentBytes = encodeReviewDocument (bundleDocument bundle)
           digest = reviewDigest bundle
       writePrivate (staging </> "review.json") documentBytes
       writePrivate (staging </> "review.sha256") (BC.pack (T.unpack (digestText digest)) <> "\n")
       forM_ (Map.toAscList (bundleScopes bundle)) $ \(memberDigest, bytes) -> writePrivate (staging </> scopeMemberPath memberDigest) bytes
-      forM_ (Map.toAscList (bundleNative bundle)) $ \(memberDigest, bytes) -> writePrivate (staging </> nativeMemberPath memberDigest) bytes
       renameDirectory staging output
   pure $ case attempted of
     Left (err :: IOException) -> Left (T.pack (show err))
@@ -541,11 +543,10 @@ loadReviewBundle directory = do
     unless (canonical == documentBytes) (ioError (userError "review document is not canonical"))
     unless (checksum == BC.pack (T.unpack (digestText digest)) <> "\n") (ioError (userError "review checksum mismatch"))
     scopes <- loadMembers directory scopeMemberPath [revisionDigest revision | revision <- Map.elems (reviewDesiredRevisions document)]
-    native <- loadMembers directory nativeMemberPath [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]]
-    let expectedRoot = sort ["native", "review.json", "review.sha256", "scopes"]
+    let expectedRoot = sort ["review.json", "review.sha256", "scopes"]
     rootEntries <- sort <$> listDirectory directory
     unless (rootEntries == expectedRoot) (ioError (userError "review directory has unexpected members"))
-    pure (ReviewBundle document scopes native)
+    pure (ReviewBundle document scopes Map.empty)
   pure $ first (T.pack . show) (attempted :: Either IOException ReviewBundle)
   where
     loadMembers root memberPath digests = do
@@ -625,9 +626,6 @@ nativeKey = objectKeyFor "native"
 
 scopeMemberPath :: ContentDigest -> FilePath
 scopeMemberPath digest = "scopes" </> T.unpack (digestText digest) <.> "json"
-
-nativeMemberPath :: ContentDigest -> FilePath
-nativeMemberPath digest = "native" </> T.unpack (digestText digest) <.> "bin"
 
 duplicateValues :: (Ord a) => [a] -> [a]
 duplicateValues values = Map.keys (Map.filter (> (1 :: Int)) (Map.fromListWith (+) [(value, 1) | value <- values]))

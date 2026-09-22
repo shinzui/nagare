@@ -196,9 +196,15 @@ applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory target reviewDirectory yes = do
   rejectReentry
   unless yes (dieText "inventory apply requires --yes after reviewing the bound plan")
-  bundle <- loadReviewBundle reviewDirectory >>= either dieText pure
-  validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
+  publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
+  validateReviewTarget target (reviewContextBinding (reviewBundleDocument publicBundle))
   store <- openTargetStore target
+  bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieText . showText) pure
+  unless
+    ( reviewBundleDocument bundle == reviewBundleDocument publicBundle
+        && reviewBundleScopes bundle == reviewBundleScopes publicBundle
+    )
+    (dieText "review directory differs from the immutable review published by this store")
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store executionBlockedRegistry reviewed >>= either (dieText . showText . NE.toList) pure

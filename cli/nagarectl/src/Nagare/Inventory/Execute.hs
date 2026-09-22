@@ -62,33 +62,35 @@ admit locked registry reviewed = do
     Left err -> pure (failure "store" (showText err))
     Right Nothing -> pure (failure "store" "inventory store is not initialized")
     Right (Just headValue) -> do
-      preflightErrors <- preflightOperations registry reviewed Map.empty
-      let errors =
+      let staticErrors =
             [AdmissionError "context-binding" "review belongs to a different context or provider target" | reviewContextBinding document /= headBinding headValue]
               <> [AdmissionError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
               <> [AdmissionError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
               <> [AdmissionError "active-transaction" "another transaction is unresolved" | isJust (headActiveTransaction headValue)]
-              <> preflightErrors
-      case errors of
+      case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          now <- timestamp
-          let claim = ExecutorClaim (transactionIdText transaction) (headClientIdentity headValue) 1 now
-              activated =
-                headValue
-                  { headGeneration = headGeneration headValue + 1
-                  , headAccepted = reviewDesiredRevisions document
-                  , headActiveTransaction = Just (transactionIdText transaction)
-                  , headExecutorClaim = Just claim
-                  }
-          activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
-          case activation of
-            Left err -> pure (failure "head-condition" (showText err))
-            Right () -> do
-              event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
-              pure $ case event of
-                Left err -> failure "journal" (showText err)
-                Right _ -> Right (ExecutablePlan transaction reviewed)
+          preflightErrors <- preflightOperations registry reviewed Map.empty
+          case preflightErrors of
+            firstError : rest -> pure (Left (firstError :| rest))
+            [] -> do
+              now <- timestamp
+              let claim = ExecutorClaim (transactionIdText transaction) (headClientIdentity headValue) 1 now
+                  activated =
+                    headValue
+                      { headGeneration = headGeneration headValue + 1
+                      , headAccepted = reviewDesiredRevisions document
+                      , headActiveTransaction = Just (transactionIdText transaction)
+                      , headExecutorClaim = Just claim
+                      }
+              activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
+              case activation of
+                Left err -> pure (failure "head-condition" (showText err))
+                Right () -> do
+                  event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
+                  pure $ case event of
+                    Left err -> failure "journal" (showText err)
+                    Right _ -> Right (ExecutablePlan transaction reviewed)
 
 execute :: LockedStore s -> AdapterRegistry -> ExecutablePlan s -> IO TransactionResult
 execute locked registry executable = do
@@ -160,10 +162,10 @@ resumeTransaction store registry transaction = do
                       bundleResult <- loadPublishedReview store digest
                       snapshotResult <- readStoreSnapshot store
                       case (bundleResult, snapshotResult) of
-                        (Left err, _) -> pure (failure "review" (showText err))
-                        (_, Left err) -> pure (failure "store" (showText err))
+                        (Left err, _) -> releaseClaim lock transaction False >> pure (failure "review" (showText err))
+                        (_, Left err) -> releaseClaim lock transaction False >> pure (failure "store" (showText err))
                         (Right bundle, Right snapshot) -> case verifyActiveReview snapshot (transactionIdText transaction) bundle of
-                          Left errors -> pure (Left (fmap reviewAdmission errors))
+                          Left errors -> releaseClaim lock transaction False >> pure (Left (fmap reviewAdmission errors))
                           Right reviewed -> do
                             preflightErrors <- preflightOperations registry reviewed (completedOperations transaction events)
                             case preflightErrors of

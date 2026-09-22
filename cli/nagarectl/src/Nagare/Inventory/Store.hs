@@ -39,8 +39,8 @@ import Data.Aeson.Types (parseEither)
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
-import Data.List (sort)
 import Data.Kind (Type)
+import Data.List (isPrefixOf, sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -237,7 +237,6 @@ readStoreSnapshot store = do
         keys <- keysResult
         StoreSnapshot headValue . Set.fromList <$> traverse digestFromReviewKey (filter ("reviews/" `isPrefixOf`) keys)
   where
-    isPrefixOf prefix value = take (length prefix) value == prefix
     digestFromReviewKey key =
       let token = T.pack (dropExtension (takeFileName key))
        in first (const (StoreInvalidObject key "review key does not contain a valid digest")) (mkContentDigest token)
@@ -339,10 +338,11 @@ exportStore locked output = do
 
 restoreStore :: InventoryStore -> FilePath -> IO (Either StoreError ())
 restoreStore store backup = withBackendGuard store $ do
-  current <- listObjectKeysUnlocked store
-  if not (null current)
-    then pure (Left (StoreConditionFailed "restore requires an empty inventory store"))
-    else do
+  currentResult <- listObjectKeysUnlocked store
+  case currentResult of
+    Left err -> pure (Left err)
+    Right current | not (null current) -> pure (Left (StoreConditionFailed "restore requires an empty inventory store"))
+    Right _ -> do
       manifestResult <- readVerifiedFile (backup </> "backup.json")
       case manifestResult >>= decodeBackupManifest of
         Left err -> pure (Left err)
@@ -443,10 +443,13 @@ listObjectKeysUnlocked (InventoryStore (FilesystemBackend root _)) = ioResult (s
       fmap concat $ forM entries $ \entry -> do
         let rel = if null relative then entry else relative </> entry
             path = base </> rel
-        linked <- pathIsSymbolicLink path
-        when linked (ioError (userError ("store member is a symlink: " <> rel)))
-        status <- getFileStatus path
-        if isDirectory status then walk base rel else if isRegularFile status then pure [rel] else ioError (userError ("invalid store member: " <> rel))
+        if rel == "process.lock" || ".inventory-object" `isPrefixOf` entry
+          then pure []
+          else do
+            linked <- pathIsSymbolicLink path
+            when linked (ioError (userError ("store member is a symlink: " <> rel)))
+            status <- getFileStatus path
+            if isDirectory status then walk base rel else if isRegularFile status then pure [rel] else ioError (userError ("invalid store member: " <> rel))
 
 checkedKey :: FilePath -> Either StoreError FilePath
 checkedKey key
