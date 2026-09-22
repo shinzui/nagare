@@ -4,6 +4,7 @@ import Control.Exception (finally)
 import Data.Aeson (Value, eitherDecodeStrict, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -25,7 +26,7 @@ import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
-import Nagare.Resource.Database (DatabaseDirectInput (..))
+import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -120,8 +121,8 @@ inventoryKubernetesTests =
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")
             (bundle, bound) = ok (compileDatabaseNative direct)
-        length (declarations bundle) @?= 3
-        Map.size bound @?= 3
+        length (declarations bundle) @?= 4
+        Map.size bound @?= 4
         mapM_ (\(decl, bytes) -> case spec decl of
           NativeObject digest -> digest @?= contentDigest bytes
           StatefulSet _ _ digest -> digest @?= contentDigest bytes
@@ -287,6 +288,33 @@ inventoryKubernetesTests =
               portPrepared <- adapterPrepare portChanged updateOperation >>= expectRight
               adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
+              pure ()) `finally` cleanup
+    , testCase "disposable cluster creates a database credential only at execution" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let db = Database (ok (mkDatabaseName "ep147-credential")) Nothing Postgres (defaultEngineVersion Postgres)
+                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
+                recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+                (bundle, bound) = ok (compileDatabaseNative (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")))
+                credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
+                credential = maybe (error "database bundle lacks credential") id (Map.lookup credentialId bound)
+                onlyCredential = Map.singleton credentialId credential
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter = mkKubernetesAdapter onlyCredential (mkKubernetesRuntimeOps config onlyCredential)
+                createCredential = createOperation {plannedResources = credentialId :| []}
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "secret", "nagare-db-ep147-credential", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            assertBool "credential declaration absent" (any (\case Managed member -> member ^. #identity == credentialId; _ -> False) (declarations bundle))
+            cleanup
+            (do
+              prepared <- adapterPrepare adapter createCredential >>= expectRight
+              assertBool "credential material appeared in public summary" (not ("POSTGRES_PASSWORD" `T.isInfixOf` preparedPublicSummary prepared))
+              adapterExecute adapter createCredential prepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify adapter createCredential prepared >>= expectRight
               pure ()) `finally` cleanup
     ]
 

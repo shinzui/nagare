@@ -16,6 +16,7 @@
 module Nagare.Dsl.Database.Render
   ( renderDatabase
   , databaseObjects
+  , databaseCredentialTemplate
   , renderStatefulSet
   , renderDatabaseService
   , renderDatabasePvc
@@ -75,6 +76,23 @@ databaseObjects db =
   [pvcValue db]
     <> maybe [] (const [configMapValue db]) (engineMemoryConfig (db ^. #engine))
     <> [serviceValue db, statefulSetValue db]
+
+-- | Stable metadata for a create-only credential. No password or Secret data
+-- is present during review; the inventory executor fills the data only after
+-- it has confirmed absence and reached the guarded mutation boundary.
+databaseCredentialTemplate :: Database -> Value
+databaseCredentialTemplate db =
+  object
+    [ "apiVersion" .= txt "v1"
+    , "kind" .= txt "Secret"
+    , "type" .= txt "Opaque"
+    , "metadata" .= object
+        [ "name" .= dbSecretName (nameText db)
+        , "namespace" .= nsText db
+        , "labels" .= dbLabels db
+        , "annotations" .= object ["nagare.dev/credential-template" .= txt "database-v1"]
+        ]
+    ]
 
 renderStatefulSet :: Database -> ByteString
 renderStatefulSet = YP.encodePretty dbConfig . statefulSetValue

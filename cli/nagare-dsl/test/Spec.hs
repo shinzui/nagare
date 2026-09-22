@@ -26,11 +26,12 @@ import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encode
 import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseDirect, databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
-import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
   ( renderDatabase
+  , databaseCredentialTemplate
   , renderDatabaseConfigMap
   , renderDatabasePvc
   , renderDatabaseService
@@ -710,22 +711,25 @@ databaseTests =
               digest _ = Right (unsafe (mkContentDigest (Text.replicate 64 "a")))
               check db expected = do
                 let (bundle, native) = either (error . show) id (compileDatabaseDirect digest (input db))
-                    rendered = map (either (error . show) id . Yaml.decodeEither') (renderDatabase db)
+                    rendered = databaseCredentialTemplate db : map (either (error . show) id . Yaml.decodeEither') (renderDatabase db)
                 length (declarations bundle) @?= expected
                 map snd native @?= rendered
                 case declarations bundle of
-                  Managed pvc : _ -> dataPolicy pvc @?= Durable recovery
+                  Managed credential : Managed pvc : _ -> do
+                    sensitivity credential @?= Secret
+                    dataPolicy credential @?= Durable recovery
+                    dataPolicy pvc @?= Durable recovery
                   _ -> assertFailure "database PVC missing"
                 case reverse (declarations bundle) of
                   Managed stateful : _ -> dependencies stateful @?= map OrderedAfter (take (expected - 1) (map fst native))
                   _ -> assertFailure "database StatefulSet missing"
                 pure (map fst native)
-          original <- check pgDb 3
-          renamed <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))) 3
-          renamedAgain <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary")) & #name .~ unsafe (mkDatabaseName "pg-renamed")) 3
+          original <- check pgDb 4
+          renamed <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))) 4
+          renamedAgain <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary")) & #name .~ unsafe (mkDatabaseName "pg-renamed")) 4
           assertBool "legacy and explicit identity differ" (original /= renamed)
           renamedAgain @?= renamed
-          _ <- check clickhouseDb 4
+          _ <- check clickhouseDb 5
           pure ()
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of

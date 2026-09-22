@@ -64,6 +64,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
 - [x] (2026-09-22) M2c partial: The legacy database create command now uses create-only Secret admission, rereads a concurrent winner, and omits generated Secret data from dry-run output. Focused credential race and unknown-read tests pass; the legacy path still requires migration to the reviewed inventory adapter.
 - [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy and orders StatefulSet creation after its PVC, Service, and optional ConfigMap; nagarectl binds each declaration to canonical native bytes before review. The 431 DSL and 616 CLI tests pass, including 10 focused Kubernetes tests after the ordering change.
+- [x] (2026-09-22) M2c partial: The same bundle now includes a stable, Secret-sensitive database credential template with no password or data. The StatefulSet depends on it. At reviewed create execution, the Kubernetes adapter generates the password, materializes engine-specific Secret data, and submits a create-only write; observation verifies ownership and the expected nonempty key set while treating credential values as delegated. A disposable PostgreSQL Secret create/verify passes.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -71,7 +72,9 @@ A component is an independently identified group of resources and operations, su
 
 ## Surprises & Discoveries
 
-2026-09-22: The database YAML renderer already had one shared set of structured values internally. Exposing those values lets the typed direct-object compiler use precisely the same shapes, without reparsing YAML or reimplementing resource settings. Credential creation and backup CronJob rendering remain in nagarectl and are not yet members of this bundle; the old create path remains active.
+2026-09-22: The database YAML renderer already had one shared set of structured values internally. Exposing those values lets the typed direct-object compiler use precisely the same shapes, without reparsing YAML or reimplementing resource settings. The first direct-object bundle omitted credentials and backup CronJob; a later change added a credential template, while backup and legacy-command replacement remain open.
+
+2026-09-22: A credential template can be reviewed without a password by retaining only stable Secret metadata and a generation marker. The adapter materializes data after the guarded create boundary and stamps the template digest, so legitimate credential values are observed as delegated fields. A disposable create/verify passes. Backup CronJob, complete cache composition, and replacement of the legacy create command remain open.
 
 2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
 

@@ -165,6 +165,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
 - [x] (2026-09-22) EP-147 M2c partial: Direct database renderer objects compile into stable typed PVC/Service/StatefulSet/optional ConfigMap declarations and canonical native bytes; 431 DSL and 616 CLI tests pass.
+- [x] (2026-09-22) EP-147 M2c partial: The database bundle includes a password-free credential Secret template, created only after guarded execution; a disposable PostgreSQL Secret create and verification pass.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

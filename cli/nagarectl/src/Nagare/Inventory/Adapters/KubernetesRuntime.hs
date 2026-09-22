@@ -15,14 +15,18 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
 import Control.Exception (IOException, try)
 import Data.Aeson
 import Data.Aeson.Key (Key)
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
+import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
@@ -76,7 +80,9 @@ mkKubernetesRuntimeOps config specs =
         Right () -> do
           let native = mutationNativeJson mutation
           request <- case (mutationAction mutation, mutationBefore mutation) of
-            (CreateResource, KubernetesAbsent _) -> pure (Right (["create", "--field-manager=nagare-inventory", "-f", "-"], native))
+            (CreateResource, KubernetesAbsent _) -> do
+              materialized <- materializeCredential native
+              pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> materialized)
             (UpdateResource, KubernetesPresent uid revision _ _) -> do
               ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
               pure $ do
@@ -124,7 +130,9 @@ parseObserved config resource native response = do
       stampedOwner = textAt "nagare.dev/resource-id" annotations >>= either (const Nothing) Just . mkResourceId
       owner = if stampedContext == Just (contextIdText (runtimeContext config)) then stampedOwner else Nothing
       desiredDigest = contentDigest native
-      desiredMatches = desiredFieldsMatch desired observed && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
+      desiredMatches = desiredFieldsMatch desired observed
+        && credentialDataMatches desired observed
+        && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
   driftDigest <- if desiredMatches then Right desiredDigest else contentDigest <$> canonicalValue observed
   pure (KubernetesPresent uid revision (if owner == Just resource then owner else Nothing) driftDigest)
 
@@ -141,6 +149,77 @@ fieldText key metadata = case KM.lookup key metadata of
 
 textAt :: Key -> Object -> Maybe Text
 textAt key value = case KM.lookup key value of Just (String textValue) -> Just textValue; _ -> Nothing
+
+-- | Database credential templates carry no Secret.data at review time. At
+-- mutation time only, materialize their data from a newly generated password.
+-- The template's identity, labels and inventory stamps remain unchanged.
+materializeCredential :: Text -> IO (Either Text Text)
+materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
+  Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
+  Right value -> case databaseCredentialKind value of
+    Left reason -> pure (Left reason)
+    Right Nothing -> pure (Right native)
+    Right (Just (dbName, namespace, engine)) -> do
+      generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
+      pure $ case generated of
+        Left (_ :: IOException) -> Left "could not generate database credential"
+        Right (ExitFailure _, _, _) -> Left "could not generate database credential"
+        Right (ExitSuccess, output, _) -> do
+          let password = T.strip (T.pack output)
+          unless (T.length password == 48) (Left "database credential generator returned an invalid password")
+          fillCredential value dbName namespace engine password
+
+databaseCredentialKind :: Value -> Either Text (Maybe (Text, Text, Engine))
+databaseCredentialKind value = case value of
+  Object root | KM.lookup "kind" root == Just (String "Secret") -> do
+    metadata <- metadataOf value
+    annotations <- case KM.lookup "annotations" metadata of
+      Just (Object fields) -> Right fields
+      Nothing -> Right KM.empty
+      _ -> Left "reviewed Secret annotations are malformed"
+    case textAt "nagare.dev/credential-template" annotations of
+      Nothing -> Right Nothing
+      Just "database-v1" -> do
+        unless (not (KM.member "data" root) && not (KM.member "stringData" root))
+          (Left "database credential template may not include Secret data")
+        labels <- case KM.lookup "labels" metadata of
+          Just (Object fields) -> Right fields
+          _ -> Left "database credential template lacks labels"
+        dbName <- fieldText "nagare.dev/database" labels
+        namespace <- fieldText "namespace" metadata
+        secretName <- fieldText "name" metadata
+        unless (secretName == dbSecretName dbName) (Left "database credential template has the wrong Secret name")
+        engineName <- fieldText "nagare.dev/engine" labels
+        engine <- maybe (Left "database credential template has an unknown engine") Right (parseEngine engineName)
+        pure (Just (dbName, namespace, engine))
+      Just _ -> Left "unknown Kubernetes credential template"
+  _ -> Right Nothing
+
+fillCredential :: Value -> Text -> Text -> Engine -> Text -> Either Text Text
+fillCredential template dbName namespace engine password = do
+  let connection = ConnectionParts defaultDbUser password (dbHost dbName namespace) (sanitizeDbName dbName)
+      generated = renderDbSecret (DbSecretInputs dbName namespace engine (secretKeysFor engine connection))
+  generatedValue <- first (T.pack . show) (eitherDecodeStrict generated)
+  secretData <- case generatedValue of
+    Object root -> maybe (Left "generated credential has no data") Right (KM.lookup "data" root)
+    _ -> Left "generated credential is malformed"
+  case template of
+    Object root -> TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "data" secretData root))
+    _ -> Left "credential template is malformed"
+
+credentialDataMatches :: Value -> Value -> Bool
+credentialDataMatches desired observed = case databaseCredentialKind desired of
+  Right Nothing -> True
+  Left _ -> False
+  Right (Just (_, _, engine)) -> case observed of
+    Object root -> case KM.lookup "data" root of
+      Just (Object entries) ->
+        let connection = ConnectionParts defaultDbUser "example" "example" "example"
+            expected = Set.fromList (map (Key.fromText . fst) (secretKeysFor engine connection))
+         in Set.fromList (KM.keys entries) == expected
+              && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
+      _ -> False
+    _ -> False
 
 addPreconditions :: PhysicalIdentity -> Text -> Text -> Either Text Text
 addPreconditions uid revision native = do

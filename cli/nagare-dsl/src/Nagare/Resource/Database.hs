@@ -11,7 +11,7 @@ import Data.Aeson (Value)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Nagare.Dsl.Database (Database (..), engineMemoryConfig)
-import Nagare.Dsl.Database.Render (databaseObjects)
+import Nagare.Dsl.Database.Render (databaseCredentialTemplate, databaseObjects)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText)
 import Nagare.Resource.Inventory
@@ -44,20 +44,20 @@ compileDatabaseDirect
   -> DatabaseDirectInput
   -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileDatabaseDirect digestOf input = do
-  members <- traverse compileOne (zip roles (databaseObjects (directDatabase input)))
+  members <- traverse compileOne (zip roles (databaseCredentialTemplate (directDatabase input) : databaseObjects (directDatabase input)))
   pure
     ( ResourceBundle (map (Managed . fst) members) [] [] [] [] []
     , [(resource ^. #identity, value) | (resource, value) <- members]
     )
   where
-    roles = ["pvc"]
+    roles = ["credential", "pvc"]
       <> maybe [] (const ["configmap"]) (engineMemoryConfig (directDatabase input ^. #engine))
       <> ["service", "statefulset"]
     compileOne (roleText, value) = do
       role <- first invalid (mkName roleText)
       resource <- first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
       prerequisites <- if roleText == "statefulset"
-        then traverse prerequisite (["pvc"] <> maybe [] (const ["configmap"]) (engineMemoryConfig (directDatabase input ^. #engine)) <> ["service"])
+        then traverse prerequisite (["credential", "pvc"] <> maybe [] (const ["configmap"]) (engineMemoryConfig (directDatabase input ^. #engine)) <> ["service"])
         else pure []
       digest <- first invalid (digestOf value)
       declaration <- first single $ compileKubernetesObject
@@ -68,8 +68,8 @@ compileDatabaseDirect digestOf input = do
           , inputObject = value
           , objectDigest = digest
           , lifecyclePolicy = Retain
-          , inputDataPolicy = if roleText == "pvc" then Durable (directRecoveryIntent input) else Stateless
-          , inputSensitivity = Private
+          , inputDataPolicy = if roleText `elem` ["pvc", "credential"] then Durable (directRecoveryIntent input) else Stateless
+          , inputSensitivity = if roleText == "credential" then Secret else Private
           , sourceLocation = directSourceLocation input
           }
       pure (declaration {dependencies = map OrderedAfter prerequisites}, value)
