@@ -7,6 +7,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -23,10 +24,13 @@ import Nagare.Dsl.Broker.Render
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
-import Nagare.Resource.Database (databaseResourceId)
-import Nagare.Resource.Types (mkLogicalKey, mkName, mkScopeId, ScopeKind (..))
+import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseDirect, databaseResourceId)
+import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
+import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
-  ( renderDatabaseConfigMap
+  ( renderDatabase
+  , renderDatabaseConfigMap
   , renderDatabasePvc
   , renderDatabaseService
   , renderStatefulSet
@@ -47,6 +51,7 @@ import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (Gen, Property, choose, elements, forAll, testProperty)
+import Data.Yaml qualified as Yaml
 import WorkerSpec (workerTests)
 
 main :: IO ()
@@ -696,6 +701,28 @@ databaseTests =
           renamed ^. #logicalKey @?= stable ^. #logicalKey
           databaseResourceId owner role renamed @?= databaseResourceId owner role stable
           assertBool "provider name changed" (renderDatabaseService renamed /= renderDatabaseService stable)
+      , testCase "direct database bundle matches renderer and preserves stable roles" $ do
+          let owner = unsafe (mkScopeId Platform "foundation")
+              cluster = mintResourceId owner (unsafe (mkLogicalKey "cluster")) (unsafe (mkName "resource"))
+              recovery = RecoveryIntent (unsafe (mkName "database-backup")) (mkSecretRef (unsafe (mkName "db-password")) (unsafe (mkName "v1")) :| [])
+              input db = DatabaseDirectInput db owner cluster recovery (SourceLocation "fixture" "database")
+              digest _ = Right (unsafe (mkContentDigest (Text.replicate 64 "a")))
+              check db expected = do
+                let (bundle, native) = either (error . show) id (compileDatabaseDirect digest (input db))
+                    rendered = map (either (error . show) id . Yaml.decodeEither') (renderDatabase db)
+                length (declarations bundle) @?= expected
+                map snd native @?= rendered
+                case declarations bundle of
+                  Managed pvc : _ -> dataPolicy pvc @?= Durable recovery
+                  _ -> assertFailure "database PVC missing"
+                pure (map fst native)
+          original <- check pgDb 3
+          renamed <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))) 3
+          renamedAgain <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary")) & #name .~ unsafe (mkDatabaseName "pg-renamed")) 3
+          assertBool "legacy and explicit identity differ" (original /= renamed)
+          renamedAgain @?= renamed
+          _ <- check clickhouseDb 4
+          pure ()
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of
             Left (UnexpectedKind "Deployment" "Database") -> pure ()

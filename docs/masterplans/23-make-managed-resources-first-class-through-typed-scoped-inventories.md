@@ -41,6 +41,11 @@ provenance:
       at: 2026-09-22T20:05:31Z
       mode: "implement"
       note: "Record partial EP-147 Kubernetes List expansion"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T20:48:56Z
+      mode: "implement"
+      note: "Compile direct database objects into stable typed declarations"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -154,6 +159,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [ ] EP-147 M1b: Production observation and API-server-conditional mutation, then command registration.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
+- [x] (2026-09-22) EP-147 M2c partial: Direct database renderer objects compile into stable typed PVC/Service/StatefulSet/optional ConfigMap declarations; 431 DSL tests pass.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.
@@ -176,6 +182,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-22: EP-147 now compiles direct database objects from the renderer's structured values, with stable IDs and a retained PVC recovery policy. EP-148 can consume this pure bundle once EP-147 adds credential, backup, and native-byte binding; the old create path remains active until then.
 
 2026-09-22: EP-147 found that a Kubernetes `List` could pass the structured compiler as one opaque resource, hiding the claims of its children. YAML stream and List expansion, plus an explicit refusal of unexpanded Lists, now close that pure validation gap.
 

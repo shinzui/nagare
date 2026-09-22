@@ -15,6 +15,7 @@
 -- and mounts a @config.d@ memory cap so it stays within the small VM.
 module Nagare.Dsl.Database.Render
   ( renderDatabase
+  , databaseObjects
   , renderStatefulSet
   , renderDatabaseService
   , renderDatabasePvc
@@ -66,6 +67,14 @@ renderDatabase db =
   [renderDatabasePvc db]
     <> maybe [] (const [renderDatabaseConfigMap db]) (engineMemoryConfig (db ^. #engine))
     <> [renderDatabaseService db, renderStatefulSet db]
+
+-- | The same objects as 'renderDatabase', before YAML presentation. Inventory
+-- compilation uses these values so its claims cannot drift from the renderer.
+databaseObjects :: Database -> [Value]
+databaseObjects db =
+  [pvcValue db]
+    <> maybe [] (const [configMapValue db]) (engineMemoryConfig (db ^. #engine))
+    <> [serviceValue db, statefulSetValue db]
 
 renderStatefulSet :: Database -> ByteString
 renderStatefulSet = YP.encodePretty dbConfig . statefulSetValue

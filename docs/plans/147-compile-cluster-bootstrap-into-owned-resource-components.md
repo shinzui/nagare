@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-22T20:05:31Z
       mode: "implement"
       note: "Expand Kubernetes Lists before claim validation"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T20:48:56Z
+      mode: "implement"
+      note: "Compile direct database objects into stable typed declarations"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -52,12 +57,15 @@ A component is an independently identified group of resources and operations, su
 - [ ] M1b remaining: Implement the production transport with API-server-enforced write preconditions and register it in the inventory command path.
 - [x] (2026-09-22) M2a: Existing database create path generates a password only after confirmed Secret absence; unknown and malformed observations refuse (nagarectl suite passes).
 - [x] (2026-09-22) M2b: Add an optional stable logical key to Database config and preserve it through encode/decode; `databaseResourceId` mints equal IDs before/after provider rename (427 DSL tests, nagarectl suite).
+- [x] (2026-09-22) M2c partial: Compile the PVC, Service, StatefulSet, and optional ConfigMap directly from the database renderer's structured objects into one typed bundle with stable per-role IDs. The bundle retains the PVC recovery policy and returns the corresponding native objects; 431 DSL tests pass.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
 
 
 ## Surprises & Discoveries
+
+2026-09-22: The database YAML renderer already had one shared set of structured values internally. Exposing those values lets the typed direct-object compiler use precisely the same shapes, without reparsing YAML or reimplementing resource settings. Credential creation and backup CronJob rendering remain in nagarectl and are not yet members of this bundle; the old create path remains active.
 
 2026-09-22: A Kubernetes `List` previously compiled as a single opaque native object with no claims for its items. The pure parser now expands every YAML document and List member with stable source paths, and the object compiler refuses an unexpanded `List`.
 
@@ -77,6 +85,8 @@ A component is an independently identified group of resources and operations, su
 
 
 ## Decision Log
+
+2026-09-22: Keep content hashing outside nagare-dsl by injecting a digest callback into the pure direct-object compiler. Return the native structured objects beside the bundle so a later nagarectl binding can verify canonical bytes before review. The PVC alone carries durable recovery policy; other direct objects are retained but stateless.
 
 2026-09-16: Make namespace and shared configuration owners explicit. Consumers submit typed contributions instead of independently applying the same Namespace or whole ConfigMap.
 
