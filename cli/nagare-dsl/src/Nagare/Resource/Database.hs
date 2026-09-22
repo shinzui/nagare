@@ -15,6 +15,7 @@ import Nagare.Dsl.Database (Database (..), engineMemoryConfig)
 import Nagare.Dsl.Database.Render (databaseCredentialTemplate, databaseObjects)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
+import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
@@ -68,8 +69,8 @@ compileDatabaseDirect digestOf input = do
           , clusterId = directClusterId input
           , inputObject = value
           , objectDigest = digest
-          , lifecyclePolicy = Retain
-          , inputDataPolicy = if roleText `elem` ["pvc", "credential"] then Durable (directRecoveryIntent input) else Stateless
+          , lifecyclePolicy = if isThrowaway then DeleteWhenUnreferenced else Retain
+          , inputDataPolicy = if roleText `elem` ["pvc", "credential"] && not isThrowaway then Durable (directRecoveryIntent input) else Stateless
           , inputSensitivity = if roleText == "credential" then Secret else Private
           , sourceLocation = directSourceLocation input
           }
@@ -77,6 +78,7 @@ compileDatabaseDirect digestOf input = do
     prerequisite roleText = do
       role <- first invalid (mkName roleText)
       first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
+    isThrowaway = directDatabase input ^. #retention == Dsl.Delete
     invalid message = inventoryError "invalid-database-declaration" message
       & #scopes .~ [directOwnerScope input]
       & #sources .~ [directSourceLocation input]
@@ -93,6 +95,8 @@ compileDatabaseBundle
   -> Value
   -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileDatabaseBundle digestOf input backupObject = do
+  when (directDatabase input ^. #retention == Dsl.Delete)
+    (Left (invalid "throwaway database must not declare a scheduled backup"))
   (bundle, native) <- compileDatabaseDirect digestOf input
   role <- first invalid (mkName "backup")
   resource <- first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))

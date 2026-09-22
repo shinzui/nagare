@@ -167,6 +167,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2c partial: Direct database renderer objects compile into stable typed PVC/Service/StatefulSet/optional ConfigMap declarations and canonical native bytes; 431 DSL and 616 CLI tests pass.
 - [x] (2026-09-22) EP-147 M2c partial: The database bundle includes a password-free credential Secret template, created only after guarded execution; a disposable PostgreSQL Secret create and verification pass.
 - [x] (2026-09-22) EP-147 M2c partial: Backend-specific backup CronJob rendering is bound into the same database bundle with stable identity and dependencies; real renderer parity and wrong-address refusal pass.
+- [x] (2026-09-22) EP-147 M2c partial: Explicit throwaway database retention compiles to collectable stateless resources with no scheduled backup; retained PVC and credential keep recovery intent.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

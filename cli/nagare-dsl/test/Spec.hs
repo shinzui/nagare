@@ -26,7 +26,7 @@ import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encode
 import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
-import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
@@ -749,6 +749,17 @@ databaseTests =
                 ]
             _ -> assertFailure "database backup CronJob missing"
           assertBool "wrong CronJob address accepted" (either (const True) (const False) (compileDatabaseBundle digest input wrong))
+          let throwaway = pgDb & #retention .~ Delete
+              throwawayInput = input {directDatabase = throwaway}
+              (throwawayBundle, _) = either (error . show) id (compileDatabaseDirect digest throwawayInput)
+          assertBool "scheduled backup accepted for throwaway database" (either (const True) (const False) (compileDatabaseBundle digest throwawayInput backup))
+          case declarations throwawayBundle of
+            Managed credential : Managed pvc : _ -> do
+              lifecycle credential @?= DeleteWhenUnreferenced
+              dataPolicy credential @?= Stateless
+              lifecycle pvc @?= DeleteWhenUnreferenced
+              dataPolicy pvc @?= Stateless
+            _ -> assertFailure "throwaway database roles missing"
       , testCase "decoding a Database as a Deployment is UnexpectedKind" $
           case decodeDeployment (toStrict (encodeDatabase pgDb)) of
             Left (UnexpectedKind "Deployment" "Database") -> pure ()
