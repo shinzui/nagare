@@ -74,6 +74,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M2c partial: Add an `AtticCache` logical provider address, `LogicalCache` desired spec, and `CacheExecutor` with distinct claim validation and scope wire round-trip. Default command registries refuse cache execution until its native adapter is installed; the CLI executable builds.
 - [x] (2026-09-22) M2c partial: Compile a logical cache declaration with stable identity, database/workload ordering, an explicit recoverable configuration operation, and a typed generated signing-key export. The planner orders the operation after changes to its affected resource and prerequisites; the focused DSL and CLI tests pass. Cache runtime and actual output resolution remain open.
 - [x] (2026-09-22) M2c partial: Add a reviewed cache adapter that binds native plan bytes to the typed logical cache declaration, refuses adoption/retirement and foreign or unavailable state, verifies a nonempty generated public key, and recovers a lost create acknowledgement from observed configuration and key. Two focused adapter tests pass. The Attic transport and output slot remain outstanding.
+- [x] (2026-09-22) M2c partial: Compile the seven direct cache Kubernetes roles from structured objects with stable identities, exact addresses, and database/credential/workload dependencies. The existing workload and network-policy templates pass the compiler fixture; a same-address database/cache Service collision and swapped cache Services refuse. Template rendering, private binding, migration, and client key materialization remain open.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -98,6 +99,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: The generic planner previously appended declared operations with no dependency edges. A logical cache configuration could therefore run before its database or workload. It now carries operation dependencies from both the affected resource's own mutation and its declared prerequisites.
 
 2026-09-22: A logical cache command's exit status is insufficient completion evidence. The cache adapter requires an observation containing the intended configuration digest and a nonempty public key; its transport must obtain and authenticate that observation from Attic. Its current callback boundary is recording-tested, with no production transport installed.
+
+2026-09-22: The installer owns seven persistent direct Kubernetes objects in addition to its database and one-off Jobs. Compiling their structured template values behind role-specific address checks prevents a renderer from silently changing which Service or NetworkPolicy a reviewed cache component claims.
 
 2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
 

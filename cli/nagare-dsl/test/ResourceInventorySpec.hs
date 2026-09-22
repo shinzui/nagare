@@ -2,6 +2,7 @@ module ResourceInventorySpec (resourceInventoryTests) where
 
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
@@ -10,6 +11,7 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
+import Nagare.Resource.CacheKubernetes
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -208,6 +210,35 @@ resourceInventoryTests =
             sensitivity @?= Public
           _ -> assertFailure "logical cache public key export missing"
         assertBool "logical cache dependencies did not compose" (either (const False) (const True) (compileScopes [fullScope]))
+    , testCase "cache core binds every direct workload address and refuses the database Service collision" $ do
+        let source = SourceLocation "cluster/bootstrap/nix-cache" "cache-core"
+            readObjects file = do
+              bytes <- BS.readFile ("../../cluster/bootstrap/nix-cache/" <> file)
+              pure (map snd (ok (parseKubernetesManifest source bytes)))
+        workloadObjects <- readObjects "workloads.yaml.tmpl"
+        policyObjects <- readObjects "networkpolicies.yaml"
+        let serverConfig = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("ConfigMap" :: Text)
+              , "metadata" .= object ["name" .= ("nagare-nix-cache-server" :: Text), "namespace" .= ("nagare-system" :: Text)]
+              ]
+            prerequisite role = mintResourceId p (ok (mkLogicalKey role)) (n role)
+            makeInput deployment publicService internalService gc serverPolicy clientPolicy = CacheCoreInput
+              p cluster (ok (mkLogicalKey "nix-cache")) (prerequisite "database") (prerequisite "credential")
+              serverConfig deployment publicService internalService gc serverPolicy clientPolicy source
+        case (workloadObjects, policyObjects) of
+          ([deployment, publicService, internalService, gc], [serverPolicy, clientPolicy]) -> do
+            let input = makeInput deployment publicService internalService gc serverPolicy clientPolicy
+                result = compileCacheCore (const (Right digest)) input
+            (cacheBundle, native) <- either (assertFailure . show) pure result
+            length (declarations cacheBundle) @?= 7
+            length native @?= 7
+            let collision = ok (mkScopeDeclaration p [cacheBundle, bundle [service p "database-service" "nix-cache"]])
+            rejects "claim-conflict" (compileScopes [collision])
+            case compileCacheCore (const (Right digest)) (makeInput deployment internalService publicService gc serverPolicy clientPolicy) of
+              Left errors -> assertBool "wrong Service address was accepted" (any ((== "invalid-cache-core") . (^. #code)) (NE.toList errors))
+              Right _ -> assertFailure "cache Services with swapped addresses were accepted"
+          _ -> assertFailure "cache workload template no longer has four objects and two policies"
     , testCase "dependency cycles and dangling references refuse" $ do
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])

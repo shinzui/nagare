@@ -62,6 +62,7 @@ library
     Nagare.Resource.Compile
     Nagare.Resource.Database
     Nagare.Resource.Cache
+    Nagare.Resource.CacheKubernetes
     Nagare.Resource.Inventory
     Nagare.Resource.Kubernetes
     Nagare.Resource.Policy
