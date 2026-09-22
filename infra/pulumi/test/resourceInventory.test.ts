@@ -39,6 +39,16 @@ const wire = {
 const decoded = decodeCloudDeclarationBundle(JSON.stringify(wire));
 validateResourceRegistrations(decoded.registrations, [{ pulumiType: registration.pulumiType, pulumiName: registration.pulumiName }]);
 
+const nestedRegistration: NativeRegistration = {
+    ...registration,
+    pulumiUrn: "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:compute/network:Network::nagare-network-net",
+};
+decodeCloudDeclarationBundle(JSON.stringify({
+    ...wire,
+    registrations: [nestedRegistration],
+    bundleDigest: digest([nestedRegistration]),
+}));
+
 let refusedUnknown = false;
 try {
     validateResourceRegistrations(decoded.registrations, [{ pulumiType: "gcp:storage/bucket:Bucket", pulumiName: "foreign" }]);

@@ -173,8 +173,9 @@ registrationsFromDeclarations declarations =
           , registrationClass = ManagedRegistration
           }
     parseUrn resource urn = case reverse (T.splitOn "::" urn) of
-      nameToken : typeToken : _ | "urn:pulumi:" `T.isPrefixOf` urn -> do
+      nameToken : qualifiedTypeToken : _ | "urn:pulumi:" `T.isPrefixOf` urn -> do
         nativeName <- first (const (resourceError resource "has an invalid Pulumi logical name")) (mkName nameToken)
+        let typeToken = last (T.splitOn "$" qualifiedTypeToken)
         unless (not (T.null typeToken) && not (T.any (< ' ') typeToken)) (Left (resourceError resource "has an invalid Pulumi type token"))
         pure (typeToken, nativeName)
       _ -> Left (resourceError resource "has an invalid Pulumi URN")

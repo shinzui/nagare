@@ -86,8 +86,12 @@ export function decodeCloudDeclarationBundle(bytes: string): CloudDeclarationBun
         const key = registrationKey(registration.pulumiType, registration.pulumiName);
         if (seen.has(key)) throw new Error(`duplicate declared native registration ${registration.pulumiType}::${registration.pulumiName}`);
         seen.add(key);
-        const suffix = `::${registration.pulumiType}::${registration.pulumiName}`;
-        if (!registration.pulumiUrn.endsWith(suffix)) {
+        const urnParts = registration.pulumiUrn.split("::");
+        const qualifiedType = urnParts[urnParts.length - 2] ?? "";
+        const urnName = urnParts[urnParts.length - 1] ?? "";
+        const typeParts = qualifiedType.split("$");
+        const leafType = typeParts[typeParts.length - 1];
+        if (leafType !== registration.pulumiType || urnName !== registration.pulumiName) {
             throw new Error(`declared native registration URN disagrees with type/name: ${registration.resourceId}`);
         }
     }

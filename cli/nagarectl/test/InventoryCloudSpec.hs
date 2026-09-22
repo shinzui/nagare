@@ -37,6 +37,12 @@ inventoryCloudTests =
         length (scopeBundles declaration) @?= 1
         expectedRegistrations decoded @?= [registration]
         registrationsFromDeclarations [managed | resourceBundle <- scopeBundles declaration, managed <- declarations resourceBundle] @?= Right [registration]
+        let nestedUrn = "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
+            nestedResource = (head (cloudResources bundle)) {cloudNativeUrn = nestedUrn}
+            nestedBundle = bundle {cloudResources = [nestedResource]}
+        nestedScope <- expectRight (compileCloudScope nestedBundle)
+        registrationsFromDeclarations [managed | resourceBundle <- scopeBundles nestedScope, managed <- declarations resourceBundle]
+          @?= Right [registration {registrationPulumiUrn = nestedUrn}]
     , testCase "registration parity refuses an undeclared native object" $ do
         let foreignRegistration = registration {registrationResource = resource "platform:cloud/foreign/bucket"}
         case validateNativeRegistrationParity [registration] [registration, foreignRegistration] of
