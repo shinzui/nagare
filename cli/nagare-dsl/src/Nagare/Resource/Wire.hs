@@ -130,6 +130,7 @@ witness OciImage = SomeWitness OciImageW
 witness StorageLocation = SomeWitness StorageLocationW
 witness ReadinessCondition = SomeWitness ReadinessConditionW
 witness TlsReady = SomeWitness TlsReadyW
+witness NixCachePublicKey = SomeWitness NixCachePublicKeyW
 
 scopeValue :: ScopeDeclaration -> Value
 scopeValue s = object ["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]

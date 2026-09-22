@@ -70,6 +70,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M2c partial: A disposable cluster creates and verifies both the generated database credential and the exact backend-rendered backup CronJob through the reviewed Kubernetes adapter; their test fixtures are deleted afterward. The complete database bundle has not yet run as a component transaction.
 - [x] (2026-09-22) M2c partial: The complete five-member database bundle converges as one reviewed in-memory-store transaction against the disposable Kubernetes context. A simulated lost StatefulSet acknowledgement stops execution; resume proves that member complete and finishes the CronJob without recreating the credential or StatefulSet. A deterministic transaction regression covers recovery-before-preflight.
 - [x] (2026-09-22) M2c partial: The same disposable transaction now rebuilds its apply/resume adapter from the retained private review's five native members, proving it needs no mutable database renderer output after publication.
+- [x] (2026-09-22) M2c partial: Introduce a distinct typed `NixCachePublicKey` capability and witness so a cache client cannot substitute a database connection or image output for its signing key; composition and scope wire round-trip tests pass.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
@@ -86,6 +87,8 @@ A component is an independently identified group of resources and operations, su
 2026-09-22: The first direct database builder marked every resource Retain even when the typed Database requested Delete. It now makes the throwaway bundle collectable and stateless, and forbids its scheduled backup. Retained databases still carry explicit recovery intent for PVC and credential.
 
 2026-09-22: Full database execution exposed an EP-145 resume ordering bug: global preflight compared an ambiguous create with its old absent observation before invoking adapter recovery. The runner now defers preflight for recorded intent/ambiguous/partial effects and completed operations, letting the adapter prove the result; known-no-effect failures still pass ordinary preflight before retry. Both a deterministic regression and disposable five-member bundle test pass.
+
+2026-09-22: Cache client trust material had no dedicated capability in the shared type system. `NixCachePublicKey` now has its own witness and wire identity; actual logical cache operation and output resolution remain outstanding.
 
 2026-09-22: The still-active legacy `db create` path used `kubectl apply` for a freshly generated credential, allowing a create race to overwrite another writer's Secret, and its dry run printed generated Secret data. It now uses create-only admission and rereads a concurrent winner. This closes that immediate hazard but does not make the path reviewed inventory execution.
 

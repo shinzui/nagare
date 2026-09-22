@@ -170,6 +170,15 @@ resourceInventoryTests =
             consumer r = let Managed x = service a "app" "app" in scope a [Managed (x & #dependencies .~ [Consumes r])]
         assertBool "good unresolved reference" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef ref)]))
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef bad)])
+    , testCase "cache public key is a distinct typed output" $ do
+        let cache = service p "cache" "cache"
+            key = outputRef NixCachePublicKeyW (declarationId cache) (n "public-key") [NonEmptyOutput] Public
+            wrong = outputRef DatabaseConnectionW (declarationId cache) (n "public-key") [NonEmptyOutput] Public
+            producer = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key]])
+            consumer ref = let Managed x = service a "client" "client" in scope a [Managed (x & #dependencies .~ [Consumes ref])]
+        assertBool "cache key reference did not compose" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef key)]))
+        rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef wrong)])
+        decodeScope (encodeCanonicalScope producer) @?= Right producer
     , testCase "dependency cycles and dangling references refuse" $ do
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])

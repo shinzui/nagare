@@ -29,7 +29,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 
-data Capability = DatabaseConnection | OciImage | StorageLocation | ReadinessCondition | TlsReady
+data Capability = DatabaseConnection | OciImage | StorageLocation | ReadinessCondition | TlsReady | NixCachePublicKey
   deriving stock (Eq, Ord, Show, Generic)
 
 data Witness (c :: Capability) where
@@ -38,6 +38,7 @@ data Witness (c :: Capability) where
   StorageLocationW :: Witness 'StorageLocation
   ReadinessConditionW :: Witness 'ReadinessCondition
   TlsReadyW :: Witness 'TlsReady
+  NixCachePublicKeyW :: Witness 'NixCachePublicKey
 
 data SomeWitness where SomeWitness :: Witness c -> SomeWitness
 
@@ -47,6 +48,7 @@ sameWitness OciImageW OciImageW = Just Refl
 sameWitness StorageLocationW StorageLocationW = Just Refl
 sameWitness ReadinessConditionW ReadinessConditionW = Just Refl
 sameWitness TlsReadyW TlsReadyW = Just Refl
+sameWitness NixCachePublicKeyW NixCachePublicKeyW = Just Refl
 sameWitness _ _ = Nothing
 
 witnessCapability :: Witness c -> Capability
@@ -55,6 +57,7 @@ witnessCapability OciImageW = OciImage
 witnessCapability StorageLocationW = StorageLocation
 witnessCapability ReadinessConditionW = ReadinessCondition
 witnessCapability TlsReadyW = TlsReady
+witnessCapability NixCachePublicKeyW = NixCachePublicKey
 
 data OutputConstraint = NonEmptyOutput | InNamespace !Name | InProject !Name
   deriving stock (Eq, Ord, Show, Generic)
