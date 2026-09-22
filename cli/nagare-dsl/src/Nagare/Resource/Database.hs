@@ -17,6 +17,7 @@ import Nagare.Dsl.Types (databaseNameText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 
 databaseResourceId :: ScopeId -> Name -> Database -> Either Text ResourceId
@@ -55,6 +56,9 @@ compileDatabaseDirect digestOf input = do
     compileOne (roleText, value) = do
       role <- first invalid (mkName roleText)
       resource <- first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
+      prerequisites <- if roleText == "statefulset"
+        then traverse prerequisite (["pvc"] <> maybe [] (const ["configmap"]) (engineMemoryConfig (directDatabase input ^. #engine)) <> ["service"])
+        else pure []
       digest <- first invalid (digestOf value)
       declaration <- first single $ compileKubernetesObject
         KubernetesInput
@@ -68,7 +72,10 @@ compileDatabaseDirect digestOf input = do
           , inputSensitivity = Private
           , sourceLocation = directSourceLocation input
           }
-      pure (declaration, value)
+      pure (declaration {dependencies = map OrderedAfter prerequisites}, value)
+    prerequisite roleText = do
+      role <- first invalid (mkName roleText)
+      first invalid (databaseResourceId (directOwnerScope input) role (directDatabase input))
     invalid message = inventoryError "invalid-database-declaration" message
       & #scopes .~ [directOwnerScope input]
       & #sources .~ [directSourceLocation input]

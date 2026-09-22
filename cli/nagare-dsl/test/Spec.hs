@@ -27,6 +27,7 @@ import Nagare.Dsl.Database
 import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseDirect, databaseResourceId)
 import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
 import Nagare.Resource.Policy (DataPolicy (..), RecoveryIntent (..), mkSecretRef)
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
   ( renderDatabase
@@ -715,6 +716,9 @@ databaseTests =
                 case declarations bundle of
                   Managed pvc : _ -> dataPolicy pvc @?= Durable recovery
                   _ -> assertFailure "database PVC missing"
+                case reverse (declarations bundle) of
+                  Managed stateful : _ -> dependencies stateful @?= map OrderedAfter (take (expected - 1) (map fst native))
+                  _ -> assertFailure "database StatefulSet missing"
                 pure (map fst native)
           original <- check pgDb 3
           renamed <- check (pgDb & #logicalKey .~ Just (unsafe (mkLogicalKey "primary"))) 3

@@ -42,7 +42,8 @@ compileDatabaseNative input = do
           , inputSensitivity = declaration ^. #sensitivity
           , sourceLocation = declaration ^. #source
           }
-      unless (recompiled == declaration) (Left (single (invalid "database native object changed during binding")))
+      unless (recompiled {dependencies = declaration ^. #dependencies} == declaration)
+        (Left (single (invalid "database native object changed during binding")))
       pure (resource, (declaration, bytes))
     invalid message = inventoryError "invalid-database-native" message
       & #scopes .~ [directOwnerScope input]
