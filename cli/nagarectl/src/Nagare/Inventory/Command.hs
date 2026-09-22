@@ -267,7 +267,7 @@ manifestOnlyRegistry history =
         , adapterPrepare = \operation -> pure (Right (PreparedNative (canonicalOperation operation) "manifest-only review; a provider adapter is required before apply"))
         , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
         , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
-        , adapterVerify = \_ -> pure (Left "manifest-only adapter cannot verify provider state")
+        , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
         , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
         }
     observation resource
@@ -289,7 +289,7 @@ executionBlockedRegistry =
         , adapterPrepare = \operation -> pure (Left (PrepareRefused (plannedOperationId operation) "manifest-only execution registry does not prepare"))
         , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
         , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
-        , adapterVerify = \_ -> pure (Left "manifest-only adapter cannot verify provider state")
+        , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
         , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
         }
 

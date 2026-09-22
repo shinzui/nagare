@@ -44,12 +44,13 @@ inventoryHostTests =
         prepared <- adapterPrepare adapter operation >>= expectRight
         adapterRecover adapter operation prepared >>= (@?= RecoverySafeToRetry)
         adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
-        proof <- adapterVerify adapter operation >>= expectRight
+        proof <- adapterVerify adapter operation prepared >>= expectRight
         proof @?= hostCompletionProof activationPlan acknowledgement
     , testCase "local flake evidence cannot substitute for a remote committed closure" $ do
         state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")
         let adapter = mkHostAdapter (ops state)
-        result <- adapterVerify adapter operation
+        prepared <- adapterPrepare adapter operation >>= expectRight
+        result <- adapterVerify adapter operation prepared
         case result of
           Left message | "committed-closure" `contains` message -> pure ()
           other -> assertFailure ("expected committed-closure refusal, got " <> show other)

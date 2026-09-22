@@ -36,6 +36,7 @@ inventoryArtifactTests =
         adapterPreflight adapter publishOperation prepared >>= expectRight
         adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)
         readIORef calls >>= (@?= 0)
+        adapterVerify adapter publishOperation prepared >>= expectRight >>= (@?= artifactCompletionProof mutationPlan physical)
         adapterRecover adapter publishOperation prepared >>= (@?= RecoveryProvedComplete (artifactCompletionProof mutationPlan physical))
     , testCase "wrong remote digest refuses before publication" $ do
         calls <- newIORef (0 :: Int)

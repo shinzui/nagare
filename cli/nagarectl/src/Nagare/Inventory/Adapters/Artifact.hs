@@ -84,18 +84,16 @@ mkArtifactAdapter specs ops =
           ArtifactOwnershipMismatch _ reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           ArtifactObservationUnavailable reason -> pure (AdapterEffectAmbiguous reason)
           ArtifactPresent _ _ -> pure (AdapterEffectFailed (KnownNoEffect "remote artifact digest disagrees with review"))
-    verifyPlan operation = do
-      prepared <- artifactPrepareMutation ops operation
-      case prepared of
-        Left err -> pure (Left err)
-        Right plan -> do
-          observation <- artifactInspectRemote ops plan
-          pure $ case observation of
-            ArtifactPresent physical digest | digest == artifactPlanExpectedDigest plan -> Right (artifactCompletionProof plan physical)
-            ArtifactPresent _ _ -> Left "remote artifact digest disagrees with review"
-            ArtifactOwnershipMismatch _ reason -> Left reason
-            ArtifactMissing _ -> Left "remote artifact is absent"
-            ArtifactObservationUnavailable reason -> Left reason
+    verifyPlan operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
+      Left err -> pure (Left err)
+      Right plan -> do
+        observation <- artifactInspectRemote ops plan
+        pure $ case observation of
+          ArtifactPresent physical digest | digest == artifactPlanExpectedDigest plan -> Right (artifactCompletionProof plan physical)
+          ArtifactPresent _ _ -> Left "remote artifact digest disagrees with review"
+          ArtifactOwnershipMismatch _ reason -> Left reason
+          ArtifactMissing _ -> Left "remote artifact is absent"
+          ArtifactObservationUnavailable reason -> Left reason
     recoverPlan operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (RecoveryUnresolved err)
       Right plan -> recoveryObservation plan <$> artifactInspectRemote ops plan

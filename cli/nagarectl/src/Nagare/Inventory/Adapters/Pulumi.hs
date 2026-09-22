@@ -59,7 +59,7 @@ data PulumiAdapterOps = PulumiAdapterOps
   , pulumiPrepareSavedPlan :: !(PlannedOperation -> IO (Either Text PulumiPreparation))
   , pulumiReadIdentity :: !(IO (Either Text PulumiIdentity))
   , pulumiApplySavedPlan :: !(PlannedOperation -> ByteString -> IO AdapterExecution)
-  , pulumiVerifyResources :: !(PlannedOperation -> IO (Either Text ContentDigest))
+  , pulumiVerifyResources :: !(PlannedOperation -> ByteString -> IO (Either Text ContentDigest))
   , pulumiRecoverSavedPlan :: !(PlannedOperation -> ByteString -> IO RecoveryDecision)
   }
 
@@ -95,7 +95,7 @@ mkPulumiAdapter declared ops =
     , adapterPrepare = prepare
     , adapterPreflight = preflight
     , adapterExecute = executePlan
-    , adapterVerify = pulumiVerifyResources ops
+    , adapterVerify = verifyPlan
     , adapterRecover = recoverPlan
     }
   where
@@ -116,6 +116,9 @@ mkPulumiAdapter declared ops =
       case decodePrepared (preparedNativeBytes prepared) of
         Left err -> pure (AdapterEffectFailed (KnownNoEffect (renderBundleError err)))
         Right (_, planBytes) -> pulumiApplySavedPlan ops operation planBytes
+    verifyPlan operation prepared = case decodePrepared (preparedNativeBytes prepared) of
+      Left err -> pure (Left (renderBundleError err))
+      Right (_, planBytes) -> pulumiVerifyResources ops operation planBytes
     recoverPlan operation prepared =
       case decodePrepared (preparedNativeBytes prepared) of
         Left err -> pure (RecoveryUnresolved (renderBundleError err))

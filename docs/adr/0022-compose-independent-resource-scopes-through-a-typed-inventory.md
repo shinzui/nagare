@@ -156,6 +156,12 @@ resolution. Adapter children receive the transaction identity and are refused if
 they re-enter the inventory lock. Independent-process tests prove concurrent
 exclusion and kernel release after process death.
 
+Post-effect verification receives the same immutable retained native bundle as
+preflight, execution, and recovery. An adapter must decode that evidence rather
+than re-run preparation against mutable source, configuration, or provider state.
+This keeps every completion proof bound to the reviewed bytes and makes clean-process
+resume sound even when preparation inputs have subsequently changed.
+
 The shipped CLI planner is deliberately manifest-only until EP-146 and EP-147
 supply native adapters. It can publish deterministic review evidence, but its
 preflight always refuses execution. Thus this amendment records an implemented

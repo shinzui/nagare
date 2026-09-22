@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-22T04:32:10Z
       mode: "implement"
       note: "Implement conditional inventory store, review admission, and recovery protocol"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T14:34:28Z
+      mode: "implement"
+      note: "Pass retained native evidence into post-execution verification"
 ---
 
 # Persist reviewed resource plans and resumable execution receipts
@@ -54,6 +59,8 @@ This plan delivers the provider-independent planner, store, executor protocol, a
 
 2026-09-22: A fresh child process is necessary to test the kernel lock. A fork inherits enough process state to make the result platform-dependent. The suite launches the test executable in probe modes, proves concurrent refusal, terminates a lock-holding process, and then proves immediate reacquisition.
 
+2026-09-22: The original verification callback received only the common operation. That forced receipt-backed adapters to reconstruct mutable native inputs after execution, so a clean-process resume could verify different evidence from the retained review. Verification now receives the same immutable `PreparedNative` bytes as preflight, execution, and recovery. Provider access may still be needed to observe current state, but the reviewed native plan is never regenerated to prove completion.
+
 
 ## Decision Log
 
@@ -72,6 +79,8 @@ This plan delivers the provider-independent planner, store, executor protocol, a
 2026-09-16: One planner takes opaque LifecycleDecisions, and observationRequirements states what must be observed. Separate lifecycle planners could not express a mixed adopt-and-update change, and unspecified coverage would force either full-context observation on every application deploy or guessing.
 
 2026-09-16: Return refusals as Left and every admitted outcome as a TransactionResult that names its transaction. Failed and ambiguous transactions are durable state to resume, not errors to discard.
+
+2026-09-22: Pass retained native bytes to adapter verification. Post-effect verification must decode and bind the exact reviewed preparation, not call preparation again against mutable configuration or provider state.
 
 2026-09-16: Lock with base's GHC.IO.Handle.Lock and forbid adapter children from re-entering inventory commands. unix's setLock is an fcntl record lock that is lost on any close of the file and not inherited; re-entry under a held lock deadlocks the transaction against itself.
 

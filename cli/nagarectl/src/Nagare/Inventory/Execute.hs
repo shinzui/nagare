@@ -227,7 +227,7 @@ runOperations locked registry transaction reviewed initialEvents operations = go
                       _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter result was ambiguous"
                       pure (Just (StoppedAmbiguous transaction operationId))
                     AdapterEffectCompleted -> do
-                      verification <- withTransactionEnv transaction (adapterVerify adapter operation)
+                      verification <- withTransactionEnv transaction (adapterVerify adapter operation prepared)
                       case verification of
                         Left _ -> do
                           _ <- appendEvent locked transaction (Just operationId) Ambiguous "adapter completion could not be verified"

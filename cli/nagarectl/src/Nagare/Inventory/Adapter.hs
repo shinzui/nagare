@@ -104,7 +104,7 @@ data Adapter = Adapter
   , adapterPrepare :: !(PlannedOperation -> IO (Either PrepareError PreparedNative))
   , adapterPreflight :: !(PlannedOperation -> PreparedNative -> IO (Either Text ()))
   , adapterExecute :: !(PlannedOperation -> PreparedNative -> IO AdapterExecution)
-  , adapterVerify :: !(PlannedOperation -> IO (Either Text ContentDigest))
+  , adapterVerify :: !(PlannedOperation -> PreparedNative -> IO (Either Text ContentDigest))
   , adapterRecover :: !(PlannedOperation -> PreparedNative -> IO RecoveryDecision)
   }
 

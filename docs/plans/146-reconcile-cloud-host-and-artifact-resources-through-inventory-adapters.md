@@ -52,6 +52,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 2026-09-22: `scripts/upload-images.sh` was a second lifecycle owner for the Pulumi-declared image bucket. It now refuses a missing bucket instead of creating one. When invoked as an inventory artifact child it publishes a bounded result and does not rewrite `nagareImageSelfLink`; the resolved value requires a subsequent Pulumi review. The legacy direct invocation retains its config write until M4 routes the entry point.
 
+2026-09-22: EP-145's initial `adapterVerify` shape omitted the retained native bundle. Host and artifact verification therefore had no sound choice except re-running preparation against mutable inputs. The shared interface now passes `PreparedNative` into verification, and all three adapters decode the exact reviewed bytes. This also preserves offline recovery: already completed operations remain journal proofs and do not require a provider executable merely to be skipped.
+
 
 ## Decision Log
 
@@ -68,6 +70,8 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: Add `ActivateHost` to the closed declared-operation vocabulary rather than treating host switching as an arbitrary shell action. Recovery is automatic only before activation or after a proven reversion; a timer-armed, unreachable, wrong-instance, or wrong-closure host remains unresolved. The adapter never cancels a rollback timer to satisfy inventory execution.
 
 2026-09-22: Model deployment-context release payloads as external artifact references, while context-built OCI/GCS/GCE outputs, builders, build jobs, and control markers can be owned resources. Publication verifies exact remote content and ownership. Automatic collection refuses when global consumer completeness is unknown; EP-149 remains responsible for the eventual lifecycle decision rather than this adapter inventing deletion authority.
+
+2026-09-22: Treat the retained native bundle as an input to verification, not only to preflight, execution, and recovery. Regenerating a host, artifact, or Pulumi preparation after an effect would sever the completion proof from the operator-reviewed bytes.
 
 
 ## Outcomes & Retrospective

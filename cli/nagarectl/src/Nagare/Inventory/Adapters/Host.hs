@@ -86,16 +86,14 @@ mkHostAdapter ops =
           HostTimerArmed {} -> pure (AdapterEffectAmbiguous "host rollback timer remains armed")
           HostUnreachable reason -> pure (AdapterEffectAmbiguous reason)
           _ -> hostRunActivation ops plan
-    verifyPlan operation = do
-      prepared <- hostPreparePlan ops operation
-      case prepared of
-        Left err -> pure (Left err)
-        Right plan -> do
-          state <- hostInspectActivation ops plan
-          pure $ case state of
-            HostCommitted physical closure acknowledgement
-              | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> Right (hostCompletionProof plan acknowledgement)
-            _ -> Left "host activation lacks committed-closure acknowledgement"
+    verifyPlan operation prepared = case decodePlan operation (preparedNativeBytes prepared) of
+      Left err -> pure (Left err)
+      Right plan -> do
+        state <- hostInspectActivation ops plan
+        pure $ case state of
+          HostCommitted physical closure acknowledgement
+            | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> Right (hostCompletionProof plan acknowledgement)
+          _ -> Left "host activation lacks committed-closure acknowledgement"
     recoverPlan operation prepared = case decodePlan operation (preparedNativeBytes prepared) of
       Left err -> pure (RecoveryUnresolved err)
       Right plan -> recoveryState plan <$> hostInspectActivation ops plan

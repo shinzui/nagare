@@ -231,7 +231,7 @@ recordingRegistryWith preflight execution recovery =
         , adapterPrepare = \operation -> pure (Right (PreparedNative (canonical operation) "recording adapter"))
         , adapterPreflight = preflight
         , adapterExecute = execution
-        , adapterVerify = \operation -> pure (Right (proof operation))
+        , adapterVerify = \operation _ -> pure (Right (proof operation))
         , adapterRecover = recovery
         }
     canonical = either (error . T.unpack) id . canonicalValue . toJSON
