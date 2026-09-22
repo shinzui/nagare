@@ -13,7 +13,11 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Command
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import System.Directory
@@ -51,6 +55,22 @@ inventoryTests =
         refused <- try (compileInventory "test/fixtures/inventory/collision-service.json" output True) :: IO (Either ExitCode ())
         assertBool "invalid rejected" (isLeft refused)
         doesPathExist output >>= (@?= False)
+    , testCase "Kubernetes declaration binds the exact canonical native object" $ do
+        let owner = ok (mkScopeId Platform "foundation")
+            rid key = mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "resource"))
+            objectName name = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Service" :: Text)
+              , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
+              ]
+            original = objectName ("cache" :: Text)
+            bytes = ok (canonicalValue original)
+            input value = KubernetesInput (rid "service") owner (rid "cluster") value (contentDigest bytes) Retain Stateless Public (SourceLocation "fixture.yaml" "document[0]")
+        (_, boundBytes) <- either (assertFailure . show) pure (bindKubernetesObject (input original))
+        boundBytes @?= bytes
+        case bindKubernetesObject (input (objectName ("different" :: Text))) of
+          Left err -> err ^. #code @?= "invalid-kubernetes-object"
+          Right _ -> assertFailure "changed native object retained stale review digest"
     , testCase "all negative fixtures fail for the intended diagnostic"
         $ forM_
           [("collision-service.json", "claim-conflict"), ("collision-knative-database.json", "claim-conflict"), ("collision-bucket.json", "claim-conflict"), ("collision-version-alias.json", "claim-conflict"), ("collision-namespace-contributions.json", "claim-conflict"), ("duplicate-id.json", "wire"), ("missing-snapshot.json", "wire"), ("retained-claim.json", "reserved-claim")]
