@@ -38,6 +38,7 @@ import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaim
 import Nagare.Dsl.Task
 import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
+import ResourceInventorySpec (resourceInventoryTests)
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
 import Test.Tasty
@@ -52,6 +53,7 @@ main =
     testGroup
       "nagare-dsl"
       [ testGroup "Nagare.Dsl.Types" unitTests
+      , resourceInventoryTests
       , testGroup "Nagare.Dsl.Render" goldenTests
       , testGroup "Nagare.Dsl volumes (EP-34)" volumeTests
       , testGroup "Nagare.Dsl.Types scoped env" scopedEnvTests

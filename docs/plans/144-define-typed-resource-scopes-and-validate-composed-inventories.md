@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Interface amended after pre-implementation API validation under MasterPlan 23"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-22T03:40:43Z
+      mode: "implement"
+      note: "Implement typed scopes, composition, canonical wire and local compile command"
 ---
 
 # Define typed resource scopes and validate composed inventories
@@ -33,14 +38,16 @@ This is the foundation of [IR-24](../improvement-requests/make-managed-resources
 
 ## Progress
 
-- [ ] M1: Define opaque identities, resource alternatives, lifecycle policies, and typed references.
-- [ ] M2: Implement deterministic composition, graph validation, and the versioned wire contract.
+- [x] (2026-09-22) M1: Define opaque identities, resource alternatives, lifecycle policies, and typed references; positive API control and constructor tests compile, Generic and capability-coercion attacks refuse.
+- [x] (2026-09-22) M2: Implement deterministic composition, graph validation, and the versioned wire contract; 420 DSL tests pass, including 18 inventory cases.
+- [x] (2026-09-22) M3 implementation: read-only CLI, canonical scope members, SHA-256 manifest binding, verified recomposition, and immutable private publication; 578 CLI tests pass.
+- [ ] M3 acceptance: finish schema/fixture parity, the expanded negative API suite, adversarial boundary review, formatting, documentation, and final command evidence.
 - [ ] M3: Expose read-only compilation and prove structural and graph guarantees.
 
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-22: The local GHC is 9.12.4. Cabal downloaded missing existing dependencies without changing bounds. DSL tests passed 420/420 and CLI tests passed 578/578. The strengthened negative runner caught an unrelated ambiguous aeson import caused by explicitly exposing aeson in addition to Cabal's chosen package environment; the runner now uses the environment and its positive control imports aeson too. This validates why matching the intended compiler diagnostic is required.
 
 
 ## Decision Log
@@ -66,7 +73,7 @@ None yet; implementation has not started.
 
 ## Outcomes & Retrospective
 
-Not implemented. Record demonstrated guarantees and remaining limitations when complete.
+The typed model and local compiler are implemented. M3's final acceptance audit remains in progress. No provider mutation or migration of existing deployment entry points is included in this foundation.
 
 
 ## Context and Orientation

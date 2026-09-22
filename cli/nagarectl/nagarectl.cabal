@@ -86,6 +86,8 @@ library
     Nagare.Image
     Nagare.Infra.Plan
     Nagare.Init
+    Nagare.Inventory.Command
+    Nagare.Inventory.Digest
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
@@ -207,6 +209,7 @@ test-suite nagarectl-test
     CertificateMigrationSpec
     DomainBindingSpec
     HostSpec
+    InventorySpec
     PlatformCutoverSpec
     PlatformSpec
 

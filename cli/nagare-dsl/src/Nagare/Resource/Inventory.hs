@@ -1,0 +1,380 @@
+module Nagare.Resource.Inventory
+  ( Executor (..)
+  , DesiredSpec (..)
+  , ManagedResource (..)
+  , Declaration (..)
+  , ClaimKind (..)
+  , claimsOf
+  , declarationId
+  , declarationSource
+  , declarationDependencies
+  , DeclaredOperation (..)
+  , OperationInput (..)
+  , Contribution (..)
+  , ContributionGrant (..)
+  , ResourceBundle (..)
+  , ScopeDeclaration
+  , mkScopeDeclaration
+  , scopeId
+  , scopeBundles
+  , ClaimHolder (..)
+  , ReservationReason (..)
+  , ScopeSnapshot
+  , mkScopeSnapshot
+  , snapshotBinding
+  , snapshotScopes
+  , snapshotReservations
+  , ScopeChange (..)
+  , CompositionCandidate
+  , ValidatedInventory
+  , composeInventory
+  , candidateInventory
+  , candidateBase
+  , candidateChanges
+  , candidateGenerations
+  , inventoryScopes
+  , inventoryDeclarations
+  , inventoryBinding
+  , contributionDependents
+  )
+where
+
+import Data.Generics.Labels ()
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (group, sort, sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
+import Data.Text qualified
+import Nagare.Dsl.Prelude
+import Nagare.Resource.Policy
+import Nagare.Resource.Reference
+import Nagare.Resource.Types
+
+data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Closed, versioned alternatives. Native bytes are referenced by content identity.
+-- Controller reservations are derived here, never supplied by an executor at apply.
+data DesiredSpec
+  = NativeObject !ContentDigest
+  | KnativeService !ContentDigest
+  | Certificate !Name !ContentDigest
+  | StatefulSet !Integer ![Name] !ContentDigest
+  | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
+  | NamespaceSpec
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ManagedResource = ManagedResource
+  { identity :: !ResourceId
+  , owner :: !ScopeId
+  , executor :: !Executor
+  , address :: !ProviderAddress
+  , aliases :: ![ProviderAddress]
+  , spec :: !DesiredSpec
+  , lifecycle :: !LifecyclePolicy
+  , dataPolicy :: !DataPolicy
+  , sensitivity :: !Sensitivity
+  , dependencies :: ![Dependency]
+  , delegations :: ![Delegation]
+  , source :: !SourceLocation
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+data Declaration
+  = Managed !ManagedResource
+  | External !ResourceId !ProviderAddress ![Dependency] !SourceLocation
+  | ObservedChild !ResourceId !ResourceId !ProviderAddress !PhysicalIdentity !SourceLocation
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ClaimKind = DirectClaim | AliasClaim | DerivedReservation deriving stock (Eq, Ord, Show, Generic)
+
+declarationId :: Declaration -> ResourceId
+declarationId (Managed r) = r ^. #identity
+declarationId (External r _ _ _) = r
+declarationId (ObservedChild r _ _ _ _) = r
+
+declarationSource :: Declaration -> SourceLocation
+declarationSource (Managed r) = r ^. #source
+declarationSource (External _ _ _ s) = s
+declarationSource (ObservedChild _ _ _ _ s) = s
+
+declarationDependencies :: Declaration -> [Dependency]
+declarationDependencies (Managed r) = r ^. #dependencies
+declarationDependencies (External _ _ ds _) = ds
+declarationDependencies (ObservedChild _ p _ _ _) = [OrderedAfter p]
+
+claimsOf :: Declaration -> NonEmpty (ClaimKind, CanonicalClaim)
+claimsOf (External _ a _ _) = (DirectClaim, canonicalClaim a) :| []
+claimsOf (ObservedChild _ _ a _ _) = (DirectClaim, canonicalClaim a) :| []
+claimsOf (Managed r) =
+  (DirectClaim, canonicalClaim (r ^. #address))
+    :| (map ((AliasClaim,) . canonicalClaim) (r ^. #aliases) <> map ((DerivedReservation,) . canonicalClaim) (derived r))
+
+derived :: ManagedResource -> [ProviderAddress]
+derived r = case (r ^. #address, r ^. #spec) of
+  (Kubernetes c _ _ ns n, KnativeService _) -> [Kubernetes c "" (known "service") ns n]
+  (Kubernetes c _ _ ns _, Certificate secret _) -> [Kubernetes c "" (known "secret") ns secret]
+  (Kubernetes c _ _ ns n, StatefulSet replicas templates _) ->
+    [Kubernetes c "" (known "pod") ns pod | i <- [0 .. bounded replicas - 1], Right pod <- [mkName (ordinal n i)]]
+      <> [Kubernetes c "" (known "persistentvolumeclaim") ns pvc | t <- templates, i <- [0 .. bounded replicas - 1], Right pvc <- [mkName (nameText t <> "-" <> ordinal n i)]]
+  (_, HelmRelease objects _) -> NE.toList objects
+  _ -> []
+  where
+    ordinal n i = nameText n <> "-" <> packInteger i
+    bounded count = if count >= 0 && count <= 10000 then count else 0
+
+-- Internal constants and generated names are checked by structural validation too.
+known :: Text -> Name
+known = either (error . show) id . mkName
+
+packInteger :: Integer -> Text
+packInteger = Data.Text.pack . show
+
+data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest
+  deriving stock (Eq, Ord, Show, Generic)
+
+data DeclaredOperation = DeclaredOperation
+  { identity :: !ResourceId
+  , affects :: !(NonEmpty ResourceId)
+  , inputs :: ![OperationInput]
+  , recovery :: !RecoveryClass
+  , operationKind :: !Name
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+data Contribution = RegisterNamespace
+  {owner :: !ScopeId, cluster :: !ResourceId, namespace :: !Name, key :: !LogicalKey}
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ContributionGrant = NamespaceGrant !ScopeId !ResourceId
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ResourceBundle = ResourceBundle
+  { declarations :: ![Declaration]
+  , exports :: ![SomeExport]
+  , conditions :: ![SomeRef]
+  , contributions :: ![Contribution]
+  , operations :: ![DeclaredOperation]
+  , grants :: ![ContributionGrant]
+  }
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ScopeDeclaration = ScopeDeclaration ScopeId [ResourceBundle] deriving stock (Eq, Ord, Show)
+
+scopeId :: ScopeDeclaration -> ScopeId
+scopeId (ScopeDeclaration s _) = s
+
+scopeBundles :: ScopeDeclaration -> [ResourceBundle]
+scopeBundles (ScopeDeclaration _ bs) = bs
+
+mkScopeDeclaration :: ScopeId -> [ResourceBundle] -> Either (NonEmpty InventoryError) ScopeDeclaration
+mkScopeDeclaration s bs = checked errors (ScopeDeclaration s (sort bs))
+  where
+    ds = concatMap (^. #declarations) bs
+    ids = map declarationId ds <> map (^. #identity) (concatMap (^. #operations) bs)
+    errors =
+      [inventoryError "duplicate-id" "duplicate resource or operation identity in scope" & #scopes .~ [s] & #resources .~ [r] | r <- duplicates ids]
+        <> concatMap validateDeclaration ds
+        <> [err "wrong-owner" "managed declaration belongs to a different scope" d | d@(Managed r) <- ds, r ^. #owner /= s]
+    err c m d = inventoryError c m & #scopes .~ [s] & #resources .~ [declarationId d] & #sources .~ [declarationSource d]
+
+validateDeclaration :: Declaration -> [InventoryError]
+validateDeclaration d@(Managed r) = [err m | m <- issues]
+  where
+    err m = inventoryError "invalid-declaration" m & #scopes .~ [r ^. #owner] & #resources .~ [r ^. #identity] & #sources .~ [r ^. #source]
+    issues =
+      ["durable resources require retention or protection" | Durable _ <- [r ^. #dataPolicy], r ^. #lifecycle == DeleteWhenUnreferenced]
+        <> ["invalid Pulumi URN" | PulumiUrn urn <- r ^. #address : r ^. #aliases, not ("urn:pulumi:" `Data.Text.isPrefixOf` urn) || length (Data.Text.splitOn "::" urn) /= 4]
+        <> ["executor does not match address" | not executorMatches]
+        <> ["controller kind requires its explicit reservation-producing spec" | not specMatches]
+        <> ["invalid replica count or generated name" | StatefulSet count templates _ <- [r ^. #spec], count < 0 || count > 10000 || any (> 230) (map (Data.Text.length . nameText) templates) || addressNameLength > 230]
+        <> ["generated controller address exceeds provider name bounds" | StatefulSet count templates _ <- [r ^. #spec], count >= 0, count <= 10000, toInteger (length (derived r)) /= count * (1 + toInteger (length templates))]
+        <> ["delegated fields overlap" | not (null (duplicates (concatMap (NE.toList . (^. #fields)) (r ^. #delegations))))]
+        <> ["duplicate address within declaration" | length claimSet /= Set.size (Set.fromList claimSet)]
+    -- Avoid expanding an invalid StatefulSet before reporting its bounds.
+    claimSet = case r ^. #spec of
+      StatefulSet n _ _ | n < 0 || n > 10000 || addressNameLength > 230 -> []
+      _ -> map snd (NE.toList (claimsOf d))
+    addressNameLength = case r ^. #address of Kubernetes _ _ _ _ n -> Data.Text.length (nameText n); _ -> 0
+    executorMatches = case r ^. #address of
+      Kubernetes {} -> r ^. #executor == KubernetesExecutor
+      GlobalBucket {} -> r ^. #executor == PulumiExecutor
+      CloudInstance {} -> r ^. #executor == PulumiExecutor
+      PulumiUrn {} -> r ^. #executor == PulumiExecutor
+      Host {} -> r ^. #executor == HostExecutor
+      Artifact {} -> r ^. #executor == ArtifactExecutor
+      _ -> True
+    specMatches = case (r ^. #address, r ^. #spec) of
+      (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
+      (Kubernetes _ "cert-manager.io" k (Just _) _, Certificate {}) -> nameText k == "certificate"
+      (Kubernetes _ "apps" k (Just _) _, StatefulSet {}) -> nameText k == "statefulset"
+      (Kubernetes _ "" k Nothing _, NamespaceSpec) -> nameText k == "namespace"
+      (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
+      (_, NativeObject _) -> True
+      (_, HelmRelease {}) -> True
+      _ -> False
+validateDeclaration _ = []
+
+data ReservationReason = RetainedIncarnation | CandidateIncarnation | UnresolvedTransaction
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ClaimHolder = ClaimHolder !ScopeId !ResourceId !PhysicalIdentity !ReservationReason
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ScopeSnapshot = ScopeSnapshot ContextBinding (Map ScopeId (ScopeGeneration, ScopeDeclaration)) (Map CanonicalClaim ClaimHolder)
+  deriving stock (Eq, Show)
+
+mkScopeSnapshot :: ContextBinding -> Map ScopeId (ScopeGeneration, ScopeDeclaration) -> Map CanonicalClaim ClaimHolder -> Either (NonEmpty InventoryError) ScopeSnapshot
+mkScopeSnapshot b ss rs =
+  checked
+    [inventoryError "snapshot-scope" "snapshot key disagrees with complete scope declaration" | (s, (_, d)) <- Map.toList ss, s /= scopeId d]
+    (ScopeSnapshot b ss rs)
+
+snapshotBinding :: ScopeSnapshot -> ContextBinding
+snapshotBinding (ScopeSnapshot b _ _) = b
+
+snapshotScopes :: ScopeSnapshot -> Map ScopeId (ScopeGeneration, ScopeDeclaration)
+snapshotScopes (ScopeSnapshot _ ss _) = ss
+
+snapshotReservations :: ScopeSnapshot -> Map CanonicalClaim ClaimHolder
+snapshotReservations (ScopeSnapshot _ _ rs) = rs
+
+data ScopeChange = ReplaceScope !ScopeDeclaration | RetireScope !ScopeId !RetirementIntent deriving stock (Eq, Ord, Show, Generic)
+
+data ValidatedInventory = ValidatedInventory ContextBinding (Map ScopeId ScopeDeclaration) [Declaration] deriving stock (Eq, Show)
+
+data CompositionCandidate = CompositionCandidate ValidatedInventory (Map ScopeId ScopeGeneration) (NonEmpty ScopeChange) (Map ScopeId ScopeGeneration) deriving stock (Eq, Show)
+
+candidateInventory :: CompositionCandidate -> ValidatedInventory
+candidateInventory (CompositionCandidate i _ _ _) = i
+
+candidateBase :: CompositionCandidate -> Map ScopeId ScopeGeneration
+candidateBase (CompositionCandidate _ b _ _) = b
+
+candidateChanges :: CompositionCandidate -> NonEmpty ScopeChange
+candidateChanges (CompositionCandidate _ _ c _) = c
+
+candidateGenerations :: CompositionCandidate -> Map ScopeId ScopeGeneration
+candidateGenerations (CompositionCandidate _ _ _ g) = g
+
+inventoryScopes :: ValidatedInventory -> Map ScopeId ScopeDeclaration
+inventoryScopes (ValidatedInventory _ ss _) = ss
+
+inventoryDeclarations :: ValidatedInventory -> [Declaration]
+inventoryDeclarations (ValidatedInventory _ _ ds) = ds
+
+inventoryBinding :: ValidatedInventory -> ContextBinding
+inventoryBinding (ValidatedInventory b _ _) = b
+
+-- | The contributor retains a dependency on the owner-composed Namespace even
+-- though that Namespace is absent from its own lifecycle-owned declarations.
+contributionDependents :: ValidatedInventory -> Map ResourceId ScopeId
+contributionDependents inventory =
+  Map.fromList
+    [ (mintResourceId s (c ^. #key) (known "namespace"), s)
+    | (s, d) <- Map.toList (inventoryScopes inventory)
+    , b <- scopeBundles d
+    , c <- b ^. #contributions
+    ]
+
+composeInventory :: ScopeSnapshot -> NonEmpty ScopeChange -> Either (NonEmpty InventoryError) CompositionCandidate
+composeInventory snapshot changes = do
+  checked changeErrors ()
+  derivedDeclarations <- composeContributions ss
+  let ds = sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> derivedDeclarations)
+  checked
+    (validateGraph ss ds (snapshotReservations snapshot))
+    (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations)
+  where
+    original = snapshotScopes snapshot
+    base = fmap fst original
+    selected = NE.toList changes
+    changedId (ReplaceScope s) = scopeId s
+    changedId (RetireScope s _) = s
+    changeErrors =
+      [inventoryError "duplicate-change" "scope selected more than once" & #scopes .~ [s] | s <- duplicates (map changedId selected)]
+        <> [inventoryError "unknown-retirement" "cannot retire a scope absent from the snapshot" & #scopes .~ [s] | RetireScope s _ <- selected, Map.notMember s original]
+    ss = foldl change (fmap snd original) selected
+    change m (ReplaceScope s) = Map.insert (scopeId s) s m
+    change m (RetireScope s _) = Map.delete s m
+    generations = Map.mapWithKey (\s _ -> if s `elem` map changedId selected then nextGeneration (Map.lookup s base) else base Map.! s) ss
+
+scopeDeclarations :: ScopeDeclaration -> [Declaration]
+scopeDeclarations = concatMap (^. #declarations) . scopeBundles
+
+composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
+composeContributions ss = checked errors generated
+  where
+    requests = [(s, c) | (s, d) <- Map.toList ss, b <- scopeBundles d, c <- b ^. #contributions]
+    authorized s c = maybe False (elem (NamespaceGrant s (c ^. #cluster)) . concatMap (^. #grants) . scopeBundles) (Map.lookup (c ^. #owner) ss)
+    errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c) <- requests, not (authorized s c)]
+    generated =
+      [ Managed
+          ( ManagedResource
+              (mintResourceId s (c ^. #key) (known "namespace"))
+              (c ^. #owner)
+              KubernetesExecutor
+              (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing (c ^. #namespace))
+              []
+              NamespaceSpec
+              Retain
+              Stateless
+              Public
+              []
+              []
+              (SourceLocation "contribution" (scopeIdText s))
+          )
+      | (s, c) <- requests
+      ]
+
+validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalClaim ClaimHolder -> [InventoryError]
+validateGraph ss ds reservations =
+  [issue "duplicate-id" "duplicate logical identity" [d | d <- ds, declarationId d == r] [] | r <- duplicates (map declarationId ds <> map (^. #identity) ops)]
+    <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1]
+    <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
+    <> concatMap validateDeclaration ds
+    <> [issue "dangling-reference" "dependency producer is absent" [d] [] | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId]
+    <> [issue "reference-mismatch" "output capability, constraints, or sensitivity disagree with its export" [d] [] | d <- ds, ref <- dependencyRefs (declarationDependencies d), not (matches ref)]
+    <> [inventoryError "condition-mismatch" "required condition has no compatible exported output" | b <- bundles, ref <- b ^. #conditions, not (matches ref)]
+    <> [inventoryError "invalid-export" "export producer must be declared in its exporting scope" & #scopes .~ [s] & #resources .~ [r] | (s, sc) <- Map.toList ss, b <- scopeBundles sc, e <- b ^. #exports, let (r, _, _, _, _) = exportSignature e, r `notElem` map declarationId (scopeDeclarations sc)]
+    <> [inventoryError "duplicate-export" "producer and output key exported more than once" | not (null (duplicates [(r, k) | (r, k, _, _, _) <- exports]))]
+    <> [issue "dependency-cycle" "dependency graph contains a cycle" cycleDs [] | CyclicSCC cycleDs <- stronglyConnComp [(d, declarationId d, map dependencyProducer (declarationDependencies d)) | d <- ds]]
+    <> [issue "unreserved-child" "observed child lacks a reservation from its named parent" [d] [canonicalClaim a] | d@(ObservedChild _ p a _ _) <- ds, not (maybe False (elem (DerivedReservation, canonicalClaim a) . NE.toList . claimsOf) (Map.lookup p byId))]
+    <> [inventoryError "operation-reference" "declared operation affects an absent resource or has incompatible inputs" & #resources .~ [op ^. #identity] | op <- ops, any (`Map.notMember` byId) (NE.toList (op ^. #affects)) || any (not . matches) [r | CapabilityInput r <- op ^. #inputs]]
+    <> [issue "delegation-controller" "delegation controller is absent" [d] [] | d@(Managed r) <- ds, del <- r ^. #delegations, Map.notMember (del ^. #controller) byId]
+  where
+    byId = Map.fromList [(declarationId d, d) | d <- ds]
+    bundles = concatMap scopeBundles (Map.elems ss)
+    ops = concatMap (^. #operations) bundles
+    exports = map exportSignature (concatMap (^. #exports) bundles)
+    matches r = let (p, k, c, cs, s) = refSignature r in any (\(p', k', c', cs', s') -> (p, k, c, s) == (p', k', c', s') && all (`elem` cs') cs) exports
+    claims = Map.fromListWith (<>) [(c, [d]) | d@(Managed _) <- ds, (_, c) <- NE.toList (claimsOf d)]
+    issue c m involved cs =
+      inventoryError c m
+        & #scopes
+        .~ [s | (s, sc) <- Map.toList ss, any (`elem` scopeDeclarations sc) involved]
+        & #resources
+        .~ map declarationId involved
+        & #claims
+        .~ cs
+        & #sources
+        .~ map declarationSource involved
+
+dependencyProducer :: Dependency -> ResourceId
+dependencyProducer (OrderedAfter r) = r
+dependencyProducer (Consumes (SomeRef r)) = refProducer r
+dependencyProducer (ReadyAfter (SomeRef r)) = refProducer r
+
+dependencyRefs :: [Dependency] -> [SomeRef]
+dependencyRefs = concatMap (\case Consumes r -> [r]; ReadyAfter r -> [r]; OrderedAfter _ -> [])
+
+duplicates :: (Ord a) => [a] -> [a]
+duplicates xs = [x | x : _ : _ <- group (sort xs)]
+
+checked :: [InventoryError] -> a -> Either (NonEmpty InventoryError) a
+checked [] a = Right a
+checked (e : es) _ = Left (e :| es)

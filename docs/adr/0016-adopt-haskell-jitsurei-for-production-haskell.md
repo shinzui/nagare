@@ -42,6 +42,14 @@ semantic field names, and generic-lens labels for access and updates. Constructo
 construction and patterns remain valid. The rule does not apply to records owned by dependencies,
 which may continue to use their native selectors and update syntax.
 
+Opaque invariant-bearing types are the narrow exception: they expose neither `Generic` nor
+writable optics. This includes `Nagare.Resource` identity newtypes, scope/snapshot constructors,
+validated inventories, composition candidates, and credential carriers. `GHC.Generics.to` can
+otherwise reconstruct a hidden constructor. Capability references use a nominal index and an
+explicit GADT witness, so `coerce` cannot change an output's capability. Public records whose
+invariants are entirely in their field types retain the normal house style. EP-144's compiled
+positive control and expected-diagnostic negative fixtures enforce this boundary.
+
 Every field of a project-owned `data` record carries an explicit strictness bang to prevent
 accidental thunk retention and space leaks. A `newtype` record field is the sole syntactic
 exception: its constructor is representation-erased, and GHC rejects a strictness annotation on

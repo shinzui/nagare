@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "context": {
+    "identity": "context-1",
+    "project": "project"
+  },
+  "base": [
+    {
+      "scope": {
+        "kind": "Platform",
+        "name": "foundation"
+      },
+      "generation": 7
+    }
+  ],
+  "snapshot": [],
+  "reservations": [],
+  "changes": [
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Application",
+          "name": "app"
+        },
+        "bundles": [
+          {
+            "declarations": [
+              {
+                "tag": "Managed",
+                "contents": {
+                  "identity": "application:app/app/resource",
+                  "owner": {
+                    "kind": "Application",
+                    "name": "app"
+                  },
+                  "executor": "KubernetesExecutor",
+                  "address": {
+                    "tag": "Kubernetes",
+                    "contents": [
+                      "platform:foundation/cluster/resource",
+                      "",
+                      "service",
+                      "nagare-system",
+                      "app"
+                    ]
+                  },
+                  "aliases": [],
+                  "spec": {
+                    "tag": "NativeObject",
+                    "contents": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  },
+                  "lifecycle": "Retain",
+                  "dataPolicy": {
+                    "tag": "Stateless"
+                  },
+                  "sensitivity": "Public",
+                  "dependencies": [],
+                  "delegations": [],
+                  "source": {
+                    "file": "fixture",
+                    "path": "app"
+                  }
+                }
+              }
+            ],
+            "exports": [],
+            "conditions": [],
+            "contributions": [],
+            "operations": [],
+            "grants": []
+          }
+        ]
+      }
+    }
+  ]
+}

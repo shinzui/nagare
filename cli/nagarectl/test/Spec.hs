@@ -38,6 +38,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
+import InventorySpec (inventoryTests)
 import Nagare.App
   ( AppSummary (..)
   , LogTarget (..)
@@ -409,6 +410,7 @@ main = do
         "nagarectl"
         [ testGroup "Nagare.Static.Image" dockerfileTests
         , hostTests
+        , inventoryTests
         , platformTests
         , platformCutoverTests
         , testGroup "Nagare.Static.Build" prepareTests

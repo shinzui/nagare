@@ -235,6 +235,7 @@ import Nagare.Init
   , seedPulumiConfig
   , writeTargetEnv
   )
+import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
   , defaultKeepReleases
@@ -614,6 +615,7 @@ data DepLogsOpts = DepLogsOpts
 -- | Everything @nagarectl@ can be asked to do.
 data Command
   = Version VersionOpts
+  | InventoryCompile FilePath FilePath Bool
   | PlatformRoot Bool
   | PlatformStatusCmd Bool
   | PlatformGuard
@@ -1737,6 +1739,7 @@ opts =
     commandParser =
       subparser
         ( command "version" versionCmd
+            <> command "inventory" (info (subparser (command "compile" (info (InventoryCompile <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <*> switch (long "json") <**> helper) (progDesc "Compile complete resource scopes without contacting providers"))) <**> helper) (progDesc "Typed resource inventory"))
             <> command "platform" platformCmd
             <> command "host" hostCmd
             <> command "kubeconfig" kubeconfigCmd
@@ -2611,6 +2614,7 @@ main = do
     Domains (DomainsCheck o) -> runDomainsCheck mctx o
     CdnCmd ccmd -> runCdn mctx ccmd
     Cleanup o -> runCleanup mctx o
+    InventoryCompile input output json -> Inventory.compileInventory input output json
 
 runVersion :: VersionOpts -> IO ()
 runVersion options = do

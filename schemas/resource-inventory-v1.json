@@ -1,0 +1,1258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Nagare resource inventory v1",
+  "description": "Fixture candidate inputs and immutable scope documents. Haskell decoding and composition additionally enforce semantic graph, ownership, reservation and completeness checks. Compiled manifests reference scope documents by exact SHA-256 bytes.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/candidate"
+    },
+    {
+      "$ref": "#/$defs/scope"
+    }
+  ],
+  "$defs": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9._-]+$"
+    },
+    "resource": {
+      "type": "string",
+      "pattern": "^(platform|application|standalone|publication):[a-z0-9._-]+/[a-z0-9._-]+/[a-z0-9._-]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "scopeId": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "Platform",
+            "Application",
+            "Standalone",
+            "Publication"
+          ]
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/name"
+        },
+        "project": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "identity",
+        "project"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "sensitivity": {
+      "enum": [
+        "Public",
+        "Private",
+        "Secret"
+      ]
+    },
+    "secret": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/name"
+        },
+        "version": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "key",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "recovery": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/name"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/secret"
+          },
+          "minItems": 1
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "retirement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "RetainResources"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "CollectWithRecovery"
+            },
+            "contents": {
+              "$ref": "#/$defs/recovery"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "dataPolicy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Stateless"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Durable"
+            },
+            "contents": {
+              "$ref": "#/$defs/recovery"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "address": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Kubernetes"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/name"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/name"
+                }
+              ],
+              "minItems": 5,
+              "maxItems": 5
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "GlobalBucket"
+            },
+            "contents": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "CloudInstance"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                }
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "PulumiUrn"
+            },
+            "contents": {
+              "type": "string",
+              "pattern": "^urn:pulumi:"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Host"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Artifact"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "$ref": "#/$defs/digest"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Hostname"
+            },
+            "contents": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "DatabaseName"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "BackendRoute"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/name"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "spec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "NativeObject"
+            },
+            "contents": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "KnativeService"
+            },
+            "contents": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Certificate"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/name"
+                },
+                {
+                  "$ref": "#/$defs/digest"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "StatefulSet"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/name"
+                  },
+                  "minItems": 0
+                },
+                {
+                  "$ref": "#/$defs/digest"
+                }
+              ],
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "HelmRelease"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/address"
+                  },
+                  "minItems": 1
+                },
+                {
+                  "$ref": "#/$defs/digest"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "NamespaceSpec"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "constraint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "NonEmptyOutput"
+            }
+          },
+          "required": [
+            "tag"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "InNamespace"
+            },
+            "contents": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "InProject"
+            },
+            "contents": {
+              "$ref": "#/$defs/name"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "producer": {
+          "$ref": "#/$defs/resource"
+        },
+        "key": {
+          "$ref": "#/$defs/name"
+        },
+        "capability": {
+          "enum": [
+            "DatabaseConnection",
+            "OciImage",
+            "StorageLocation",
+            "ReadinessCondition",
+            "TlsReady"
+          ]
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constraint"
+          },
+          "minItems": 0
+        },
+        "sensitivity": {
+          "$ref": "#/$defs/sensitivity"
+        }
+      },
+      "required": [
+        "producer",
+        "key",
+        "capability",
+        "constraints",
+        "sensitivity"
+      ],
+      "additionalProperties": false
+    },
+    "dependency": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Consumes"
+            },
+            "contents": {
+              "$ref": "#/$defs/output"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "ReadyAfter"
+            },
+            "contents": {
+              "$ref": "#/$defs/output"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "OrderedAfter"
+            },
+            "contents": {
+              "$ref": "#/$defs/resource"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "delegation": {
+      "type": "object",
+      "properties": {
+        "controller": {
+          "$ref": "#/$defs/resource"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "minItems": 1
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "RefreshCredential",
+              "ReconcileChildren"
+            ]
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "controller",
+        "fields",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "managed": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/resource"
+        },
+        "owner": {
+          "$ref": "#/$defs/scopeId"
+        },
+        "executor": {
+          "enum": [
+            "KubernetesExecutor",
+            "PulumiExecutor",
+            "HostExecutor",
+            "ArtifactExecutor"
+          ]
+        },
+        "address": {
+          "$ref": "#/$defs/address"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/address"
+          },
+          "minItems": 0
+        },
+        "spec": {
+          "$ref": "#/$defs/spec"
+        },
+        "lifecycle": {
+          "enum": [
+            "Retain",
+            "DeleteWhenUnreferenced",
+            "Protect"
+          ]
+        },
+        "dataPolicy": {
+          "$ref": "#/$defs/dataPolicy"
+        },
+        "sensitivity": {
+          "$ref": "#/$defs/sensitivity"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependency"
+          },
+          "minItems": 0
+        },
+        "delegations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/delegation"
+          },
+          "minItems": 0
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": [
+        "identity",
+        "owner",
+        "executor",
+        "address",
+        "aliases",
+        "spec",
+        "lifecycle",
+        "dataPolicy",
+        "sensitivity",
+        "dependencies",
+        "delegations",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "declaration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "Managed"
+            },
+            "contents": {
+              "$ref": "#/$defs/managed"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "External"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/address"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/dependency"
+                  },
+                  "minItems": 0
+                },
+                {
+                  "$ref": "#/$defs/source"
+                }
+              ],
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "ObservedChild"
+            },
+            "contents": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/resource"
+                },
+                {
+                  "$ref": "#/$defs/address"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/source"
+                }
+              ],
+              "minItems": 5,
+              "maxItems": 5
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "operationInput": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "CapabilityInput"
+            },
+            "contents": {
+              "$ref": "#/$defs/output"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "SecretInput"
+            },
+            "contents": {
+              "$ref": "#/$defs/secret"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "ContentInput"
+            },
+            "contents": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "tag",
+            "contents"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/resource"
+        },
+        "affects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resource"
+          },
+          "minItems": 1
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operationInput"
+          },
+          "minItems": 0
+        },
+        "recovery": {
+          "enum": [
+            "Idempotent",
+            "VerifyBeforeRetry",
+            "OperatorRecovery"
+          ]
+        },
+        "operationKind": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "identity",
+        "affects",
+        "inputs",
+        "recovery",
+        "operationKind"
+      ],
+      "additionalProperties": false
+    },
+    "contribution": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "$ref": "#/$defs/scopeId"
+        },
+        "cluster": {
+          "$ref": "#/$defs/resource"
+        },
+        "namespace": {
+          "$ref": "#/$defs/name"
+        },
+        "key": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "owner",
+        "cluster",
+        "namespace",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "grant": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/scopeId"
+        },
+        {
+          "$ref": "#/$defs/resource"
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "bundle": {
+      "type": "object",
+      "properties": {
+        "declarations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/declaration"
+          },
+          "minItems": 0
+        },
+        "exports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output"
+          },
+          "minItems": 0
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output"
+          },
+          "minItems": 0
+        },
+        "contributions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contribution"
+          },
+          "minItems": 0
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operation"
+          },
+          "minItems": 0
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/grant"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "declarations",
+        "exports",
+        "conditions",
+        "contributions",
+        "operations",
+        "grants"
+      ],
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "scope": {
+          "$ref": "#/$defs/scopeId"
+        },
+        "bundles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bundle"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "version",
+        "scope",
+        "bundles"
+      ],
+      "additionalProperties": false
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/scopeId"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "scope",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "declaration": {
+          "$ref": "#/$defs/scope"
+        }
+      },
+      "required": [
+        "generation",
+        "declaration"
+      ],
+      "additionalProperties": false
+    },
+    "holder": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/scopeId"
+        },
+        {
+          "$ref": "#/$defs/resource"
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "enum": [
+            "RetainedIncarnation",
+            "CandidateIncarnation",
+            "UnresolvedTransaction"
+          ]
+        }
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "reservation": {
+      "type": "object",
+      "properties": {
+        "claim": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "holder": {
+          "$ref": "#/$defs/holder"
+        }
+      },
+      "required": [
+        "claim",
+        "holder"
+      ],
+      "additionalProperties": false
+    },
+    "change": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "replace": {
+              "$ref": "#/$defs/scope"
+            }
+          },
+          "required": [
+            "replace"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "retire": {
+              "$ref": "#/$defs/scopeId"
+            },
+            "intent": {
+              "$ref": "#/$defs/retirement"
+            }
+          },
+          "required": [
+            "retire",
+            "intent"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "context": {
+          "$ref": "#/$defs/context"
+        },
+        "base": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/base"
+          },
+          "minItems": 0
+        },
+        "snapshot": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot"
+          },
+          "minItems": 0
+        },
+        "reservations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reservation"
+          },
+          "minItems": 0
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/change"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "version",
+        "context",
+        "base",
+        "snapshot",
+        "reservations",
+        "changes"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

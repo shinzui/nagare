@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Pre-implementation API validation: amended shared contract, recorded findings and open store question"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-22T03:21:48Z
+      mode: "implement"
+      note: "Implement EP-144 typed inventory foundation"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -53,7 +58,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | Not Started |
+| 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | In Progress |
 | 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Not Started |
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Not Started |
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Not Started |
@@ -109,8 +114,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 ## Progress
 
-- [ ] EP-144 M1: Typed identities, policies, references, and opaque boundaries.
-- [ ] EP-144 M2: Deterministic composition and wire validation.
+- [x] (2026-09-22) EP-144 M1: Typed identities, policies, references, and opaque boundaries.
+- [x] (2026-09-22) EP-144 M2: Deterministic composition and wire validation.
 - [ ] EP-144 M3: Read-only compiler and structural/collision fixtures.
 - [ ] EP-145 M1: Durable independent scope state and identity.
 - [ ] EP-145 M2: Reviewed operation plans and exact binding.

@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "context": {
+    "identity": "context-1",
+    "project": "project"
+  },
+  "base": [],
+  "snapshot": [],
+  "reservations": [],
+  "changes": [
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Platform",
+          "name": "foundation"
+        },
+        "bundles": [
+          {
+            "declarations": [
+              {
+                "tag": "Managed",
+                "contents": {
+                  "identity": "platform:foundation/cache/resource",
+                  "owner": {
+                    "kind": "Platform",
+                    "name": "foundation"
+                  },
+                  "executor": "PulumiExecutor",
+                  "address": {
+                    "tag": "GlobalBucket",
+                    "contents": "shared-bucket"
+                  },
+                  "aliases": [],
+                  "spec": {
+                    "tag": "NativeObject",
+                    "contents": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  },
+                  "lifecycle": "Retain",
+                  "dataPolicy": {
+                    "tag": "Stateless"
+                  },
+                  "sensitivity": "Public",
+                  "dependencies": [],
+                  "delegations": [],
+                  "source": {
+                    "file": "fixture",
+                    "path": "cache"
+                  }
+                }
+              }
+            ],
+            "exports": [],
+            "conditions": [],
+            "contributions": [],
+            "operations": [],
+            "grants": []
+          }
+        ]
+      }
+    },
+    {
+      "replace": {
+        "version": 1,
+        "scope": {
+          "kind": "Application",
+          "name": "app"
+        },
+        "bundles": [
+          {
+            "declarations": [
+              {
+                "tag": "Managed",
+                "contents": {
+                  "identity": "application:app/database/resource",
+                  "owner": {
+                    "kind": "Application",
+                    "name": "app"
+                  },
+                  "executor": "PulumiExecutor",
+                  "address": {
+                    "tag": "GlobalBucket",
+                    "contents": "shared-bucket"
+                  },
+                  "aliases": [],
+                  "spec": {
+                    "tag": "NativeObject",
+                    "contents": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  },
+                  "lifecycle": "Retain",
+                  "dataPolicy": {
+                    "tag": "Stateless"
+                  },
+                  "sensitivity": "Public",
+                  "dependencies": [],
+                  "delegations": [],
+                  "source": {
+                    "file": "fixture",
+                    "path": "database"
+                  }
+                }
+              }
+            ],
+            "exports": [],
+            "conditions": [],
+            "contributions": [],
+            "operations": [],
+            "grants": []
+          }
+        ]
+      }
+    }
+  ]
+}

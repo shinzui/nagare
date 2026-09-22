@@ -59,6 +59,12 @@ library
     Nagare.Dsl.Types
     Nagare.Dsl.Worker
     Nagare.Dsl.Worker.Render
+    Nagare.Resource.Compile
+    Nagare.Resource.Inventory
+    Nagare.Resource.Policy
+    Nagare.Resource.Reference
+    Nagare.Resource.Types
+    Nagare.Resource.Wire
 
   build-depends:
     aeson,
@@ -93,11 +99,13 @@ test-suite nagare-dsl-test
     CdnSpec
     JobSpec
     LoadSpec
+    ResourceInventorySpec
     ServerSpec
     StaticSpec
     WorkerSpec
 
   build-depends:
+    aeson,
     base,
     bytestring,
     containers,
