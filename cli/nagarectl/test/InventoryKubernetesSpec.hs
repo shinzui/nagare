@@ -307,7 +307,7 @@ inventoryKubernetesTests =
               adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
               pure ()) `finally` cleanup
-    , testCase "disposable cluster creates a database credential only at execution" $ do
+    , testCase "disposable cluster creates a database credential and reviewed backup CronJob" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
@@ -316,15 +316,21 @@ inventoryKubernetesTests =
             let db = Database (ok (mkDatabaseName "ep147-credential")) Nothing Postgres (defaultEngineVersion Postgres)
                   (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-                (bundle, bound) = ok (compileDatabaseNative (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")))
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
                 credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
+                backupId = ok (databaseResourceId scope (ok (mkName "backup")) db)
                 credential = maybe (error "database bundle lacks credential") id (Map.lookup credentialId bound)
+                backup = maybe (error "database bundle lacks backup CronJob") id (Map.lookup backupId bound)
                 onlyCredential = Map.singleton credentialId credential
+                onlyBackup = Map.singleton backupId backup
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter = mkKubernetesAdapter onlyCredential (mkKubernetesRuntimeOps config onlyCredential)
+                backupAdapter = mkKubernetesAdapter onlyBackup (mkKubernetesRuntimeOps config onlyBackup)
                 createCredential = createOperation {plannedResources = credentialId :| []}
+                createBackup = createOperation {plannedResources = backupId :| []}
                 cleanup = do
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "secret", "nagare-db-ep147-credential", "--namespace", "default", "--ignore-not-found"] ""
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "cronjob", "nagare-dbbackup-ep147-credential", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
             assertBool "credential declaration absent" (any (\case Managed member -> member ^. #identity == credentialId; _ -> False) (declarations bundle))
             cleanup
@@ -333,6 +339,9 @@ inventoryKubernetesTests =
               assertBool "credential material appeared in public summary" (not ("POSTGRES_PASSWORD" `T.isInfixOf` preparedPublicSummary prepared))
               adapterExecute adapter createCredential prepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify adapter createCredential prepared >>= expectRight
+              backupPrepared <- adapterPrepare backupAdapter createBackup >>= expectRight
+              adapterExecute backupAdapter createBackup backupPrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify backupAdapter createBackup backupPrepared >>= expectRight
               pure ()) `finally` cleanup
     ]
 
