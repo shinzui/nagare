@@ -170,6 +170,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2c partial: Explicit throwaway database retention compiles to collectable stateless resources with no scheduled backup; retained PVC and credential keep recovery intent.
 - [x] (2026-09-22) EP-147 M2c partial: Disposable Kubernetes execution creates and verifies the generated Secret and backend-rendered backup CronJob as reviewed native members.
 - [x] (2026-09-22) EP-147 M2c partial: A disposable five-member database bundle converges in one reviewed transaction; after a simulated lost StatefulSet acknowledgement, resume proves completion and creates the backup without recreating the credential or StatefulSet. Shared transaction preflight now defers ambiguous effects to adapter recovery.
+- [x] (2026-09-22) EP-147 M2c partial: Apply/resume reconstructs the complete database native map from private review evidence before executing the disposable transaction.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

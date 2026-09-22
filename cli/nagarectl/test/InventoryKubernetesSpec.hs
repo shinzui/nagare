@@ -374,18 +374,19 @@ inventoryKubernetesTests =
             (do
               calls <- newIORef Map.empty
               interrupted <- newIORef False
-              let nativeOps = mkKubernetesRuntimeOps config bound
-                  guardedOps = nativeOps
-                    { kubernetesMutateConditional = \mutation -> do
-                        modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
-                        effect <- kubernetesMutateConditional nativeOps mutation
-                        alreadyInterrupted <- readIORef interrupted
-                        if mutationResource mutation == statefulId && effect == AdapterEffectCompleted && not alreadyInterrupted
-                          then writeIORef interrupted True >> pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
-                          else pure effect
-                    }
-                  adapter = mkKubernetesAdapter bound guardedOps
-                  registry = ok (mkAdapterRegistry [adapter])
+              let makeRegistry retained =
+                    let nativeOps = mkKubernetesRuntimeOps config retained
+                        guardedOps = nativeOps
+                          { kubernetesMutateConditional = \mutation -> do
+                              modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
+                              effect <- kubernetesMutateConditional nativeOps mutation
+                              alreadyInterrupted <- readIORef interrupted
+                              if mutationResource mutation == statefulId && effect == AdapterEffectCompleted && not alreadyInterrupted
+                                then writeIORef interrupted True >> pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
+                                else pure effect
+                          }
+                     in ok (mkAdapterRegistry [mkKubernetesAdapter retained guardedOps])
+                  registry = makeRegistry bound
               store <- newMemoryStore
               _ <- initializeStore store binding "client-test" >>= expectRight
               history <- loadInventoryHistory store >>= expectRight
@@ -394,14 +395,16 @@ inventoryKubernetesTests =
               let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
               snapshotBefore <- readStoreSnapshot store >>= expectRight
               reviewBundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+              kubernetesSpecsFromReview reviewBundle @?= Right bound
+              let registryFromReview = makeRegistry (ok (kubernetesSpecsFromReview reviewBundle))
               _ <- publishReview store reviewBundle >>= expectRight
               snapshotAfter <- readStoreSnapshot store >>= expectRight
               reviewed <- expectRight (verifyReview snapshotAfter reviewBundle)
-              result <- applyReviewed store registry reviewed >>= expectRight
+              result <- applyReviewed store registryFromReview reviewed >>= expectRight
               transaction <- case result of
                 StoppedAmbiguous token _ -> pure token
                 other -> assertFailure ("database component did not pause after the lost acknowledgement: " <> show other)
-              resumed <- resumeTransaction store registry transaction >>= expectRight
+              resumed <- resumeTransaction store registryFromReview transaction >>= expectRight
               resumed @?= Converged transaction
               counts <- readIORef calls
               Map.lookup credentialId counts @?= Just 1
