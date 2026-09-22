@@ -97,14 +97,18 @@ mkKubernetesAdapter specs ops =
       Left reason -> pure (Left reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
-        pure (requireSameBefore mutation current)
+        pure (if mutationAction mutation == RunDeclaredOperation && current == mutationBefore mutation
+          then Right ()
+          else requireSameBefore mutation current)
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         case requireSameBefore mutation current of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-          Right () -> kubernetesMutateConditional ops mutation
+          Right () -> if mutationAction mutation == RunDeclaredOperation
+            then pure AdapterEffectCompleted
+            else kubernetesMutateConditional ops mutation
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -123,12 +127,15 @@ mkKubernetesAdapter specs ops =
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource]) (Left "Kubernetes adapter does not yet support adoption, retirement, or declared operations")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support adoption or retirement")
   resource <- case NE.toList (plannedResources operation) of
     [single] -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
+  when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
+    Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
+    _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
 
 validateBefore :: PlannedOperation -> ResourceId -> KubernetesState -> Either PrepareError ()
@@ -136,9 +143,12 @@ validateBefore operation resource state =
   first (PrepareRefused (plannedOperationId operation)) $ case (plannedAction operation, state) of
     (CreateResource, KubernetesAbsent _) -> Right ()
     (UpdateResource, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
+    (RunDeclaredOperation, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
+    (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (CreateResource, _) -> Left "create requires confirmed absence; an existing object needs reviewed adoption"
     (UpdateResource, _) -> Left "update requires a present object stamped with this logical identity and resourceVersion"
+    (RunDeclaredOperation, _) -> Left "declared Job operation requires a completed owned Job"
     _ -> Left "unsupported Kubernetes action"
 
 buildMutation :: ContextId -> PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation
@@ -259,9 +269,14 @@ unstampNative context resource digest stamped = do
 
 requireSameBefore :: KubernetesMutation -> KubernetesState -> Either Text ()
 requireSameBefore mutation current =
-  if current == mutationBefore mutation
-    then Right ()
-    else Left "Kubernetes object changed since review; replan before mutation"
+  if mutationAction mutation == RunDeclaredOperation
+    then case current of
+      KubernetesPresent _ _ (Just owner) digest
+        | owner == mutationResource mutation && digest == mutationNativeDigest mutation -> Right ()
+      _ -> Left "declared Kubernetes Job is not complete at the reviewed digest"
+    else if current == mutationBefore mutation
+      then Right ()
+      else Left "Kubernetes object changed since review; replan before mutation"
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state = case state of

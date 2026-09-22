@@ -11,6 +11,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , desiredFieldsMatch
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
+  , jobCompleted
   ) where
 
 import Control.Exception (IOException, try)
@@ -102,9 +103,21 @@ mkKubernetesRuntimeOps config specs =
             Left reason -> pure (AdapterEffectAmbiguous reason)
             Right (arguments, body) -> do
               result <- invoke config arguments (T.unpack body)
-              pure $ case result of
-                Right (ExitSuccess, _, _) -> AdapterEffectCompleted
-                _ -> AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry"
+              case result of
+                Right (ExitSuccess, _, _) -> waitForJob config (mutationAddress mutation)
+                _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+waitForJob :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
+waitForJob config (Kubernetes _ "batch" kind namespace name)
+  | nameText kind == "job" = do
+      result <- invoke config
+        (["wait", "--for=condition=complete", "job/" <> T.unpack (nameText name)]
+          <> namespaceArgs namespace <> ["--timeout=300s"])
+        ""
+      pure $ case result of
+        Right (ExitSuccess, _, _) -> AdapterEffectCompleted
+        _ -> AdapterEffectAmbiguous "Kubernetes Job did not prove completion; reobserve before retry"
+waitForJob _ _ = pure AdapterEffectCompleted
 
 -- | Compare only fields present in the retained desired object. Server-added
 -- metadata, defaults and status do not count as drift. Arrays stay ordered;
@@ -134,8 +147,24 @@ parseObserved config resource native response = do
       desiredMatches = desiredFieldsMatch desired observed
         && credentialDataMatches desired observed
         && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
+  case observed of
+    Object root | KM.lookup "kind" root == Just (String "Job") ->
+      unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
+    _ -> pure ()
   driftDigest <- if desiredMatches then Right desiredDigest else contentDigest <$> canonicalValue observed
   pure (KubernetesPresent uid revision (if owner == Just resource then owner else Nothing) driftDigest)
+
+jobCompleted :: Value -> Bool
+jobCompleted (Object root) = case KM.lookup "status" root of
+  Just (Object status) -> case KM.lookup "conditions" status of
+    Just (Array conditions) -> any completed (foldr (:) [] conditions)
+    _ -> False
+  _ -> False
+  where
+    completed (Object condition) = KM.lookup "type" condition == Just (String "Complete")
+      && KM.lookup "status" condition == Just (String "True")
+    completed _ = False
+jobCompleted _ = False
 
 metadataOf :: Value -> Either Text Object
 metadataOf (Object root) = case KM.lookup "metadata" root of

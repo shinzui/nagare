@@ -3,12 +3,14 @@
 module Nagare.Resource.CacheKubernetes
   ( CacheCoreInput (..)
   , cacheCoreResourceId
+  , cacheMigrationOperationId
   , compileCacheCore
   ) where
 
 import Data.Aeson (Value)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
@@ -22,7 +24,10 @@ data CacheCoreInput = CacheCoreInput
   , coreLogicalKey :: !LogicalKey
   , coreDatabase :: !ResourceId
   , coreCredential :: !ResourceId
+  , coreRevision :: !ContentDigest
   , coreServerConfig :: !Value
+  , coreConfigCheck :: !Value
+  , coreMigration :: !Value
   , coreDeployment :: !Value
   , corePublicService :: !Value
   , coreInternalService :: !Value
@@ -35,18 +40,33 @@ data CacheCoreInput = CacheCoreInput
 cacheCoreResourceId :: CacheCoreInput -> Text -> ResourceId
 cacheCoreResourceId input role = mintResourceId (coreOwner input) (coreLogicalKey input) (known role)
 
+cacheMigrationOperationId :: CacheCoreInput -> ResourceId
+cacheMigrationOperationId input = cacheCoreResourceId input ("migration-proof-" <> revisionSuffix input)
+
+revisionSuffix :: CacheCoreInput -> Text
+revisionSuffix = T.take 12 . digestText . coreRevision
+
 compileCacheCore
   :: (Value -> Either Text ContentDigest)
   -> CacheCoreInput
   -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileCacheCore digestOf input = do
+  migrationDigest <- first invalid (digestOf (coreMigration input))
   members <- traverse compileOne objects
-  pure (ResourceBundle (map (Managed . fst) members) [] [] [] [] [], [(resource ^. #identity, value) | (resource, value) <- members])
+  let migrationResource = cacheCoreResourceId input ("migration-" <> revisionSuffix input)
+      migrationProof = DeclaredOperation
+        (cacheMigrationOperationId input) (migrationResource :| [])
+        [ContentInput migrationDigest] VerifyBeforeRetry SchemaMigration
+  pure (ResourceBundle (map (Managed . fst) members) [] [] [] [migrationProof] [], [(resource ^. #identity, value) | (resource, value) <- members])
   where
     objects =
       [ ("server-config", "", "configmap", "nagare-system", "nagare-nix-cache-server", coreServerConfig input, [])
+      , ("config-check-" <> revisionSuffix input, "batch", "job", "nagare-system", "nix-cache-config-check-" <> revisionSuffix input,
+          coreConfigCheck input, [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config"])
+      , ("migration-" <> revisionSuffix input, "batch", "job", "nagare-system", "nix-cache-migrate-" <> revisionSuffix input,
+          coreMigration input, [cacheCoreResourceId input ("config-check-" <> revisionSuffix input)])
       , ("deployment", "apps", "deployment", "nagare-system", "nix-cache", coreDeployment input,
-          [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config"])
+          [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config", cacheMigrationOperationId input])
       , ("public-service", "", "service", "nagare-system", "nix-cache", corePublicService input,
           [cacheCoreResourceId input "deployment"])
       , ("internal-service", "", "service", "nagare-system", "nix-cache-internal", coreInternalService input,
@@ -67,7 +87,7 @@ compileCacheCore digestOf input = do
           , clusterId = coreCluster input
           , inputObject = value
           , objectDigest = digest
-          , lifecyclePolicy = Retain
+          , lifecyclePolicy = if kind == "job" then DeleteWhenUnreferenced else Retain
           , inputDataPolicy = Stateless
           , inputSensitivity = Private
           , sourceLocation = (coreSource input) {path = path (coreSource input) <> "#" <> role}

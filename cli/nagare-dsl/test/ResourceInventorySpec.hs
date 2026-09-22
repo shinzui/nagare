@@ -1,6 +1,7 @@
 module ResourceInventorySpec (resourceInventoryTests) where
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -217,28 +218,46 @@ resourceInventoryTests =
               pure (map snd (ok (parseKubernetesManifest source bytes)))
         workloadObjects <- readObjects "workloads.yaml.tmpl"
         policyObjects <- readObjects "networkpolicies.yaml"
+        checkObjects <- readObjects "config-check-job.yaml.tmpl"
+        migrationObjects <- readObjects "migration-job.yaml.tmpl"
         let serverConfig = object
               [ "apiVersion" .= ("v1" :: Text)
               , "kind" .= ("ConfigMap" :: Text)
               , "metadata" .= object ["name" .= ("nagare-nix-cache-server" :: Text), "namespace" .= ("nagare-system" :: Text)]
               ]
             prerequisite role = mintResourceId p (ok (mkLogicalKey role)) (n role)
-            makeInput deployment publicService internalService gc serverPolicy clientPolicy = CacheCoreInput
+            renameJob name (Object root) = case KM.lookup "metadata" root of
+              Just (Object metadata) -> Object (KM.insert "metadata" (Object (KM.insert "name" (String name) metadata)) root)
+              _ -> error "cache Job has no metadata"
+            renameJob _ _ = error "cache Job is not an object"
+            makeInput checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy = CacheCoreInput
               p cluster (ok (mkLogicalKey "nix-cache")) (prerequisite "database") (prerequisite "credential")
-              serverConfig deployment publicService internalService gc serverPolicy clientPolicy source
-        case (workloadObjects, policyObjects) of
-          ([deployment, publicService, internalService, gc], [serverPolicy, clientPolicy]) -> do
-            let input = makeInput deployment publicService internalService gc serverPolicy clientPolicy
+              digest serverConfig (renameJob "nix-cache-config-check-aaaaaaaaaaaa" checkJob)
+              (renameJob "nix-cache-migrate-aaaaaaaaaaaa" migrationJob)
+              deployment publicService internalService gc serverPolicy clientPolicy source
+        case (checkObjects, migrationObjects, workloadObjects, policyObjects) of
+          ([checkJob], [migrationJob], [deployment, publicService, internalService, gc], [serverPolicy, clientPolicy]) -> do
+            let input = makeInput checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy
                 result = compileCacheCore (const (Right digest)) input
             (cacheBundle, native) <- either (assertFailure . show) pure result
-            length (declarations cacheBundle) @?= 7
-            length native @?= 7
+            length (declarations cacheBundle) @?= 9
+            length native @?= 9
+            length (cacheBundle ^. #operations) @?= 1
+            let Managed database = service p "database-prerequisite" "database-prerequisite"
+                Managed credential = service p "credential-prerequisite" "credential-prerequisite"
+                prerequisites = bundle
+                  [ Managed (database {identity = prerequisite "database"})
+                  , Managed (credential {identity = prerequisite "credential"})
+                  ]
+                completeScope = ok (mkScopeDeclaration p [prerequisites, cacheBundle])
+            assertBool "cache migration and workload dependencies did not compose"
+              (either (const False) (const True) (compileScopes [completeScope]))
             let collision = ok (mkScopeDeclaration p [cacheBundle, bundle [service p "database-service" "nix-cache"]])
             rejects "claim-conflict" (compileScopes [collision])
-            case compileCacheCore (const (Right digest)) (makeInput deployment internalService publicService gc serverPolicy clientPolicy) of
+            case compileCacheCore (const (Right digest)) (makeInput checkJob migrationJob deployment internalService publicService gc serverPolicy clientPolicy) of
               Left errors -> assertBool "wrong Service address was accepted" (any ((== "invalid-cache-core") . (^. #code)) (NE.toList errors))
               Right _ -> assertFailure "cache Services with swapped addresses were accepted"
-          _ -> assertFailure "cache workload template no longer has four objects and two policies"
+          _ -> assertFailure "cache template object counts changed"
     , testCase "dependency cycles and dangling references refuse" $ do
         let Managed x = service a "x" "x"; Managed y = service a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])

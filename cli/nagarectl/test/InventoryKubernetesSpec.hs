@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, mkKubernetesRuntimeOps)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, jobCompleted, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -62,6 +62,27 @@ inventoryKubernetesTests =
         readIORef calls >>= (@?= 1)
         proof <- adapterVerify adapter createOperation prepared >>= expectRight
         adapterRecover adapter createOperation prepared >>= (@?= RecoveryProvedComplete proof)
+    , testCase "declared Job verification can be reviewed before Job creation" $ do
+        let value = object
+              [ "apiVersion" .= ("batch/v1" :: Text)
+              , "kind" .= ("Job" :: Text)
+              , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
+              , "spec" .= object ["template" .= object ["spec" .= object
+                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]]]
+              ]
+            jobBytes = ok (canonicalValue value)
+            native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest jobBytes}))
+            bound = Map.singleton resource native
+            declaredOperation = (operation RunDeclaredOperation) {plannedResources = resource :| []}
+        state <- newIORef (KubernetesAbsent (contentDigest "absent"))
+        calls <- newIORef 0
+        let adapter = mkKubernetesAdapter bound (ops state calls)
+        prepared <- adapterPrepare adapter declaredOperation >>= expectRight
+        writeIORef state (KubernetesPresent physical "4" (Just resource) (contentDigest jobBytes))
+        adapterPreflight adapter declaredOperation prepared >>= expectRight
+        adapterExecute adapter declaredOperation prepared >>= (@?= AdapterEffectCompleted)
+        _ <- adapterVerify adapter declaredOperation prepared >>= expectRight
+        readIORef calls >>= (@?= 0)
     , testCase "foreign present object refuses review without mutation" $ do
         state <- newIORef (KubernetesPresent physical "4" Nothing (contentDigest "foreign"))
         calls <- newIORef (0 :: Int)
@@ -159,6 +180,12 @@ inventoryKubernetesTests =
               ]
         assertBool "server extras should not drift" (desiredFieldsMatch desired (observed "reviewed"))
         assertBool "desired data change must drift" (not (desiredFieldsMatch desired (observed "changed")))
+    , testCase "Job completion requires the controller Complete condition" $ do
+        let job conditions = object ["kind" .= ("Job" :: Text), "status" .= object ["conditions" .= conditions]]
+            condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
+        assertBool "running Job proved complete" (not (jobCompleted (job [condition "Complete" "False"])))
+        assertBool "failed Job proved complete" (not (jobCompleted (job [condition "Failed" "True"])))
+        assertBool "completed Job was not recognized" (jobCompleted (job [condition "Complete" "True"]))
     , testCase "update ownership refuses a foreign field manager" $ do
         let metadata fields = object
               [ "metadata" .= object
@@ -222,6 +249,46 @@ inventoryKubernetesTests =
         snapshotBefore <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
         kubernetesSpecsFromReview bundle @?= Right specs
+    , testCase "private review deduplicates the same Job for create and migration proof" $ do
+        let job = object
+              [ "apiVersion" .= ("batch/v1" :: Text)
+              , "kind" .= ("Job" :: Text)
+              , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
+              , "spec" .= object ["template" .= object ["spec" .= object
+                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]]]
+              ]
+            bytes = ok (canonicalValue job)
+            (jobDeclaration, _) = ok (bindKubernetesObject (input {inputObject = job, objectDigest = contentDigest bytes}))
+            bound = Map.singleton resource (jobDeclaration, bytes)
+            migrationId = mintResourceId scope (ok (mkLogicalKey "migration")) (ok (mkName "operation"))
+            migration = DeclaredOperation migrationId (resource :| []) [] VerifyBeforeRetry SchemaMigration
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed jobDeclaration] [] [] [] [migration] []])
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scopeDeclaration :| []))
+            observations = ok (observationSet [(resource, ConfirmedAbsent absence)])
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let registry = ok (mkAdapterRegistry [mkKubernetesAdapter bound (ops state calls)])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "job-review-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        snapshotBefore <- readStoreSnapshot store >>= expectRight
+        reviewed <- prepareReview registry snapshotBefore proposal >>= expectRight
+        kubernetesSpecsFromReview reviewed @?= Right bound
+        _ <- publishReview store reviewed >>= expectRight
+        snapshotAfter <- readStoreSnapshot store >>= expectRight
+        verified <- expectRight (verifyReview snapshotAfter reviewed)
+        let applyOps = (ops state calls)
+              { kubernetesMutateConditional = \mutation -> do
+                  modifyIORef' calls (+ 1)
+                  writeIORef state (KubernetesPresent physical "4" (Just resource) (mutationNativeDigest mutation))
+                  pure AdapterEffectCompleted
+              }
+            fromReview = ok (mkAdapterRegistry [mkKubernetesAdapter (ok (kubernetesSpecsFromReview reviewed)) applyOps])
+        result <- applyReviewed store fromReview verified >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        readIORef calls >>= (@?= 1)
     , testCase "disposable cluster creates and conditionally updates a reviewed object" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of

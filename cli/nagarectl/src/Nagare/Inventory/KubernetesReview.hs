@@ -40,9 +40,13 @@ kubernetesSpecsFromReview bundle = do
         , plannedExecutor (reviewPlannedOperation operation) == KubernetesExecutor
         ]
   entries <- traverse (reconstruct context declarationsById) operations
-  unless (length entries == Map.size (Map.fromList entries)) (Left "review has duplicate Kubernetes resource operations")
-  pure (Map.fromList entries)
+  let grouped = Map.fromListWith (<>) [(resource, [member]) | (resource, member) <- entries]
+  traverse agree grouped
   where
+    agree (member : rest)
+      | all (== member) rest = Right member
+      | otherwise = Left "review has conflicting Kubernetes native members for one resource"
+    agree [] = Left "review has an empty Kubernetes native member group"
     reconstruct context declarationsById reviewOperation = do
       let operation = reviewPlannedOperation reviewOperation
       resource <- case NE.toList (plannedResources operation) of
