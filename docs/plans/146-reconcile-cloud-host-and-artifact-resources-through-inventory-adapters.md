@@ -41,7 +41,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 - [x] (2026-09-22) M1: Compiled cloud declarations, enforced TypeScript native-registration parity, and bound exact Pulumi saved-plan bytes to review.
 - [x] (2026-09-22) M2: Bound guarded host activation, physical identity, committed closure, and fresh-login acknowledgement to durable receipts.
 - [x] (2026-09-22) M3: Declared owned/external artifacts, bootstrap dependencies, control metadata, digest-bound publication, and consumer-completeness gates.
-- [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy. (2026-09-22 partial: the command service accepts concrete registry injection; executor-scoped child markers and early transport refusals are tested; the coverage catalogue records the remaining production registrations.)
+- [x] (2026-09-22) M4: Registered production cloud, host, and artifact runtimes for shared plan/apply/resume, confined retained transports, and recorded compatibility entry points for EP-150's final removal.
 
 
 ## Surprises & Discoveries
@@ -61,6 +61,12 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 2026-09-22: The prior Pulumi adapter stopped at an injected interface. A production subprocess runtime now derives native registrations back from compiled declarations, installs the TypeScript declaration guard for every provider invocation, creates a saved plan only during preparation, applies the exact retained bytes, observes physical IDs from stack export, and verifies with `preview --expect-no-changes`. A recording test proves only one `--save-plan` call and checks the retained plan reaches `pulumi up`. The runtime identity also now includes payload ID and digest, which the first header had accidentally omitted.
 
 2026-09-22: Cloud command registration is now live without changing the existing reviewed-plan format in place. `nagarectl infra preview --inventory COMPILED_DIRECTORY --save-plan REVIEW` selects the shared planner and Pulumi adapter; `infra apply --plan REVIEW --yes` recognizes an inventory review by its checksum member; and `inventory resume` reconstructs the same runtime from the private retained review. The old Pulumi-only preview path remains for compatibility and must be removed only after all generated production declarations and upgrade callers have migrated.
+
+2026-09-22: Generic artifact scopes initially discarded publication kind, destination, spec digest, and consumer completeness. That made a same-process adapter test pass while clean-process apply/resume could not reconstruct its authority. `ArtifactPublication` now retains those fields in the canonical scope wire, and both artifact and host runtimes are rebuilt from reviewed scopes rather than mutable in-memory bundles.
+
+2026-09-22: Real Pulumi component children have parent-qualified URN types (`parent$type`), while the first flat bucket fixture did not. Registration recovery and the TypeScript decoder now compare the leaf provider type. The actual resource program is executed under Pulumi mocks for base, image, cache, and all three CDN certificate modes; 31 base registrations and each exact conditional delta are duplicate-free and are replayed through the declaration guard.
+
+2026-09-22: The master plan assigns final upgrade integration and removal of remaining public compatibility paths to EP-150. M4 therefore completes the domain-registration responsibility here: any reviewed cloud, host, or supported artifact scope selects a real runtime for plan, apply, and clean-process resume. The old upgrade/Just entry points remain visibly classified as compatibility paths, not as migrated inventory authority; EP-150 must remove them before the initiative can complete.
 
 
 ## Decision Log
@@ -85,10 +91,16 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 2026-09-22: Treat Pulumi's subprocess runtime as part of the adapter, not `Main.hs` orchestration. Preparation alone may use `--save-plan`; execution consumes retained plan bytes; verification may observe a no-change preview but cannot create new authority. Bind payload identity/digest alongside context, project, stack, backend, program, config, and tool version.
 
+2026-09-22: Treat typed scope bytes as the only restart contract. Artifact execution specifications and host operation inputs must be recoverable from retained scope declarations; no adapter may rely on the process that compiled the candidate still holding a richer domain bundle.
+
+2026-09-22: Complete EP-146 at the domain adapter boundary defined by the master plan. EP-150 owns final upgrade integration and removal of compatibility entry points, while EP-151 owns first-context store bootstrap/migration. Those paths stay explicit in the coverage catalogue and are not counted as migrated here.
+
 
 ## Outcomes & Retrospective
 
-Not implemented. Record adapter parity and recovery evidence at completion.
+Completed on 2026-09-22. Cloud preparation creates exactly one saved plan and applies those retained bytes; the real TypeScript program's base/image/cache/CDN variants pass complete registration consumption. Host preparation retains the evaluated closure, physical GCE identity, expected old closure, and activation inputs; execution uses that exact closure and verification requires committed boot/running state after a fresh connection. Artifact scopes retain enough typed data for clean-process reconstruction, and OCI/GCE publication transports require the reviewed destination and digest before mutation.
+
+Focused Haskell, TypeScript, and shell suites cover wrong digests, ownership mismatch, timer-armed recovery, child-token confinement, nested Pulumi URNs, and exact subprocess inputs. No live cloud project was mutated; disposable-context provider evidence remains correctly assigned to EP-150. The coverage catalogue preserves the old upgrade, Just, VM-power, builder, and init/bootstrap paths as compatibility or planned work rather than overstating migration.
 
 
 ## Context and Orientation

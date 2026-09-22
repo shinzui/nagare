@@ -235,3 +235,19 @@ recognizes the inventory review layout, and resume reconstructs the runtime from
 the retained private review. The older Pulumi-only review path remains a temporary
 compatibility surface while complete production declaration generation and upgrade
 callers migrate; it does not accept or execute an inventory review as a native one.
+
+Host and artifact domains now use the same production registry boundary. Host
+preparation retains the evaluated closure and current physical instance, then the
+self-reverting transport consumes that exact closure and proves committed running
+and boot state over a fresh connection. Artifact scopes retain kind, destination,
+content/spec digests, and consumer completeness in canonical bytes, allowing apply
+and resume to reconstruct OCI/GCE publication without the compiling process.
+Provider subprocesses receive canonical typed requests and cannot choose a different
+destination or digest.
+
+Pulumi URN comparison uses the leaf provider type because component children carry
+parent-qualified type chains. The actual TypeScript program is exercised under
+Pulumi mocks for base, image, cache, and every CDN certificate mode; each complete
+registration set is replayed through the declaration guard. Remaining upgrade,
+Just, and first-context bootstrap compatibility paths belong to EP-150/151 and stay
+listed as such rather than being treated as inventory-converged.
