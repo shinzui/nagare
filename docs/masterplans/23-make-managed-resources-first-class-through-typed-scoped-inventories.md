@@ -26,6 +26,11 @@ provenance:
       at: 2026-09-22T04:27:14Z
       mode: "implement"
       note: "Begin EP-145 reviewed plan persistence and resumable execution"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T13:49:36Z
+      mode: "implement"
+      note: "Begin EP-146 cloud host and artifact adapters"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -65,7 +70,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 |---|-------|------|-----------|-----------|--------|
 | 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | Complete |
 | 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Complete |
-| 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Not Started |
+| 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | In Progress |
 | 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Not Started |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | Not Started |
@@ -126,7 +131,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-145 M2: Reviewed operation plans and exact binding.
 - [x] (2026-09-22) EP-145 M3: Journal, recovery, locking, and head consistency.
 - [x] (2026-09-22) EP-145 M4: Commands, backup/restore, and crash tests.
-- [ ] EP-146 M1: Cloud declarations/native registration parity.
+- [x] (2026-09-22) EP-146 M1: Cloud declarations/native registration parity and exact Pulumi saved-plan binding.
 - [ ] EP-146 M2: Guarded host receipts and committed identity.
 - [ ] EP-146 M3: Artifact/bootstrap/control resources.
 - [ ] EP-146 M4: Migrated entry points and duplicate-policy removal.

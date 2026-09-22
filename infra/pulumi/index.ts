@@ -5,6 +5,7 @@ import { NagareNixCache } from "./src/components/NagareNixCache";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
+import { installResourceDeclarationGuard } from "./src/resourceDeclarations";
 
 const cfg = new pulumi.Config();
 const gcpCfg = new pulumi.Config("gcp");
@@ -12,6 +13,7 @@ const gcpCfg = new pulumi.Config("gcp");
 const gcpProject = gcpCfg.require("project");
 const region = gcpCfg.require("region");
 const zone = gcpCfg.require("zone");
+const resourceDeclarationGuard = installResourceDeclarationGuard();
 
 // Project-specific config with defaults so a fresh checkout previews
 // without extra setup. Local variable names are suffixed `Cfg` so they
@@ -139,3 +141,7 @@ export const cdnUrlMap = perimeter.cdnUrlMap;
 export const cdnCertificate = perimeter.cdnCertificate;
 export const cdnCertificateMap = perimeter.cdnCertificateMap;
 export const cdnCertificateMode = perimeter.cdnCertificateMode;
+
+// When the inventory adapter supplied a validated bundle, every provider and
+// component registration above must have consumed exactly one declaration.
+resourceDeclarationGuard.assertComplete();

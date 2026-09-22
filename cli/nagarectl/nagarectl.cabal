@@ -88,6 +88,8 @@ library
     Nagare.Init
     Nagare.Inventory.Command
     Nagare.Inventory.Adapter
+    Nagare.Inventory.Adapters.Pulumi
+    Nagare.Inventory.Cloud
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
     Nagare.Inventory.Journal
@@ -214,6 +216,7 @@ test-suite nagarectl-test
     CertificateMigrationSpec
     DomainBindingSpec
     HostSpec
+    InventoryCloudSpec
     InventorySpec
     InventoryTransactionSpec
     PlatformCutoverSpec

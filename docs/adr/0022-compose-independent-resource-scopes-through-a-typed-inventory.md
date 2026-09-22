@@ -161,3 +161,23 @@ supply native adapters. It can publish deterministic review evidence, but its
 preflight always refuses execution. Thus this amendment records an implemented
 authority boundary, not a claim that existing cloud, host, cluster, or application
 mutation paths have migrated.
+
+## Amendment — 2026-09-22: cloud declaration and Pulumi registration boundary
+
+EP-146's cloud foundation implements the cross-language authority boundary. Haskell
+compiles stable resource identities, policies, provider addresses, Pulumi aliases,
+and each resource's own specification digest into a canonical version-one bundle.
+The Pulumi program installs a stack transformation when that bundle is supplied.
+Every `gcp:` provider registration and `nagare:` component registration must match
+one declared type/name pair, and every declaration must be consumed. Component and
+provider bookkeeping is represented explicitly rather than ignored by parity.
+
+Pulumi preparation retains the exact opaque saved-plan bytes after a canonical,
+redacted header. The header binds context, project, stack, backend, program digest,
+configuration digest, Pulumi version, common operation, input digest, native
+registration digest, preview digest, and plan digest. Preparation rejects an
+unknown mutating URN or a native action that disagrees with the common review;
+preflight refuses if any binding changed. Pulumi remains the native stack-wide
+executor. The common journal may name several declaration-level operations covered
+by one native plan, so later operations verify convergence rather than replaying a
+different plan after the first stack apply.

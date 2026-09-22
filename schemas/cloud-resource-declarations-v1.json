@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagare.invalid/schemas/cloud-resource-declarations-v1.json",
+  "title": "Nagare cloud resource declaration bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "context", "project", "stack", "scope", "resources", "registrations", "bundleDigest"],
+  "properties": {
+    "version": { "const": 1 },
+    "context": { "$ref": "resource-inventory-v1.json#/$defs/name" },
+    "project": { "$ref": "resource-inventory-v1.json#/$defs/name" },
+    "stack": { "$ref": "resource-inventory-v1.json#/$defs/name" },
+    "scope": { "$ref": "resource-inventory-v1.json#/$defs/scopeId" },
+    "resources": { "type": "array", "items": { "type": "object" } },
+    "registrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["resourceId", "pulumiType", "pulumiName", "pulumiUrn", "specDigest", "class"],
+        "properties": {
+          "resourceId": { "type": "string", "minLength": 1 },
+          "pulumiType": { "type": "string", "minLength": 1 },
+          "pulumiName": { "type": "string", "minLength": 1 },
+          "pulumiUrn": { "type": "string", "pattern": "^urn:pulumi:" },
+          "specDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "class": {}
+        }
+      }
+    },
+    "bundleDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

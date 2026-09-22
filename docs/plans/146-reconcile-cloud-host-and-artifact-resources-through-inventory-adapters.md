@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Cascaded consequences of MasterPlan 23 API validation"
+    - model: "gpt-5.6-sol"
+      harness: "codex-cli"
+      at: 2026-09-22T13:49:36Z
+      mode: "implement"
+      note: "Begin EP-146 cloud host and artifact adapters"
 ---
 
 # Reconcile cloud host and artifact resources through inventory adapters
@@ -33,7 +38,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 ## Progress
 
-- [ ] M1: Compile cloud declarations and prove native registration parity.
+- [x] (2026-09-22) M1: Compiled cloud declarations, enforced TypeScript native-registration parity, and bound exact Pulumi saved-plan bytes to review.
 - [ ] M2: Bind guarded host activation and host identity to durable receipts.
 - [ ] M3: Declare artifact publication, bootstrap prerequisites, and control metadata.
 - [ ] M4: Route cloud/host/publication entry points through adapters and remove duplicate policy.
@@ -41,7 +46,7 @@ This plan implements native adapters, not a replacement provider engine. Pulumi 
 
 ## Surprises & Discoveries
 
-None yet; implementation has not started.
+2026-09-22: EP-145 plans one common operation per changed declaration, while a Pulumi preview and saved plan cover the whole stack. The Pulumi adapter therefore validates every mutating preview URN against the complete declaration bundle and binds each common operation to the same exact native bytes; apply may verify an already-converged later operation rather than replaying a changed native plan. This preserves one Pulumi saved-plan authority without introducing per-resource cloud mutations.
 
 
 ## Decision Log
@@ -53,6 +58,8 @@ None yet; implementation has not started.
 2026-09-16: Publication must not silently change Pulumi configuration after review. Resolve inputs first where possible; otherwise use a bounded preparation transaction followed by a new native-plan review.
 
 2026-09-16: Stamp identity and the resource's own spec digest, never the scope revision, and produce saved plans through the shared prepare method. A scope revision in provider metadata would make every deploy rewrite every resource in the scope.
+
+2026-09-22: Use a canonical Haskell cloud bundle as the ownership source and a Pulumi stack transformation as the TypeScript consumption boundary. The transformation sees component and provider registrations before creation, rejects undeclared `gcp:` or `nagare:` registrations, and requires every declared registration to be consumed. The retained adapter bundle is a canonical redacted header followed by the exact opaque Pulumi plan bytes.
 
 
 ## Outcomes & Retrospective

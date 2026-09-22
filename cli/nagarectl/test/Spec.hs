@@ -38,6 +38,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
+import InventoryCloudSpec (inventoryCloudTests)
 import InventorySpec (inventoryTests)
 import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe)
 import Nagare.App
@@ -417,6 +418,7 @@ main = do
           testGroup "nagarectl" $
             [ testGroup "Nagare.Static.Image" dockerfileTests
             , hostTests
+            , inventoryCloudTests
             , inventoryTests
             , inventoryTransactionTests
             , platformTests
