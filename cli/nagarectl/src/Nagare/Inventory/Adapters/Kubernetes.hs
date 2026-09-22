@@ -7,10 +7,12 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesMutation (..)
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
+  , unstampNative
   )
 where
 
 import Data.Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -54,7 +56,8 @@ data KubernetesMutation = KubernetesMutation
   deriving stock (Eq, Generic)
 
 data KubernetesAdapterOps = KubernetesAdapterOps
-  { kubernetesObserve :: !(ResourceId -> IO KubernetesState)
+  { kubernetesContext :: !ContextId
+  , kubernetesObserve :: !(ResourceId -> IO KubernetesState)
   -- The implementation must make the write conditional on mutationBefore at
   -- the API server. A local compare followed by unrestricted apply is unsafe.
   , kubernetesMutateConditional :: !(KubernetesMutation -> IO AdapterExecution)
@@ -87,27 +90,27 @@ mkKubernetesAdapter specs ops =
         before <- kubernetesObserve ops resource
         pure $ do
           validateBefore operation resource before
-          mutation <- buildMutation operation resource declaration native before
+          mutation <- buildMutation (kubernetesContext ops) operation resource declaration native before
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
-    preflight operation prepared = case decodeMutation specs operation prepared of
+    preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         pure (requireSameBefore mutation current)
-    execute operation prepared = case decodeMutation specs operation prepared of
+    execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         case requireSameBefore mutation current of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           Right () -> kubernetesMutateConditional ops mutation
-    verify operation prepared = case decodeMutation specs operation prepared of
+    verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
         pure (completionProof mutation current)
-    recover operation prepared = case decodeMutation specs operation prepared of
+    recover operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (RecoveryUnresolved reason)
       Right mutation -> do
         current <- kubernetesObserve ops (mutationResource mutation)
@@ -138,8 +141,8 @@ validateBefore operation resource state =
     (UpdateResource, _) -> Left "update requires a present object stamped with this logical identity and resourceVersion"
     _ -> Left "unsupported Kubernetes action"
 
-buildMutation :: PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation
-buildMutation operation resource declaration native before = do
+buildMutation :: ContextId -> PlannedOperation -> ResourceId -> ManagedResource -> ByteString -> KubernetesState -> Either PrepareError KubernetesMutation
+buildMutation context operation resource declaration native before = do
   value <- first (refusal . T.pack) (eitherDecodeStrict native)
   canonical <- first refusal (canonicalValue value)
   unless (canonical == native) (Left (refusal "native Kubernetes bytes are not canonical JSON"))
@@ -161,6 +164,7 @@ buildMutation operation resource declaration native before = do
           (declaration ^. #source)
   (recompiled, rebound) <- first (refusal . T.pack . show) (bindKubernetesObject input)
   unless (address recompiled == address declaration && spec recompiled == spec declaration && rebound == native) (Left (refusal "native Kubernetes address or controller claims differ from the declaration"))
+  stamped <- first refusal (stampNative context resource digest value)
   pure
     KubernetesMutation
       { mutationVersion = 1
@@ -169,7 +173,7 @@ buildMutation operation resource declaration native before = do
       , mutationAction = plannedAction operation
       , mutationResource = resource
       , mutationAddress = address declaration
-      , mutationNativeJson = TE.decodeUtf8 native
+      , mutationNativeJson = TE.decodeUtf8 stamped
       , mutationNativeDigest = digest
       , mutationBefore = before
       }
@@ -184,17 +188,71 @@ specDigest = \case
   StatefulSet _ _ digest -> Just digest
   _ -> Nothing
 
-decodeMutation :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> PreparedNative -> Either Text KubernetesMutation
-decodeMutation specs operation prepared = do
+decodeMutation :: ContextId -> Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> PreparedNative -> Either Text KubernetesMutation
+decodeMutation context specs operation prepared = do
   mutation <- first T.pack (eitherDecodeStrict (preparedNativeBytes prepared))
   (resource, declaration, native) <- singleSpec specs operation
   unless (mutationVersion mutation == 1) (Left "unsupported Kubernetes mutation version")
   unless (mutationOperation mutation == plannedOperationId operation && mutationInputDigest mutation == plannedInputDigest operation) (Left "Kubernetes mutation operation binding changed")
   unless (mutationResource mutation == resource && mutationAction mutation == plannedAction operation && mutationAddress mutation == address declaration) (Left "Kubernetes mutation resource binding changed")
-  unless (TE.encodeUtf8 (mutationNativeJson mutation) == native && mutationNativeDigest mutation == contentDigest native) (Left "Kubernetes native object differs from reviewed bytes")
+  value <- first T.pack (eitherDecodeStrict native)
+  stamped <- stampNative context resource (contentDigest native) value
+  unless (TE.encodeUtf8 (mutationNativeJson mutation) == stamped && mutationNativeDigest mutation == contentDigest native) (Left "Kubernetes native object differs from reviewed bytes")
   case validateBefore operation resource (mutationBefore mutation) of
     Left _ -> Left "Kubernetes mutation precondition is invalid"
     Right () -> Right mutation
+
+-- | Reserved annotations bind the server object to this review's context,
+-- logical resource and unstamped content. A supplied annotation can never
+-- silently override the binding. The stamped JSON is retained privately.
+stampNative :: ContextId -> ResourceId -> ContentDigest -> Value -> Either Text ByteString
+stampNative context resource digest (Object root) = do
+  metadata <- case KM.lookup "metadata" root of
+    Just (Object value) -> Right value
+    _ -> Left "Kubernetes native object lacks metadata"
+  annotations <- case KM.lookup "annotations" metadata of
+    Nothing -> Right KM.empty
+    Just (Object value) -> Right value
+    _ -> Left "Kubernetes metadata.annotations must be an object"
+  let reserved =
+        [ ("nagare.dev/context-id", contextIdText context)
+        , ("nagare.dev/resource-id", resourceIdText resource)
+        , ("nagare.dev/spec-digest", digestText digest)
+        ]
+  unless (all (\(key, _) -> not (KM.member key annotations)) reserved)
+    (Left "Kubernetes native object sets a reserved inventory annotation")
+  let stampedAnnotations = foldr (\(key, value) result -> KM.insert key (String value) result) annotations reserved
+      stampedMetadata = KM.insert "annotations" (Object stampedAnnotations) metadata
+  canonicalValue (Object (KM.insert "metadata" (Object stampedMetadata) root))
+stampNative _ _ _ _ = Left "Kubernetes native object must be an object"
+
+-- | Reconstruct the unstamped source member from an immutable private review.
+-- Exact reserved values are required, so an apply adapter needs no mutable
+-- renderer or manifest file after the review was published.
+unstampNative :: ContextId -> ResourceId -> ContentDigest -> Text -> Either Text ByteString
+unstampNative context resource digest stamped = do
+  value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 stamped))
+  case value of
+    Object root -> do
+      metadata <- case KM.lookup "metadata" root of
+        Just (Object objectMetadata) -> Right objectMetadata
+        _ -> Left "reviewed Kubernetes object lacks metadata"
+      annotations <- case KM.lookup "annotations" metadata of
+        Just (Object objectAnnotations) -> Right objectAnnotations
+        _ -> Left "reviewed Kubernetes object lacks inventory annotations"
+      let reserved =
+            [ ("nagare.dev/context-id", contextIdText context)
+            , ("nagare.dev/resource-id", resourceIdText resource)
+            , ("nagare.dev/spec-digest", digestText digest)
+            ]
+      unless (all (\(key, expected) -> KM.lookup key annotations == Just (String expected)) reserved)
+        (Left "reviewed Kubernetes inventory annotations differ from the bound context, identity or digest")
+      let remaining = foldr (KM.delete . fst) annotations reserved
+          plainMetadata = if KM.null remaining then KM.delete "annotations" metadata else KM.insert "annotations" (Object remaining) metadata
+      raw <- canonicalValue (Object (KM.insert "metadata" (Object plainMetadata) root))
+      unless (contentDigest raw == digest) (Left "reviewed Kubernetes object does not reconstruct its declared digest")
+      pure raw
+    _ -> Left "reviewed Kubernetes native object is not an object"
 
 requireSameBefore :: KubernetesMutation -> KubernetesState -> Either Text ()
 requireSameBefore mutation current =

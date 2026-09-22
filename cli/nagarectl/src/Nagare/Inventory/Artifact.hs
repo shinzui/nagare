@@ -13,6 +13,8 @@ module Nagare.Inventory.Artifact
   )
 where
 
+import Data.Generics.Labels ()
+
 import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), defaultOptions, genericParseJSON, genericToJSON)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE

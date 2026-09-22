@@ -1,5 +1,7 @@
 module InventoryCloudSpec (inventoryCloudTests) where
 
+import Nagare.Dsl.Prelude hiding ((.=), preview)
+
 import Data.ByteString.Char8 qualified as BC
 import Data.Either (isRight)
 import Data.List (isInfixOf)

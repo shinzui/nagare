@@ -1,5 +1,7 @@
 module InventoryHostSpec (inventoryHostTests) where
 
+import Nagare.Dsl.Prelude hiding ((.=), contains)
+
 import Data.ByteString.Char8 qualified as BC
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))

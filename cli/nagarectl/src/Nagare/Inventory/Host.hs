@@ -8,6 +8,8 @@ module Nagare.Inventory.Host
   )
 where
 
+import Data.Generics.Labels ()
+
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Nagare.Dsl.Prelude

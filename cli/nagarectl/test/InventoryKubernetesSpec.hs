@@ -1,21 +1,29 @@
 module InventoryKubernetesSpec (inventoryKubernetesTests) where
 
-import Data.Aeson (Value, object, (.=))
+import Control.Exception (finally)
+import Data.Aeson (Value, eitherDecodeStrict, object, (.=))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), desiredFieldsMatch, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Database (compileDatabaseNative)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
+import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
+import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Kubernetes
@@ -24,6 +32,10 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Environment (lookupEnv)
+import System.Process (readProcessWithExitCode)
 
 inventoryKubernetesTests :: TestTree
 inventoryKubernetesTests =
@@ -35,6 +47,9 @@ inventoryKubernetesTests =
         let adapter = mkKubernetesAdapter specs (ops state calls)
         prepared <- adapterPrepare adapter createOperation >>= expectRight
         assertBool "public summary omits manifest bytes" (not (nativeText `T.isInfixOf` preparedPublicSummary prepared))
+        assertBool "private native bundle binds context" ("nagare.dev/context-id" `T.isInfixOf` TE.decodeUtf8 (preparedNativeBytes prepared))
+        let mutation = ok (eitherDecodeStrict (preparedNativeBytes prepared)) :: KubernetesMutation
+        unstampNative (ok (mkContextId "test")) resource (contentDigest nativeBytes) (mutationNativeJson mutation) @?= Right nativeBytes
         adapterPreflight adapter createOperation prepared >>= expectRight
         adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
         readIORef calls >>= (@?= 1)
@@ -80,6 +95,24 @@ inventoryKubernetesTests =
         result <- adapterPrepare adapter createOperation
         case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("mismatched native address accepted: " <> show other)
         readIORef calls >>= (@?= 0)
+    , testCase "source object cannot preclaim inventory annotations" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let value = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Service" :: Text)
+              , "metadata" .= object
+                  [ "name" .= ("cache" :: Text)
+                  , "namespace" .= ("personal" :: Text)
+                  , "annotations" .= object ["nagare.dev/resource-id" .= ("foreign" :: Text)]
+                  ]
+              ]
+            bytes = ok (canonicalValue value)
+            native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
+            adapter = mkKubernetesAdapter (Map.singleton resource native) (ops state calls)
+        result <- adapterPrepare adapter createOperation
+        case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("reserved annotation accepted: " <> show other)
+        readIORef calls >>= (@?= 0)
     , testCase "database direct bundle retains canonical native members" $ do
         let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
               (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
@@ -92,12 +125,80 @@ inventoryKubernetesTests =
           NativeObject digest -> digest @?= contentDigest bytes
           StatefulSet _ _ digest -> digest @?= contentDigest bytes
           other -> assertFailure ("unexpected database spec: " <> show other)) (Map.elems bound)
+    , testCase "desired projection ignores server fields but detects changed desired data" $ do
+        let desired = object
+              [ "metadata" .= object ["name" .= ("config" :: Text)]
+              , "data" .= object ["key" .= ("reviewed" :: Text)]
+              ]
+            observed value = object
+              [ "metadata" .= object ["name" .= ("config" :: Text), "resourceVersion" .= ("17" :: Text)]
+              , "data" .= object ["key" .= (value :: Text), "extra" .= ("unmanaged" :: Text)]
+              , "status" .= object []
+              ]
+        assertBool "server extras should not drift" (desiredFieldsMatch desired (observed "reviewed"))
+        assertBool "desired data change must drift" (not (desiredFieldsMatch desired (observed "changed")))
+    , testCase "packaged source is bound once and changed source refuses review" $
+        withSystemTempDirectory "nagare-kubernetes-source" $ \root -> do
+          let source = SourceLocation "object.json" "#document[0]"
+              sourceInput = input {sourceLocation = source}
+              sourceDeclaration = fst (ok (bindKubernetesObject sourceInput))
+          BS.writeFile (root </> "object.json") nativeBytes
+          loaded <- loadKubernetesSources root [sourceDeclaration]
+          fmap (Map.lookup resource) loaded @?= Right (Just (sourceDeclaration, nativeBytes))
+          BS.writeFile (root </> "object.json") "{}"
+          changed <- loadKubernetesSources root [sourceDeclaration]
+          assertBool "changed packaged source accepted" (either (const True) (const False) changed)
+    , testCase "private review reconstructs the native member without source files" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed declaration] [] [] [] [] []])
+            snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+            candidate = ok (composeInventory snapshot (ReplaceScope scopeDeclaration :| []))
+            adapter = mkKubernetesAdapter specs (ops state calls)
+            registry = ok (mkAdapterRegistry [adapter])
+            observations = ok (observationSet [(resource, ConfirmedAbsent absence)])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "client-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        snapshotBefore <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+        kubernetesSpecsFromReview bundle @?= Right specs
+    , testCase "disposable cluster executes a create-only reviewed object" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let value = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= ("reviewed" :: Text)]
+                  ]
+                bytes = ok (canonicalValue value)
+                native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
+                bound = Map.singleton resource native
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              prepared <- adapterPrepare adapter createOperation >>= expectRight
+              adapterPreflight adapter createOperation prepared >>= expectRight
+              adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify adapter createOperation prepared >>= expectRight
+              pure ()) `finally` cleanup
     ]
 
 ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps
 ops state calls =
   KubernetesAdapterOps
-    { kubernetesObserve = \_ -> readIORef state
+    { kubernetesContext = ok (mkContextId "test")
+    , kubernetesObserve = \_ -> readIORef state
     , kubernetesMutateConditional = \mutation -> do
         current <- readIORef state
         if current /= mutationBefore mutation

@@ -1,5 +1,7 @@
 module InventoryArtifactSpec (inventoryArtifactTests) where
 
+import Nagare.Dsl.Prelude hiding ((.=))
+
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map

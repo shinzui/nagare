@@ -93,6 +93,7 @@ library
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Kubernetes
+    Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud
@@ -103,6 +104,8 @@ library
     Nagare.Inventory.Execute
     Nagare.Inventory.Journal
     Nagare.Inventory.Kubernetes
+    Nagare.Inventory.KubernetesSources
+    Nagare.Inventory.KubernetesReview
     Nagare.Inventory.Plan
     Nagare.Inventory.Store
     Nagare.Ops.Cleanup

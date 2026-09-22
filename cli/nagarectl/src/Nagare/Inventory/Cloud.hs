@@ -20,6 +20,8 @@ module Nagare.Inventory.Cloud
   )
 where
 
+import Data.Generics.Labels ()
+
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
