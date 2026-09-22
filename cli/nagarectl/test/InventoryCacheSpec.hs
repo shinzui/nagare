@@ -13,6 +13,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cache
 import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
@@ -113,6 +114,15 @@ inventoryCacheTests = testGroup "cache inventory adapter"
             member ^. #executor == KubernetesExecutor]
       assertBool "namespaced cache member lacks foundation dependency"
         (all (elem (OrderedAfter namespaceId) . (^. #dependencies)) nativeMembers)
+      let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+      (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
+        (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput))) >>= expectRight
+      Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
+      Map.size bootstrapNative @?= 21
+      (withoutCache, foundationOnly) <- compileBootstrapCandidate snapshot
+        (BootstrapInput foundationInput Nothing) >>= expectRight
+      Map.size (inventoryScopes (candidateInventory withoutCache)) @?= 1
+      Map.size foundationOnly @?= 6
   , testCase "foreign and unavailable cache state never authorizes creation" $ do
       state <- newIORef (CacheForeign "owned elsewhere")
       calls <- newIORef (0 :: Int)

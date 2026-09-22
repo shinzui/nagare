@@ -92,6 +92,7 @@ library
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime
     Nagare.Inventory.Cache
+    Nagare.Inventory.Bootstrap
     Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
