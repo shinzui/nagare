@@ -252,6 +252,27 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
+    -- Converged scope revisions retain proof of unchanged forward-only
+    -- migrations after Kubernetes TTL removes their Job objects.
+    provenMigrations = Map.fromList
+      [ (operation ^. #identity, operation)
+      | (scope, (revision, declaration)) <- Map.toAscList (historyAccepted history)
+      , Map.lookup scope (historyConverged history) == Just revision
+      , bundle <- scopeBundles declaration
+      , operation <- bundle ^. #operations
+      , operation ^. #operationKind == SchemaMigration
+      ]
+    migrationIsProven operation =
+      operation ^. #operationKind == SchemaMigration
+        && Map.lookup (operation ^. #identity) provenMigrations == Just operation
+    provenMigrationJobs = Set.fromList
+      [ resource
+      | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
+      , bundle <- scopeBundles scope
+      , operation <- bundle ^. #operations
+      , migrationIsProven operation
+      , resource <- NE.toList (operation ^. #affects)
+      ]
     observed = observationMap observations
     desiredManaged = [(resource ^. #identity, resource, Map.lookup (resource ^. #identity) oldDeclarations, Map.lookup (resource ^. #identity) observed) | Managed resource <- Map.elems desiredDeclarations]
     retired = [(resource, declaration) | (resource, declaration@(Managed _)) <- Map.toAscList oldDeclarations, Map.notMember resource desiredDeclarations]
@@ -288,7 +309,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
         Map.lookup (dependencyResource dependency) cacheOutputOperations
       _ -> Map.lookup (dependencyResource dependency) operationByDependency
     refCapability (SomeRef ref) = let (_, _, capability, _, _) = refSignature (SomeRef ref) in capability
-    scopeDeclared declaration = mapMaybe declared (concatMap (^. #operations) (scopeBundles declaration))
+    scopeDeclared declaration = mapMaybe declared
+      [ operation | bundle <- scopeBundles declaration, operation <- bundle ^. #operations,
+        not (migrationIsProven operation)]
     declared operation = do
       executor <- listToMaybe [resource ^. #executor | resourceId <- NE.toList (operation ^. #affects), Just (Managed resource) <- [Map.lookup resourceId desiredDeclarations]]
       let digest = contentDigest (canonicalBytes (toJSON operation))
@@ -312,7 +335,10 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
           then ([], Just (resourceOperation AdoptResource resource))
           else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
-      (Just _, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
+      (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
+        Stateless | Set.member resourceId provenMigrationJobs
+          , canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource))
+          , isMigrationJob (resource ^. #address) -> ([], Nothing)
         Stateless -> ([], Just (resourceOperation CreateResource resource))
         Durable _ -> ([PlanError "durable-resource-missing"
           "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
@@ -333,6 +359,8 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))
           recovery = case resource ^. #dataPolicy of Stateless -> Idempotent; Durable _ -> VerifyBeforeRetry
        in mkPlanned action (resource ^. #executor) (resource ^. #identity :| []) digest recovery
+    isMigrationJob (Kubernetes _ "batch" kind _ _) = nameText kind == "job"
+    isMigrationJob _ = False
     mkPlanned action executor resources digest recovery =
       let descriptor = object ["action" .= action, "executor" .= executor, "resources" .= resources, "inputDigest" .= digest]
           token = "op-" <> T.take 24 (digestText (contentDigest (canonicalBytes descriptor)))

@@ -187,6 +187,54 @@ inventoryTransactionTests =
           ([migrationOperation], [workloadOperation]) ->
             assertBool "workload does not wait for migration" (plannedOperationId migrationOperation `elem` plannedDependencies workloadOperation)
           other -> assertFailure ("expected migration and workload operations, got " <> show other)
+    , testCase "proved migration survives TTL removal of its Job" $ do
+        let owner = ok (mkScopeId Platform "ttl-migration")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            job = case member owner cluster "migration" of
+              Managed resource -> Managed (resource {address = Kubernetes cluster "batch"
+                (ok (mkName "job")) (Just (ok (mkName "system"))) (ok (mkName "migration"))})
+              _ -> error "expected a managed Job"
+            jobId = declarationId job
+            migrationId = mintResourceId owner (ok (mkLogicalKey "migration")) (ok (mkName "proof"))
+            migration digest = DeclaredOperation migrationId (jobId :| [])
+              [ContentInput digest] VerifyBeforeRetry SchemaMigration
+            scope = ok (mkScopeDeclaration owner
+              [ResourceBundle [job] [] [] [] [migration (contentDigest "v1")] []])
+            binding = ContextBinding (ok (mkContextId "ttl-migration")) (ok (mkName "project"))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope scope :| []))
+            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            absent = ConfirmedAbsent (contentDigest "absent")
+        store <- newMemoryStore
+        _ <- initializeStore store binding "ttl-migration" >>= expectRight
+        historyBefore <- loadInventoryHistory store >>= expectRight
+        let observations = ok (observationSet [(resource, absent) | resource <- Set.toAscList
+              (requiredResources (observationRequirements candidate historyBefore))])
+            proposal = ok (planChanges candidate noLifecycleDecisions historyBefore observations)
+        length (proposalOperations proposal) @?= 2
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        snapshotAfter <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshotAfter bundle)
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = ok (mkScopeSnapshot binding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+                (historyAccepted history)) Map.empty)
+            again = ok (composeInventory accepted (ReplaceScope scope :| []))
+            missing = ok (observationSet [(resource, absent)
+              | resource <- Set.toAscList (requiredResources (observationRequirements again history))])
+            noReplay = ok (planChanges again noLifecycleDecisions history missing)
+        proposalOperations noReplay @?= []
+        let updatedScope = ok (mkScopeDeclaration owner
+              [ResourceBundle [job] [] [] [] [migration (contentDigest "v2")] []])
+            updated = ok (composeInventory accepted (ReplaceScope updatedScope :| []))
+            replay = ok (planChanges updated noLifecycleDecisions history missing)
+        assertBool "changed migration inputs were treated as proven"
+          (any ((== RunDeclaredOperation) . plannedAction) (proposalOperations replay))
     , testCase "reviewed execution converges and skips no completed operation" $ do
         store <- newMemoryStore
         calls <- newIORef ([] :: [OperationId])
