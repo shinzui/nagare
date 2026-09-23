@@ -85,6 +85,51 @@ inventoryTransactionTests =
             proposal = ok (planChanges next noLifecycleDecisions history observations)
         length (Set.toAscList required) @?= 1
         proposalOperations proposal @?= []
+        let missingObservations = ok (observationSet [(resource, absent)
+              | resource <- Set.toAscList required])
+            repair = ok (planChanges next noLifecycleDecisions history missingObservations)
+        case proposalOperations repair of
+          [operation] -> plannedAction operation @?= CreateResource
+          other -> assertFailure ("missing accepted Namespace was not recreated, got " <> show other)
+    , testCase "missing accepted durable resource refuses automatic recreation" $ do
+        let owner = ok (mkScopeId Platform "durable")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            recovery = RecoveryIntent (ok (mkName "backup"))
+              (mkSecretRef (ok (mkName "credential")) (ok (mkName "v1")) :| [])
+            protected = case member owner cluster "data" of
+              Managed resource -> Managed (resource {dataPolicy = Durable recovery})
+              _ -> error "expected a managed resource"
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [protected] [] [] [] [] []])
+            binding = ContextBinding (ok (mkContextId "durable-test")) (ok (mkName "project"))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope scope :| []))
+            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            absent = ConfirmedAbsent (contentDigest "absent")
+        store <- newMemoryStore
+        _ <- initializeStore store binding "durable-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let required = requiredResources (observationRequirements candidate initialHistory)
+            observations = ok (observationSet [(resource, absent) | resource <- Set.toAscList required])
+            proposal = ok (planChanges candidate noLifecycleDecisions initialHistory observations)
+        before <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry before proposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        snapshotAfter <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshotAfter bundle)
+        result <- applyReviewed store registry reviewed >>= expectRight
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = ok (mkScopeSnapshot binding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
+                (historyAccepted history)) Map.empty)
+            again = ok (composeInventory accepted (ReplaceScope scope :| []))
+            missing = ok (observationSet [(resource, absent)
+              | resource <- Set.toAscList (requiredResources (observationRequirements again history))])
+        case planChanges again noLifecycleDecisions history missing of
+          Left errors -> assertBool "missing durable resource lacked a recovery refusal"
+            (any ((== "durable-resource-missing") . planErrorCode) (NE.toList errors))
+          Right _ -> assertFailure "missing durable resource was silently recreated"
     , testCase "declared cache operation waits for its resource, database, and workload" $ do
         let owner = ok (mkScopeId Platform "cache")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

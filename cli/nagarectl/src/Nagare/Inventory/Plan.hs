@@ -312,6 +312,10 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
           then ([], Just (resourceOperation AdoptResource resource))
           else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
+      (Just _, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
+        Stateless -> ([], Just (resourceOperation CreateResource resource))
+        Durable _ -> ([PlanError "durable-resource-missing"
+          "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
       (Just old, _)
         | canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource)) -> ([], Nothing)
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
