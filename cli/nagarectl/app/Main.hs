@@ -249,7 +249,7 @@ import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Adapters.Helm (mkHelmAdapter)
 import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps)
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey, observeKubernetesHealth)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
@@ -4406,6 +4406,20 @@ runInventoryStatus mctx requested json gcOutput = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  let healthConfig = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName))
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+      kubeObserved = Map.fromList kubeFacts
+  healthPairs <- forM managed $ \resource -> do
+    let resourceId = resource ^. #identity
+        physical = case Map.lookup resourceId kubeObserved of
+          Just (InventoryAdapter.ObservedPresent uid) -> Just uid
+          Just (InventoryAdapter.ObservedDrifted uid _) -> Just uid
+          _ -> Nothing
+    health <- case (resource ^. #executor, physical) of
+      (ResourceInventory.KubernetesExecutor, Just uid) ->
+        observeKubernetesHealth healthConfig (resource ^. #address) uid
+      _ -> pure Nothing
+    pure (resourceId, health)
   transactionStatus <- InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
     >>= either dieT pure
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
@@ -4419,7 +4433,13 @@ runInventoryStatus mctx requested json gcOutput = do
         | resource <- managed, Map.notMember (resource ^. #identity) knownFacts]
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
-      findings = InventoryStatus.classifyDrift inventory observations
+      healthById = Map.fromList healthPairs
+      findings =
+        [finding {InventoryStatus.findingHealth = case Map.lookup (InventoryStatus.findingResource finding) healthById of
+          Just (Just True) -> InventoryStatus.HealthReady
+          Just (Just False) -> InventoryStatus.HealthNotReady
+          _ -> InventoryStatus.findingHealth finding}
+        | finding <- InventoryStatus.classifyDrift inventory observations]
       retainedFindings = InventoryStatus.retainedFindings history observations
       collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
       unavailable = Set.toAscList (Set.fromList

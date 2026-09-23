@@ -24,6 +24,8 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , credentialDataMatches
   , generatedCredentialTemplate
   , deploymentAvailable
+  , readinessForAddress
+  , observeKubernetesHealth
   , materializeCacheKey
   , cacheClientDataMatches
   , withoutCacheClientData
@@ -227,6 +229,43 @@ waitForReadiness config address = case address of
       pure $ case result of
         Right (ExitSuccess, _, _) -> AdapterEffectCompleted
         _ -> AdapterEffectAmbiguous ("Kubernetes " <> label <> " did not prove readiness; reobserve before retry")
+
+-- | A separate read-only condition probe. The UID check prevents a second
+-- get from attaching readiness of a replacement to the first observation.
+observeKubernetesHealth :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> IO (Maybe Bool)
+observeKubernetesHealth config address physical = case address of
+  Kubernetes _ group kind namespace name
+    | supportsReadiness address -> do
+        guarded <- runtimeGuard config
+        case guarded of
+          Left _ -> pure Nothing
+          Right () -> do
+            result <- invoke config
+              (["get", kindToken group kind, T.unpack (nameText name)]
+                <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
+              ""
+            pure $ case result of
+              Right (ExitSuccess, output, _) | not (null output) -> do
+                value <- either (const Nothing) Just (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
+                metadata <- either (const Nothing) Just (metadataOf value)
+                uid <- either (const Nothing) Just (fieldText "uid" metadata)
+                if uid == physicalIdentityText physical
+                  then readinessForAddress address value
+                  else Nothing
+              _ -> Nothing
+  _ -> pure Nothing
+
+readinessForAddress :: ProviderAddress -> Value -> Maybe Bool
+readinessForAddress address value = case address of
+  Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> Just (jobCompleted value)
+  Kubernetes _ "apiextensions.k8s.io" kind _ _ | nameText kind == "customresourcedefinition" -> Just (crdEstablished value)
+  Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
+  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" -> Just (knativeReady value)
+  Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
+  _ -> Nothing
+
+supportsReadiness :: ProviderAddress -> Bool
+supportsReadiness address = maybe False (const True) (readinessForAddress address Null)
 
 -- The client ConfigMap's data is delegated at review time, but observation
 -- still compares it with the current output of the named logical cache.

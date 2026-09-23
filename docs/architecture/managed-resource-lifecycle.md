@@ -12,6 +12,11 @@ committed journal and reports state names without provider error text or private
 command output. The report rejects a concurrent head change and can be retried.
 `inventory explain RESOURCE_ID --json` also includes `dependencyTrace`, following
 transitive prerequisites to their composed declarations with owner scope and source.
+For Kubernetes Jobs, CRDs, cert-manager Certificates and ClusterIssuers,
+Knative Services, and Deployments, status separately probes controller
+conditions and reports health as `ready` or `not-ready` when the second read
+still has the observed UID. Other kinds and failed or changed reads remain
+`unknown`; a missing resource is `unavailable`.
 
 ## Adoption review
 

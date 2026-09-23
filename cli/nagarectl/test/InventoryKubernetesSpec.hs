@@ -24,7 +24,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, readinessForAddress, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -365,6 +365,14 @@ inventoryKubernetesTests =
           (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
         assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
         assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
+    , testCase "health probe selects only Kubernetes kinds with explicit readiness contracts" $ do
+        let address group kind = Kubernetes resource group
+              (ok (mkName kind)) (Just (ok (mkName "default"))) (ok (mkName "example"))
+            ready = object ["status" .= object ["conditions" .=
+              [object ["type" .= ("Complete" :: Text), "status" .= ("True" :: Text)]]]]
+        readinessForAddress (address "batch" "job") ready @?= Just True
+        readinessForAddress (address "batch" "job") (object []) @?= Just False
+        readinessForAddress (address "" "configmap") ready @?= Nothing
     , testCase "auth credential data is generated only from a closed Secret template" $ do
         let template name = object
               [ "apiVersion" .= ("v1" :: Text)

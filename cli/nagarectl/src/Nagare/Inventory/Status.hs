@@ -352,7 +352,7 @@ data DriftCategory
 
 -- | Configuration observation alone does not establish readiness. Providers
 -- can later supply a separate condition observation without changing drift.
-data HealthCategory = HealthUnknown | HealthUnavailable
+data HealthCategory = HealthReady | HealthNotReady | HealthUnknown | HealthUnavailable
   deriving stock (Eq, Ord, Show)
 
 data DriftFinding = DriftFinding
@@ -408,6 +408,8 @@ instance ToJSON DriftCategory where
 
 instance ToJSON HealthCategory where
   toJSON health = toJSON $ case health of
+    HealthReady -> ("ready" :: Text)
+    HealthNotReady -> "not-ready"
     HealthUnknown -> ("unknown" :: Text)
     HealthUnavailable -> "unavailable"
 
