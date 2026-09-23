@@ -13,8 +13,13 @@ import Nagare.Inventory.Components.Observability
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.HelmRuntime
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Bootstrap (compilePinnedBootstrap)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth, compilePinnedBootstrap)
+import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
+import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
+import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
+import Nagare.Inventory.Components.Upstream (pinnedUpstreamInputs)
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal (mkOperationId)
@@ -26,6 +31,7 @@ import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.Environment (lookupEnv)
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -89,6 +95,43 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           [] -> error "five observability scopes disappeared")) of
         Left errors -> assertFailure (show errors)
         Right _ -> pure ()
+  , testCase "cloud bootstrap composes auth, cache publication, and observability" $
+      withSystemTempDirectory "bootstrap-complete" $ \root -> do
+        let source = "../../cluster/bootstrap/nix-cache"
+            destination = root </> "cluster/bootstrap/nix-cache"
+            owner = ok (mkScopeId Platform "foundation")
+            observabilityInputs = pinnedObservabilityInputs cluster "../.." "v1.32.0"
+            foundation = FoundationInput owner cluster
+              "../../cluster/bootstrap/job-runs/resourcequota.yaml" (map packagedOwner observabilityInputs)
+            images = Map.fromList [(service,
+              "registry.example.test/" <> service <> "@sha256:" <> T.replicate 64 "a")
+              | service <- ["en", "shomei", "nagare-access"]]
+            backend = GcsBackend "project" "backups"
+            binding = ContextBinding (ok (mkContextId "complete-bootstrap")) (name "project")
+            snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+        createDirectoryIfMissing True destination
+        listDirectory source >>= mapM_ (\entry -> do
+          let path = source </> entry
+          present <- doesFileExist path
+          when present (copyFile path (destination </> entry)))
+        BC.writeFile (destination </> "attic-pin.json")
+          "{\"sourceCommit\":\"abcdef123456\",\"linuxAmd64Digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+        BC.writeFile (destination </> "attic-server-image.tar.gz") "fixture-archive"
+        (imageScope, cacheScope, cacheNative) <- compilePackagedCache root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= either (assertFailure . show) pure
+        (auth, databases) <- either (assertFailure . show) pure
+          (packagedAuthInputs "../.." foundation CloudAuth "example.test" images backend)
+        (base, baseNative) <- compileBootstrapWithAuth snapshot
+          (BootstrapInput foundation Nothing (pinnedUpstreamInputs cluster "../..")) auth databases
+          >>= either (assertFailure . show) pure
+        (observability, obsNative) <- compilePinnedObservability owner observabilityInputs
+          >>= either (assertFailure . show) pure
+        let changes = candidateChanges base <> (ReplaceScope imageScope :|
+              (ReplaceScope cacheScope : map ReplaceScope observability))
+            native = Map.unions [baseNative, cacheNative, obsNative]
+        Map.size native @?= sum (map Map.size [baseNative, cacheNative, obsNative])
+        complete <- either (assertFailure . show) pure (composeInventory snapshot changes)
+        Map.size (inventoryScopes (candidateInventory complete)) @?= 13
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor

@@ -14,7 +14,8 @@ import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
-import Nagare.Inventory.Components.Upstream (pinnedUpstreamInputs)
+import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
+import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (LifecyclePolicy (Protect), RecoveryIntent (..), mkSecretRef)
@@ -131,14 +132,17 @@ inventoryAuthTests = testGroup "auth inventory component"
         (store {bucket = "wrong-bucket"})
       assertBool "local object-store profile mismatch was accepted" (case changed of Left _ -> True; Right _ -> False)
   , testCase "local auth backup waits for the owned MinIO bucket" $ do
-      let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
-            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+      let observabilityInputs = pinnedObservabilityInputs fixtureCluster "../.." "v1.32.0"
+          foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" (map packagedOwner observabilityInputs)
           store = MinioRef "http://minio.nagare-system.svc.cluster.local:9000"
             "nagare-backups" "nagare-minio-credentials"
           backend = MinioBackend store
           binding = ContextBinding (ok (mkContextId "local-auth-fixture")) (ok (mkName "project"))
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
-          bootstrap = BootstrapInput foundation Nothing (pinnedUpstreamInputs fixtureCluster "../..")
+      upstream <- configuredUpstreamInputsWithIssuer fixtureCluster "../.."
+        "example.test" "registry.example.test" LocalIssuer >>= expectRight
+      let bootstrap = BootstrapInput foundation Nothing upstream
       (localScope, localNative) <- compileLocalObjectStore "../.." foundation store >>= expectRight
       let bucketJobs = [resource ^. #identity | (resource, _) <- Map.elems localNative,
             case resource ^. #address of
@@ -149,7 +153,13 @@ inventoryAuthTests = testGroup "auth inventory component"
         "example.test" (authImages fixture) backend)
       (candidate, _) <- compileBootstrapWithAuthAndScopes snapshot bootstrap
         auth {authExtraPrerequisites = [bucketJob]} databases [localScope] >>= expectRight
-      Map.size (inventoryScopes (candidateInventory candidate)) @?= 7
+      (observability, _) <- compilePinnedObservability (foundationOwner foundation)
+        observabilityInputs >>= expectRight
+      complete <- expectRight (composeInventory snapshot (candidateChanges candidate <>
+        (case observability of
+          firstScope : rest -> ReplaceScope firstScope :| map ReplaceScope rest
+          [] -> error "observability scopes disappeared")))
+      Map.size (inventoryScopes (candidateInventory complete)) @?= 13
   ]
 
 fixture :: AuthInput
