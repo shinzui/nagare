@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -274,6 +274,20 @@ inventoryKubernetesTests =
         assertBool "foreign field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [own, foreignEntry])))
         assertBool "stale version accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "5" (metadata [own])))
         assertBool "missing inventory field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [status])))
+    , testCase "unproved Kubernetes update kind refuses before invoking kubectl" $ do
+        let context = ok (mkContextId "unsupported-update")
+            config = KubernetesRuntimeConfig context "missing-test-context" (pure (Right ()))
+            address = Kubernetes cluster "batch" (ok (mkName "job"))
+              (Just (ok (mkName "default"))) (ok (mkName "unproved"))
+            digest = contentDigest "{}"
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-unproved-update")) digest
+              UpdateResource resource address "{}" digest
+              (KubernetesPresent physical "4" (Just resource) digest)
+        assertBool "unproved Job update was admitted" (not (supportedUpdateAddress address))
+        result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config Map.empty) mutation
+        case result of
+          AdapterEffectFailed (KnownNoEffect _) -> pure ()
+          other -> assertFailure ("unproved update was not a known no-effect refusal: " <> show other)
     , testCase "PVC controller annotation exception is exact and kind-specific" $ do
         let address = Kubernetes cluster "" (ok (mkName "persistentvolumeclaim")) (Just (ok (mkName "default"))) (ok (mkName "data"))
             otherAddress = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "default"))) (ok (mkName "data"))
@@ -290,6 +304,30 @@ inventoryKubernetesTests =
           (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignFields])))
         assertBool "PVC exception applied to ConfigMap" (either (const True) (const False)
           (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, provisioner])))
+    , testCase "Deployment controller annotation exception is exact and kind-specific" $ do
+        let address = Kubernetes cluster "apps" (ok (mkName "deployment"))
+              (Just (ok (mkName "default"))) (ok (mkName "deployment"))
+            otherAddress = Kubernetes cluster "apps" (ok (mkName "statefulset"))
+              (Just (ok (mkName "default"))) (ok (mkName "deployment"))
+            entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
+            own = entry "nagare-inventory" (object ["f:spec" .= object ["f:replicas" .= object []]])
+            controllerFields = object
+              [ "f:metadata" .= object ["f:annotations" .= object
+                  [ "." .= object []
+                  , "f:deployment.kubernetes.io/revision" .= object []
+                  ]]
+              , "f:status" .= object ["f:observedGeneration" .= object []]
+              ]
+            controller = entry "k3s" controllerFields
+            foreignFields = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
+              ["f:nagare.dev/spec-digest" .= object []]]])
+            observed members = object ["metadata" .= object
+              ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]]
+        confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, controller]) @?= Right ()
+        assertBool "controller-owned inventory stamp was accepted" (either (const True) (const False)
+          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, controller, foreignFields])))
+        assertBool "Deployment exception applied to StatefulSet" (either (const True) (const False)
+          (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, controller])))
     , testCase "packaged source is bound once and changed source refuses review" $
         withSystemTempDirectory "nagare-kubernetes-source" $ \root -> do
           let source = SourceLocation "object.json" "#document[0]"
@@ -416,13 +454,13 @@ inventoryKubernetesTests =
               annotateCode @?= ExitSuccess
               staleResult <- kubernetesMutateConditional finalOps staleMutation
               case staleResult of
-                AdapterEffectAmbiguous {} -> pure ()
+                AdapterEffectFailed (KnownNoEffect _) -> pure ()
                 other -> assertFailure ("stale or foreign update changed the object: " <> show other)
               foreignPrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
               let foreignMutation = ok (eitherDecodeStrict (preparedNativeBytes foreignPrepared)) :: KubernetesMutation
               foreignResult <- kubernetesMutateConditional finalOps foreignMutation
               case foreignResult of
-                AdapterEffectAmbiguous {} -> pure ()
+                AdapterEffectFailed (KnownNoEffect _) -> pure ()
                 other -> assertFailure ("foreign field manager was overridden: " <> show other)
               pure ()) `finally` cleanup
     , testCase "disposable reviewed transaction refuses a foreign create after publication" $ do
@@ -555,6 +593,55 @@ inventoryKubernetesTests =
               portPrepared <- adapterPrepare portChanged updateOperation >>= expectRight
               adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
+              pure ()) `finally` cleanup
+    , testCase "disposable cluster conditionally updates a reviewed Deployment" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let deployment revision = object
+                  [ "apiVersion" .= ("apps/v1" :: Text)
+                  , "kind" .= ("Deployment" :: Text)
+                  , "metadata" .= object
+                      [ "name" .= ("nagare-ep147-deployment" :: Text)
+                      , "namespace" .= ("default" :: Text)
+                      , "annotations" .= object ["nagare.dev/test-revision" .= (revision :: Text)]
+                      ]
+                  , "spec" .= object
+                      [ "replicas" .= (0 :: Int)
+                      , "selector" .= object ["matchLabels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
+                      , "template" .= object
+                          [ "metadata" .= object ["labels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
+                          , "spec" .= object ["containers" .= [object
+                              [ "name" .= ("pause" :: Text)
+                              , "image" .= ("registry.k8s.io/pause:3.9" :: Text)
+                              ]]]
+                          ]
+                      ]
+                  ]
+                mkBound revision = let value = deployment revision
+                                       bytes = ok (canonicalValue value)
+                                    in Map.singleton resource (ok (bindKubernetesObject
+                                         (input {inputObject = value, objectDigest = contentDigest bytes})))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter revision = let bound = mkBound revision in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
+                    "delete", "deployment", "nagare-ep147-deployment", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              let initial = adapter "initial"
+                  changed = adapter "changed"
+              created <- adapterPrepare initial createOperation >>= expectRight
+              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify initial createOperation created >>= expectRight
+              updated <- adapterPrepare changed updateOperation >>= expectRight
+              adapterPreflight changed updateOperation updated >>= expectRight
+              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changed updateOperation updated >>= expectRight
               pure ()) `finally` cleanup
     , testCase "disposable cluster creates a database credential and reviewed backup CronJob" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"

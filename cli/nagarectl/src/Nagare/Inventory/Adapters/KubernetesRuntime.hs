@@ -20,6 +20,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , materializeLocalObjectStoreCredential
   , materializeLocalObjectStoreCredentialWith
   , minioSourceData
+  , supportedUpdateAddress
   , credentialDataMatches
   , generatedCredentialTemplate
   , deploymentAvailable
@@ -48,6 +49,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -113,6 +115,9 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
           request <- case (mutationAction mutation, mutationBefore mutation) of
             (CreateResource, KubernetesAbsent _) ->
               pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
+            (UpdateResource, KubernetesPresent _ _ _ _)
+              | not (supportedUpdateAddress (mutationAddress mutation)) ->
+                  pure (Left "Kubernetes update kind lacks a proved conditional mutation policy")
             (UpdateResource, KubernetesPresent uid revision _ _) -> do
               case generatedCredentialTemplate (mutationNativeJson mutation) of
                 Left reason -> pure (Left reason)
@@ -133,12 +138,28 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
                       _ -> applyRequest uid revision native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
-            Left reason -> pure (AdapterEffectAmbiguous reason)
+            Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right (arguments, body) -> do
               result <- invoke config arguments (T.unpack body)
               case result of
                 Right (ExitSuccess, _, _) -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+-- | Each admitted kind has disposable-cluster evidence for ownership checks,
+-- UID/resourceVersion handling, and its normal update form. New kinds require
+-- their own update proof before they can enter this list.
+supportedUpdateAddress :: ProviderAddress -> Bool
+supportedUpdateAddress (Kubernetes _ group kind _ _) =
+  (group, nameText kind) `elem`
+    [ ("", "namespace")
+    , ("", "configmap")
+    , ("", "service")
+    , ("", "persistentvolumeclaim")
+    , ("apps", "deployment")
+    , ("apps", "statefulset")
+    , ("batch", "cronjob")
+    ]
+supportedUpdateAddress _ = False
 
 waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
 waitForReadiness config address = case address of
@@ -715,6 +736,16 @@ expectedControllerFields (Just (Kubernetes _ "" kind _ _)) "k3s" fields
       , ["f:metadata", "f:annotations", "f:volume.kubernetes.io/storage-provisioner"]
       , ["f:spec", "f:volumeName"]
       ]
+expectedControllerFields (Just (Kubernetes _ "apps" kind _ _)) "k3s" fields
+  | nameText kind == "deployment" =
+      ["f:metadata", "f:annotations", "f:deployment.kubernetes.io/revision"] `elem` paths
+        && all permitted paths
+  where
+    paths = managedPaths [] fields
+    permitted ["f:metadata", "f:annotations", "."] = True
+    permitted ["f:metadata", "f:annotations", "f:deployment.kubernetes.io/revision"] = True
+    permitted ("f:status" : _) = True
+    permitted _ = False
 expectedControllerFields _ _ _ = False
 
 managedPaths :: [Text] -> Object -> [[Text]]

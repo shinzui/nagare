@@ -187,6 +187,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M3 transport proof: A disposable local registry received a synthetic reviewed controller image; changed archive bytes refused before mutation. Released-archive and cloud publication evidence remain open.
 - [x] (2026-09-22) EP-147 M3/M4 partial: Observability's direct VM scrape/rule and Grafana ConfigMaps join the reviewed candidate; context-owned encrypted Grafana/Alertmanager Secrets are decrypted and validated before review, with the metrics release ordered after them. Live convergence remains open.
 - [x] (2026-09-22) EP-147 M3 partial: Reviewed local MinIO Secrets use a generated primary and guarded namespace copy; fixed legacy manifest credentials are excluded from the inventory review. Legacy recipe replacement and live convergence remain open.
+- [x] (2026-09-22) EP-147 M1b partial: Kubernetes updates now refuse unproved kinds before a write; the conditional runtime admits seven kinds with disposable update evidence, including Deployment with an exact controller annotation exception. Broader native update coverage remains open.
 - [x] (2026-09-22) EP-147 M3 partial: Helm 4 capture/verify post-renderer plugins prove exact native render binding and reject a nondeterministic chart before resource changes; release declarations and chart pinning remain open.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
