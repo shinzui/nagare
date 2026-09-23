@@ -8,6 +8,7 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -92,6 +93,43 @@ inventoryKubernetesTests =
           Left PrepareRefused {} -> pure ()
           other -> assertFailure ("foreign object accepted: " <> show other)
         readIORef calls >>= (@?= 0)
+    , testCase "unchanged accepted object plans repair for observed drift and refuses foreign ownership" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            scoped = ok (mkScopeDeclaration scope [ResourceBundle [Managed declaration] [] [] [] [] []])
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scoped :| []))
+            adapter = mkKubernetesAdapter specs (ops state calls)
+            registry = ok (mkAdapterRegistry [adapter])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "drift-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let initial = ok (planChanges candidate noLifecycleDecisions initialHistory
+              (ok (observationSet [(resource, ConfirmedAbsent absence)])))
+        snapshot <- readStoreSnapshot store >>= expectRight
+        reviewed <- prepareReview registry snapshot initial >>= expectRight
+        _ <- publishReview store reviewed >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        admitted <- expectRight (verifyReview published reviewed)
+        _ <- applyReviewed store registry admitted >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value)) (historyAccepted history)
+            next = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope scoped :| []))
+        writeIORef state (KubernetesPresent physical "6" (Just resource) (contentDigest "drifted"))
+        drifted <- observeWithRegistry registry
+          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        Map.lookup resource (observationMap drifted) @?= Just (ObservedDrifted physical (contentDigest "drifted"))
+        let repair = ok (planChanges next noLifecycleDecisions history drifted)
+        assertBool "unchanged accepted drift had no repair operation"
+          (any ((== UpdateResource) . plannedAction) (proposalOperations repair))
+        writeIORef state (KubernetesPresent physical "7" Nothing (contentDigest nativeBytes))
+        foreignObservation <- observeWithRegistry registry
+          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        Map.lookup resource (observationMap foreignObservation) @?= Just (ObservedForeign physical)
+        case planChanges next noLifecycleDecisions history foreignObservation of
+          Left errors -> assertBool "foreign ownership was accepted"
+            (any ((== "foreign-resource") . planErrorCode) (NE.toList errors))
+          Right _ -> assertFailure "foreign ownership was accepted"
     , testCase "resourceVersion change after review refuses before transport" $ do
         state <- newIORef (KubernetesPresent physical "4" (Just resource) (contentDigest "old"))
         calls <- newIORef (0 :: Int)

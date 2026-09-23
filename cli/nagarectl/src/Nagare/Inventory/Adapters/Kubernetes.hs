@@ -82,7 +82,11 @@ mkKubernetesAdapter specs ops =
       pure (observationSet (zipWith toObservation resources states))
     toObservation resource state = (resource, case state of
       KubernetesAbsent proof -> ConfirmedAbsent proof
-      KubernetesPresent physical _ _ _ -> ObservedPresent physical
+      KubernetesPresent physical _ owner digest
+        | owner /= Just resource -> ObservedForeign physical
+        | Just (_, native) <- Map.lookup resource specs
+        , digest /= contentDigest native -> ObservedDrifted physical digest
+        | otherwise -> ObservedPresent physical
       KubernetesUnknown reason -> ObservationUnavailable reason)
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))

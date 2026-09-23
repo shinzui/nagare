@@ -336,6 +336,11 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
         if decisionIs ApproveAdoption resourceId
           then ([], Just (resourceOperation AdoptResource resource))
           else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
+      (Nothing, Just (ObservedDrifted _ _)) ->
+        if decisionIs ApproveAdoption resourceId
+          then ([], Just (resourceOperation AdoptResource resource))
+          else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
+      (_, Just (ObservedForeign _)) -> ([PlanError "foreign-resource" "resource address is occupied by an object without accepted ownership" [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
         Stateless | Set.member resourceId provenMigrationJobs
@@ -344,6 +349,7 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
         Stateless -> ([], Just (resourceOperation CreateResource resource))
         Durable _ -> ([PlanError "durable-resource-missing"
           "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
+      (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just old, _)
         | canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource)) -> ([], Nothing)
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
