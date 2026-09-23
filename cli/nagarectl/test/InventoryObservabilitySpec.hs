@@ -14,7 +14,7 @@ import Nagare.Inventory.Components.Observability
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.HelmRuntime
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth, compilePinnedBootstrap)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
@@ -229,6 +229,16 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
         Map.size native @?= sum (map Map.size [baseNative, cacheNative, obsNative, extraNative, secretNative])
         complete <- either (assertFailure . show) pure (composeInventory snapshot changes)
         Map.size (inventoryScopes (candidateInventory complete)) @?= 16
+        let marker = object ["apiVersion" .= ("v1" :: T.Text), "kind" .= ("ConfigMap" :: T.Text),
+              "metadata" .= object ["name" .= ("nagare-platform-version" :: T.Text),
+                "namespace" .= ("nagare-system" :: T.Text)],
+              "data" .= object ["version" .= ("0.4.0" :: T.Text)]]
+        (stampScope, stampNative) <- either (assertFailure . show) pure
+          (compileBootstrapStamp cluster marker complete)
+        stamped <- either (assertFailure . show) pure
+          (composeInventory snapshot (candidateChanges complete <> (ReplaceScope stampScope :| [])))
+        Map.size (inventoryScopes (candidateInventory stamped)) @?= 17
+        Map.size stampNative @?= 1
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor
