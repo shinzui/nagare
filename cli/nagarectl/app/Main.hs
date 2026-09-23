@@ -4181,7 +4181,10 @@ runPlatformBootstrapPlan mctx output = do
   stamped <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges candidate
       <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
-  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace (Map.union native stampNative))
+  let completeNative = Map.union native stampNative
+  unless (Map.size completeNative == Map.size native + Map.size stampNative)
+    (dieT "bootstrap completion marker shares a native identity")
+  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace completeNative)
     active stamped output
 
 readBootstrapKubeVersion :: ActiveTarget -> IO Text

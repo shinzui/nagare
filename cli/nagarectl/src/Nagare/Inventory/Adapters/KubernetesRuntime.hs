@@ -94,7 +94,10 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
                 ""
               case result of
                 Left reason -> pure (KubernetesUnknown reason)
-                Right (ExitFailure _, _, _) -> pure (KubernetesUnknown "kubectl get failed")
+                Right (ExitFailure _, _, errors)
+                  | "the server doesn't have a resource type" `T.isInfixOf` T.pack errors ->
+                      pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+                  | otherwise -> pure (KubernetesUnknown "kubectl get failed")
                 Right (ExitSuccess, output, _)
                   | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
                   | otherwise -> case parseObserved config resource native (T.pack output) of

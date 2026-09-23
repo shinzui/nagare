@@ -25,4 +25,13 @@ assert_refused 'host adapter child marker' bash scripts/vm-power.sh start
 assert_refused 'artifact adapter child marker' bash cluster/bootstrap/nix-cache/publish-image.sh
 assert_refused 'artifact adapter child marker' bash cluster/bootstrap/net-certmanager/publish-image.sh
 
+request="$(jq -nc --arg digest "$(printf 'a%.0s' {1..64})" \
+  '{version:1,resource:"fixture",kind:"OciImageArtifact",destination:"127.0.0.1:5001/fixture:tag",expectedDigest:$digest,specDigest:$digest,plan:null}')"
+if printf '%s' "$request" | NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
+  bash scripts/inventory-artifact-transport.sh publish >"$work/out" 2>"$work/err"; then
+  echo "artifact transport accepted publication without a reviewed plan" >&2
+  exit 1
+fi
+grep -q 'publication differs from the reviewed plan' "$work/err"
+
 printf '%s\n' 'inventory transport re-entry guards passed'

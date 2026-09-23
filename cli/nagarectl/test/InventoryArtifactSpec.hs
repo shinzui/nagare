@@ -74,6 +74,7 @@ inventoryArtifactTests =
                 unlines
                   [ "#!/bin/sh"
                   , "set -eu"
+                  , "test \"${NAGARE_INVENTORY_ADAPTER_CHILD:-}\" = artifact"
                   , "request=$(cat)"
                   , "printf '%s' \"$request\" | grep -F 'projects/example/global/images/nagare-image-abc' >/dev/null"
                   , "printf '%s' \"$request\" | grep -F '" <> Text.unpack (digestText expectedDigest) <> "' >/dev/null"
@@ -89,6 +90,10 @@ inventoryArtifactTests =
               adapter = mkArtifactAdapter specs (mkArtifactRuntimeOps runtime)
           observed <- adapterObserve adapter [artifactResource] >>= expectRight
           Map.lookup artifactResource (observationMap observed) @?= Just (ConfirmedAbsent absent)
+          let createOperation = operation CreateResource
+          created <- adapterPrepare adapter createOperation >>= expectRight
+          adapterPreflight adapter createOperation created >>= expectRight
+          adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
           prepared <- adapterPrepare adapter publishOperation >>= expectRight
           adapterPreflight adapter publishOperation prepared >>= expectRight
           adapterExecute adapter publishOperation prepared >>= (@?= AdapterEffectCompleted)

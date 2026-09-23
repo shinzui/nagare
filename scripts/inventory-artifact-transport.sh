@@ -19,7 +19,18 @@ destination="$(jq -er '.destination' <<<"${request}")"
 expected="$(jq -er '.expectedDigest' <<<"${request}")"
 source_digest="$(jq -er '.specDigest' <<<"${request}")"
 [ "${version}" = 1 ] || { echo "unsupported artifact transport version" >&2; exit 2; }
-case "${expected}" in sha256:[0-9a-f][0-9a-f]*) ;; *) echo "invalid expected artifact digest" >&2; exit 2 ;; esac
+[[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected artifact digest" >&2; exit 2; }
+[[ "${source_digest}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid source artifact digest" >&2; exit 2; }
+if [ "${action}" = publish ]; then
+  jq -e '
+    .plan.version == 1
+    and .plan.resource == .resource
+    and .plan.kind == .kind
+    and .plan.destination == .destination
+    and .plan.expectedDigest == .expectedDigest
+    and .plan.sourceDigest == .specDigest
+  ' <<<"${request}" >/dev/null || { echo "artifact publication differs from the reviewed plan" >&2; exit 2; }
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
@@ -29,7 +40,7 @@ source "${script_dir}/lib/target.sh"
 absence_digest() {
   local value
   value="$(printf 'artifact-absence:%s:%s' "${kind}" "${destination}" | shasum -a 256 | awk '{print $1}')"
-  printf 'sha256:%s' "${value}"
+  printf '%s' "${value}"
 }
 
 emit_missing() {
@@ -37,7 +48,9 @@ emit_missing() {
 }
 
 emit_present() {
-  jq -nc --arg physical "$1" --arg digest "$2" '{tag:"TransportPresent",contents:[$physical,$digest]}'
+  local digest="${2#sha256:}"
+  [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid observed artifact digest" >&2; return 2; }
+  jq -nc --arg physical "$1" --arg digest "${digest}" '{tag:"TransportPresent",contents:[$physical,$digest]}'
 }
 
 emit_owner_mismatch() {
@@ -133,14 +146,14 @@ publish() {
       case "${destination}" in
         */attic:*)
           NAGARE_ARTIFACT_DESTINATION="${destination}" \
-          NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+          NAGARE_ARTIFACT_EXPECTED_DIGEST="sha256:${expected}" \
           NAGARE_ARTIFACT_SOURCE_DIGEST="${source_digest}" \
             bash "${repo_root}/cluster/bootstrap/nix-cache/publish-image.sh" >&2
           ;;
         */net-certmanager-controller:v1.14.0-nagare.1)
           NAGARE_ARTIFACT_DESTINATION="${destination}" \
-          NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
-          NAGARE_ARTIFACT_SOURCE_DIGEST="${source_digest}" \
+          NAGARE_ARTIFACT_EXPECTED_DIGEST="sha256:${expected}" \
+          NAGARE_ARTIFACT_SOURCE_DIGEST="sha256:${source_digest}" \
             bash "${repo_root}/cluster/bootstrap/net-certmanager/publish-image.sh" >&2
           ;;
         *) echo "unsupported OCI image destination" >&2; return 2 ;;

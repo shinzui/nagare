@@ -79,7 +79,8 @@ prepareMutation config operation = pure $ do
     [single] -> Right single
     _ -> Left "artifact operations must name exactly one managed publication"
   spec <- maybe (Left ("artifact operation names an unknown resource: " <> resourceIdText resource)) Right (Map.lookup resource (runtimeArtifactSpecs config))
-  unless (plannedAction operation == RunDeclaredOperation) (Left "artifact runtime only executes explicit publication operations")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
+    (Left "artifact runtime only executes reviewed creation, update, or publication operations")
   pure
     ArtifactMutationPlan
       { artifactPlanVersion = 1
@@ -132,9 +133,10 @@ requestFor resource spec plan =
 runTransport :: ArtifactRuntimeConfig -> String -> TransportRequest -> IO (Either Text TransportObservation)
 runTransport config action request = do
   environment <- getEnvironment
-  let additions = runtimeArtifactEnvironment config
-      names = map fst additions
-      childEnvironment = additions <> filter ((`notElem` names) . fst) environment
+  let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "artifact")
+      additions = filter ((/= fst marker) . fst) (runtimeArtifactEnvironment config)
+      names = map fst (marker : additions)
+      childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
       command = (proc (runtimeArtifactExecutable config) [action]) {env = Just childEnvironment}
   case canonicalValue (toJSON request) of
     Left err -> pure (Left err)
