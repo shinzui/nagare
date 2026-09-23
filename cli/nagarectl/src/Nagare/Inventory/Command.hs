@@ -282,7 +282,12 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
 exportInventory :: ActiveTarget -> FilePath -> IO ()
 exportInventory target output = do
   rejectReentry
-  store <- openTargetStore target
+  store <- openTargetStoreReadOnly target >>= either (dieText . showText) pure
+  current <- readHead store >>= either (dieText . showText) pure
+  when (isNothing current) (dieText "inventory history is not initialized")
+  case current >>= headMigration of
+    Just marker -> dieText ("inventory history migrated to " <> migrationDestination marker <> "; reload the context shell")
+    Nothing -> pure ()
   result <- withProcessLock store (\locked -> exportStore locked output)
   case result of
     Left err -> dieText (showText err)
@@ -355,7 +360,50 @@ migrateTargetStore target destinationKind dryRun = do
             Right (Just headValue)
               | isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue) ->
                   pure (Left (StoreConditionFailed "inventory migration requires no active transaction or executor claim"))
-              | dryRun -> pure (Right destinationLabel)
+              | dryRun -> case destinationKind of
+                  InventoryStoreLocal -> do
+                    existing <- openFilesystemStoreReadOnly path
+                    case existing of
+                      Left (StoreConditionFailed _) -> pure (Right destinationLabel)
+                      Left err -> pure (Left err)
+                      Right localStore -> do
+                        previous <- readHead localStore
+                        pure $ case previous of
+                          Left err -> Left err
+                          Right Nothing -> Right destinationLabel
+                          Right (Just old) | old == headValue -> Right destinationLabel
+                          Right (Just old) | Just marker <- headMigration old,
+                            migrationDestination marker == sourceLabel -> Right destinationLabel
+                          Right (Just _) -> Left (StoreConditionFailed "local destination history differs")
+                  InventoryStoreGcs -> do
+                    let project = target ^. #profile . #project
+                    ambient <- lookupEnv "CLOUDSDK_CORE_PROJECT"
+                    case gcsBucketOfUrl destinationLabel of
+                      Nothing -> pure (Left (StoreConditionFailed "inventory store URL has no GCS bucket"))
+                      Just _ | maybe False ((/= project) . T.pack) ambient ->
+                        pure (Left (StoreConditionFailed "ambient gcloud project disagrees with the inventory context"))
+                      Just bucket -> do
+                        bucketNumber <- capture realGcloudOps (bucketProjectNumberArgs bucket)
+                        projectNumber <- capture realGcloudOps (projectNumberArgs project)
+                        case bucketOwnershipVerdict bucket project bucketNumber projectNumber of
+                          Left reason -> pure (Left (StoreConditionFailed reason))
+                          Right () -> case gcloudObjectOps destinationLabel of
+                            Left reason -> pure (Left (StoreConditionFailed reason))
+                            Right ops -> do
+                              existing <- openObjectStoreReadOnly ops (headBinding headValue) "dry-run" Nothing
+                              case existing of
+                                Left (StoreConditionFailed reason)
+                                  | reason == "inventory object prefix is not initialized" -> pure (Right destinationLabel)
+                                Left err -> pure (Left err)
+                                Right remoteStore -> do
+                                  previous <- readHead remoteStore
+                                  pure $ case previous of
+                                    Left err -> Left err
+                                    Right Nothing -> Right destinationLabel
+                                    Right (Just old) | old == headValue -> Right destinationLabel
+                                    Right (Just old) | Just marker <- headMigration old,
+                                      migrationDestination marker == sourceLabel -> Right destinationLabel
+                                    Right (Just _) -> Left (StoreConditionFailed "remote destination history differs")
               | otherwise -> do
                   destination <- case destinationKind of
                     InventoryStoreLocal -> openFilesystemStore path
@@ -414,7 +462,8 @@ openRemoteStore mayInitialize target stateRoot = do
                           if mayInitialize
                             then newObjectStoreWithLock ops binding client (Just cacheRoot)
                               (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                            else openObjectStoreReadOnly ops binding client (Just cacheRoot)
+                            else openObjectStoreReadOnlyWithLock ops binding client (Just cacheRoot)
+                              (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
                     (Left err, _) -> pure (invalid err)
                     (_, Left err) -> pure (invalid err)
 

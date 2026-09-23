@@ -232,3 +232,14 @@ A shared builder remains possible only as a two-part deliberate exception: selec
 A mismatch or missing acknowledgement refuses before Nix or gcloud. This exception is visible in
 dry-run and real-build output; it does not weaken the target project's guards around image upload,
 registration, or Pulumi configuration.
+
+## Amendment — 2026-09-23: shared inventory history addresses an owned bucket
+
+An inventory context that selects GCS addresses objects under an explicit
+bucket URL. Before opening a mutating store, Nagare compares the persisted
+context project and any ambient `CLOUDSDK_CORE_PROJECT` with the selected
+project, then applies the same bucket-owning-project-number assertion used
+for Pulumi state. An unreadable number refuses. Inventory-only GCS contexts
+do not need an existing Pulumi stack, so their object-store guard uses the
+bucket identity proof directly instead of the Pulumi-stack-specific
+`projectGuardVerdict`. See [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).

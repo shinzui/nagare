@@ -42,6 +42,8 @@ This is the eighth child of [MasterPlan 23](../masterplans/23-make-managed-resou
 - [x] (2026-09-23) M4 partial: Documented inventory selection, migration, takeover, backup boundaries, and bucket-reader access in operator guides and amendments to ADR 13 and ADR 22. The live two-state-root rehearsal remains open.
 - [x] (2026-09-23) M4 partial: Added a test group gated by both real-bucket environment variables and a thin two-state-root rehearsal script. The rehearsal dry run passes for `labs`; real execution remains pending the operator's separate go-ahead.
 - [x] (2026-09-23) M2/M3 partial: The object store now takes a workstation process file lock; a second client sharing the lock path is refused. Migration supports returning to a previously tombstoned local store by verifying and replacing that tombstone, and tests prove both directions and an interrupted destination-head write. The read-back suite also models a write that landed before its acknowledgement.
+- [x] (2026-09-23) M3 partial: Read-only export now opens an existing history without creating a missing remote format object or client identity, takes the same workstation file lock, and refuses an uninitialized or tombstoned head.
+- [x] (2026-09-23) M3 partial: Migration dry-run now checks the target bucket's owning project and any existing destination binding/head through read-only operations, so it refuses a foreign or divergent destination before saying the move is ready. Local disposable export produced a head whose SHA-256 matches `inventory store status`; the 721-test CLI suite passes.
 - [x] (2026-09-23) M1 (prototype): write the pure `gcloud storage` argument builders and the read-back classifier with a recording fake.
 - [ ] M1 (prototype): with the operator's go-ahead, run the live probe against a disposable prefix and record semantics, messages, and timings in Surprises & Discoveries.
 - [ ] M1 (prototype): decide the transport by the stated criteria and record the decision.
@@ -49,7 +51,7 @@ This is the eighth child of [MasterPlan 23](../masterplans/23-make-managed-resou
 - [x] (2026-09-23) M2: implement the object-backed `InventoryStore` over `ObjectOps`, with the verified local blob cache.
 - [ ] M2: run EP-145's transaction suite against it; add the two-client, takeover, superseded-executor, and ambiguous-write tests.
 - [x] (2026-09-23) M3: add the `NAGARE_INVENTORY_STORE` and `NAGARE_INVENTORY_STORE_URL` context fields in Haskell and Bash, with the local-mode downgrade.
-- [x] (2026-09-23) M3 partial: open the store by context selection with a persisted-project and bucket-ownership assertion; verify the explicit project guard and shared bucket bootstrap path.
+- [x] (2026-09-23) M3: open the store by context selection with a persisted-project, ambient-project, and bucket-project-number assertion before mutation; the shared state-bucket bootstrap now runs when either Pulumi or inventory selects GCS. The decision log records why the Pulumi-stack-specific verdict is not used for inventory-only contexts.
 - [x] (2026-09-23) M3 partial: implement `inventory store status` and `inventory store migrate`, including the source tombstone and resumable ordering; add the remaining interruption and command-path fixtures.
 - [ ] M4: run the gated live conformance suite and the two-state-root rehearsal; archive evidence.
 - [x] (2026-09-23) M4 partial: update user documentation, CLAUDE.md's variable list, ADR 13, and ADR 22; final distillation follows live evidence.
@@ -87,6 +89,10 @@ On macOS, opening a file already locked by another Haskell handle can itself rai
 - Decision: Choosing a remote store means the store itself needs GCS access. The property that a proven Pulumi phase is skipped without running Pulumi or calling the provider is kept; "fully offline resume" is not, for contexts that opt in.
   Rationale: This is the same trade the GCS Pulumi backend made, and the local store remains available for contexts that need offline operation.
   Date: 2026-09-16
+
+- Decision: The inventory GCS opener applies ADR 9's bucket-project-number assertion and checks the persisted and ambient context project. It does not call the Pulumi-specific `projectGuardVerdict`, which also requires a Pulumi stack probe and would reject an inventory-only GCS context before its stack exists.
+  Rationale: Every object operation addresses the explicitly selected bucket URL. The bucket's owning project number, compared with the target project's number before opening a mutating store, is the mutation-site identity proof for that URL. The CLI never derives a project from ambient gcloud configuration.
+  Date: 2026-09-23
 
 
 ## Outcomes & Retrospective

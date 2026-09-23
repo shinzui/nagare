@@ -16,6 +16,7 @@ module Nagare.Inventory.Store
   , newObjectStore
   , newObjectStoreWithLock
   , openObjectStoreReadOnly
+  , openObjectStoreReadOnlyWithLock
   , storeClientIdentity
   , inventoryStoreRoot
   , initializeStore
@@ -246,6 +247,10 @@ newObjectStoreWithLock ops binding client cache lockPath = openObjectStore True 
 
 openObjectStoreReadOnly :: ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> IO (Either StoreError InventoryStore)
 openObjectStoreReadOnly ops binding client cache = openObjectStore False ops binding client cache Nothing
+
+openObjectStoreReadOnlyWithLock :: ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> FilePath -> IO (Either StoreError InventoryStore)
+openObjectStoreReadOnlyWithLock ops binding client cache lockPath =
+  openObjectStore False ops binding client cache (Just lockPath)
 
 openObjectStore :: Bool -> ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> Maybe FilePath -> IO (Either StoreError InventoryStore)
 openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue (object
