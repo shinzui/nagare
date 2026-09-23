@@ -79,6 +79,7 @@ data InitOpts = InitOpts
   , region :: !(Maybe String)
   , zone :: !(Maybe String)
   , baseDomain :: !(Maybe String)
+  , externalDomainTlsEnabled :: !(Maybe String)
   , machineType :: !(Maybe String)
   , bootDiskType :: !(Maybe String)
   , bootDiskSizeGb :: !(Maybe String)
@@ -109,6 +110,7 @@ initFlagPairs o =
     , pair "CLOUDSDK_COMPUTE_REGION" (o ^. #region)
     , pair "CLOUDSDK_COMPUTE_ZONE" (o ^. #zone)
     , pair "NAGARE_BASE_DOMAIN" (o ^. #baseDomain)
+    , pair "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (o ^. #externalDomainTlsEnabled)
     , pair "NAGARE_MACHINE_TYPE" (o ^. #machineType)
     , pair "NAGARE_BOOT_DISK_TYPE" (o ^. #bootDiskType)
     , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)
@@ -305,6 +307,7 @@ renderTargetEnv tp =
     , "export NAGARE_IMAGE_BUCKET=" <> tp ^. #imageBucket
     , "export NAGARE_BACKUP_BUCKET=" <> tp ^. #backupBucket
     , "export NAGARE_NIX_CACHE_ENABLED=" <> boolToken (tp ^. #nixCacheEnabled)
+    , "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=" <> boolToken (tp ^. #externalDomainTlsEnabled)
     , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
     , "export NAGARE_BASE_DOMAIN=" <> tp ^. #baseDomain
     , "export NAGARE_ACME_EMAIL=" <> tp ^. #acmeEmail

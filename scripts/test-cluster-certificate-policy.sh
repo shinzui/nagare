@@ -39,9 +39,9 @@ grep -Fq '"nagare.dev/app-namespace" .= ("true" :: Text) | name == "personal"' \
 
 tls_dry_run="$(just --justfile "$repo_root/justfile" --dry-run cluster-enable-tls 2>&1)"
 case "$tls_dry_run" in
-  *'config-network-tls.yaml'*'nagarectl cluster certificate-policy'*'nagarectl platform stamp'*) ;;
+  *'NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=1'*'scripts/run-reviewed-bootstrap.sh'*) ;;
   *)
-    echo "FAIL: TLS enable must validate certificate policy before stamping" >&2
+    echo "FAIL: TLS enable must use the persisted context policy and reviewed bootstrap" >&2
     exit 1
     ;;
 esac

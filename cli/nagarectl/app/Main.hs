@@ -798,6 +798,7 @@ data ContextCreateOpts = ContextCreateOpts
   , region :: !(Maybe String)
   , zone :: !(Maybe String)
   , baseDomain :: !(Maybe String)
+  , externalDomainTlsEnabled :: !(Maybe String)
   , machineType :: !(Maybe String)
   , bootDiskType :: !(Maybe String)
   , bootDiskSizeGb :: !(Maybe String)
@@ -1116,6 +1117,7 @@ initOptsParser =
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (flag' "1" (long "enable-external-tls" <> help "Enable reviewed cloud-domain TLS after DNS delegation") <|> flag' "0" (long "disable-external-tls" <> help "Disable cloud-domain TLS in the desired context profile"))
     <*> optional (strOption (long "machine-type" <> metavar "TYPE" <> help "GCE machine type (default e2-standard-2)"))
     <*> optional (strOption (long "boot-disk-type" <> metavar "TYPE" <> help "Boot disk type (default pd-balanced; changing a live VM replaces it)"))
     <*> optional (strOption (long "boot-disk-size-gb" <> metavar "GB" <> help "Boot disk size in GB (default 100; changing a live VM replaces it)"))
@@ -1143,6 +1145,7 @@ contextCreateOptsParser =
     <*> optional (strOption (long "region" <> metavar "REGION" <> help "Compute region (default us-west1)"))
     <*> optional (strOption (long "zone" <> metavar "ZONE" <> help "Compute zone (default us-west1-a)"))
     <*> optional (strOption (long "base-domain" <> metavar "DOMAIN" <> help "Apps base domain (default apps.example.com)"))
+    <*> optional (flag' "1" (long "enable-external-tls" <> help "Enable reviewed cloud-domain TLS after DNS delegation") <|> flag' "0" (long "disable-external-tls" <> help "Disable cloud-domain TLS in the desired context profile"))
     <*> optional (strOption (long "machine-type" <> metavar "TYPE" <> help "GCE machine type (default e2-standard-2)"))
     <*> optional (strOption (long "boot-disk-type" <> metavar "TYPE" <> help "Boot disk type (default pd-balanced; changing a live VM replaces it)"))
     <*> optional (strOption (long "boot-disk-size-gb" <> metavar "GB" <> help "Boot disk size in GB (default 100; changing a live VM replaces it)"))
@@ -4097,10 +4100,13 @@ runPlatformBootstrapPlan mctx output = do
           (either (error . T.unpack) (acmeDirectoryUrl) (parseAcmeDirectory (profile ^. #acmeDirectory)))
           (profile ^. #acmeEmail)
           (profile ^. #project)
+          (profile ^. #externalDomainTlsEnabled)
   when (profile ^. #mode == Cloud && T.null (profile ^. #acmeEmail))
     (dieT "bootstrap requires the selected context's ACME contact")
   when (profile ^. #mode == Local && profile ^. #nixCacheEnabled)
     (dieT "Attic cache is available only in cloud bootstrap mode")
+  when (profile ^. #mode == Local && profile ^. #externalDomainTlsEnabled)
+    (dieT "external domain TLS belongs to cloud bootstrap; local TLS is enabled by its own issuer")
   rawUpstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
     (profile ^. #registryHost) issuer >>= either dieT pure
   let controllerRegistry = if profile ^. #mode == Local
@@ -5226,6 +5232,8 @@ runContext mctx = \case
         tp = profileFromContextMap contextMap
     void (either dieT pure (validateVmShape (vmShapeOf tp)))
     either dieT pure (validateNixCacheMode tp)
+    when (tp ^. #mode == Local && tp ^. #externalDomainTlsEnabled)
+      (dieT "external domain TLS belongs to cloud contexts")
     writeContextProfile name tp
     TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     forM_ stored $ \previous -> do
@@ -5466,6 +5474,7 @@ contextEnvPairs o =
     , pair "CLOUDSDK_COMPUTE_REGION" (o ^. #region)
     , pair "CLOUDSDK_COMPUTE_ZONE" (o ^. #zone)
     , pair "NAGARE_BASE_DOMAIN" (o ^. #baseDomain)
+    , pair "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (o ^. #externalDomainTlsEnabled)
     , pair "NAGARE_MACHINE_TYPE" (o ^. #machineType)
     , pair "NAGARE_BOOT_DISK_TYPE" (o ^. #bootDiskType)
     , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)

@@ -66,4 +66,4 @@ once you own and delegate a domain:
 
 1. Set the real domain: `pulumi -C infra/pulumi config set baseDomain apps.yourdomain.com`, `pulumi up` (recreates the zone), then delegate that name to the zone's Cloud DNS nameservers at your registrar.
 2. (Optional) apply `test-wildcard-cert.yaml` (rendered with the real domain) to prove issuance, then delete it.
-3. Enable Knative auto-TLS: apply `cluster/bootstrap/knative-serving/config-network-tls.yaml` (see that directory's README).
+3. Enable Knative auto-TLS: persist `--enable-external-tls` with `nagarectl context create NAME --force`, then run `just cluster-enable-tls`. The reviewed bootstrap composes the packaged `config-network-tls.yaml` policy.

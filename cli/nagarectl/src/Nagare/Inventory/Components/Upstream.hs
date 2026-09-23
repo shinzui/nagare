@@ -59,7 +59,7 @@ data UpstreamInput = UpstreamInput
   }
 
 data IssuerMode
-  = CloudIssuer !Text !Text !Text
+  = CloudIssuer !Text !Text !Text !Bool
   | LocalIssuer
   deriving stock (Eq, Show)
 
@@ -126,7 +126,13 @@ pinnedUpstreamInputs cluster root =
 configuredUpstreamInputs
   :: ResourceId -> FilePath -> Text -> Text -> FilePath
   -> IO (Either Text [UpstreamInput])
-configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch = do
+configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
+  configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificatePatch False
+
+configuredUpstreamInputsWithTls
+  :: ResourceId -> FilePath -> Text -> Text -> FilePath -> Bool
+  -> IO (Either Text [UpstreamInput])
+configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificatePatch cloudTls = do
   let allowedCertificatePatches =
         [ "cluster/bootstrap/knative-serving/config-certmanager.yaml"
         , "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
@@ -135,7 +141,7 @@ configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
     then pure (Left "Knative certificate patch is not a packaged cloud/local policy input")
     else do
       network <- readPatch "cluster/bootstrap/knative-serving/config-network.yaml"
-      localTls <- if certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
+      localTls <- if cloudTls || certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
         then readPatch "cluster/bootstrap/knative-serving/config-network-tls.yaml"
         else pure (Right Map.empty)
       features <- readPatch "cluster/bootstrap/knative-serving/config-features.yaml"
@@ -145,7 +151,7 @@ configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
         localTlsData <- localTls
         featureData <- features
         certificateData <- certificate
-        when (certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml") $
+        when (cloudTls || certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml") $
           unless (Map.lookup "external-domain-tls" localTlsData == Just (Just "Enabled")
             && Map.member "namespace-wildcard-cert-selector" localTlsData)
             (Left "local TLS policy must enable automatic domain TLS and its namespace selector")
@@ -207,7 +213,10 @@ configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
   let certificatePatch = case issuerMode of
         CloudIssuer {} -> "cluster/bootstrap/knative-serving/config-certmanager.yaml"
         LocalIssuer -> "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
-  configured <- configuredUpstreamInputs cluster root domain registry certificatePatch
+      cloudTls = case issuerMode of
+        CloudIssuer _ _ _ enabled -> enabled
+        LocalIssuer -> False
+  configured <- configuredUpstreamInputsWithTls cluster root domain registry certificatePatch cloudTls
   issuer <- issuerComponent cluster root issuerMode
   pure $ do
     scopes <- configured
@@ -219,7 +228,7 @@ configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
 issuerComponent :: ResourceId -> FilePath -> IssuerMode -> IO (Either Text UpstreamInput)
 issuerComponent cluster root mode = do
   let (relative, expected, substitutions) = case mode of
-        CloudIssuer directory email project ->
+        CloudIssuer directory email project _ ->
           ( "cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl"
           , "25b037828d82f4b19a95c672df54e285f32e7a6056c406ac67327f070624f369"
           , [ ("${NAGARE_ACME_DIRECTORY_URL}", directory)

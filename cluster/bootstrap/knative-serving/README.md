@@ -54,11 +54,12 @@ just cluster-bootstrap
 ## Enabling TLS later (deferred)
 
 Once a real `baseDomain` is set and delegated (see
-`../cert-manager/README.md`), enable automatic HTTPS with a single patch:
+`../cert-manager/README.md`), persist the cloud TLS policy and review its
+bootstrap update:
 
 ```bash
-kubectl -n knative-serving patch configmap config-network \
-  --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
+nagarectl context create NAME --force --enable-external-tls
+just cluster-enable-tls
 # Knative then requests *.<namespace>.<baseDomain> only for namespaces labeled
 # nagare.dev/app-namespace=true; cert-manager fulfils them via DNS-01.
 # Watch: kubectl get certificate -A -w

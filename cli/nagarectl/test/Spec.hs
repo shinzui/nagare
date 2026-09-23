@@ -558,6 +558,7 @@ initProfile =
     , nixCacheEnabled = False
     , nixCacheBucket = "acme-prod-nagare-nix-cache"
     , baseDomain = "apps.acme.com"
+    , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"
@@ -866,6 +867,14 @@ initTests =
         let tp = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\n")
         tp ^. #acmeEmail @?= ""
         tp ^. #acmeDirectory @?= "production"
+    , testCase "cloud TLS preference persists in the context profile" $ do
+        let disabled = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\n")
+            enabled = profileFromContextMap (parseContextEnv
+              "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=1\n")
+        disabled ^. #externalDomainTlsEnabled @?= False
+        enabled ^. #externalDomainTlsEnabled @?= True
+        assertBool "enabled preference missing from persisted profile"
+          (T.isInfixOf "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=1\n" (renderTargetEnv enabled))
     , testCase "parseAcmeDirectory: an unrecognized token is an ERROR, not a fallback" $ do
         parseAcmeDirectory "" @?= Right AcmeProduction
         parseAcmeDirectory "production" @?= Right AcmeProduction
@@ -909,6 +918,7 @@ defaultInitOpts =
     , region = Nothing
     , zone = Nothing
     , baseDomain = Nothing
+    , externalDomainTlsEnabled = Nothing
     , machineType = Nothing
     , bootDiskType = Nothing
     , bootDiskSizeGb = Nothing
@@ -1558,6 +1568,7 @@ tnbProfile =
     , nixCacheEnabled = False
     , nixCacheBucket = "tan-nb-exp-nagare-nix-cache"
     , baseDomain = "apps.example.com"
+    , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"
@@ -1646,6 +1657,7 @@ targetProfileTests =
       , "NAGARE_IMAGE_BUCKET"
       , "NAGARE_BACKUP_BUCKET"
       , "NAGARE_NIX_CACHE_ENABLED"
+      , "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
       , "NAGARE_NIX_CACHE_BUCKET"
       , "NAGARE_BASE_DOMAIN"
       , "NAGARE_INSTANCE_NAME"

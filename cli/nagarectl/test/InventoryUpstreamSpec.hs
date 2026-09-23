@@ -322,10 +322,25 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
             "example.test" "registry.example.test" mode >>= expectRight
       (local, localNative) <- compileWith LocalIssuer
       (cloud, cloudNative) <- compileWith
-        (CloudIssuer "https://acme-staging-v02.api.letsencrypt.org/directory" "admin@example.test" "project")
+        (CloudIssuer "https://acme-staging-v02.api.letsencrypt.org/directory" "admin@example.test" "project" False)
+      (_, cloudTlsNative) <- compileWith
+        (CloudIssuer "https://acme-staging-v02.api.letsencrypt.org/directory" "admin@example.test" "project" True)
       Map.size (inventoryScopes (candidateInventory local)) @?= 6
       Map.size (inventoryScopes (candidateInventory cloud)) @?= 6
       Map.size localNative @?= Map.size cloudNative + 2
+      Map.size cloudTlsNative @?= Map.size cloudNative
+      let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
+          networkData native = [entries | (resource, bytes) <- Map.elems native,
+            resource ^. #address == networkAddress,
+            Right (Object root) <- [eitherDecodeStrict bytes],
+            Just (Object entries) <- [KM.lookup "data" root]]
+      case (networkData cloudNative, networkData cloudTlsNative) of
+        ([disabled], [enabled]) -> do
+          KM.lookup "external-domain-tls" disabled @?= Nothing
+          KM.lookup "external-domain-tls" enabled @?= Just (String "Enabled")
+          assertBool "cloud TLS namespace selector is missing"
+            (KM.member "namespace-wildcard-cert-selector" enabled)
+        _ -> assertFailure "cloud TLS config-network is not uniquely owned"
       let issuerMembers = [resource | Managed resource <- inventoryDeclarations (candidateInventory local),
             resource ^. #owner == componentOwner "certificate-issuer"]
           issuerId name = [resource ^. #identity | resource <- issuerMembers,

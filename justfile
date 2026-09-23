@@ -196,18 +196,14 @@ context-show:
     @printf 'server:  '
     @kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
 
-# EP-4 (deferred): enable automatic per-namespace wildcard HTTPS. Only run this
-# AFTER a real baseDomain is set in Pulumi config and delegated to the Cloud DNS
-# zone's nameservers (see cluster/bootstrap/cert-manager/README.md).
-# Enable automatic per-namespace wildcard HTTPS (run after baseDomain delegated).
+# Enable automatic per-namespace wildcard HTTPS after the configured baseDomain
+# is delegated. Persist the desired policy first with
+# `nagarectl context create NAME --force --enable-external-tls`.
 [group('cluster')]
 cluster-enable-tls:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    nagarectl cluster guard
-    kubectl -n knative-serving patch configmap config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"
-    nagarectl cluster certificate-policy
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform stamp; fi
-    @echo "external-domain-tls enabled. Watch: kubectl get certificate -A -w"
+    @nagarectl context show | rg -q '^export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=1$' || { echo 'Set --enable-external-tls on the selected context before review' >&2; exit 2; }
+    scripts/run-reviewed-bootstrap.sh
 
 # EP-82 (docs/plans/82-local-cluster-registry-and-local-target-bootstrap-for-nagare.md):
 # stand up the LOCAL development substrate — a k3d (k3s-in-Docker) cluster plus a

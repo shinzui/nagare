@@ -433,6 +433,7 @@ fixtureProfile =
     , nixCacheEnabled = False
     , nixCacheBucket = "labs-project-nagare-nix-cache"
     , baseDomain = "apps.example.com"
+    , externalDomainTlsEnabled = False
     , instanceName = "nagare-01"
     , machineType = "e2-standard-2"
     , bootDiskType = "pd-balanced"

@@ -439,6 +439,9 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_NIX_CACHE_BUCKET, default @"\<project>-nagare-nix-cache"@
   , baseDomain :: !Text
   -- ^ NAGARE_BASE_DOMAIN, default @"apps.example.com"@
+  , externalDomainTlsEnabled :: !Bool
+  -- ^ NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED; opt in to reviewed cloud-domain TLS
+  -- after DNS delegation. Local bootstrap enables its own local TLS policy.
   , instanceName :: !Text
   -- ^ NAGARE_INSTANCE_NAME, default @"nagare-01"@
   , machineType :: !Text
@@ -572,6 +575,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_IMAGE_BUCKET" (tp ^. #imageBucket)
     , line "NAGARE_BACKUP_BUCKET" (tp ^. #backupBucket)
     , line "NAGARE_NIX_CACHE_ENABLED" (boolToken (tp ^. #nixCacheEnabled))
+    , line "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (boolToken (tp ^. #externalDomainTlsEnabled))
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
     , line "NAGARE_INSTANCE_NAME" (tp ^. #instanceName)
@@ -777,6 +781,7 @@ profileFromContextMap ctx =
       nixCacheEnabled = mapRaw ctx "NAGARE_NIX_CACHE_ENABLED" == Just "1"
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+      externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
       instanceName = mapOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
       machineType = mapOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
       bootDiskType = mapOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
@@ -801,6 +806,7 @@ profileFromContextMap ctx =
         , nixCacheEnabled = nixCacheEnabled
         , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
+        , externalDomainTlsEnabled = externalDomainTlsEnabled
         , instanceName = instanceName
         , machineType = machineType
         , bootDiskType = bootDiskType
@@ -828,6 +834,7 @@ resolveProfileFrom ctx = do
   nixCacheEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_NIX_CACHE_ENABLED"
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
+  externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
   instanceName <- ctxOr ctx "NAGARE_INSTANCE_NAME" "nagare-01"
   machineType <- ctxOr ctx "NAGARE_MACHINE_TYPE" (defaultVmShape ^. #machineType)
   bootDiskType <- ctxOr ctx "NAGARE_BOOT_DISK_TYPE" (defaultVmShape ^. #bootDiskType)
@@ -853,6 +860,7 @@ resolveProfileFrom ctx = do
       , nixCacheEnabled = nixCacheEnabled
       , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
+      , externalDomainTlsEnabled = externalDomainTlsEnabled
       , instanceName = instanceName
       , machineType = machineType
       , bootDiskType = bootDiskType
@@ -883,8 +891,10 @@ resolveActiveTarget arg = do
       -- The platform version is persisted release intent, not an operational
       -- override. In particular, a shell that sourced an older context must
       -- not make status or a later upgrade transaction observe that stale pin.
-      let storedVersion = profileFromContextMap ctx ^. #platformVersion
-      pure (ActiveTarget name (profile & #platformVersion .~ storedVersion))
+      let storedProfile = profileFromContextMap ctx
+      pure (ActiveTarget name (profile
+        & #platformVersion .~ (storedProfile ^. #platformVersion)
+        & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)))
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile
