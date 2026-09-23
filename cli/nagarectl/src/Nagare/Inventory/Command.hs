@@ -239,6 +239,9 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
   result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
+  case result of
+    Converged _ -> pure ()
+    _ -> exitFailure
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry
@@ -257,6 +260,9 @@ resumeInventoryWithFactory registryFor target transactionToken yes = do
   registry <- registryFor bundle
   result <- resumeTransaction store registry transaction >>= either (dieText . showText . NE.toList) pure
   TIO.putStrLn (renderTransactionResult result)
+  case result of
+    Converged _ -> pure ()
+    _ -> exitFailure
 
 exportInventory :: ActiveTarget -> FilePath -> IO ()
 exportInventory target output = do

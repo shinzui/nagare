@@ -8,9 +8,11 @@ module Nagare.Inventory.Bootstrap
   , compileIssuerBootstrap
   , compileBootstrapWithAuth
   , compileBootstrapWithAuthAndScopes
+  , compileBootstrapStamp
   ) where
 
 import Data.ByteString (ByteString)
+import Data.Aeson (Value)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
@@ -22,10 +24,15 @@ import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Components.Upstream
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Retain), Sensitivity (Public))
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 
 data BootstrapInput = BootstrapInput
   { bootstrapFoundation :: !FoundationInput
@@ -33,6 +40,39 @@ data BootstrapInput = BootstrapInput
   , bootstrapUpstream :: ![UpstreamInput]
   , bootstrapAdditionalScopes :: ![ScopeDeclaration]
   }
+
+-- | The release marker is a reviewed direct object whose creation waits for
+-- every bootstrap resource and declared operation to verify. Its timestamp is
+-- captured at plan time in the retained native member.
+compileBootstrapStamp
+  :: ResourceId -> Value -> CompositionCandidate
+  -> Either (NonEmpty InventoryError)
+       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBootstrapStamp cluster marker candidate = do
+  bytes <- first single (canonicalValue marker)
+  let owner = knownScope "bootstrap-stamp"
+      resourceId = mintResourceId owner (knownKey "bootstrap") (knownName "version")
+      source = SourceLocation "generated:bootstrap" "platform-version"
+      input = KubernetesInput resourceId owner cluster marker (contentDigest bytes)
+        Retain Stateless Public source
+      resources = [resource ^. #identity | Managed resource <- inventoryDeclarations
+        (candidateInventory candidate), resource ^. #identity /= resourceId]
+      operations = [operation ^. #identity | scope <- Map.elems (inventoryScopes
+        (candidateInventory candidate)), bundle <- scopeBundles scope,
+        operation <- bundle ^. #operations]
+  (compiled, bound) <- first (:| []) (bindKubernetesObject input)
+  unless (compiled ^. #address == Kubernetes cluster "" (knownName "configmap")
+      (Just (knownName "nagare-system")) (knownName "nagare-platform-version")
+      && bound == bytes)
+    (Left (single "release marker has an unexpected Kubernetes address or bytes"))
+  let resource = compiled {dependencies = map OrderedAfter (resources <> operations)}
+  scope <- mkScopeDeclaration owner [ResourceBundle [Managed resource] [] [] [] [] []]
+  pure (scope, Map.singleton resourceId (resource, bound))
+  where
+    single message = inventoryError "invalid-bootstrap-stamp" message :| []
+    knownScope = either (error . show) id . mkScopeId Platform
+    knownKey = either (error . show) id . mkLogicalKey
+    knownName = either (error . show) id . mkName
 
 -- | Compile the payload's complete pinned operator release set with the
 -- foundation and optional cache. Other context-specific components join this

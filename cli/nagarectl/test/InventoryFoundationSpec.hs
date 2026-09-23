@@ -6,12 +6,15 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Bootstrap (compileBootstrapStamp)
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
+import Nagare.Resource.Policy (RecoveryClass (Idempotent))
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
@@ -48,6 +51,42 @@ inventoryFoundationTests = testGroup "cluster foundation inventory"
   , testCase "missing quota source refuses before any native mutation" $ do
       result <- compileFoundation (foundationInput {foundationQuotaPath = "../../cluster/bootstrap/missing-quota.yaml"})
       assertBool "missing quota was accepted" (either (const True) (const False) result)
+  , testCase "reviewed release marker waits for every foundation resource and operation" $ do
+      (foundationBundle, _) <- compileFoundation foundationInput >>= expectRight
+      let quotaId = case [member ^. #identity | Managed member <- declarations foundationBundle,
+            member ^. #address == Kubernetes fixtureCluster "" (known "resourcequota")
+              (Just (known "personal")) (known "nagare-terminating-jobs")] of
+            [resource] -> resource
+            _ -> error "foundation quota is missing"
+          operationId = mintResourceId fixtureOwner (ok (mkLogicalKey "bootstrap")) (known "proof")
+          proof = DeclaredOperation operationId (quotaId :| []) [] Idempotent PublishRelease
+          baseScope = ok (mkScopeDeclaration fixtureOwner [foundationBundle {operations = [proof]}])
+          binding = ContextBinding (ok (mkContextId "fixture")) (known "project")
+          snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+          base = ok (composeInventory snapshot (ReplaceScope baseScope :| []))
+          marker = object ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+            "metadata" .= object ["name" .= ("nagare-platform-version" :: Text),
+              "namespace" .= ("nagare-system" :: Text)],
+            "data" .= object ["version" .= ("0.4.0" :: Text),
+              "installedAt" .= ("2026-09-22T00:00:00Z" :: Text)]]
+      (stampScope, native) <- expectRight (compileBootstrapStamp fixtureCluster marker base)
+      let stampMembers = [resource | bundle <- scopeBundles stampScope,
+            Managed resource <- declarations bundle]
+      case stampMembers of
+        [stamp] -> do
+          let required = [resource ^. #identity | Managed resource <- inventoryDeclarations (candidateInventory base)]
+          all (\resource -> OrderedAfter resource `elem` stamp ^. #dependencies) (operationId : required)
+            @?= True
+          Map.member (stamp ^. #identity) native @?= True
+        _ -> assertFailure "bootstrap has no unique marker"
+      _ <- expectRight (composeInventory snapshot (candidateChanges base <> (ReplaceScope stampScope :| [])))
+      let accepted = ok (mkScopeSnapshot binding (Map.fromList
+            [(fixtureOwner, (ok (mkScopeGeneration 1), baseScope)),
+             (scopeId stampScope, (ok (mkScopeGeneration 1), stampScope))]) Map.empty)
+          rerun = ok (composeInventory accepted (ReplaceScope baseScope :| []))
+      (nextStamp, _) <- expectRight (compileBootstrapStamp fixtureCluster marker rerun)
+      _ <- expectRight (composeInventory accepted (candidateChanges rerun <> (ReplaceScope nextStamp :| [])))
+      pure ()
   , testCase "granted namespace contributions materialize once for shared callers" $ do
       let appA = ok (mkScopeId Application "a")
           appB = ok (mkScopeId Application "b")

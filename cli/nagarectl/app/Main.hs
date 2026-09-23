@@ -252,7 +252,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuthAndScopes)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
@@ -4076,7 +4076,7 @@ runInfraDestroy mctx yes = do
 runPlatformBootstrapPlan :: Maybe String -> FilePath -> IO ()
 runPlatformBootstrapPlan mctx output = do
   active <- activeTarget mctx
-  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   kubeVersion <- readBootstrapKubeVersion active
   let root = workspace ^. #root
@@ -4174,8 +4174,15 @@ runPlatformBootstrapPlan mctx output = do
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges base <> extra))
-  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
-    active candidate output
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  installedAt <- currentTimestamp
+  (stampScope, stampNative) <- either (dieT . T.pack . show) pure
+    (compileBootstrapStamp cluster (clusterMarkerValue (identityFromPayload manifest) installedAt) candidate)
+  stamped <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges candidate
+      <> (ResourceInventory.ReplaceScope stampScope NE.:| [])))
+  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace (Map.union native stampNative))
+    active stamped output
 
 readBootstrapKubeVersion :: ActiveTarget -> IO Text
 readBootstrapKubeVersion active = do
