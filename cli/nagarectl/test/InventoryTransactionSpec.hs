@@ -202,6 +202,41 @@ inventoryTransactionTests =
           Left failures -> assertBool "candidate omitted authoritative reservations"
             ("reservation-history" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "candidate without retained reservations was planned"
+    , testCase "retirement cannot lose controller child claims" $ do
+        let owner = ok (mkScopeId Platform "controller")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            parentAddress = Kubernetes cluster "serving.knative.dev" (ok (mkName "service"))
+              (Just (ok (mkName "system"))) (ok (mkName "web"))
+            childAddress = Kubernetes cluster "" (ok (mkName "service"))
+              (Just (ok (mkName "system"))) (ok (mkName "web"))
+            parent = case member owner cluster "web" of
+              Managed resource -> Managed (resource {address = parentAddress, spec = KnativeService (contentDigest "web")})
+              declaration -> declaration
+            childId = mintResourceId owner (ok (mkLogicalKey "child")) (ok (mkName "web"))
+            child = ObservedChild childId (declarationId parent) childAddress
+              (ok (mkPhysicalIdentity "child-uid")) (SourceLocation "test" "child")
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [parent, child] [] [] [] [] []])
+            bytes = encodeCanonicalScope scope
+            revision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest bytes)
+        store <- newMemoryStore
+        initialHead <- initializeStore store fixtureBinding "child-test" >>= expectRight
+        _ <- publishIfAbsent store (scopeKey (revisionDigest revision)) bytes >>= expectRight
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration initialHead))
+          (initialHead {headGeneration = headGeneration initialHead + 1,
+            headAccepted = Map.singleton owner revision,
+            headConverged = Map.singleton owner revision}) >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let snapshot = ok (mkScopeSnapshot fixtureBinding (Map.singleton owner (revisionGeneration revision, scope)) Map.empty)
+            candidate = ok (composeInventory snapshot (RetireScope owner RetainResources :| []))
+            parentFact = ObservedPresent (ok (mkPhysicalIdentity "parent-uid"))
+            observed = ok (observationSet [(declarationId parent, parentFact)])
+            decision = LifecycleProposal (declarationId parent) ApproveRetirement
+              (lifecycleObservationDigest fixtureBinding (declarationId parent) parentFact)
+            decisions = ok (validateLifecycleDecisions candidate history observed [decision])
+        case planChanges candidate decisions history observed of
+          Left failures -> assertBool ("controller child claim would disappear: " <> show failures)
+            ("retained-child-history" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "controller child claim was silently discarded"
     , testCase "moving a known resource to another scope cannot become an ordinary update" $ do
         let oldOwner = ok (mkScopeId Platform "transfer-source")
             newOwner = ok (mkScopeId Platform "transfer-destination")

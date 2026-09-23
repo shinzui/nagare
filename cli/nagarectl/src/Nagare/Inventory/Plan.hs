@@ -367,10 +367,15 @@ planChanges candidate decisions history observations = do
         (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
 
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
-buildRetentionProofs candidate (LifecycleDecisions decisions) history observations =
+buildRetentionProofs candidate (LifecycleDecisions decisions) history observations = do
+  unless (null disappearingChildren)
+    (Left (PlanError "retained-child-history" "retirement of observed controller children requires retained child claims" disappearingChildren :| []))
   Map.fromList <$> traverse one selected
   where
     desired = Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))
+    disappearingChildren =
+      [resource | ObservedChild resource _ _ _ _ <- historyDeclarations history,
+        Set.notMember resource desired]
     retiredScopes = Set.fromList
       [scope | RetireScope scope RetainResources <- NE.toList (candidateChanges candidate)]
     selected =

@@ -142,12 +142,17 @@ retentionCoverage store document = do
     oldDeclarations <- first showText (Resource.composedDeclarations
       (fmap snd (historyAccepted history)))
     let desiredIds = Set.fromList (map Resource.declarationId desiredDeclarations)
+        removedChildren =
+          [resource | Resource.ObservedChild resource _ _ _ _ <- oldDeclarations,
+            Set.notMember resource desiredIds]
         removed = Map.fromList
           [(resource ^. #identity, (resource ^. #owner, revision, resource ^. #executor))
           | Resource.Managed resource <- oldDeclarations
           , Just (revision, _) <- [Map.lookup (resource ^. #owner) (historyAccepted history)]
           , Set.notMember (resource ^. #identity) desiredIds]
         proofs = reviewRetentions document
+    unless (null removedChildren)
+      (Left "observed controller children cannot disappear without retained child claims")
     unless (Set.null (Set.intersection desiredIds (Map.keysSet (headRetained (historyHead history)))))
       (Left "retained logical identity cannot be reactivated without reviewed recovery")
     unless (Map.keysSet removed == Map.keysSet proofs)

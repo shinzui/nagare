@@ -322,6 +322,8 @@ retained incarnation in the context head before execution, and the old scope
 member remains content-addressed in the store. Retained provider claims remain
 reserved when composing later candidates. A candidate that omits these
 reservations or reintroduces a retained logical identity is refused.
+Observed controller children cannot disappear through this route because their
+derived claims and physical identities do not yet have retained child entries.
 
 Retirement performs no provider deletion. Read-only status recovers native
 observation inputs from the retained scope's original immutable review and

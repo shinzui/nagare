@@ -50,7 +50,8 @@ retention of an accepted scope. `KIND` is `platform`, `application`, `standalone
 `publication`. The current route accepts directly declared Kubernetes resources
 whose exact owned UIDs can be observed. It refuses if another scope still depends
 on the retiring declarations or if a disappearing resource lacks the required
-retention proof. Apply the issued review with `inventory apply REVIEW_DIRECTORY
+retention proof. A scope with observed controller children also refuses until
+their claims can be retained as historical child entries. Apply the issued review with `inventory apply REVIEW_DIRECTORY
 --yes`; apply checks those UIDs again under the writer lock and records each
 incarnation against its old immutable scope revision. No Kubernetes delete is run.
 
