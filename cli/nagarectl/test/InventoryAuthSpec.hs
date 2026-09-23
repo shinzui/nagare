@@ -9,22 +9,25 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend (..), MinioRef (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), credentialDataMatches, materializeLocalObjectStoreCredentialWith, minioSourceData, mkKubernetesRuntimeOps)
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
-import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..))
+import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), ResourceObservation (ConfirmedAbsent), observationSet)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Plan (loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, proposalOperations, requiredResources)
+import Nagare.Inventory.Store (initializeStore, newMemoryStore)
 import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
@@ -320,6 +323,31 @@ inventoryAuthTests = testGroup "auth inventory component"
             (map ReplaceScope rest <> [ReplaceScope extras, ReplaceScope secretScope])
           [] -> error "observability scopes disappeared")))
       Map.size (inventoryScopes (candidateInventory complete)) @?= 16
+      let marker = object ["apiVersion" .= ("v1" :: T.Text), "kind" .= ("ConfigMap" :: T.Text),
+            "metadata" .= object ["name" .= ("nagare-platform-version" :: T.Text),
+              "namespace" .= ("nagare-system" :: T.Text)],
+            "data" .= object ["version" .= ("0.4.0" :: T.Text)]]
+      (stampScope, stampNative) <- expectRight (compileBootstrapStamp fixtureCluster marker complete)
+      stamped <- expectRight (composeInventory snapshot (candidateChanges complete <>
+        (ReplaceScope stampScope :| [])))
+      Map.size (inventoryScopes (candidateInventory stamped)) @?= 17
+      assertBool "local bootstrap included the cloud-only cache"
+        (Map.notMember (ok (mkScopeId Platform "cache")) (inventoryScopes (candidateInventory stamped))
+          && Map.notMember (ok (mkScopeId Platform "cache-image")) (inventoryScopes (candidateInventory stamped)))
+      historyStore <- newMemoryStore
+      _ <- initializeStore historyStore binding "local-bootstrap" >>= expectRight
+      history <- loadInventoryHistory historyStore >>= expectRight
+      let required = requiredResources (observationRequirements stamped history)
+          observed = ok (observationSet [(resource, ConfirmedAbsent (contentDigest "absent"))
+            | resource <- Set.toAscList required])
+          operations = proposalOperations (ok (planChanges stamped noLifecycleDecisions history observed))
+          markerOperations = [operation | operation <- operations,
+            any (`elem` Map.keys stampNative) (plannedResources operation)]
+      case markerOperations of
+        [operation] -> Set.fromList (plannedDependencies operation) @?=
+          Set.fromList [plannedOperationId other | other <- operations,
+            plannedOperationId other /= plannedOperationId operation]
+        other -> assertFailure ("expected one final local marker operation, got " <> show other)
   ]
 
 fixture :: AuthInput
