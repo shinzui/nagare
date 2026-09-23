@@ -1,6 +1,6 @@
 module InventoryObservabilitySpec (inventoryObservabilityTests) where
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (Value, object, toJSON, (.=))
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -15,6 +15,7 @@ import Nagare.Inventory.Components.Observability
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.HelmRuntime
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
@@ -28,12 +29,13 @@ import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, 
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
-import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Journal (OperationId, mkOperationId)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
-import Nagare.Resource.Policy (RecoveryClass (Idempotent))
+import Nagare.Resource.Policy (RecoveryClass (Idempotent, VerifyBeforeRetry))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.Environment (lookupEnv)
@@ -259,6 +261,51 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
               Set.fromList [plannedOperationId other | other <- operations,
                 plannedOperationId other /= plannedOperationId operation]
           other -> assertFailure ("expected one final bootstrap marker operation, got " <> show other)
+        let migrationOperations = [operation | operation <- operations,
+              plannedAction operation == RunDeclaredOperation,
+              plannedRecovery operation == VerifyBeforeRetry,
+              plannedExecutor operation == KubernetesExecutor]
+        migration <- case migrationOperations of
+          firstMigration : _ -> pure firstMigration
+          [] -> assertFailure "complete bootstrap has no reviewed migration" >> error "unreachable"
+        firstAttempt <- newIORef True
+        executed <- newIORef ([] :: [OperationId])
+        let proof operation = contentDigest (BC.pack (show (plannedOperationId operation)))
+            adapter executor = Adapter
+              { adapterExecutor = executor
+              , adapterIdentity = "bootstrap-recording"
+              , adapterVersion = "1"
+              , adapterObserve = \_ -> pure (Left "fixture injects observations")
+              , adapterPrepare = \operation -> pure (Right
+                  (PreparedNative (ok (canonicalValue (toJSON operation))) "bootstrap fixture"))
+              , adapterPreflight = \_ _ -> pure (Right ())
+              , adapterExecute = \operation _ -> do
+                  modifyIORef' executed (<> [plannedOperationId operation])
+                  if plannedOperationId operation == plannedOperationId migration then do
+                    initialAttempt <- atomicModifyIORef' firstAttempt (\value -> (False, value))
+                    pure (if initialAttempt then AdapterEffectAmbiguous "lost migration acknowledgement"
+                      else AdapterEffectCompleted)
+                  else pure AdapterEffectCompleted
+              , adapterVerify = \operation _ -> pure (Right (proof operation))
+              , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
+              }
+            registry = ok (mkAdapterRegistry (map adapter
+              [KubernetesExecutor, HelmExecutor, ArtifactExecutor, CacheExecutor,
+                PulumiExecutor, HostExecutor]))
+        before <- readStoreSnapshot store >>= either (assertFailure . show) pure
+        reviewBundle <- prepareReview registry before proposal >>= either (assertFailure . show) pure
+        _ <- publishReview store reviewBundle >>= either (assertFailure . show) pure
+        snapshotAfter <- readStoreSnapshot store >>= either (assertFailure . show) pure
+        reviewed <- either (assertFailure . show) pure (verifyReview snapshotAfter reviewBundle)
+        stopped <- applyReviewed store registry reviewed >>= either (assertFailure . show) pure
+        transaction <- case stopped of
+          StoppedAmbiguous value _ -> pure value
+          other -> assertFailure ("expected migration interruption, got " <> show other) >> error "unreachable"
+        resumed <- resumeTransaction store registry transaction >>= either (assertFailure . show) pure
+        resumed @?= Converged transaction
+        calls <- readIORef executed
+        Set.fromList calls @?= Set.fromList (map plannedOperationId operations)
+        length (filter (== plannedOperationId migration) calls) @?= 1
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor
