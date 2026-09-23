@@ -193,6 +193,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M3 partial: A disposable Helm create and upgrade verify an actual changed rendered ConfigMap through the reviewed postrenderer boundary.
 - [x] (2026-09-22) EP-147 M1b partial: Disposable ResourceQuota and NetworkPolicy updates extend the conditional Kubernetes update allowlist to ten proved direct kinds.
 - [x] (2026-09-22) EP-147 M3 partial: Helm 4 capture/verify post-renderer plugins prove exact native render binding and reject a nondeterministic chart before resource changes; release declarations and chart pinning remain open.
+- [x] (2026-09-22) EP-147 M3/M4 partial: The public bootstrap planner published a 17-scope, 209-operation review against an isolated k3d context with real installed Attic/controller archives and fixture credentials/images. The released controller image published through the typed transport to a disposable registry; changed archive bytes refused. Cloud and local full-composition fixtures gate the platform marker on every operation, and the cloud recording transaction resumes after a lost migration acknowledgement. Native full-bootstrap apply, shared contributions, and recipe retirement remain open.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.
