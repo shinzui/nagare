@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Nagare architecture · typed resource inventories</title>
+  <style>
+    :root { --ink:#1e3032; --muted:#617477; --line:#d8e2df; --paper:#f7faf8; --white:#fff; --teal:#147d72; --teal-pale:#e6f4ef; --blue:#3b6c96; --blue-pale:#eaf2f8; --gold:#a46c28; --gold-pale:#fbf2e3; --rose:#a45d5d; --rose-pale:#faeeee; --shadow:0 15px 42px rgba(32,65,61,.065); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.58 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--teal); text-underline-offset:3px; }
+    a:hover { color:#0d5a52; }
+    .shell { max-width:1380px; margin:auto; display:grid; grid-template-columns:228px minmax(0,1fr); gap:45px; padding:0 42px; }
+    aside { position:sticky; top:0; height:100vh; padding:42px 0 28px; display:flex; flex-direction:column; }
+    .brand { display:flex; align-items:center; gap:11px; color:var(--ink); text-decoration:none; font-size:20px; font-weight:780; letter-spacing:-.05em; }
+    .brand svg { width:35px; flex:none; }
+    .brand small { display:block; margin-top:-5px; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); }
+    .side-label { margin:55px 0 11px; color:#899b9c; text-transform:uppercase; font-size:10px; letter-spacing:.18em; font-weight:800; }
+    nav a { display:block; padding:8px 12px; margin-left:-12px; color:#53686a; border-radius:8px; text-decoration:none; font-size:13px; font-weight:650; }
+    nav a:hover { background:#e8f3ef; color:var(--teal); }
+    .aside-foot { margin-top:auto; color:#8a9b9d; font-size:11px; line-height:1.5; }
+    main { min-width:0; padding:52px 0 100px; }
+    .eyebrow { margin:0 0 13px; color:var(--teal); text-transform:uppercase; letter-spacing:.19em; font-size:11px; font-weight:850; }
+    h1,h2,h3,p { margin-top:0; }
+    h1 { max-width:770px; font-size:clamp(43px,5.2vw,76px); line-height:1.045; letter-spacing:-.07em; margin-bottom:20px; font-weight:790; }
+    h1 em { color:var(--teal); font-style:normal; }
+    .lead { max-width:800px; color:#52696b; font-size:19px; line-height:1.56; margin-bottom:27px; }
+    .hero-meta { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:49px; }
+    .pill { padding:5px 11px; border:1px solid var(--line); background:white; border-radius:999px; font-size:11px; font-weight:750; letter-spacing:.02em; color:#5a7070; }
+    .pill.accent { color:var(--teal); border-color:#b8dcd1; background:#edf8f3; }
+    section { scroll-margin-top:25px; margin-bottom:67px; }
+    .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-bottom:18px; }
+    .section-head h2 { font-size:27px; letter-spacing:-.045em; line-height:1.22; margin:0; }
+    .section-head span { color:#93a3a3; font-size:11px; text-transform:uppercase; letter-spacing:.13em; font-weight:800; white-space:nowrap; }
+    .intro { max-width:850px; color:var(--muted); font-size:14px; line-height:1.7; margin-bottom:19px; }
+    .figure { background:var(--white); border:1px solid var(--line); border-radius:17px; box-shadow:var(--shadow); padding:22px 22px 16px; overflow:hidden; }
+    .figure svg { width:100%; height:auto; display:block; }
+    figcaption { padding:9px 4px 1px; color:#708385; font-size:12px; line-height:1.55; }
+    .legend { display:flex; flex-wrap:wrap; gap:16px; margin:10px 4px 0; color:#657a7b; font-size:11px; font-weight:650; }
+    .legend b { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+    .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13px; }
+    .card { background:white; border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:var(--shadow); }
+    .card .num { display:block; color:var(--teal); font:800 11px/1 ui-sans-serif,system-ui; letter-spacing:.13em; margin-bottom:19px; }
+    .card h3 { font-size:16px; letter-spacing:-.025em; line-height:1.3; margin-bottom:8px; }
+    .card p { color:var(--muted); font-size:13px; line-height:1.62; margin:0; }
+    .callout { display:grid; grid-template-columns:3px 1fr; gap:17px; padding:17px 20px 17px 0; background:#eff7f3; border-radius:10px; margin-top:17px; color:#43635f; font-size:13px; }
+    .callout::before { content:""; background:var(--teal); border-radius:3px; }
+    .callout strong { color:#204f47; }
+    .flow-list { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:15px; }
+    .flow-list article { border-top:2px solid #c6ddd5; padding:11px 3px 0; }
+    .flow-list b { display:block; font-size:12px; margin-bottom:4px; }
+    .flow-list span { display:block; color:var(--muted); font-size:12px; line-height:1.55; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .small-heading { color:var(--teal); text-transform:uppercase; letter-spacing:.13em; font-size:11px; font-weight:800; margin-bottom:12px; }
+    .prose { max-width:850px; color:#53696b; font-size:14px; line-height:1.72; }
+    .prose p { margin-bottom:13px; }
+    .data-table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:13px; overflow:hidden; font-size:12px; line-height:1.55; }
+    .data-table th { background:#eaf3ef; color:#466a64; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.12em; }
+    .data-table th,.data-table td { padding:13px 15px; vertical-align:top; border-bottom:1px solid #e4ece8; }
+    .data-table tr:last-child td { border-bottom:0; }
+    .data-table td:first-child { color:#263f40; font-weight:780; width:18%; }
+    .data-table td:nth-child(2) { width:29%; }
+    .table-wrap { border-radius:13px; overflow-x:auto; box-shadow:var(--shadow); }
+    .table-wrap .data-table { min-width:750px; }
+    .note { font-size:12px; color:#788a8b; margin:11px 1px 0; }
+    .journeys { display:grid; gap:14px; }
+    .journey { display:grid; grid-template-columns:180px 1fr; gap:23px; padding:22px; background:white; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+    .journey h3 { margin:3px 0 7px; font-size:17px; line-height:1.3; letter-spacing:-.03em; }
+    .journey .tag { display:inline-block; color:var(--teal); background:var(--teal-pale); border-radius:5px; padding:3px 7px; font-size:10px; font-weight:800; letter-spacing:.08em; }
+    .journey p { color:var(--muted); font-size:13px; line-height:1.63; margin:0 0 10px; }
+    .journey ol { margin:0; padding-left:19px; }
+    .journey li { padding-left:4px; margin:4px 0; }
+    .journey li::marker { color:var(--teal); font-weight:800; }
+    .terms { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px; }
+    .term { border:1px solid var(--line); background:#fff; border-radius:10px; padding:15px 17px; }
+    .term dt { font-size:12px; font-weight:800; color:#244743; margin-bottom:4px; }
+    .term dd { margin:0; font-size:12px; line-height:1.55; color:var(--muted); }
+    ul { padding-left:19px; margin:0; }
+    li { margin:7px 0; color:#5c7172; font-size:13px; }
+    li strong { color:var(--ink); }
+    .source { border-top:1px solid var(--line); padding-top:21px; font-size:12px; color:#718486; }
+    .source p { max-width:830px; }
+    .source-links { display:flex; flex-wrap:wrap; gap:10px 23px; }
+    .source-links a { font-weight:650; }
+    svg text { font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    svg .label { fill:#21383a; font-size:15px; font-weight:750; }
+    svg .sub { fill:#647b7c; font-size:11.5px; }
+    svg .tiny { fill:#7a8f90; font-size:10px; font-weight:650; letter-spacing:.02em; }
+    svg .kicker { fill:#5d7776; font-size:10px; font-weight:800; letter-spacing:.13em; }
+    svg .line { stroke:#94aaa9; stroke-width:1.7; fill:none; }
+    svg .dash { stroke:#9db9b4; stroke-width:1.5; fill:none; stroke-dasharray:5 5; }
+    @media(max-width:930px) { .shell { grid-template-columns:1fr; gap:0; padding:0 23px; } aside { position:static; height:auto; padding:23px 0 9px; } .side-label,nav,.aside-foot { display:none; } main { padding-top:26px; } .figure { padding:13px 12px 10px; } }
+    @media(max-width:680px) { .grid,.two,.flow-list,.terms { grid-template-columns:1fr; } .journey { grid-template-columns:1fr; gap:8px; } .section-head span { display:none; } .figure { overflow-x:auto; } .figure svg { min-width:690px; } .lead { font-size:17px; } section { margin-bottom:49px; } }
+    @media print { body { background:white; } .shell { display:block; max-width:none; padding:0; } aside { display:none; } main { padding:0; } section { break-inside:avoid; margin-bottom:30px; } .figure,.card { box-shadow:none; } a { color:var(--ink); } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside aria-label="Page navigation">
+    <a class="brand" href="#top" aria-label="Nagare architecture, top of page">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="12" fill="#dff2eb"/><path d="M7 23c7-15 10 9 17-5 3-6 6-6 9-4M8 30c7-13 10 8 17-5 3-5 5-5 8-4" fill="none" stroke="#147d72" stroke-width="2.6" stroke-linecap="round"/></svg>
+      <span>Nagare<small>Architecture atlas</small></span>
+    </a>
+    <div class="side-label">Explore</div>
+    <nav>
+      <a href="#overview">01 &nbsp; System at a glance</a>
+      <a href="#inventory">02 &nbsp; Inventory control plane</a>
+      <a href="#ownership">03 &nbsp; Ownership &amp; identity</a>
+      <a href="#runtime">04 &nbsp; Runtime &amp; flows</a>
+      <a href="#catalog">05 &nbsp; Resource coverage</a>
+      <a href="#journeys">06 &nbsp; Change journeys</a>
+      <a href="#state">07 &nbsp; State &amp; recovery</a>
+      <a href="#lifecycle">08 &nbsp; Lifecycle decisions</a>
+      <a href="#safety">09 &nbsp; Operational guarantees</a>
+      <a href="#sources">Sources</a>
+    </nav>
+    <div class="aside-foot">Architecture illustrated with MasterPlan 23 treated as fully implemented.</div>
+  </aside>
+  <main id="top">
+    <header>
+      <p class="eyebrow">Nagare / 流れ &nbsp; · &nbsp; System architecture</p>
+      <h1>One small platform.<br><em>One coherent inventory.</em></h1>
+      <p class="lead">Nagare runs many personal applications on a single rebuildable host. Typed, independently owned resource scopes compose into a context-wide inventory, so every change can be checked, reviewed, applied, and explained as one bounded transaction.</p>
+      <div class="hero-meta"><span class="pill accent">Target architecture</span><span class="pill">Single-node personal PaaS</span><span class="pill">Cloud + local modes</span><span class="pill">MasterPlan 23 assumed complete</span></div>
+    </header>
+
+    <section id="overview">
+      <div class="section-head"><h2>The whole system</h2><span>01 / overview</span></div>
+      <p class="intro">The operator-facing CLI sits above a typed inventory and provider adapters. The deployed platform remains deliberately small: one GCP VM in cloud mode, or k3d on a laptop in local mode.</p>
+      <figure class="figure">
+        <svg viewBox="0 0 1000 420" role="img" aria-labelledby="overview-title overview-desc">
+          <title id="overview-title">Nagare architecture from app configuration to runtime</title>
+          <desc id="overview-desc">An app repository and platform release feed nagarectl's typed inventory and reviewed operations. Native adapters manage cloud, host, cluster, and artifacts. Applications, data, ingress, and observability run on a single host, with a local k3d alternative.</desc>
+          <defs><marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#6e9992" stroke-width="1.4"/></marker></defs>
+          <rect x="10" y="15" width="980" height="390" rx="16" fill="#fbfdfb" stroke="#e0e9e6"/>
+          <text x="34" y="44" class="kicker">DECLARE</text><text x="326" y="44" class="kicker">COMPOSE + REVIEW</text><text x="633" y="44" class="kicker">RECONCILE</text>
+          <rect x="30" y="70" width="235" height="90" rx="12" fill="#eaf2f8" stroke="#cbdde8"/>
+          <text x="48" y="100" class="label">App repositories</text><text x="48" y="121" class="sub">Typed Config.hs · services, data, jobs</text><text x="48" y="142" class="tiny">Independent app revisions</text>
+          <rect x="30" y="176" width="235" height="90" rx="12" fill="#eaf2f8" stroke="#cbdde8"/>
+          <text x="48" y="206" class="label">Platform release</text><text x="48" y="227" class="sub">Cloud · host · cluster · shared services</text><text x="48" y="248" class="tiny">Immutable payload identity</text>
+          <path d="M265 114H302M265 221H302" class="line" marker-end="url(#arrow1)"/>
+          <rect x="314" y="70" width="277" height="196" rx="13" fill="#e6f4ef" stroke="#bcdcd1"/>
+          <text x="334" y="100" class="label">nagarectl</text><text x="334" y="120" class="sub">Operator CLI · no always-on controller</text>
+          <path d="M333 137H571" stroke="#c1dcd3"/>
+          <text x="334" y="159" class="sub">Typed scopes → validated context inventory</text>
+          <text x="334" y="183" class="sub">Observe → plan → native review bundle</text>
+          <text x="334" y="207" class="sub">Locked admission → apply → verify</text>
+          <rect x="333" y="226" width="239" height="25" rx="6" fill="#fff" stroke="#bcdcd1"/>
+          <text x="345" y="243" class="tiny">Immutable history + durable receipts</text>
+          <path d="M591 165H621" class="line" marker-end="url(#arrow1)"/>
+          <rect x="634" y="70" width="331" height="196" rx="13" fill="#fff" stroke="#cfded9"/>
+          <text x="654" y="100" class="label">Native adapters</text>
+          <text x="654" y="128" class="sub">Pulumi  ·  NixOS  ·  artifact publishers</text>
+          <text x="654" y="153" class="sub">Kubernetes  ·  Helm  ·  storage</text>
+          <path d="M653 170H945" stroke="#e1e9e6"/>
+          <text x="654" y="193" class="sub">Native plans and renders retained</text>
+          <text x="654" y="217" class="sub">Identity + preconditions checked</text>
+          <text x="654" y="241" class="sub">Provider readiness verified</text>
+          <path d="M800 267V290" class="line" marker-end="url(#arrow1)"/>
+          <rect x="30" y="298" width="935" height="85" rx="13" fill="#f2f6f7" stroke="#d6e1e1"/>
+          <text x="50" y="328" class="label">One host, many workloads</text>
+          <text x="50" y="352" class="sub">GCP Compute Engine → NixOS → k3s → Knative, Kourier, cert-manager, databases, jobs, Victoria stack, Grafana</text>
+          <rect x="729" y="315" width="213" height="48" rx="8" fill="#fff" stroke="#d5e1e0"/>
+          <text x="743" y="335" class="tiny">LOCAL ALTERNATIVE</text><text x="743" y="352" class="sub">k3d · registry · MinIO</text>
+        </svg>
+        <figcaption>The inventory governs what Nagare owns; provider tools still perform their native work. The local mode substitutes k3d and local services for the cloud substrate.</figcaption>
+      </figure>
+    </section>
+
+    <section id="inventory">
+      <div class="section-head"><h2>The inventory is the control plane</h2><span>02 / change path</span></div>
+      <p class="intro">A scope is one owner’s complete declaration and revision. Composing all scopes produces the context view and catches conflicting claims before mutation. A review binds the exact candidate, observations, and native provider plans.</p>
+      <figure class="figure">
+        <svg viewBox="0 0 1000 326" role="img" aria-labelledby="pipeline-title pipeline-desc">
+          <title id="pipeline-title">Reviewed inventory transaction pipeline</title>
+          <desc id="pipeline-desc">Platform and app scope declarations are composed, observed, planned, prepared into a review, admitted under a single-writer lock, executed through native adapters, verified, and recorded with receipts.</desc>
+          <defs><marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#749a94" stroke-width="1.4"/></marker></defs>
+          <rect x="15" y="18" width="190" height="116" rx="12" fill="#eaf2f8" stroke="#cbdde8"/>
+          <text x="32" y="46" class="kicker">INDEPENDENT INPUTS</text><text x="32" y="75" class="label">Platform scope</text><text x="32" y="99" class="label">App A · App B · …</text><text x="32" y="119" class="tiny">Each has its own revision</text>
+          <path d="M205 77H229" class="line" marker-end="url(#arrow2)"/>
+          <rect x="241" y="18" width="210" height="116" rx="12" fill="#e6f4ef" stroke="#bcdcd1"/>
+          <text x="258" y="46" class="kicker">PURE COMPILATION</text><text x="258" y="75" class="label">Compose inventory</text><text x="258" y="97" class="sub">Claims · dependencies · policy</text><text x="258" y="117" class="tiny">Conflicts refuse before effects</text>
+          <path d="M451 77H475" class="line" marker-end="url(#arrow2)"/>
+          <rect x="487" y="18" width="235" height="116" rx="12" fill="#fbf2e3" stroke="#ead5b6"/>
+          <text x="504" y="46" class="kicker">EVIDENCE BOUNDARY</text><text x="504" y="75" class="label">Observe + prepare</text><text x="504" y="97" class="sub">Pure plan + exact native preview</text><text x="504" y="117" class="tiny">Publish review by digest</text>
+          <path d="M722 77H746" class="line" marker-end="url(#arrow2)"/>
+          <rect x="758" y="18" width="226" height="116" rx="12" fill="#e6f4ef" stroke="#bcdcd1"/>
+          <text x="775" y="46" class="kicker">SINGLE WRITER</text><text x="775" y="75" class="label">Admit + execute</text><text x="775" y="97" class="sub">Recheck under lock · apply</text><text x="775" y="117" class="tiny">Verify + durable receipts</text>
+          <path d="M873 134V172H113V153" class="dash"/>
+          <rect x="15" y="184" width="970" height="124" rx="12" fill="#f8faf9" stroke="#dbe5e2"/>
+          <text x="33" y="211" class="kicker">THREE SEPARATE RECORDS</text>
+          <rect x="33" y="228" width="288" height="61" rx="8" fill="#fff" stroke="#dce7e3"/><text x="48" y="251" class="label">Desired</text><text x="48" y="273" class="sub">Scope declarations + revision vector</text>
+          <rect x="350" y="228" width="288" height="61" rx="8" fill="#fff" stroke="#dce7e3"/><text x="365" y="251" class="label">Observed</text><text x="365" y="273" class="sub">Provider identity, health, and drift</text>
+          <rect x="667" y="228" width="299" height="61" rx="8" fill="#fff" stroke="#dce7e3"/><text x="682" y="251" class="label">History</text><text x="682" y="273" class="sub">Journal, receipts, retained incarnations</text>
+        </svg>
+        <figcaption>Updating one scope preserves all unselected scopes. Cloud contexts keep inventory history beside Pulumi state in the context state bucket with conditional writes; local contexts use a private filesystem store.</figcaption>
+      </figure>
+      <div class="flow-list">
+        <article><b>1. Compile</b><span>Typed declarations, capability references, reservations, and graph checks establish valid membership.</span></article>
+        <article><b>2. Review</b><span>Observed facts and provider-native previews are retained under an exact review digest.</span></article>
+        <article><b>3. Admit</b><span>One writer rechecks the base generations and preconditions before effects begin.</span></article>
+        <article><b>4. Resume</b><span>Journal receipts let a later run recover and skip operations already proved complete.</span></article>
+      </div>
+    </section>
+
+    <section id="ownership">
+      <div class="section-head"><h2>Independent owners, shared truth</h2><span>03 / resource model</span></div>
+      <p class="intro">The context inventory is a composed view, not a new document with its own release cycle. Platform and application scopes own different resources; authorized app contributions can affect a platform-owned shared object without taking ownership of it.</p>
+      <figure class="figure">
+        <svg viewBox="0 0 1000 355" role="img" aria-labelledby="scope-title scope-desc">
+          <title id="scope-title">Scoped ownership and shared contributions</title>
+          <desc id="scope-desc">Platform and two application scopes remain independently versioned. They compose into a context inventory that checks claims, dependencies, and reserved controller children. An authorized contribution from an app changes an effective platform-owned shared resource without changing the platform scope revision.</desc>
+          <defs><marker id="arrow3" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#749a94" stroke-width="1.4"/></marker></defs>
+          <rect x="20" y="32" width="258" height="84" rx="11" fill="#eaf2f8" stroke="#c8dcea"/><text x="38" y="62" class="label">Platform scope</text><text x="38" y="84" class="sub">Cloud · host · cluster · shared config</text><text x="38" y="103" class="tiny">Revision P7</text>
+          <rect x="20" y="137" width="258" height="84" rx="11" fill="#e6f4ef" stroke="#bcdcd1"/><text x="38" y="167" class="label">App A scope</text><text x="38" y="189" class="sub">Service · database · route request</text><text x="38" y="208" class="tiny">Revision A12</text>
+          <rect x="20" y="242" width="258" height="84" rx="11" fill="#e6f4ef" stroke="#bcdcd1"/><text x="38" y="272" class="label">App B scope</text><text x="38" y="294" class="sub">Worker · schedule · storage</text><text x="38" y="313" class="tiny">Revision B3</text>
+          <path d="M278 74H338M278 179H338M278 284H338M337 74V284M337 179H363" class="line" marker-end="url(#arrow3)"/>
+          <rect x="375" y="76" width="282" height="207" rx="14" fill="#fff" stroke="#b9d9ce" stroke-width="2"/><text x="396" y="107" class="kicker">COMPOSED CONTEXT INVENTORY</text><text x="396" y="142" class="label">All owned claims</text><text x="396" y="168" class="sub">Resource and physical identities</text><text x="396" y="191" class="sub">Typed exports + dependencies</text><text x="396" y="214" class="sub">Controller child reservations</text><text x="396" y="237" class="sub">Retention + lifecycle policy</text><text x="396" y="263" class="tiny">P7  /  A12  /  B3</text>
+          <path d="M657 179H690" class="line" marker-end="url(#arrow3)"/>
+          <rect x="703" y="76" width="276" height="207" rx="14" fill="#fbfdfb" stroke="#d7e4df"/>
+          <text x="722" y="107" class="kicker">EFFECTIVE SHARED RESOURCE</text><text x="722" y="143" class="label">Platform-owned route map</text>
+          <text x="722" y="170" class="sub">Base content from platform</text><text x="722" y="194" class="sub">+ authorized app contributions</text>
+          <path d="M722 211H960" stroke="#dfebe6"/><text x="722" y="234" class="tiny">CONTENT DIGEST CHANGES</text><text x="722" y="256" class="sub">Platform revision stays P7</text>
+          <path d="M279 180C560 344 816 341 837 283" class="dash" marker-end="url(#arrow3)"/><text x="393" y="333" class="tiny">AUTHORIZED CONTRIBUTION, NOT OWNERSHIP TRANSFER</text>
+        </svg>
+        <figcaption>Stable logical resource IDs survive provider renames or ownership transfers; physical identities track each incarnation. Retained and candidate incarnations keep their claims reserved until lifecycle decisions resolve them.</figcaption>
+      </figure>
+      <div class="callout"><div><strong>Deletion is explicit.</strong> Omission from a selected scope is not an instruction to remove a resource. Retirement, adoption, transfer, replacement, and migration are reviewed lifecycle decisions bound to identity and recovery policy. Durable data defaults to retention.</div></div>
+    </section>
+
+    <section id="runtime">
+      <div class="section-head"><h2>What the inventory manages</h2><span>04 / runtime</span></div>
+      <p class="intro">Native systems keep their own responsibilities. Nagare’s inventory defines ownership and review across them, while the runtime remains a compact stack on one machine.</p>
+      <figure class="figure">
+        <svg viewBox="0 0 1000 400" role="img" aria-labelledby="runtime-title runtime-desc">
+          <title id="runtime-title">Nagare single host runtime and flows</title>
+          <desc id="runtime-desc">GCP cloud resources surround a NixOS VM running k3s. Ingress routes traffic through Kourier to Knative apps. Managed databases and storage send backups to object storage. OpenTelemetry sends metrics, logs, and traces to Victoria services and Grafana. Local mode uses k3d, a local registry, and MinIO.</desc>
+          <defs><marker id="arrow4" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#749a94" stroke-width="1.4"/></marker></defs>
+          <rect x="12" y="18" width="976" height="365" rx="15" fill="#f7f9fb" stroke="#d3dfe5"/>
+          <text x="32" y="46" class="kicker">GCP CONTEXT: COMPUTE ENGINE · STATIC IP · DNS · REGISTRY · GCS</text>
+          <rect x="28" y="67" width="943" height="280" rx="13" fill="#fff" stroke="#d6e3df"/>
+          <text x="48" y="94" class="label">NixOS host</text><text x="170" y="94" class="sub">SSH · Tailscale · firewall · sops-nix · persistent disk · backups</text>
+          <rect x="45" y="112" width="909" height="219" rx="11" fill="#f2f7f5" stroke="#d0e1da"/>
+          <text x="64" y="139" class="kicker">K3S CLUSTER</text>
+          <rect x="65" y="162" width="179" height="116" rx="10" fill="#eaf2f8" stroke="#cadee9"/><text x="81" y="188" class="label">Ingress + TLS</text><text x="81" y="211" class="sub">Kourier / Envoy</text><text x="81" y="233" class="sub">cert-manager</text><text x="81" y="259" class="tiny">PUBLIC REQUESTS →</text>
+          <path d="M244 219H267" class="line" marker-end="url(#arrow4)"/>
+          <rect x="279" y="162" width="206" height="116" rx="10" fill="#e6f4ef" stroke="#bcdcd1"/><text x="295" y="188" class="label">Applications</text><text x="295" y="211" class="sub">Knative services · sites</text><text x="295" y="233" class="sub">Workers · jobs · schedules</text><text x="295" y="259" class="tiny">SCALE TO ZERO WHERE FIT</text>
+          <path d="M485 219H508" class="line" marker-end="url(#arrow4)"/>
+          <rect x="520" y="162" width="182" height="116" rx="10" fill="#fbf2e3" stroke="#ecd9bb"/><text x="536" y="188" class="label">Stateful data</text><text x="536" y="211" class="sub">Postgres · Redis</text><text x="536" y="233" class="sub">ClickHouse · PVCs</text><text x="536" y="259" class="tiny">BACKUP → OBJECT STORE</text>
+          <path d="M702 219H725" class="line" marker-end="url(#arrow4)"/>
+          <rect x="737" y="162" width="198" height="116" rx="10" fill="#f7f0f3" stroke="#eadbe0"/><text x="753" y="188" class="label">Observability</text><text x="753" y="211" class="sub">OTel → Victoria stack</text><text x="753" y="233" class="sub">Grafana dashboards</text><text x="753" y="259" class="tiny">METRICS · LOGS · TRACES</text>
+          <text x="66" y="310" class="sub">Cluster components are declared and reviewed as owned resources; controllers may create only bounded, reserved children.</text>
+          <rect x="646" y="351" width="325" height="30" rx="7" fill="#fff" stroke="#d2dfe4"/><text x="658" y="371" class="tiny">LOCAL: K3D · LOCAL REGISTRY · MINIO</text>
+        </svg>
+        <figcaption>Cloud mode backs data up to GCS. Local mode keeps the same operational shape with k3d, local registry, and MinIO. Both are managed through context-specific inventory state.</figcaption>
+      </figure>
+    </section>
+
+    <section id="catalog">
+      <div class="section-head"><h2>Resources across every layer</h2><span>05 / coverage</span></div>
+      <p class="intro">A managed resource is more than a Kubernetes object. Nagare declares cloud infrastructure, host state, cluster components, applications, data, credentials, published artifacts, and release controls through the same ownership vocabulary. One provider operation may reconcile several declared resources.</p>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Owner scope</th><th>Declared examples</th><th>Native executor</th><th>Boundary that matters</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud foundation</td><td>VM, static IP, DNS, disks, state and backup buckets, IAM, registry</td><td>Pulumi / GCP</td><td>Every native registration must match a declared member; saved Pulumi plans bind the reviewed action.</td></tr>
+          <tr><td>Host</td><td>NixOS closure, users, SSH, firewall, Tailscale, mounted disk, backup tooling</td><td>NixOS activation</td><td>Reviewed closure and guarded activation preserve host identity and recovery behavior.</td></tr>
+          <tr><td>Cluster platform</td><td>Namespaces, cert-manager, Knative, Kourier, observability, auth, cache</td><td>Kubernetes / Helm</td><td>Expanded manifests and chart members are claimed before mutation; controllers receive bounded child reservations.</td></tr>
+          <tr><td>Applications</td><td>Services, workers, sites, routes, env intent, secrets, tasks, jobs, CDN requests</td><td>Kubernetes, publication, CDN</td><td>Each app has its own scope and revision. Shared owner contributions are checked without advancing the platform release.</td></tr>
+          <tr><td>Data services</td><td>Databases, brokers, volumes, credentials, backups, logical topics</td><td>Kubernetes, storage, broker APIs</td><td>Durable data and recovery credentials are retained by default; a reference does not grant ownership.</td></tr>
+          <tr><td>Artifacts &amp; release</td><td>OCI images, Nix payloads, cache objects, GitHub release publication</td><td>Registries, storage, publisher</td><td>Consumers hold immutable references; global publication has its own owner and durable release evidence.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">The inventory describes ownership, dependencies, and policy; Pulumi, NixOS, Kubernetes, Helm, storage, and registries remain the authorities for native execution semantics.</p>
+      <div class="two" style="margin-top:17px">
+        <div class="card"><div class="small-heading">Every managed declaration carries</div><ul><li>A stable logical ID and provider address or claim.</li><li>An owner scope, executor, desired content, and sensitivity policy.</li><li>Consumption, readiness, and operation-order relationships.</li><li>Lifecycle and data recovery policy, plus bounded delegation where needed.</li></ul></div>
+        <div class="card"><div class="small-heading">Three declaration roles</div><ul><li><strong>Managed:</strong> Nagare owns and may reconcile the resource.</li><li><strong>External:</strong> a typed capability used but owned elsewhere.</li><li><strong>Observed child:</strong> a bounded controller-produced incarnation that must not collide with another claim.</li><li><strong>Operation:</strong> a closed, reviewed action such as backup or migration, not arbitrary shell text.</li></ul></div>
+      </div>
+    </section>
+
+    <section id="journeys">
+      <div class="section-head"><h2>Three changes, one protocol</h2><span>06 / worked paths</span></div>
+      <p class="intro">The same compiler, reviewer, store, and journal support small app changes and platform-wide work. The selected scope determines what may advance; dependencies identify the native operations required.</p>
+      <div class="journeys">
+        <article class="journey"><div><span class="tag">APP SCOPE</span><h3>Deploy a service with a database</h3></div><div><p>An app’s typed configuration and separately versioned environment intent compile into a complete application scope. Its database bundle includes workload objects, credential template, PVC, and backup operation; its image publication and route contribution are explicit dependencies.</p><ol><li>Compose against current platform and other app scopes. A Knative-generated Service reservation can reveal a collision with a database Service before any write.</li><li>Observe only relevant cluster, artifact, and shared configuration facts; prepare exact native manifests and publication evidence.</li><li>Review image, workload, data, backup, route, and secret-reference changes together. Under the lock, admit the current base, publish the image, apply dependencies, verify readiness, and journal receipts.</li><li>App B and the platform’s base revision remain unchanged. Only authorized shared configuration content changes.</li></ol></div></article>
+        <article class="journey"><div><span class="tag">PLATFORM SCOPES</span><h3>Upgrade the platform</h3></div><div><p>A selected immutable payload changes the relevant cloud, host, cluster, artifact, and control scopes. The inventory composes them with unchanged application declarations, so a platform update cannot accidentally erase app-owned resources.</p><ol><li>Bind the payload identity and compile all selected component declarations; verify cluster render membership and Pulumi registration parity.</li><li>Prepare saved native plans and exact render bytes. Review replacements, readiness gates, and any bounded preparation that needs earlier outputs.</li><li>Admit a single-writer transaction, run operations in dependency order, and record provider verification after each effect.</li><li>Archive inventory and review digests, scope revisions, receipts, and final observations under the payload and run identities.</li></ol></div></article>
+        <article class="journey"><div><span class="tag">LIFECYCLE</span><h3>Retire an application safely</h3></div><div><p>Retiring an app is an explicit change, not a missing file. The lifecycle planner evaluates owner history, current physical identity, dependents, data policy, and the requested deletion decision.</p><ol><li>Remove or update the app’s owned workloads and authorized contributions; preserve unrelated scopes.</li><li>Retain its database, volume, broker data, backup objects, and recovery credentials unless separately reviewed policy permits collection.</li><li>Review any exact deletion targets and native preconditions; refuse if observations are unknown, identity changed, or dependents remain.</li><li>Journal the outcome. Retained resources stay visible in status after the original app scope is retired.</li></ol></div></article>
+      </div>
+    </section>
+
+    <section id="state">
+      <div class="section-head"><h2>State, review, and recovery</h2><span>07 / transaction store</span></div>
+      <p class="intro">A review is evidence against a snapshot, not permission to write. Admission rechecks the current head and live preconditions while holding the context writer lock. Intent is journaled before effects; completion is recorded only after adapter verification.</p>
+      <figure class="figure">
+        <svg viewBox="0 0 1000 300" role="img" aria-labelledby="store-title store-desc">
+          <title id="store-title">Inventory store and transaction recovery</title>
+          <desc id="store-desc">A cloud context stores immutable scope members, review and native bundles, and a journal beside Pulumi state in GCS. The conditional head contains accepted and converged vectors, active transaction, and executor claim. Local mode uses a private filesystem implementation. Resume checks receipts and provider observations.</desc>
+          <defs><marker id="arrow5" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1L7 4L1 7" fill="none" stroke="#749a94" stroke-width="1.4"/></marker></defs>
+          <rect x="15" y="20" width="305" height="259" rx="13" fill="#eaf2f8" stroke="#cbdde8"/>
+          <text x="34" y="49" class="kicker">IMMUTABLE MEMBERS</text>
+          <rect x="34" y="66" width="267" height="47" rx="7" fill="#fff" stroke="#d3e2e7"/><text x="49" y="88" class="label">Scope snapshots</text><text x="49" y="104" class="tiny">COMPLETE DECLARATIONS</text>
+          <rect x="34" y="124" width="267" height="47" rx="7" fill="#fff" stroke="#d3e2e7"/><text x="49" y="146" class="label">Review bundles</text><text x="49" y="162" class="tiny">PUBLIC SUMMARY + PRIVATE NATIVE BYTES</text>
+          <rect x="34" y="182" width="267" height="47" rx="7" fill="#fff" stroke="#d3e2e7"/><text x="49" y="204" class="label">Journal + receipts</text><text x="49" y="220" class="tiny">SEQUENCE · INTENT · VERIFICATION</text>
+          <text x="34" y="258" class="sub">Published by content identity</text>
+          <path d="M320 150H345" class="line" marker-end="url(#arrow5)"/>
+          <rect x="357" y="44" width="287" height="210" rx="13" fill="#e6f4ef" stroke="#bcdcd1"/>
+          <text x="376" y="73" class="kicker">CONDITIONAL HEAD</text><text x="376" y="105" class="label">Accepted vector</text><text x="376" y="131" class="label">Converged vector</text><text x="376" y="157" class="label">Active transaction</text><text x="376" y="183" class="label">Executor claim</text><path d="M376 199H625" stroke="#bbd9cf"/><text x="376" y="224" class="sub">Compare generation before advance</text>
+          <path d="M644 150H669" class="line" marker-end="url(#arrow5)"/>
+          <rect x="681" y="20" width="304" height="259" rx="13" fill="#fbf2e3" stroke="#ead5b6"/>
+          <text x="700" y="49" class="kicker">RECOVERY AFTER INTERRUPTION</text><text x="700" y="85" class="label">Read transaction</text><text x="700" y="112" class="sub">Completed? Skip with proof.</text><text x="700" y="141" class="sub">Interrupted? Recover or safely retry.</text><text x="700" y="170" class="sub">Ambiguous? Preserve for resolution.</text><path d="M700 187H966" stroke="#e7d8bf"/><text x="700" y="213" class="sub">Verify against the retained native bundle,</text><text x="700" y="234" class="sub">not mutable source files.</text>
+          <text x="700" y="263" class="tiny">NO SILENT SUCCESS INFERENCE</text>
+        </svg>
+        <figcaption>For a cloud context the inventory prefix lives in the context state bucket beside Pulumi state. A first bootstrap transaction can use the local store before that bucket exists, then migrate. Local mode always uses the filesystem store.</figcaption>
+      </figure>
+      <div class="two" style="margin-top:15px">
+        <div class="card"><div class="small-heading">The review barrier</div><p style="font-size:13px;color:var(--muted);margin:0">The public review contains redacted declarations and decisions. Private, immutable native bytes live in the context store. Apply resolves and verifies those bytes, then rechecks generations, reservations, and live preconditions under the lock. A changed Pulumi plan, Helm render, or Kubernetes object needs a new review.</p></div>
+        <div class="card"><div class="small-heading">One executor at a time</div><p style="font-size:13px;color:var(--muted);margin:0">Cloud state uses conditional writes and an executor claim to refuse another workstation. A takeover is explicit; there is no lease or liveness detector. The local store provides process exclusion on one machine. Neither implementation is a distributed coordinator.</p></div>
+      </div>
+    </section>
+
+    <section id="lifecycle">
+      <div class="section-head"><h2>Identity and lifecycle</h2><span>08 / status to retirement</span></div>
+      <p class="intro">Nagare distinguishes the stable resource a user intends from the particular provider object currently realizing it. That distinction makes renames, transfers, replacement, and retained data explainable without treating names or labels as ownership proof.</p>
+      <dl class="terms">
+        <div class="term"><dt>Context / scope / resource ID</dt><dd>A context is the managed target. A scope is an independently revised owner declaration. A ResourceId is minted from a stable logical key and role, never from a provider name.</dd></div>
+        <div class="term"><dt>Physical incarnation</dt><dd>The exact VM, Kubernetes UID, bucket, release, or other provider identity observed at a point in time. One logical resource may have active, candidate, and retained incarnations.</dd></div>
+        <div class="term"><dt>Claim and reservation</dt><dd>A provider address, alias, hostname, route, or deterministic controller child that an owner reserves. Retained and unresolved incarnations still hold claims.</dd></div>
+        <div class="term"><dt>Revision and digest</dt><dd>A digest identifies content; a scope revision adds historical generation. A shared resource’s effective digest follows composed content, not the platform owner’s generation.</dd></div>
+        <div class="term"><dt>Typed capability</dt><dd>A reference to a specific exported capability and witness. Sharing a string name with a resource cannot satisfy a dependency or grant authority to mutate it.</dd></div>
+        <div class="term"><dt>Observed status</dt><dd>A timestamped account of identity, owner, dependencies, drift, health, and retirement constraints. Missing and inaccessible remain different outcomes; status does not repair.</dd></div>
+      </dl>
+      <div class="two" style="margin-top:16px">
+        <div class="card"><div class="small-heading">Transitions with proof</div><ul><li><strong>Adopt:</strong> explicitly bind a legacy object after provider identity and ownership checks.</li><li><strong>Transfer or rename:</strong> preserve logical identity through a reviewed transition.</li><li><strong>Replace or migrate:</strong> track candidate and retained incarnations with explicit dependency and recovery points.</li><li><strong>Collect:</strong> delete only an exact, historically owned incarnation when dependents and policy permit it.</li></ul></div>
+        <div class="card"><div class="small-heading">Data is protected</div><ul><li>Databases, volumes, brokers, backups, keys, and recovery credentials default to retention.</li><li>A restore names backup and target identities, fences writes, and specifies forward recovery.</li><li>Unknown observations cannot prove absence or justify credential regeneration.</li><li>An interactive maintenance session is journaled and followed by re-observation; arbitrary SQL effects are not claimed as preplanned.</li></ul></div>
+      </div>
+    </section>
+
+    <section id="safety">
+      <div class="section-head"><h2>Operational guarantees</h2><span>09 / boundaries</span></div>
+      <div class="grid">
+        <div class="card"><span class="num">01 / VALIDITY</span><h3>Conflicts stop at composition</h3><p>Typed identities, capability references, provider claims, dependency cycles, and reserved controller children are checked across every scope before external mutation.</p></div>
+        <div class="card"><span class="num">02 / REVIEW</span><h3>Effects match evidence</h3><p>The candidate digest, observations, and retained native plans or renders form the review. Changed provider output or changed preconditions require a new review.</p></div>
+        <div class="card"><span class="num">03 / RECOVERY</span><h3>Work survives interruption</h3><p>Immutable snapshots, a durable journal, and operation receipts preserve history. Resume verifies what completed and continues only the remaining authorized work.</p></div>
+      </div>
+      <div class="two" style="margin-top:14px">
+        <div class="card"><div class="small-heading">Identity and lifecycle</div><ul><li><strong>Logical ID</strong> persists through provider renames and owner transfers.</li><li><strong>Physical identity</strong> names an active, candidate, or retained incarnation.</li><li><strong>Unknown observation</strong> never proves absence or authorizes adoption.</li><li><strong>Deletion</strong> requires exact identity, history, and reviewed retirement policy.</li></ul></div>
+        <div class="card"><div class="small-heading">Control boundaries</div><ul><li><strong>Cloud state</strong> uses conditional writes and an explicit single executor claim.</li><li><strong>Local state</strong> uses a private filesystem store with one process writer.</li><li><strong>Credentials</strong> stay in private adapter inputs and never enter public review evidence.</li><li><strong>Provider tools</strong> retain native semantics; the inventory is not a replacement engine.</li></ul></div>
+      </div>
+    </section>
+
+    <footer class="source" id="sources">
+      <p><strong>Reading note.</strong> This is an illustration of Nagare’s target architecture with MasterPlan 23 assumed fully implemented, as requested. It does not describe the current completion status of that plan.</p>
+      <div class="source-links"><a href="../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md">MasterPlan 23</a><a href="../architecture/resource-inventory.md">Typed inventory contract</a><a href="../architecture/managed-resource-coverage.md">Managed resource coverage</a><a href="../plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md">Review and recovery plan</a><a href="../plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md">App lifecycle plan</a><a href="../plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md">Lifecycle plan</a><a href="../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md">Shared store plan</a><a href="../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md">ADR 22</a><a href="../../README.md">Nagare overview</a></div>
+    </footer>
+  </main>
+</div>
+</body>
+</html>
