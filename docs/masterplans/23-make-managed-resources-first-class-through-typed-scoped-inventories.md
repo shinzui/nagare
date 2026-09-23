@@ -189,6 +189,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M3 partial: Reviewed local MinIO Secrets use a generated primary and guarded namespace copy; fixed legacy manifest credentials are excluded from the inventory review. Legacy recipe replacement and live convergence remain open.
 - [x] (2026-09-22) EP-147 M1b partial: Kubernetes updates now refuse unproved kinds before a write; the conditional runtime admits seven kinds with disposable update evidence, including Deployment with an exact controller annotation exception. Broader native update coverage remains open.
 - [x] (2026-09-22) EP-147 M1b partial: A disposable shared transaction refused a reviewed ConfigMap update after its resourceVersion changed, preserving the concurrent live fields. CLI subprocess coverage remains open.
+- [x] (2026-09-22) EP-147 M1b/M3 partial: Private observability Secret input is normalized for Kubernetes verification; disposable create/update evidence admits plain Secret updates while generated credential templates remain data-preserving and update-refusing.
+- [x] (2026-09-22) EP-147 M3 partial: A disposable Helm create and upgrade verify an actual changed rendered ConfigMap through the reviewed postrenderer boundary.
 - [x] (2026-09-22) EP-147 M3 partial: Helm 4 capture/verify post-renderer plugins prove exact native render binding and reject a nondeterministic chart before resource changes; release declarations and chart pinning remain open.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.

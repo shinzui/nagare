@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: inventory-review-static-fixture
 data:
-  token: fixed
+  token: {{ .Values.token | default "fixed" }}

@@ -91,6 +91,11 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
             "../../cluster/bootstrap/job-runs/resourcequota.yaml" (map packagedOwner inputs)
       (secretScope, secretNative, secretIds) <- compileObservabilitySecrets foundation secretObjects
         >>= either (assertFailure . show) pure
+      assertBool "observability Secret retained stringData or plaintext"
+        (all (\(_, bytes) -> not ("stringData" `BC.isInfixOf` bytes)
+          && not ("fixture-canary" `BC.isInfixOf` bytes)) (Map.elems secretNative))
+      assertBool "observability Secret was not normalized to data"
+        (any (BC.isInfixOf "Zml4dHVyZS1jYW5hcnk=" . snd) (Map.elems secretNative))
       let orderedInputs = case inputs of
             firstRelease : rest -> firstRelease
               {packagedDependencies = map OrderedAfter secretIds <> packagedDependencies firstRelease} : rest
@@ -129,6 +134,22 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       absent <- compileObservabilitySecrets foundation []
       assertBool "missing Grafana admin Secret was accepted"
         (case absent of Left _ -> True; Right _ -> False)
+      let overlapping = [(SourceLocation "fixture:overlap" "Secret", object
+            [ "apiVersion" .= ("v1" :: T.Text)
+            , "kind" .= ("Secret" :: T.Text)
+            , "metadata" .= object
+                [ "name" .= ("grafana-admin" :: T.Text)
+                , "namespace" .= ("monitoring" :: T.Text)
+                ]
+            , "data" .= object ["admin-user" .= ("YWRtaW4=" :: T.Text)]
+            , "stringData" .= object
+                [ "admin-user" .= ("admin" :: T.Text)
+                , "admin-password" .= ("fixture" :: T.Text)
+                ]
+            ])]
+      duplicate <- compileObservabilitySecrets foundation overlapping
+      assertBool "overlapping Secret data and stringData was accepted"
+        (case duplicate of Left _ -> True; Right _ -> False)
   , testCase "encrypted observability input is required and decryption errors stay private" $
       withSystemTempDirectory "observability-secrets" $ \directory -> do
         let executable = directory </> "fake-sops"
@@ -259,7 +280,7 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       before <- readStoreSnapshot store >>= either (assertFailure . show) pure
       reviewed <- prepareReview registry before proposal >>= either (assertFailure . show) pure
       helmSpecsFromReview reviewed @?= Right specs
-  , testCase "disposable Helm create is gated by reviewed native bytes" $ do
+  , testCase "disposable Helm create and upgrade retain reviewed native bytes" $ do
       selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
       case selected of
         Nothing -> pure ()
@@ -314,7 +335,35 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
               verified <- adapterVerify adapter operation prepared
               case verified of
                 Right _ -> pure ()
-                Left reason -> assertFailure (show reason)) `finally` cleanup
+                Left reason -> assertFailure (show reason)
+              let changedValuesPath = temporary </> "updated-values.yaml"
+              BS.writeFile changedValuesPath "token: upgraded\n"
+              changedValues <- BS.readFile changedValuesPath
+              let changedInput = input
+                    { packagedValues = changedValuesPath
+                    , packagedValuesDigest = contentDigest changedValues
+                    }
+              changedCapture <- capturePackagedRelease changedInput >>= either (assertFailure . show) pure
+              (changedRelease, changedNative) <- either (assertFailure . show) pure
+                (compileRenderedRelease changedCapture)
+              let changedRuntime = runtime
+                    { helmDeclarations = Map.singleton (releaseId fixture) changedRelease }
+                  changedAdapter = mkHelmAdapter
+                    (Map.singleton (releaseId fixture) (changedRelease, changedNative))
+                    (helmRuntimeOps changedRuntime)
+                  update = operation
+                    { plannedOperationId = ok (mkOperationId "op-helm-runtime-update")
+                    , plannedAction = UpdateResource
+                    , plannedInputDigest = contentDigest changedNative
+                    }
+              updatePrepared <- adapterPrepare changedAdapter update >>= either (assertFailure . show) pure
+              adapterPreflight changedAdapter update updatePrepared >>= either (assertFailure . show) pure
+              adapterExecute changedAdapter update updatePrepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changedAdapter update updatePrepared >>= either (assertFailure . show) pure
+              (readCode, actual, readError) <- kubectl ["get", "configmap", "inventory-review-static-fixture",
+                "--namespace", namespace, "-o", "jsonpath={.data.token}"]
+              assertEqual readError ExitSuccess readCode
+              actual @?= "upgraded") `finally` cleanup
   ]
   where
     ok :: (Show e) => Either e a -> a

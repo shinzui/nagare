@@ -22,6 +22,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
+import Nagare.Database.Secret (b64encode)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.Upstream
@@ -72,31 +73,33 @@ compileObservabilitySecrets
        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString), [ResourceId]))
 compileObservabilitySecrets foundation objects = case traverse validate objects of
   Left reason -> pure (Left (invalid reason :| []))
-  Right names -> do
-    let input = UpstreamInput
-          { upstreamOwner = owner
-          , upstreamCluster = foundationCluster foundation
-          , upstreamKey = known (mkLogicalKey "observability-secrets")
-          , upstreamRoot = ""
-          , upstreamFiles = []
-          , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
-          , upstreamTransferred = Set.empty
-          , upstreamConfigMapData = Map.empty
-          , upstreamImageOverrides = Map.empty
-          , upstreamGenerated = objects
-          , upstreamAfter = Map.empty
-          , upstreamExternalAfter = Map.empty
-          , upstreamOrderDeployments = False
-          }
-    result <- compileUpstream input
-    pure $ do
-      unless ("grafana-admin" `elem` names)
-        (Left (invalid "Grafana admin Secret is missing" :| []))
-      unless (length names == Set.size (Set.fromList names))
-        (Left (invalid "observability Secret names must be unique" :| []))
-      (bundle, native) <- result
-      scope <- mkScopeDeclaration owner [bundle]
-      pure (scope, native, Map.keys native)
+  Right names -> case traverse normalizeSecret objects of
+    Left reason -> pure (Left (invalid reason :| []))
+    Right normalized -> do
+      let input = UpstreamInput
+            { upstreamOwner = owner
+            , upstreamCluster = foundationCluster foundation
+            , upstreamKey = known (mkLogicalKey "observability-secrets")
+            , upstreamRoot = ""
+            , upstreamFiles = []
+            , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
+            , upstreamTransferred = Set.empty
+            , upstreamConfigMapData = Map.empty
+            , upstreamImageOverrides = Map.empty
+            , upstreamGenerated = normalized
+            , upstreamAfter = Map.empty
+            , upstreamExternalAfter = Map.empty
+            , upstreamOrderDeployments = False
+            }
+      result <- compileUpstream input
+      pure $ do
+        unless ("grafana-admin" `elem` names)
+          (Left (invalid "Grafana admin Secret is missing" :| []))
+        unless (length names == Set.size (Set.fromList names))
+          (Left (invalid "observability Secret names must be unique" :| []))
+        (bundle, native) <- result
+        scope <- mkScopeDeclaration owner [bundle]
+        pure (scope, native, Map.keys native)
   where
     owner = known (mkScopeId Platform "observability-secrets")
     known = either (error . T.unpack) id
@@ -119,6 +122,24 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
           not (all (`elem` keys) [Key.fromText "admin-user", Key.fromText "admin-password"]))
         (Left "Grafana admin Secret lacks required keys")
       pure name
+    normalizeSecret (location, Object root) = do
+      encoded <- case KM.lookup "stringData" root of
+        Nothing -> Right KM.empty
+        Just (Object fields) -> KM.traverseWithKey (\_ -> \case
+          String value -> Right (String (b64encode value))
+          _ -> Left "observability Secret stringData must contain text values") fields
+        _ -> Left "observability Secret stringData is malformed"
+      existing <- case KM.lookup "data" root of
+        Nothing -> Right KM.empty
+        Just (Object fields) | all isString (KM.elems fields) -> Right fields
+        _ -> Left "observability Secret data is malformed"
+      unless (null (KM.keys (KM.intersection existing encoded)))
+        (Left "observability Secret repeats a key in data and stringData")
+      let native = KM.insert "data" (Object (KM.union existing encoded)) (KM.delete "stringData" root)
+      pure (location, Object native)
+    normalizeSecret _ = Left "observability Secret is not an object"
+    isString (String _) = True
+    isString _ = False
 
 resolveDirectory :: FilePath -> Text -> IO FilePath
 resolveDirectory root context = do

@@ -154,6 +154,7 @@ supportedUpdateAddress (Kubernetes _ group kind _ _) =
     [ ("", "namespace")
     , ("", "configmap")
     , ("", "service")
+    , ("", "secret")
     , ("", "persistentvolumeclaim")
     , ("apps", "deployment")
     , ("apps", "statefulset")

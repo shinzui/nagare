@@ -717,6 +717,48 @@ inventoryKubernetesTests =
               adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
               _ <- adapterVerify changed updateOperation updated >>= expectRight
               pure ()) `finally` cleanup
+    , testCase "disposable cluster conditionally updates a reviewed Secret" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let secret payload = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("Secret" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-secret" :: Text),
+                      "namespace" .= ("default" :: Text)]
+                  , "type" .= ("Opaque" :: Text)
+                  , "data" .= object ["value" .= (payload :: Text)]
+                  ]
+                mkBound payload = let value = secret payload
+                                      bytes = ok (canonicalValue value)
+                                   in Map.singleton resource (ok (bindKubernetesObject
+                                        (input {inputObject = value, objectDigest = contentDigest bytes,
+                                          inputSensitivity = Secret})))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter payload = let bound = mkBound payload in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
+                    "delete", "secret", "nagare-ep147-secret", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              let initial = adapter "aGVsbG8="
+                  changed = adapter "d29ybGQ="
+              created <- adapterPrepare initial createOperation >>= expectRight
+              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify initial createOperation created >>= expectRight
+              updated <- adapterPrepare changed updateOperation >>= expectRight
+              adapterPreflight changed updateOperation updated >>= expectRight
+              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changed updateOperation updated >>= expectRight
+              (readCode, live, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "secret", "nagare-ep147-secret",
+                 "--namespace", "default", "-o", "jsonpath={.data.value}"] ""
+              readCode @?= ExitSuccess
+              live @?= "d29ybGQ=") `finally` cleanup
     , testCase "disposable cluster creates a database credential and reviewed backup CronJob" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
