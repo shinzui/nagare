@@ -22,7 +22,11 @@ config_file=${2:?missing curl config}
 output_file="$(awk -F'"' '$1 == "output = " { print $2 }' "$config_file")"
 case "${FAKE_CURL_MODE:-success}" in
   success)
-    printf '%s\n' '{"token":"test-installation-token","expires_at":"2026-08-25T23:59:59Z"}' > "$output_file"
+    printf '{"token":"test-installation-token","expires_at":"%s"}\n' "$FAKE_EXPIRY" > "$output_file"
+    printf '%s' 201
+    ;;
+  expired)
+    printf '%s\n' '{"token":"expired-installation-token","expires_at":"2026-08-25T23:59:59Z"}' > "$output_file"
     printf '%s' 201
     ;;
   malformed)
@@ -44,14 +48,21 @@ printf '#!%s\n' "$(command -v bash)" > "$fake_bin/k3s"
 cat >> "$fake_bin/k3s" <<'FAKE_K3S'
 set -euo pipefail
 case " $* " in
+  *" get secret nagare-forge-read "*)
+    case "${FAKE_SECRET_OWNER:-absent}" in
+      absent) ;;
+      host) printf '%s\n' '{"metadata":{"resourceVersion":"42","annotations":{"nagare.dev/delegated-owner":"host-forge-timer"}}}' ;;
+      foreign) printf '%s\n' '{"metadata":{"annotations":{"nagare.dev/delegated-owner":"another-owner"}}}' ;;
+    esac
+    ;;
   *" create secret generic nagare-forge-read "*)
     arguments=" $* "
     [[ "$arguments" == *" --from-file=token=$RUNTIME_DIRECTORY/token "* ]] || exit 3
     [[ "$arguments" == *" --from-file=GITHUB_TOKEN=$RUNTIME_DIRECTORY/GITHUB_TOKEN "* ]] || exit 3
     [[ "$arguments" == *" --from-file=expires_at=$RUNTIME_DIRECTORY/expires_at "* ]] || exit 3
-    printf '%s\n' 'apiVersion: v1' 'kind: Secret' 'metadata:' '  name: nagare-forge-read'
+    printf '%s\n' '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"nagare-forge-read"}}'
     ;;
-  *" apply -f - "*)
+  *" create -f - "*|*" replace -f - "*)
     tee "$TEST_APPLY_LOG" >/dev/null
     ;;
   *)
@@ -63,7 +74,9 @@ chmod +x "$fake_bin/curl" "$fake_bin/k3s"
 
 export PATH="$fake_bin:$PATH"
 export RUNTIME_DIRECTORY="$runtime_dir"
-export TEST_APPLY_LOG="$test_root/applied.yaml"
+export TEST_APPLY_LOG="$test_root/applied.json"
+export FAKE_EXPIRY="$(date -u -d '+1 hour' '+%Y-%m-%dT%H:%M:%SZ')"
+source_version="$(printf '%064d' 0)"
 
 run_refresh() {
   bash "$refresh_script" \
@@ -72,15 +85,21 @@ run_refresh() {
     "$test_root/installation-id" \
     "$test_root/private-key.pem" \
     nagare-forge-read \
-    personal
+    personal \
+    "$source_version"
 }
 
 export FAKE_CURL_MODE=success
 run_refresh
 cmp "$runtime_dir/token" "$runtime_dir/GITHUB_TOKEN"
 grep -qx 'test-installation-token' "$runtime_dir/token"
-grep -qx '2026-08-25T23:59:59Z' "$runtime_dir/expires_at"
-grep -q 'name: nagare-forge-read' "$TEST_APPLY_LOG"
+grep -qx "$FAKE_EXPIRY" "$runtime_dir/expires_at"
+jq -e --arg version "$source_version" --arg expiry "$FAKE_EXPIRY" '
+  .metadata.name == "nagare-forge-read"
+  and .metadata.annotations["nagare.dev/delegated-owner"] == "host-forge-timer"
+  and .metadata.annotations["nagare.dev/credential-source-version"] == $version
+  and .metadata.annotations["nagare.dev/credential-expires-at"] == $expiry
+' "$TEST_APPLY_LOG" >/dev/null
 
 printf '%s\n' old-token > "$runtime_dir/token"
 printf '%s\n' old-token > "$runtime_dir/GITHUB_TOKEN"
@@ -104,5 +123,26 @@ fi
 grep -qx old-token "$runtime_dir/token"
 grep -qx 2026-08-25T23:00:00Z "$runtime_dir/expires_at"
 test ! -e "$TEST_APPLY_LOG"
+
+export FAKE_CURL_MODE=expired
+if run_refresh >/dev/null 2>&1; then
+  printf '%s\n' 'expired GitHub token unexpectedly published' >&2
+  exit 1
+fi
+grep -qx old-token "$runtime_dir/token"
+test ! -e "$TEST_APPLY_LOG"
+
+export FAKE_CURL_MODE=success
+export FAKE_SECRET_OWNER=foreign
+if run_refresh >/dev/null 2>&1; then
+  printf '%s\n' 'foreign Kubernetes Secret unexpectedly replaced' >&2
+  exit 1
+fi
+test ! -e "$TEST_APPLY_LOG"
+
+export FAKE_SECRET_OWNER=host
+run_refresh
+test -e "$TEST_APPLY_LOG"
+jq -e '.metadata.resourceVersion == "42"' "$TEST_APPLY_LOG" >/dev/null
 
 printf '%s\n' 'forge credential refresh tests passed'

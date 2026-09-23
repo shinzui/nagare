@@ -147,6 +147,13 @@ backed up separately as described in [Secrets](secrets.md).
 Review the selected context and apply its host configuration using your normal
 Nagare host workflow. For a context selected in the current shell:
 
+Before the first host switch with the guarded refresher, inspect any existing
+`nagare-forge-read` and `nagare-forge-write` Secrets. An existing Secret without
+`nagare.dev/delegated-owner=host-forge-timer` is refused. If you have verified
+that the old host timer created it, explicitly annotate that Secret before the
+switch; do not annotate a Secret whose source is unknown. The timer uses the
+Secret's resource version for each later update and refuses concurrent changes.
+
 ```bash
 just context-show
 just host-switch
@@ -161,11 +168,14 @@ host name when they differ:
 ssh nagare-01 'sudo systemctl start nagare-forge-read-refresh.service'
 kubectl -n personal get secret nagare-forge-read
 kubectl -n personal get secret nagare-forge-read -o jsonpath='{.data.expires_at}' | base64 -d
+kubectl -n personal get secret nagare-forge-read -o jsonpath='{.metadata.annotations.nagare\.dev/credential-expires-at}'
 ```
 
 The Secret contains exactly `token`, `GITHUB_TOKEN`, and `expires_at`. The two
 token keys contain identical bytes. A successful run replaces the named Secret
-without restarting consumers. The matching timer starts again thirty minutes
+without restarting consumers. The `credential-source-version` annotation is
+the SHA-256 of the host refresher script, and `credential-expires-at` records
+the token's actual expiry. The matching timer starts again thirty minutes
 after its last activation, with up to two minutes of jitter.
 
 To inspect failures without exposing credentials:

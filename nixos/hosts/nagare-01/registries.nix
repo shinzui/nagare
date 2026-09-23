@@ -7,6 +7,7 @@ let
   # nagare-system, while user workloads run in personal.  Keep both default
   # ServiceAccounts wired to the short-lived Artifact Registry pull Secret.
   imagePullNamespaces = [ "personal" "nagare-system" ];
+  registrySourceVersion = builtins.hashFile "sha256" ./registries.nix;
 
   # Refresh script: mint a fresh OAuth access token for the node service account
   # from the GCE metadata server and write k3s's per-registry credential file.
@@ -42,13 +43,17 @@ let
   pullSecretScript = pkgs.writeShellScript "nagare-registry-pull-secret" ''
     set -euo pipefail
 
-    TOKEN="$(${pkgs.curl}/bin/curl -sf -H 'Metadata-Flavor: Google' \
-      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
-      | ${pkgs.jq}/bin/jq -r .access_token)"
-    if [ -z "''${TOKEN}" ] || [ "''${TOKEN}" = "null" ]; then
-      echo "nagare-registry-pull-secret: failed to mint a metadata access token" >&2
+    METADATA="$(${pkgs.curl}/bin/curl -sf -H 'Metadata-Flavor: Google' \
+      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token'
+    )"
+    if ! TOKEN="$(printf '%s' "$METADATA" | ${pkgs.jq}/bin/jq -er \
+      '.access_token | select(type == "string" and length > 0)')" \
+      || ! LIFETIME="$(printf '%s' "$METADATA" | ${pkgs.jq}/bin/jq -er \
+        '.expires_in | select(type == "number" and . > 300 and . <= 86400)')"; then
+      echo "nagare-registry-pull-secret: invalid or short-lived metadata access token" >&2
       exit 1
     fi
+    EXPIRES_AT="$(date -u -d "@$(( $(date +%s) + LIFETIME ))" +%Y-%m-%dT%H:%M:%SZ)"
 
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     kubectl() {
@@ -78,17 +83,59 @@ let
         continue
       fi
 
+      if ! EXISTING_SECRET="$(kubectl -n "$ns" get secret nagare-registry-pull --ignore-not-found -o json)"; then
+        fail_or_retry "failed to inspect pull Secret in $ns"
+      fi
+      if [ -n "$EXISTING_SECRET" ] && ! printf '%s' "$EXISTING_SECRET" \
+        | ${pkgs.jq}/bin/jq -e '.metadata.annotations["nagare.dev/delegated-owner"] == "host-registry-timer"' >/dev/null; then
+        fail_or_retry "pull Secret in $ns is not owned by the host registry timer"
+      fi
+      WRITE_ACTION=create
+      RESOURCE_VERSION=""
+      if [ -n "$EXISTING_SECRET" ]; then
+        WRITE_ACTION=replace
+        if ! RESOURCE_VERSION="$(printf '%s' "$EXISTING_SECRET" | ${pkgs.jq}/bin/jq -er \
+          '.metadata.resourceVersion | select(type == "string" and length > 0)')"; then
+          fail_or_retry "pull Secret in $ns has no resource version"
+        fi
+      fi
+      if ! EXISTING_ACCOUNT="$(kubectl -n "$ns" get serviceaccount default -o json)"; then
+        fail_or_retry "failed to inspect default ServiceAccount in $ns"
+      fi
+      if ! printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -e '
+        ((.imagePullSecrets // []) | all(.name == "nagare-registry-pull"))
+        and ((.metadata.annotations["nagare.dev/delegated-owner"] // "host-registry-timer") == "host-registry-timer")
+      ' >/dev/null; then
+        fail_or_retry "default ServiceAccount in $ns has a conflicting pull reference or owner"
+      fi
+      if ! ACCOUNT_VERSION="$(printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -er \
+        '.metadata.resourceVersion | select(type == "string" and length > 0)')"; then
+        fail_or_retry "default ServiceAccount in $ns has no resource version"
+      fi
+
       if ! kubectl -n "$ns" create secret docker-registry nagare-registry-pull \
         --docker-server="${registryHost}" \
         --docker-username=oauth2accesstoken \
         --docker-password="$TOKEN" \
-        --dry-run=client -o yaml \
-        | kubectl -n "$ns" apply -f -; then
-        fail_or_retry "failed to apply pull Secret in $ns"
+        --dry-run=client -o json \
+        | ${pkgs.jq}/bin/jq --arg version "${registrySourceVersion}" --arg expiry "$EXPIRES_AT" --arg rv "$RESOURCE_VERSION" \
+          '(if $rv == "" then del(.metadata.resourceVersion) else .metadata.resourceVersion = $rv end)
+          | .metadata.annotations = ((.metadata.annotations // {}) + {
+            "nagare.dev/delegated-owner": "host-registry-timer",
+            "nagare.dev/credential-source-version": $version,
+            "nagare.dev/credential-expires-at": $expiry
+          })' \
+        | kubectl -n "$ns" "$WRITE_ACTION" -f -; then
+        fail_or_retry "failed to write pull Secret in $ns"
       fi
 
+      PATCH="$(${pkgs.jq}/bin/jq -cn --arg version "${registrySourceVersion}" --arg rv "$ACCOUNT_VERSION" \
+        '{metadata:{resourceVersion:$rv,annotations:{
+          "nagare.dev/delegated-owner":"host-registry-timer",
+          "nagare.dev/credential-source-version":$version
+        }},imagePullSecrets:[{name:"nagare-registry-pull"}]}')"
       if ! kubectl -n "$ns" patch serviceaccount default \
-        -p '{"imagePullSecrets":[{"name":"nagare-registry-pull"}]}'; then
+        --type=merge -p "$PATCH"; then
         fail_or_retry "failed to patch the default ServiceAccount in $ns"
       fi
     done

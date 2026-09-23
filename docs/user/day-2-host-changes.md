@@ -34,6 +34,16 @@ GCE resource, and an upgrade transaction ignores ambient values for both.
 
 ## Apply a change
 
+Before the first switch to the guarded registry refresher, inspect
+`nagare-registry-pull` in `personal` and `nagare-system`. Existing unmarked
+Secrets are refused so the host timer cannot adopt another owner's credential.
+If you have verified each Secret came from the previous Nagare host timer,
+explicitly add `nagare.dev/delegated-owner=host-registry-timer` to it before the
+switch. The timer thereafter checks ownership and resource version, records its
+source SHA-256 and token expiry on the Secret, and updates only those two
+namespaces. It patches only `default` ServiceAccount's registry pull reference;
+other pull references or a conflicting owner annotation cause refusal.
+
 Regenerate operator inputs with `nagarectl host init --force`, or edit the relevant reusable module
 under `nixos/` when contributing platform behavior, then:
 

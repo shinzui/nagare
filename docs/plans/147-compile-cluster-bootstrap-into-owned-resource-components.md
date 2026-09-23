@@ -175,12 +175,13 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M1b/M3 partial: The Kubernetes adapter now accepts digest-bound direct Namespaces and the closed, generated contribution Namespace shape. A disposable cluster creates a reviewed Namespace and changes its reviewed label with a guarded update, then deletes the fixture; all five disposable Kubernetes tests pass.
 - [x] (2026-09-22) M3 partial: Pin the five existing cert-manager, Knative Serving, Kourier, and net-certmanager release YAML assets in the payload with SHA-256 checks. Cloud/local legacy recipes now apply those packaged files instead of fetching URLs during mutation. A compiler expands and binds their native members, accepts Kubernetes RBAC names with colons without loosening scope names, ignores only a trailing empty YAML document, collapses byte-identical Serving CRDs, and explicitly transfers `config-certmanager` from Serving to net-certmanager ownership. The compiled scopes compose with no direct claim collision, and bootstrap adds cross-component Namespace ordering. Installer readiness and vendor-digest tests pass; Helm, readiness, shared ConfigMap policy, and production command replacement remain open.
 - [x] (2026-09-23) M4 partial: `just nix-cache-publish` now enters the same reviewed full-bootstrap path as the other public bootstrap recipes. The Attic low-level publisher refuses a missing artifact-child marker and requires the reviewed destination, OCI digest, and archive digest on every call. The transport guard test passes; remaining non-bootstrap direct entry points are tracked in the coverage audit.
-- [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
+- [x] (2026-09-23) M2c: The complete database and cache bundles drive reviewed bootstrap execution; the cache installer and bootstrap recipes no longer call direct database creation. Standalone `db create` and application database calls remain an explicitly separate EP-148 migration, as recorded in the coverage audit.
 - [x] (2026-09-23) M2c partial: The remaining direct `db create` entry point now refuses before loading configuration or making a cluster call when invoked inside an inventory transaction. The full nagarectl suite passes (732 tests). Standalone `db create` and application deploy still call its direct mutation path, so replacement with reviewed inventory remains open.
 - [x] (2026-09-23) M2c coverage audit: `docs/architecture/managed-resource-coverage.md` now names standalone and application database creation as an active legacy mutation family, its available typed compiler, and the two callers that must migrate.
-- [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
+- [x] (2026-09-23) M3: Cloud/local bootstrap scopes, foundation Namespace and certificate policy, auth backend and Shomei owner contributions, and bounded host credential refresh authority are compiled or declared at their owning boundary. Application registration of additional namespaces and routes consumes these grants in EP-148.
 - [x] (2026-09-23) M3 partial: The auth owner now derives a typed Shomei settings ConfigMap from the same validated portal contribution that composes the backend map. Both cloud and local Shomei Deployments consume its reviewed keys, wait for the ConfigMap, and retain one fallback origin before any portal exists. Source binding, review reconstruction, and adapter preparation reject changed native bytes; 443 DSL and 733 CLI tests pass. Namespace certificate policy and host timer delegation still need an audit.
 - [x] (2026-09-23) M3 partial: Both owner-composed auth ConfigMaps now depend on the foundation `nagare-system` Namespace when that declaration is present. A full bootstrap composition fixture asserts both edges; 43 focused DSL and 18 focused CLI tests pass. Host timer delegation remains open.
+- [x] (2026-09-23) M3 host delegation: Registry refresh is confined to `personal` and `nagare-system` pull Secrets and default ServiceAccount references; forge refresh is confined to read/write Secrets in its configured namespace. Both stamp source SHA-256 and token expiry, reject short-lived tokens and foreign or unmarked Secrets, and use resource-version guarded replacement. The registry ServiceAccount patch rejects conflicting pull references or owner and includes the observed resource version. The forge regression and generated registry shell syntax pass; a disposable k3d fixture proves stale Secret replacement and stale ServiceAccount merge patch both refuse. Existing unmarked host-created Secrets require explicit operator verification and annotation before host activation.
 - [x] (2026-09-23) M4: Supported bootstrap recipes and installer entry points use reviewed inventory plan/apply; the standalone stamp command refuses. A disposable 17-scope/208-operation local bootstrap converged through readiness pauses, and an accepted replay verified 205 resources with zero updates. Stale resourceVersion, foreign owner, and replaced UID paths refuse. Non-bootstrap application/data and legacy upgrade paths remain assigned to EP-148/EP-149/EP-150.
 - [x] (2026-09-23) M4 documentation: En, Shomei, nagare-access, and local-auth guides now describe the reviewed bootstrap path and its immutable image inputs instead of directing operators to create databases and apply manifests outside inventory. The pre-0.2 Shomei note requires separate recovery review for retained data.
 - [x] (2026-09-23) M4 documentation: cert-manager, Serving, Kourier, and net-certmanager guides now describe packaged release digests and the reviewed bootstrap command instead of fetching mutable URLs and applying manifests directly.
@@ -261,6 +262,10 @@ A component is an independently identified group of resources and operations, su
 
 ## Decision Log
 
+2026-09-23: M2's alternate create path is the bootstrap/cache installer path replaced by the reviewed component route. Standalone `db create` and application deployment are separate scope owners assigned to EP-148, whose plan explicitly consumes EP-147's database builder. Keep their legacy coverage row visible until those commands migrate; a transaction re-entry guard alone is not migration.
+
+2026-09-23: Keep host-issued registry and forge credentials under their NixOS timers. Restrict the named Secrets and default ServiceAccount pull reference to the timer's declared namespaces, stamp source version and token expiry, refuse unmarked/foreign Secrets, and use Kubernetes resource versions for replacement. Existing host-created unmarked Secrets require explicit operator provenance review and annotation before activation. No inventory declaration may adopt or retire these timer-owned values.
+
 2026-09-23: Derive Shomei settings from the auth owner's `ShomeiSettingsGrant` and validated portal backend contribution. Render them into one owner-composed ConfigMap, and make both cloud and local Shomei Deployments read its exact reviewed keys. This keeps application scopes from patching the Deployment and makes portal changes participate in the same contribution-vector admission as the backend map.
 
 2026-09-23: Treat source locations as provenance, outside resource equality. An installed payload checkout path can change while a resource's native specification remains byte-identical. Helm contracts use `payload:` paths relative to the packaged observability directory; the runtime resolves those paths from the selected payload and rechecks chart/values digests before mutation. The first transition from absolute-path Helm contracts required one reviewed upgrade; later source checkouts produced no resource updates.
@@ -296,7 +301,9 @@ A component is an independently identified group of resources and operations, su
 
 ## Outcomes & Retrospective
 
-Not implemented. Record rendered-resource parity, secret handling, and resume evidence at completion.
+The supported bootstrap recipes now publish a retained review and execute typed Kubernetes, Helm, cache, artifact, auth, and local object-store components. A disposable 17-scope local bootstrap converged through readiness pauses, and accepted replay required no resource updates. The database and cache bundles retain credential and migration identity; private native bytes and generated secrets stay outside public review. The equal-address Service collision, changed input, foreign owner, stale resource version, and replaced UID refuse. Full DSL (443) and CLI (733) suites and the three listed shell acceptance checks pass on 2026-09-23.
+
+The remaining direct standalone `db create` and application-deploy database calls belong to [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md), which explicitly consumes this plan's builder. They are visible as `legacy` in the managed-resource coverage audit; this plan does not claim those command paths are inventory managed. EP-149 owns reviewed adoption/retirement, and EP-150 owns integrated cloud rehearsal. Existing unmarked host Secrets need explicit operator ownership verification before the guarded host timers can refresh them.
 
 
 ## Context and Orientation
@@ -379,7 +386,7 @@ Existing certificate migration evidence, context confinement, readiness ordering
 
 ## Idempotence and Recovery
 
-Component reruns consume identical reviewed inputs and reconcile through recorded identities. Unknown effects stop for adapter-specific recovery. No generic rollback undoes schema changes. Existing unowned installations remain inspectable but require EP-149 adoption before this protocol manages them. Do not remove old scripts until their replacement preserves the safety tests; keep one supported mutation path at completion.
+Component reruns consume identical reviewed inputs and reconcile through recorded identities. Unknown effects stop for adapter-specific recovery. No generic rollback undoes schema changes. Existing unowned installations remain inspectable but require EP-149 adoption before this protocol manages them. Do not remove old scripts until their replacement preserves the safety tests; keep one supported bootstrap mutation path at completion.
 
 
 ## Interfaces and Dependencies
@@ -404,6 +411,8 @@ ResourceBundle, ScopeDeclaration, and the DeclaredOperation values inside a bund
 
 
 ## Revision Notes
+
+2026-09-23: Closed M2's bootstrap execution boundary and M3's host timer delegation after the complete local transaction and accepted replay, owner-composed auth settings, and guarded credential refresh evidence. Clarified that EP-148 owns standalone/application database command migration and recorded the operational preflight for preexisting unmarked Secrets.
 
 2026-09-23: Added owner-composed Shomei settings beside the existing backend map and bound their canonical ConfigMap bytes through plan, review reconstruction, and adapter preparation. The portal host now determines WebAuthn origins and public URL under the auth owner's grant; the remaining M3 namespace and delegated credential audit is explicit.
 

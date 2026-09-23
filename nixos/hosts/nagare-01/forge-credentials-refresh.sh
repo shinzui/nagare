@@ -9,7 +9,13 @@ installation_id_file=${3:?missing installation ID path}
 private_key_file=${4:?missing private-key path}
 kubernetes_secret=${5:?missing Kubernetes Secret name}
 namespace=${6:?missing Kubernetes namespace}
+source_version=${7:?missing host credential source version}
 runtime_dir="${RUNTIME_DIRECTORY:?systemd did not provide RUNTIME_DIRECTORY}"
+
+[[ "$source_version" =~ ^[0-9a-f]{64}$ ]] || {
+  printf '%s\n' 'invalid host credential source version' >&2
+  exit 1
+}
 
 jwt_file="$runtime_dir/github-app.jwt"
 curl_config="$runtime_dir/github-api.curlrc"
@@ -93,17 +99,44 @@ if ! jq -er \
   rm -f -- "$next_token" "$next_expiry"
   fail "GitHub returned a malformed installation-token expiry"
 fi
+next_expiry_epoch="$(date -u -d "$(< "$next_expiry")" +%s)" \
+  || fail "GitHub returned an unreadable installation-token expiry"
+if [ "$next_expiry_epoch" -le "$((now + 300))" ]; then
+  rm -f -- "$next_token" "$next_expiry"
+  fail "GitHub returned an installation token with less than five minutes remaining"
+fi
 
 mv -f -- "$next_token" "$token_file"
 cp -- "$token_file" "$github_token_file"
 mv -f -- "$next_expiry" "$expiry_file"
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+if ! existing_secret="$(k3s kubectl -n "$namespace" get secret "$kubernetes_secret" --ignore-not-found -o json)"; then
+  fail "could not inspect the Kubernetes Secret before refresh"
+fi
+if [ -n "$existing_secret" ] && ! printf '%s' "$existing_secret" \
+  | jq -e '.metadata.annotations["nagare.dev/delegated-owner"] == "host-forge-timer"' >/dev/null; then
+  fail "Kubernetes Secret is not owned by the host forge timer"
+fi
+write_action=create
+resource_version=""
+if [ -n "$existing_secret" ]; then
+  write_action=replace
+  resource_version="$(printf '%s' "$existing_secret" | jq -er '.metadata.resourceVersion | select(type == "string" and length > 0)')" \
+    || fail "Kubernetes Secret has no resource version"
+fi
 if ! k3s kubectl -n "$namespace" create secret generic "$kubernetes_secret" \
   --from-file="token=$token_file" \
   --from-file="GITHUB_TOKEN=$github_token_file" \
   --from-file="expires_at=$expiry_file" \
-  --dry-run=client -o yaml \
-  | k3s kubectl -n "$namespace" apply -f -; then
+  --dry-run=client -o json \
+  | jq --arg version "$source_version" --arg expiry "$(< "$expiry_file")" --arg rv "$resource_version" \
+      '(if $rv == "" then del(.metadata.resourceVersion) else .metadata.resourceVersion = $rv end)
+      | .metadata.annotations = ((.metadata.annotations // {}) + {
+        "nagare.dev/delegated-owner": "host-forge-timer",
+        "nagare.dev/credential-source-version": $version,
+        "nagare.dev/credential-expires-at": $expiry
+      })' \
+  | k3s kubectl -n "$namespace" "$write_action" -f -; then
   fail "could not publish the Kubernetes Secret"
 fi

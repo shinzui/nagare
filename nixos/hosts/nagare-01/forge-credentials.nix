@@ -20,6 +20,7 @@ let
     ];
     text = builtins.readFile ./forge-credentials-refresh.sh;
   };
+  sourceVersion = builtins.hashFile "sha256" ./forge-credentials-refresh.sh;
 
   mkService = role: {
     description = "Refresh the ${role} GitHub App installation token in Kubernetes";
@@ -35,6 +36,7 @@ let
         config.sops.secrets.${secretPath role "private-key"}.path
         (kubernetesSecretName role)
         cfg.namespace
+        sourceVersion
       ];
       RuntimeDirectory = unitName role;
       RuntimeDirectoryMode = "0700";
