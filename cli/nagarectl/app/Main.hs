@@ -669,6 +669,7 @@ data Command
   | InventoryPlan FilePath FilePath
   | InventoryAdopt FilePath FilePath
   | InventoryRetire String FilePath
+  | InventoryGc FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryExport FilePath
@@ -1863,6 +1864,9 @@ opts =
                   "retire"
                   (info (InventoryRetire <$> strOption (long "scope" <> metavar "KIND:NAME") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review retention of an accepted scope without deleting its resources"))
                 <> command
+                  "gc"
+                  (info (InventoryGc <$> (flag' () (long "plan" <> help "Write a read-only collection assessment") *> strOption (long "out" <> metavar "DIRECTORY")) <**> helper) (progDesc "Screen retained resources for later collection review"))
+                <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
                 <> command
@@ -2749,11 +2753,12 @@ main = do
     InventoryPlan input output -> runInventoryPlan mctx input output
     InventoryAdopt input output -> runInventoryAdopt mctx input output
     InventoryRetire owner output -> runInventoryRetire mctx owner output
+    InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
-    InventoryStatus json -> runInventoryStatus mctx Nothing json
-    InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json
+    InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
+    InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
     InventoryStoreStatus json -> runInventoryStoreStatus mctx json
     InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes
 
@@ -4324,8 +4329,8 @@ readBootstrapKubeVersion active = do
       _ -> dieT "Kubernetes version response has no serverVersion"
     _ -> dieT "Kubernetes version response is not an object"
 
-runInventoryStatus :: Maybe String -> Maybe String -> Bool -> IO ()
-runInventoryStatus mctx requested json = do
+runInventoryStatus :: Maybe String -> Maybe String -> Bool -> Maybe FilePath -> IO ()
+runInventoryStatus mctx requested json gcOutput = do
   active <- activeTarget mctx
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
@@ -4422,6 +4427,22 @@ runInventoryStatus mctx requested json = do
         [Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
         | (scope, revision) <- Map.toAscList values]
   observedAt <- currentTimestamp
+  case gcOutput of
+    Nothing -> pure ()
+    Just output -> do
+      exists <- doesPathExist output
+      when exists (dieT "collection plan output already exists")
+      let assessments = InventoryStatus.assessCollections history inventory observations
+          report = Aeson.object
+            [ "version" Aeson..= (1 :: Int)
+            , "context" Aeson..= binding
+            , "observedAt" Aeson..= observedAt
+            , "deletionAuthorized" Aeson..= False
+            , "assessments" Aeson..= assessments
+            ]
+      createDirectoryIfMissing True output
+      LBS.writeFile (output </> "collection-plan.json") (Aeson.encode report)
+      TIO.putStrLn ("Wrote read-only collection assessment: " <> T.pack (output </> "collection-plan.json"))
   let baseFields =
         [ "context" Aeson..= ResourceInventory.inventoryBinding inventory
         , "observedAt" Aeson..= observedAt
@@ -4436,15 +4457,16 @@ runInventoryStatus mctx requested json = do
         , "providers" Aeson..= providers
         , "retained" Aeson..= retainedFindings
         ]
-  case requested of
-    Nothing -> do
+  case (gcOutput, requested) of
+    (Just _, _) -> pure ()
+    (Nothing, Nothing) -> do
       let report = Aeson.object (baseFields <>
             ["observationComplete" Aeson..= null unavailable, "findings" Aeson..= findings])
       if json then LBC.putStrLn (Aeson.encode report)
         else TIO.putStrLn ("Inventory status: " <> T.pack (show (length findings))
           <> " resources; retained: " <> T.pack (show (length retainedFindings))
           <> "; unavailable providers: " <> T.pack (show unavailable))
-    Just raw -> do
+    (Nothing, Just raw) -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
       (explanation, summary) <- case Map.lookup resourceId byId of
         Just resource -> do

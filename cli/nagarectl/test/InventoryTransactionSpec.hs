@@ -194,6 +194,13 @@ inventoryTransactionTests =
         map InventoryStatus.traceResource
           (InventoryStatus.traceRetainedDependencies retainedHistory emptyInventory dependentId)
           @?= [resourceId]
+        let collection = InventoryStatus.assessCollections retainedHistory emptyInventory observed
+        case [entry | entry <- collection, InventoryStatus.collectionResource entry == resourceId] of
+          [entry] -> do
+            InventoryStatus.collectionCandidate entry @?= False
+            assertBool "retained dependent is a collection blocker"
+              ("dependent-consumers" `elem` InventoryStatus.collectionReasons entry)
+          _ -> assertFailure "retained resource lacks a collection assessment"
         let competing = member otherOwner cluster "legacy"
             competingScope = ok (mkScopeDeclaration otherOwner
               [ResourceBundle [competing] [] [] [] [] []])

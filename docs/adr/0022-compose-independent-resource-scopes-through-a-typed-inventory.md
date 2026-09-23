@@ -333,3 +333,5 @@ Collection still requires separate reviewed deletion authority, dependency and
 recovery evidence, exact live identity, and a durable tombstone. Executors whose
 retention observation contract has not been proved cannot retire through this
 route.
+The read-only collection assessment may identify candidates and blockers, but
+its output is not a deletion review or a tombstone.

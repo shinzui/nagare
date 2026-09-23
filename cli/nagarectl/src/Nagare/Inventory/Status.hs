@@ -7,11 +7,13 @@ module Nagare.Inventory.Status
   , OperationStatus (..)
   , DependencyTrace (..)
   , RetainedFinding (..)
+  , CollectionAssessment (..)
   , classifyDrift
   , traceDependencies
   , traceRetainedDependencies
   , consumersOf
   , retainedFindings
+  , assessCollections
   , loadAcceptedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -22,6 +24,7 @@ import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -172,6 +175,44 @@ instance ToJSON RetainedFinding where
     , "category" .= ("retained-orphan" :: Text)
     , "observation" .= retainedObservation finding
     , "observedPhysical" .= retainedObservedIdentity finding
+    ]
+
+-- | Read-only screening for a later collection review. A candidate has no
+-- deletion authority; the collection executor and tombstone protocol remain
+-- separate from this report.
+data CollectionAssessment = CollectionAssessment
+  { collectionResource :: !ResourceId
+  , collectionCandidate :: !Bool
+  , collectionReasons :: ![Text]
+  , collectionConsumers :: ![ResourceId]
+  , collectionObservation :: !Text
+  }
+  deriving stock (Eq, Show)
+
+assessCollections :: InventoryHistory -> ValidatedInventory -> ObservationSet -> [CollectionAssessment]
+assessCollections history inventory observations =
+  [ assessment finding | finding <- retainedFindings history observations ]
+  where
+    assessment finding =
+      let resource = retainedResource finding
+          consumers = consumersOf history inventory resource
+          reasons =
+            ["retention-policy" | retainedLifecycle finding /= DeleteWhenUnreferenced]
+              <> ["durable-recovery-evidence" | retainedDataPolicy finding /= Stateless]
+              <> ["dependent-consumers" | not (null consumers)]
+              <> ["exact-incarnation-not-present" | retainedObservation finding /= "present"]
+              <> ["active-transaction" | isJust (headActiveTransaction (historyHead history))]
+       in CollectionAssessment resource (null reasons) reasons consumers
+            (retainedObservation finding)
+
+instance ToJSON CollectionAssessment where
+  toJSON assessment = object
+    [ "resource" .= collectionResource assessment
+    , "candidate" .= collectionCandidate assessment
+    , "reasons" .= collectionReasons assessment
+    , "consumers" .= collectionConsumers assessment
+    , "observation" .= collectionObservation assessment
+    , "deletionAuthorized" .= False
     ]
 
 -- | Read the committed journal without taking the writer lock. The caller

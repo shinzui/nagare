@@ -69,3 +69,10 @@ retention policy, dependent consumers, exact live identity, recovery evidence,
 and a durable tombstone. Migration also refuses until a reviewed prepare, seed,
 verify, switch, write-admission, and recovery graph is available. Durable data
 requires backup and recovery evidence before either action can discard it.
+
+`nagarectl inventory gc --plan --out DIRECTORY` writes a read-only
+`collection-plan.json`. Each retained resource has a candidate flag and reasons
+for any current refusal, including retention policy, durable recovery evidence,
+dependent consumers, an unverified physical identity, or an active transaction.
+The report records `deletionAuthorized: false`; a candidate still needs the
+separate reviewed collection transaction before any object can be deleted.
