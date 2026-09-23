@@ -263,6 +263,7 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["database", r, n] -> DatabaseName <$> resource r <*> name n
   ["route", r, n] -> BackendRoute <$> resource r <*> name n
   ["attic-cache", r, n] -> AtticCache <$> resource r <*> name n
+  ["helm", r, namespace, n] -> Helm <$> resource r <*> name namespace <*> name n
   _ -> fail "unsupported canonical claim"
   where
     name = check . mkName

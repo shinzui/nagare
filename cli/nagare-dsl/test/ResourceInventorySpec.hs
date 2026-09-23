@@ -14,6 +14,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.CacheKubernetes
+import Nagare.Resource.Helm
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -86,6 +87,18 @@ resourceInventoryTests =
         let result = compileScopes [scope p [service p "cache" "nix-cache"], scope a [service a "database" "nix-cache"]]
         rejects "claim-conflict" result
         case result of Left es -> assertBool "both owners" (any (\e -> all (`elem` (e ^. #scopes)) [p, a]) es); _ -> pure ()
+    , testCase "Helm release reserves each rendered object against another scope" $ do
+        let member = Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n "same")
+            release = ok (compileHelmRelease (HelmInput (rid p "helm") p cluster (n "nagare-system")
+              (n "metrics") (member :| []) digest [] (SourceLocation "chart" "metrics")))
+        rejects "claim-conflict" (compileScopes [scope p [Managed release], scope a [service a "db" "same"]])
+    , testCase "Helm release refuses duplicate rendered members" $ do
+        let member = Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n "same")
+            input = HelmInput (rid p "helm") p cluster (n "nagare-system") (n "metrics")
+              (member :| [member]) digest [] (SourceLocation "chart" "metrics")
+        case compileHelmRelease input of
+          Left err -> err ^. #code @?= "invalid-helm-release"
+          Right _ -> assertFailure "duplicate member was accepted"
     , testCase "Knative child Service conflicts with database Service" $ do
         let app = Managed (resource a "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "nagare-system")) (n "same")) (KnativeService digest))
         rejects "claim-conflict" (compileScopes [scope p [service p "db" "same"], scope a [app]])

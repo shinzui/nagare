@@ -55,7 +55,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
-data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor
+data Executor = KubernetesExecutor | PulumiExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | HelmExecutor
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
@@ -215,6 +215,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       Host {} -> r ^. #executor == HostExecutor
       Artifact {} -> r ^. #executor == ArtifactExecutor
       AtticCache {} -> r ^. #executor == CacheExecutor
+      Helm {} -> r ^. #executor == HelmExecutor
       _ -> True
     specMatches = case (r ^. #address, r ^. #spec) of
       (Kubernetes _ "serving.knative.dev" k (Just _) _, KnativeService _) -> nameText k == "service"
@@ -224,8 +225,10 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
+      (Helm {}, HelmRelease {}) -> True
+      (Helm {}, _) -> False
       (_, NativeObject _) -> True
-      (_, HelmRelease {}) -> True
+      (_, HelmRelease {}) -> False
       (Artifact _ _, ArtifactPublication {}) -> True
       _ -> False
 validateDeclaration d = [inventoryError "invalid-address" message & #resources .~ [declarationId d] & #sources .~ [declarationSource d] | address <- addresses, Left message <- [mkProviderAddress address]]

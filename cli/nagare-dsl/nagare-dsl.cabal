@@ -66,6 +66,7 @@ library
     Nagare.Resource.CacheClient
     Nagare.Resource.Inventory
     Nagare.Resource.Kubernetes
+    Nagare.Resource.Helm
     Nagare.Resource.Policy
     Nagare.Resource.Reference
     Nagare.Resource.Types
