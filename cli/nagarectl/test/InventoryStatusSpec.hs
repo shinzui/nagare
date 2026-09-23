@@ -5,7 +5,7 @@ import Data.Aeson (toJSON, object, (.=))
 import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Adapters.Kubernetes (supportsRetainedCollection)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Status

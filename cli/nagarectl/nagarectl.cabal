@@ -104,6 +104,7 @@ library
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.Cache
     Nagare.Inventory.Cloud
+    Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.ControllerImage

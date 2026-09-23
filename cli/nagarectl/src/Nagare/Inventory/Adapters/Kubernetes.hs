@@ -7,7 +7,6 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesMutation (..)
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
-  , supportsRetainedCollection
   , unstampNative
   )
 where
@@ -26,6 +25,7 @@ import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -147,18 +147,6 @@ singleSpec specs operation = do
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
     _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
-
--- | The exact kind and policy for which the native transport has a
--- server-enforced UID/resourceVersion DELETE. Keep read-only GC screening in
--- step with this execution boundary.
-supportsRetainedCollection :: ManagedResource -> Bool
-supportsRetainedCollection declaration =
-  declaration ^. #executor == KubernetesExecutor
-    && declaration ^. #lifecycle == DeleteWhenUnreferenced
-    && declaration ^. #dataPolicy == Stateless
-    && case declaration ^. #address of
-      Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
-      _ -> False
 
 validateBefore :: PlannedOperation -> ResourceId -> ContentDigest -> KubernetesState -> Either PrepareError ()
 validateBefore operation resource desiredDigest state =
