@@ -370,7 +370,11 @@ parseObserved config resource native response = do
       _ -> pure ()
     _ -> pure ()
   driftDigest <- if desiredMatches then Right desiredDigest else contentDigest <$> canonicalValue observed
-  pure (KubernetesPresent uid revision (if owner == Just resource then owner else Nothing) driftDigest)
+  -- Keep a different logical owner visible to status. A foreign context is
+  -- refused below rather than being misclassified as an unstamped object.
+  when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
+    (Left "Kubernetes object belongs to a different inventory context")
+  pure (KubernetesPresent uid revision owner driftDigest)
 
 jobCompleted :: Value -> Bool
 jobCompleted = hasCondition "Complete"
