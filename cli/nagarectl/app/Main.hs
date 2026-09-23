@@ -259,6 +259,8 @@ import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
+import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
+import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets, loadObservabilitySecretObjects, readAlertmanagerEnabled)
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
@@ -374,6 +376,7 @@ import Nagare.Platform.Workspace
   , renderWorkspaceError
   )
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Server.Deploy
@@ -4105,7 +4108,25 @@ runPlatformBootstrapPlan mctx output = do
     compileControllerImage root controllerRegistry >>= either (dieT . T.pack . show) pure
   upstream <- either dieT pure
     (bindNetCertManagerControllerImage cluster controllerImage controllerPublish rawUpstream)
-  (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner observabilityInputs
+  metricsInput <- case observabilityInputs of
+    firstRelease : _ | Resource.nameText (packagedName firstRelease) == "vmks" ->
+      pure firstRelease
+    _ -> dieT "pinned observability components have no metrics release"
+  alertmanagerEnabled <- readAlertmanagerEnabled
+    (packagedValues metricsInput) (packagedValuesDigest metricsInput) >>= either dieT pure
+  secretObjects <- loadObservabilitySecretObjects root
+    (contextNameText (active ^. #contextName)) alertmanagerEnabled >>= either dieT pure
+  (secretScope, secretNative, secretIds) <- compileObservabilitySecrets foundation secretObjects
+    >>= either (dieT . T.pack . show) pure
+  let orderedObservability = case observabilityInputs of
+        firstRelease : rest -> firstRelease
+          {packagedDependencies = map ResourceReference.OrderedAfter secretIds
+            <> packagedDependencies firstRelease} : rest
+        [] -> []
+  (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner orderedObservability
+    >>= either (dieT . T.pack . show) pure
+  let metricsRelease = packagedReleaseId metricsInput
+  (observabilityExtra, extraNative) <- compileObservabilityExtras root foundation metricsRelease
     >>= either (dieT . T.pack . show) pure
   cacheComponent <- if profile ^. #nixCacheEnabled
     then Just <$> (compilePackagedCache root foundation (profile ^. #project)
@@ -4144,11 +4165,11 @@ runPlatformBootstrapPlan mctx output = do
         Nothing -> ([], Map.empty)
         Just (imageScope, cacheScope, native) -> ([imageScope, cacheScope], native)
       localNative = maybe Map.empty snd localStore
-      nativeMaps = [baseNative, observabilityNative, cacheNative, localNative]
+      nativeMaps = [baseNative, observabilityNative, extraNative, secretNative, cacheNative, localNative]
       native = Map.unions nativeMaps
   unless (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
-  extra <- case observabilityScopes <> cacheScopes of
+  extra <- case observabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure

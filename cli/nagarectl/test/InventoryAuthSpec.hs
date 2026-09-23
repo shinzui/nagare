@@ -1,12 +1,13 @@
 module InventoryAuthSpec (inventoryAuthTests) where
 
+import Data.Aeson (object, (.=))
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend (..), MinioRef (..))
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
@@ -16,6 +17,8 @@ import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAu
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
+import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
+import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets)
 import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -160,13 +163,31 @@ inventoryAuthTests = testGroup "auth inventory component"
         "example.test" (authImages fixture) backend)
       (candidate, _) <- compileBootstrapWithAuthAndScopes snapshot bootstrap
         auth {authExtraPrerequisites = [bucketJob]} databases [localScope] >>= expectRight
+      (secretScope, _, secretIds) <- compileObservabilitySecrets foundation
+        [(SourceLocation "fixture:grafana" "Secret", object
+          ["apiVersion" .= ("v1" :: T.Text), "kind" .= ("Secret" :: T.Text),
+           "metadata" .= object ["name" .= ("grafana-admin" :: T.Text),
+             "namespace" .= ("monitoring" :: T.Text)],
+           "stringData" .= object ["admin-user" .= ("admin" :: T.Text),
+             "admin-password" .= ("fixture-canary" :: T.Text)]])]
+        >>= expectRight
+      let orderedObservability = case observabilityInputs of
+            firstRelease : rest -> firstRelease
+              {packagedDependencies = map OrderedAfter secretIds <> packagedDependencies firstRelease} : rest
+            [] -> []
       (observability, _) <- compilePinnedObservability (foundationOwner foundation)
-        observabilityInputs >>= expectRight
+        orderedObservability >>= expectRight
+      let metricsId = case observabilityInputs of
+            firstRelease : _ -> packagedReleaseId firstRelease
+            [] -> error "pinned metrics release disappeared"
+      (extras, _) <- compileObservabilityExtras "../.." foundation
+        metricsId >>= expectRight
       complete <- expectRight (composeInventory snapshot (candidateChanges candidate <>
         (case observability of
-          firstScope : rest -> ReplaceScope firstScope :| map ReplaceScope rest
+          firstScope : rest -> ReplaceScope firstScope :|
+            (map ReplaceScope rest <> [ReplaceScope extras, ReplaceScope secretScope])
           [] -> error "observability scopes disappeared")))
-      Map.size (inventoryScopes (candidateInventory complete)) @?= 14
+      Map.size (inventoryScopes (candidateInventory complete)) @?= 16
   ]
 
 fixture :: AuthInput

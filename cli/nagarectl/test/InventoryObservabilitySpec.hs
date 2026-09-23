@@ -1,5 +1,6 @@
 module InventoryObservabilitySpec (inventoryObservabilityTests) where
 
+import Data.Aeson (Value, object, (.=))
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -8,7 +9,7 @@ import Data.Map.Strict qualified as Map
 import Data.IORef
 import Data.Text qualified as T
 import Control.Exception (finally)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Components.Observability
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.HelmRuntime
@@ -18,6 +19,9 @@ import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
+import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
+import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets, loadObservabilitySecretObjectsFromDirectory, readAlertmanagerEnabled)
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, pinnedUpstreamInputs)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
@@ -37,6 +41,7 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
+import System.Posix.Files (setFileMode)
 
 inventoryObservabilityTests :: TestTree
 inventoryObservabilityTests = testGroup "Helm release compiler"
@@ -81,21 +86,70 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           _ -> assertFailure "missing Helm release spec"
   , testCase "all five pinned charts compile as independent scopes" $ do
       let foundationOwner = ok (mkScopeId Platform "foundation")
-      compiled <- compilePinnedObservability foundationOwner (pinnedObservabilityInputs cluster "../.." "v1.32.0")
+          inputs = pinnedObservabilityInputs cluster "../.." "v1.32.0"
+          foundation = FoundationInput foundationOwner cluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" (map packagedOwner inputs)
+      (secretScope, secretNative, secretIds) <- compileObservabilitySecrets foundation secretObjects
+        >>= either (assertFailure . show) pure
+      let orderedInputs = case inputs of
+            firstRelease : rest -> firstRelease
+              {packagedDependencies = map OrderedAfter secretIds <> packagedDependencies firstRelease} : rest
+            [] -> []
+      compiled <- compilePinnedObservability foundationOwner orderedInputs
       (scopes, native) <- either (assertFailure . show) pure compiled
       length scopes @?= 5
       assertBool "chart CRD direct members missing" (Map.size native > 5)
-      let foundation = FoundationInput foundationOwner cluster
-            "../../cluster/bootstrap/job-runs/resourcequota.yaml" (map scopeId scopes)
-          binding = ContextBinding (ok (mkContextId "helm-fixture")) (name "project")
+      let binding = ContextBinding (ok (mkContextId "helm-fixture")) (name "project")
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       base <- compilePinnedBootstrap snapshot foundation Nothing "../.." >>= either (assertFailure . show) pure
+      let metricsId = case pinnedObservabilityInputs cluster "../.." "v1.32.0" of
+            firstRelease : _ -> packagedReleaseId firstRelease
+            [] -> error "pinned metrics release disappeared"
+      (extras, extraNative) <- compileObservabilityExtras "../.." foundation
+        metricsId
+        >>= either (assertFailure . show) pure
+      Map.size extraNative @?= 6
+      Map.size secretNative @?= 1
       let (candidate, _) = base
       case composeInventory snapshot (candidateChanges candidate <> (case scopes of
-          firstScope : rest -> ReplaceScope firstScope :| map ReplaceScope rest
+          firstScope : rest -> ReplaceScope firstScope :|
+            (map ReplaceScope rest <> [ReplaceScope extras, ReplaceScope secretScope])
           [] -> error "five observability scopes disappeared")) of
         Left errors -> assertFailure (show errors)
         Right _ -> pure ()
+  , testCase "observability Secret input follows pinned Alertmanager policy" $ do
+      let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) cluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          metricsInput = case pinnedObservabilityInputs cluster "../.." "v1.32.0" of
+            firstRelease : _ -> firstRelease
+            [] -> error "pinned metrics release disappeared"
+      enabled <- readAlertmanagerEnabled (packagedValues metricsInput)
+        (packagedValuesDigest metricsInput) >>= either (assertFailure . T.unpack) pure
+      enabled @?= False
+      absent <- compileObservabilitySecrets foundation []
+      assertBool "missing Grafana admin Secret was accepted"
+        (case absent of Left _ -> True; Right _ -> False)
+  , testCase "encrypted observability input is required and decryption errors stay private" $
+      withSystemTempDirectory "observability-secrets" $ \directory -> do
+        let executable = directory </> "fake-sops"
+            grafana = directory </> "grafana-admin.yaml"
+            secret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: grafana-admin\n  namespace: monitoring\nstringData:\n  admin-user: admin\n  admin-password: fixture\n"
+        missing <- loadObservabilitySecretObjectsFromDirectory executable directory False
+        assertBool "missing Grafana credentials were accepted" (case missing of Left _ -> True; Right _ -> False)
+        BC.writeFile grafana secret
+        BC.writeFile executable "#!/bin/sh\ncat \"$2\"\n"
+        setFileMode executable 0o755
+        loaded <- loadObservabilitySecretObjectsFromDirectory executable directory False
+          >>= either (assertFailure . T.unpack) pure
+        length loaded @?= 1
+        required <- loadObservabilitySecretObjectsFromDirectory executable directory True
+        assertBool "missing enabled Alertmanager configuration was accepted"
+          (case required of Left _ -> True; Right _ -> False)
+        BC.writeFile executable "#!/bin/sh\necho private-canary >&2\nexit 1\n"
+        refused <- loadObservabilitySecretObjectsFromDirectory executable directory False
+        case refused of
+          Left reason -> assertBool "decryption output leaked into error" (not ("private-canary" `T.isInfixOf` reason))
+          Right _ -> assertFailure "failed decryption was accepted"
   , testCase "cloud bootstrap composes auth, cache publication, and observability" $
       withSystemTempDirectory "bootstrap-complete" $ \root -> do
         let source = "../../cluster/bootstrap/nix-cache"
@@ -110,6 +164,8 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
             backend = GcsBackend "project" "backups"
             binding = ContextBinding (ok (mkContextId "complete-bootstrap")) (name "project")
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+        (secretScope, secretNative, secretIds) <- compileObservabilitySecrets foundation secretObjects
+          >>= either (assertFailure . show) pure
         createDirectoryIfMissing True destination
         listDirectory source >>= mapM_ (\entry -> do
           let path = source </> entry
@@ -132,14 +188,24 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
         (base, baseNative) <- compileBootstrapWithAuth snapshot
           (BootstrapInput foundation Nothing upstream [controllerScope]) auth databases
           >>= either (assertFailure . show) pure
-        (observability, obsNative) <- compilePinnedObservability owner observabilityInputs
+        let orderedInputs = case observabilityInputs of
+              firstRelease : rest -> firstRelease
+                {packagedDependencies = map OrderedAfter secretIds <> packagedDependencies firstRelease} : rest
+              [] -> []
+        (observability, obsNative) <- compilePinnedObservability owner orderedInputs
           >>= either (assertFailure . show) pure
+        let metricsId = case observabilityInputs of
+              firstRelease : _ -> packagedReleaseId firstRelease
+              [] -> error "pinned metrics release disappeared"
+        (extras, extraNative) <- compileObservabilityExtras "../.." foundation
+          metricsId >>= either (assertFailure . show) pure
         let changes = candidateChanges base <> (ReplaceScope imageScope :|
-              (ReplaceScope cacheScope : map ReplaceScope observability))
-            native = Map.unions [baseNative, cacheNative, obsNative]
-        Map.size native @?= sum (map Map.size [baseNative, cacheNative, obsNative])
+              (ReplaceScope cacheScope : map ReplaceScope observability
+                <> [ReplaceScope extras, ReplaceScope secretScope]))
+            native = Map.unions [baseNative, cacheNative, obsNative, extraNative, secretNative]
+        Map.size native @?= sum (map Map.size [baseNative, cacheNative, obsNative, extraNative, secretNative])
         complete <- either (assertFailure . show) pure (composeInventory snapshot changes)
-        Map.size (inventoryScopes (candidateInventory complete)) @?= 14
+        Map.size (inventoryScopes (candidateInventory complete)) @?= 16
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor
@@ -256,6 +322,13 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
     scope = ok (mkScopeId Platform "observability")
     cluster = mintResourceId scope (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
     name = ok . mkName
+    secretObjects :: [(SourceLocation, Value)]
+    secretObjects = [(SourceLocation "fixture:grafana-admin" "Secret", object
+      ["apiVersion" .= ("v1" :: T.Text), "kind" .= ("Secret" :: T.Text),
+       "metadata" .= object ["name" .= ("grafana-admin" :: T.Text),
+         "namespace" .= ("monitoring" :: T.Text)],
+       "stringData" .= object ["admin-user" .= ("admin" :: T.Text),
+         "admin-password" .= ("fixture-canary" :: T.Text)]])]
     rendered = BC.pack "apiVersion: v1\nkind: Service\nmetadata:\n  name: metrics\n---\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: metrics-hook\n  annotations:\n    helm.sh/hook: pre-install\n"
     crds = BC.pack "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: metrics.example.com\n"
     fixture = ObservabilityReleaseInput
