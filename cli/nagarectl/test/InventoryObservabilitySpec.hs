@@ -16,7 +16,10 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Bootstrap (compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Resource.Types
@@ -117,6 +120,28 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       case verified of
         Right _ -> pure ()
         Left reason -> assertFailure (show reason)
+  , testCase "private review reconstructs the Helm contract" $ do
+      let (release, native) = ok (compileRenderedRelease fixture)
+          specs = Map.singleton (releaseId fixture) (release, native)
+          binding = ContextBinding (ok (mkContextId "helm-review")) (name "project")
+          declared = ok (mkScopeDeclaration scope [ResourceBundle [Managed release] [] [] [] [] []])
+          snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+          candidate = ok (composeInventory snapshot (ReplaceScope declared :| []))
+          absent = contentDigest (BC.pack "absent")
+          observations = ok (observationSet [(releaseId fixture, ConfirmedAbsent absent)])
+      current <- newIORef (HelmAbsent absent)
+      let adapter = mkHelmAdapter specs HelmAdapterOps
+            { helmObserve = \_ -> readIORef current
+            , helmMutateConditional = \_ -> pure AdapterEffectCompleted
+            }
+          registry = ok (mkAdapterRegistry [adapter])
+      store <- newMemoryStore
+      _ <- initializeStore store binding "helm-review-client" >>= either (assertFailure . show) pure
+      history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+      let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+      before <- readStoreSnapshot store >>= either (assertFailure . show) pure
+      reviewed <- prepareReview registry before proposal >>= either (assertFailure . show) pure
+      helmSpecsFromReview reviewed @?= Right specs
   , testCase "disposable Helm create is gated by reviewed native bytes" $ do
       selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
       case selected of
@@ -161,6 +186,7 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
               (release, native) <- either (assertFailure . show) pure (compileRenderedRelease captured)
               let runtime = HelmRuntimeConfig (T.pack selectedContext) (ok (mkContextId "helm-test"))
                     "../../cluster/observability/helm-review" (Map.singleton (releaseId fixture) release)
+                    (pure (Right ()))
                   adapter = mkHelmAdapter (Map.singleton (releaseId fixture) (release, native))
                     (helmRuntimeOps runtime)
                   operation = PlannedOperation (ok (mkOperationId "op-helm-runtime")) CreateResource HelmExecutor

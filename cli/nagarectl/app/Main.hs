@@ -24,6 +24,7 @@ import Control.Applicative ((<|>))
 import Control.Exception (IOException, bracket, bracket_, catch, try)
 import Control.Monad (forM, forM_, unless, void)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as AesonMap
 import Data.Bits ((.&.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -33,6 +34,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Char (isAlphaNum)
 import Data.Generics.Labels ()
 import Data.List (find, sort)
+import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
@@ -243,15 +245,21 @@ import Nagare.Inventory.Adapters.Cache (cacheSpecsFromDeclarations, mkCacheAdapt
 import Nagare.Inventory.Adapters.CacheRuntime qualified as CacheRuntime
 import Nagare.Inventory.Adapters.Host (mkHostAdapter)
 import Nagare.Inventory.Adapters.HostRuntime
+import Nagare.Inventory.Adapters.Helm (mkHelmAdapter)
+import Nagare.Inventory.Adapters.HelmRuntime (HelmRuntimeConfig (..), helmRuntimeOps)
 import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
-import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
+import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
+import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
+import Nagare.Inventory.Components.Upstream (IssuerMode (..), configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
+import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -400,6 +408,7 @@ import Nagare.Target
   , TargetProfile (..)
   , VmShape (..)
   , acmeDirectoryToken
+  , acmeDirectoryUrl
   , clearCurrentContext
   , contextExists
   , contextFilePath
@@ -646,6 +655,8 @@ data Command
   | PlatformStatusCmd Bool
   | PlatformGuard
   | PlatformStamp
+  | PlatformBootstrapPlan FilePath
+  | PlatformBootstrapApply FilePath Bool
   | PlatformAdopt String Bool Bool
   | PlatformRepin String Bool
   | PlatformUpgrade UpgradeOpts
@@ -1846,6 +1857,9 @@ opts =
                   "stamp"
                   (info (pure PlatformStamp <**> helper) (progDesc "Record the active payload identity after successful cluster bootstrap"))
                 <> command
+                  "bootstrap"
+                  (info (bootstrapCommandParser <**> helper) (progDesc "Plan or apply reviewed cluster bootstrap resources"))
+                <> command
                   "adopt"
                   ( info
                       (PlatformAdopt <$> strOption (long "version" <> metavar "VERSION" <> help "Release identity to assign to a legacy context") <*> switch (long "yes" <> help "Confirm the displayed observations") <*> switch (long "json" <> help "Print machine-readable observations and result") <**> helper)
@@ -1864,6 +1878,16 @@ opts =
             <**> helper
         )
         (fullDesc <> progDesc "Inspect packaged platform resources")
+    bootstrapCommandParser =
+      subparser
+        ( command "plan"
+            (info (PlatformBootstrapPlan <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
+              (progDesc "Compile and publish a reviewed bootstrap plan"))
+        <> command "apply"
+            (info (PlatformBootstrapApply <$> strArgument (metavar "REVIEW_DIRECTORY")
+              <*> switch (long "yes") <**> helper)
+              (progDesc "Apply a published bootstrap review"))
+        )
     upgradeCommandParser =
       subparser
         ( command
@@ -2616,6 +2640,8 @@ main = do
     PlatformStatusCmd asJson -> runPlatformStatus mctx asJson
     PlatformGuard -> runPlatformGuard mctx
     PlatformStamp -> runPlatformStamp mctx
+    PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output
+    PlatformBootstrapApply review yes -> runInventoryApply mctx review yes
     PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
     PlatformRepin version yes -> runPlatformRepin mctx version yes
     PlatformUpgrade options -> runPlatformUpgrade mctx options
@@ -4039,6 +4065,63 @@ runInfraDestroy mctx yes = do
 -- | Build the production cloud adapter from the same composed declarations the
 -- generic planner sees. Other domains retain their refusing adapters until
 -- their production runtimes are registered by this child or later children.
+runPlatformBootstrapPlan :: Maybe String -> FilePath -> IO ()
+runPlatformBootstrapPlan mctx output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  kubeVersion <- readBootstrapKubeVersion active
+  let root = workspace ^. #root
+      profile = active ^. #profile
+      knownName value = either (error . T.unpack) (\name -> name) (Resource.mkName value)
+      knownKey value = either (error . T.unpack) (\key -> key) (Resource.mkLogicalKey value)
+      foundationOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "foundation")
+      clusterOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "cluster")
+      cluster = Resource.mintResourceId clusterOwner (knownKey "cluster") (knownName "cluster")
+      observabilityInputs = pinnedObservabilityInputs cluster root kubeVersion
+      granted = map packagedOwner observabilityInputs
+      foundation = FoundationInput foundationOwner cluster
+        (root </> "cluster/bootstrap/job-runs/resourcequota.yaml") granted
+      issuer = case profile ^. #mode of
+        Local -> LocalIssuer
+        Cloud -> CloudIssuer
+          (either (error . T.unpack) (acmeDirectoryUrl) (parseAcmeDirectory (profile ^. #acmeDirectory)))
+          (profile ^. #acmeEmail)
+          (profile ^. #project)
+  when (profile ^. #mode == Cloud && T.null (profile ^. #acmeEmail))
+    (dieT "bootstrap requires the selected context's ACME contact")
+  upstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
+    (profile ^. #registryHost) issuer >>= either dieT pure
+  (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner observabilityInputs
+    >>= either (dieT . T.pack . show) pure
+  (base, baseNative) <- compileBootstrapCandidate snapshot (BootstrapInput foundation Nothing upstream)
+    >>= either (dieT . T.pack . show) pure
+  unless (Map.null (Map.intersection baseNative observabilityNative))
+    (dieT "bootstrap and observability native members share an identity")
+  extra <- case observabilityScopes of
+    firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
+    [] -> dieT "pinned observability release set is empty"
+  candidate <- either (dieT . T.pack . show) pure
+    (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges base <> extra))
+  let native = Map.union baseNative observabilityNative
+  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
+    active candidate output
+
+readBootstrapKubeVersion :: ActiveTarget -> IO Text
+readBootstrapKubeVersion active = do
+  guardKubernetesContext active >>= either dieT pure
+  (code, output, err) <- readProcessWithExitCode "kubectl"
+    ["--context", T.unpack (contextNameText (active ^. #contextName)), "version", "-o", "json"] ""
+  unless (code == ExitSuccess) (dieT ("could not inspect selected Kubernetes version: " <> T.pack err))
+  value <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' (BC.pack output) :: Either String Aeson.Value)
+  case value of
+    Aeson.Object root -> case AesonMap.lookup "serverVersion" root of
+      Just (Aeson.Object server) -> case AesonMap.lookup "gitVersion" server of
+        Just (Aeson.String version) | not (T.null version) -> pure version
+        _ -> dieT "Kubernetes server version has no gitVersion"
+      _ -> dieT "Kubernetes version response has no serverVersion"
+    _ -> dieT "Kubernetes version response is not an object"
+
 runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory output = do
   target <- activeTarget mctx
@@ -4051,7 +4134,8 @@ runInventoryPlan mctx candidateDirectory output = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && Map.null cacheSpecs
+      helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && null kubernetesResources && null helmResources && Map.null cacheSpecs
     then Inventory.planInventory target candidateDirectory output
     else do
       (active, workspace) <-
@@ -4082,8 +4166,9 @@ inventoryExecutionRegistry mctx bundle = do
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   kubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
-  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs
-    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor]))
+  helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
+  if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null helmSpecs
+    then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.HelmExecutor]))
     else do
       (active, workspace) <-
         if null registrations && Map.null artifactSpecs && isNothing hostInputs
@@ -4104,7 +4189,8 @@ inventoryExecutionRegistry mctx bundle = do
       host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor)) (inventoryHostAdapter active workspace) hostInputs
       (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
       kubernetes <- inventoryKubernetesAdapter active binding cacheKey kubernetesSpecs
-      let adapters = [pulumi, artifact, host, kubernetes, cache]
+      helm <- inventoryHelmAdapter active workspace binding helmSpecs
+      let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
       either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
@@ -4120,19 +4206,24 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
+      helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
   contributionNative <- either dieT pure (compileContributedNamespaces declarations)
   unless (Map.null (Map.intersection suppliedNative contributionNative))
     (dieT "generated native members overlap a contributed Namespace")
   let allSuppliedNative = Map.union suppliedNative contributionNative
-      suppliedIds = Map.keysSet allSuppliedNative
+      kubernetesSuppliedNative = Map.filter ((== ResourceInventory.KubernetesExecutor) . (^. #executor) . fst) allSuppliedNative
+      helmSuppliedNative = Map.filter ((== ResourceInventory.HelmExecutor) . (^. #executor) . fst) allSuppliedNative
+      suppliedIds = Map.keysSet kubernetesSuppliedNative
       declaredIds = Set.fromList (map (^. #identity) kubernetesResources)
   unless (suppliedIds `Set.isSubsetOf` declaredIds) (dieT "generated native members include an undeclared Kubernetes resource")
-  either dieT pure (validateSuppliedKubernetesMembers kubernetesResources allSuppliedNative)
+  unless (Map.keysSet helmSuppliedNative == Set.fromList (map (^. #identity) helmResources))
+    (dieT "Helm release lacks a captured native contract")
+  either dieT pure (validateSuppliedKubernetesMembers kubernetesResources kubernetesSuppliedNative)
   let fileBacked = filter (\resource -> Set.notMember (resource ^. #identity) suppliedIds) kubernetesResources
   loaded <- if null fileBacked
     then pure Map.empty
     else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
-  let kubernetesSpecs = Map.union allSuppliedNative loaded
+  let kubernetesSpecs = Map.union kubernetesSuppliedNative loaded
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
@@ -4148,7 +4239,10 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   kubernetes <- if Map.null kubernetesSpecs
     then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)
     else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
-  let adapters = [pulumi, artifact, host, kubernetes, cache]
+  helm <- if Map.null helmSuppliedNative
+    then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
+    else inventoryHelmAdapter active workspace (ResourceInventory.inventoryBinding inventory) helmSuppliedNative
+  let adapters = [pulumi, artifact, host, kubernetes, cache, helm]
   either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
@@ -4159,6 +4253,21 @@ inventoryKubernetesAdapter active binding cacheKey specs
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
       pure (mkKubernetesAdapter specs (mkKubernetesRuntimeOpsWithCacheKey config cacheKey specs))
+
+inventoryHelmAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
+inventoryHelmAdapter active workspace binding specs
+  | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.HelmExecutor)
+  | otherwise = do
+      context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+      unless (context == binding ^. #identity) (dieT "Helm inventory review belongs to a different context")
+      let config = HelmRuntimeConfig
+            { helmKubeContext = contextNameText (active ^. #contextName)
+            , helmContextId = context
+            , helmVerifyPlugin = workspace ^. #root </> "cluster/observability/helm-review"
+            , helmDeclarations = Map.map fst specs
+            , helmRuntimeGuard = fmap (fmap (const ())) (guardKubernetesContext active)
+            }
+      pure (mkHelmAdapter specs (helmRuntimeOps config))
 
 inventoryCacheAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> Map.Map Resource.ResourceId ResourceInventory.ManagedResource -> IO (InventoryAdapter.Adapter, Resource.ResourceId -> IO (Either Text Text))
 inventoryCacheAdapter active workspace binding specs

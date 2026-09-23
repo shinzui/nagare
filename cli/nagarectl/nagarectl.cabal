@@ -116,6 +116,7 @@ library
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesReview
+    Nagare.Inventory.HelmReview
     Nagare.Inventory.Plan
     Nagare.Inventory.Store
     Nagare.Ops.Cleanup

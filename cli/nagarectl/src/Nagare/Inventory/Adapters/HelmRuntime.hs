@@ -36,6 +36,7 @@ data HelmRuntimeConfig = HelmRuntimeConfig
   , helmContextId :: !ContextId
   , helmVerifyPlugin :: !FilePath
   , helmDeclarations :: !(Map ResourceId ManagedResource)
+  , helmRuntimeGuard :: !(IO (Either Text ()))
   }
 
 helmRuntimeOps :: HelmRuntimeConfig -> HelmAdapterOps
@@ -45,7 +46,14 @@ helmRuntimeOps config = HelmAdapterOps
   }
 
 observeRelease :: HelmRuntimeConfig -> ResourceId -> IO HelmState
-observeRelease config resource = case Map.lookup resource (helmDeclarations config) of
+observeRelease config resource = do
+  guarded <- helmRuntimeGuard config
+  case guarded of
+    Left reason -> pure (HelmUnavailable reason)
+    Right () -> observeGuarded config resource
+
+observeGuarded :: HelmRuntimeConfig -> ResourceId -> IO HelmState
+observeGuarded config resource = case Map.lookup resource (helmDeclarations config) of
   Nothing -> pure (HelmUnavailable "Helm declaration is absent from runtime")
   Just declaration -> case declaration ^. #address of
     Helm _ namespace release -> do
