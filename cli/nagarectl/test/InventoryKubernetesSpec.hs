@@ -35,6 +35,7 @@ import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
@@ -115,6 +116,39 @@ inventoryKubernetesTests =
         history <- loadInventoryHistory store >>= expectRight
         let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value)) (historyAccepted history)
             next = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope scoped :| []))
+            markerOwner = ok (mkScopeId Platform "bootstrap-stamp")
+            markerId = mintResourceId markerOwner (ok (mkLogicalKey "bootstrap")) (ok (mkName "version"))
+            markerValue = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("ConfigMap" :: Text)
+              , "metadata" .= object ["name" .= ("nagare-platform-version" :: Text), "namespace" .= ("nagare-system" :: Text)]
+              ]
+            markerBytes = ok (canonicalValue markerValue)
+            markerInput = KubernetesInput markerId markerOwner cluster markerValue (contentDigest markerBytes)
+              Retain Stateless Public (SourceLocation "generated:bootstrap" "platform-version")
+            markerDeclaration = (fst (ok (bindKubernetesObject markerInput)))
+              {dependencies = [OrderedAfter resource]}
+            markerScope = ok (mkScopeDeclaration markerOwner [ResourceBundle [Managed markerDeclaration] [] [] [] [] []])
+            stamped = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope markerScope :| []))
+            unchanged = ok (observationSet
+              [(resource, ObservedPresent physical), (markerId, ConfirmedAbsent absence)])
+            noOp = ok (planChanges stamped noLifecycleDecisions history unchanged)
+            checks = [planned | planned <- proposalOperations noOp, plannedAction planned == VerifyResource]
+        case checks of
+          [check] -> do
+            let markerCreates = [planned | planned <- proposalOperations noOp,
+                  plannedAction planned == CreateResource, markerId `elem` plannedResources planned]
+            case markerCreates of
+              [markerCreate] -> assertBool "bootstrap marker did not wait for accepted object verification"
+                (plannedOperationId check `elem` plannedDependencies markerCreate)
+              _ -> assertFailure "bootstrap marker had no create operation"
+            prepared <- adapterPrepare adapter check >>= expectRight
+            adapterPreflight adapter check prepared >>= expectRight
+            adapterExecute adapter check prepared >>= (@?= AdapterEffectCompleted)
+            readIORef calls >>= (@?= 1)
+            _ <- adapterVerify adapter check prepared >>= expectRight
+            pure ()
+          _ -> assertFailure "unchanged accepted object lacked one health check"
         writeIORef state (KubernetesPresent physical "6" (Just resource) (contentDigest "drifted"))
         drifted <- observeWithRegistry registry
           (requirementsByExecutor (observationRequirements next history)) >>= expectRight

@@ -253,6 +253,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
   if null errors then Right (map addDependencies preliminary <> map snd declaredOperations) else Left (NE.fromList errors)
   where
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
+    bootstrapReview = any isBootstrapMarker (Map.elems desiredDeclarations)
+    isBootstrapMarker (Managed resource) = resource ^. #source . #file == "generated:bootstrap"
+    isBootstrapMarker _ = False
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
     -- Converged scope revisions retain proof of unchanged forward-only
     -- migrations after Kubernetes TTL removes their Job objects.
@@ -351,7 +354,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
           "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just old, _)
-        | canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource)) -> ([], Nothing)
+        | canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource)) ->
+            ([], if bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
+              then Just (resourceOperation VerifyResource resource) else Nothing)
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just _, _) -> ([], Just (resourceOperation UpdateResource resource))
       (_, Nothing) -> ([PlanError "observation-coverage" "resource was not observed" [resourceId]], Nothing)

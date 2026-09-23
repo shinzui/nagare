@@ -93,7 +93,7 @@ mkKubernetesAdapter specs ops =
       Right (resource, declaration, native) -> do
         before <- kubernetesObserve ops resource
         pure $ do
-          validateBefore operation resource before
+          validateBefore operation resource (contentDigest native) before
           mutation <- buildMutation (kubernetesContext ops) operation resource declaration native before
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
@@ -110,7 +110,7 @@ mkKubernetesAdapter specs ops =
         current <- kubernetesObserve ops (mutationResource mutation)
         case requireSameBefore mutation current of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-          Right () -> if mutationAction mutation == RunDeclaredOperation
+          Right () -> if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
             then pure AdapterEffectCompleted
             else kubernetesMutateConditional ops mutation
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
@@ -131,7 +131,7 @@ mkKubernetesAdapter specs ops =
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support adoption or retirement")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support adoption or retirement")
   resource <- case NE.toList (plannedResources operation) of
     [single] -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
@@ -142,11 +142,13 @@ singleSpec specs operation = do
     _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
 
-validateBefore :: PlannedOperation -> ResourceId -> KubernetesState -> Either PrepareError ()
-validateBefore operation resource state =
+validateBefore :: PlannedOperation -> ResourceId -> ContentDigest -> KubernetesState -> Either PrepareError ()
+validateBefore operation resource desiredDigest state =
   first (PrepareRefused (plannedOperationId operation)) $ case (plannedAction operation, state) of
     (CreateResource, KubernetesAbsent _) -> Right ()
     (UpdateResource, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
+    (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RunDeclaredOperation, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
@@ -222,7 +224,7 @@ decodeMutation context specs operation prepared = do
   value <- first T.pack (eitherDecodeStrict native)
   stamped <- stampNative context resource (contentDigest native) value
   unless (TE.encodeUtf8 (mutationNativeJson mutation) == stamped && mutationNativeDigest mutation == contentDigest native) (Left "Kubernetes native object differs from reviewed bytes")
-  case validateBefore operation resource (mutationBefore mutation) of
+  case validateBefore operation resource (contentDigest native) (mutationBefore mutation) of
     Left _ -> Left "Kubernetes mutation precondition is invalid"
     Right () -> Right mutation
 

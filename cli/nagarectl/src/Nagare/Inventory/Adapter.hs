@@ -55,7 +55,7 @@ observationSet entries
 observationMap :: ObservationSet -> Map ResourceId ResourceObservation
 observationMap (ObservationSet values) = values
 
-data OperationAction = CreateResource | UpdateResource | AdoptResource | RetireResource | RunDeclaredOperation
+data OperationAction = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource | RunDeclaredOperation
   deriving stock (Eq, Ord, Show, Generic)
 
 data PlannedOperation = PlannedOperation

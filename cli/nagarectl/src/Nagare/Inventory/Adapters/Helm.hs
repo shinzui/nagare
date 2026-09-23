@@ -65,7 +65,7 @@ mkHelmAdapter specs ops = Adapter
       Right (resource, declaration, contract) -> do
         before <- helmObserve ops resource
         pure $ do
-          checkBefore operation resource before
+          checkBefore operation resource (contentDigest contract) before
           contractText <- first (refuse operation . T.pack . show) (TE.decodeUtf8' contract)
           let mutation = HelmMutation 1 (plannedOperationId operation) (plannedAction operation)
                 (plannedInputDigest operation) resource (declaration ^. #address)
@@ -83,7 +83,9 @@ mkHelmAdapter specs ops = Adapter
         current <- helmObserve ops (helmMutationResource mutation)
         if current /= helmMutationBefore mutation
           then pure (AdapterEffectFailed (KnownNoEffect "Helm release revision changed after review"))
-          else helmMutateConditional ops mutation
+          else if helmMutationAction mutation == VerifyResource
+            then pure AdapterEffectCompleted
+            else helmMutateConditional ops mutation
   , adapterVerify = \operation prepared -> case decodeMutation operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -111,8 +113,8 @@ mkHelmAdapter specs ops = Adapter
       HelmUnavailable reason -> (resource, ObservationUnavailable reason)
     specFor operation = do
       unless (plannedExecutor operation == HelmExecutor
-          && plannedAction operation `elem` [CreateResource, UpdateResource])
-        (Left "Helm adapter supports only reviewed create and update")
+          && plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource])
+        (Left "Helm adapter supports only reviewed create, update and verification")
       resource <- case NE.toList (plannedResources operation) of
         [single] -> Right single
         _ -> Left "Helm operation must name one release"
@@ -122,10 +124,12 @@ mkHelmAdapter specs ops = Adapter
       case (declaration ^. #address, declaration ^. #spec) of
         (Helm {} , HelmRelease _ digest) | digest == contentDigest contract -> Right (resource, declaration, contract)
         _ -> Left "Helm native contract differs from its typed release"
-    checkBefore operation resource = first (refuse operation) . \case
+    checkBefore operation resource desiredDigest = first (refuse operation) . \case
       HelmAbsent _ | plannedAction operation == CreateResource -> Right ()
       HelmPresent _ revision owner _ | plannedAction operation == UpdateResource
         && owner == resource && not (T.null revision) -> Right ()
+      HelmPresent _ revision owner digest | plannedAction operation == VerifyResource
+        && owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
       HelmUnavailable reason -> Left ("Helm observation unavailable: " <> reason)
       HelmForeign reason -> Left ("Helm release is foreign: " <> reason)
       _ -> Left "Helm action lacks confirmed absence or an owned release revision"
@@ -141,7 +145,7 @@ mkHelmAdapter specs ops = Adapter
           && TE.encodeUtf8 (helmMutationContract mutation) == contract
           && helmMutationContractDigest mutation == contentDigest contract)
         (Left "Helm mutation differs from the reviewed release")
-      first (const "Helm mutation precondition is invalid") (checkBefore operation resource (helmMutationBefore mutation))
+      first (const "Helm mutation precondition is invalid") (checkBefore operation resource (contentDigest contract) (helmMutationBefore mutation))
       pure mutation
     proof mutation = \case
       HelmPresent physical revision owner digest

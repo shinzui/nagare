@@ -341,6 +341,8 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       let (release, native) = ok (compileRenderedRelease fixture)
           resource = releaseId fixture
           physical = ok (mkPhysicalIdentity "helm-drift")
+          verify = PlannedOperation (ok (mkOperationId "op-helm-verify")) VerifyResource HelmExecutor
+            (resource :| []) (contentDigest native) [] Idempotent
           adapterFor current = mkHelmAdapter (Map.singleton resource (release, native)) HelmAdapterOps
             { helmObserve = \_ -> readIORef current
             , helmMutateConditional = \_ -> pure AdapterEffectCompleted
@@ -351,6 +353,13 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       writeIORef current (HelmPresent physical "3" (mintResourceId scope (ok (mkLogicalKey "foreign")) (name "resource")) (contentDigest native))
       occupied <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
       Map.lookup resource (observationMap occupied) @?= Just (ObservedForeign physical)
+      writeIORef current (HelmPresent physical "4" resource (contentDigest native))
+      checked <- adapterPrepare (adapterFor current) verify >>= either (assertFailure . show) pure
+      adapterExecute (adapterFor current) verify checked >>= (@?= AdapterEffectCompleted)
+      _ <- adapterVerify (adapterFor current) verify checked >>= either (assertFailure . show) pure
+      writeIORef current (HelmPresent physical "5" resource (contentDigest native))
+      stale <- adapterPreflight (adapterFor current) verify checked
+      assertBool "changed Helm revision passed read-only verification" (either (const True) (const False) stale)
   , testCase "private review reconstructs the Helm contract" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           specs = Map.singleton (releaseId fixture) (release, native)
