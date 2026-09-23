@@ -306,6 +306,47 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
         calls <- readIORef executed
         Set.fromList calls @?= Set.fromList (map plannedOperationId operations)
         length (filter (== plannedOperationId migration) calls) @?= 1
+        convergedHistory <- loadInventoryHistory store >>= either (assertFailure . show) pure
+        let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value))
+              (historyAccepted convergedHistory)
+            replay = either (error . show) id (composeInventory
+              (either (error . show) id (mkScopeSnapshot binding accepted Map.empty))
+              (ReplaceScope stampScope :| []))
+            replayRequired = requiredResources (observationRequirements replay convergedHistory)
+            replayObserved = either (error . T.unpack) id (observationSet
+              [(resource, ObservedPresent (ok (mkPhysicalIdentity "accepted-fixture")))
+                | resource <- Set.toAscList replayRequired])
+        replayProposal <- either (assertFailure . show) pure
+          (planChanges replay noLifecycleDecisions convergedHistory replayObserved)
+        let oldMarker = [value | (_, scoped) <- Map.elems (historyAccepted convergedHistory),
+              bundle <- scopeBundles scoped, value <- declarations bundle,
+              declarationId value `elem` stampIds]
+            newMarker = [value | value <- inventoryDeclarations (candidateInventory replay),
+              declarationId value `elem` stampIds]
+        case (oldMarker, newMarker) of
+          ([Managed old], [Managed new]) -> do
+            old ^. #spec @?= new ^. #spec
+            let oldDeps = Set.fromList (old ^. #dependencies)
+                newDeps = Set.fromList (new ^. #dependencies)
+            assertBool ("marker dependency mismatch: old-only " <> show (Set.toList (oldDeps `Set.difference` newDeps))
+              <> ", new-only " <> show (Set.toList (newDeps `Set.difference` oldDeps)))
+              (oldDeps == newDeps)
+            assertBool ("marker dependency order differs at " <> show
+              [position | (position, (a, b)) <- zip [0 :: Int ..] (zip (old ^. #dependencies) (new ^. #dependencies)), a /= b])
+              (old ^. #dependencies == new ^. #dependencies)
+          _ -> assertFailure "accepted marker disappeared"
+        let checks = [operation | operation <- proposalOperations replayProposal,
+              plannedAction operation == VerifyResource]
+            replayMarker = [operation | operation <- proposalOperations replayProposal,
+              any (`elem` stampIds) (plannedResources operation)]
+        assertBool "accepted bootstrap has no native no-op checks" (not (null checks))
+        case replayMarker of
+          [markerCheck] -> do
+            plannedAction markerCheck @?= VerifyResource
+            assertBool "bootstrap marker skipped an accepted native check"
+              (all (\check -> plannedOperationId check `elem` plannedDependencies markerCheck)
+                [check | check <- checks, plannedOperationId check /= plannedOperationId markerCheck])
+          other -> assertFailure ("expected one reviewed marker check, got " <> show other)
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor

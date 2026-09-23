@@ -14,6 +14,7 @@ module Nagare.Inventory.Bootstrap
 import Data.ByteString (ByteString)
 import Data.Aeson (Value)
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -65,7 +66,7 @@ compileBootstrapStamp cluster marker candidate = do
       (Just (knownName "nagare-system")) (knownName "nagare-platform-version")
       && bound == bytes)
     (Left (single "release marker has an unexpected Kubernetes address or bytes"))
-  let resource = compiled {dependencies = map OrderedAfter (resources <> operations)}
+  let resource = compiled {dependencies = sortOn show (map OrderedAfter (resources <> operations))}
   scope <- mkScopeDeclaration owner [ResourceBundle [Managed resource] [] [] [] [] []]
   pure (scope, Map.singleton resourceId (resource, bound))
   where
