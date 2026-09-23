@@ -71,6 +71,36 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       replay <- resumeTransaction secondStore registry transaction >>= either (assertFailure . show) pure
       replay @?= Converged transaction
       readIORef effects >>= (@?= before)
+  , testCase "lost journal acknowledgement cannot duplicate an effect" $ do
+      baseOps <- fakeObjectOps
+      injected <- newIORef False
+      let ops = baseOps
+            { putObject = \condition name@(ObjectName objectPath) bytes -> do
+                shouldInject <- if "journal/" `T.isPrefixOf` objectPath
+                  then atomicModifyIORef' injected (\used -> (True, not used))
+                  else pure False
+                if shouldInject then do
+                  _ <- putObject baseOps condition name bytes
+                  observed <- getObject baseOps name
+                  pure (classifyPutReadback condition bytes observed)
+                else putObject baseOps condition name bytes
+            }
+      firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      secondStore <- newObjectStore ops fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      effects <- newIORef (0 :: Int)
+      (reviewed, registry) <- preparedFixtureWith firstStore
+        (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
+        (\_ _ -> pure RecoverySafeToRetry)
+      result <- applyReviewed firstStore registry reviewed >>= either (assertFailure . show) pure
+      transaction <- case result of
+        Converged value -> pure value
+        other -> assertFailure (show other) >> error "unreachable"
+      readIORef injected >>= (@?= True)
+      replay <- resumeTransaction secondStore registry transaction >>= either (assertFailure . show) pure
+      replay @?= Converged transaction
+      readIORef effects >>= (@?= 1)
   , testCase "foreign claim requires explicit takeover and advances its epoch" $ do
       ops <- fakeObjectOps
       firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
