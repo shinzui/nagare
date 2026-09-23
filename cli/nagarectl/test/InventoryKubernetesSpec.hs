@@ -425,6 +425,63 @@ inventoryKubernetesTests =
                 AdapterEffectAmbiguous {} -> pure ()
                 other -> assertFailure ("foreign field manager was overridden: " <> show other)
               pure ()) `finally` cleanup
+    , testCase "disposable reviewed transaction refuses a foreign create after publication" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let targetObject = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-foreign" :: Text),
+                      "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= ("reviewed" :: Text)]
+                  ]
+                boundBytes = ok (canonicalValue targetObject)
+                bound = Map.singleton resource (ok (bindKubernetesObject
+                  (input {inputObject = targetObject, objectDigest = contentDigest boundBytes})))
+                target = ok (mkScopeDeclaration scope
+                  [ResourceBundle [Managed (fst (bound Map.! resource))] [] [] [] [] []])
+                binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+                snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+                candidate = ok (composeInventory snapshot (ReplaceScope target :| []))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test"))
+                  (T.pack selectedContext) (pure (Right ()))
+                registry = ok (mkAdapterRegistry
+                  [mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)])
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl"
+                    ["--context", selectedContext, "delete", "configmap", "nagare-ep147-foreign",
+                     "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              store <- newMemoryStore
+              _ <- initializeStore store binding "client-test" >>= expectRight
+              history <- loadInventoryHistory store >>= expectRight
+              observed <- observeWithRegistry registry
+                (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
+              let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
+              before <- readStoreSnapshot store >>= expectRight
+              reviewBundle <- prepareReview registry before proposal >>= expectRight
+              _ <- publishReview store reviewBundle >>= expectRight
+              (created, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "create", "configmap", "nagare-ep147-foreign",
+                 "--namespace", "default", "--from-literal=message=foreign"] ""
+              created @?= ExitSuccess
+              afterPublication <- readStoreSnapshot store >>= expectRight
+              reviewed <- expectRight (verifyReview afterPublication reviewBundle)
+              result <- applyReviewed store registry reviewed
+              case result of
+                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                other -> assertFailure ("foreign object was accepted: " <> show other)
+              (readCode, live, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-foreign",
+                 "--namespace", "default", "-o", "jsonpath={.data.message}"] ""
+              readCode @?= ExitSuccess
+              live @?= "foreign") `finally` cleanup
     , testCase "disposable cluster updates a reviewed Namespace label" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
