@@ -19,8 +19,8 @@ Git-pinned; and the cryptographic compatibility floors are explicit. It builds f
 image as
 `$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/shomei:<git-sha>`,
 pushes it by default, and prints the image reference. Set `NAGARE_AUTH_PUSH=0`
-to build locally without pushing. Edit `service.yaml` to use the printed image
-before applying.
+to build locally without pushing. Set `NAGARE_AUTH_SHOMEI_IMAGE` to the
+resulting immutable reference before publishing a bootstrap review.
 
 On Apple Silicon or another non-amd64 local Docker host, use Cloud Build for the
 real amd64 image:
@@ -38,7 +38,7 @@ NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/shomei/build-image.sh
 ```
 
 This prints an image such as `dev.local/nagare-auth/shomei:<git-sha>`. Use the
-printed image in `service.yaml`; `dev.local` is already skipped by Knative's
+printed image in `NAGARE_AUTH_SHOMEI_IMAGE`; `dev.local` is already skipped by Knative's
 controller-side tag resolver, and the non-`latest` tag lets kubelet use the
 locally imported image.
 
@@ -50,37 +50,27 @@ the server rollout. Shomei startup also migrates idempotently when the published
 history is unchanged and ensures an active signing key. The manifest reads
 `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` from Nagare's managed database Secret `nagare-db-shomei-db`, then
-builds `PG_CONNECTION_STRING` as a libpq keyword connection string. Create the
-database `shomei-db` in `nagare-system` before applying the service. The database
+builds `PG_CONNECTION_STRING` as a libpq keyword connection string. The reviewed
+auth component creates `shomei-db` in `nagare-system` before applying the service. The database
 name intentionally differs from the service name `shomei` to avoid a Kubernetes
 Service name collision.
 
-Shomei 0.2.0.0 repairs migration bugs by rewriting its existing 36-file history to
-be schema-qualified. The corrected SQL has different pg-migrate checksums, so an
-older `shomei-db` cannot be upgraded in place. Nagare has no auth data to preserve
-yet: delete and recreate `shomei-db` before installing this release. Do not use this
-discard policy for a deployment with retained data; that requires operator-led
-ledger remediation. The owning component is
+Shomei 0.2.0.0 repaired migration bugs by rewriting its existing 36-file history to
+be schema-qualified. The corrected SQL has different pg-migrate checksums, so a
+pre-0.2 database needs operator-led ledger remediation before this migration.
+Preserve its data and review that recovery separately. The owning component is
 `mori://shinzui/shomei/packages/shomei-migrations`.
 
-For an existing Nagare database created by pre-0.2 Shomei:
+For a new installation, publish and apply the complete reviewed bootstrap:
 
 ```bash
-nagarectl context show
-nagarectl db delete shomei-db --namespace nagare-system --yes
-nagarectl db create postgres shomei-db --namespace nagare-system
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
-```bash
-kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
-nagarectl db create postgres shomei-db --namespace nagare-system
-cluster/bootstrap/shomei/build-image.sh
-cluster/bootstrap/render-context-template.sh cluster/bootstrap/shomei/migrations.yaml | kubectl apply -f -
-kubectl -n nagare-system wait --for=condition=complete job/shomei-migrate --timeout=120s
-cluster/bootstrap/render-context-template.sh cluster/bootstrap/shomei/service.yaml | kubectl apply -f -
-```
-
-The install scripts create and preserve `nagare-shomei-keys`, whose
+The supported `cluster/bootstrap/auth-install.sh` entry point runs those same
+reviewed commands. The auth component creates and preserves `nagare-shomei-keys`, whose
 `key-encryption-key` value is mandatory at server startup. Readiness is served at
 `/health/ready` and liveness at `/health/live`.
 

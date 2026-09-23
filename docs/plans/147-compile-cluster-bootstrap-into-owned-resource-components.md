@@ -173,6 +173,7 @@ A component is an independently identified group of resources and operations, su
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [x] (2026-09-23) M4: Supported bootstrap recipes and installer entry points use reviewed inventory plan/apply; the standalone stamp command refuses. A disposable 17-scope/208-operation local bootstrap converged through readiness pauses, and an accepted replay verified 205 resources with zero updates. Stale resourceVersion, foreign owner, and replaced UID paths refuse. Non-bootstrap application/data and legacy upgrade paths remain assigned to EP-148/EP-149/EP-150.
+- [x] (2026-09-23) M4 documentation: En, Shomei, nagare-access, and local-auth guides now describe the reviewed bootstrap path and its immutable image inputs instead of directing operators to create databases and apply manifests outside inventory. The pre-0.2 Shomei note requires separate recovery review for retained data.
 
 
 ## Surprises & Discoveries

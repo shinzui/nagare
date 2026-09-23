@@ -1,8 +1,8 @@
 # nagare-access auth enforcer
 
 `nagare-access` is the shared identity-aware reverse proxy for protected Nagare
-sites. Install this directory only if the cluster should support
-`access = requireLogin`; it is deliberately not part of `just cluster-bootstrap`.
+sites. The reviewed auth bootstrap component installs it when the cluster
+supports `access = requireLogin`.
 
 ## Build the image
 
@@ -19,8 +19,8 @@ pushes it by default, and prints the image reference. Set
 workspace pins private `shinzui/shomei` and `shinzui/en` source repositories,
 set `GITHUB_TOKEN` when building in a fresh Docker environment; the Dockerfile
 consumes it as a BuildKit secret and removes the temporary Git rewrite before
-committing the build layer. Edit `service.yaml` to use the printed image before
-applying.
+committing the build layer. Set `NAGARE_AUTH_ACCESS_IMAGE` to the resulting
+immutable reference before publishing a bootstrap review.
 
 To avoid private GitHub fetches during Docker build, set
 `NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
@@ -47,15 +47,15 @@ NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/n
 ```
 
 This prints an image such as `dev.local/nagare-auth/nagare-access:<git-sha>`.
-Use the printed image in `service.yaml`; `dev.local` is already skipped by
+Use the printed image in `NAGARE_AUTH_ACCESS_IMAGE`; `dev.local` is already skipped by
 Knative's controller-side tag resolver, and the non-`latest` tag lets kubelet use
 the locally imported image.
 
 shomei and en now have matching local-source image helpers at
 `cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`.
 Their manifests expect managed PostgreSQL databases named `shomei-db` and
-`en-db` in the `nagare-system` namespace, created with
-`nagarectl db create postgres ...`.
+`en-db` in the `nagare-system` namespace, created by the same reviewed auth
+component.
 
 Every En request carries the read-only bearer value from
 `nagare-en-api-keys`. The installers generate and preserve that Secret; the CLI uses
@@ -63,15 +63,13 @@ its separate read-write value for relationship mutations.
 
 ## Install
 
-Create a real cookie key secret from the example, then apply. The renderer fills
-the image from the active context and the cookie domain as `.${NAGARE_BASE_DOMAIN}`:
+The reviewed auth component generates the cookie key only after confirming
+Secret absence and binds the cookie domain as `.${NAGARE_BASE_DOMAIN}`:
 
 ```bash
-cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
-# edit /tmp/nagare-access-secret.yaml: set cookie-key to a long random value
-kubectl apply -f /tmp/nagare-access-secret.yaml
-kubectl apply -f cluster/bootstrap/nagare-access/configmap.yaml
-cluster/bootstrap/render-context-template.sh cluster/bootstrap/nagare-access/service.yaml | kubectl apply -f -
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
 The Knative Service is always-on (`min-scale=1`) because protected-site traffic
