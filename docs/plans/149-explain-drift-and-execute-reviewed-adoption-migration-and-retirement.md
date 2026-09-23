@@ -94,6 +94,8 @@ The command-level adoption DTO already required an unowned observation, but the 
 
 Removing a scope also removes its active declaration from the accepted vector. A retained entry therefore stores the immutable old scope revision, not just a UID, so later status and claim validation can reconstruct the declaration even after the scope disappears. A review alone is insufficient: admission reobserves each retained UID under the writer lock before advancing the head.
 
+The head can encode an accepted resource and one retained incarnation under the same logical ID, but the observation set and adapter registry currently select one provider object per ResourceId. A reviewed rename must separately bind source and destination observations, carry the old native evidence through admission, and plan a phased operation graph before the existing retained-reactivation guard can be relaxed. A direct `UpdateResource` would not prove destination creation or preserve the source claim.
+
 
 ## Decision Log
 
@@ -240,3 +242,5 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-23: Recorded the narrow retained ConfigMap collection and adapter-proved operator recovery implementation. The remaining migration and provider coverage stays explicit in Progress.
 
 2026-09-23: Added Kubernetes condition health reporting to read-only status while retaining unknown health for unsupported kinds and failed observations.
+
+2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
