@@ -191,6 +191,9 @@ inventoryTransactionTests =
               (historyReservations retainedHistory))
             emptyInventory = ok (composeSnapshot retainedSnapshot)
         InventoryStatus.consumersOf retainedHistory emptyInventory resourceId @?= [dependentId]
+        map InventoryStatus.traceResource
+          (InventoryStatus.traceRetainedDependencies retainedHistory emptyInventory dependentId)
+          @?= [resourceId]
         let competing = member otherOwner cluster "legacy"
             competingScope = ok (mkScopeDeclaration otherOwner
               [ResourceBundle [competing] [] [] [] [] []])

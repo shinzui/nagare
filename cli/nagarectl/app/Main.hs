@@ -4470,6 +4470,7 @@ runInventoryStatus mctx requested json = do
             pure (Aeson.object (baseFields <>
               [ "finding" Aeson..= finding
               , "dependencies" Aeson..= (resource ^. #dependencies)
+              , "dependencyTrace" Aeson..= InventoryStatus.traceRetainedDependencies history inventory resourceId
               , "consumers" Aeson..= InventoryStatus.consumersOf history inventory resourceId
               , "recoveryReason" Aeson..= ("retained incarnation requires explicit collection or recovery review" :: Text)
               ]), "Retained resource " <> Resource.resourceIdText resourceId)

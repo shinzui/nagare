@@ -9,6 +9,7 @@ module Nagare.Inventory.Status
   , RetainedFinding (..)
   , classifyDrift
   , traceDependencies
+  , traceRetainedDependencies
   , consumersOf
   , retainedFindings
   , loadAcceptedNative
@@ -31,6 +32,7 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -49,16 +51,27 @@ data DependencyTrace = DependencyTrace
 -- | Follow the composed declaration graph. The visited set bounds the walk
 -- even if a malformed inventory somehow reaches this read-only path.
 traceDependencies :: ValidatedInventory -> ResourceId -> [DependencyTrace]
-traceDependencies inventory start = go Set.empty [(start, 1)]
+traceDependencies inventory = traceKnownDependencies inventory Map.empty
+
+traceRetainedDependencies :: InventoryHistory -> ValidatedInventory -> ResourceId -> [DependencyTrace]
+traceRetainedDependencies history inventory =
+  traceKnownDependencies inventory (historyRetained history)
+
+traceKnownDependencies
+  :: ValidatedInventory -> Map ResourceId (Store.RetainedIncarnation, ManagedResource)
+  -> ResourceId -> [DependencyTrace]
+traceKnownDependencies inventory retainedEntries start = go Set.empty [(start, 1)]
   where
     declarations = Map.fromList
-      [(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
+      ([(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
+        <> [(resourceId, Managed resource) | (resourceId, (_, resource)) <- Map.toAscList retainedEntries])
     declaredScopes = Map.fromList
-      [ (declarationId declaration, scope)
+      ([ (declarationId declaration, scope)
       | (scope, scopeDeclaration) <- Map.toAscList (inventoryScopes inventory)
       , bundle <- scopeBundles scopeDeclaration
       , declaration <- declarationsIn bundle
-      ]
+      ] <> [(resourceId, retainedOwner incarnation)
+           | (resourceId, (incarnation, _)) <- Map.toAscList retainedEntries])
     declarationsIn bundle = bundle ^. #declarations
     target dependency = case dependency of
       Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)

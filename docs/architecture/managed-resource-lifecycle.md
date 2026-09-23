@@ -61,7 +61,8 @@ bytes in their original accepted review and distinguish the retained UID from a
 replacement, absence, foreign ownership, or an unavailable provider. These
 observations do not grant collection authority. Explain includes consumers
 among both active and retained declarations, so retiring two related resources
-does not erase their dependency relationship.
+does not erase their dependency relationship. A retained resource's own
+`dependencyTrace` also follows those historical declarations to their owners.
 
 Collection still refuses until a separate reviewed deletion path can prove
 retention policy, dependent consumers, exact live identity, recovery evidence,
