@@ -5,6 +5,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -791,7 +792,46 @@ inventoryKubernetesTests =
                 ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
                  "--namespace", "default", "-o", "jsonpath={.data.message}:{.metadata.annotations.probe}"] ""
               readCode @?= ExitSuccess
-              live @?= "initial:concurrent") `finally` cleanup
+              live @?= "initial:concurrent"
+              freshObservation <- observeWithRegistry (registry next)
+                (requirementsByExecutor (observationRequirements nextCandidate history)) >>= expectRight
+              let freshProposal = ok (planChanges nextCandidate noLifecycleDecisions history freshObservation)
+              freshSnapshot <- readStoreSnapshot store >>= expectRight
+              uidReview <- prepareReview (registry next) freshSnapshot freshProposal >>= expectRight
+              _ <- publishReview store uidReview >>= expectRight
+              (originalCode, originalJson, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
+                 "--namespace", "default", "-o", "json"] ""
+              originalCode @?= ExitSuccess
+              original <- expectRight (first T.pack (eitherDecodeStrict (BC.pack originalJson)))
+              (oldUid, replacement) <- case original of
+                Object fields | Just (Object metadata) <- KM.lookup "metadata" fields
+                  , Just (String uid) <- KM.lookup "uid" metadata -> do
+                    let retained = KM.filterWithKey (\key _ -> key `elem`
+                          ["name", "namespace", "labels", "annotations"]) metadata
+                    pure (uid, Object (KM.insert "metadata" (Object retained)
+                      (KM.delete "status" fields)))
+                _ -> assertFailure "disposable ConfigMap has no UID or metadata"
+              (removed, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "delete", "configmap", "nagare-ep147-stale",
+                 "--namespace", "default"] ""
+              removed @?= ExitSuccess
+              (recreated, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "create", "-f", "-"]
+                (BC.unpack (ok (canonicalValue replacement)))
+              recreated @?= ExitSuccess
+              (newCode, newUid, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
+                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
+              newCode @?= ExitSuccess
+              assertBool "disposable replacement kept its UID" (T.strip (T.pack newUid) /= oldUid)
+              replacedSnapshot <- readStoreSnapshot store >>= expectRight
+              reviewedUid <- expectRight (verifyReview replacedSnapshot uidReview)
+              uidResult <- applyReviewed store (registry next) reviewedUid
+              case uidResult of
+                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                other -> assertFailure ("replaced UID was accepted by reviewed apply: " <> show other)
+              ) `finally` cleanup
     , testCase "disposable cluster updates a reviewed Namespace label" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
