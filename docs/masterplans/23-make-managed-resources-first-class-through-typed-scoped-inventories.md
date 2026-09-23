@@ -175,6 +175,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M2c partial: Logical Attic caches have a distinct provider address, desired spec, and executor; the command registry refuses native execution until the cache adapter is installed.
 - [x] (2026-09-22) EP-147 M3 partial: Pinned upstream direct members have ordered CRD, workload, and inter-release prerequisites; reviewed Kubernetes execution waits for CRD establishment and current-generation Deployment availability. CLI regression suite passes.
 - [x] (2026-09-22) EP-147 M3 partial: A single production pinned-upstream constructor composes the full foundation and four release scopes with exact native membership; the public bootstrap route and context-specific components remain open.
+- [x] (2026-09-22) EP-147 M3 partial: The pinned foundation/cache/four-release candidate composes as six scopes without direct claim conflicts.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

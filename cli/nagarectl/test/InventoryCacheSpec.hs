@@ -13,7 +13,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cache
 import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
@@ -119,6 +119,11 @@ inventoryCacheTests = testGroup "cache inventory adapter"
         (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
       Map.size bootstrapNative @?= 18
+      (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundationInput
+        (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) "../.." >>= expectRight
+      Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 6
+      assertBool "full cache and upstream bootstrap dropped native members"
+        (Map.size fullNative > Map.size bootstrapNative + 100)
       (withoutCache, foundationOnly) <- compileBootstrapCandidate snapshot
         (BootstrapInput foundationInput Nothing []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory withoutCache)) @?= 1

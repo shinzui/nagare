@@ -7,7 +7,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Upstream
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
