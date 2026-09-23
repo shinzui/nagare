@@ -7,17 +7,22 @@ context=''
 expected_project=''
 dry_run=0
 yes=0
+nagarectl_bin="${NAGARECTL_BIN:-nagarectl}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --context) context="${2:-}"; shift 2 ;;
     --expected-project) expected_project="${2:-}"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
     --yes) yes=1; shift ;;
+    --nagarectl) nagarectl_bin="${2:-}"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$context" ] && [ -n "$expected_project" ] || {
   echo 'provide --context and --expected-project' >&2; exit 2;
+}
+[ -n "$nagarectl_bin" ] && command -v "$nagarectl_bin" >/dev/null || {
+  echo 'selected nagarectl executable is unavailable' >&2; exit 2;
 }
 export NAGARE_CONTEXT="$context"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +34,8 @@ source "$script_dir/lib/target.sh"
 
 if [ "$dry_run" -eq 1 ]; then
   printf 'context=%s project=%s\n' "$context" "$expected_project"
-  printf 'nagarectl inventory store migrate --to gcs --dry-run\n'
+  printf 'binary=%s\n' "$nagarectl_bin"
+  printf '%s inventory store migrate --to gcs --dry-run\n' "$nagarectl_bin"
   printf 'with --yes: migrate, compare store status and exact export from two XDG state roots\n'
   printf 'the destination bucket prefix and its objects remain in place\n'
   exit 0
@@ -40,15 +46,15 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/nagare-inventory-rehearsal.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 chmod 700 "$scratch"
 
-nagarectl inventory store migrate --to gcs --yes
-nagarectl inventory store status --json > "$scratch/first-status.json"
-nagarectl inventory export --out "$scratch/first-export"
+"$nagarectl_bin" inventory store migrate --to gcs --yes
+"$nagarectl_bin" inventory store status --json > "$scratch/first-status.json"
+"$nagarectl_bin" inventory export --out "$scratch/first-export"
 
 mkdir -m 700 "$scratch/second-state" "$scratch/second-cache"
 XDG_STATE_HOME="$scratch/second-state" XDG_CACHE_HOME="$scratch/second-cache" \
-  nagarectl inventory store status --json > "$scratch/second-status.json"
+  "$nagarectl_bin" inventory store status --json > "$scratch/second-status.json"
 XDG_STATE_HOME="$scratch/second-state" XDG_CACHE_HOME="$scratch/second-cache" \
-  nagarectl inventory export --out "$scratch/second-export"
+  "$nagarectl_bin" inventory export --out "$scratch/second-export"
 
 python3 - "$scratch/first-status.json" "$scratch/second-status.json" <<'PY'
 import json
