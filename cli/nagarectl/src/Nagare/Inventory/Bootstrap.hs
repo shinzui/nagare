@@ -244,12 +244,61 @@ compileBootstrapCandidate snapshot input = do
     -- The input order is the reviewed installation order of pinned operator
     -- releases. Later releases may include CRs whose CRDs and webhooks live in
     -- earlier scopes, so readiness of every earlier direct member is required.
-    orderUpstreamPhases = go []
+    orderUpstreamPhases components = go [] components
       where
+        servingCertificateIds =
+          [resource ^. #identity
+          | (bundle, _) <- components
+          , Managed resource <- declarations bundle
+          , isServingCertificate resource]
+        netControllerIds =
+          [resource ^. #identity
+          | (bundle, _) <- components
+          , Managed resource <- declarations bundle
+          , resource ^. #owner == knownNetCertManager
+          , case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+        netCertificateIssuerIds =
+          [resource ^. #identity
+          | (bundle, _) <- components
+          , Managed resource <- declarations bundle
+          , resource ^. #owner == knownNetCertManager
+          , case resource ^. #address of
+              Kubernetes _ "cert-manager.io" kind Nothing name ->
+                nameText kind == "clusterissuer" && nameText name == "knative-selfsigned-issuer"
+              _ -> False]
+        certificateConfigIds =
+          [resource ^. #identity
+          | (bundle, _) <- components
+          , Managed resource <- declarations bundle
+          , isCertificateConfig resource]
+        isCertificateConfig resource = case resource ^. #address of
+          Kubernetes _ "" kind (Just namespaceName) name ->
+            nameText kind == "configmap" && nameText namespaceName == "knative-serving"
+              && nameText name == "config-certmanager"
+          _ -> False
+        isServingDeployment resource = resource ^. #owner == knownServing
+          && case resource ^. #address of
+            Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+            _ -> False
+        knownServing = either (error . show) id (mkScopeId Platform "serving")
+        knownNetCertManager = either (error . show) id (mkScopeId Platform "net-certmanager")
+        isServingCertificate resource = resource ^. #owner == knownServing
+          && case resource ^. #address of
+            Kubernetes _ "networking.internal.knative.dev" kind (Just _) _ ->
+              nameText kind == "certificate"
+            _ -> False
         go _ [] = []
         go prior ((bundle, native) : remaining) =
           let attach resource = resource
-                {dependencies = map OrderedAfter prior <> resource ^. #dependencies}
+                {dependencies = map OrderedAfter
+                  ((if isCertificateConfig resource then []
+                      else filter (`notElem` servingCertificateIds) prior)
+                    <> (if isServingDeployment resource then certificateConfigIds else [])
+                    <> (if isServingCertificate resource
+                          then netControllerIds <> netCertificateIssuerIds else []))
+                  <> resource ^. #dependencies}
               revised = [(resource ^. #identity, attach resource)
                 | Managed resource <- declarations bundle]
               byId = Map.fromList revised

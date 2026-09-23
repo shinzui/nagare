@@ -287,6 +287,14 @@ requireSameBefore mutation current =
       KubernetesPresent _ _ (Just owner) digest
         | owner == mutationResource mutation && digest == mutationNativeDigest mutation -> Right ()
       _ -> Left "declared Kubernetes Job is not complete at the reviewed digest"
+    else if mutationAction mutation == VerifyResource
+      then case (mutationBefore mutation, current) of
+        (KubernetesPresent expectedPhysical _ (Just expectedOwner) expectedDigest,
+          KubernetesPresent physical _ (Just owner) digest)
+          | expectedPhysical == physical && expectedOwner == owner
+          , owner == mutationResource mutation
+          , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
+        _ -> Left "Kubernetes object identity or desired fields changed since review"
     else if current == mutationBefore mutation
       then Right ()
       else Left "Kubernetes object changed since review; replan before mutation"

@@ -57,6 +57,16 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
             case resource ^. #address of
               Kubernetes _ "" kind (Just _) _ -> nameText kind == "serviceaccount"
               _ -> False]
+          servingMembers = [resource | Managed resource <- declarations (fst serving)]
+          servingDeployments = [resource ^. #identity | resource <- servingMembers,
+            case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+          servingCustomResources = [resource | resource <- servingMembers,
+            case resource ^. #address of
+              Kubernetes _ group _ _ _ -> group `elem`
+                ["caching.internal.knative.dev", "networking.internal.knative.dev", "serving.knative.dev"]
+              _ -> False]
       assertBool "upstream release members were dropped" (length resources > 100)
       assertBool "cert-manager release lacks expected readiness fixtures" (not (null certCrds) && not (null certDeployments) && not (null certServiceAccounts))
       assertBool "cert-manager direct objects precede CRD consumers"
@@ -65,6 +75,10 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       assertBool "cert-manager Deployment starts after its prerequisites"
         (all (\resource -> all (\account -> OrderedAfter account `elem` resource ^. #dependencies) certServiceAccounts)
           certDeployments)
+      assertBool "Knative custom resources start after webhook deployments"
+        (not (null servingCustomResources) && all (\resource ->
+          all (\deployment -> OrderedAfter deployment `elem` resource ^. #dependencies) servingDeployments)
+          servingCustomResources)
       Map.size native @?= length resources
       _ <- expectRight (validateSuppliedKubernetesMembers resources native)
       case scopes of
@@ -90,9 +104,51 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
           netMembers = [resource | resource <- allMembers,
             resource ^. #owner == componentOwner "net-certmanager",
             case resource ^. #address of Kubernetes _ _ _ (Just name) _ -> name == known "knative-serving"; _ -> False]
+          certConfig = [resource | resource <- netMembers,
+            case resource ^. #address of
+              Kubernetes _ "" kind _ name -> nameText kind == "configmap" && nameText name == "config-certmanager"
+              _ -> False]
+          laterNetMembers = [resource | resource <- netMembers, resource `notElem` certConfig]
+          servingDeployments = [resource | resource <- allMembers,
+            resource ^. #owner == componentOwner "serving",
+            case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+          servingCertificates = [resource | resource <- allMembers,
+            resource ^. #owner == componentOwner "serving",
+            case resource ^. #address of
+              Kubernetes _ "networking.internal.knative.dev" kind (Just _) _ -> nameText kind == "certificate"
+              _ -> False]
+          netControllers = [resource | resource <- allMembers,
+            resource ^. #owner == componentOwner "net-certmanager",
+            case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+          netCaIssuers = [resource | resource <- allMembers,
+            resource ^. #owner == componentOwner "net-certmanager",
+            case resource ^. #address of
+              Kubernetes _ "cert-manager.io" kind Nothing name ->
+                nameText kind == "clusterissuer" && nameText name == "knative-selfsigned-issuer"
+              _ -> False]
       assertBool "ordered upstream scope does not wait for prior operator readiness"
-        (not (null servingMembers) && not (null netMembers)
-          && all (\resource -> all (\prior -> OrderedAfter prior `elem` resource ^. #dependencies) servingMembers) netMembers)
+        (not (null servingMembers) && not (null laterNetMembers)
+          && all (\resource -> all (\prior ->
+            prior `elem` map (^. #identity) servingCertificates
+              || OrderedAfter prior `elem` resource ^. #dependencies) servingMembers) laterNetMembers)
+      assertBool "Serving Deployments wait for the transferred certificate ConfigMap"
+        (case certConfig of
+          [config] -> not (null servingDeployments)
+            && all (elem (OrderedAfter (config ^. #identity)) . (^. #dependencies)) servingDeployments
+            && all (\deployment -> OrderedAfter (deployment ^. #identity) `notElem` (config ^. #dependencies)) servingDeployments
+          _ -> False)
+      assertBool "Serving certificates wait for net-certmanager without forming a phase cycle"
+        (not (null servingCertificates) && not (null netControllers) && length netCaIssuers == 1
+          && all (\certificate -> all (\controller ->
+            OrderedAfter (controller ^. #identity) `elem` certificate ^. #dependencies) netControllers) servingCertificates
+          && all (\certificate -> all (\issuer ->
+            OrderedAfter (issuer ^. #identity) `elem` certificate ^. #dependencies) netCaIssuers) servingCertificates
+          && all (\controller -> all (\certificate ->
+            OrderedAfter (certificate ^. #identity) `notElem` (controller ^. #dependencies)) servingCertificates) netControllers)
       case namespaceIds of
         [namespaceId] -> assertBool "net-certmanager lacks the serving Namespace prerequisite"
           (not (null netMembers) && all (elem (OrderedAfter namespaceId) . (^. #dependencies)) netMembers)
@@ -100,6 +156,50 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundation Nothing "../.." >>= expectRight
       Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 5
       Map.size fullNative @?= Map.size native + 3
+  , testCase "Kourier gateway waits for its xDS controller" $ do
+      configured <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
+        "registry.example.test" "cluster/bootstrap/knative-serving/config-certmanager.yaml"
+        >>= expectRight
+      kourierInput <- case configured of
+        [_, _, input, _] -> pure input
+        _ -> assertFailure "configured Kourier component is missing" >> pure (error "unreachable")
+      (bundle, _) <- compileUpstream kourierInput >>= expectRight
+      let workloads = [resource | Managed resource <- declarations bundle,
+            case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+          gateway = [resource | resource <- workloads,
+            case resource ^. #address of Kubernetes _ _ _ _ name -> nameText name == "3scale-kourier-gateway"; _ -> False]
+          controller = [resource | resource <- workloads,
+            case resource ^. #address of Kubernetes _ _ _ _ name -> nameText name == "net-kourier-controller"; _ -> False]
+      assertBool "Kourier gateway can start before its xDS controller"
+        (case (gateway, controller) of
+          ([oneGateway], [oneController]) ->
+            OrderedAfter (oneController ^. #identity) `elem` oneGateway ^. #dependencies
+          _ -> False)
+  , testCase "net-certmanager CA waits for its issuer before certificate readiness" $ do
+      configured <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
+        "registry.example.test" "cluster/bootstrap/knative-serving/config-certmanager.yaml"
+        >>= expectRight
+      netInput <- case configured of
+        [_, _, _, input] -> pure input
+        _ -> assertFailure "configured net-certmanager component is missing" >> pure (error "unreachable")
+      (bundle, _) <- compileUpstream netInput >>= expectRight
+      let members = [resource | Managed resource <- declarations bundle]
+          named kind wanted = [resource | resource <- members,
+            case resource ^. #address of
+              Kubernetes _ "cert-manager.io" actualKind _ name ->
+                nameText actualKind == kind && nameText name == wanted
+              _ -> False]
+      case (named "clusterissuer" "selfsigned-cluster-issuer",
+            named "certificate" "knative-selfsigned-ca",
+            named "clusterissuer" "knative-selfsigned-issuer") of
+        ([selfSigned], [certificate], [caIssuer]) -> do
+          assertBool "CA certificate precedes its self-signed issuer"
+            (OrderedAfter (selfSigned ^. #identity) `elem` certificate ^. #dependencies)
+          assertBool "CA-backed issuer precedes its certificate"
+            (OrderedAfter (certificate ^. #identity) `elem` caIssuer ^. #dependencies)
+        _ -> assertFailure "net-certmanager CA chain is incomplete"
   , testCase "changed asset digest refuses before review" $ do
       result <- compileUpstream (component "cert-manager"
         [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", digest (replicateText 64 "0"))])

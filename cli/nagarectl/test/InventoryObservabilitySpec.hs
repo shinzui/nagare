@@ -340,6 +340,9 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
             replayMarker = [operation | operation <- proposalOperations replayProposal,
               any (`elem` stampIds) (plannedResources operation)]
         assertBool "accepted bootstrap has no native no-op checks" (not (null checks))
+        assertBool "accepted bootstrap scheduled unchanged resources for update"
+          (not (any ((== UpdateResource) . plannedAction) (proposalOperations replayProposal)))
+        length [operation | operation <- checks, plannedExecutor operation == HelmExecutor] @?= 5
         case replayMarker of
           [markerCheck] -> do
             plannedAction markerCheck @?= VerifyResource

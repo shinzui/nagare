@@ -4161,21 +4161,43 @@ runPlatformBootstrapPlan mctx output = do
     (BootstrapInput foundation Nothing upstream [controllerImageScope]) auth authDatabases
     (maybe [] (pure . fst) localStore)
     >>= either (dieT . T.pack . show) pure
-  let (cacheScopes, cacheNative) = case cacheComponent of
+  let certManagerOwner = either (error . T.unpack) (\scope -> scope) (Resource.mkScopeId Resource.Platform "cert-manager")
+      certManagerIds =
+        [resource ^. #identity
+        | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base)
+        , resource ^. #owner == certManagerOwner]
+      orderHelm resource
+        | resource ^. #executor == ResourceInventory.HelmExecutor = resource
+            {ResourceInventory.dependencies = map ResourceReference.OrderedAfter certManagerIds
+              <> resource ^. #dependencies}
+        | otherwise = resource
+      orderDeclaration = \case
+        ResourceInventory.Managed resource -> ResourceInventory.Managed (orderHelm resource)
+        other -> other
+      orderScope scope = ResourceInventory.mkScopeDeclaration
+        (ResourceInventory.scopeId scope)
+        [bundle {ResourceInventory.declarations = map orderDeclaration (ResourceInventory.declarations bundle)}
+        | bundle <- ResourceInventory.scopeBundles scope]
+  orderedObservabilityScopes <- either (dieT . T.pack . show) pure
+    (traverse orderScope observabilityScopes)
+  let
+      orderedObservabilityNative = Map.map (\(resource, bytes) -> (orderHelm resource, bytes)) observabilityNative
+      (cacheScopes, cacheNative) = case cacheComponent of
         Nothing -> ([], Map.empty)
         Just (imageScope, cacheScope, native) -> ([imageScope, cacheScope], native)
       localNative = maybe Map.empty snd localStore
-      nativeMaps = [baseNative, observabilityNative, extraNative, secretNative, cacheNative, localNative]
+      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative]
       native = Map.unions nativeMaps
   unless (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
-  extra <- case observabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
+  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges base <> extra))
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-  installedAt <- currentTimestamp
+  installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
+    (identityFromPayload manifest) candidate
   (stampScope, stampNative) <- either (dieT . T.pack . show) pure
     (compileBootstrapStamp cluster (clusterMarkerValue (identityFromPayload manifest) installedAt) candidate)
   stamped <- either (dieT . T.pack . show) pure
@@ -4186,6 +4208,43 @@ runPlatformBootstrapPlan mctx output = do
     (dieT "bootstrap completion marker shares a native identity")
   Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace completeNative)
     active stamped output
+
+-- Reuse the recorded install time only when it reconstructs the accepted
+-- marker's exact desired specification. A changed payload gets a new time;
+-- a changed live marker remains visible as drift to the inventory planner.
+acceptedBootstrapInstalledAt
+  :: ActiveTarget -> ResourceInventory.ScopeSnapshot -> Resource.ResourceId
+  -> ReleaseIdentity -> ResourceInventory.CompositionCandidate -> IO Text
+acceptedBootstrapInstalledAt active snapshot cluster identity candidate = do
+  now <- currentTimestamp
+  let owner = either (error . T.unpack) (\scope -> scope)
+        (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
+      acceptedSpecs =
+        [resource ^. #spec
+        | Just (_, scope) <- [Map.lookup owner (ResourceInventory.snapshotScopes snapshot)]
+        , bundle <- ResourceInventory.scopeBundles scope
+        , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle]
+  case acceptedSpecs of
+    [acceptedSpec] -> do
+      (code, output, err) <- readProcessWithExitCode "kubectl"
+        ["--context", T.unpack (contextNameText (active ^. #contextName))
+        , "-n", "nagare-system", "get", "configmap", "nagare-platform-version"
+        , "-o", "json", "--ignore-not-found"] ""
+      unless (code == ExitSuccess)
+        (dieT ("could not inspect accepted bootstrap marker: " <> T.pack err))
+      case Aeson.eitherDecodeStrict' (BC.pack output) :: Either String Aeson.Value of
+        Right (Aeson.Object live) -> case AesonMap.lookup "data" live of
+          Just (Aeson.Object fields) -> case AesonMap.lookup "installedAt" fields of
+            Just (Aeson.String installedAt) | not (T.null installedAt) -> do
+              let expected = compileBootstrapStamp cluster
+                    (clusterMarkerValue identity installedAt) candidate
+              pure $ case expected of
+                Right (_, native) | any ((== acceptedSpec) . (^. #spec) . fst) (Map.elems native) -> installedAt
+                _ -> now
+            _ -> pure now
+          _ -> pure now
+        _ -> pure now
+    _ -> pure now
 
 readBootstrapKubeVersion :: ActiveTarget -> IO Text
 readBootstrapKubeVersion active = do

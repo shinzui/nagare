@@ -66,7 +66,7 @@ compileLocalObjectStore root foundation store
     service = address "v1" "Service" (Just "nagare-system") "minio"
     bucketJob = address "batch/v1" "Job" (Just "nagare-system") "minio-make-bucket"
     manifestPath = "cluster/local/minio/minio.yaml"
-    manifestDigest = known (mkContentDigest "579ff670df8f6162d7cde330f3504d3ea2cf72ba9f7a8b778dc1e0fcc6ca44bd")
+    manifestDigest = known (mkContentDigest "6a7a311d1fb5b842eed85625d907bffa0ef88d215110339001a65cf2b9c03961")
     credentialTemplate (location, Object fields)
       | KM.lookup "kind" fields == Just (String "Secret") = do
           metadata <- case KM.lookup "metadata" fields of

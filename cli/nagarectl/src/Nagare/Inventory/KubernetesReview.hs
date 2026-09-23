@@ -27,11 +27,10 @@ kubernetesSpecsFromReview
   -> Either Text (Map ResourceId (ManagedResource, ByteString))
 kubernetesSpecsFromReview bundle = do
   scopes <- traverse (first (T.pack . show) . decodeScope) (Map.elems (reviewBundleScopes bundle))
+  effective <- first (T.pack . show) (composedDeclarations (Map.fromList [(scopeId scope, scope) | scope <- scopes]))
   let declarationsById = Map.fromList
         [ (resource ^. #identity, resource)
-        | scope <- scopes
-        , resourceBundle <- scopeBundles scope
-        , Managed resource <- declarations resourceBundle
+        | Managed resource <- effective
         ]
       context = reviewContextBinding (reviewBundleDocument bundle) ^. #identity
       operations =
@@ -84,6 +83,12 @@ kubernetesSpecsFromReview bundle = do
           , inputSensitivity = declaration ^. #sensitivity
           , sourceLocation = declaration ^. #source
           }
-      unless (address recompiled == address declaration && spec recompiled == spec declaration && rebound == native)
+      let generatedNamespace = declaration ^. #spec == NamespaceSpec Nothing
+            && declaration ^. #source . #file == "contribution"
+          reboundDeclaration = recompiled
+            { dependencies = declaration ^. #dependencies
+            , spec = if generatedNamespace then NamespaceSpec Nothing else recompiled ^. #spec
+            }
+      unless (reboundDeclaration == declaration && rebound == native)
         (Left "reviewed Kubernetes native object differs from its typed declaration")
       pure (resource, (declaration, native))

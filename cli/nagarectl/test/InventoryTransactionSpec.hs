@@ -46,6 +46,50 @@ inventoryTransactionTests =
         withSystemTempDirectory "inventory-store" $ \root -> do
           filesystem <- openFilesystemStore root >>= expectRight
           exerciseStore filesystem
+    , testCase "dependency order does not turn an accepted resource into an update" $ do
+        let owner = ok (mkScopeId Platform "dependency-order")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            first = member owner cluster "first"
+            second = member owner cluster "second"
+            dependent = case member owner cluster "dependent" of
+              Managed value -> value
+              _ -> error "test member must be managed"
+            firstId = declarationId first
+            secondId = declarationId second
+            original = ok (mkScopeDeclaration owner [ResourceBundle
+              [first, second, Managed (dependent {dependencies =
+                [OrderedAfter firstId, OrderedAfter secondId]})] [] [] [] [] []])
+            reordered = ok (mkScopeDeclaration owner [ResourceBundle
+              [first, second, Managed (dependent {dependencies =
+                [OrderedAfter secondId, OrderedAfter firstId]})] [] [] [] [] []])
+            absent = contentDigest "absent"
+            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "dependency-order-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let initial = ok (composeInventory
+              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope original :| []))
+            initialProposal = ok (planChanges initial noLifecycleDecisions initialHistory
+              (ok (observationSet [(resource, ConfirmedAbsent absent)
+                | resource <- Set.toAscList (requiredResources (observationRequirements initial initialHistory))])))
+        snapshot <- readStoreSnapshot store >>= expectRight
+        review <- prepareReview registry snapshot initialProposal >>= expectRight
+        _ <- publishReview store review >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        admitted <- expectRight (verifyReview published review)
+        _ <- applyReviewed store registry admitted >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value))
+              (historyAccepted history)
+            replay = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
+              (ReplaceScope reordered :| []))
+            observed = ok (observationSet
+              [(resource, ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource))))
+              | resource <- Set.toAscList (requiredResources (observationRequirements replay history))])
+            proposal = ok (planChanges replay noLifecycleDecisions history observed)
+        proposalOperations proposal @?= []
     , testCase "a second namespace contributor does not recreate the accepted shared resource" $ do
         let owner = ok (mkScopeId Platform "foundation")
             firstContributor = ok (mkScopeId Application "first")

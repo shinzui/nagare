@@ -163,13 +163,27 @@ configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
                 , (config "config-deployment", Map.singleton "registriesSkippingTagResolving"
                     (Just ("kind.local,ko.local,dev.local," <> registryHost)))
                 ]}
-            , kourier
-            , net {upstreamConfigMapData = Map.singleton (config "config-certmanager") certificateData}
+            , kourier {upstreamAfter = Map.singleton
+                (deployment "kourier-system" "3scale-kourier-gateway")
+                [deployment "knative-serving" "net-kourier-controller"]}
+            , net
+                { upstreamConfigMapData = Map.singleton (config "config-certmanager") certificateData
+                , upstreamAfter = Map.fromList
+                    [ (certificateAddress "knative-selfsigned-ca", [issuer "selfsigned-cluster-issuer"])
+                    , (issuer "knative-selfsigned-issuer", [certificateAddress "knative-selfsigned-ca"])
+                    ]
+                }
             ]
           _ -> Left "pinned upstream release set is incomplete"
   where
     config name = either (error . T.unpack) id
       (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") name)
+    deployment namespaceName name = either (error . T.unpack) id
+      (kubernetesAddress cluster "apps/v1" "Deployment" (Just namespaceName) name)
+    issuer name = either (error . T.unpack) id
+      (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
+    certificateAddress name = either (error . T.unpack) id
+      (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") name)
     readPatch relative = do
       loaded <- try (BS.readFile (root </> relative)) :: IO (Either IOException ByteString)
       pure $ do
@@ -292,9 +306,10 @@ compileUpstream input = do
     unless (all (`Map.member` resourceIds) (concat (Map.elems (upstreamAfter input))))
       (Left (single (invalid "upstream ordering prerequisite is absent from the component")))
     let crdIds = [resource ^. #identity | (resource, _) <- retained, isCrd resource]
+        deploymentIds = [resource ^. #identity | (resource, _) <- retained, isDeployment resource]
         prerequisites = [resource ^. #identity | (resource, _) <- retained,
-          not (isCrd resource || isDeployment resource)]
-        ordered = map (addDependencies dependencies resourceIds crdIds prerequisites) retained
+          not (isCrd resource || isDeployment resource || isWebhookCustomResource resource)]
+        ordered = map (addDependencies dependencies resourceIds crdIds deploymentIds prerequisites) retained
     let bundle = ResourceBundle (map (Managed . fst) ordered) [] [] [] [] []
     pure (bundle, Map.fromList [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- ordered])
   where
@@ -341,12 +356,13 @@ compileUpstream input = do
           , prior {source = resource ^. #source} == resource -> Right existing
           | otherwise -> Left (single (invalid ("upstream assets give different content to "
               <> resourceIdText (resource ^. #identity))))
-    addDependencies dependencies resourceIds crdIds prerequisites (resource, bound) =
+    addDependencies dependencies resourceIds crdIds deploymentIds prerequisites (resource, bound) =
       let namespaceEdges = case resource ^. #address of
             Kubernetes _ _ _ (Just namespaceName) _ ->
               maybe [] (pure . OrderedAfter) (Map.lookup namespaceName dependencies)
             _ -> []
           crdEdges = if isCrd resource then [] else map OrderedAfter crdIds
+          webhookEdges = if isWebhookCustomResource resource then map OrderedAfter deploymentIds else []
           prerequisiteEdges = if isDeployment resource && upstreamOrderDeployments input
             then map OrderedAfter prerequisites else []
           explicitIds = mapMaybe (`Map.lookup` resourceIds)
@@ -356,7 +372,7 @@ compileUpstream input = do
             (Map.findWithDefault [] (resource ^. #address) (upstreamExternalAfter input))
           own = resource ^. #identity
           edges = filter (/= OrderedAfter own)
-            (namespaceEdges <> crdEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
+            (namespaceEdges <> crdEdges <> webhookEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
        in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
 
 isCrd :: ManagedResource -> Bool
@@ -367,6 +383,12 @@ isCrd resource = case resource ^. #address of
 isDeployment :: ManagedResource -> Bool
 isDeployment resource = case resource ^. #address of
   Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+  _ -> False
+
+isWebhookCustomResource :: ManagedResource -> Bool
+isWebhookCustomResource resource = case resource ^. #address of
+  Kubernetes _ group _ _ _ -> group `elem`
+    ["caching.internal.knative.dev", "networking.internal.knative.dev", "serving.knative.dev", "cert-manager.io"]
   _ -> False
 
 sensitivityOf :: Value -> Sensitivity

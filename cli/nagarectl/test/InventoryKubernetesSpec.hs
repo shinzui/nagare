@@ -16,6 +16,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Backup (renderDbBackupCronJob)
+import Nagare.Database.Secret (b64decode)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
@@ -24,6 +25,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
@@ -143,10 +145,18 @@ inventoryKubernetesTests =
                 (plannedOperationId check `elem` plannedDependencies markerCreate)
               _ -> assertFailure "bootstrap marker had no create operation"
             prepared <- adapterPrepare adapter check >>= expectRight
+            -- HPA and other controllers may advance resourceVersion through
+            -- status writes without changing the reviewed object.
+            writeIORef state (KubernetesPresent physical "6" (Just resource) (contentDigest nativeBytes))
             adapterPreflight adapter check prepared >>= expectRight
             adapterExecute adapter check prepared >>= (@?= AdapterEffectCompleted)
             readIORef calls >>= (@?= 1)
             _ <- adapterVerify adapter check prepared >>= expectRight
+            writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement")) "7"
+              (Just resource) (contentDigest nativeBytes))
+            changedIdentity <- adapterPreflight adapter check prepared
+            assertBool "no-op check accepted a replaced Kubernetes object"
+              (case changedIdentity of Left _ -> True; Right () -> False)
             pure ()
           _ -> assertFailure "unchanged accepted object lacked one health check"
         writeIORef state (KubernetesPresent physical "6" (Just resource) (contentDigest "drifted"))
@@ -252,6 +262,57 @@ inventoryKubernetesTests =
               ]
         assertBool "server extras should not drift" (desiredFieldsMatch desired (observed "reviewed"))
         assertBool "desired data change must drift" (not (desiredFieldsMatch desired (observed "changed")))
+    , testCase "CPU quantity canonicalisation does not create false Deployment drift" $ do
+        let workload cpu = object ["spec" .= object ["template" .= object ["spec" .= object
+              ["containers" .= [object ["resources" .= object ["limits" .= object ["cpu" .= (cpu :: Text)]]]]]]]]
+        assertBool "1000m and 1 CPU should match" (desiredFieldsMatch (workload "1000m") (workload "1"))
+        assertBool "fractional CPU forms should match" (desiredFieldsMatch (workload "500m") (workload "0.5"))
+        assertBool "different CPU quantities should drift" (not (desiredFieldsMatch (workload "500m") (workload "1")))
+        assertBool "ConfigMap strings must retain exact equality" (not (desiredFieldsMatch
+          (object ["data" .= object ["cpu" .= ("1000m" :: Text)]])
+          (object ["data" .= object ["cpu" .= ("1" :: Text)]])))
+    , testCase "omitted empty environment value matches Kubernetes default" $ do
+        let workload envValue = object ["spec" .= object ["template" .= object ["spec" .= object
+              ["containers" .= [object ["env" .= [envValue]]]]]]]
+            desired = workload (object ["name" .= ("MODE" :: Text), "value" .= ("" :: Text)])
+            defaulted = workload (object ["name" .= ("MODE" :: Text)])
+        assertBool "empty environment value should match omitted default" (desiredFieldsMatch desired defaulted)
+        assertBool "missing nonempty environment value should drift" (not (desiredFieldsMatch
+          (workload (object ["name" .= ("MODE" :: Text), "value" .= ("strict" :: Text)])) defaulted))
+        assertBool "unrelated empty values must retain exact equality" (not (desiredFieldsMatch
+          (object ["data" .= object ["value" .= ("" :: Text)]])
+          (object ["data" .= object []])))
+    , testCase "Serving webhook controller rules retain reviewed admission coverage" $ do
+        let webhook rules service = object
+              [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)
+              , "kind" .= ("MutatingWebhookConfiguration" :: Text)
+              , "metadata" .= object ["name" .= ("webhook.serving.knative.dev" :: Text)]
+              , "webhooks" .= [object
+                  [ "name" .= ("webhook.serving.knative.dev" :: Text)
+                  , "clientConfig" .= object ["service" .= (service :: Text)]
+                  , "rules" .= rules
+                  ]]
+              ]
+            rule groups versions resources = object
+              [ "apiGroups" .= (groups :: [Text])
+              , "apiVersions" .= (versions :: [Text])
+              , "resources" .= (resources :: [Text])
+              , "operations" .= (["CREATE", "UPDATE"] :: [Text])
+              , "scope" .= ("*" :: Text)
+              ]
+            desired = webhook [rule ["serving.knative.dev", "networking.internal.knative.dev"]
+              ["*"] ["services", "ingresses"]] "serving-webhook"
+            observed = webhook
+              [ rule ["serving.knative.dev"] ["v1"] ["services", "services/status"]
+              , rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses", "ingresses/status"]
+              ] "serving-webhook"
+        assertBool "controller-generated webhook rules should match reviewed coverage"
+          (desiredFieldsMatch desired observed)
+        assertBool "missing admission coverage should drift" (not (desiredFieldsMatch desired
+          (webhook [rule ["serving.knative.dev"] ["v1"] ["services"]] "serving-webhook")))
+        assertBool "changed webhook service should drift" (not (desiredFieldsMatch desired
+          (webhook [rule ["serving.knative.dev"] ["v1"] ["services"],
+            rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses"]] "other-webhook")))
     , testCase "Job completion requires the controller Complete condition" $ do
         let job conditions = object ["kind" .= ("Job" :: Text), "status" .= object ["conditions" .= conditions]]
             condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
@@ -295,6 +356,25 @@ inventoryKubernetesTests =
         generated <- materializeCredential reviewed >>= expectRight
         observed <- either (assertFailure . show) pure (eitherDecodeStrict (TE.encodeUtf8 generated))
         assertBool "auth credential did not produce the required private data" (credentialDataMatches enTemplate observed)
+        let shomeiTemplate = template "nagare-shomei-keys"
+        shomeiGenerated <- materializeCredential
+          (TE.decodeUtf8 (ok (canonicalValue shomeiTemplate))) >>= expectRight
+        shomeiObserved <- either (assertFailure . show) pure
+          (eitherDecodeStrict (TE.encodeUtf8 shomeiGenerated))
+        assertBool "Shomei credential did not produce the required private data"
+          (credentialDataMatches shomeiTemplate shomeiObserved)
+        case shomeiObserved of
+          Object root -> case KM.lookup "data" root of
+            Just (Object entries) -> case KM.lookup "key-encryption-key" entries of
+              Just (String encoded) -> case b64decode encoded of
+                Right keyText -> do
+                  T.length keyText @?= 44
+                  assertBool "Shomei key is not padded base64 for 32 bytes"
+                    (T.isSuffixOf "=" keyText)
+                Left problem -> assertFailure (T.unpack problem)
+              _ -> assertFailure "Shomei key data is absent"
+            _ -> assertFailure "Shomei Secret data is absent"
+          _ -> assertFailure "Shomei Secret is malformed"
         refused <- materializeCredential (TE.decodeUtf8 (ok (canonicalValue (template "unexpected"))))
         assertBool "unknown auth credential template was accepted" (either (const True) (const False) refused)
     , testCase "cache client fills only the typed generated-key slot after review" $ do
@@ -428,6 +508,31 @@ inventoryKubernetesTests =
         snapshotBefore <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
         kubernetesSpecsFromReview bundle @?= Right specs
+    , testCase "private review reconstructs contributed Namespace members" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let contributor = ok (mkScopeId Platform "helm-contributor")
+            namespace = ok (mkName "monitoring")
+            contribution = RegisterNamespace scope cluster namespace (ok (mkLogicalKey "namespace"))
+            ownerScope = ok (mkScopeDeclaration scope
+              [ResourceBundle [] [] [] [] [] [NamespaceGrant contributor cluster]])
+            contributorScope = ok (mkScopeDeclaration contributor
+              [ResourceBundle [] [] [] [contribution] [] []])
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope ownerScope :| [ReplaceScope contributorScope]))
+            contributed = ok (compileContributedNamespaces
+              (inventoryDeclarations (candidateInventory candidate)))
+            namespaceId = mintResourceId scope (ok (mkLogicalKey "monitoring")) (ok (mkName "namespace"))
+            registry = ok (mkAdapterRegistry [mkKubernetesAdapter contributed (ops state calls)])
+            observations = ok (observationSet [(namespaceId, ConfirmedAbsent absence)])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "contribution-review-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        snapshotBefore <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+        kubernetesSpecsFromReview bundle @?= Right contributed
     , testCase "private review deduplicates the same Job for create and migration proof" $ do
         let job = object
               [ "apiVersion" .= ("batch/v1" :: Text)

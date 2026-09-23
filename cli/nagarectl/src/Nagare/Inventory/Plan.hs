@@ -333,6 +333,13 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
             ]
           affectedChanges = mapMaybe (`Map.lookup` operationByResource) affected
        in (operation, planned {plannedDependencies = Set.toAscList (Set.fromList (affectedChanges <> prerequisites))})
+    sameManaged old resource = case old of
+      Managed previous ->
+        let canonicalDependencies value = value
+              {dependencies = Set.toAscList (Set.fromList (value ^. #dependencies))}
+         in canonicalBytes (toJSON (Managed (canonicalDependencies previous)))
+              == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
+      _ -> False
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->
@@ -347,14 +354,14 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
         Stateless | Set.member resourceId provenMigrationJobs
-          , canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource))
+          , sameManaged old resource
           , isMigrationJob (resource ^. #address) -> ([], Nothing)
         Stateless -> ([], Just (resourceOperation CreateResource resource))
         Durable _ -> ([PlanError "durable-resource-missing"
           "accepted durable resource is absent; recover its data before replanning" [resourceId]], Nothing)
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just old, _)
-        | canonicalBytes (toJSON old) == canonicalBytes (toJSON (Managed resource)) ->
+        | sameManaged old resource ->
             ([], if bootstrapReview && resource ^. #executor `elem` [KubernetesExecutor, HelmExecutor]
               then Just (resourceOperation VerifyResource resource) else Nothing)
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
