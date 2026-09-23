@@ -1906,7 +1906,7 @@ opts =
                   (info (pure PlatformGuard <**> helper) (progDesc "Refuse unsafe platform mutation when release versions are incompatible"))
                 <> command
                   "stamp"
-                  (info (pure PlatformStamp <**> helper) (progDesc "Record the active payload identity after successful cluster bootstrap"))
+                  (info (pure PlatformStamp <**> helper) (progDesc "Retired: use a reviewed platform bootstrap apply to record the payload identity"))
                 <> command
                   "bootstrap"
                   (info (bootstrapCommandParser <**> helper) (progDesc "Plan or apply reviewed cluster bootstrap resources"))
@@ -2864,11 +2864,8 @@ runPlatformGuard mctx = do
     Right () -> TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
 
 runPlatformStamp :: Maybe String -> IO ()
-runPlatformStamp mctx = do
-  active <- activeTarget mctx
-  (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
-  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
-  applyClusterMarker manifest >>= either dieT TIO.putStrLn
+runPlatformStamp _ =
+  dieT "platform stamp is retired; use platform bootstrap plan --out DIRECTORY, then platform bootstrap apply DIRECTORY --yes"
 
 runPlatformAdopt :: Maybe String -> String -> Bool -> Bool -> IO ()
 runPlatformAdopt mctx rawVersion yes asJson = do
