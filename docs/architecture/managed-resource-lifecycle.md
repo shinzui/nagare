@@ -24,6 +24,13 @@ stamps only Nagare's reserved annotations using one UID and resourceVersion test
 Patch. A changed object or owner refuses; a failed acknowledgement requires the ordinary
 journal recovery path. Preparing the review does not write to the managed object.
 
+For a transfer between known scopes, keep the same ResourceId in the new declaration,
+select both the prior and next scopes in the compiled candidate, and set
+`previousOwner` on that proposal resource to the exact prior ScopeId. The observed
+object must already carry the same logical identity and desired native content.
+The review runs an incarnation-bound verification before the transfer can converge.
+An unreviewed move between files or scopes is refused as `owner-transfer-required`.
+
 ## Retirement and migration
 
 Retirement and collection currently refuse. The head must first retain historical physical

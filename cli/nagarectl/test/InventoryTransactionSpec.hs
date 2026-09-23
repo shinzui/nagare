@@ -2,7 +2,7 @@ module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtu
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
-import Data.Aeson (toJSON)
+import Data.Aeson (eitherDecode, encode, toJSON)
 import Data.ByteString qualified as BS
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
@@ -19,6 +19,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
@@ -46,6 +47,21 @@ inventoryTransactionTests =
         withSystemTempDirectory "inventory-store" $ \root -> do
           filesystem <- openFilesystemStore root >>= expectRight
           exerciseStore filesystem
+    , testCase "active head permits retiring a converged scope during handoff" $ do
+        store <- newMemoryStore
+        initial <- initializeStore store fixtureBinding "handoff-test" >>= expectRight
+        let oldOwner = ok (mkScopeId Platform "old")
+            newOwner = ok (mkScopeId Platform "new")
+            revision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "scope")
+            handoff = initial
+              { headAccepted = Map.singleton newOwner revision
+              , headConverged = Map.singleton oldOwner revision
+              , headActiveTransaction = Just "tx-handoff"
+              }
+        eitherDecode (encode handoff) @?= Right handoff
+        case (eitherDecode (encode (handoff {headActiveTransaction = Nothing})) :: Either String HeadManifest) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "inactive head accepted a retired converged scope"
     , testCase "adoption decision binds the observed incarnation and context" $ do
         let owner = ok (mkScopeId Platform "adoption")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
@@ -83,6 +99,9 @@ inventoryTransactionTests =
             moved = case oldDeclaration of
               Managed value -> Managed (value {owner = newOwner})
               _ -> error "fixture resource must be managed"
+            movedAddress = case moved of
+              Managed value -> value ^. #address
+              _ -> error "fixture resource must be managed"
             resourceId = declarationId oldDeclaration
             oldScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [oldDeclaration] [] [] [] [] []])
             newScope = ok (mkScopeDeclaration newOwner [ResourceBundle [moved] [] [] [] [] []])
@@ -103,6 +122,18 @@ inventoryTransactionTests =
           Left errors -> assertBool "implicit scope transfer was accepted"
             ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))
           Right _ -> assertFailure "implicit scope transfer was accepted"
+        let decision = LifecycleProposal resourceId ApproveTransfer
+              (lifecycleObservationDigest fixtureBinding resourceId
+                (ObservedPresent (ok (mkPhysicalIdentity "same-uid"))))
+        approved <- expectRight (validateLifecycleDecisions transfer history observations [decision])
+        map plannedAction (proposalOperations (ok (planChanges transfer approved history observations)))
+          @?= [VerifyResource]
+        let transferInput = AdoptionInput "compiled" fixtureBinding
+              [AdoptionTarget resourceId movedAddress
+                (ok (mkPhysicalIdentity "same-uid")) (Just oldOwner)]
+        reviewedTransfer <- expectRight (decideAdoption transfer history observations transferInput)
+        map plannedAction (proposalOperations
+          (ok (planChanges transfer reviewedTransfer history observations))) @?= [VerifyResource]
     , testCase "dependency order does not turn an accepted resource into an update" $ do
         let owner = ok (mkScopeId Platform "dependency-order")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

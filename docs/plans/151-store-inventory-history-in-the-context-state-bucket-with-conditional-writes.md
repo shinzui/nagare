@@ -46,8 +46,8 @@ This is the eighth child of [MasterPlan 23](../masterplans/23-make-managed-resou
 - [x] (2026-09-23) M3 partial: Migration dry-run now checks the target bucket's owning project and any existing destination binding/head through read-only operations, so it refuses a foreign or divergent destination before saying the move is ready. Local disposable export produced a head whose SHA-256 matches `inventory store status`; the 721-test CLI suite passes.
 - [x] (2026-09-23) M3 partial: Migration now installs an inactive destination head, verifies the copy, tombstones the source, and only then activates the destination. Fault fixtures interrupt before the source tombstone and after it but before destination activation; both intermediate states refuse a second writable store, and the latter resumes. The 723-test CLI suite and style check pass. Live two-root proof remains open.
 - [x] (2026-09-23) M1 (prototype): write the pure `gcloud storage` argument builders and the read-back classifier with a recording fake.
-- [ ] M1 (prototype): with the operator's go-ahead, run the live probe against a disposable prefix and record semantics, messages, and timings in Surprises & Discoveries.
-- [ ] M1 (prototype): decide the transport by the stated criteria and record the decision.
+- [x] (2026-09-23) M1 (prototype): the operator authorized and the bounded live `labs` probe passed under a unique `inventory-probe/` child. Results, timings, and retained object are recorded below.
+- [x] (2026-09-23) M1 (prototype): retain the `gcloud storage` transport with generation preconditions and read-back classification; the live probe confirmed its required semantics.
 - [x] (2026-09-23) M2 partial: implement the in-memory `ObjectOps` fake with generations; fault injection remains.
 - [x] (2026-09-23) M2: implement the object-backed `InventoryStore` over `ObjectOps`, with the verified local blob cache.
 - [ ] M2: run EP-145's transaction suite against it; add the two-client, takeover, superseded-executor, and ambiguous-write tests.
@@ -65,6 +65,8 @@ Recorded while drafting, 2026-09-16, with Google Cloud SDK 570.0.0 on the operat
 On macOS, opening a file already locked by another Haskell handle can itself raise `ResourceBusy`, before `hTryLock` runs. The object backend's workstation lock normalizes that exception to `StoreBusy`; a two-client fixture now verifies the refusal. A reverse migration also found that the old local destination is intentionally tombstoned. Migration accepts that tombstone only when it names the current source store, copies and verifies the newer history, and stages the destination before tombstoning the source.
 
 The first migration implementation copied an active head to the destination before tombstoning the source. That ordering allowed both stores to accept writes during the handoff, despite a quiescence check and local locks. The destination now carries a tombstone pointing back to the source until the source's conditional tombstone succeeds. A crash between those writes leaves both stores inactive; rerunning migration activates the verified destination.
+
+2026-09-23, bounded live `labs` probe against `gs://tan-ng-labs-nagare-pulumi-state/nagare/labs/inventory-probe/probe-20260923T192516Z-91590/conditional.txt`: create-if-absent (`--if-generation-match=0`) succeeded in 2.893 s; repeating it failed with exit 1 in 2.763 s; replacement at the observed generation succeeded in 2.699 s; repeating that stale generation failed with exit 1 in 2.857 s. `gcloud storage cat` returned `second`, and listing returned the one test object (twice because its two generations are visible). The probe printed `Copying file://... to gs://...` as the first stderr line for both success and failure, so that line alone does not explain the failure; the conditional outcomes and final read-back establish the semantics. The single object and its versions remain under the named prefix for review. This approval covered this one-object probe, not the wider conformance or two-state-root migration rehearsal.
 
 
 ## Decision Log
@@ -88,6 +90,10 @@ The first migration implementation copied an active head to the destination befo
 - Decision: Classify the result of every conditional write by reading the object back, never by parsing a tool's error text; establish absence only by a successful listing that lacks the name.
   Rationale: MasterPlan 23 requires that a failed query is "unknown", never "absent". A timeout can follow a write that landed. Comparing the bytes now stored with the bytes we sent distinguishes "our write landed", "someone else holds this name", and "nothing happened" with the same code for every transport.
   Date: 2026-09-16
+
+- Decision: Keep `gcloud storage` as the object transport for this inventory store.
+  Rationale: The live `labs` probe confirmed create-if-absent and observed-generation replacement, rejected both duplicate and stale writes, and read back the final bytes. The four conditional copies took 2.699–2.893 s each. Its first error line was identical in shape for successful and rejected copies, validating the read-back classifier instead of error-text parsing. No second transport is needed for the plan's operator-driven workload.
+  Date: 2026-09-23
 
 - Decision: Choosing a remote store means the store itself needs GCS access. The property that a proven Pulumi phase is skipped without running Pulumi or calling the provider is kept; "fully offline resume" is not, for contexts that opt in.
   Rationale: This is the same trade the GCS Pulumi backend made, and the local store remains available for contexts that need offline operation.

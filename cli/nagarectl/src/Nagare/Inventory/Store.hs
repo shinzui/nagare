@@ -191,13 +191,15 @@ instance FromJSON HeadManifest where
     unless (generation >= 0 && sequenceNumber >= 0) (fail "head counters must not be negative")
     accepted <- parseRevisions =<< o .: "accepted"
     converged <- parseRevisions =<< o .: "converged"
-    unless (all (`Map.member` accepted) (Map.keys converged)) (fail "converged scopes must also be accepted")
+    active <- o .: "activeTransaction"
+    unless (isJust active || all (`Map.member` accepted) (Map.keys converged))
+      (fail "converged scopes must also be accepted when no transaction is active")
     HeadManifest version generation sequenceNumber
       <$> o .: "binding"
       <*> o .: "clientIdentity"
       <*> pure accepted
       <*> pure converged
-      <*> o .: "activeTransaction"
+      <*> pure active
       <*> o .: "executorClaim"
       <*> o .:? "migration"
     where

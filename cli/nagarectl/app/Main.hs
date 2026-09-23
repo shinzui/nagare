@@ -1857,7 +1857,7 @@ opts =
                   (info (InventoryPlan <$> strOption (long "inventory" <> metavar "DIRECTORY") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Prepare and publish a digest-bound inventory review"))
                 <> command
                   "adopt"
-                  (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact unowned resource incarnations for adoption"))
+                  (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact adoption or known-owner transfer incarnations"))
                 <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))

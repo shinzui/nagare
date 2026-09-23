@@ -86,5 +86,5 @@ inventoryLifecycleTests = testGroup "inventory lifecycle"
     candidate = ok (composeInventory
       (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope declaration :| []))
     physical = ok (mkPhysicalIdentity "uid-1")
-    target = AdoptionTarget resourceId (address resource) physical
+    target = AdoptionTarget resourceId (address resource) physical Nothing
     input = AdoptionInput "compiled" binding [target]

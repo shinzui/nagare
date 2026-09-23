@@ -161,7 +161,7 @@ observationRequirements candidate history =
     ids = Set.fromList (map fst managed)
     grouped = Map.map (Set.toAscList . Set.fromList) (Map.fromListWith (<>) [(executor, [resource]) | (resource, executor) <- managed])
 
-data LifecycleDecisionKind = ApproveAdoption | ApproveRetirement | ApproveMigration | ApproveCollection
+data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection
   deriving stock (Eq, Ord, Show, Generic)
 
 data LifecycleProposal = LifecycleProposal
@@ -211,6 +211,12 @@ validateLifecycleDecisions candidate history observations proposals =
               (Just (Managed _), Nothing, Just (ObservedDrifted _ _)) -> []
               (Just (Managed _), Nothing, Just (ObservedUnowned _)) -> []
               _ -> issue "invalid-adoption" "adoption needs a new managed declaration and a present nonforeign incarnation"
+            ApproveTransfer -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
+              (Just (Managed next), Just (Managed old), Just (ObservedPresent _))
+                | next ^. #owner /= old ^. #owner
+                , Set.fromList [next ^. #owner, old ^. #owner]
+                    `Set.isSubsetOf` selectedScopes -> []
+              _ -> issue "invalid-transfer" "transfer needs both selected scopes and a matching owned incarnation"
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed _), Just RetainResources) ->
                 issue "retention-catalog-required" "retirement needs a durable retained-incarnation catalogue before the accepted scope can disappear"
@@ -223,6 +229,9 @@ validateLifecycleDecisions candidate history observations proposals =
               _ -> issue "invalid-collection" "collection needs an exact present stateless historical resource, deletion policy, and collection intent"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
        in evidence <> shape
+    selectedScopes = Set.fromList
+      [case change of ReplaceScope scope -> scopeId scope; RetireScope scope _ -> scope
+      | change <- NE.toList (candidateChanges candidate)]
     errors =
       [PlanError "duplicate-lifecycle-decision" "resource has more than one lifecycle decision" [resource] | resource <- duplicateValues (map lifecycleResource proposals)]
         <> [PlanError "unknown-lifecycle-resource" "lifecycle decision names an unknown resource" [resource] | resource <- Map.keys values, Set.notMember resource known]
@@ -397,6 +406,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
     classifyDesired (resourceId, resource, Just (Managed old), _)
+      | old ^. #owner /= resource ^. #owner
+      , decisionIs ApproveTransfer resourceId =
+          ([], Just (resourceOperation VerifyResource resource))
       | old ^. #owner /= resource ^. #owner =
           ([PlanError "owner-transfer-required" "moving a known resource between scopes needs a reviewed two-scope transfer" [resourceId]], Nothing)
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
