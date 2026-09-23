@@ -441,7 +441,8 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
             []
             (BackendMapSpec (sortOn (nameText . first3) [(hostName, upstreamText, backendRole)
               | (_, _, hostName, upstreamText, backendRole) <- Map.findWithDefault [] (owner, clusterId) backendGroups]))
-            Retain Stateless Private [] [] (SourceLocation "contribution" (scopeIdText owner)))
+            Retain Stateless Private (authNamespaceDependency clusterId) []
+            (SourceLocation "contribution" (scopeIdText owner)))
       | (owner, clusterId) <- backendOwners
       ]
     shomeiSettings =
@@ -455,10 +456,18 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
               | (_, _, hostName, _, PortalBackend) <- Map.findWithDefault [] (owner, clusterId) backendGroups] of
                 [portal] -> Just portal
                 _ -> Nothing))
-            Retain Stateless Private [] [] (SourceLocation "contribution" (scopeIdText owner)))
+            Retain Stateless Private (authNamespaceDependency clusterId) []
+            (SourceLocation "contribution" (scopeIdText owner)))
       | (owner, clusterId, baseDomain) <- shomeiOwners
       ]
     first3 (value, _, _) = value
+    authNamespaceDependency clusterId =
+      [ OrderedAfter (resource ^. #identity)
+      | scope <- Map.elems ss
+      , bundle <- scopeBundles scope
+      , Managed resource <- bundle ^. #declarations
+      , resource ^. #address == Kubernetes clusterId "" (known "namespace") Nothing (known "nagare-system")
+      ]
 
 namespaceContributionId :: Contribution -> ResourceId
 namespaceContributionId (RegisterNamespace owner _ namespaceName _) =

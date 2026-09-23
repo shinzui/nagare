@@ -197,6 +197,12 @@ inventoryAuthTests = testGroup "auth inventory component"
       (candidate, native) <- compileBootstrapWithAuth snapshot bootstrap auth backends >>= expectRight
       Map.size (inventoryScopes (candidateInventory candidate)) @?= 6
       assertBool "auth bootstrap omitted direct native members" (Map.size native > 130)
+      let sharedAuth = [resource | Managed resource <- inventoryDeclarations (candidateInventory candidate),
+            resource ^. #identity `elem` [backendMapResourceId fixtureOwner,
+              shomeiSettingsResourceId fixtureOwner]]
+      length sharedAuth @?= 2
+      assertBool "shared auth ConfigMaps can run before their foundation Namespace"
+        (all (elem (OrderedAfter sharedNamespace) . (^. #dependencies)) sharedAuth)
   , testCase "packaged auth supplies complete database inputs and refuses mutable images" $ do
       let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
             "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
