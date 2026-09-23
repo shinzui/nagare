@@ -10,6 +10,8 @@ latest committed state of each journaled operation. `recoveryRequired` marks an
 intent with no proven completion or an ambiguous effect. The summary validates the
 committed journal and reports state names without provider error text or private
 command output. The report rejects a concurrent head change and can be retried.
+`inventory explain RESOURCE_ID --json` also includes `dependencyTrace`, following
+transitive prerequisites to their composed declarations with owner scope and source.
 
 ## Adoption review
 

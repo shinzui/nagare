@@ -4441,6 +4441,7 @@ runInventoryStatus mctx requested json = do
       let explanation = Aeson.object (baseFields <>
             [ "finding" Aeson..= finding
             , "dependencies" Aeson..= (resource ^. #dependencies)
+            , "dependencyTrace" Aeson..= InventoryStatus.traceDependencies inventory resourceId
             , "consumers" Aeson..=
                 [consumer ^. #identity | consumer <- managed,
                   any ((== Just resourceId) . dependencyTarget) (consumer ^. #dependencies)]

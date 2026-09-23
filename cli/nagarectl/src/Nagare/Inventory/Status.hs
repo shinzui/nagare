@@ -5,7 +5,9 @@ module Nagare.Inventory.Status
   , DriftFinding (..)
   , ActiveTransactionStatus (..)
   , OperationStatus (..)
+  , DependencyTrace (..)
   , classifyDrift
+  , traceDependencies
   , loadAcceptedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -27,8 +29,55 @@ import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Reference
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
+
+data DependencyTrace = DependencyTrace
+  { traceFrom :: !ResourceId
+  , traceResource :: !ResourceId
+  , traceOwner :: !(Maybe ScopeId)
+  , traceSource :: !(Maybe SourceLocation)
+  , traceDepth :: !Int
+  }
+  deriving stock (Eq, Show)
+
+-- | Follow the composed declaration graph. The visited set bounds the walk
+-- even if a malformed inventory somehow reaches this read-only path.
+traceDependencies :: ValidatedInventory -> ResourceId -> [DependencyTrace]
+traceDependencies inventory start = go Set.empty [(start, 1)]
+  where
+    declarations = Map.fromList
+      [(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
+    target dependency = case dependency of
+      Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
+      ReadyAfter reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
+      OrderedAfter producer -> Just producer
+    go _ [] = []
+    go visited ((consumer, depth) : pending)
+      | Set.member consumer visited = go visited pending
+      | otherwise =
+          let targets = case Map.lookup consumer declarations of
+                Nothing -> []
+                Just declaration -> Set.toAscList (Set.fromList
+                  [resource | dependency <- declarationDependencies declaration,
+                    Just resource <- [target dependency]])
+              row resource = DependencyTrace consumer resource
+                (case Map.lookup resource declarations of
+                  Just (Managed managed) -> Just (managed ^. #owner)
+                  _ -> Nothing)
+                (declarationSource <$> Map.lookup resource declarations) depth
+           in map row targets <> go (Set.insert consumer visited)
+                (pending <> [(resource, depth + 1) | resource <- targets])
+
+instance ToJSON DependencyTrace where
+  toJSON entry = object
+    [ "from" .= traceFrom entry
+    , "resource" .= traceResource entry
+    , "owner" .= traceOwner entry
+    , "source" .= traceSource entry
+    , "depth" .= traceDepth entry
+    ]
 
 -- | Read the committed journal without taking the writer lock. The caller
 -- must compare the head again after its other observations, as status does.

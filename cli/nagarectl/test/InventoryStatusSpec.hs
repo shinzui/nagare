@@ -11,6 +11,7 @@ import Nagare.Inventory.Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
+import Nagare.Resource.Reference
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -78,6 +79,32 @@ inventoryStatusTests = testGroup "inventory status"
                                       "state" .= ("failed-uncertain" :: Text)]]]
         _ -> assertFailure "active transaction summary was absent"
       summarizeActiveTransaction headValue [] @?= Left "active transaction has no admission event"
+  , testCase "dependency trace names the providing declaration and owner" $ do
+      let consumerId = mintResourceId owner (known (mkLogicalKey "consumer"))
+            (known (mkName "consumer"))
+          consumer = ManagedResource consumerId owner KubernetesExecutor
+            (Kubernetes cluster "" (known (mkName "configmap"))
+              (Just (known (mkName "default"))) (known (mkName "status-consumer"))) []
+            (NativeObject (contentDigest "consumer")) Retain Stateless Public
+            [OrderedAfter resourceId] [] (SourceLocation "fixture" "consumer")
+          topId = mintResourceId owner (known (mkLogicalKey "top"))
+            (known (mkName "top"))
+          top = ManagedResource topId owner KubernetesExecutor
+            (Kubernetes cluster "" (known (mkName "configmap"))
+              (Just (known (mkName "default"))) (known (mkName "status-top"))) []
+            (NativeObject (contentDigest "top")) Retain Stateless Public
+            [OrderedAfter consumerId] [] (SourceLocation "fixture" "top")
+          joined = known (mkScopeDeclaration owner
+            [ResourceBundle [Managed resource, Managed consumer, Managed top] [] [] [] [] []])
+          joinedSnapshot = known (mkScopeSnapshot
+            (ContextBinding (known (mkContextId "fixture")) (known (mkName "project")))
+            (Map.singleton owner (known (mkScopeGeneration 1), joined)) Map.empty)
+          joinedInventory = known (composeSnapshot joinedSnapshot)
+      traceDependencies joinedInventory topId @?=
+        [DependencyTrace topId consumerId (Just owner)
+          (Just (SourceLocation "fixture" "consumer")) 1,
+         DependencyTrace consumerId resourceId (Just owner)
+          (Just (SourceLocation "fixture" "configmap")) 2]
   ]
   where
     known :: Show e => Either e a -> a
