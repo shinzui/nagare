@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-23T20:05:12Z
       mode: "implement"
       note: "Implement reviewed adoption and scoped transfer checks"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T21:56:54Z
+      mode: "implement"
+      note: "Expose sanitized journal recovery state in read-only inventory status"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -61,6 +66,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M2 transfer contract: Validation now limits the proved transfer route to Kubernetes resources with unchanged address, native specification, aliases, lifecycle, data/sensitivity policy, delegation, and dependency set. A changed native digest refuses rather than being smuggled into a `VerifyResource` handoff. Other provider transfers remain unavailable until their own incarnation and ownership preconditions are proved.
 - [x] (2026-09-23) M1 partial: Status findings now expose health separately from configuration drift. An observed matching specification reports health `unknown`, while confirmed absence reports `unavailable`; the CLI does not equate `converged` configuration with workload readiness. The 137 focused inventory tests pass. Provider-specific condition probes remain open.
 - [x] (2026-09-23) M1 read consistency: Status and explain reread the accepted head after provider observations and refuse if another transaction changed it during the report. The CLI executable builds.
+- [x] (2026-09-23) M1 recovery visibility: Status and explain now validate the committed journal for an active transaction and report each operation's latest sanitized state, with a separate recovery-required flag. Journal detail and provider errors stay private; a final head reread rejects a concurrent change. Eleven focused status tests, the 734-test CLI suite, the CLI executable build, and Haskell style checks pass. Retained history and provider-specific health probes remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.

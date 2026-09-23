@@ -5,6 +5,12 @@ the same address is not ownership proof. `inventory status --json` reports an un
 Kubernetes object as `unowned` and an object stamped for another logical resource as
 `foreign-owner`. An observation error is `unknown`, never confirmed absence.
 
+When a transaction is active, status and explain include `transactionStatus` with the
+latest committed state of each journaled operation. `recoveryRequired` marks an
+intent with no proven completion or an ambiguous effect. The summary validates the
+committed journal and reports state names without provider error text or private
+command output. The report rejects a concurrent head change and can be retried.
+
 ## Adoption review
 
 Compile the complete candidate with `inventory compile`, then write a version 1 adoption

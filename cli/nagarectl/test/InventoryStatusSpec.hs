@@ -2,9 +2,11 @@ module InventoryStatusSpec (inventoryStatusTests) where
 
 import Data.Map.Strict qualified as Map
 import Data.Aeson (toJSON, object, (.=))
+import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Journal
 import Nagare.Inventory.Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
@@ -53,6 +55,29 @@ inventoryStatusTests = testGroup "inventory status"
           Left (StoreConditionFailed _) -> pure ()
           _ -> assertFailure "missing store should fail closed"
         doesPathExist missing >>= (@?= False)
+  , testCase "active transaction status reports uncertain recovery without provider detail" $ do
+      let transaction = known (mkTransactionId "tx-fixture")
+          operation = known (mkOperationId "op-fixture")
+          headValue = HeadManifest 1 1 3 (inventoryBinding inventory) "client"
+            Map.empty Map.empty (Just "tx-fixture") Nothing Nothing
+          event sequenceNumber prior state detail = JournalEvent 1 sequenceNumber prior
+            transaction (if sequenceNumber == 0 then Nothing else Just operation)
+            state "2026-09-23T00:00:00Z" detail
+          admitted = event 0 Nothing Pending "private admission detail"
+          intent = event 1 (Just (journalEventDigest admitted)) IntentRecorded "private command output"
+          failed = event 2 (Just (journalEventDigest intent))
+            (Failed (PartialOrUnknown "provider credential and stderr")) "private failure detail"
+      case summarizeActiveTransaction headValue [admitted, intent, failed] of
+        Right (Just status) -> do
+          activeStatusRecoveryRequired status @?= True
+          activeStatusReason status @?= "operation-recovery-required"
+          toJSON status @?= object
+            ["transaction" .= ("tx-fixture" :: Text), "recoveryRequired" .= True,
+             "reason" .= ("operation-recovery-required" :: Text),
+             "operations" .= [object ["operation" .= operation,
+                                      "state" .= ("failed-uncertain" :: Text)]]]
+        _ -> assertFailure "active transaction summary was absent"
+      summarizeActiveTransaction headValue [] @?= Left "active transaction has no admission event"
   ]
   where
     known :: Show e => Either e a -> a

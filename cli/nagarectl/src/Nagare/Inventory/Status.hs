@@ -3,8 +3,12 @@ module Nagare.Inventory.Status
   ( DriftCategory (..)
   , HealthCategory (..)
   , DriftFinding (..)
+  , ActiveTransactionStatus (..)
+  , OperationStatus (..)
   , classifyDrift
   , loadAcceptedNative
+  , loadActiveTransactionStatus
+  , summarizeActiveTransaction
   ) where
 
 import Data.Aeson (ToJSON (..), object, (.=))
@@ -18,12 +22,86 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
+import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
+
+-- | Read the committed journal without taking the writer lock. The caller
+-- must compare the head again after its other observations, as status does.
+loadActiveTransactionStatus :: InventoryStore -> HeadManifest -> IO (Either Text (Maybe ActiveTransactionStatus))
+loadActiveTransactionStatus store headValue = case headActiveTransaction headValue of
+  Nothing -> pure (Right Nothing)
+  Just _ -> do
+    members <- traverse (readObject store . journalKey) [0 .. headSequence headValue - 1]
+    pure $ do
+      raw <- first (T.pack . show) (sequence members)
+      bytes <- traverse (maybe (Left "committed journal event is missing") Right) raw
+      events <- traverse decodeJournalEvent bytes
+      checked <- validateJournal events
+      summarizeActiveTransaction headValue checked
+
+data OperationStatus = OperationStatus
+  { operationStatusId :: !OperationId
+  , operationStatusState :: !Text
+  }
+  deriving stock (Eq, Show)
+
+data ActiveTransactionStatus = ActiveTransactionStatus
+  { activeStatusId :: !Text
+  , activeStatusRecoveryRequired :: !Bool
+  , activeStatusReason :: !Text
+  , activeStatusOperations :: ![OperationStatus]
+  }
+  deriving stock (Eq, Show)
+
+-- | Project only state names. Journal details and provider failure messages
+-- may contain secrets or command output, so they never enter the report.
+summarizeActiveTransaction :: HeadManifest -> [JournalEvent] -> Either Text (Maybe ActiveTransactionStatus)
+summarizeActiveTransaction headValue events = case headActiveTransaction headValue of
+  Nothing -> Right Nothing
+  Just token -> do
+    transaction <- mkTransactionId token
+    let relevant = filter ((== transaction) . eventTransaction) events
+    unless (any (\event -> eventOperation event == Nothing) relevant)
+      (Left "active transaction has no admission event")
+    let latest = Map.fromList
+          [(operation, eventState event) | event <- relevant, Just operation <- [eventOperation event]]
+        uncertain = any requiresRecovery (Map.elems latest)
+        reason = if uncertain then "operation-recovery-required" else "resume-required"
+    pure (Just (ActiveTransactionStatus token uncertain reason
+      [OperationStatus operation (stateName state) | (operation, state) <- Map.toAscList latest]))
+  where
+    requiresRecovery state = case state of
+      IntentRecorded -> True
+      Ambiguous -> True
+      Failed (PartialOrUnknown _) -> True
+      _ -> False
+    stateName state = case state of
+      Pending -> "pending"
+      IntentRecorded -> "intent-recorded"
+      Completed _ -> "completed"
+      Failed (KnownNoEffect _) -> "failed-no-effect"
+      Failed (PartialOrUnknown _) -> "failed-uncertain"
+      Ambiguous -> "ambiguous"
+      OperatorResolved _ -> "operator-resolved"
+
+instance ToJSON OperationStatus where
+  toJSON status = object
+    [ "operation" .= operationStatusId status
+    , "state" .= operationStatusState status
+    ]
+
+instance ToJSON ActiveTransactionStatus where
+  toJSON status = object
+    [ "transaction" .= activeStatusId status
+    , "recoveryRequired" .= activeStatusRecoveryRequired status
+    , "reason" .= activeStatusReason status
+    , "operations" .= activeStatusOperations status
+    ]
 
 -- | Recover exact accepted native members from immutable private reviews.
 -- Reviews for newer, unaccepted revisions never become status evidence.

@@ -4379,6 +4379,8 @@ runInventoryStatus mctx requested json = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  transactionStatus <- InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
+    >>= either dieT pure
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
   unless (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
@@ -4417,6 +4419,7 @@ runInventoryStatus mctx requested json = do
         , "accepted" Aeson..= revisions (fmap fst (InventoryPlan.historyAccepted history))
         , "converged" Aeson..= revisions (InventoryPlan.historyConverged history)
         , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction (InventoryPlan.historyHead history)
+        , "transactionStatus" Aeson..= transactionStatus
         , "missingProviders" Aeson..= unavailable
         , "missingProviderScopes" Aeson..=
             [Aeson.object ["scope" Aeson..= scope, "executor" Aeson..= executor]
