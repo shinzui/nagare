@@ -639,6 +639,27 @@ inventoryKubernetesTests =
               case foreignResult of
                 AdapterEffectFailed (KnownNoEffect _) -> pure ()
                 other -> assertFailure ("foreign field manager was overridden: " <> show other)
+              (beforeCode, beforeUid, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-runtime",
+                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
+              beforeCode @?= ExitSuccess
+              (deleteCode, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime",
+                 "--namespace", "default"] ""
+              deleteCode @?= ExitSuccess
+              (recreateCode, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "create", "configmap", "nagare-ep147-runtime",
+                 "--namespace", "default", "--from-literal=message=final"] ""
+              recreateCode @?= ExitSuccess
+              (afterCode, afterUid, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-runtime",
+                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
+              afterCode @?= ExitSuccess
+              assertBool "disposable object kept its UID after replacement" (beforeUid /= afterUid)
+              uidResult <- kubernetesMutateConditional finalOps foreignMutation
+              case uidResult of
+                AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                other -> assertFailure ("replacement UID was accepted by a stale update: " <> show other)
               pure ()) `finally` cleanup
     , testCase "disposable reviewed transaction refuses a foreign create after publication" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
