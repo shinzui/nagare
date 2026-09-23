@@ -46,6 +46,34 @@ inventoryTransactionTests =
         withSystemTempDirectory "inventory-store" $ \root -> do
           filesystem <- openFilesystemStore root >>= expectRight
           exerciseStore filesystem
+    , testCase "adoption decision binds the observed incarnation and context" $ do
+        let owner = ok (mkScopeId Platform "adoption")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            resource = member owner cluster "legacy"
+            resourceId = declarationId resource
+            scope = ok (mkScopeDeclaration owner [ResourceBundle [resource] [] [] [] [] []])
+            candidate = ok (composeInventory
+              (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope scope :| []))
+            fact = ObservedPresent (ok (mkPhysicalIdentity "legacy-uid"))
+            observations = ok (observationSet [(resourceId, fact)])
+            decision = LifecycleProposal resourceId ApproveAdoption
+              (lifecycleObservationDigest fixtureBinding resourceId fact)
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "adoption-test" >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        decisions <- expectRight (validateLifecycleDecisions candidate history observations [decision])
+        let proposal = ok (planChanges candidate decisions history observations)
+        map plannedAction (proposalOperations proposal) @?= [AdoptResource]
+        let changed = decision {lifecycleEvidence = contentDigest "another-incarnation"}
+        case validateLifecycleDecisions candidate history observations [changed] of
+          Left failures -> map planErrorCode (NE.toList failures) @?= ["stale-lifecycle-evidence"]
+          Right _ -> assertFailure "stale adoption evidence accepted"
+        let absent = ok (observationSet [(resourceId, ConfirmedAbsent (contentDigest "absent"))])
+        case validateLifecycleDecisions candidate history absent [decision] of
+          Left failures -> assertBool "absence is not adoptable"
+            ("invalid-adoption" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "absent resource accepted for adoption"
     , testCase "dependency order does not turn an accepted resource into an update" $ do
         let owner = ok (mkScopeId Platform "dependency-order")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

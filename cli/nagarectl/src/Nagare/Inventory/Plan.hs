@@ -14,6 +14,7 @@ module Nagare.Inventory.Plan
   , LifecycleProposal (..)
   , LifecycleDecisions
   , noLifecycleDecisions
+  , lifecycleObservationDigest
   , validateLifecycleDecisions
   , PlanError (..)
   , ChangeProposal
@@ -176,17 +177,56 @@ newtype LifecycleDecisions = LifecycleDecisions (Map ResourceId LifecycleProposa
 noLifecycleDecisions :: LifecycleDecisions
 noLifecycleDecisions = LifecycleDecisions Map.empty
 
+-- | Bind an operator decision to one observed incarnation in one provider
+-- target. A new observation or a different target requires a fresh decision.
+lifecycleObservationDigest :: ContextBinding -> ResourceId -> ResourceObservation -> ContentDigest
+lifecycleObservationDigest binding resource fact =
+  contentDigest (either (error . T.unpack) id (canonicalValue
+    (object ["binding" .= binding, "resource" .= resource, "observation" .= fact])))
+
 validateLifecycleDecisions :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal] -> Either (NonEmpty PlanError) LifecycleDecisions
 validateLifecycleDecisions candidate history observations proposals =
   if null errors then Right (LifecycleDecisions values) else Left (NE.fromList errors)
   where
     values = Map.fromList [(lifecycleResource proposal, proposal) | proposal <- proposals]
-    known = Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate) <> historyDeclarations history))
-    observed = Map.keysSet (observationMap observations)
+    desired = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
+    historical = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
+    known = Map.keysSet desired `Set.union` Map.keysSet historical
+    observed = observationMap observations
+    retirementIntent resource = listToMaybe
+      [intent | RetireScope scope intent <- NE.toList (candidateChanges candidate)
+      , Just (Managed old) <- [Map.lookup resource historical], old ^. #owner == scope]
+    decisionError proposal =
+      let resource = lifecycleResource proposal
+          issue code message = [PlanError code message [resource]]
+          fact = Map.lookup resource observed
+          evidence = maybe [] (\value ->
+            if lifecycleEvidence proposal == lifecycleObservationDigest
+              (inventoryBinding (candidateInventory candidate)) resource value
+            then [] else issue "stale-lifecycle-evidence" "decision evidence differs from the current observation") fact
+          kind = lifecycleDecision proposal
+          shape = case kind of
+            ApproveAdoption -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
+              (Just (Managed _), Nothing, Just (ObservedPresent _)) -> []
+              (Just (Managed _), Nothing, Just (ObservedDrifted _ _)) -> []
+              _ -> issue "invalid-adoption" "adoption needs a new managed declaration and a present nonforeign incarnation"
+            ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
+              (Nothing, Just (Managed _), Just RetainResources) ->
+                issue "retention-catalog-required" "retirement needs a durable retained-incarnation catalogue before the accepted scope can disappear"
+              _ -> issue "invalid-retirement" "retention needs a retired historical declaration and RetainResources intent"
+            ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource, fact) of
+              (Nothing, Just (Managed old), Just (CollectWithRecovery _), Just (ObservedPresent _))
+                | old ^. #lifecycle == DeleteWhenUnreferenced
+                , old ^. #dataPolicy == Stateless ->
+                    issue "collection-catalog-required" "collection needs retained incarnation and deletion tombstone history"
+              _ -> issue "invalid-collection" "collection needs an exact present stateless historical resource, deletion policy, and collection intent"
+            ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
+       in evidence <> shape
     errors =
       [PlanError "duplicate-lifecycle-decision" "resource has more than one lifecycle decision" [resource] | resource <- duplicateValues (map lifecycleResource proposals)]
         <> [PlanError "unknown-lifecycle-resource" "lifecycle decision names an unknown resource" [resource] | resource <- Map.keys values, Set.notMember resource known]
-        <> [PlanError "unobserved-lifecycle-resource" "lifecycle decision lacks an observation" [resource] | resource <- Map.keys values, Set.notMember resource observed]
+        <> [PlanError "unobserved-lifecycle-resource" "lifecycle decision lacks an observation" [resource] | resource <- Map.keys values, Map.notMember resource observed]
+        <> concatMap decisionError proposals
 
 data PlanError = PlanError
   { planErrorCode :: !Text
@@ -398,7 +438,7 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
       | decisionIs ApproveRetirement resource || decisionIs ApproveCollection resource = []
       | otherwise = [PlanError "retirement-required" "accepted resource is absent from desired inventory without a lifecycle decision" [resource]]
     retireOperation (resource, Managed old)
-      | decisionIs ApproveRetirement resource || decisionIs ApproveCollection resource = Just (resourceOperation RetireResource old)
+      | decisionIs ApproveCollection resource = Just (resourceOperation RetireResource old)
       | otherwise = Nothing
     retireOperation _ = Nothing
     decisionIs kind resource = maybe False ((== kind) . lifecycleDecision) (Map.lookup resource decisions)

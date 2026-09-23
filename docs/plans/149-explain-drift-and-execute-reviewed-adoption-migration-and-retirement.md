@@ -45,6 +45,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 
 - [x] (2026-09-23) M1 partial: Read-only snapshot composition reconstructs accepted effective contributions through the same closed validator as changed plans. A typed drift classifier distinguishes converged, configuration drift, confirmed absence, foreign ownership, and unknown/unavailable observation without examining private native bytes. A focused six-case fixture and the full 701-test CLI suite pass. Real provider observation, history/retirement categories, status/explain commands, and lifecycle decisions remain open.
 - [x] (2026-09-23) M1 partial: `inventory status --json` and `inventory explain RESOURCE_ID --json` now reconstruct the accepted scope vector and native evidence from immutable private reviews, call the registered provider observe functions without applying changes, and report provider identity, partial coverage, drift, consumers, policy, and active transaction. A missing store or workspace is not initialized by status. On the disposable full bootstrap, all 205 resources across 17 accepted/converged scopes report converged, with no missing provider; the 702-test CLI suite passes. Historical retained incarnations, separate health, and lifecycle/recovery details remain open.
+- [x] (2026-09-23) M2/M3 guard: A lifecycle decision now binds its observation, incarnation, resource, and context through a canonical digest; adoption requires a new desired declaration and present nonforeign observation. Migration decisions refuse until they have an operation/recovery contract. Retention and collection decisions currently refuse because the head has no durable retained-incarnation catalogue or deletion tombstones. `ApproveRetirement` no longer plans a delete. The 724-test CLI suite passes. Adoption transport, retained history, and lifecycle commands remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -65,6 +66,8 @@ The platform workspace resolver materialized an immutable payload copy, so statu
 2026-09-16: Status is a timestamped observation, never a hidden repair operation. Inaccessible and missing must remain distinct, including after a partial upgrade.
 
 2026-09-16: Validate proposals into opaque LifecycleDecisions for EP-145's single planner instead of exposing planAdoption, planMigration, and planRetirement. The earlier planners took no inventory, so a proposal restated owner, digest, and policy beside the declaration; retirement intent existed both here and in EP-144; and a change that adopts some resources while updating others had no expression.
+
+2026-09-23: Do not allow a reviewed RetainResources scope removal to erase the last accepted resource declaration before retained-incarnation history exists. A retirement approval is not deletion authority. Collection also needs exact historical identity and a deletion tombstone; the validator refuses these paths until the catalogue is implemented.
 
 
 ## Outcomes & Retrospective
