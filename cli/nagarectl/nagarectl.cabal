@@ -103,6 +103,7 @@ library
     Nagare.Inventory.Cloud
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.Foundation
+    Nagare.Inventory.Components.Observability
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Artifact
     Nagare.Inventory.Database
@@ -241,6 +242,7 @@ test-suite nagarectl-test
     InventoryFoundationSpec
     InventoryUpstreamSpec
     InventoryAuthSpec
+    InventoryObservabilitySpec
     InventoryCloudSpec
     InventoryHostSpec
     InventoryKubernetesSpec

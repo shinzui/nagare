@@ -43,6 +43,7 @@ import InventoryCacheSpec (inventoryCacheTests)
 import InventoryFoundationSpec (inventoryFoundationTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryAuthSpec (inventoryAuthTests)
+import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -430,6 +431,7 @@ main = do
             , inventoryFoundationTests
             , inventoryUpstreamTests
             , inventoryAuthTests
+            , inventoryObservabilityTests
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests
