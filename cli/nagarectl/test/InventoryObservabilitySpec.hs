@@ -6,6 +6,7 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.IORef
 import Data.Text qualified as T
 import Control.Exception (finally)
@@ -239,6 +240,25 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           (composeInventory snapshot (candidateChanges complete <> (ReplaceScope stampScope :| [])))
         Map.size (inventoryScopes (candidateInventory stamped)) @?= 17
         Map.size stampNative @?= 1
+        store <- newMemoryStore
+        _ <- initializeStore store binding "complete-bootstrap" >>= either (assertFailure . show) pure
+        history <- loadInventoryHistory store >>= either (assertFailure . show) pure
+        let required = requiredResources (observationRequirements stamped history)
+            observed = observationSet [(resource, ConfirmedAbsent (contentDigest "absent"))
+              | resource <- Set.toAscList required]
+        observations <- either (assertFailure . show) pure observed
+        proposal <- either (assertFailure . show) pure
+          (planChanges stamped noLifecycleDecisions history observations)
+        let operations = proposalOperations proposal
+            stampIds = Map.keys stampNative
+            markerOperations = [operation | operation <- operations,
+              any (`elem` stampIds) (plannedResources operation)]
+        case markerOperations of
+          [operation] ->
+            Set.fromList (plannedDependencies operation) @?=
+              Set.fromList [plannedOperationId other | other <- operations,
+                plannedOperationId other /= plannedOperationId operation]
+          other -> assertFailure ("expected one final bootstrap marker operation, got " <> show other)
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor
