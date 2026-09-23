@@ -74,6 +74,11 @@ accepts an unversioned context, requires the requested version to equal the
 active payload, and rejects every known CLI, host, or cluster mismatch. An
 absent cluster marker is created before the context pin is committed. If that
 write fails, the context remains legacy and the command can safely be retried.
+This pins the observed platform release only. It does not enroll individual
+provider objects in the managed resource inventory. Compile the complete
+candidate and use [`inventory adopt`](../architecture/managed-resource-lifecycle.md#adoption-review)
+to review each legacy object's exact physical identity before inventory
+management begins.
 
 ## Re-pin a context before its first deployment
 

@@ -2906,8 +2906,17 @@ runPlatformAdopt mctx rawVersion yes asJson = do
   applyClusterMarker manifest >>= either dieT (const (pure ()))
   writeContextPlatformVersion (active ^. #contextName) target >>= either dieT pure
   if asJson
-    then LBC.putStrLn (Aeson.encode (Aeson.object ["adopted" Aeson..= True, "context" Aeson..= contextNameText (active ^. #contextName), "platformVersion" Aeson..= target, "observations" Aeson..= platformStatusValue status]))
-    else TIO.putStrLn ("adopted Nagare platform " <> target <> " for context '" <> contextNameText (active ^. #contextName) <> "'")
+    then LBC.putStrLn (Aeson.encode (Aeson.object
+      [ "adopted" Aeson..= True
+      , "context" Aeson..= contextNameText (active ^. #contextName)
+      , "platformVersion" Aeson..= target
+      , "observations" Aeson..= platformStatusValue status
+      , "inventoryResourcesAdopted" Aeson..= False
+      , "inventoryNextStep" Aeson..= ("compile the complete inventory, then review each legacy object with inventory adopt" :: Text)
+      ]))
+    else do
+      TIO.putStrLn ("adopted Nagare platform " <> target <> " for context '" <> contextNameText (active ^. #contextName) <> "'")
+      TIO.putStrLn "This pins the platform release; it does not adopt managed inventory resources. Compile the complete inventory and review legacy objects with inventory adopt."
 
 runPlatformRepin :: Maybe String -> String -> Bool -> IO ()
 runPlatformRepin mctx rawVersion yes = do
