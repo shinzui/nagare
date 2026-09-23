@@ -31,6 +31,7 @@ module Nagare.Resource.Inventory
   , CompositionCandidate
   , ValidatedInventory
   , composeInventory
+  , composeSnapshot
   , candidateInventory
   , candidateBase
   , candidateChanges
@@ -334,6 +335,16 @@ composeInventory snapshot changes = do
     change m (ReplaceScope s) = Map.insert (scopeId s) s m
     change m (RetireScope s _) = Map.delete s m
     generations = Map.mapWithKey (\s _ -> if s `elem` map changedId selected then nextGeneration (Map.lookup s base) else base Map.! s) ss
+
+-- | Reconstruct accepted effective resources for read-only status. This runs
+-- the same closed contribution and claim validation as a changed candidate.
+composeSnapshot :: ScopeSnapshot -> Either (NonEmpty InventoryError) ValidatedInventory
+composeSnapshot snapshot = do
+  declarations <- composedDeclarations scopes
+  checked (validateGraph scopes declarations (snapshotReservations snapshot))
+    (ValidatedInventory (snapshotBinding snapshot) scopes declarations)
+  where
+    scopes = fmap snd (snapshotScopes snapshot)
 
 scopeDeclarations :: ScopeDeclaration -> [Declaration]
 scopeDeclarations = concatMap (^. #declarations) . scopeBundles

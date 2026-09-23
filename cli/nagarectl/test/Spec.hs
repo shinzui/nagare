@@ -47,6 +47,7 @@ import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
+import InventoryStatusSpec (inventoryStatusTests)
 import InventorySpec (inventoryTests)
 import InventoryTransactionSpec (inventoryTransactionTests, runInventoryLockHoldProbe, runInventoryLockProbe)
 import Nagare.App
@@ -435,6 +436,7 @@ main = do
             , inventoryCloudTests
             , inventoryHostTests
             , inventoryKubernetesTests
+            , inventoryStatusTests
             , inventoryTests
             , inventoryTransactionTests
             , platformTests

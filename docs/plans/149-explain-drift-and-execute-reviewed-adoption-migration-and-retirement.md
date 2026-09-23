@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-17T04:04:49Z
       mode: "update"
       note: "Interface amended after pre-implementation API validation under MasterPlan 23"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-23T17:24:05Z
+      mode: "implement"
+      note: "Begin accepted-inventory status and drift classification"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -33,6 +38,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 
 ## Progress
 
+- [x] (2026-09-23) M1 partial: Read-only snapshot composition reconstructs accepted effective contributions through the same closed validator as changed plans. A typed drift classifier distinguishes converged, configuration drift, confirmed absence, foreign ownership, and unknown/unavailable observation without examining private native bytes. A focused six-case fixture and the full 701-test CLI suite pass. Real provider observation, history/retirement categories, status/explain commands, and lifecycle decisions remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.

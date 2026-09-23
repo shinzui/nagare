@@ -125,6 +125,7 @@ library
     Nagare.Inventory.KubernetesReview
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.Plan
+    Nagare.Inventory.Status
     Nagare.Inventory.Store
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
@@ -256,6 +257,7 @@ test-suite nagarectl-test
     InventoryKubernetesSpec
     InventoryObservabilitySpec
     InventorySpec
+    InventoryStatusSpec
     InventoryTransactionSpec
     InventoryUpstreamSpec
     PlatformCutoverSpec
