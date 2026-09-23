@@ -493,9 +493,9 @@ restoreStore store backup = withBackendGuard store $ do
               writes <- traverse (uncurry (writeObjectUnlocked store False)) values
               pure (void (sequence writes))
 
--- | Copy a quiescent catalogue, verify the destination, then disable the
--- source by a conditional head replacement. Re-running after the tombstone
--- verifies the copy and succeeds without another write.
+-- | Copy a quiescent catalogue with an inactive destination head. Disable the
+-- source before activating the destination, so interruption cannot leave two
+-- writable stores. Re-running completes either side of the handoff.
 migrateStore :: InventoryStore -> InventoryStore -> Text -> Text -> IO (Either StoreError ())
 migrateStore source destination sourceLabel label = do
   sourceLock <- withProcessLock source $ \_ ->
@@ -526,13 +526,17 @@ migrateStore source destination sourceLabel label = do
                       case headMigration oldHead of
                         Just marker | migrationDestination marker /= label ->
                           pure (Left (StoreConditionFailed "source inventory store migrated to a different destination"))
-                        Just _ -> verifyCopy members oldDigest
+                        Just _ -> do
+                          activated <- activateMigrationHead destination sourceLabel oldDigest
+                          case activated of
+                            Left err -> pure (Left err)
+                            Right () -> verifyCopy members oldDigest
                         Nothing -> do
                           destinationHead <- readHead destination
                           case destinationHead of
                             Left err -> pure (Left err)
-                            Right (Just current) | headMigration current == Nothing && current /= oldHead ->
-                                pure (Left (StoreConditionFailed "destination inventory head differs"))
+                            Right (Just current) | headMigration current == Nothing ->
+                                pure (Left (StoreConditionFailed "destination inventory head is already active"))
                             Right (Just current) | Just marker <- headMigration current,
                               migrationDestination marker /= sourceLabel ->
                                 pure (Left (StoreConditionFailed "destination tombstone points to another store"))
@@ -546,19 +550,27 @@ migrateStore source destination sourceLabel label = do
         Right _ -> case lookup "head.json" values of
           Nothing -> pure (Left (StoreConditionFailed "source inventory head disappeared"))
           Just headBytes -> do
-            installed <- installMigrationHead destination sourceLabel headBytes
+            installed <- installMigrationHead destination sourceLabel label headBytes
             case installed of
               Left err -> pure (Left err)
               Right _ -> do
-                verified <- verifyCopy members oldDigest
+                verified <- verifyStagedCopy members oldDigest
                 case verified of
                   Left err -> pure (Left err)
-                  Right () -> replaceHeadIfGenerationMatches source
-                    (Just (headGeneration oldHead))
-                    oldHead
-                      { headGeneration = headGeneration oldHead + 1
-                      , headMigration = Just (MigrationTombstone label oldDigest)
-                      }
+                  Right () -> do
+                    disabled <- replaceHeadIfGenerationMatches source
+                      (Just (headGeneration oldHead))
+                      oldHead
+                        { headGeneration = headGeneration oldHead + 1
+                        , headMigration = Just (MigrationTombstone label oldDigest)
+                        }
+                    case disabled of
+                      Left err -> pure (Left err)
+                      Right () -> do
+                        activated <- activateMigrationHead destination sourceLabel oldDigest
+                        case activated of
+                          Left err -> pure (Left err)
+                          Right () -> verifyCopy members oldDigest
     requireMember (_, Nothing) = Left (StoreConditionFailed "store changed while migration was reading it")
     requireMember (key, Just bytes) = do
       case immutableKeyDigest key of
@@ -566,27 +578,31 @@ migrateStore source destination sourceLabel label = do
           Left (StoreInvalidObject key "immutable member digest mismatch during migration")
         _ -> Right ()
       Right (key, bytes)
-    verifyCopy members expectedDigest = do
+    verifyStagedCopy members expectedDigest = verifyMembers members (Just expectedDigest)
+    verifyCopy members expectedDigest = verifyMembers members (Just expectedDigest)
+    verifyMembers members expectedDigest = do
       sourceKeys <- listObjectKeys source
       destKeys <- listObjectKeys destination
       case (sourceKeys, destKeys) of
         (Right currentSource, Right currentDest)
           | filter (/= "format.json") currentSource == members
           , filter (/= "format.json") currentDest == members -> do
-              comparisons <- traverse compareMember members
+              comparisons <- traverse (compareMember expectedDigest) members
               pure (void (sequence comparisons) >> Right ())
         (Left err, _) -> pure (Left err)
         (_, Left err) -> pure (Left err)
         _ -> pure (Left (StoreConditionFailed "inventory members changed during migration"))
       where
-        compareMember key = do
+        compareMember expected key = do
           left <- readObject source key
           right <- readObject destination key
           pure $ do
             src <- left >>= maybe (Left (StoreConditionFailed "source member disappeared")) Right
             dst <- right >>= maybe (Left (StoreConditionFailed "destination member disappeared")) Right
-            if key == "head.json" then
-              unless (contentDigest dst == expectedDigest)
+            if key == "head.json" then do
+              destinationHead <- decodeHead dst
+              let actualDigest = maybe (contentDigest dst) migrationHeadDigest (headMigration destinationHead)
+              unless (Just actualDigest == expected)
                 (Left (StoreConditionFailed "destination inventory head digest differs"))
               else unless (src == dst)
                 (Left (StoreConditionFailed "destination inventory member differs"))
@@ -600,22 +616,50 @@ publishMigrationMember destination key bytes = withBackendGuard destination $ do
     Right (Just _) -> pure (Left (StoreObjectConflict key))
     Right Nothing -> writeObjectUnlocked destination False key bytes
 
-installMigrationHead :: InventoryStore -> Text -> ByteString -> IO (Either StoreError ())
-installMigrationHead destination sourceLabel bytes = withBackendGuard destination $ do
+installMigrationHead :: InventoryStore -> Text -> Text -> ByteString -> IO (Either StoreError ())
+installMigrationHead destination sourceLabel label bytes = withBackendGuard destination $ do
   current <- readObjectUnlocked destination "head.json"
   case current >>= traverse decodeHead of
     Left err -> pure (Left err)
-    Right oldHead -> case current of
-      Right (Just oldBytes) | oldBytes == bytes -> pure (Right ())
-      _ -> case oldHead of
-        Just old | Just marker <- headMigration old,
-          migrationDestination marker == sourceLabel -> writeHead (Just old)
-        Just _ -> pure (Left (StoreConditionFailed "destination inventory head is already active or points elsewhere"))
-        Nothing -> writeHead Nothing
+    Right oldHead -> case decodeHead bytes of
+      Left err -> pure (Left err)
+      Right active -> case canonicalValue (toJSON (active
+        { headMigration = Just (MigrationTombstone sourceLabel (contentDigest bytes)) })) of
+        Left err -> pure (Left (StoreInvalidObject "head.json" err))
+        Right staged -> case current of
+          Right (Just oldBytes) | oldBytes == staged -> pure (Right ())
+          _ -> case oldHead of
+            Just old | Just marker <- headMigration old,
+              migrationDestination marker == label ->
+                pure (Left (StoreConditionFailed "destination head already points to its own location"))
+            Just old | Just marker <- headMigration old,
+              migrationDestination marker == sourceLabel -> writeHead (Just old) staged
+            Just _ -> pure (Left (StoreConditionFailed "destination inventory head is already active or points elsewhere"))
+            Nothing -> writeHead Nothing staged
   where
-    writeHead oldHead = case destination of
-      InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops oldHead bytes
-      _ -> writeObjectUnlocked destination (isJust oldHead) "head.json" bytes
+    writeHead oldHead staged = case destination of
+      InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops oldHead staged
+      _ -> writeObjectUnlocked destination (isJust oldHead) "head.json" staged
+
+activateMigrationHead :: InventoryStore -> Text -> ContentDigest -> IO (Either StoreError ())
+activateMigrationHead destination sourceLabel expectedDigest = withBackendGuard destination $ do
+  current <- readObjectUnlocked destination "head.json"
+  case current >>= traverse decodeHead of
+    Left err -> pure (Left err)
+    Right Nothing -> pure (Left (StoreConditionFailed "destination inventory head is absent"))
+    Right (Just old) -> case headMigration old of
+      Nothing -> pure $ if maybe False ((== expectedDigest) . contentDigest) (either (const Nothing) id current)
+        then Right () else Left (StoreConditionFailed "destination inventory head differs")
+      Just marker | migrationDestination marker == sourceLabel
+        && migrationHeadDigest marker == expectedDigest ->
+          case canonicalValue (toJSON (old {headMigration = Nothing})) of
+            Left err -> pure (Left (StoreInvalidObject "head.json" err))
+            Right active | contentDigest active /= expectedDigest ->
+              pure (Left (StoreConditionFailed "staged destination head differs"))
+            Right active -> case destination of
+              InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops (Just old) active
+              _ -> writeObjectUnlocked destination True "head.json" active
+      _ -> pure (Left (StoreConditionFailed "destination head migration marker differs"))
 
 decodeBackupManifest :: ByteString -> Either StoreError [(FilePath, ContentDigest)]
 decodeBackupManifest bytes = do

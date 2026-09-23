@@ -123,9 +123,12 @@ changing the review or journal protocol. Each context prefix has a binding
 object, immutable members, and a generation-guarded head. A local process
 lock serializes writers on one workstation; a persistent client identity and
 executor claim prevent another workstation from resuming silently. Takeover
-is explicit and advances the claim epoch. A source head tombstone closes the
-old write path before the context selection changes. This prevents two
-histories from accepting new ownership changes during migration.
+is explicit and advances the claim epoch. Migration copies to an inactive
+destination head, verifies the copy, tombstones the source head, then
+activates the destination. An interrupted handoff can leave both stores
+inactive until a verified retry completes it. The context selection changes
+only after destination activation, so two histories cannot accept ownership
+changes during migration.
 
 ## Amendment — 2026-09-22: the read-only foundation
 

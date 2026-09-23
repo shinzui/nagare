@@ -200,6 +200,69 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       migrateStore source destination "local" "gs://state/inventory" >>= (@?= Right ())
       afterHead <- readHead source >>= either (assertFailure . show) pure
       assertBool "source tombstoned after successful retry" (maybe False (isJust . headMigration) afterHead)
+  , testCase "migration never opens destination while source remains writable" $ do
+      sourceOps <- fakeObjectOps
+      baseDestinationOps <- fakeObjectOps
+      staged <- newIORef False
+      let destinationOps = baseDestinationOps
+            { putObject = \condition name bytes -> do
+                result <- putObject baseDestinationOps condition name bytes
+                when (name == ObjectName "head.json" && case result of PutWritten _ -> True; _ -> False)
+                  (writeIORef staged True)
+                pure result
+            }
+      source <- newObjectStore sourceOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      destination <- newObjectStore destinationOps fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      _ <- initializeStore source fixtureBinding "client-a" >>= either (assertFailure . show) pure
+      _ <- publishIfAbsent source "objects/sample.json" "sample"
+        >>= either (assertFailure . show) pure
+      let interruptingSourceOps = sourceOps
+            { putObject = \condition name bytes -> do
+                interrupt <- readIORef staged
+                if interrupt && name == ObjectName "head.json"
+                  then pure (PutUnknown "injected source tombstone failure")
+                  else putObject sourceOps condition name bytes
+            }
+      interrupted <- newObjectStore interruptingSourceOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      migrateStore interrupted destination "local" "gs://state/inventory" >>= \result ->
+        assertBool "source tombstone failure stops migration" (isLeft result)
+      readHead destination >>= \result ->
+        assertBool "destination remains staged" (maybe False (isJust . headMigration) (either (const Nothing) id result))
+      publishIfAbsent destination "objects/late.json" "late" >>= \result ->
+        assertBool "staged destination refuses writes" (isLeft result)
+      publishIfAbsent source "objects/late.json" "late" >>= \result ->
+        assertBool "source remains writable" (not (isLeft result))
+  , testCase "migration resumes after source tombstone but before destination activation" $ do
+      sourceOps <- fakeObjectOps
+      baseDestinationOps <- fakeObjectOps
+      headWrites <- newIORef (0 :: Int)
+      let destinationOps = baseDestinationOps
+            { putObject = \condition name bytes -> do
+                count <- if name == ObjectName "head.json"
+                  then atomicModifyIORef' headWrites (\value -> let next = value + 1 in (next, next))
+                  else pure 0
+                if count == 2 then pure (PutUnknown "injected activation failure")
+                  else putObject baseDestinationOps condition name bytes
+            }
+      source <- newObjectStore sourceOps fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      destination <- newObjectStore destinationOps fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      original <- initializeStore source fixtureBinding "client-a"
+        >>= either (assertFailure . show) pure
+      _ <- publishIfAbsent source "objects/sample.json" "sample"
+        >>= either (assertFailure . show) pure
+      migrateStore source destination "local" "gs://state/inventory" >>= \result ->
+        assertBool "activation failure leaves a resumable handoff" (isLeft result)
+      sourceHead <- readHead source >>= either (assertFailure . show) pure
+      destinationHead <- readHead destination >>= either (assertFailure . show) pure
+      assertBool "source tombstoned" (maybe False (isJust . headMigration) sourceHead)
+      assertBool "destination remains staged" (maybe False (isJust . headMigration) destinationHead)
+      migrateStore source destination "local" "gs://state/inventory" >>= (@?= Right ())
+      readHead destination >>= (@?= Right (Just original))
   , testCase "migration refuses an unresolved source transaction" $ do
       sourceOps <- fakeObjectOps
       destinationOps <- fakeObjectOps
