@@ -145,7 +145,9 @@ compileAuth input = do
                          in case Map.lookup service (authDatabasePrerequisites input) of
                               Just databaseId -> resource
                                 {dependencies = map OrderedAfter
-                                    (databaseId : if nameText kind == "deployment" then proofFor service else [])
+                                    (databaseId : if nameText kind == "deployment"
+                                      then proofFor service <> [shomeiSettingsResourceId (authOwner input)
+                                        | service == "shomei"] else [])
                                     <> resource ^. #dependencies}
                               Nothing -> resource
                   _ -> resource
@@ -156,7 +158,8 @@ compileAuth input = do
             unless (all (`Map.member` authDatabasePrerequisites input) ["en", "shomei"])
               (Left (single "auth database prerequisite is missing"))
             pure (bundle {declarations = map update (declarations bundle), operations = proofs
-              , grants = [BackendMapGrant (authCluster input)]}, updated)
+              , grants = [BackendMapGrant (authCluster input)
+                , ShomeiSettingsGrant (authCluster input) (known (authBaseDomain input))]}, updated)
   where
     single message = (inventoryError "invalid-auth-component" message
       & #scopes .~ [authOwner input]) :| []
@@ -183,10 +186,8 @@ compileAuth input = do
         Object root | KM.lookup "kind" root == Just (String "Namespace") -> Right []
         _ -> do
           rendered <- renderTemplateValue value
-          withMode <- case authMode input of
-            LocalAuth -> addLocalShomeiEnv rendered
-            CloudAuth -> Right rendered
-          revised <- reviseJob withMode
+          withSettings <- addShomeiEnv rendered
+          revised <- reviseJob withSettings
           pure [(location, revised)]
     renderTemplateValue (String value)
       | Just image <- Map.lookup value imagePlaceholders = String <$> imageFor image
@@ -221,7 +222,7 @@ compileAuth input = do
       let suffix = T.take 12 (digestText (contentDigest (TE.encodeUtf8 image)))
       pure (Object (KM.insert "metadata" (Object (KM.insert "name" (String (name <> "-" <> suffix)) metadata)) root))
     reviseJob value = Right value
-    addLocalShomeiEnv value@(Object root)
+    addShomeiEnv value@(Object root)
       | KM.lookup "kind" root == Just (String "Deployment") = do
           metadata <- case KM.lookup "metadata" root of
             Just (Object fields) -> Right fields
@@ -229,7 +230,7 @@ compileAuth input = do
           case KM.lookup "name" metadata of
             Just (String "shomei") -> updateAt ["spec", "template", "spec", "containers"] appendShomeiEnv value
             _ -> Right value
-    addLocalShomeiEnv value = Right value
+    addShomeiEnv value = Right value
     appendShomeiEnv (Array containers) = case V.uncons containers of
       Just (Object container, rest) -> do
         unless (KM.lookup "name" container == Just (String "shomei"))
@@ -240,11 +241,16 @@ compileAuth input = do
         let extras = V.fromList
               [object ["name" .= ("SHOMEI_WEBAUTHN_RP_ID" :: Text), "value" .= authBaseDomain input]
               , object ["name" .= ("SHOMEI_WEBAUTHN_ORIGINS" :: Text),
-                  "value" .= ("https://protected-hello." <> authBaseDomain input)]
+                  "valueFrom" .= keyRef "webauthn-origins" False]
+              , object ["name" .= ("SHOMEI_PUBLIC_BASE_URL" :: Text),
+                  "valueFrom" .= keyRef "public-base-url" True]
               ]
         pure (Array (V.cons (Object (KM.insert "env" (Array (values <> extras)) container)) rest))
       _ -> Left "Shomei Deployment has no first container"
     appendShomeiEnv _ = Left "Shomei Deployment containers are malformed"
+    keyRef key optional = object ["configMapKeyRef" .= object
+      ["name" .= ("nagare-shomei-settings" :: Text), "key" .= (key :: Text)
+      , "optional" .= optional]]
     updateAt [] change value = change value
     updateAt (field : remaining) change (Object fields) = do
       current <- maybe (Left "auth template lacks expected nested field") Right (KM.lookup field fields)

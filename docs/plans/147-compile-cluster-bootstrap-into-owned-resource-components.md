@@ -179,12 +179,15 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-23) M2c partial: The remaining direct `db create` entry point now refuses before loading configuration or making a cluster call when invoked inside an inventory transaction. The full nagarectl suite passes (732 tests). Standalone `db create` and application deploy still call its direct mutation path, so replacement with reviewed inventory remains open.
 - [x] (2026-09-23) M2c coverage audit: `docs/architecture/managed-resource-coverage.md` now names standalone and application database creation as an active legacy mutation family, its available typed compiler, and the two callers that must migrate.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
+- [x] (2026-09-23) M3 partial: The auth owner now derives a typed Shomei settings ConfigMap from the same validated portal contribution that composes the backend map. Both cloud and local Shomei Deployments consume its reviewed keys, wait for the ConfigMap, and retain one fallback origin before any portal exists. Source binding, review reconstruction, and adapter preparation reject changed native bytes; 443 DSL and 733 CLI tests pass. Namespace certificate policy and host timer delegation still need an audit.
 - [x] (2026-09-23) M4: Supported bootstrap recipes and installer entry points use reviewed inventory plan/apply; the standalone stamp command refuses. A disposable 17-scope/208-operation local bootstrap converged through readiness pauses, and an accepted replay verified 205 resources with zero updates. Stale resourceVersion, foreign owner, and replaced UID paths refuse. Non-bootstrap application/data and legacy upgrade paths remain assigned to EP-148/EP-149/EP-150.
 - [x] (2026-09-23) M4 documentation: En, Shomei, nagare-access, and local-auth guides now describe the reviewed bootstrap path and its immutable image inputs instead of directing operators to create databases and apply manifests outside inventory. The pre-0.2 Shomei note requires separate recovery review for retained data.
 - [x] (2026-09-23) M4 documentation: cert-manager, Serving, Kourier, and net-certmanager guides now describe packaged release digests and the reviewed bootstrap command instead of fetching mutable URLs and applying manifests directly.
 
 
 ## Surprises & Discoveries
+
+2026-09-23: `Access.Resolve` previously patched the Shomei Deployment's WebAuthn origins and public base URL with `kubectl set env` after writing the shared backend map. The existing `RegisterBackend` portal role already supplies the unique public host, so one closed contribution can compose both owner resources. Shomei refuses an empty origin set; the generated settings retain the existing protected-hello fallback until a portal is registered.
 
 2026-09-23: The standalone `db create` command is also called from application deploy, so retiring its direct mutation path requires both command and deploy callers to enter a reviewed database component transaction. A transaction entry guard closes adapter re-entry but does not itself migrate these callers.
 
@@ -256,6 +259,8 @@ A component is an independently identified group of resources and operations, su
 
 
 ## Decision Log
+
+2026-09-23: Derive Shomei settings from the auth owner's `ShomeiSettingsGrant` and validated portal backend contribution. Render them into one owner-composed ConfigMap, and make both cloud and local Shomei Deployments read its exact reviewed keys. This keeps application scopes from patching the Deployment and makes portal changes participate in the same contribution-vector admission as the backend map.
 
 2026-09-23: Treat source locations as provenance, outside resource equality. An installed payload checkout path can change while a resource's native specification remains byte-identical. Helm contracts use `payload:` paths relative to the packaged observability directory; the runtime resolves those paths from the selected payload and rechecks chart/values digests before mutation. The first transition from absolute-path Helm contracts required one reviewed upgrade; later source checkouts produced no resource updates.
 
@@ -398,6 +403,8 @@ ResourceBundle, ScopeDeclaration, and the DeclaredOperation values inside a bund
 
 
 ## Revision Notes
+
+2026-09-23: Added owner-composed Shomei settings beside the existing backend map and bound their canonical ConfigMap bytes through plan, review reconstruction, and adapter preparation. The portal host now determines WebAuthn origins and public URL under the auth owner's grant; the remaining M3 namespace and delegated credential audit is explicit.
 
 2026-09-23: Guarded the still-active direct database creation entry point against inventory transaction re-entry and added it to the managed-resource coverage audit. This prevents an adapter from invoking its unreviewed Kubernetes writes while the context transaction lock is held and keeps the remaining command and application deploy migration visible for M2c.
 

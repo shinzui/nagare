@@ -17,7 +17,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
-import Nagare.Inventory.BackendMap (compileContributedBackendMaps, renderBackendMapNative)
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings, renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
@@ -87,7 +87,14 @@ inventoryAuthTests = testGroup "auth inventory component"
           _ -> True) members)
       (localBundle, localNative) <- compileAuth fixture {authMode = LocalAuth} >>= expectRight
       length (declarations localBundle) @?= length members
-      assertBool "local WebAuthn policy did not change the reviewed auth object" (localNative /= native)
+      localNative @?= native
+      assertBool "Shomei Deployment does not wait for its composed settings"
+        (any (\deployment -> case deployment ^. #address of
+          Kubernetes _ "apps" _ _ name -> nameText name == "shomei"
+            && OrderedAfter (shomeiSettingsResourceId fixtureOwner) `elem` deployment ^. #dependencies
+          _ -> False) deployments)
+      assertBool "Shomei settings are not read from the owner ConfigMap"
+        (any (BC.isInfixOf "nagare-shomei-settings" . snd) (Map.elems native))
   , testCase "backend contributions bind exact reviewed ConfigMap bytes" $ do
       (authBundle, _) <- compileAuth fixture >>= expectRight
       let authScope = ok (mkScopeDeclaration fixtureOwner [authBundle])
@@ -123,6 +130,35 @@ inventoryAuthTests = testGroup "auth inventory component"
       rejected <- adapterPrepare badAdapter operation
       assertBool "changed backend bytes passed typed contribution binding" (case rejected of
         Left _ -> True; Right _ -> False)
+  , testCase "portal contribution binds Shomei settings and rejects changed native bytes" $ do
+      (authBundle, _) <- compileAuth fixture >>= expectRight
+      let authScope = ok (mkScopeDeclaration fixtureOwner [authBundle])
+          appOwner = ok (mkScopeId Application "portal")
+          portal = RegisterBackend fixtureOwner fixtureCluster (ok (mkName "login.example.test"))
+            "http://shomei.nagare-system.svc.cluster.local" PortalBackend (ok (mkLogicalKey "route"))
+          appScope = ok (mkScopeDeclaration appOwner [ResourceBundle [] [] [] [portal] [] []])
+          effective = ok (composedDeclarations (Map.fromList [(fixtureOwner, authScope), (appOwner, appScope)]))
+      [(resourceId, (resource, native))] <- pure (Map.toList (ok (compileContributedShomeiSettings effective)))
+      resourceId @?= shomeiSettingsResourceId fixtureOwner
+      expected <- either (assertFailure . T.unpack) pure (renderShomeiSettingsNative
+        (ok (mkName "example.test")) (Just (ok (mkName "login.example.test"))))
+      native @?= expected
+      assertBool "portal origin missing from reviewed Shomei settings"
+        (BC.isInfixOf "https://login.example.test" native)
+      let context = ok (mkContextId "shomei-settings-test")
+          ops = KubernetesAdapterOps context
+            (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+            (\_ -> pure AdapterEffectCompleted)
+          operation = PlannedOperation (ok (mkOperationId "op-shomei-settings"))
+            CreateResource KubernetesExecutor (resourceId :| []) (contentDigest "shomei-settings") [] Idempotent
+      _ <- adapterPrepare (mkKubernetesAdapter (Map.singleton resourceId (resource, native)) ops)
+        operation >>= expectRight
+      changed <- either (assertFailure . T.unpack) pure (renderShomeiSettingsNative
+        (ok (mkName "example.test")) Nothing)
+      rejected <- adapterPrepare (mkKubernetesAdapter
+        (Map.singleton resourceId (resource, changed)) ops) operation
+      assertBool "changed Shomei settings passed typed contribution binding"
+        (case rejected of Left _ -> True; Right _ -> False)
   , testCase "complete auth scope includes its typed database bundles" $ do
       let database service = Database (ok (mkDatabaseName (service <> "-db"))) Nothing Postgres
             (defaultEngineVersion Postgres) (ok (Dsl.mkNamespace "nagare-system"))

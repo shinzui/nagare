@@ -256,7 +256,7 @@ import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
-import Nagare.Inventory.BackendMap (compileContributedBackendMaps)
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
 import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
@@ -4598,8 +4598,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
   namespaceNative <- either dieT pure (compileContributedNamespaces declarations)
   backendNative <- either dieT pure (compileContributedBackendMaps declarations)
-  let generatedNative = Map.union namespaceNative backendNative
-  unless (Map.size generatedNative == Map.size namespaceNative + Map.size backendNative
+  shomeiNative <- either dieT pure (compileContributedShomeiSettings declarations)
+  let generatedNative = Map.unions [namespaceNative, backendNative, shomeiNative]
+  unless (Map.size generatedNative == Map.size namespaceNative + Map.size backendNative + Map.size shomeiNative
       && Map.null (Map.intersection suppliedNative generatedNative))
     (dieT "generated native members overlap a supplied or contributed resource")
   let allSuppliedNative = Map.union suppliedNative generatedNative

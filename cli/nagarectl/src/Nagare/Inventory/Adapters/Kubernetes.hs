@@ -24,7 +24,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.BackendMap (renderBackendMapNative)
+import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -176,12 +176,20 @@ buildMutation context operation resource declaration native before = do
       contributedBackend = case spec declaration of
         BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
         _ -> False
+      contributedShomei = case spec declaration of
+        ShomeiSettingsSpec {} -> declaration ^. #source . #file == "contribution"
+        _ -> False
   when contributedBackend $ case spec declaration of
     BackendMapSpec entries -> do
       expected <- first refusal (renderBackendMapNative entries)
       unless (expected == native) (Left (refusal "native backend map differs from typed contributions"))
     _ -> pure ()
-  unless (specDigest (spec declaration) == Just digest || contributedNamespace || contributedBackend)
+  when contributedShomei $ case spec declaration of
+    ShomeiSettingsSpec base portal -> do
+      expected <- first refusal (renderShomeiSettingsNative base portal)
+      unless (expected == native) (Left (refusal "native Shomei settings differ from typed contributions"))
+    _ -> pure ()
+  unless (specDigest (spec declaration) == Just digest || contributedNamespace || contributedBackend || contributedShomei)
     (Left (refusal "native Kubernetes bytes differ from the declared spec digest"))
   cluster <- case address declaration of
     Kubernetes target _ _ _ _ -> Right target
@@ -201,7 +209,8 @@ buildMutation context operation resource declaration native before = do
   unless (address recompiled == address declaration
       && (spec recompiled == spec declaration
         || contributedNamespace && spec recompiled == NamespaceSpec (Just digest)
-        || contributedBackend && spec recompiled == NativeObject digest)
+        || contributedBackend && spec recompiled == NativeObject digest
+        || contributedShomei && spec recompiled == NativeObject digest)
       && rebound == native)
     (Left (refusal "native Kubernetes address or controller claims differ from the declaration"))
   stamped <- first refusal (stampNative context resource digest value)

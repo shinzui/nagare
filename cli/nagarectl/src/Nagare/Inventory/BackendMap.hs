@@ -2,6 +2,8 @@ module Nagare.Inventory.BackendMap
   ( renderBackendMapObject
   , renderBackendMapNative
   , compileContributedBackendMaps
+  , renderShomeiSettingsNative
+  , compileContributedShomeiSettings
   )
 where
 
@@ -24,6 +26,68 @@ import Nagare.Resource.Wire (canonicalValue)
 
 renderBackendMapNative :: [(Name, Text, BackendRole)] -> Either Text ByteString
 renderBackendMapNative entries = canonicalValue =<< renderBackendMapObject entries
+
+renderShomeiSettingsNative :: Name -> Maybe Name -> Either Text ByteString
+renderShomeiSettingsNative base portal = canonicalValue (renderShomeiSettingsObject base portal)
+
+-- The portal host is contributed through the same closed backend registration
+-- that drives the access map. The owner keeps one fallback origin so Shomei's
+-- nonempty WebAuthn origin requirement holds before an application is deployed.
+renderShomeiSettingsObject :: Name -> Maybe Name -> Value
+renderShomeiSettingsObject base portal = object
+  [ "apiVersion" .= ("v1" :: Text)
+  , "kind" .= ("ConfigMap" :: Text)
+  , "metadata" .= object
+      [ "name" .= ("nagare-shomei-settings" :: Text)
+      , "namespace" .= ("nagare-system" :: Text)
+      , "labels" .= object
+          [ "app.kubernetes.io/name" .= ("shomei" :: Text)
+          , "app.kubernetes.io/part-of" .= ("nagare-auth-plane" :: Text)
+          , "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+          ]]
+  , "data" .= object
+      (["webauthn-origins" .= T.intercalate "," origins]
+        <> maybe [] (\host -> ["public-base-url" .= ("https://" <> nameText host)]) portal)
+  ]
+  where
+    fallbackOrigin = "https://protected-hello." <> nameText base
+    origins = fallbackOrigin : maybe [] (\host ->
+      let origin = "https://" <> nameText host
+       in [origin | origin /= fallbackOrigin]) portal
+
+compileContributedShomeiSettings ::
+  [Declaration] -> Either Text (Map ResourceId (ManagedResource, ByteString))
+compileContributedShomeiSettings declarations = Map.fromList <$> traverse compileOne contributed
+  where
+    contributed =
+      [resource | Managed resource <- declarations
+      , ShomeiSettingsSpec {} <- [resource ^. #spec]
+      , resource ^. #source . #file == "contribution"]
+    compileOne resource = do
+      (base, portal) <- case resource ^. #spec of
+        ShomeiSettingsSpec baseDomain portalHost -> Right (baseDomain, portalHost)
+        _ -> Left "contributed Shomei settings have no typed policy"
+      cluster <- case resource ^. #address of
+        Kubernetes target "" kind (Just namespace) name
+          | nameText kind == "configmap" && nameText namespace == "nagare-system"
+          , nameText name == "nagare-shomei-settings" -> Right target
+        _ -> Left "contributed Shomei settings have an unexpected address"
+      let value = renderShomeiSettingsObject base portal
+      bytes <- canonicalValue value
+      (compiled, bound) <- first (T.pack . show) (bindKubernetesObject KubernetesInput
+        { resourceId = resource ^. #identity
+        , ownerScope = resource ^. #owner
+        , clusterId = cluster
+        , inputObject = value
+        , objectDigest = contentDigest bytes
+        , lifecyclePolicy = resource ^. #lifecycle
+        , inputDataPolicy = resource ^. #dataPolicy
+        , inputSensitivity = resource ^. #sensitivity
+        , sourceLocation = resource ^. #source
+        })
+      unless (compiled ^. #address == resource ^. #address && bound == bytes)
+        (Left "contributed Shomei settings native binding changed its address or bytes")
+      pure (resource ^. #identity, (resource, bytes))
 
 compileContributedBackendMaps ::
   [Declaration] -> Either Text (Map ResourceId (ManagedResource, ByteString))

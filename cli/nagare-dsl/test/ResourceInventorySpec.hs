@@ -353,6 +353,24 @@ resourceInventoryTests =
           @?= Right (encodeCanonicalScope owner)
         rejects "multiple-portals" (compileScopes [owner, consumer a portal,
           consumer other (route "other.example.test" "https://other.example.test" PortalBackend)])
+    , testCase "portal contribution composes owned Shomei settings with the backend map" $ do
+        let authOwner = s Platform "auth"
+            grant = ShomeiSettingsGrant cluster (n "example.test")
+            owner = ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [BackendMapGrant cluster, grant]])
+            portal = RegisterBackend authOwner cluster (n "login.example.test")
+              "http://shomei.nagare-system.svc.cluster.local" PortalBackend (ok (mkLogicalKey "portal"))
+            app = ok (mkScopeDeclaration a [bundle [] & #contributions .~ [portal]])
+            composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
+            setting resources = [resource | Managed resource <- resources,
+              ShomeiSettingsSpec {} <- [resource ^. #spec]]
+        let [base] = setting (composed [owner])
+        base ^. #spec @?= ShomeiSettingsSpec (n "example.test") Nothing
+        let [withPortal] = setting (composed [owner, app])
+        withPortal ^. #spec @?= ShomeiSettingsSpec (n "example.test") (Just (n "login.example.test"))
+        withPortal ^. #identity @?= base ^. #identity
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner)) @?= Right (encodeCanonicalScope owner)
+        rejects "invalid-shomei-owner" (compileScopes
+          [ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])])
     , testCase "canonical scope ignores declaration order and roundtrips" $ do
         let x = service a "x" "x"
             y = service a "y" "y"

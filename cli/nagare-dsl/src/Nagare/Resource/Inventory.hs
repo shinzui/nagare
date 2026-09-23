@@ -15,6 +15,7 @@ module Nagare.Resource.Inventory
   , Contribution (..)
   , ContributionGrant (..)
   , backendMapResourceId
+  , shomeiSettingsResourceId
   , ResourceBundle (..)
   , ScopeDeclaration
   , mkScopeDeclaration
@@ -73,6 +74,7 @@ data DesiredSpec
   | ArtifactPublication !Name !Text !ContentDigest !Bool
   | NamespaceSpec !(Maybe ContentDigest)
   | BackendMapSpec ![(Name, Text, BackendRole)]
+  | ShomeiSettingsSpec !Name !(Maybe Name)
   | LogicalCache !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -168,7 +170,7 @@ data Contribution
       , role :: !BackendRole, key :: !LogicalKey}
   deriving stock (Eq, Ord, Show, Generic)
 
-data ContributionGrant = NamespaceGrant !ScopeId !ResourceId | BackendMapGrant !ResourceId
+data ContributionGrant = NamespaceGrant !ScopeId !ResourceId | BackendMapGrant !ResourceId | ShomeiSettingsGrant !ResourceId !Name
   deriving stock (Eq, Ord, Show, Generic)
 
 data ResourceBundle = ResourceBundle
@@ -198,8 +200,8 @@ mkScopeDeclaration s bs = checked errors (ScopeDeclaration s (sort bs))
       [inventoryError "duplicate-id" "duplicate resource or operation identity in scope" & #scopes .~ [s] & #resources .~ [r] | r <- duplicates ids]
         <> concatMap validateDeclaration ds
         <> [err "wrong-owner" "managed declaration belongs to a different scope" d | d@(Managed r) <- ds, r ^. #owner /= s]
-        <> [err "derived-backend-map" "shared backend map must be composed from the owner grant and contributions" d
-           | d@(Managed r) <- ds, BackendMapSpec _ <- [r ^. #spec]]
+        <> [err "derived-auth-settings" "shared auth settings must be composed from owner grants and contributions" d
+           | d@(Managed r) <- ds, case r ^. #spec of BackendMapSpec _ -> True; ShomeiSettingsSpec {} -> True; _ -> False]
     err c m d = inventoryError c m & #scopes .~ [s] & #resources .~ [declarationId d] & #sources .~ [declarationSource d]
 
 validateDeclaration :: Declaration -> [InventoryError]
@@ -217,6 +219,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
         <> ["duplicate address within declaration" | length claimSet /= Set.size (Set.fromList claimSet)]
         <> ["shared backend map belongs to the platform auth scope"
            | BackendMapSpec _ <- [r ^. #spec], scopeIdText (r ^. #owner) /= "platform:auth"]
+        <> ["shared Shomei settings belong to the platform auth scope"
+           | ShomeiSettingsSpec {} <- [r ^. #spec], scopeIdText (r ^. #owner) /= "platform:auth"]
     -- Avoid expanding an invalid StatefulSet before reporting its bounds.
     claimSet = case r ^. #spec of
       StatefulSet n _ _ | n < 0 || n > 10000 || addressNameLength > 230 -> []
@@ -240,6 +244,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "" k Nothing _, NamespaceSpec _) -> nameText k == "namespace"
       (Kubernetes _ "" k (Just ns) n, BackendMapSpec _) ->
         nameText k == "configmap" && nameText ns == "nagare-system" && nameText n == "nagare-access-backends"
+      (Kubernetes _ "" k (Just ns) n, ShomeiSettingsSpec {}) ->
+        nameText k == "configmap" && nameText ns == "nagare-system" && nameText n == "nagare-shomei-settings"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
@@ -358,7 +364,7 @@ composedDeclarations ss = do
   pure (sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> contributed))
 
 composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
-composeContributions ss = checked errors (namespaces <> backendMaps)
+composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSettings)
   where
     requests = [(s, c) | (s, d) <- Map.toList ss, b <- scopeBundles d, c <- b ^. #contributions]
     namespaceRequests = [(s, c, namespaceName) | (s, c@(RegisterNamespace _ _ namespaceName _)) <- requests]
@@ -372,6 +378,11 @@ composeContributions ss = checked errors (namespaces <> backendMaps)
       | (s, d) <- Map.toList ss
       , b <- scopeBundles d
       , BackendMapGrant clusterId <- b ^. #grants]
+    shomeiOwners =
+      [ (s, clusterId, baseDomain)
+      | (s, d) <- Map.toList ss
+      , b <- scopeBundles d
+      , ShomeiSettingsGrant clusterId baseDomain <- b ^. #grants]
     backendAuthorized s c = scopeKind s == Application
       && (c ^. #owner, c ^. #cluster) `elem` backendOwners
     backendGroups = Map.fromListWith (<>)
@@ -398,6 +409,11 @@ composeContributions ss = checked errors (namespaces <> backendMaps)
          | (owner, _) <- duplicates backendOwners]
       <> [inventoryError "invalid-backend-owner" "only the platform auth scope can own the shared backend map" & #scopes .~ [owner]
          | (owner, _) <- backendOwners, scopeKind owner /= Platform || scopeIdText owner /= "platform:auth"]
+      <> [inventoryError "invalid-shomei-owner" "Shomei settings require the platform auth backend grant" & #scopes .~ [owner]
+         | (owner, clusterId, _) <- shomeiOwners, scopeKind owner /= Platform
+           || scopeIdText owner /= "platform:auth" || (owner, clusterId) `notElem` backendOwners]
+      <> [inventoryError "duplicate-shomei-owner" "Shomei settings owner has duplicate grants" & #scopes .~ [owner]
+         | (owner, _) <- duplicates [(owner, clusterId) | (owner, clusterId, _) <- shomeiOwners]]
     namespaces =
       [ Managed
           ( ManagedResource
@@ -428,6 +444,20 @@ composeContributions ss = checked errors (namespaces <> backendMaps)
             Retain Stateless Private [] [] (SourceLocation "contribution" (scopeIdText owner)))
       | (owner, clusterId) <- backendOwners
       ]
+    shomeiSettings =
+      [ Managed
+          (ManagedResource
+            (shomeiSettingsResourceId owner)
+            owner KubernetesExecutor
+            (Kubernetes clusterId "" (known "configmap") (Just (known "nagare-system")) (known "nagare-shomei-settings"))
+            []
+            (ShomeiSettingsSpec baseDomain (case [hostName
+              | (_, _, hostName, _, PortalBackend) <- Map.findWithDefault [] (owner, clusterId) backendGroups] of
+                [portal] -> Just portal
+                _ -> Nothing))
+            Retain Stateless Private [] [] (SourceLocation "contribution" (scopeIdText owner)))
+      | (owner, clusterId, baseDomain) <- shomeiOwners
+      ]
     first3 (value, _, _) = value
 
 namespaceContributionId :: Contribution -> ResourceId
@@ -448,6 +478,10 @@ backendMapResourceId owner =
 contributionResourceId :: Contribution -> ResourceId
 contributionResourceId c@RegisterNamespace {} = namespaceContributionId c
 contributionResourceId c@RegisterBackend {} = backendMapResourceId (c ^. #owner)
+
+shomeiSettingsResourceId :: ScopeId -> ResourceId
+shomeiSettingsResourceId owner = mintResourceId owner
+  (either (error . Data.Text.unpack) id (mkLogicalKey "auth")) (known "shomei-settings")
 
 validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalClaim ClaimHolder -> [InventoryError]
 validateGraph ss ds reservations =

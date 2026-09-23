@@ -402,15 +402,23 @@ instance ToJSON ContributionGrant where
   toJSON (NamespaceGrant scope cluster) = toJSON (scope, cluster)
   toJSON (BackendMapGrant cluster) = object
     ["tag" .= ("BackendMapGrant" :: Text), "cluster" .= cluster]
+  toJSON (ShomeiSettingsGrant cluster baseDomain) = object
+    ["tag" .= ("ShomeiSettingsGrant" :: Text), "cluster" .= cluster, "baseDomain" .= baseDomain]
 
 instance FromJSON ContributionGrant where
   parseJSON value@(Array _) = do
     (scope, cluster) <- parseJSON value
     pure (NamespaceGrant scope cluster)
-  parseJSON value = strictObject "backend map grant" ["tag", "cluster"] (\fields -> do
+  parseJSON value = withObject "contribution grant" (\fields -> do
     tag <- fields .: "tag"
-    unless (tag == ("BackendMapGrant" :: Text)) (fail "unknown contribution grant")
-    BackendMapGrant <$> fields .: "cluster") value
+    case (tag :: Text) of
+      "BackendMapGrant" -> do
+        unless (all (`elem` ["tag", "cluster"]) (KM.keys fields)) (fail "backend grant has unknown field")
+        BackendMapGrant <$> fields .: "cluster"
+      "ShomeiSettingsGrant" -> do
+        unless (all (`elem` ["tag", "cluster", "baseDomain"]) (KM.keys fields)) (fail "Shomei grant has unknown field")
+        ShomeiSettingsGrant <$> fields .: "cluster" <*> fields .: "baseDomain"
+      _ -> fail "unknown contribution grant") value
 
 instance ToJSON ResourceBundle where toJSON = genericToJSON options
 

@@ -14,7 +14,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.BackendMap (renderBackendMapNative)
+import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes
@@ -109,15 +109,23 @@ validateSuppliedKubernetesMembers declarations supplied =
           generatedBackend = case declaration ^. #spec of
             BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
             _ -> False
+          generatedShomei = case declaration ^. #spec of
+            ShomeiSettingsSpec {} -> declaration ^. #source . #file == "contribution"
+            _ -> False
       when generatedBackend $ case declaration ^. #spec of
         BackendMapSpec entries -> do
           expected <- renderBackendMapNative entries
           unless (expected == bytes) (Left "generated backend map differs from typed contributions")
         _ -> pure ()
+      when generatedShomei $ case declaration ^. #spec of
+        ShomeiSettingsSpec base portal -> do
+          expected <- renderShomeiSettingsNative base portal
+          unless (expected == bytes) (Left "generated Shomei settings differ from typed contributions")
+        _ -> pure ()
       let
           reboundDeclaration = recompiled
             { dependencies = declaration ^. #dependencies
-            , spec = if generatedNamespace || generatedBackend
+            , spec = if generatedNamespace || generatedBackend || generatedShomei
                 then declaration ^. #spec else recompiled ^. #spec
             }
       unless (reboundDeclaration == declaration && rebound == bytes)

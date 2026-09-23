@@ -15,7 +15,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.BackendMap (renderBackendMapNative)
+import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
 import Nagare.Resource.Inventory
@@ -89,15 +89,23 @@ kubernetesSpecsFromReview bundle = do
           generatedBackend = case declaration ^. #spec of
             BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
             _ -> False
+          generatedShomei = case declaration ^. #spec of
+            ShomeiSettingsSpec {} -> declaration ^. #source . #file == "contribution"
+            _ -> False
       when generatedBackend $ case declaration ^. #spec of
         BackendMapSpec entries -> do
           expected <- renderBackendMapNative entries
           unless (expected == native) (Left "reviewed backend map differs from typed contributions")
         _ -> pure ()
+      when generatedShomei $ case declaration ^. #spec of
+        ShomeiSettingsSpec base portal -> do
+          expected <- renderShomeiSettingsNative base portal
+          unless (expected == native) (Left "reviewed Shomei settings differ from typed contributions")
+        _ -> pure ()
       let
           reboundDeclaration = recompiled
             { dependencies = declaration ^. #dependencies
-            , spec = if generatedNamespace || generatedBackend
+            , spec = if generatedNamespace || generatedBackend || generatedShomei
                 then declaration ^. #spec else recompiled ^. #spec
             }
       unless (reboundDeclaration == declaration && rebound == native)
