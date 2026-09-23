@@ -220,17 +220,18 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-151 M4 live: The gated real-bucket store contract passed in 73.43 seconds under a unique `labs` inventory child. An isolated, reviewed empty-scope history then migrated to another unique child; after a duplicate-name listing fix, interrupted migration resumed and a fresh second state/cache root matched head digest `5fa2e88e3f22c83ece53f81b2eb32ad41c8dfac47fe8f0a928068d9b1f7a8417` and exact exported members. The ordinary `labs` state and context config were untouched. Both cloud prefixes remain for review; EP-151 records them.
 - [x] (2026-09-23) EP-147 M3/M4 partial: Admission now has a regression fixture for concurrent no-op Namespace contributor reviews; the later one refuses on a stale accepted vector. The standalone `platform stamp` mutation bypass now refuses and directs operators to reviewed bootstrap plan/apply; its built CLI refusal was checked. Explicit legacy adoption and upgrade paths remain to be migrated.
 - [x] (2026-09-23) EP-149 M2 transfer hardening: A scope handoff now requires the Kubernetes provider and an unchanged native resource contract, including address, specification, policy, and dependencies. A changed spec refuses before review; provider-specific transfer capability remains required for other executors.
+- [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
-- [ ] EP-147 M4: Removed orchestration and component resume.
+- [x] (2026-09-23) EP-147 M4: Supported bootstrap orchestration enters reviewed inventory; the disposable full bootstrap and accepted replay converged.
 - [ ] EP-149 M1: Read-only drift/status/explanation.
 - [ ] EP-149 M2: Reviewed adoption and transfer.
 - [ ] EP-149 M3: Data-preserving migration and retention/collection.
 - [ ] EP-149 M4: Commands and recovery decision fixtures.
-- [ ] EP-151 M1: Prototype proving the bucket's conditional writes and choosing the transport.
-- [ ] EP-151 M2: Object-backed store passing the shared transaction suite.
-- [ ] EP-151 M3: Context selection, guarded opening, and resumable migration.
-- [ ] EP-151 M4: Live two-state-root evidence, documentation, and ADR 13/22 amendments.
+- [x] (2026-09-23) EP-151 M1: Bounded live GCS conditional-write probe and transport decision.
+- [x] (2026-09-23) EP-151 M2: Object-backed store passed the shared conformance suite against fake and real GCS operations.
+- [x] (2026-09-23) EP-151 M3: Context selection, guarded opening, and resumable migration.
+- [x] (2026-09-23) EP-151 M4: Live two-state-root migration, documentation, and ADR 13/22 amendments.
 - [ ] EP-148 M1: Complete application/data scopes.
 - [ ] EP-148 M2: Shared contributions, env/secret intent, and publication.
 - [ ] EP-148 M3: Operational/data command coverage.
