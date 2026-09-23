@@ -45,9 +45,23 @@ An unreviewed move between files or scopes is refused as `owner-transfer-require
 
 ## Retirement and migration
 
-Retirement and collection currently refuse. The head must first retain historical physical
-incarnations and deletion tombstones after an accepted scope disappears. A retirement
-approval cannot be interpreted as deletion authority, and durable data requires backup and
-recovery evidence. Migration also refuses until a reviewed prepare, seed, verify, switch,
-write-admission, and recovery graph is available. These safeguards prevent a partial
-implementation from deleting or reassigning data by name alone.
+Run `nagarectl inventory retire --scope KIND:NAME --out REVIEW_DIRECTORY` to review
+retention of an accepted scope. `KIND` is `platform`, `application`, `standalone`, or
+`publication`. The current route accepts directly declared Kubernetes resources
+whose exact owned UIDs can be observed. It refuses if another scope still depends
+on the retiring declarations or if a disappearing resource lacks the required
+retention proof. Apply the issued review with `inventory apply REVIEW_DIRECTORY
+--yes`; apply checks those UIDs again under the writer lock and records each
+incarnation against its old immutable scope revision. No Kubernetes delete is run.
+
+The retained objects keep their provider addresses reserved. `inventory status
+--json` and `inventory explain RESOURCE_ID --json` observe them through the native
+bytes in their original accepted review and distinguish the retained UID from a
+replacement, absence, foreign ownership, or an unavailable provider. These
+observations do not grant collection authority.
+
+Collection still refuses until a separate reviewed deletion path can prove
+retention policy, dependent consumers, exact live identity, recovery evidence,
+and a durable tombstone. Migration also refuses until a reviewed prepare, seed,
+verify, switch, write-admission, and recovery graph is available. Durable data
+requires backup and recovery evidence before either action can discard it.

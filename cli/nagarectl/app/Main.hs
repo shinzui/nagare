@@ -4337,7 +4337,7 @@ runInventoryStatus mctx requested json = do
   snapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
     targetBinding
     (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
-      (InventoryPlan.historyAccepted history)) Map.empty)
+      (InventoryPlan.historyAccepted history)) (InventoryPlan.historyReservations history))
   inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
   (kubernetesNative, helmNative) <- InventoryStatus.loadAcceptedNative store history inventory
     >>= either dieT pure
@@ -4352,6 +4352,8 @@ runInventoryStatus mctx requested json = do
       managed = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
       byId = Map.fromList [(resource ^. #identity, resource) | resource <- managed]
       ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
+        <> [resource | (resource, (_, declaration)) <- Map.toAscList (InventoryPlan.historyRetained history),
+              declaration ^. #executor == executor]
   registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
@@ -4398,14 +4400,19 @@ runInventoryStatus mctx requested json = do
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
       findings = InventoryStatus.classifyDrift inventory observations
-      retainedFindings = InventoryStatus.retainedFindings history
+      retainedFindings = InventoryStatus.retainedFindings history observations
       unavailable = Set.toAscList (Set.fromList
-        [InventoryStatus.findingExecutor finding | finding <- findings,
-          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation])
+        ([InventoryStatus.findingExecutor finding | finding <- findings,
+          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation]
+        <> [InventoryStatus.retainedExecutor finding | finding <- retainedFindings,
+          InventoryStatus.retainedObservation finding `elem` ["unknown", "unavailable"]]))
       missingScopes = Set.toAscList (Set.fromList
-        [(InventoryStatus.findingOwner finding, InventoryStatus.findingExecutor finding)
+        ([(InventoryStatus.findingOwner finding, InventoryStatus.findingExecutor finding)
         | finding <- findings,
-          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation])
+          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation]
+        <> [(InventoryStatus.retainedScope finding, InventoryStatus.retainedExecutor finding)
+           | finding <- retainedFindings,
+             InventoryStatus.retainedObservation finding `elem` ["unknown", "unavailable"]]))
       providers =
         [Aeson.object ["executor" Aeson..= InventoryAdapter.adapterExecutor adapter,
                        "identity" Aeson..= InventoryAdapter.adapterIdentity adapter,
@@ -4470,7 +4477,7 @@ runInventoryStatus mctx requested json = do
               [ "finding" Aeson..= finding
               , "dependencies" Aeson..= (resource ^. #dependencies)
               , "consumers" Aeson..= ([] :: [Resource.ResourceId])
-              , "recoveryReason" Aeson..= ("retained physical incarnation has not been reobserved" :: Text)
+              , "recoveryReason" Aeson..= ("retained incarnation requires explicit collection or recovery review" :: Text)
               ]), "Retained resource " <> Resource.resourceIdText resourceId)
           Nothing -> dieT "resource is absent from accepted and retained inventory history"
       if json then LBC.putStrLn (Aeson.encode explanation)

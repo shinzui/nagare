@@ -323,8 +323,10 @@ member remains content-addressed in the store. Retained provider claims remain
 reserved when composing later candidates. A candidate that omits these
 reservations or reintroduces a retained logical identity is refused.
 
-Retirement performs no provider deletion. Read-only status identifies retained
-entries and reports their current observation as unknown until they are probed.
+Retirement performs no provider deletion. Read-only status recovers native
+observation inputs from the retained scope's original immutable review and
+reports whether its exact incarnation is present, drifted, replaced, absent,
+or unavailable. These observations never grant deletion authority.
 Collection still requires separate reviewed deletion authority, dependency and
 recovery evidence, exact live identity, and a durable tombstone. Executors whose
 retention observation contract has not been proved cannot retire through this

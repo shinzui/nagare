@@ -98,16 +98,37 @@ data RetainedFinding = RetainedFinding
   , retainedSince :: !Text
   , retainedLifecycle :: !LifecyclePolicy
   , retainedDataPolicy :: !DataPolicy
+  , retainedObservation :: !Text
+  , retainedObservedIdentity :: !(Maybe PhysicalIdentity)
   }
   deriving stock (Eq, Show)
 
-retainedFindings :: InventoryHistory -> [RetainedFinding]
-retainedFindings history =
+retainedFindings :: InventoryHistory -> ObservationSet -> [RetainedFinding]
+retainedFindings history observations =
   [ RetainedFinding resourceId (retainedOwner incarnation)
       (managed ^. #executor) (managed ^. #address)
       (retainedPhysical incarnation) (retainedAt incarnation)
       (managed ^. #lifecycle) (managed ^. #dataPolicy)
+      (observationCategory incarnation (Map.lookup resourceId (observationMap observations)))
+      (observedIdentity =<< Map.lookup resourceId (observationMap observations))
   | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)]
+  where
+    observationCategory incarnation fact = case fact of
+      Just (ObservedPresent physical) | physical == retainedPhysical incarnation -> "present"
+      Just (ObservedPresent _) -> "replaced-incarnation"
+      Just (ObservedDrifted physical _) | physical == retainedPhysical incarnation -> "drifted"
+      Just (ObservedDrifted _ _) -> "replaced-incarnation"
+      Just (ObservedUnowned _) -> "unowned"
+      Just (ObservedForeign _) -> "foreign-owner"
+      Just (ConfirmedAbsent _) -> "confirmed-absent"
+      Just (ObservationUnavailable _) -> "unavailable"
+      Nothing -> "unknown"
+    observedIdentity fact = case fact of
+      ObservedPresent physical -> Just physical
+      ObservedDrifted physical _ -> Just physical
+      ObservedUnowned physical -> Just physical
+      ObservedForeign physical -> Just physical
+      _ -> Nothing
 
 instance ToJSON RetainedFinding where
   toJSON finding = object
@@ -120,7 +141,8 @@ instance ToJSON RetainedFinding where
     , "lifecycle" .= retainedLifecycle finding
     , "dataPolicy" .= retainedDataPolicy finding
     , "category" .= ("retained-orphan" :: Text)
-    , "observation" .= ("unknown" :: Text)
+    , "observation" .= retainedObservation finding
+    , "observedPhysical" .= retainedObservedIdentity finding
     ]
 
 -- | Read the committed journal without taking the writer lock. The caller
@@ -223,11 +245,20 @@ loadAcceptedNative store history inventory = do
     collect bundle = do
       let revisions = reviewDesiredRevisions (reviewBundleDocument bundle)
           current member =
+            activeCurrent member || retainedCurrent member
+          activeCurrent member =
             Map.lookup (member ^. #owner) revisions == Map.lookup (member ^. #owner) accepted
               && case Map.lookup (member ^. #identity) desired of
                    Just resource -> resource ^. #address == member ^. #address
                      && resource ^. #spec == member ^. #spec
                    Nothing -> False
+          retainedCurrent member = case Map.lookup (member ^. #identity) (historyRetained history) of
+            Just (incarnation, old) ->
+              Map.lookup (retainedOwner incarnation) revisions == Just (retainedRevision incarnation)
+                && member ^. #owner == retainedOwner incarnation
+                && member ^. #address == old ^. #address
+                && member ^. #spec == old ^. #spec
+            Nothing -> False
       kubernetes <- kubernetesSpecsFromReview bundle
       helm <- helmSpecsFromReview bundle
       pure

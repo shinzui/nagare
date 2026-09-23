@@ -21,6 +21,7 @@ import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.Inventory
@@ -174,6 +175,12 @@ inventoryTransactionTests =
             retainedPhysical incarnation @?= physical
             declaration ^. #identity @?= resourceId
           Nothing -> assertFailure "retired resource was absent from durable history"
+        let retainedCategory currentFact =
+              map InventoryStatus.retainedObservation (InventoryStatus.retainedFindings retainedHistory
+                (ok (observationSet [(resourceId, currentFact)])))
+        retainedCategory (ObservedPresent physical) @?= ["present"]
+        retainedCategory (ObservedPresent (ok (mkPhysicalIdentity "replacement-uid"))) @?= ["replaced-incarnation"]
+        retainedCategory (ConfirmedAbsent (contentDigest "absent")) @?= ["confirmed-absent"]
         let competing = member otherOwner cluster "legacy"
             competingScope = ok (mkScopeDeclaration otherOwner
               [ResourceBundle [competing] [] [] [] [] []])
