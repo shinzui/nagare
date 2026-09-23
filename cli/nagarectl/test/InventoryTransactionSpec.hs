@@ -103,6 +103,98 @@ inventoryTransactionTests =
             Left failures -> assertBool "stamped object has no verified owner"
               ("unverified-owner" `elem` map planErrorCode (NE.toList failures))
             Right _ -> assertFailure "stamped object without history planned for mutation"
+    , testCase "reviewed scope retirement retains the exact incarnation and reserves its address" $ do
+        observedPhysical <- newIORef (ok (mkPhysicalIdentity "legacy-uid"))
+        let owner = ok (mkScopeId Platform "retired")
+            otherOwner = ok (mkScopeId Application "competing")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            oldResource = member owner cluster "legacy"
+            resourceId = declarationId oldResource
+            oldScope = ok (mkScopeDeclaration owner [ResourceBundle [oldResource] [] [] [] [] []])
+            initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope oldScope :| []))
+            physical = ok (mkPhysicalIdentity "legacy-uid")
+            registry = ok (mkAdapterRegistry [Adapter
+              { adapterExecutor = KubernetesExecutor
+              , adapterIdentity = "recording"
+              , adapterVersion = "1"
+              , adapterObserve = \resources -> do
+                  current <- readIORef observedPhysical
+                  pure (observationSet
+                    [(resource, ObservedPresent current) | resource <- resources])
+              , adapterPrepare = \operation -> pure (Right (PreparedNative
+                  (ok (canonicalValue (toJSON operation))) "recording adapter"))
+              , adapterPreflight = \_ _ -> pure (Right ())
+              , adapterExecute = \_ _ -> pure AdapterEffectCompleted
+              , adapterVerify = \operation _ -> pure (Right (proof operation))
+              , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
+              }])
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "retention-test" >>= expectRight
+        emptyHistory <- loadInventoryHistory store >>= expectRight
+        let absent = ok (observationSet [(resourceId, ConfirmedAbsent (contentDigest "absent"))])
+            initialProposal = ok (planChanges initial noLifecycleDecisions emptyHistory absent)
+        before <- readStoreSnapshot store >>= expectRight
+        initialReview <- prepareReview registry before initialProposal >>= expectRight
+        _ <- publishReview store initialReview >>= expectRight
+        initialSnapshot <- readStoreSnapshot store >>= expectRight
+        initialReviewed <- expectRight (verifyReview initialSnapshot initialReview)
+        _ <- applyReviewed store registry initialReviewed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, scope) -> (revisionGeneration revision, scope))
+              (historyAccepted history)
+            candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
+              (RetireScope owner RetainResources :| []))
+            fact = ObservedPresent physical
+            observed = ok (observationSet [(resourceId, fact)])
+            decision = LifecycleProposal resourceId ApproveRetirement
+              (lifecycleObservationDigest fixtureBinding resourceId fact)
+            decisions = ok (validateLifecycleDecisions candidate history observed [decision])
+            proposal = ok (planChanges candidate decisions history observed)
+        proposalOperations proposal @?= []
+        retirementSnapshot <- readStoreSnapshot store >>= expectRight
+        retirementReview <- prepareReview registry retirementSnapshot proposal >>= expectRight
+        _ <- publishReview store retirementReview >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published retirementReview)
+        writeIORef observedPhysical (ok (mkPhysicalIdentity "replacement-uid"))
+        stale <- applyReviewed store registry reviewed
+        case stale of
+          Left failures -> assertBool "replacement incarnation refused at admission"
+            ("retention-observation" `elem` map admissionErrorCode (NE.toList failures))
+          Right _ -> assertFailure "replacement incarnation retired under stale review"
+        unchanged <- readHead store >>= expectRight
+        fmap headAccepted unchanged @?= Just (headAccepted (storeSnapshotHead published))
+        writeIORef observedPhysical physical
+        _ <- applyReviewed store registry reviewed >>= expectRight
+        retainedHistory <- loadInventoryHistory store >>= expectRight
+        Map.null (historyAccepted retainedHistory) @?= True
+        case Map.lookup resourceId (historyRetained retainedHistory) of
+          Just (incarnation, declaration) -> do
+            retainedPhysical incarnation @?= physical
+            declaration ^. #identity @?= resourceId
+          Nothing -> assertFailure "retired resource was absent from durable history"
+        let competing = member otherOwner cluster "legacy"
+            competingScope = ok (mkScopeDeclaration otherOwner
+              [ResourceBundle [competing] [] [] [] [] []])
+            retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty
+              (historyReservations retainedHistory))
+        case composeInventory retainedSnapshot (ReplaceScope competingScope :| []) of
+          Left _ -> pure ()
+          Right _ -> assertFailure "retained physical address became claimable"
+        let reactivation = ok (composeInventory retainedSnapshot (ReplaceScope oldScope :| []))
+        case planChanges reactivation noLifecycleDecisions retainedHistory observed of
+          Left failures -> assertBool ("retained identity needs explicit recovery: " <> show failures)
+            ("retained-reactivation" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "retained identity was silently reactivated"
+        let forged = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope competingScope :| []))
+            forgedObservation = ok (observationSet
+              [(declarationId competing, ConfirmedAbsent (contentDigest "absent"))])
+        case planChanges forged noLifecycleDecisions retainedHistory forgedObservation of
+          Left failures -> assertBool "candidate omitted authoritative reservations"
+            ("reservation-history" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "candidate without retained reservations was planned"
     , testCase "moving a known resource to another scope cannot become an ordinary update" $ do
         let oldOwner = ok (mkScopeId Platform "transfer-source")
             newOwner = ok (mkScopeId Platform "transfer-destination")
@@ -807,7 +899,7 @@ inventoryTransactionTests =
           restored <- newMemoryStore
           readHead restored >>= (@?= Right Nothing)
           _ <- restoreStore restored backup >>= expectRight
-          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Nothing Nothing Nothing))
+          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Nothing Nothing Nothing))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore
           refused <- restoreStore incomplete backup

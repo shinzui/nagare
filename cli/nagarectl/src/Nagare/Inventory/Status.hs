@@ -6,8 +6,10 @@ module Nagare.Inventory.Status
   , ActiveTransactionStatus (..)
   , OperationStatus (..)
   , DependencyTrace (..)
+  , RetainedFinding (..)
   , classifyDrift
   , traceDependencies
+  , retainedFindings
   , loadAcceptedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -29,6 +31,7 @@ import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
@@ -84,6 +87,40 @@ instance ToJSON DependencyTrace where
     , "owner" .= traceOwner entry
     , "source" .= traceSource entry
     , "depth" .= traceDepth entry
+    ]
+
+data RetainedFinding = RetainedFinding
+  { retainedResource :: !ResourceId
+  , retainedScope :: !ScopeId
+  , retainedExecutor :: !Executor
+  , retainedAddress :: !ProviderAddress
+  , retainedIdentity :: !PhysicalIdentity
+  , retainedSince :: !Text
+  , retainedLifecycle :: !LifecyclePolicy
+  , retainedDataPolicy :: !DataPolicy
+  }
+  deriving stock (Eq, Show)
+
+retainedFindings :: InventoryHistory -> [RetainedFinding]
+retainedFindings history =
+  [ RetainedFinding resourceId (retainedOwner incarnation)
+      (managed ^. #executor) (managed ^. #address)
+      (retainedPhysical incarnation) (retainedAt incarnation)
+      (managed ^. #lifecycle) (managed ^. #dataPolicy)
+  | (resourceId, (incarnation, managed)) <- Map.toAscList (historyRetained history)]
+
+instance ToJSON RetainedFinding where
+  toJSON finding = object
+    [ "resource" .= retainedResource finding
+    , "owner" .= retainedScope finding
+    , "executor" .= retainedExecutor finding
+    , "address" .= retainedAddress finding
+    , "physical" .= retainedIdentity finding
+    , "retainedAt" .= retainedSince finding
+    , "lifecycle" .= retainedLifecycle finding
+    , "dataPolicy" .= retainedDataPolicy finding
+    , "category" .= ("retained-orphan" :: Text)
+    , "observation" .= ("unknown" :: Text)
     ]
 
 -- | Read the committed journal without taking the writer lock. The caller

@@ -6,6 +6,7 @@ module Nagare.Inventory.Lifecycle
   , AdoptionTarget (..)
   , decodeAdoptionInput
   , decideAdoption
+  , decideRetirement
   ) where
 
 import Data.Aeson
@@ -20,6 +21,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Plan
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (RetirementIntent (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
 
@@ -82,6 +84,25 @@ decideAdoption candidate history observations input = do
          | resource <- duplicateIds (map adoptionResource (adoptionTargets input))]
     duplicateIds values = Map.keys (Map.filter (> (1 :: Int))
       (Map.fromListWith (+) [(value, 1 :: Int) | value <- values]))
+
+-- | A scope retirement retains every directly managed incarnation. Deletion
+-- is a separate reviewed collection path and remains unavailable here.
+decideRetirement
+  :: CompositionCandidate -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideRetirement candidate history observations =
+  validateLifecycleDecisions candidate history observations
+    [ LifecycleProposal resourceId ApproveRetirement
+        (lifecycleObservationDigest binding resourceId fact)
+    | RetireScope owner RetainResources <- NE.toList (candidateChanges candidate)
+    , Just (_, scope) <- [Map.lookup owner (historyAccepted history)]
+    , bundle <- scopeBundles scope
+    , Managed resource <- bundle ^. #declarations
+    , let resourceId = resource ^. #identity
+    , Just fact <- [Map.lookup resourceId (observationMap observations)]
+    ]
+  where
+    binding = inventoryBinding (candidateInventory candidate)
 
 instance FromJSON AdoptionTarget where
   parseJSON = withObject "AdoptionTarget" $ \o -> do

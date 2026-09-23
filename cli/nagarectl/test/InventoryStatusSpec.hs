@@ -60,7 +60,7 @@ inventoryStatusTests = testGroup "inventory status"
       let transaction = known (mkTransactionId "tx-fixture")
           operation = known (mkOperationId "op-fixture")
           headValue = HeadManifest 1 1 3 (inventoryBinding inventory) "client"
-            Map.empty Map.empty (Just "tx-fixture") Nothing Nothing
+            Map.empty Map.empty Map.empty (Just "tx-fixture") Nothing Nothing
           event sequenceNumber prior state detail = JournalEvent 1 sequenceNumber prior
             transaction (if sequenceNumber == 0 then Nothing else Just operation)
             state "2026-09-23T00:00:00Z" detail

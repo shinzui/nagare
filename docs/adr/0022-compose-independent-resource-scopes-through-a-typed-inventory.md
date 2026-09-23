@@ -311,3 +311,21 @@ and use Kubernetes resource versions for updates. These are delegated values:
 inventory does not acquire deletion or adoption authority over them. A
 preexisting unmarked Secret requires an operator to verify its provenance and
 explicitly mark it before activating the guarded timer.
+
+## Amendment — 2026-09-23: retained incarnation authority
+
+A reviewed `RetireScope` with `RetainResources` removes an accepted scope only
+after each disappearing managed Kubernetes resource has an ownership record,
+an exact observed physical identity, and an immutable scope revision. Admission
+reobserves those identities under the writer lock. It atomically records the
+retained incarnation in the context head before execution, and the old scope
+member remains content-addressed in the store. Retained provider claims remain
+reserved when composing later candidates. A candidate that omits these
+reservations or reintroduces a retained logical identity is refused.
+
+Retirement performs no provider deletion. Read-only status identifies retained
+entries and reports their current observation as unknown until they are probed.
+Collection still requires separate reviewed deletion authority, dependency and
+recovery evidence, exact live identity, and a durable tombstone. Executors whose
+retention observation contract has not been proved cannot retire through this
+route.

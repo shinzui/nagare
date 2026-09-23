@@ -69,6 +69,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M1 recovery visibility: Status and explain now validate the committed journal for an active transaction and report each operation's latest sanitized state, with a separate recovery-required flag. Journal detail and provider errors stay private; a final head reread rejects a concurrent change. Eleven focused status tests, the 734-test CLI suite, the CLI executable build, and Haskell style checks pass. Retained history and provider-specific health probes remain open.
 - [x] (2026-09-23) M2 ownership proof: The generic lifecycle validator and planner now refuse an already stamped object when accepted history has no ownership record. Only a fresh unowned incarnation enters the current adoption route. Five focused adoption tests, the 734-test CLI suite, and Haskell style checks pass; other-provider adoption remains open.
 - [x] (2026-09-23) M1 dependency explanation: `inventory explain` now walks transitive dependencies in the composed declaration graph and reports each prerequisite's resource ID, owner scope, source declaration, and depth. A two-hop fixture, the 735-test CLI suite, executable build, and Haskell style checks pass. Retained history, provider-specific health, and lifecycle/recovery interpretation remain open.
+- [x] (2026-09-23) M3/M4 partial: `inventory retire --scope KIND:NAME --out DIRECTORY` now builds a reviewed `RetainResources` scope removal. The review binds each disappearing direct Kubernetes resource to its accepted scope revision and observed UID. Admission reobserves the UID under the writer lock, records the retained incarnation in the head, and preserves its address claims for later composition. Status and explain expose the retained catalogue with unknown live observation. A recording adapter proves retirement, address reservation, refusal of silent reactivation, refusal of a forged reservation-free candidate, and refusal after UID replacement. The 736-test CLI suite, 443-test DSL suite, and Haskell style check pass. Collection, migration, provider-specific retained health, and generic recovery remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -82,6 +83,8 @@ The platform workspace resolver materialized an immutable payload copy, so statu
 The first live scope transfer had a valid intermediate head with the new accepted owner and the old converged owner. The head decoder's blanket subset check refused this state after admission, before journal append. The decoder now permits the mismatch only with an active transaction; the existing durable transaction resumed and converged without recreating the ConfigMap.
 
 The command-level adoption DTO already required an unowned observation, but the generic validator still accepted a stamped present or drifted object without accepted history. Direct validator callers could have produced an adoption decision without the stronger DTO check. The validator and planner now share the same conservative boundary.
+
+Removing a scope also removes its active declaration from the accepted vector. A retained entry therefore stores the immutable old scope revision, not just a UID, so later status and claim validation can reconstruct the declaration even after the scope disappears. A review alone is insufficient: admission reobserves each retained UID under the writer lock before advancing the head.
 
 
 ## Decision Log
@@ -99,6 +102,8 @@ The command-level adoption DTO already required an unowned observation, but the 
 2026-09-23: Expose the versioned adoption DTO/validator module for package tests while keeping `LifecycleDecisions` opaque. Only the validator constructs a non-empty decision through `validateLifecycleDecisions`; the public command accepts proposal data, not proof objects.
 
 2026-09-23: A provider ownership stamp without accepted history is insufficient for adoption. Require an unowned observation for the currently supported route and refuse stamped objects until a separate history recovery protocol proves them. This keeps direct calls to the generic validator within the same authority rule as the operator proposal command.
+
+2026-09-23: RetainResources retirement records each disappeared managed Kubernetes incarnation in the head with old scope revision, owner, UID, and retention time. Its claims remain reserved. The first route is limited to directly declared Kubernetes resources with a proved observation path; disappearing generated members or other executors fail closed. No provider delete occurs during retirement. Collection remains a separate reviewed and tombstoned transaction.
 
 
 ## Outcomes & Retrospective

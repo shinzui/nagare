@@ -10,6 +10,7 @@ module Nagare.Inventory.Command
   , planInventoryWith
   , planInventoryCandidateWith
   , planInventoryAdoptionWith
+  , planInventoryRetirementWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -217,6 +218,19 @@ planInventoryAdoptionWith registryFor target inputFile output = do
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
   planInventoryCandidateWithDecider registryFor
     (\history observations -> decideAdoption candidate history observations proposalInput)
+    target candidate output
+
+planInventoryRetirementWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> ScopeId -> FilePath -> IO ()
+planInventoryRetirementWith registryFor target owner output = do
+  snapshot <- loadTargetSnapshot target
+  unless (Map.member owner (snapshotScopes snapshot))
+    (dieText "retirement scope is absent from accepted inventory history")
+  candidate <- either (dieText . showText . NE.toList) pure
+    (composeInventory snapshot (RetireScope owner RetainResources :| []))
+  planInventoryCandidateWithDecider registryFor
+    (\history observations -> decideRetirement candidate history observations)
     target candidate output
 
 -- | Plan a freshly compiled component candidate with native member bytes held
@@ -567,7 +581,7 @@ loadTargetSnapshot target = do
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
   either (dieText . showText . NE.toList) pure (mkScopeSnapshot binding
     (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
-    Map.empty)
+    (historyReservations history))
 
 validateTarget :: ActiveTarget -> CompositionCandidate -> IO ()
 validateTarget target candidate = do

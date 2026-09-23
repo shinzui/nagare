@@ -8,6 +8,7 @@ module Nagare.Inventory.Store
   , ScopeRevision (..)
   , ExecutorClaim (..)
   , MigrationTombstone (..)
+  , RetainedIncarnation (..)
   , HeadManifest (..)
   , StoreSnapshot (..)
   , openFilesystemStore
@@ -102,6 +103,17 @@ data MigrationTombstone = MigrationTombstone
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Historical ownership kept after a scope leaves the accepted vector.
+-- The scope member remains immutable in the store; this record binds the
+-- exact live incarnation and keeps its provider claims reserved.
+data RetainedIncarnation = RetainedIncarnation
+  { retainedOwner :: !ScopeId
+  , retainedRevision :: !ScopeRevision
+  , retainedPhysical :: !PhysicalIdentity
+  , retainedAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
 data HeadManifest = HeadManifest
   { headSchemaVersion :: !Int
   , headGeneration :: !Integer
@@ -110,6 +122,7 @@ data HeadManifest = HeadManifest
   , headClientIdentity :: !Text
   , headAccepted :: !(Map ScopeId ScopeRevision)
   , headConverged :: !(Map ScopeId ScopeRevision)
+  , headRetained :: !(Map ResourceId RetainedIncarnation)
   , headActiveTransaction :: !(Maybe Text)
   , headExecutorClaim :: !(Maybe ExecutorClaim)
   , headMigration :: !(Maybe MigrationTombstone)
@@ -164,6 +177,20 @@ instance FromJSON MigrationTombstone where
   parseJSON = withObject "MigrationTombstone" $ \o ->
     MigrationTombstone <$> o .: "destination" <*> o .: "headDigest"
 
+instance ToJSON RetainedIncarnation where
+  toJSON retained = object
+    [ "owner" .= retainedOwner retained
+    , "revision" .= retainedRevision retained
+    , "physical" .= retainedPhysical retained
+    , "retainedAt" .= retainedAt retained
+    ]
+
+instance FromJSON RetainedIncarnation where
+  parseJSON = withObject "RetainedIncarnation" $ \o -> do
+    unless (all (`elem` ["owner", "revision", "physical", "retainedAt"]) (KM.keys o))
+      (fail "retained incarnation has an unknown field")
+    RetainedIncarnation <$> o .: "owner" <*> o .: "revision" <*> o .: "physical" <*> o .: "retainedAt"
+
 instance ToJSON HeadManifest where
   toJSON headValue =
     object
@@ -176,13 +203,17 @@ instance ToJSON HeadManifest where
       , "converged" .= revisionsValue (headConverged headValue)
       , "activeTransaction" .= headActiveTransaction headValue
       , "executorClaim" .= headExecutorClaim headValue
-      ] <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue))
+      ] <> ["retained" .= retainedValue (headRetained headValue) | not (Map.null (headRetained headValue))]
+        <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue))
     where
       revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
+      retainedValue entries =
+        [object ["resource" .= resource, "incarnation" .= incarnation]
+        | (resource, incarnation) <- Map.toAscList entries]
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "activeTransaction", "executorClaim", "migration"]
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "activeTransaction", "executorClaim", "migration"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
     unless (version == 1) (fail "unsupported inventory head schema version")
@@ -191,6 +222,7 @@ instance FromJSON HeadManifest where
     unless (generation >= 0 && sequenceNumber >= 0) (fail "head counters must not be negative")
     accepted <- parseRevisions =<< o .: "accepted"
     converged <- parseRevisions =<< o .: "converged"
+    retained <- parseRetained =<< o .:? "retained" .!= []
     active <- o .: "activeTransaction"
     unless (isJust active || all (`Map.member` accepted) (Map.keys converged))
       (fail "converged scopes must also be accepted when no transaction is active")
@@ -199,6 +231,7 @@ instance FromJSON HeadManifest where
       <*> o .: "clientIdentity"
       <*> pure accepted
       <*> pure converged
+      <*> pure retained
       <*> pure active
       <*> o .: "executorClaim"
       <*> o .:? "migration"
@@ -207,6 +240,10 @@ instance FromJSON HeadManifest where
         revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
         unless (length revisions == Map.size (Map.fromList revisions)) (fail "duplicate scope revision")
         pure (Map.fromList revisions)
+      parseRetained values = do
+        entries <- traverse (withObject "retained entry" (\v -> (,) <$> v .: "resource" <*> v .: "incarnation")) values
+        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retained resource")
+        pure (Map.fromList entries)
 
 openFilesystemStore :: FilePath -> IO (Either StoreError InventoryStore)
 openFilesystemStore root = ioResult $ do
@@ -300,7 +337,7 @@ initializeStore store binding clientIdentity = do
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
     Right Nothing -> do
-      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Nothing Nothing Nothing
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Nothing Nothing Nothing
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 

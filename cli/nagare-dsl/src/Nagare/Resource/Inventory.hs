@@ -35,6 +35,7 @@ module Nagare.Resource.Inventory
   , composeSnapshot
   , candidateInventory
   , candidateBase
+  , candidateReservations
   , candidateChanges
   , candidateGenerations
   , inventoryScopes
@@ -287,19 +288,22 @@ data ScopeChange = ReplaceScope !ScopeDeclaration | RetireScope !ScopeId !Retire
 
 data ValidatedInventory = ValidatedInventory ContextBinding (Map ScopeId ScopeDeclaration) [Declaration] deriving stock (Eq, Show)
 
-data CompositionCandidate = CompositionCandidate ValidatedInventory (Map ScopeId ScopeGeneration) (NonEmpty ScopeChange) (Map ScopeId ScopeGeneration) deriving stock (Eq, Show)
+data CompositionCandidate = CompositionCandidate ValidatedInventory (Map ScopeId ScopeGeneration) (NonEmpty ScopeChange) (Map ScopeId ScopeGeneration) (Map CanonicalClaim ClaimHolder) deriving stock (Eq, Show)
 
 candidateInventory :: CompositionCandidate -> ValidatedInventory
-candidateInventory (CompositionCandidate i _ _ _) = i
+candidateInventory (CompositionCandidate i _ _ _ _) = i
 
 candidateBase :: CompositionCandidate -> Map ScopeId ScopeGeneration
-candidateBase (CompositionCandidate _ b _ _) = b
+candidateBase (CompositionCandidate _ b _ _ _) = b
+
+candidateReservations :: CompositionCandidate -> Map CanonicalClaim ClaimHolder
+candidateReservations (CompositionCandidate _ _ _ _ reservations) = reservations
 
 candidateChanges :: CompositionCandidate -> NonEmpty ScopeChange
-candidateChanges (CompositionCandidate _ _ c _) = c
+candidateChanges (CompositionCandidate _ _ c _ _) = c
 
 candidateGenerations :: CompositionCandidate -> Map ScopeId ScopeGeneration
-candidateGenerations (CompositionCandidate _ _ _ g) = g
+candidateGenerations (CompositionCandidate _ _ _ g _) = g
 
 inventoryScopes :: ValidatedInventory -> Map ScopeId ScopeDeclaration
 inventoryScopes (ValidatedInventory _ ss _) = ss
@@ -327,7 +331,7 @@ composeInventory snapshot changes = do
   ds <- composedDeclarations ss
   checked
     (validateGraph ss ds (snapshotReservations snapshot))
-    (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations)
+    (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations (snapshotReservations snapshot))
   where
     original = snapshotScopes snapshot
     base = fmap fst original

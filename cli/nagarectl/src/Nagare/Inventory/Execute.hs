@@ -15,14 +15,16 @@ module Nagare.Inventory.Execute
 where
 
 import Control.Exception (bracket)
-import Control.Monad (foldM, forM)
+import Control.Monad (foldM, forM, forM_)
 import Data.Either (isRight)
+import Data.Generics.Labels ()
 import Data.List (find, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
@@ -33,7 +35,9 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory (Executor (..))
+import Nagare.Resource.Inventory qualified as Resource
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (decodeScope)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 
 data AdmissionError = AdmissionError
@@ -69,31 +73,100 @@ admit locked registry reviewed = do
               <> [AdmissionError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
               <> [AdmissionError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
               <> [AdmissionError "active-transaction" "another transaction is unresolved" | isJust (headActiveTransaction headValue)]
+              <> [AdmissionError "retention-base" "retention proof does not name a removed accepted scope revision"
+                 | (_, proof) <- Map.toAscList (reviewRetentions document)
+                 , Map.lookup (retentionOwner proof) (headAccepted headValue) /= Just (retentionRevision proof)
+                   || Map.member (retentionOwner proof) (reviewDesiredRevisions document)]
+              <> [AdmissionError "retention-history" "retained resource already has a historical incarnation"
+                 | resource <- Map.keys (reviewRetentions document), Map.member resource (headRetained headValue)]
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          preflightErrors <- preflightOperations registry reviewed Map.empty
-          case preflightErrors of
-            firstError : rest -> pure (Left (firstError :| rest))
-            [] -> do
-              now <- timestamp
-              let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
-                  claim = ExecutorClaim (transactionIdText transaction) client 1 now
-                  activated =
-                    headValue
-                      { headGeneration = headGeneration headValue + 1
-                      , headAccepted = reviewDesiredRevisions document
-                      , headActiveTransaction = Just (transactionIdText transaction)
-                      , headExecutorClaim = Just claim
-                      }
-              activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
-              case activation of
-                Left err -> pure (failure "head-condition" (showText err))
+          coverage <- retentionCoverage store document
+          case coverage of
+            Left err -> pure (failure "retention-coverage" err)
+            Right retainedRequests -> do
+              checked <- if Map.null retainedRequests
+                then pure (Right ())
+                else do
+                  observed <- observeWithRegistry registry retainedRequests
+                  pure $ do
+                    facts <- observed
+                    forM_ (Map.toAscList (reviewRetentions document)) $ \(resource, proof) ->
+                      unless (Map.lookup resource (observationMap facts)
+                        == Just (ObservedPresent (retentionPhysical proof)))
+                        (Left "retained physical incarnation changed since review")
+              case checked of
+                Left _ -> pure (failure "retention-observation" "retained physical incarnation could not be reverified")
                 Right () -> do
-                  event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
-                  pure $ case event of
-                    Left err -> failure "journal" (showText err)
-                    Right _ -> Right (ExecutablePlan transaction reviewed)
+                  preflightErrors <- preflightOperations registry reviewed Map.empty
+                  case preflightErrors of
+                    firstError : rest -> pure (Left (firstError :| rest))
+                    [] -> do
+                      now <- timestamp
+                      let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)
+                          claim = ExecutorClaim (transactionIdText transaction) client 1 now
+                          activated =
+                            headValue
+                              { headGeneration = headGeneration headValue + 1
+                              , headAccepted = reviewDesiredRevisions document
+                              , headRetained = Map.union
+                                  (Map.map (\proof -> RetainedIncarnation
+                                    (retentionOwner proof) (retentionRevision proof)
+                                    (retentionPhysical proof) now) (reviewRetentions document))
+                                  (headRetained headValue)
+                              , headActiveTransaction = Just (transactionIdText transaction)
+                              , headExecutorClaim = Just claim
+                              }
+                      activation <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) activated
+                      case activation of
+                        Left err -> pure (failure "head-condition" (showText err))
+                        Right () -> do
+                          event <- appendEvent locked transaction Nothing Pending ("admitted review " <> digestText (reviewDocumentDigest document))
+                          pure $ case event of
+                            Left err -> failure "journal" (showText err)
+                            Right _ -> Right (ExecutablePlan transaction reviewed)
+
+-- | No accepted managed declaration may disappear solely because a scope
+-- revision was replaced. A reviewed retention proof is required for every
+-- disappeared identity; a transferred identity remains in the desired set.
+retentionCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text (Map Executor [ResourceId]))
+retentionCoverage store document = do
+  historical <- loadInventoryHistory store
+  desired <- traverse loadDesired (Map.elems (reviewDesiredRevisions document))
+  pure $ do
+    history <- first showText historical
+    scopes <- sequence desired
+    desiredDeclarations <- first showText (Resource.composedDeclarations
+      (Map.fromList [(Resource.scopeId scope, scope) | scope <- scopes]))
+    oldDeclarations <- first showText (Resource.composedDeclarations
+      (fmap snd (historyAccepted history)))
+    let desiredIds = Set.fromList (map Resource.declarationId desiredDeclarations)
+        removed = Map.fromList
+          [(resource ^. #identity, (resource ^. #owner, revision, resource ^. #executor))
+          | Resource.Managed resource <- oldDeclarations
+          , Just (revision, _) <- [Map.lookup (resource ^. #owner) (historyAccepted history)]
+          , Set.notMember (resource ^. #identity) desiredIds]
+        proofs = reviewRetentions document
+    unless (Set.null (Set.intersection desiredIds (Map.keysSet (headRetained (historyHead history)))))
+      (Left "retained logical identity cannot be reactivated without reviewed recovery")
+    unless (Map.keysSet removed == Map.keysSet proofs)
+      (Left "removed managed resources require exactly one retained-incarnation proof")
+    forM_ (Map.toAscList proofs) $ \(resource, proof) ->
+      unless (fmap (\(owner, revision, _) -> (owner, revision)) (Map.lookup resource removed)
+        == Just (retentionOwner proof, retentionRevision proof))
+        (Left "retention proof differs from accepted resource ownership history")
+    pure (Map.fromListWith (<>)
+      [(executor, [resource]) | (resource, (_, _, executor)) <- Map.toAscList removed])
+  where
+    loadDesired revision = do
+      let key = scopeKey (revisionDigest revision)
+      loaded <- readObject store key
+      pure $ do
+        bytes <- first showText loaded >>= maybe (Left "desired scope member is missing") Right
+        unless (contentDigest bytes == revisionDigest revision)
+          (Left "desired scope member digest mismatch")
+        first showText (decodeScope bytes)
 
 execute :: LockedStore s -> AdapterRegistry -> ExecutablePlan s -> IO TransactionResult
 execute locked registry executable = do

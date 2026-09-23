@@ -668,6 +668,7 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath FilePath
   | InventoryAdopt FilePath FilePath
+  | InventoryRetire String FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryExport FilePath
@@ -1859,6 +1860,9 @@ opts =
                   "adopt"
                   (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact adoption or known-owner transfer incarnations"))
                 <> command
+                  "retire"
+                  (info (InventoryRetire <$> strOption (long "scope" <> metavar "KIND:NAME") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review retention of an accepted scope without deleting its resources"))
+                <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
                 <> command
@@ -2744,6 +2748,7 @@ main = do
     InventoryCompile input output json -> Inventory.compileInventory input output json
     InventoryPlan input output -> runInventoryPlan mctx input output
     InventoryAdopt input output -> runInventoryAdopt mctx input output
+    InventoryRetire owner output -> runInventoryRetire mctx owner output
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
@@ -4393,6 +4398,7 @@ runInventoryStatus mctx requested json = do
       observations = either (error . T.unpack) (\value -> value)
         (InventoryAdapter.observationSet (allFacts <> remaining))
       findings = InventoryStatus.classifyDrift inventory observations
+      retainedFindings = InventoryStatus.retainedFindings history
       unavailable = Set.toAscList (Set.fromList
         [InventoryStatus.findingExecutor finding | finding <- findings,
           InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation])
@@ -4425,6 +4431,7 @@ runInventoryStatus mctx requested json = do
             [Aeson.object ["scope" Aeson..= scope, "executor" Aeson..= executor]
             | (scope, executor) <- missingScopes]
         , "providers" Aeson..= providers
+        , "retained" Aeson..= retainedFindings
         ]
   case requested of
     Nothing -> do
@@ -4432,13 +4439,15 @@ runInventoryStatus mctx requested json = do
             ["observationComplete" Aeson..= null unavailable, "findings" Aeson..= findings])
       if json then LBC.putStrLn (Aeson.encode report)
         else TIO.putStrLn ("Inventory status: " <> T.pack (show (length findings))
-          <> " resources; unavailable providers: " <> T.pack (show unavailable))
+          <> " resources; retained: " <> T.pack (show (length retainedFindings))
+          <> "; unavailable providers: " <> T.pack (show unavailable))
     Just raw -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
-      finding <- maybe (dieT "resource is absent from the accepted inventory") pure
-        (find ((== resourceId) . InventoryStatus.findingResource) findings)
-      resource <- maybe (dieT "resource declaration is absent") pure (Map.lookup resourceId byId)
-      let explanation = Aeson.object (baseFields <>
+      (explanation, summary) <- case Map.lookup resourceId byId of
+        Just resource -> do
+          finding <- maybe (dieT "resource finding is absent") pure
+            (find ((== resourceId) . InventoryStatus.findingResource) findings)
+          pure (Aeson.object (baseFields <>
             [ "finding" Aeson..= finding
             , "dependencies" Aeson..= (resource ^. #dependencies)
             , "dependencyTrace" Aeson..= InventoryStatus.traceDependencies inventory resourceId
@@ -4452,9 +4461,20 @@ runInventoryStatus mctx requested json = do
             , "dataPolicy" Aeson..= (resource ^. #dataPolicy)
             , "sensitivity" Aeson..= (resource ^. #sensitivity)
             , "delegations" Aeson..= (resource ^. #delegations)
-            ])
+            ]), T.pack (show finding))
+        Nothing -> case Map.lookup resourceId (InventoryPlan.historyRetained history) of
+          Just (_, resource) -> do
+            let retainedFinding = find ((== resourceId) . InventoryStatus.retainedResource) retainedFindings
+            finding <- maybe (dieT "retained resource finding is absent") pure retainedFinding
+            pure (Aeson.object (baseFields <>
+              [ "finding" Aeson..= finding
+              , "dependencies" Aeson..= (resource ^. #dependencies)
+              , "consumers" Aeson..= ([] :: [Resource.ResourceId])
+              , "recoveryReason" Aeson..= ("retained physical incarnation has not been reobserved" :: Text)
+              ]), "Retained resource " <> Resource.resourceIdText resourceId)
+          Nothing -> dieT "resource is absent from accepted and retained inventory history"
       if json then LBC.putStrLn (Aeson.encode explanation)
-        else TIO.putStrLn (T.pack (show finding))
+        else TIO.putStrLn summary
 
 runInventoryStoreStatus :: Maybe String -> Bool -> IO ()
 runInventoryStoreStatus mctx json = do
@@ -4540,6 +4560,24 @@ runInventoryAdopt mctx input output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   Inventory.planInventoryAdoptionWith (inventoryPlanRegistry active workspace) active input output
 
+runInventoryRetire :: Maybe String -> String -> FilePath -> IO ()
+runInventoryRetire mctx rawScope output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  owner <- either dieT pure (parseScope (T.pack rawScope))
+  Inventory.planInventoryRetirementWith (inventoryPlanRegistry active workspace) active owner output
+  where
+    parseScope scopeText = case T.splitOn ":" scopeText of
+      [kind, name] -> do
+        scopeKind <- case kind of
+          "platform" -> Right Resource.Platform
+          "application" -> Right Resource.Application
+          "standalone" -> Right Resource.Standalone
+          "publication" -> Right Resource.Publication
+          _ -> Left "scope kind must be platform, application, standalone, or publication"
+        Resource.mkScopeId scopeKind name
+      _ -> Left "scope must be KIND:NAME"
+
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
@@ -4558,8 +4596,28 @@ inventoryExecutionRegistry mctx bundle = do
   artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
   cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
-  kubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
+  reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
+  let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions (InventoryPlan.reviewBundleDocument bundle))
+      binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
+  retiringKubernetesSpecs <- if Set.null retiredIds then pure Map.empty else do
+    active <- activeTarget mctx
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+    acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
+      binding
+      (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
+        (InventoryPlan.historyAccepted history))
+      (InventoryPlan.historyReservations history))
+    acceptedInventory <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeSnapshot acceptedSnapshot)
+    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+      >>= either dieT pure
+    let selected = Map.filterWithKey (\resource _ -> Set.member resource retiredIds) native
+    unless (Map.keysSet selected == retiredIds)
+      (dieT "retirement review lacks accepted immutable Kubernetes evidence")
+    pure selected
+  let kubernetesSpecs = Map.union reviewedKubernetesSpecs retiringKubernetesSpecs
   if null registrations && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null helmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.HelmExecutor]))
     else do
@@ -4570,7 +4628,6 @@ inventoryExecutionRegistry mctx bundle = do
             (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
             pure (active, workspace)
           else prepareInfraMutation mctx
-      let binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
       pulumi <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
@@ -4620,7 +4677,30 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   loaded <- if null fileBacked
     then pure Map.empty
     else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
-  let kubernetesSpecs = Map.union kubernetesSuppliedNative loaded
+  let desiredIds = Set.fromList (map ResourceInventory.declarationId declarations)
+      retiringIds = Set.fromList
+        [resource ^. #identity
+        | (_, (_, acceptedScope)) <- Map.toAscList (InventoryPlan.historyAccepted history)
+        , bundle <- ResourceInventory.scopeBundles acceptedScope
+        , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
+        , resource ^. #executor == ResourceInventory.KubernetesExecutor
+        , Set.notMember (resource ^. #identity) desiredIds]
+  retiringNative <- if Set.null retiringIds then pure Map.empty else do
+    store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+    acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
+      (ResourceInventory.inventoryBinding inventory)
+      (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
+        (InventoryPlan.historyAccepted history))
+      (InventoryPlan.historyReservations history))
+    acceptedInventory <- either (dieT . T.pack . show) pure
+      (ResourceInventory.composeSnapshot acceptedSnapshot)
+    (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
+      >>= either dieT pure
+    let selected = Map.filterWithKey (\resource _ -> Set.member resource retiringIds) native
+    unless (Map.keysSet selected == retiringIds)
+      (dieT "retiring Kubernetes resource lacks accepted immutable native evidence")
+    pure selected
+  let kubernetesSpecs = Map.unions [kubernetesSuppliedNative, loaded, retiringNative]
   pulumi <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
