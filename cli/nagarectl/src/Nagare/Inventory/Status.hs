@@ -49,6 +49,13 @@ traceDependencies inventory start = go Set.empty [(start, 1)]
   where
     declarations = Map.fromList
       [(declarationId declaration, declaration) | declaration <- inventoryDeclarations inventory]
+    declaredScopes = Map.fromList
+      [ (declarationId declaration, scope)
+      | (scope, scopeDeclaration) <- Map.toAscList (inventoryScopes inventory)
+      , bundle <- scopeBundles scopeDeclaration
+      , declaration <- declarationsIn bundle
+      ]
+    declarationsIn bundle = bundle ^. #declarations
     target dependency = case dependency of
       Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
       ReadyAfter reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
@@ -65,7 +72,7 @@ traceDependencies inventory start = go Set.empty [(start, 1)]
               row resource = DependencyTrace consumer resource
                 (case Map.lookup resource declarations of
                   Just (Managed managed) -> Just (managed ^. #owner)
-                  _ -> Nothing)
+                  _ -> Map.lookup resource declaredScopes)
                 (declarationSource <$> Map.lookup resource declarations) depth
            in map row targets <> go (Set.insert consumer visited)
                 (pending <> [(resource, depth + 1) | resource <- targets])
