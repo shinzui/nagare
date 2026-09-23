@@ -84,6 +84,7 @@ mkKubernetesAdapter specs ops =
     toObservation resource state = (resource, case state of
       KubernetesAbsent proof -> ConfirmedAbsent proof
       KubernetesPresent physical _ owner digest
+        | owner == Nothing -> ObservedUnowned physical
         | owner /= Just resource -> ObservedForeign physical
         | Just (_, native) <- Map.lookup resource specs
         , digest /= contentDigest native -> ObservedDrifted physical digest

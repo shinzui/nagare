@@ -55,7 +55,7 @@ inventoryTransactionTests =
             candidate = ok (composeInventory
               (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
               (ReplaceScope scope :| []))
-            fact = ObservedPresent (ok (mkPhysicalIdentity "legacy-uid"))
+            fact = ObservedUnowned (ok (mkPhysicalIdentity "legacy-uid"))
             observations = ok (observationSet [(resourceId, fact)])
             decision = LifecycleProposal resourceId ApproveAdoption
               (lifecycleObservationDigest fixtureBinding resourceId fact)

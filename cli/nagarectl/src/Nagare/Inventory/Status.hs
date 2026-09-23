@@ -72,6 +72,7 @@ data DriftCategory
   = Converged
   | ConfigurationDrift
   | MissingResource
+  | UnownedResource
   | ForeignOwner
   | UnknownObservation
   deriving stock (Eq, Ord, Show)
@@ -102,6 +103,8 @@ classifyDrift inventory observations =
               (ConfigurationDrift, Just uid, Just changed, Nothing)
             Just (ObservedForeign uid) ->
               (ForeignOwner, Just uid, Nothing, Just "observed object has a different owner")
+            Just (ObservedUnowned uid) ->
+              (UnownedResource, Just uid, Nothing, Just "observed object has no inventory owner")
             Just (ConfirmedAbsent _) ->
               (MissingResource, Nothing, Nothing, Just "provider confirmed absence")
             Just (ObservationUnavailable _) ->
@@ -120,6 +123,7 @@ instance ToJSON DriftCategory where
     Converged -> ("converged" :: Text)
     ConfigurationDrift -> "configuration-drift"
     MissingResource -> "missing"
+    UnownedResource -> "unowned"
     ForeignOwner -> "foreign-owner"
     UnknownObservation -> "unknown"
 

@@ -209,6 +209,7 @@ validateLifecycleDecisions candidate history observations proposals =
             ApproveAdoption -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
               (Just (Managed _), Nothing, Just (ObservedPresent _)) -> []
               (Just (Managed _), Nothing, Just (ObservedDrifted _ _)) -> []
+              (Just (Managed _), Nothing, Just (ObservedUnowned _)) -> []
               _ -> issue "invalid-adoption" "adoption needs a new managed declaration and a present nonforeign incarnation"
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed _), Just RetainResources) ->
@@ -405,6 +406,11 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
         if decisionIs ApproveAdoption resourceId
           then ([], Just (resourceOperation AdoptResource resource))
           else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
+      (Nothing, Just (ObservedUnowned _)) ->
+        if decisionIs ApproveAdoption resourceId
+          then ([], Just (resourceOperation AdoptResource resource))
+          else ([PlanError "adoption-required" "resource exists without inventory ownership" [resourceId]], Nothing)
+      (_, Just (ObservedUnowned _)) -> ([PlanError "foreign-resource" "accepted object lost its inventory owner stamp" [resourceId]], Nothing)
       (_, Just (ObservedForeign _)) -> ([PlanError "foreign-resource" "resource address is occupied by an object without accepted ownership" [resourceId]], Nothing)
       (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of

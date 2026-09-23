@@ -170,11 +170,16 @@ inventoryKubernetesTests =
         writeIORef state (KubernetesPresent physical "7" Nothing (contentDigest nativeBytes))
         foreignObservation <- observeWithRegistry registry
           (requirementsByExecutor (observationRequirements next history)) >>= expectRight
-        Map.lookup resource (observationMap foreignObservation) @?= Just (ObservedForeign physical)
+        Map.lookup resource (observationMap foreignObservation) @?= Just (ObservedUnowned physical)
         case planChanges next noLifecycleDecisions history foreignObservation of
-          Left errors -> assertBool "foreign ownership was accepted"
+          Left errors -> assertBool "unowned object was accepted"
             (any ((== "foreign-resource") . planErrorCode) (NE.toList errors))
-          Right _ -> assertFailure "foreign ownership was accepted"
+          Right _ -> assertFailure "unowned object was accepted"
+        let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
+        writeIORef state (KubernetesPresent physical "8" (Just other) (contentDigest nativeBytes))
+        foreignOwner <- observeWithRegistry registry
+          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        Map.lookup resource (observationMap foreignOwner) @?= Just (ObservedForeign physical)
     , testCase "resourceVersion change after review refuses before transport" $ do
         state <- newIORef (KubernetesPresent physical "4" (Just resource) (contentDigest "old"))
         calls <- newIORef (0 :: Int)
