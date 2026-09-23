@@ -45,4 +45,27 @@ if NAGARE_HELM_REVIEW_SHA256=bad \
   echo "nagare: malformed Helm review digest was accepted" >&2
   exit 1
 fi
+
+# The packaged release set must render reproducibly at the same boundary as
+# helm upgrade. This also catches accidental changes to chart or values pins.
+(cd "${repo_root}/cluster/observability/vendor" && shasum -a 256 -c SHA256SUMS)
+while read -r release namespace chart values; do
+  for pass in 1 2; do
+    NAGARE_HELM_CAPTURE_PATH="${work}/${release}-${pass}.yaml" \
+      helm template "${release}" "${repo_root}/cluster/observability/vendor/${chart}" \
+        --namespace "${namespace}" \
+        -f "${repo_root}/cluster/observability/${values}" \
+        --post-renderer nagare-capture-manifests > /dev/null
+  done
+  if ! cmp -s "${work}/${release}-1.yaml" "${work}/${release}-2.yaml"; then
+    echo "nagare: packaged ${release} chart changed between reviewed renders" >&2
+    exit 1
+  fi
+done <<'CHARTS'
+vmks monitoring victoria-metrics-k8s-stack-0.81.0.tgz victoria-metrics/values.yaml
+victoria-logs logging victoria-logs-single-0.13.5.tgz victoria-logs/values.yaml
+victoria-logs-collector logging victoria-logs-collector-0.3.4.tgz victoria-logs/collector-values.yaml
+victoria-traces tracing victoria-traces-single-0.1.6.tgz victoria-traces/values.yaml
+otel-collector tracing opentelemetry-collector-0.158.0.tgz opentelemetry-collector/values.yaml
+CHARTS
 echo "Helm post-renderer accepted exact bytes and refused nondeterministic and malformed reviews."

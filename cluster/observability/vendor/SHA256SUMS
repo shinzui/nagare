@@ -1,0 +1,5 @@
+b0c8f6b8f3eff6bc14af492a8f30df3353a685eae28aca3855559c6d20d76d39  opentelemetry-collector-0.158.0.tgz
+2196ce5622722268fc1efb430393e9993f42905a85a4451d8e3465343ff0dc6c  victoria-logs-collector-0.3.4.tgz
+b08975ef8b9f47e707df41e81cc55621baee9073a49de75a480bb98345502f61  victoria-logs-single-0.13.5.tgz
+34e2dfafb05dfdcf85aac05c8e61fa5e2f2dd33672422d4e09c066e09b664c13  victoria-metrics-k8s-stack-0.81.0.tgz
+3fd7b2e2625590d4ffcbfe358a9f74fc9fc860c9d9485974ac162d4cd196fc74  victoria-traces-single-0.1.6.tgz

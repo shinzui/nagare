@@ -122,6 +122,11 @@ kube-state-metrics:
 # cover both VMAgent and VMAlert without changing EP-101's notifier settings.
 # The reloaders used 6–7Mi in the labs sample; retain their existing CPU floor.
 victoria-metrics-operator:
+  admissionWebhooks:
+    # cert-manager owns this identity; generated chart certificates change on
+    # every render and fail the reviewed Helm post-renderer digest check.
+    certManager:
+      enabled: true
   resources:
     requests:
       cpu: 25m
