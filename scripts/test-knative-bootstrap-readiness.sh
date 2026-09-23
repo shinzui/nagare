@@ -43,36 +43,6 @@ reset_fake() {
 
 reset_fake
 export FAKE_KUBECTL_FAIL_UNTIL=2
-NAGARE_KNATIVE_PATCH_MAX_ATTEMPTS=5 \
-NAGARE_KNATIVE_PATCH_RETRY_DELAY_SECONDS=0 \
-  bash "$repo_root/scripts/retry-knative-configmap-patch.sh" \
-    config-network --type merge --patch '{"data":{"ingress.class":"kourier"}}'
-[ "$(cat "$FAKE_KUBECTL_COUNT")" -eq 3 ]
-[ "$(wc -l < "$FAKE_KUBECTL_LOG")" -eq 3 ]
-grep -Fxq -- \
-  '-n knative-serving patch configmap config-network --type merge --patch {"data":{"ingress.class":"kourier"}}' \
-  "$FAKE_KUBECTL_LOG"
-
-reset_fake
-export FAKE_KUBECTL_ALWAYS_FAIL=1
-failure_stderr="$test_root/permanent-failure-stderr"
-if NAGARE_KNATIVE_PATCH_MAX_ATTEMPTS=3 \
-   NAGARE_KNATIVE_PATCH_RETRY_DELAY_SECONDS=0 \
-     bash "$repo_root/scripts/retry-knative-configmap-patch.sh" \
-       config-features --type merge --patch '{"data":{"kubernetes.podspec-persistent-volume-claim":"enabled"}}' \
-       2> "$failure_stderr"; then
-  echo "FAIL: permanently failing kubectl unexpectedly succeeded" >&2
-  exit 1
-else
-  failure_status=$?
-fi
-[ "$failure_status" -eq 23 ]
-[ "$(cat "$FAKE_KUBECTL_COUNT")" -eq 3 ]
-grep -Fq 'config-features patch failed after 3 attempts' "$failure_stderr"
-echo "ok: Knative ConfigMap patches retry and preserve the final failure"
-
-reset_fake
-export FAKE_KUBECTL_FAIL_UNTIL=2
 export FAKE_KUBECTL_ERROR='failed calling webhook "webhook.cert-manager.io": x509: certificate signed by unknown authority'
 NAGARE_CERT_MANAGER_API_MAX_ATTEMPTS=3 NAGARE_CERT_MANAGER_API_RETRY_DELAY_SECONDS=0 \
   bash "$repo_root/scripts/wait-cert-manager-api.sh"

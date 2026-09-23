@@ -42,32 +42,13 @@ Then install Kourier (see `../kourier/README.md`) and net-certmanager (see
 
 ## Apply order
 
-Bootstrap waits for `deploy/webhook` before submitting any Knative-owned ConfigMap change. Merge
-patches run through `scripts/retry-knative-configmap-patch.sh`, which makes at most five attempts two
-seconds apart. This covers the short interval in which a rolled-out webhook Deployment may not yet
-have a published Service endpoint. The direct JSON removal stays best-effort because an already
-absent `svc.cluster.local` key is the desired state.
+Bootstrap compiles the packaged Knative ConfigMaps into the platform inventory. Their
+reviewed updates wait for the Serving webhook and use exact retained native bytes and
+conditional Kubernetes writes. The compiled `config-domain` removes the default
+`svc.cluster.local` key as part of its desired state.
 
 ```bash
-# ingress class
-scripts/retry-knative-configmap-patch.sh config-network \
-  --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
-# base domain (render the real one)
-BASE_DOMAIN=$(pulumi -C infra/pulumi stack output baseDomain)
-scripts/retry-knative-configmap-patch.sh config-domain \
-  --type merge --patch "{\"data\":{\"${BASE_DOMAIN}\":\"\"}}"
-kubectl -n knative-serving patch configmap config-domain \
-  --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
-# cert-manager bridge issuer (inert until TLS enabled)
-scripts/retry-knative-configmap-patch.sh config-certmanager \
-  --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
-# PVC volume support (EP-33)
-scripts/retry-knative-configmap-patch.sh config-features \
-  --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
-# private-image admission: skip controller-side tag resolution for the AR host (EP-2)
-REGISTRY_HOST="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
-scripts/retry-knative-configmap-patch.sh config-deployment \
-  --type merge --patch "{\"data\":{\"registriesSkippingTagResolving\":\"kind.local,ko.local,dev.local,${REGISTRY_HOST}\"}}"
+just cluster-bootstrap
 ```
 
 ## Enabling TLS later (deferred)
