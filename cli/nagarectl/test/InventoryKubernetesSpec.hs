@@ -33,7 +33,9 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status (loadAcceptedNative)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
@@ -532,6 +534,43 @@ inventoryKubernetesTests =
         snapshotBefore <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
         kubernetesSpecsFromReview bundle @?= Right specs
+    , testCase "retired native member remains observable from its original immutable review" $ do
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed declaration] [] [] [] [] []])
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope scopeDeclaration :| []))
+            registry = ok (mkAdapterRegistry [mkKubernetesAdapter specs (ops state calls)])
+            observations = ok (observationSet [(resource, ConfirmedAbsent absence)])
+        store <- newMemoryStore
+        _ <- initializeStore store binding "retained-native-test" >>= expectRight
+        emptyHistory <- loadInventoryHistory store >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions emptyHistory observations)
+        initialSnapshot <- readStoreSnapshot store >>= expectRight
+        initialReview <- prepareReview registry initialSnapshot proposal >>= expectRight
+        _ <- publishReview store initialReview >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        initialReviewed <- expectRight (verifyReview published initialReview)
+        _ <- applyReviewed store registry initialReviewed >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
+              (historyAccepted history)
+            retirement = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty))
+              (RetireScope scope RetainResources :| []))
+        current <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement history)) >>= expectRight
+        decisions <- expectRight (decideRetirement retirement history current)
+        let retirementProposal = ok (planChanges retirement decisions history current)
+        retirementSnapshot <- readStoreSnapshot store >>= expectRight
+        retirementReview <- prepareReview registry retirementSnapshot retirementProposal >>= expectRight
+        _ <- publishReview store retirementReview >>= expectRight
+        retirementPublished <- readStoreSnapshot store >>= expectRight
+        retirementReviewed <- expectRight (verifyReview retirementPublished retirementReview)
+        _ <- applyReviewed store registry retirementReviewed >>= expectRight
+        retainedHistory <- loadInventoryHistory store >>= expectRight
+        (native, _) <- loadAcceptedNative store retainedHistory (candidateInventory retirement) >>= expectRight
+        Map.lookup resource native @?= Map.lookup resource specs
+        readIORef calls >>= (@?= 1)
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
