@@ -10,6 +10,7 @@ module Nagare.Inventory.Store
   , HeadManifest (..)
   , StoreSnapshot (..)
   , openFilesystemStore
+  , openFilesystemStoreReadOnly
   , newMemoryStore
   , inventoryStoreRoot
   , initializeStore
@@ -192,6 +193,21 @@ openFilesystemStore root = ioResult $ do
   setFileMode root 0o700
   guardVar <- newMVar ()
   pure (InventoryStore (FilesystemBackend root guardVar))
+
+-- | Open an existing catalogue for status without creating files or changing
+-- permissions. Missing history is an explicit absence, never an empty head.
+openFilesystemStoreReadOnly :: FilePath -> IO (Either StoreError InventoryStore)
+openFilesystemStoreReadOnly root = do
+  exists <- doesPathExist root
+  if not exists
+    then pure (Left (StoreConditionFailed "inventory store is not initialized"))
+    else ioResult $ do
+      linked <- pathIsSymbolicLink root
+      when linked (ioError (userError "inventory store root is a symlink"))
+      status <- getFileStatus root
+      unless (isDirectory status) (ioError (userError "inventory store root is not a directory"))
+      guardVar <- newMVar ()
+      pure (InventoryStore (FilesystemBackend root guardVar))
 
 newMemoryStore :: IO InventoryStore
 newMemoryStore = InventoryStore <$> (MemoryBackend <$> newMVar (MemoryState Map.empty) <*> newMVar () <*> newMVar ())

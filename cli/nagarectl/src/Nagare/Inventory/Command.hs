@@ -3,6 +3,8 @@ module Nagare.Inventory.Command
   , compileInventory
   , loadCandidate
   , loadTargetSnapshot
+  , openTargetStore
+  , openTargetStoreReadOnly
   , planInventory
   , planInventoryWith
   , planInventoryCandidateWith
@@ -279,6 +281,12 @@ openTargetStore target = do
   stateRoot <- nagareStateDir
   let path = stateRoot </> T.unpack (contextNameText (target ^. #contextName)) </> "inventory"
   openFilesystemStore path >>= either (dieText . showText) pure
+
+openTargetStoreReadOnly :: ActiveTarget -> IO (Either StoreError InventoryStore)
+openTargetStoreReadOnly target = do
+  stateRoot <- nagareStateDir
+  let path = stateRoot </> T.unpack (contextNameText (target ^. #contextName)) </> "inventory"
+  openFilesystemStoreReadOnly path
 
 -- | Use the accepted complete scopes as the base of a freshly compiled
 -- component candidate. The planner still checks unresolved transactions.

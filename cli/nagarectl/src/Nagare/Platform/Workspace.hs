@@ -8,6 +8,7 @@ module Nagare.Platform.Workspace
   , readPayloadManifest
   , payloadDigest
   , preparePlatformWorkspace
+  , findPlatformWorkspace
   , renderWorkspaceError
   )
 where
@@ -166,6 +167,22 @@ preparePlatformWorkspace stateRoot context paths = do
                 then validateExisting destination manifest digest
                 else pure (Left (WorkspaceIoError destination (T.pack (show err))))
             Right () -> pure (Right (workspaceAt destination manifest digest))
+
+-- | Locate a prepared payload without materializing or changing it. Status
+-- uses this path so an observation cannot create a workspace as a side effect.
+findPlatformWorkspace :: FilePath -> ContextName -> PlatformPaths -> IO (Either WorkspaceError PlatformWorkspace)
+findPlatformWorkspace stateRoot context paths = do
+  manifestResult <- readPayloadManifest paths
+  digestResult <- payloadDigest paths
+  case (manifestResult, digestResult) of
+    (Left err, _) -> pure (Left err)
+    (_, Left err) -> pure (Left err)
+    (Right manifest, Right digest)
+      | not (validPayloadId (manifest ^. #payloadId)) -> pure (Left (InvalidPayloadId (manifest ^. #payloadId)))
+      | otherwise -> do
+          let parent = stateRoot </> T.unpack (contextNameText context) </> "platform"
+              directoryName = T.unpack (manifest ^. #payloadId <> "-" <> T.take 16 digest)
+          validateExisting (parent </> directoryName) manifest digest
 
 validPayloadId :: Text -> Bool
 validPayloadId value =

@@ -271,6 +271,8 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Cleanup
   ( CleanupOpts (..)
   , defaultKeepReleases
@@ -372,6 +374,7 @@ import Nagare.Platform.Upgrade
 import Nagare.Platform.Workspace
   ( PayloadManifest (..)
   , PlatformWorkspace (..)
+  , findPlatformWorkspace
   , preparePlatformWorkspace
   , readPayloadManifest
   , renderWorkspaceError
@@ -660,6 +663,8 @@ data Command
   | InventoryApply FilePath Bool
   | InventoryResume String Bool
   | InventoryExport FilePath
+  | InventoryStatus Bool
+  | InventoryExplain String Bool
   | PlatformRoot Bool
   | PlatformStatusCmd Bool
   | PlatformGuard
@@ -1843,6 +1848,12 @@ opts =
                 <> command
                   "export"
                   (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
+                <> command
+                  "status"
+                  (info (InventoryStatus <$> switch (long "json") <**> helper) (progDesc "Report accepted resource ownership and observed drift without mutation"))
+                <> command
+                  "explain"
+                  (info (InventoryExplain <$> strArgument (metavar "RESOURCE_ID") <*> switch (long "json") <**> helper) (progDesc "Explain one accepted resource and its current observation"))
             )
             <**> helper
         )
@@ -2707,6 +2718,8 @@ main = do
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes -> runInventoryResume mctx (T.pack transaction) yes
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
+    InventoryStatus json -> runInventoryStatus mctx Nothing json
+    InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json
 
 runVersion :: VersionOpts -> IO ()
 runVersion options = do
@@ -4277,6 +4290,136 @@ readBootstrapKubeVersion active = do
         _ -> dieT "Kubernetes server version has no gitVersion"
       _ -> dieT "Kubernetes version response has no serverVersion"
     _ -> dieT "Kubernetes version response is not an object"
+
+runInventoryStatus :: Maybe String -> Maybe String -> Bool -> IO ()
+runInventoryStatus mctx requested json = do
+  active <- activeTarget mctx
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
+  project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+  let targetBinding = Resource.ContextBinding context project
+  unless (InventoryStore.headBinding (InventoryPlan.historyHead history) == targetBinding)
+    (dieT "accepted inventory belongs to a different context or project")
+  snapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
+    targetBinding
+    (Map.map (\(revision, scope) -> (InventoryStore.revisionGeneration revision, scope))
+      (InventoryPlan.historyAccepted history)) Map.empty)
+  inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
+  (kubernetesNative, helmNative) <- InventoryStatus.loadAcceptedNative store history inventory
+    >>= either dieT pure
+  pathsResult <- resolvePlatformPaths Nothing
+  paths <- either (dieT . renderPlatformPathError) pure pathsResult
+  stateRoot <- nagareStateDir
+  workspaceResult <- findPlatformWorkspace stateRoot (active ^. #contextName) paths
+  workspace <- either (dieT . renderWorkspaceError) pure workspaceResult
+  let binding = ResourceInventory.inventoryBinding inventory
+      declarations = ResourceInventory.inventoryDeclarations inventory
+      scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
+      managed = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
+      byId = Map.fromList [(resource ^. #identity, resource) | resource <- managed]
+      ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
+  registrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  artifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
+  cacheSpecs <- either dieT pure (cacheSpecsFromDeclarations declarations)
+  hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
+  pulumi <- if null registrations
+    then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
+    else inventoryPulumiAdapter active workspace binding scopes registrations
+  let artifact = if Map.null artifactSpecs
+        then Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor
+        else inventoryArtifactAdapter active workspace artifactSpecs
+  host <- maybe (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
+    (inventoryHostAdapter active workspace) hostInputs
+  (cache, cacheKey) <- inventoryCacheAdapter active workspace binding cacheSpecs
+  kubernetes <- inventoryKubernetesAdapter active binding
+    cacheKey kubernetesNative
+  helm <- inventoryHelmAdapter active workspace binding helmNative
+  let inspect adapter executor = do
+        let requestedIds = ids executor
+        if null requestedIds then pure [] else do
+          result <- InventoryAdapter.adapterObserve adapter requestedIds
+          pure $ case result of
+            Left reason -> [(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds]
+            Right facts ->
+              [(resource, Map.findWithDefault (InventoryAdapter.ObservationUnavailable
+                "adapter omitted this resource") resource (InventoryAdapter.observationMap facts))
+              | resource <- requestedIds]
+  kubeFacts <- inspect kubernetes ResourceInventory.KubernetesExecutor
+  helmFacts <- inspect helm ResourceInventory.HelmExecutor
+  pulumiFacts <- inspect pulumi ResourceInventory.PulumiExecutor
+  artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
+  hostFacts <- inspect host ResourceInventory.HostExecutor
+  cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts
+      knownFacts = Map.fromList allFacts
+      remaining =
+        [(resource ^. #identity, InventoryAdapter.ObservationUnavailable
+          "provider status adapter is not yet registered")
+        | resource <- managed, Map.notMember (resource ^. #identity) knownFacts]
+      observations = either (error . T.unpack) (\value -> value)
+        (InventoryAdapter.observationSet (allFacts <> remaining))
+      findings = InventoryStatus.classifyDrift inventory observations
+      unavailable = Set.toAscList (Set.fromList
+        [InventoryStatus.findingExecutor finding | finding <- findings,
+          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation])
+      missingScopes = Set.toAscList (Set.fromList
+        [(InventoryStatus.findingOwner finding, InventoryStatus.findingExecutor finding)
+        | finding <- findings,
+          InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation])
+      providers =
+        [Aeson.object ["executor" Aeson..= InventoryAdapter.adapterExecutor adapter,
+                       "identity" Aeson..= InventoryAdapter.adapterIdentity adapter,
+                       "version" Aeson..= InventoryAdapter.adapterVersion adapter]
+        | adapter <- [kubernetes, helm, pulumi, artifact, host, cache]]
+      dependencyTarget dependency = case dependency of
+        ResourceReference.Consumes reference -> Just (let (producer, _, _, _, _) = ResourceReference.refSignature reference in producer)
+        ResourceReference.ReadyAfter reference -> Just (let (producer, _, _, _, _) = ResourceReference.refSignature reference in producer)
+        ResourceReference.OrderedAfter producer -> Just producer
+      revisions values =
+        [Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
+        | (scope, revision) <- Map.toAscList values]
+  observedAt <- currentTimestamp
+  let baseFields =
+        [ "context" Aeson..= ResourceInventory.inventoryBinding inventory
+        , "observedAt" Aeson..= observedAt
+        , "accepted" Aeson..= revisions (fmap fst (InventoryPlan.historyAccepted history))
+        , "converged" Aeson..= revisions (InventoryPlan.historyConverged history)
+        , "activeTransaction" Aeson..= InventoryStore.headActiveTransaction (InventoryPlan.historyHead history)
+        , "missingProviders" Aeson..= unavailable
+        , "missingProviderScopes" Aeson..=
+            [Aeson.object ["scope" Aeson..= scope, "executor" Aeson..= executor]
+            | (scope, executor) <- missingScopes]
+        , "providers" Aeson..= providers
+        ]
+  case requested of
+    Nothing -> do
+      let report = Aeson.object (baseFields <>
+            ["observationComplete" Aeson..= null unavailable, "findings" Aeson..= findings])
+      if json then LBC.putStrLn (Aeson.encode report)
+        else TIO.putStrLn ("Inventory status: " <> T.pack (show (length findings))
+          <> " resources; unavailable providers: " <> T.pack (show unavailable))
+    Just raw -> do
+      resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
+      finding <- maybe (dieT "resource is absent from the accepted inventory") pure
+        (find ((== resourceId) . InventoryStatus.findingResource) findings)
+      resource <- maybe (dieT "resource declaration is absent") pure (Map.lookup resourceId byId)
+      let explanation = Aeson.object (baseFields <>
+            [ "finding" Aeson..= finding
+            , "dependencies" Aeson..= (resource ^. #dependencies)
+            , "consumers" Aeson..=
+                [consumer ^. #identity | consumer <- managed,
+                  any ((== Just resourceId) . dependencyTarget) (consumer ^. #dependencies)]
+            , "addressAliases" Aeson..= (resource ^. #aliases)
+            , "requiredConditions" Aeson..=
+                [reference | ResourceReference.ReadyAfter reference <- resource ^. #dependencies]
+            , "lifecycle" Aeson..= (resource ^. #lifecycle)
+            , "dataPolicy" Aeson..= (resource ^. #dataPolicy)
+            , "sensitivity" Aeson..= (resource ^. #sensitivity)
+            , "delegations" Aeson..= (resource ^. #delegations)
+            ])
+      if json then LBC.putStrLn (Aeson.encode explanation)
+        else TIO.putStrLn (T.pack (show finding))
 
 runInventoryPlan :: Maybe String -> FilePath -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory output = do

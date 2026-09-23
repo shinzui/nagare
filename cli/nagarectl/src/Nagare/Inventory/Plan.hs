@@ -2,6 +2,7 @@
 module Nagare.Inventory.Plan
   ( InventoryHistory
   , loadInventoryHistory
+  , historyHead
   , seedInventoryHistory
   , historyAccepted
   , historyConverged
