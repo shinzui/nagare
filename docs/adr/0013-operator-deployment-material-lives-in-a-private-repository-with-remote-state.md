@@ -100,6 +100,10 @@ credentials, then reads the same accepted inventory head. Bucket readers can
 read private native review bundles. An unresolved executor claim requires
 explicit takeover; the store does not establish whether the old executor is
 still alive. Implemented by [ExecPlan 151](../plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md).
+An isolated `labs` rehearsal on 2026-09-23 confirmed that a second state root
+with an empty cache reads the same GCS head and exports byte-identical history.
+The transport treats repeated names in bucket listings as one logical object;
+the bucket may return multiple entries after a generation replacement.
 
 ## Amendment — 2026-09-13: the Pulumi stack config has a context-owned home
 

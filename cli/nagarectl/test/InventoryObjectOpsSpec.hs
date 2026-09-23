@@ -4,6 +4,7 @@ import Data.IORef
 import Crypto.Random (getRandomBytes)
 import Data.Either (isLeft)
 import Data.ByteString qualified as BS
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Text qualified as T
@@ -55,6 +56,26 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         >>= either (assertFailure . show) pure
       stale <- replaceHeadIfGenerationMatches secondStore (Just 0) (initial {headGeneration = 1})
       assertBool "second client must see a stale head" (isLeft stale)
+  , testCase "second client cannot admit a review while the first holds its claim" $ do
+      ops <- fakeObjectOps
+      firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      secondStore <- newObjectStore ops fixtureBinding "client-b" Nothing
+        >>= either (assertFailure . show) pure
+      effects <- newIORef (0 :: Int)
+      (reviewed, registry) <- preparedFixtureWith firstStore
+        (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
+        (\_ _ -> pure RecoverySafeToRetry)
+      firstAdmission <- withProcessLock firstStore (\lock -> fmap (fmap (const ())) (admit lock registry reviewed))
+      case firstAdmission of
+        Right (Right _) -> pure ()
+        other -> assertFailure (show other)
+      second <- applyReviewed secondStore registry reviewed
+      case second of
+        Left failures -> assertBool "second admission did not see the active claim"
+          ("active-transaction" `elem` map admissionErrorCode (NE.toList failures))
+        Right _ -> assertFailure "second client admitted the same review"
+      readIORef effects >>= (@?= 0)
   , testCase "a second client sees the completed reviewed transaction" $ do
       ops <- fakeObjectOps
       firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
@@ -335,7 +356,7 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         ["storage", "objects", "describe", "gs://context-state/nagare/demo/inventory/head.json",
          "--format=value(generation)", "--quiet"]
       listedObjectNames "nagare/demo/inventory"
-        "[{\"name\":\"nagare/demo/inventory/head.json\"},{\"name\":\"nagare/other/head.json\"}]"
+        "[{\"name\":\"nagare/demo/inventory/head.json\"},{\"name\":\"nagare/demo/inventory/head.json\"},{\"name\":\"nagare/other/head.json\"}]"
         @?= Right [name]
   , testCase "read-back separates landed, conflicting, retryable, and unknown writes" $ do
       let sent = "new-head"

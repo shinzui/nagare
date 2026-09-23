@@ -25,6 +25,7 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
@@ -92,8 +93,9 @@ listedObjectNames :: Text -> ByteString -> Either Text [ObjectName]
 listedObjectNames path bytes = do
   values <- firstText (Aeson.eitherDecodeStrict' bytes :: Either String [Aeson.Value])
   names <- traverse (firstText . parseEither (Aeson.withObject "object" (.: "name"))) values
-  pure [ObjectName relative | full <- names,
-        Just relative <- [T.stripPrefix (path <> "/") full]]
+  pure $ Set.toAscList $ Set.fromList
+    [ObjectName relative | full <- names,
+      Just relative <- [T.stripPrefix (path <> "/") full]]
   where
     firstText = either (Left . T.pack) Right
 

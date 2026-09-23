@@ -368,6 +368,19 @@ migrateTargetStore target destinationKind dryRun = do
       destinationLabel = case destinationKind of
         InventoryStoreLocal -> "local"
         InventoryStoreGcs -> remoteInventoryUrl target
+      destinationMatches sourceHead destinationHead =
+        let canonicalDigest value = contentDigest <$> canonicalValue (toJSON value)
+            sourceDigest = case headMigration sourceHead of
+              Just marker | migrationDestination marker == destinationLabel ->
+                Right (migrationHeadDigest marker)
+              _ -> canonicalDigest sourceHead
+         in destinationHead == sourceHead || case sourceDigest of
+              Left _ -> False
+              Right expected -> case headMigration destinationHead of
+                Just marker -> migrationDestination marker == sourceLabel
+                  && migrationHeadDigest marker == expected
+                Nothing -> isJust (headMigration sourceHead)
+                  && canonicalDigest destinationHead == Right expected
   if sourceKind == destinationKind
     then pure (Left (StoreConditionFailed "source and destination inventory stores are the same"))
     else do
@@ -395,9 +408,7 @@ migrateTargetStore target destinationKind dryRun = do
                         pure $ case previous of
                           Left err -> Left err
                           Right Nothing -> Right destinationLabel
-                          Right (Just old) | old == headValue -> Right destinationLabel
-                          Right (Just old) | Just marker <- headMigration old,
-                            migrationDestination marker == sourceLabel -> Right destinationLabel
+                          Right (Just old) | destinationMatches headValue old -> Right destinationLabel
                           Right (Just _) -> Left (StoreConditionFailed "local destination history differs")
                   InventoryStoreGcs -> do
                     let project = target ^. #profile . #project
@@ -424,9 +435,7 @@ migrateTargetStore target destinationKind dryRun = do
                                   pure $ case previous of
                                     Left err -> Left err
                                     Right Nothing -> Right destinationLabel
-                                    Right (Just old) | old == headValue -> Right destinationLabel
-                                    Right (Just old) | Just marker <- headMigration old,
-                                      migrationDestination marker == sourceLabel -> Right destinationLabel
+                                    Right (Just old) | destinationMatches headValue old -> Right destinationLabel
                                     Right (Just _) -> Left (StoreConditionFailed "remote destination history differs")
               | otherwise -> do
                   destination <- case destinationKind of
