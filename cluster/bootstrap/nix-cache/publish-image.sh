@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ] && [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
+if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ]; then
   echo "nagare: refusing inventory re-entry without the artifact adapter child marker" >&2
   exit 2
 fi
@@ -25,21 +25,19 @@ expected_digest="$(jq -er '.linuxAmd64Digest' "${pin_file}")"
 registry="${NAGARE_REGISTRY_HOST}"
 destination="${NAGARE_REGISTRY_PREFIX}/attic:${commit}"
 
-if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
-  [ "${NAGARE_ARTIFACT_DESTINATION:-}" = "${destination}" ] || {
-    echo "nagare: reviewed Attic destination differs from ${destination}" >&2
-    exit 2
-  }
-  [ "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" = "${expected_digest}" ] || {
-    echo "nagare: reviewed Attic digest differs from ${expected_digest}" >&2
-    exit 2
-  }
-  reviewed_archive_digest="${NAGARE_ARTIFACT_SOURCE_DIGEST:-}"
-  [[ "${reviewed_archive_digest}" =~ ^[0-9a-f]{64}$ ]] || {
-    echo "nagare: reviewed Attic archive digest is missing or malformed" >&2
-    exit 2
-  }
-fi
+[ "${NAGARE_ARTIFACT_DESTINATION:-}" = "${destination}" ] || {
+  echo "nagare: reviewed Attic destination differs from ${destination}" >&2
+  exit 2
+}
+[ "${NAGARE_ARTIFACT_EXPECTED_DIGEST:-}" = "${expected_digest}" ] || {
+  echo "nagare: reviewed Attic digest differs from ${expected_digest}" >&2
+  exit 2
+}
+reviewed_archive_digest="${NAGARE_ARTIFACT_SOURCE_DIGEST:-}"
+[[ "${reviewed_archive_digest}" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "nagare: reviewed Attic archive digest is missing or malformed" >&2
+  exit 2
+}
 
 case "${destination}" in
   "${registry}/${CLOUDSDK_CORE_PROJECT}/${NAGARE_ARTIFACT_REGISTRY_ID}/"*) ;;
@@ -61,14 +59,12 @@ printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' > "${policy}"
 chmod 600 "${policy}"
 
 source_digest="$(skopeo --policy "${policy}" inspect --format '{{.Digest}}' "docker-archive:${archive}")"
-if [ -n "${NAGARE_INVENTORY_TRANSACTION:-}" ]; then
-  archive_digest="$(shasum -a 256 "${archive}")"
-  archive_digest="${archive_digest%% *}"
-  [ "${archive_digest}" = "${reviewed_archive_digest}" ] || {
-    echo "nagare: Attic archive bytes differ from the reviewed release" >&2
-    exit 2
-  }
-fi
+archive_digest="$(shasum -a 256 "${archive}")"
+archive_digest="${archive_digest%% *}"
+[ "${archive_digest}" = "${reviewed_archive_digest}" ] || {
+  echo "nagare: Attic archive bytes differ from the reviewed release" >&2
+  exit 2
+}
 if [ "${source_digest}" != "${expected_digest}" ]; then
   echo "nagare: payload Attic digest ${source_digest} does not match pin ${expected_digest}" >&2
   exit 1

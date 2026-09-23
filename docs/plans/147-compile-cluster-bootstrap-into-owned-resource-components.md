@@ -47,6 +47,11 @@ provenance:
       at: 2026-09-23T16:54:57Z
       mode: "implement"
       note: "Composed the shared auth backend map and proved its reviewed transition on the disposable bootstrap"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T18:30:06Z
+      mode: "implement"
+      note: "Close the standalone cache publisher path through reviewed bootstrap"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -157,6 +162,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M3 partial: Add `compileBootstrapCandidate` to compose foundation plus optional cache against one snapshot and return all exact native members for private review. The enabled fixture yields two scopes and 18 native objects; the disabled fixture keeps the three-object foundation scope only. Remaining components and active-context input resolution must join this compiler before public command replacement.
 - [x] (2026-09-22) M1b/M3 partial: The Kubernetes adapter now accepts digest-bound direct Namespaces and the closed, generated contribution Namespace shape. A disposable cluster creates a reviewed Namespace and changes its reviewed label with a guarded update, then deletes the fixture; all five disposable Kubernetes tests pass.
 - [x] (2026-09-22) M3 partial: Pin the five existing cert-manager, Knative Serving, Kourier, and net-certmanager release YAML assets in the payload with SHA-256 checks. Cloud/local legacy recipes now apply those packaged files instead of fetching URLs during mutation. A compiler expands and binds their native members, accepts Kubernetes RBAC names with colons without loosening scope names, ignores only a trailing empty YAML document, collapses byte-identical Serving CRDs, and explicitly transfers `config-certmanager` from Serving to net-certmanager ownership. The compiled scopes compose with no direct claim collision, and bootstrap adds cross-component Namespace ordering. Installer readiness and vendor-digest tests pass; Helm, readiness, shared ConfigMap policy, and production command replacement remain open.
+- [x] (2026-09-23) M4 partial: `just nix-cache-publish` now enters the same reviewed full-bootstrap path as the other public bootstrap recipes. The Attic low-level publisher refuses a missing artifact-child marker and requires the reviewed destination, OCI digest, and archive digest on every call. The transport guard test passes; remaining non-bootstrap direct entry points are tracked in the coverage audit.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.

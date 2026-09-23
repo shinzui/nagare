@@ -156,11 +156,11 @@ cluster-bootstrap:
 nix-cache-secret-init *args:
     cluster/bootstrap/nix-cache/create-secret.sh {{args}}
 
-# Mirror the release-pinned Attic server image to the selected Artifact Registry.
+# Reconcile the reviewed cache image publication and its dependent bootstrap scope.
 [group('cluster')]
 nix-cache-publish:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    cluster/bootstrap/nix-cache/publish-image.sh
+    scripts/run-reviewed-bootstrap.sh
 
 # Reconcile the enabled Attic cache through the reviewed platform inventory.
 [group('cluster')]
