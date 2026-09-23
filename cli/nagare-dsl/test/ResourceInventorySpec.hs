@@ -141,6 +141,13 @@ resourceInventoryTests =
               Managed (ok (compileKubernetesObject (KubernetesInput (rid p ("yaml-" <> Text.pack (show ordinal))) p cluster value digest Retain Stateless Public location)))
         map (path . fst) parsed @?= ["cache#document[0][0]", "cache#document[1]"]
         rejects "claim-conflict" (compileScopes [scope p (map compiled (zip [0 :: Int ..] parsed))])
+    , testCase "trailing YAML separator is empty, but a middle null document refuses" $ do
+        let source = SourceLocation "fixture.yaml" "release"
+            namespace = "apiVersion: v1\nkind: Namespace\nmetadata: {name: personal}\n"
+        length (ok (parseKubernetesManifest source (namespace <> "---\n"))) @?= 1
+        case parseKubernetesManifest source (namespace <> "---\nnull\n---\n") of
+          Left issue -> issue ^. #code @?= "invalid-kubernetes-object"
+          Right _ -> assertFailure "middle null document was accepted"
     , testCase "controller spec cannot omit derived claims" $ do
         let app = Managed (resource a "app" (Kubernetes cluster "serving.knative.dev" (n "service") (Just (n "ns")) (n "same")) (NativeObject digest))
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [app]])
@@ -323,6 +330,12 @@ resourceInventoryTests =
             beta = ok (kubernetesAddress cluster "apps/v1beta1" "Deployment" (Just "ns") "same")
         canonicalClaim v1 @?= canonicalClaim beta
         rejects "claim-conflict" (compileScopes [scope p [Managed (resource p "v1" v1 (NativeObject digest))], scope a [Managed (resource a "beta" beta (NativeObject digest))]])
+    , testCase "Kubernetes RBAC names retain colons without loosening scope names" $ do
+        let address = ok (kubernetesAddress cluster "rbac.authorization.k8s.io/v1" "ClusterRole" Nothing "system:cert-manager:controller")
+            declaration = Managed (resource p "rbac" address (NativeObject digest))
+            sourceScope = scope p [declaration]
+        assertBool "colon was accepted in a general name" (either (const True) (const False) (mkName "system:controller"))
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope sourceScope)) @?= Right (encodeCanonicalScope sourceScope)
     , testCase "certificate and StatefulSet reserve controller children" $ do
         let cert = Managed (resource p "certificate" (Kubernetes cluster "cert-manager.io" (n "certificate") (Just (n "ns")) (n "tls")) (Certificate (n "tls-secret") digest))
             secret = Managed (resource a "secret" (Kubernetes cluster "" (n "secret") (Just (n "ns")) (n "tls-secret")) (NativeObject digest))

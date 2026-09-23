@@ -13,6 +13,8 @@ import Data.Aeson (Result (..), Value (..), fromJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
+import Data.ByteString.Char8 qualified as BC
+import Data.Char (isSpace)
 import Data.Text qualified as Text
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
@@ -39,7 +41,10 @@ parseKubernetesManifest source bytes = do
   documents <- case Yaml.decodeAllEither' bytes of
     Left failure -> Left (bad (Text.pack (show failure)))
     Right [] -> Left (bad "Kubernetes manifest has no documents")
-    Right values -> Right values
+    Right values -> Right (case reverse values of
+      Null : remaining | trailingSeparator bytes -> reverse remaining
+      _ -> values)
+  when (null documents) (Left (bad "Kubernetes manifest has no objects"))
   concat <$> traverse expandDocument (zip [0 :: Int ..] documents)
   where
     expandDocument (ordinal, value) =
@@ -47,6 +52,9 @@ parseKubernetesManifest source bytes = do
         (source {path = path source <> "#document[" <> Text.pack (show ordinal) <> "]"})
         value
     bad message = (inventoryError "invalid-kubernetes-object" message) {sources = [source]}
+    trailingSeparator manifest = case dropWhile (BC.all isSpace) (reverse (BC.lines manifest)) of
+      line : _ -> BC.words line == ["---"]
+      [] -> False
 
 -- | Expand the Kubernetes @List@ envelope before assigning identities or
 -- validating claims. An empty or malformed list cannot silently become one

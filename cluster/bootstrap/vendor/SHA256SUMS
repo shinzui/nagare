@@ -1,0 +1,5 @@
+1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f  cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml
+6f050d6149020164e83aef96a4d9388534830b9c2943abdbbed816220fe8126c  cluster/bootstrap/vendor/kourier-v1.22.0.yaml
+145ef639165b86a8ce8aa8eb62473961119374687633d05cfd1f52273ca6e702  cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml
+86049684cb235763fc230763f2a0ca740f47ed47119b7851fab2da96cec1bf6e  cluster/bootstrap/vendor/serving-core-v1.22.0.yaml
+b7876869026e571fe41cef6c7345f37f8190a80f6a23b45010981347f97f97bc  cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml

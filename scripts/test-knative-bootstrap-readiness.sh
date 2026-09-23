@@ -134,17 +134,17 @@ assert_order() {
 }
 
 assert_order "$cloud_dry_run" \
-  '/serving-core.yaml' \
+  '/serving-core-v1.22.0.yaml' \
   'rollout status deploy/webhook --timeout=5m' \
   'retry-knative-configmap-patch.sh config-network'
 assert_order "$cloud_dry_run" \
-  '/net-certmanager.yaml' \
+  '/net-certmanager-v1.14.0.yaml' \
   'rollout status deploy/net-certmanager-webhook --timeout=5m' \
   'retry-knative-configmap-patch.sh config-certmanager' \
   'retry-knative-configmap-patch.sh config-deployment' \
   'nagarectl platform stamp'
 assert_order "$local_dry_run" \
-  '/serving-core.yaml' \
+  '/serving-core-v1.22.0.yaml' \
   'rollout status deploy/webhook --timeout=5m' \
   'retry-knative-configmap-patch.sh config-network' \
   'retry-knative-configmap-patch.sh config-deployment' \

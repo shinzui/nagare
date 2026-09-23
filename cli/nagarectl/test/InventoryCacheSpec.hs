@@ -116,13 +116,13 @@ inventoryCacheTests = testGroup "cache inventory adapter"
         (all (elem (OrderedAfter namespaceId) . (^. #dependencies)) nativeMembers)
       let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput))) >>= expectRight
+        (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
-      Map.size bootstrapNative @?= 21
+      Map.size bootstrapNative @?= 18
       (withoutCache, foundationOnly) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundationInput Nothing) >>= expectRight
+        (BootstrapInput foundationInput Nothing []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory withoutCache)) @?= 1
-      Map.size foundationOnly @?= 6
+      Map.size foundationOnly @?= 3
   , testCase "foreign and unavailable cache state never authorizes creation" $ do
       state <- newIORef (CacheForeign "owned elsewhere")
       calls <- newIORef (0 :: Int)

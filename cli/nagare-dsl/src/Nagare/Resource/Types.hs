@@ -28,6 +28,7 @@ module Nagare.Resource.Types
   , physicalIdentityText
   , Name
   , mkName
+  , mkKubernetesName
   , nameText
   , ContextBinding (..)
   , ProviderAddress (..)
@@ -52,6 +53,15 @@ mkName :: Text -> Either Text Name
 mkName t
   | T.null t || T.length t > 253 = Left "name must contain 1..253 characters"
   | T.any (\c -> not (isAsciiLower c || isDigit c || c `elem` ("-._" :: String))) t = Left "name must be lowercase ASCII without separators"
+  | otherwise = Right (Name t)
+
+-- Kubernetes RBAC object names may contain colons (for example a ClusterRole
+-- for a named API permission). Keep that syntax out of scope/logical IDs.
+mkKubernetesName :: Text -> Either Text Name
+mkKubernetesName t
+  | T.null t || T.length t > 253 = Left "Kubernetes name must contain 1..253 characters"
+  | T.any (\c -> not (isAsciiLower c || isDigit c || c `elem` ("-._:" :: String))) t =
+      Left "Kubernetes name contains an unsupported character"
   | otherwise = Right (Name t)
 
 nameText :: Name -> Text
@@ -181,7 +191,7 @@ kubernetesAddress target apiVersion kind namespace name = do
     [version] | not (T.null version) -> Right ""
     [g, version] | not (T.null g), not (T.null version) -> Right g
     _ -> Left "invalid Kubernetes apiVersion"
-  address <- Kubernetes target group <$> mkName (T.toLower kind) <*> traverse mkName namespace <*> mkName name
+  address <- Kubernetes target group <$> mkName (T.toLower kind) <*> traverse mkName namespace <*> mkKubernetesName name
   mkProviderAddress address
 
 canonicalClaim :: ProviderAddress -> CanonicalClaim

@@ -173,6 +173,14 @@
       bash ${./scripts/cluster-bootstrap-defaults.sh}
     '';
 
+  bootstrap-vendor-assets = pkgs.runCommand "nagare-bootstrap-vendor-assets"
+    { nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.findutils ]; inherit src; }
+    ''
+      cd "$src"
+      bash scripts/test-bootstrap-vendor-assets.sh
+      touch "$out"
+    '';
+
   # EP-96: the optional Attic provider remains digest-pinned, hardened, and
   # syntactically renderable without requiring a live Kubernetes API server.
   nix-cache-bootstrap-assets = pkgs.runCommand "nagare-nix-cache-bootstrap-assets"

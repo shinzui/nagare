@@ -154,22 +154,22 @@ cluster-bootstrap:
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
     kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
+    kubectl apply -f cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     bash scripts/wait-cert-manager-api.sh
     issuer="$(mktemp)"; trap 'rm -f "$issuer"' EXIT; \
       cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer" && \
       kubectl apply -f "$issuer"
-    kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
-    kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
+    kubectl apply -f cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml
+    kubectl apply -f cluster/bootstrap/vendor/serving-core-v1.22.0.yaml
     kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
-    kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
+    kubectl apply -f cluster/bootstrap/vendor/kourier-v1.22.0.yaml
     scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
     BASE_DOMAIN="$(pulumi -C infra/pulumi stack output baseDomain)"; \
       : "${BASE_DOMAIN:?empty baseDomain — run 'pulumi -C infra/pulumi up' (or 'pulumi config set baseDomain …') before cluster-bootstrap}"; \
       scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
-    kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
+    kubectl apply -f cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml
     kubectl -n knative-serving rollout status deploy/net-certmanager-webhook --timeout=5m
     scripts/install-net-certmanager-controller.sh
     scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-certmanager.yaml)"
@@ -295,22 +295,22 @@ local-bootstrap:
       kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; \
     done
     kubectl label namespace personal nagare.dev/app-namespace=true --overwrite
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{certmanager_version}}/cert-manager.yaml
+    kubectl apply -f cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml
     kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
     bash scripts/wait-cert-manager-api.sh
     # The public DNS-01 issuer is intentionally skipped. Install the local CA
     # counterpart so explicit DomainMappings can be exercised over trusted TLS.
     kubectl apply -f cluster/bootstrap/local-tls/clusterissuer.yaml
     kubectl -n cert-manager wait --for=condition=Ready certificate/nagare-local-ca --timeout=120s
-    kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-crds.yaml
-    kubectl apply -f https://github.com/knative/serving/releases/download/{{knative_version}}/serving-core.yaml
+    kubectl apply -f cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml
+    kubectl apply -f cluster/bootstrap/vendor/serving-core-v1.22.0.yaml
     kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
-    kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/{{knative_version}}/kourier.yaml
+    kubectl apply -f cluster/bootstrap/vendor/kourier-v1.22.0.yaml
     scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network.yaml)"
     BASE_DOMAIN="${NAGARE_BASE_DOMAIN:?set NAGARE_MODE=local and copy nagare.local.env.example to nagare.local.env}"; \
       scripts/retry-knative-configmap-patch.sh config-domain --type merge --patch "{\"data\":{\"$BASE_DOMAIN\":\"\"}}"; \
       kubectl -n knative-serving patch configmap config-domain --type=json -p '[{"op":"remove","path":"/data/svc.cluster.local"}]' || true
-    kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/{{netcertmanager_version}}/net-certmanager.yaml
+    kubectl apply -f cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml
     scripts/install-net-certmanager-controller.sh
     scripts/retry-knative-configmap-patch.sh config-certmanager --type merge --patch "$(cat cluster/bootstrap/local-tls/config-certmanager-local.yaml)"
     scripts/retry-knative-configmap-patch.sh config-network --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-network-tls.yaml)"

@@ -45,7 +45,7 @@ compileFoundation input = do
     quotaValue <- case quotaMembers of
       [(_, value)] -> Right value
       _ -> Left (single (invalid "Job quota source must contain one ResourceQuota"))
-    namespaceMembers <- traverse namespace ["cert-manager", "knative-serving", "kourier-system", "personal", "nagare-system"]
+    namespaceMembers <- traverse namespace ["personal", "nagare-system"]
     quotaMember <- compileMember "job-quota" quotaValue [OrderedAfter (identityFor "namespace-personal")]
     let (quotaResource, _, _) = quotaMember
     unless (quotaResource ^. #address == Kubernetes (foundationCluster input) "" (known "resourcequota")

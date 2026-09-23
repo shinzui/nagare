@@ -20,10 +20,10 @@ import System.FilePath ((</>))
 
 inventoryFoundationTests :: TestTree
 inventoryFoundationTests = testGroup "cluster foundation inventory"
-  [ testCase "five namespaces and personal Job quota form one bound bundle" $ do
+  [ testCase "platform namespaces and personal Job quota form one bound bundle" $ do
       (bundle, native) <- compileFoundation foundationInput >>= expectRight
-      length (declarations bundle) @?= 6
-      Map.size native @?= 6
+      length (declarations bundle) @?= 3
+      Map.size native @?= 3
       let resources = [member | Managed member <- declarations bundle]
       _ <- expectRight (validateSuppliedKubernetesMembers resources native)
       let quota = [member | member <- resources, member ^. #address == Kubernetes fixtureCluster "" (known "resourcequota") (Just (known "personal")) (known "nagare-terminating-jobs")]

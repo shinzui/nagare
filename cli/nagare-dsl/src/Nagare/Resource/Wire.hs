@@ -279,7 +279,18 @@ instance FromJSON ContextBinding where parseJSON = genericParseJSON options
 
 instance ToJSON ProviderAddress where toJSON = genericToJSON options
 
-instance FromJSON ProviderAddress where parseJSON v = genericParseJSON options v >>= either (fail . T.unpack) pure . mkProviderAddress
+instance FromJSON ProviderAddress where
+  parseJSON (Object fields) | KM.lookup "tag" fields == Just (String "Kubernetes") = do
+    unless (KM.size fields == 2) (fail "Kubernetes address has unknown fields")
+    contents <- fields .: "contents" >>= withArray "Kubernetes address" (pure . toList)
+    case contents of
+      [target, group, kind, namespace, name] -> do
+        parsedName <- withText "Kubernetes name" (either (fail . T.unpack) pure . mkKubernetesName) name
+        address <- Kubernetes <$> parseJSON target <*> parseJSON group <*> parseJSON kind
+          <*> parseJSON namespace <*> pure parsedName
+        either (fail . T.unpack) pure (mkProviderAddress address)
+      _ -> fail "Kubernetes address must have five fields"
+  parseJSON value = genericParseJSON options value >>= either (fail . T.unpack) pure . mkProviderAddress
 
 instance ToJSON SourceLocation where toJSON = genericToJSON options
 
