@@ -5,15 +5,28 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.IORef
+import Data.Text qualified as T
+import Control.Exception (finally)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Observability
+import Nagare.Inventory.Adapters.Helm
+import Nagare.Inventory.Adapters.HelmRuntime
+import Nagare.Inventory.Adapter
 import Nagare.Inventory.Bootstrap (compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Process (readProcessWithExitCode)
 
 inventoryObservabilityTests :: TestTree
 inventoryObservabilityTests = testGroup "Helm release compiler"
@@ -45,6 +58,7 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
         , packagedValuesDigest = contentDigest valuesBytes
         , packagedPlugin = root <> "helm-review/capture"
         , packagedKubeVersion = "v1.32.0"
+        , packagedHelmVersion = "v4.2.4"
         , packagedApiVersions = []
         , packagedDependencies = []
         }
@@ -72,6 +86,92 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           [] -> error "five observability scopes disappeared")) of
         Left errors -> assertFailure (show errors)
         Right _ -> pure ()
+  , testCase "reviewed Helm adapter refuses a changed release revision" $ do
+      let (release, native) = ok (compileRenderedRelease fixture)
+          operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor
+            (releaseId fixture :| []) (contentDigest native) [] Idempotent
+          specs = Map.singleton (releaseId fixture) (release, native)
+      current <- newIORef (HelmAbsent (contentDigest (BC.pack "absence")))
+      let adapter = mkHelmAdapter specs HelmAdapterOps
+            { helmObserve = \_ -> readIORef current
+            , helmMutateConditional = \mutation -> do
+                writeIORef current (HelmPresent (ok (mkPhysicalIdentity "helm-1")) "1"
+                  (helmMutationResource mutation) (helmMutationContractDigest mutation))
+                pure AdapterEffectCompleted
+            }
+      prepared <- adapterPrepare adapter operation >>= either (assertFailure . show) pure
+      writeIORef current (HelmPresent (ok (mkPhysicalIdentity "foreign")) "2"
+        (releaseId fixture) (contentDigest native))
+      refused <- adapterPreflight adapter operation prepared
+      case refused of
+        Left _ -> pure ()
+        Right _ -> assertFailure "changed release revision was accepted"
+      result <- adapterExecute adapter operation prepared
+      case result of
+        AdapterEffectFailed _ -> pure ()
+        _ -> assertFailure "changed release was mutated"
+      writeIORef current (HelmAbsent (contentDigest (BC.pack "absence")))
+      completed <- adapterExecute adapter operation prepared
+      completed @?= AdapterEffectCompleted
+      verified <- adapterVerify adapter operation prepared
+      case verified of
+        Right _ -> pure ()
+        Left reason -> assertFailure (show reason)
+  , testCase "disposable Helm create is gated by reviewed native bytes" $ do
+      selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+      case selected of
+        Nothing -> pure ()
+        Just selectedContext -> do
+          assertBool "refusing a non-disposable Kubernetes context"
+            ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+          withSystemTempDirectory "nagare-helm-runtime-test" $ \temporary -> do
+            let namespace = "inventory-helm-adapter"
+                fixturePath = "test/fixtures/helm-review-static"
+                chartPath = temporary </> "inventory-review-static-fixture-0.1.0.tgz"
+                valuesPath = fixturePath </> "values.yaml"
+                run command args = readProcessWithExitCode command args ""
+                kubectl args = run "kubectl" (["--context", selectedContext] <> args)
+            (createCode, _, _) <- kubectl ["create", "namespace", namespace]
+            createCode @?= ExitSuccess
+            let cleanup = do
+                  _ <- kubectl ["delete", "namespace", namespace, "--wait=false"]
+                  pure ()
+            (do
+              (packageCode, _, packageError) <- run "helm" ["package", fixturePath, "--destination", temporary]
+              assertEqual packageError ExitSuccess packageCode
+              chartBytes <- BS.readFile chartPath
+              valuesBytes <- BS.readFile valuesPath
+              let input = PackagedHelmInput
+                    { packagedReleaseId = releaseId fixture
+                    , packagedOwner = scope
+                    , packagedCluster = cluster
+                    , packagedNamespace = name "inventory-helm-adapter"
+                    , packagedName = name "inventory-helm-adapter"
+                    , packagedChart = chartPath
+                    , packagedChartDigest = contentDigest chartBytes
+                    , packagedValues = valuesPath
+                    , packagedValuesDigest = contentDigest valuesBytes
+                    , packagedPlugin = "../../cluster/observability/helm-review/capture"
+                    , packagedKubeVersion = "v1.32.5+k3s1"
+                    , packagedHelmVersion = "v4.2.4"
+                    , packagedApiVersions = []
+                    , packagedDependencies = []
+                    }
+              captured <- capturePackagedRelease input >>= either (assertFailure . show) pure
+              (release, native) <- either (assertFailure . show) pure (compileRenderedRelease captured)
+              let runtime = HelmRuntimeConfig (T.pack selectedContext) (ok (mkContextId "helm-test"))
+                    "../../cluster/observability/helm-review" (Map.singleton (releaseId fixture) release)
+                  adapter = mkHelmAdapter (Map.singleton (releaseId fixture) (release, native))
+                    (helmRuntimeOps runtime)
+                  operation = PlannedOperation (ok (mkOperationId "op-helm-runtime")) CreateResource HelmExecutor
+                    (releaseId fixture :| []) (contentDigest native) [] Idempotent
+              prepared <- adapterPrepare adapter operation >>= either (assertFailure . show) pure
+              applied <- adapterExecute adapter operation prepared
+              applied @?= AdapterEffectCompleted
+              verified <- adapterVerify adapter operation prepared
+              case verified of
+                Right _ -> pure ()
+                Left reason -> assertFailure (show reason)) `finally` cleanup
   ]
   where
     ok :: (Show e) => Either e a -> a
@@ -94,6 +194,7 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       , releaseRenderedBytes = rendered
       , releaseCrdsBytes = Just crds
       , releaseKubeVersion = "v1.32.0"
+      , releaseHelmVersion = "v4.2.4"
       , releaseApiVersions = []
       , releaseDependencies = []
       }

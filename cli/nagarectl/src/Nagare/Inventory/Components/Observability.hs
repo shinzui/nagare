@@ -73,6 +73,7 @@ pinnedObservabilityInputs cluster root kubeVersion =
         , packagedValuesDigest = checked mkContentDigest valuesDigest
         , packagedPlugin = root </> "cluster/observability/helm-review/capture"
         , packagedKubeVersion = kubeVersion
+        , packagedHelmVersion = "v4.2.4"
         , packagedApiVersions = []
         , packagedDependencies = []
         }
@@ -123,6 +124,7 @@ data PackagedHelmInput = PackagedHelmInput
   , packagedValuesDigest :: !ContentDigest
   , packagedPlugin :: !FilePath
   , packagedKubeVersion :: !Text
+  , packagedHelmVersion :: !Text
   , packagedApiVersions :: ![Text]
   , packagedDependencies :: ![Dependency]
   }
@@ -148,6 +150,8 @@ capturePackagedRelease input = do
             pluginPath <- makeAbsolute (packagedPlugin input)
             createDirectoryLink pluginPath (plugins </> "nagare-capture-manifests")
             environment <- getEnvironment
+            (versionCode, versionOutput, versionError) <- readCreateProcessWithExitCode
+              (proc "helm" ["version", "--short"]) ""
             let clean = filter (\(key, _) -> key `notElem` ["HELM_PLUGINS", "NAGARE_HELM_CAPTURE_PATH"]) environment
                 chartPath = packagedChart input
                 valuesPath = packagedValues input
@@ -156,32 +160,38 @@ capturePackagedRelease input = do
                   , "--values", valuesPath, "--kube-version", T.unpack (packagedKubeVersion input)
                   , "--skip-crds", "--post-renderer", "nagare-capture-manifests"]
                 arguments = base <> concatMap (\version -> ["--api-versions", T.unpack version]) (packagedApiVersions input)
-            (renderCode, _, renderError) <- readCreateProcessWithExitCode
-              ((proc "helm" arguments) {env = Just (("HELM_PLUGINS", plugins) : ("NAGARE_HELM_CAPTURE_PATH", capture) : clean)}) ""
-            case renderCode of
-              ExitFailure _ -> pure (Left ("Helm render refused: " <> T.pack renderError))
-              ExitSuccess -> do
-                rendered <- BS.readFile capture
-                (crdCode, crdOutput, crdError) <- readCreateProcessWithExitCode
-                  (proc "helm" ["show", "crds", chartPath]) ""
-                pure $ case crdCode of
-                  ExitFailure _ -> Left ("Helm CRD inspection refused: " <> T.pack crdError)
-                  ExitSuccess -> Right ObservabilityReleaseInput
-                    { releaseId = packagedReleaseId input
-                    , releaseOwner = packagedOwner input
-                    , releaseCluster = packagedCluster input
-                    , releaseNamespace = packagedNamespace input
-                    , releaseName = packagedName input
-                    , releaseChartPath = chartPath
-                    , releaseChartBytes = chartBytes
-                    , releaseValuesPath = valuesPath
-                    , releaseValuesBytes = valuesBytes
-                    , releaseRenderedBytes = rendered
-                    , releaseCrdsBytes = if null crdOutput then Nothing else Just (TE.encodeUtf8 (T.pack crdOutput))
-                    , releaseKubeVersion = packagedKubeVersion input
-                    , releaseApiVersions = packagedApiVersions input
-                    , releaseDependencies = packagedDependencies input
-                    }) :: IO (Either IOException (Either Text ObservabilityReleaseInput))
+            if versionCode /= ExitSuccess
+              then pure (Left ("Helm version probe refused: " <> T.pack versionError))
+              else if T.strip (T.pack versionOutput) /= packagedHelmVersion input
+                then pure (Left "Helm version differs from the pinned render engine")
+                else do
+                  (renderCode, _, renderError) <- readCreateProcessWithExitCode
+                    ((proc "helm" arguments) {env = Just (("HELM_PLUGINS", plugins) : ("NAGARE_HELM_CAPTURE_PATH", capture) : clean)}) ""
+                  case renderCode of
+                    ExitFailure _ -> pure (Left ("Helm render refused: " <> T.pack renderError))
+                    ExitSuccess -> do
+                      rendered <- BS.readFile capture
+                      (crdCode, crdOutput, crdError) <- readCreateProcessWithExitCode
+                        (proc "helm" ["show", "crds", chartPath]) ""
+                      pure $ case crdCode of
+                        ExitFailure _ -> Left ("Helm CRD inspection refused: " <> T.pack crdError)
+                        ExitSuccess -> Right ObservabilityReleaseInput
+                          { releaseId = packagedReleaseId input
+                          , releaseOwner = packagedOwner input
+                          , releaseCluster = packagedCluster input
+                          , releaseNamespace = packagedNamespace input
+                          , releaseName = packagedName input
+                          , releaseChartPath = chartPath
+                          , releaseChartBytes = chartBytes
+                          , releaseValuesPath = valuesPath
+                          , releaseValuesBytes = valuesBytes
+                          , releaseRenderedBytes = rendered
+                          , releaseCrdsBytes = if null crdOutput then Nothing else Just (TE.encodeUtf8 (T.pack crdOutput))
+                          , releaseKubeVersion = packagedKubeVersion input
+                          , releaseHelmVersion = packagedHelmVersion input
+                          , releaseApiVersions = packagedApiVersions input
+                          , releaseDependencies = packagedDependencies input
+                          }) :: IO (Either IOException (Either Text ObservabilityReleaseInput))
           pure (either (Left . T.pack . show) id attempted)
 
 data ObservabilityReleaseInput = ObservabilityReleaseInput
@@ -197,6 +207,7 @@ data ObservabilityReleaseInput = ObservabilityReleaseInput
   , releaseRenderedBytes :: !ByteString
   , releaseCrdsBytes :: !(Maybe ByteString)
   , releaseKubeVersion :: !Text
+  , releaseHelmVersion :: !Text
   , releaseApiVersions :: ![Text]
   , releaseDependencies :: ![Dependency]
   }
@@ -224,6 +235,7 @@ compileRenderedRelease input = do
     , "renderDigest" .= digestText (contentDigest (releaseRenderedBytes input))
     , "crdsDigest" .= fmap (digestText . contentDigest) (releaseCrdsBytes input)
     , "kubeVersion" .= releaseKubeVersion input
+    , "helmVersion" .= releaseHelmVersion input
     , "apiVersions" .= releaseApiVersions input
     , "hookPolicy" .= ("include-rendered-hooks" :: Text)
     , "crdPolicy" .= ("conditional-direct-apply-and-helm-skip-crds" :: Text)
