@@ -4379,6 +4379,9 @@ runInventoryStatus mctx requested json = do
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
   hostFacts <- inspect host ResourceInventory.HostExecutor
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
+  finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
+  unless (finalHead == Just (InventoryPlan.historyHead history))
+    (dieT "accepted inventory changed during status; retry against the new head")
   let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts
       knownFacts = Map.fromList allFacts
       remaining =
