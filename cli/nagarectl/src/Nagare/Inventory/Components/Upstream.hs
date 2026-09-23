@@ -2,6 +2,7 @@
 -- The original YAML stays in the payload; review retains canonical native JSON.
 module Nagare.Inventory.Components.Upstream
   ( UpstreamInput (..)
+  , pinnedUpstreamInputs
   , compileUpstream
   ) where
 
@@ -39,6 +40,37 @@ data UpstreamInput = UpstreamInput
   , upstreamNamespaces :: !(Map Name ResourceId)
   , upstreamTransferred :: !(Set ProviderAddress)
   }
+
+-- | The packaged release order is part of the bootstrap contract. A later
+-- scope may contain custom resources served by an earlier release.
+pinnedUpstreamInputs :: ResourceId -> FilePath -> [UpstreamInput]
+pinnedUpstreamInputs cluster root =
+  [ component "cert-manager"
+      [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]
+      Set.empty
+  , component "serving"
+      [ ("cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml", "b7876869026e571fe41cef6c7345f37f8190a80f6a23b45010981347f97f97bc")
+      , ("cluster/bootstrap/vendor/serving-core-v1.22.0.yaml", "86049684cb235763fc230763f2a0ca740f47ed47119b7851fab2da96cec1bf6e")
+      ]
+      (Set.singleton (either (error . T.unpack) id
+        (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") "config-certmanager")))
+  , component "kourier"
+      [("cluster/bootstrap/vendor/kourier-v1.22.0.yaml", "6f050d6149020164e83aef96a4d9388534830b9c2943abdbbed816220fe8126c")]
+      Set.empty
+  , component "net-certmanager"
+      [("cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml", "145ef639165b86a8ce8aa8eb62473961119374687633d05cfd1f52273ca6e702")]
+      Set.empty
+  ]
+  where
+    component name assets transferred = UpstreamInput
+      { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform name)
+      , upstreamCluster = cluster
+      , upstreamKey = either (error . T.unpack) id (mkLogicalKey name)
+      , upstreamRoot = root
+      , upstreamFiles = [(path, either (error . T.unpack) id (mkContentDigest digest)) | (path, digest) <- assets]
+      , upstreamNamespaces = Map.empty
+      , upstreamTransferred = transferred
+      }
 
 compileUpstream
   :: UpstreamInput

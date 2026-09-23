@@ -19,18 +19,16 @@ import Test.Tasty.HUnit
 inventoryUpstreamTests :: TestTree
 inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
   [ testCase "release assets compile to one exact reviewed membership" $ do
-      cert <- compileUpstream (component "cert-manager"
-        [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", digest "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]) >>= expectRight
-      let servingAssets =
-            [("cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml", digest "b7876869026e571fe41cef6c7345f37f8190a80f6a23b45010981347f97f97bc"),
-             ("cluster/bootstrap/vendor/serving-core-v1.22.0.yaml", digest "86049684cb235763fc230763f2a0ca740f47ed47119b7851fab2da96cec1bf6e")]
-          servingInput = (component "serving" servingAssets)
-            {upstreamTransferred = Set.singleton (ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-certmanager"))}
+      (certInput, servingInput, kourierInput, netInput) <-
+        case pinnedUpstreamInputs fixtureCluster "../.." of
+          [certInput, servingInput, kourierInput, netInput] ->
+            pure (certInput, servingInput, kourierInput, netInput)
+          _ -> assertFailure "pinned upstream release set must have four ordered components"
+            >> pure (error "unreachable")
+      cert <- compileUpstream certInput >>= expectRight
       serving <- compileUpstream servingInput >>= expectRight
-      kourier <- compileUpstream (component "kourier"
-        [("cluster/bootstrap/vendor/kourier-v1.22.0.yaml", digest "6f050d6149020164e83aef96a4d9388534830b9c2943abdbbed816220fe8126c")]) >>= expectRight
-      net <- compileUpstream (component "net-certmanager"
-        [("cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml", digest "145ef639165b86a8ce8aa8eb62473961119374687633d05cfd1f52273ca6e702")]) >>= expectRight
+      kourier <- compileUpstream kourierInput >>= expectRight
+      net <- compileUpstream netInput >>= expectRight
       let components = zip ["cert-manager", "serving", "kourier", "net-certmanager"] [cert, serving, kourier, net]
           scopes = [ok (mkScopeDeclaration (componentOwner name) [bundle]) | (name, (bundle, _)) <- components]
           members = concat [declarations bundle | (_, (bundle, _)) <- components]
@@ -69,14 +67,10 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       let foundation = FoundationInput (componentOwner "foundation") fixtureCluster
             "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
-          certInput = component "cert-manager"
-            [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", digest "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]
       (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
         (BootstrapInput foundation Nothing [certInput]) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
       Map.size bootstrapNative @?= Map.size (snd cert) + 3
-      let netInput = component "net-certmanager"
-            [("cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml", digest "145ef639165b86a8ce8aa8eb62473961119374687633d05cfd1f52273ca6e702")]
       (servingBootstrap, _) <- compileBootstrapCandidate snapshot
         (BootstrapInput foundation Nothing [servingInput, netInput]) >>= expectRight
       let allMembers = [resource | Managed resource <- inventoryDeclarations (candidateInventory servingBootstrap)]
@@ -94,6 +88,9 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
         [namespaceId] -> assertBool "net-certmanager lacks the serving Namespace prerequisite"
           (not (null netMembers) && all (elem (OrderedAfter namespaceId) . (^. #dependencies)) netMembers)
         _ -> assertFailure "serving Namespace is missing or duplicated"
+      (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundation Nothing "../.." >>= expectRight
+      Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 5
+      Map.size fullNative @?= Map.size native + 3
   , testCase "changed asset digest refuses before review" $ do
       result <- compileUpstream (component "cert-manager"
         [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", digest (replicateText 64 "0"))])

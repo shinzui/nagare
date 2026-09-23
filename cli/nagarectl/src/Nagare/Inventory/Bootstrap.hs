@@ -3,6 +3,7 @@
 module Nagare.Inventory.Bootstrap
   ( BootstrapInput (..)
   , compileBootstrapCandidate
+  , compilePinnedBootstrap
   ) where
 
 import Data.ByteString (ByteString)
@@ -25,6 +26,20 @@ data BootstrapInput = BootstrapInput
   , bootstrapCache :: !(Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput))
   , bootstrapUpstream :: ![UpstreamInput]
   }
+
+-- | Compile the payload's complete pinned operator release set with the
+-- foundation and optional cache. Other context-specific components join this
+-- input before the public bootstrap command can replace the legacy recipe.
+compilePinnedBootstrap
+  :: ScopeSnapshot
+  -> FoundationInput
+  -> Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput)
+  -> FilePath
+  -> IO (Either (NonEmpty InventoryError)
+       (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compilePinnedBootstrap snapshot foundation cache root =
+  compileBootstrapCandidate snapshot (BootstrapInput foundation cache
+    (pinnedUpstreamInputs (foundationCluster foundation) root))
 
 compileBootstrapCandidate
   :: ScopeSnapshot
