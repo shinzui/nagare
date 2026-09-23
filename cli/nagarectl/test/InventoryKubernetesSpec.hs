@@ -520,6 +520,80 @@ inventoryKubernetesTests =
                  "--namespace", "default", "-o", "jsonpath={.data.message}"] ""
               readCode @?= ExitSuccess
               live @?= "foreign") `finally` cleanup
+    , testCase "disposable reviewed transaction refuses a stale update after publication" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let configMap message = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-stale" :: Text),
+                      "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= (message :: Text)]
+                  ]
+                bound message = let value = configMap message
+                                    bytes = ok (canonicalValue value)
+                                 in Map.singleton resource (ok (bindKubernetesObject
+                                      (input {inputObject = value, objectDigest = contentDigest bytes})))
+                target members = ok (mkScopeDeclaration scope
+                  [ResourceBundle [Managed (fst (members Map.! resource))] [] [] [] [] []])
+                binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test"))
+                  (T.pack selectedContext) (pure (Right ()))
+                registry members = ok (mkAdapterRegistry
+                  [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)])
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl"
+                    ["--context", selectedContext, "delete", "configmap", "nagare-ep147-stale",
+                     "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              store <- newMemoryStore
+              _ <- initializeStore store binding "client-test" >>= expectRight
+              let initial = bound "initial"
+                  initialCandidate = ok (composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope (target initial) :| []))
+              initialHistory <- loadInventoryHistory store >>= expectRight
+              initialObservation <- observeWithRegistry (registry initial)
+                (requirementsByExecutor (observationRequirements initialCandidate initialHistory)) >>= expectRight
+              let initialProposal = ok (planChanges initialCandidate noLifecycleDecisions initialHistory initialObservation)
+              initialSnapshot <- readStoreSnapshot store >>= expectRight
+              initialReview <- prepareReview (registry initial) initialSnapshot initialProposal >>= expectRight
+              _ <- publishReview store initialReview >>= expectRight
+              createdSnapshot <- readStoreSnapshot store >>= expectRight
+              createdReview <- expectRight (verifyReview createdSnapshot initialReview)
+              _ <- applyReviewed store (registry initial) createdReview >>= expectRight
+              history <- loadInventoryHistory store >>= expectRight
+              let accepted = Map.map (\(revision, scoped) -> (revisionGeneration revision, scoped))
+                    (historyAccepted history)
+                  next = bound "updated"
+                  nextCandidate = ok (composeInventory
+                    (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope (target next) :| []))
+              observed <- observeWithRegistry (registry next)
+                (requirementsByExecutor (observationRequirements nextCandidate history)) >>= expectRight
+              let proposal = ok (planChanges nextCandidate noLifecycleDecisions history observed)
+              before <- readStoreSnapshot store >>= expectRight
+              reviewBundle <- prepareReview (registry next) before proposal >>= expectRight
+              _ <- publishReview store reviewBundle >>= expectRight
+              (changed, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "annotate", "configmap", "nagare-ep147-stale",
+                 "--namespace", "default", "probe=concurrent", "--field-manager=nagare-inventory"] ""
+              changed @?= ExitSuccess
+              afterPublication <- readStoreSnapshot store >>= expectRight
+              reviewed <- expectRight (verifyReview afterPublication reviewBundle)
+              result <- applyReviewed store (registry next) reviewed
+              case result of
+                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                other -> assertFailure ("stale update was accepted: " <> show other)
+              (readCode, live, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
+                 "--namespace", "default", "-o", "jsonpath={.data.message}:{.metadata.annotations.probe}"] ""
+              readCode @?= ExitSuccess
+              live @?= "initial:concurrent") `finally` cleanup
     , testCase "disposable cluster updates a reviewed Namespace label" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
