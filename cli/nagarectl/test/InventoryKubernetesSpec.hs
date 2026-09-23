@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, deploymentAvailable, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, deploymentAvailable, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -198,6 +198,10 @@ inventoryKubernetesTests =
               ]
         assertBool "unestablished CRD was accepted" (not (crdEstablished (crd "False")))
         assertBool "established CRD was rejected" (crdEstablished (crd "True"))
+        assertBool "unready certificate was accepted" (not (certificateReady
+          (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
+        assertBool "ready certificate was rejected" (certificateReady
+          (object ["status" .= object ["conditions" .= [condition "Ready" "True"]]]))
         assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
         assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
     , testCase "cache client fills only the typed generated-key slot after review" $ do

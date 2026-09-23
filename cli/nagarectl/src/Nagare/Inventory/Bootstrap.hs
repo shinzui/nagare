@@ -5,6 +5,7 @@ module Nagare.Inventory.Bootstrap
   , compileBootstrapCandidate
   , compilePinnedBootstrap
   , compileConfiguredBootstrap
+  , compileIssuerBootstrap
   ) where
 
 import Data.ByteString (ByteString)
@@ -57,6 +58,22 @@ compileConfiguredBootstrap snapshot foundation cache root domain registry certif
   configured <- configuredUpstreamInputs (foundationCluster foundation) root domain registry certificatePatch
   case configured of
     Left message -> pure (Left (inventoryError "invalid-upstream-policy" message :| []))
+    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
+
+compileIssuerBootstrap
+  :: ScopeSnapshot
+  -> FoundationInput
+  -> Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput)
+  -> FilePath
+  -> Text
+  -> Text
+  -> IssuerMode
+  -> IO (Either (NonEmpty InventoryError)
+       (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compileIssuerBootstrap snapshot foundation cache root domain registry mode = do
+  configured <- configuredUpstreamInputsWithIssuer (foundationCluster foundation) root domain registry mode
+  case configured of
+    Left message -> pure (Left (inventoryError "invalid-issuer-policy" message :| []))
     Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
 
 compileBootstrapCandidate

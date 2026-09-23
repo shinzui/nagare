@@ -9,7 +9,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Upstream
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compilePinnedBootstrap)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compileIssuerBootstrap, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
@@ -145,10 +145,39 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       invalidPatch <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
         "registry.example.test" "../outside.yaml"
       assertBool "non-packaged certificate policy was accepted" (either (const True) (const False) invalidPatch)
+  , testCase "pinned local CA and cloud issuer compile between cert-manager and Serving" $ do
+      let foundation = FoundationInput (componentOwner "foundation") fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          snapshot = ok (mkScopeSnapshot
+            (ContextBinding (ok (mkContextId "fixture")) (known "project")) Map.empty Map.empty)
+          compileWith mode = compileIssuerBootstrap snapshot foundation Nothing "../.."
+            "example.test" "registry.example.test" mode >>= expectRight
+      (local, localNative) <- compileWith LocalIssuer
+      (cloud, cloudNative) <- compileWith
+        (CloudIssuer "https://acme-staging-v02.api.letsencrypt.org/directory" "admin@example.test" "project")
+      Map.size (inventoryScopes (candidateInventory local)) @?= 6
+      Map.size (inventoryScopes (candidateInventory cloud)) @?= 6
+      Map.size localNative @?= Map.size cloudNative + 2
+      let issuerMembers = [resource | Managed resource <- inventoryDeclarations (candidateInventory local),
+            resource ^. #owner == componentOwner "certificate-issuer"]
+          issuerId name = [resource ^. #identity | resource <- issuerMembers,
+            case resource ^. #address of
+              Kubernetes _ "cert-manager.io" kind Nothing resourceName ->
+                nameText kind == "clusterissuer" && nameText resourceName == name
+              _ -> False]
+          certificates = [resource | resource <- issuerMembers,
+            case resource ^. #address of
+              Kubernetes _ "cert-manager.io" kind (Just _) _ -> nameText kind == "certificate"
+              _ -> False]
+      case (issuerId "nagare-local-selfsigned", issuerId "nagare-local-ca", certificates) of
+        ([selfSigned], [_], [certificate]) ->
+          assertBool "local CA Certificate does not wait for the self-signed issuer"
+            (OrderedAfter selfSigned `elem` certificate ^. #dependencies)
+        _ -> assertFailure "local issuer chain is incomplete"
   ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty [] Map.empty
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

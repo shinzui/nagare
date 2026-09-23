@@ -2,27 +2,33 @@
 -- The original YAML stays in the payload; review retains canonical native JSON.
 module Nagare.Inventory.Components.Upstream
   ( UpstreamInput (..)
+  , IssuerMode (..)
   , pinnedUpstreamInputs
   , configuredUpstreamInputs
+  , configuredUpstreamInputsWithIssuer
   , compileUpstream
   ) where
 
 import Control.Exception (IOException, try)
-import Data.Aeson (Value (..), toJSON)
+import Control.Monad (foldM)
+import Data.Aeson (Value (..), encode, toJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Yaml qualified as Yaml
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List (foldl')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -43,7 +49,14 @@ data UpstreamInput = UpstreamInput
   , upstreamNamespaces :: !(Map Name ResourceId)
   , upstreamTransferred :: !(Set ProviderAddress)
   , upstreamConfigMapData :: !(Map ProviderAddress (Map Text (Maybe Text)))
+  , upstreamGenerated :: ![(SourceLocation, Value)]
+  , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
   }
+
+data IssuerMode
+  = CloudIssuer !Text !Text !Text
+  | LocalIssuer
+  deriving stock (Eq, Show)
 
 -- | The packaged release order is part of the bootstrap contract. A later
 -- scope may contain custom resources served by an earlier release.
@@ -75,6 +88,8 @@ pinnedUpstreamInputs cluster root =
       , upstreamNamespaces = Map.empty
       , upstreamTransferred = transferred
       , upstreamConfigMapData = Map.empty
+      , upstreamGenerated = []
+      , upstreamAfter = Map.empty
       }
 
 -- | Bind the context's Knative policy into the reviewed release members.
@@ -136,6 +151,71 @@ configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
       && T.all (\char -> char `elem` (['a'..'z'] <> ['A'..'Z'] <> ['0'..'9'] <> ".-:")) value
       && not (T.isPrefixOf "." value || T.isSuffixOf "." value)
 
+configuredUpstreamInputsWithIssuer
+  :: ResourceId -> FilePath -> Text -> Text -> IssuerMode
+  -> IO (Either Text [UpstreamInput])
+configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
+  let certificatePatch = case issuerMode of
+        CloudIssuer {} -> "cluster/bootstrap/knative-serving/config-certmanager.yaml"
+        LocalIssuer -> "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
+  configured <- configuredUpstreamInputs cluster root domain registry certificatePatch
+  issuer <- issuerComponent cluster root issuerMode
+  pure $ do
+    scopes <- configured
+    issuerScope <- issuer
+    case scopes of
+      certManager : remaining -> Right (certManager : issuerScope : remaining)
+      [] -> Left "configured upstream release set is empty"
+
+issuerComponent :: ResourceId -> FilePath -> IssuerMode -> IO (Either Text UpstreamInput)
+issuerComponent cluster root mode = do
+  let (relative, expected, substitutions) = case mode of
+        CloudIssuer directory email project ->
+          ( "cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl"
+          , "25b037828d82f4b19a95c672df54e285f32e7a6056c406ac67327f070624f369"
+          , [ ("${NAGARE_ACME_DIRECTORY_URL}", directory)
+            , ("${NAGARE_ACME_EMAIL}", email)
+            , ("${CLOUDSDK_CORE_PROJECT}", project)
+            ] )
+        LocalIssuer ->
+          ("cluster/bootstrap/local-tls/clusterissuer.yaml", "d7091c650e4fe1d91cb0b2860877da864c3e0095404a4da481417d6e91f291b9", [])
+  loaded <- try (BS.readFile (root </> relative)) :: IO (Either IOException ByteString)
+  pure $ do
+    bytes <- first (T.pack . show) loaded
+    digest <- mkContentDigest expected
+    unless (contentDigest bytes == digest) (Left "packaged issuer manifest differs from its pinned digest")
+    decoded <- first (T.pack . show) (TE.decodeUtf8' bytes)
+    rendered <- foldM replaceOne decoded substitutions
+    unless (not ("${" `T.isInfixOf` rendered)) (Left "issuer template has an unresolved placeholder")
+    objects <- first (T.pack . show) (parseKubernetesManifest (SourceLocation (T.pack relative) "issuer") (TE.encodeUtf8 rendered))
+    let issuerAddress name = either (error . T.unpack) id
+          (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
+        certificateAddress = either (error . T.unpack) id
+          (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") "nagare-local-ca")
+        ordering = case mode of
+          CloudIssuer {} -> Map.empty
+          LocalIssuer -> Map.fromList
+            [ (certificateAddress, [issuerAddress "nagare-local-selfsigned"])
+            , (issuerAddress "nagare-local-ca", [certificateAddress])
+            ]
+    pure UpstreamInput
+      { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
+      , upstreamCluster = cluster
+      , upstreamKey = either (error . T.unpack) id (mkLogicalKey "certificate-issuer")
+      , upstreamRoot = root
+      , upstreamFiles = []
+      , upstreamNamespaces = Map.empty
+      , upstreamTransferred = Set.empty
+      , upstreamConfigMapData = Map.empty
+      , upstreamGenerated = objects
+      , upstreamAfter = ordering
+      }
+  where
+    replaceOne input (slot, value) = do
+      unless (T.count slot input == 1 && not (T.null value) && not (T.any (`elem` ['\n', '\r']) value))
+        (Left "issuer template has a missing slot or invalid context value")
+      pure (T.replace slot (TE.decodeUtf8 (LBS.toStrict (encode (String value)))) input)
+
 compileUpstream
   :: UpstreamInput
   -> IO (Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString)))
@@ -143,7 +223,9 @@ compileUpstream input = do
   loaded <- traverse loadOne (upstreamFiles input)
   pure $ do
     assets <- sequence loaded
-    members <- concat <$> traverse compileAsset assets
+    packaged <- concat <$> traverse compileAsset assets
+    generated <- traverse compileOne (upstreamGenerated input)
+    let members = packaged <> generated
     deduplicated <- foldl' keepIdentical (Right Map.empty) members
     let uniqueMembers = Map.elems deduplicated
         transferred = [resource ^. #address | (resource, _) <- uniqueMembers,
@@ -154,15 +236,21 @@ compileUpstream input = do
       (Left (single (invalid "transferred upstream object is absent from the pinned release")))
     unless (Set.fromList configured == Map.keysSet (upstreamConfigMapData input))
       (Left (single (invalid "configured ConfigMap is absent from the pinned release")))
+    unless (Map.keysSet (upstreamAfter input) `Set.isSubsetOf` Set.fromList
+        [resource ^. #address | (resource, _) <- uniqueMembers])
+      (Left (single (invalid "upstream ordering target is absent from the component")))
     let retained = filter (\(resource, _) -> Set.notMember (resource ^. #address) (upstreamTransferred input)) uniqueMembers
         namespaceIds = Map.fromList
           [(name, resource ^. #identity) | (resource, _) <- retained,
             Kubernetes _ "" kind Nothing name <- [resource ^. #address], nameText kind == "namespace"]
         dependencies = Map.union namespaceIds (upstreamNamespaces input)
-        crdIds = [resource ^. #identity | (resource, _) <- retained, isCrd resource]
+        resourceIds = Map.fromList [(resource ^. #address, resource ^. #identity) | (resource, _) <- retained]
+    unless (all (`Map.member` resourceIds) (concat (Map.elems (upstreamAfter input))))
+      (Left (single (invalid "upstream ordering prerequisite is absent from the component")))
+    let crdIds = [resource ^. #identity | (resource, _) <- retained, isCrd resource]
         prerequisites = [resource ^. #identity | (resource, _) <- retained,
           not (isCrd resource || isDeployment resource)]
-        ordered = map (addDependencies dependencies crdIds prerequisites) retained
+        ordered = map (addDependencies dependencies resourceIds crdIds prerequisites) retained
     let bundle = ResourceBundle (map (Managed . fst) ordered) [] [] [] [] []
     pure (bundle, Map.fromList [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- ordered])
   where
@@ -206,15 +294,18 @@ compileUpstream input = do
           , prior {source = resource ^. #source} == resource -> Right existing
           | otherwise -> Left (single (invalid ("upstream assets give different content to "
               <> resourceIdText (resource ^. #identity))))
-    addDependencies dependencies crdIds prerequisites (resource, bound) =
+    addDependencies dependencies resourceIds crdIds prerequisites (resource, bound) =
       let namespaceEdges = case resource ^. #address of
             Kubernetes _ _ _ (Just namespaceName) _ ->
               maybe [] (pure . OrderedAfter) (Map.lookup namespaceName dependencies)
             _ -> []
           crdEdges = if isCrd resource then [] else map OrderedAfter crdIds
           prerequisiteEdges = if isDeployment resource then map OrderedAfter prerequisites else []
+          explicitIds = mapMaybe (`Map.lookup` resourceIds)
+            (Map.findWithDefault [] (resource ^. #address) (upstreamAfter input))
+          explicitEdges = map OrderedAfter explicitIds
           own = resource ^. #identity
-          edges = filter (/= OrderedAfter own) (namespaceEdges <> crdEdges <> prerequisiteEdges)
+          edges = filter (/= OrderedAfter own) (namespaceEdges <> crdEdges <> prerequisiteEdges <> explicitEdges)
        in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
 
 isCrd :: ManagedResource -> Bool

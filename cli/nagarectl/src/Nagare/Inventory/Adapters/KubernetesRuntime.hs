@@ -14,6 +14,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
   , crdEstablished
+  , certificateReady
   , deploymentAvailable
   , materializeCacheKey
   , cacheClientDataMatches
@@ -134,6 +135,9 @@ waitForReadiness config address = case address of
     waitCondition "complete" "job" namespace name "Job"
   Kubernetes _ "apiextensions.k8s.io" kind namespace name | nameText kind == "customresourcedefinition" ->
     waitCondition "established" "crd" namespace name "CustomResourceDefinition"
+  Kubernetes _ "cert-manager.io" kind namespace name
+    | nameText kind `elem` ["certificate", "clusterissuer"] ->
+      waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
     result <- invoke config
       (["rollout", "status", "deployment/" <> T.unpack (nameText name)]
@@ -221,6 +225,10 @@ parseObserved config resource native response = do
       Just (String "Job") -> unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
       Just (String "CustomResourceDefinition") ->
         unless (crdEstablished observed) (Left "Kubernetes CustomResourceDefinition is not established")
+      Just (String "Certificate") ->
+        unless (certificateReady observed) (Left "Kubernetes Certificate is not ready")
+      Just (String "ClusterIssuer") ->
+        unless (certificateReady observed) (Left "Kubernetes ClusterIssuer is not ready")
       Just (String "Deployment") ->
         unless (deploymentAvailable observed) (Left "Kubernetes Deployment is not available")
       _ -> pure ()
@@ -233,6 +241,9 @@ jobCompleted = hasCondition "Complete"
 
 crdEstablished :: Value -> Bool
 crdEstablished = hasCondition "Established"
+
+certificateReady :: Value -> Bool
+certificateReady = hasCondition "Ready"
 
 hasCondition :: Text -> Value -> Bool
 hasCondition conditionType (Object root) = case KM.lookup "status" root of
