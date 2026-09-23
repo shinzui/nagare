@@ -6,6 +6,7 @@ module Nagare.Inventory.Bootstrap
   , compilePinnedBootstrap
   , compileConfiguredBootstrap
   , compileIssuerBootstrap
+  , compileBootstrapWithAuth
   ) where
 
 import Data.ByteString (ByteString)
@@ -17,6 +18,7 @@ import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Inventory.Cache
+import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Components.Upstream
 import Nagare.Resource.Database (DatabaseDirectInput (..))
@@ -75,6 +77,44 @@ compileIssuerBootstrap snapshot foundation cache root domain registry mode = do
   case configured of
     Left message -> pure (Left (inventoryError "invalid-issuer-policy" message :| []))
     Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
+
+compileBootstrapWithAuth
+  :: ScopeSnapshot
+  -> BootstrapInput
+  -> AuthInput
+  -> [(Text, DatabaseDirectInput, StoreBackend)]
+  -> IO (Either (NonEmpty InventoryError)
+       (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compileBootstrapWithAuth snapshot bootstrap auth databases = do
+  baseResult <- compileBootstrapCandidate snapshot bootstrap
+  authResult <- compileAuthComponent auth databases
+  pure $ do
+    (base, baseNative) <- baseResult
+    (authScope, authNative) <- authResult
+    unless (authCluster auth == foundationCluster (bootstrapFoundation bootstrap)
+        && authNamespace auth == foundationNamespaceId (bootstrapFoundation bootstrap) (known "nagare-system"))
+      (Left (single (invalid "auth component must depend on the foundation cluster and Namespace")))
+    unless (Map.null (Map.intersection baseNative authNative))
+      (Left (single (invalid "auth and bootstrap native members share an identity")))
+    let upstreamOwners = map upstreamOwner (bootstrapUpstream bootstrap)
+        upstreamIds = [resource ^. #identity
+          | Managed resource <- inventoryDeclarations (candidateInventory base),
+            resource ^. #owner `elem` upstreamOwners]
+        orderResource resource = resource
+          {dependencies = map OrderedAfter upstreamIds <> resource ^. #dependencies}
+        orderedBundles =
+          [bundle {declarations = map (\case
+              Managed resource -> Managed (orderResource resource)
+              other -> other) (declarations bundle)}
+          | bundle <- scopeBundles authScope]
+        orderedNative = Map.map (\(resource, bytes) -> (orderResource resource, bytes)) authNative
+    orderedScope <- mkScopeDeclaration (authOwner auth) orderedBundles
+    candidate <- composeInventory snapshot (candidateChanges base <> (ReplaceScope orderedScope :| []))
+    pure (candidate, Map.union baseNative orderedNative)
+  where
+    known = either (error . show) id . mkName
+    invalid message = inventoryError "invalid-bootstrap-component" message
+    single err = err :| []
 
 compileBootstrapCandidate
   :: ScopeSnapshot

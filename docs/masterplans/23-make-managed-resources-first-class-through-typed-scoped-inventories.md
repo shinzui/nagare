@@ -178,6 +178,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M3 partial: The pinned foundation/cache/four-release candidate composes as six scopes without direct claim conflicts.
 - [x] (2026-09-22) EP-147 M3 partial: Packaged Knative cloud/local ConfigMap policy and resolved domain/registry settings bind into owned upstream native bytes before review; source and overlay refusal fixtures pass.
 - [x] (2026-09-22) EP-147 M3 partial: Pinned cloud DNS-01 and local CA issuer resources compile as a sixth foundation/upstream scope with certificate-chain ordering and Ready-condition verification.
+- [x] (2026-09-22) EP-147 M3 partial: Auth manifests, generated-key Secret templates, revision-named migration proofs, and both typed databases compose as one auth scope after the pinned cluster scopes; the public auth installers and shared backend-map routing remain open.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
 - [ ] EP-147 M4: Removed orchestration and component resume.

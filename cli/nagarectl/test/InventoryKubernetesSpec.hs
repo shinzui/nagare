@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, deploymentAvailable, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, certificateReady, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -202,8 +202,29 @@ inventoryKubernetesTests =
           (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
         assertBool "ready certificate was rejected" (certificateReady
           (object ["status" .= object ["conditions" .= [condition "Ready" "True"]]]))
+        assertBool "unready Knative Service was accepted" (not (knativeReady
+          (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
         assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
         assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
+    , testCase "auth credential data is generated only from a closed Secret template" $ do
+        let template name = object
+              [ "apiVersion" .= ("v1" :: Text)
+              , "kind" .= ("Secret" :: Text)
+              , "metadata" .= object
+                  [ "name" .= (name :: Text)
+                  , "namespace" .= ("nagare-system" :: Text)
+                  , "annotations" .= object ["nagare.dev/auth-credential-template" .= ("v1" :: Text)]
+                  ]
+              , "type" .= ("Opaque" :: Text)
+              ]
+            enTemplate = template "nagare-en-api-keys"
+            reviewed = TE.decodeUtf8 (ok (canonicalValue enTemplate))
+        generatedCredentialTemplate reviewed @?= Right True
+        generated <- materializeCredential reviewed >>= expectRight
+        observed <- either (assertFailure . show) pure (eitherDecodeStrict (TE.encodeUtf8 generated))
+        assertBool "auth credential did not produce the required private data" (credentialDataMatches enTemplate observed)
+        refused <- materializeCredential (TE.decodeUtf8 (ok (canonicalValue (template "unexpected"))))
+        assertBool "unknown auth credential template was accepted" (either (const True) (const False) refused)
     , testCase "cache client fills only the typed generated-key slot after review" $ do
         let template = object
               [ "apiVersion" .= ("v1" :: Text)

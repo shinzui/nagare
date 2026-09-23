@@ -15,6 +15,10 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , jobCompleted
   , crdEstablished
   , certificateReady
+  , knativeReady
+  , materializeCredential
+  , credentialDataMatches
+  , generatedCredentialTemplate
   , deploymentAvailable
   , materializeCacheKey
   , cacheClientDataMatches
@@ -35,7 +39,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
+import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
 import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
@@ -107,19 +111,23 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
             (CreateResource, KubernetesAbsent _) ->
               pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
             (UpdateResource, KubernetesPresent uid revision _ _) -> do
-              ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
-              pure $ do
-                observed <- ownership
-                native <- resolved
-                case mutationAddress mutation of
-                  Kubernetes _ "" kind namespace name | nameText kind == "service" ->
-                    case servicePortPatch uid revision native observed of
-                      Left reason -> Left reason
-                      Right (Just patch) -> Right
-                        (["patch", "service", T.unpack (nameText name)] <> namespaceArgs namespace
-                          <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch], "")
-                      Right Nothing -> applyRequest uid revision native
-                  _ -> applyRequest uid revision native
+              case generatedCredentialTemplate (mutationNativeJson mutation) of
+                Left reason -> pure (Left reason)
+                Right True -> pure (Left "generated credential updates require a dedicated data-preserving operation")
+                Right False -> do
+                  ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
+                  pure $ do
+                    observed <- ownership
+                    native <- resolved
+                    case mutationAddress mutation of
+                      Kubernetes _ "" kind namespace name | nameText kind == "service" ->
+                        case servicePortPatch uid revision native observed of
+                          Left reason -> Left reason
+                          Right (Just patch) -> Right
+                            (["patch", "service", T.unpack (nameText name)] <> namespaceArgs namespace
+                              <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch], "")
+                          Right Nothing -> applyRequest uid revision native
+                      _ -> applyRequest uid revision native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
             Left reason -> pure (AdapterEffectAmbiguous reason)
@@ -138,6 +146,8 @@ waitForReadiness config address = case address of
   Kubernetes _ "cert-manager.io" kind namespace name
     | nameText kind `elem` ["certificate", "clusterissuer"] ->
       waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
+  Kubernetes _ "serving.knative.dev" kind namespace name | nameText kind == "service" ->
+    waitCondition "ready" "ksvc" namespace name "Knative Service"
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
     result <- invoke config
       (["rollout", "status", "deployment/" <> T.unpack (nameText name)]
@@ -229,6 +239,8 @@ parseObserved config resource native response = do
         unless (certificateReady observed) (Left "Kubernetes Certificate is not ready")
       Just (String "ClusterIssuer") ->
         unless (certificateReady observed) (Left "Kubernetes ClusterIssuer is not ready")
+      Just (String "Service") | KM.lookup "apiVersion" root == Just (String "serving.knative.dev/v1") ->
+        unless (knativeReady observed) (Left "Knative Service is not ready")
       Just (String "Deployment") ->
         unless (deploymentAvailable observed) (Left "Kubernetes Deployment is not available")
       _ -> pure ()
@@ -244,6 +256,9 @@ crdEstablished = hasCondition "Established"
 
 certificateReady :: Value -> Bool
 certificateReady = hasCondition "Ready"
+
+knativeReady :: Value -> Bool
+knativeReady = hasCondition "Ready"
 
 hasCondition :: Text -> Value -> Bool
 hasCondition conditionType (Object root) = case KM.lookup "status" root of
@@ -287,18 +302,72 @@ textAt key value = case KM.lookup key value of Just (String textValue) -> Just t
 materializeCredential :: Text -> IO (Either Text Text)
 materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
   Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
-  Right value -> case databaseCredentialKind value of
+  Right value -> case authCredentialKind value of
     Left reason -> pure (Left reason)
-    Right Nothing -> pure (Right native)
-    Right (Just (dbName, namespace, engine)) -> do
-      generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
-      pure $ case generated of
-        Left (_ :: IOException) -> Left "could not generate database credential"
-        Right (ExitFailure _, _, _) -> Left "could not generate database credential"
-        Right (ExitSuccess, output, _) -> do
-          let password = T.strip (T.pack output)
-          unless (T.length password == 48) (Left "database credential generator returned an invalid password")
-          fillCredential value dbName namespace engine password
+    Right (Just keys) -> case databaseCredentialKind value of
+      Left reason -> pure (Left reason)
+      Right (Just _) -> pure (Left "Secret cannot carry both auth and database credential templates")
+      Right Nothing -> do
+        generated <- traverse generateAuthKey keys
+        pure $ do
+          entries <- sequence generated
+          case value of
+            Object root -> TE.decodeUtf8 <$> canonicalValue (Object
+              (KM.insert "data" (Object (KM.fromList entries)) root))
+            _ -> Left "auth credential template is malformed"
+    Right Nothing -> case databaseCredentialKind value of
+      Left reason -> pure (Left reason)
+      Right Nothing -> pure (Right native)
+      Right (Just (dbName, namespace, engine)) -> do
+        generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "24"] "")
+        pure $ case generated of
+          Left (_ :: IOException) -> Left "could not generate database credential"
+          Right (ExitFailure _, _, _) -> Left "could not generate database credential"
+          Right (ExitSuccess, output, _) -> do
+            let password = T.strip (T.pack output)
+            unless (T.length password == 48) (Left "database credential generator returned an invalid password")
+            fillCredential value dbName namespace engine password
+
+generateAuthKey :: Text -> IO (Either Text (Key, Value))
+generateAuthKey key = do
+  generated <- try (readProcessWithExitCode "openssl" ["rand", "-hex", "32"] "")
+  pure $ case generated of
+    Left (_ :: IOException) -> Left "could not generate auth credential"
+    Right (ExitFailure _, _, _) -> Left "could not generate auth credential"
+    Right (ExitSuccess, output, _) ->
+      let secret = T.strip (T.pack output)
+       in if T.length secret == 64
+            then Right (Key.fromText key, String (b64encode secret))
+            else Left "auth credential generator returned an invalid value"
+
+authCredentialKind :: Value -> Either Text (Maybe [Text])
+authCredentialKind (Object root) | KM.lookup "kind" root == Just (String "Secret") = do
+  metadata <- metadataOf (Object root)
+  annotations <- case KM.lookup "annotations" metadata of
+    Just (Object fields) -> Right fields
+    Nothing -> Right KM.empty
+    _ -> Left "auth credential annotations are malformed"
+  case textAt "nagare.dev/auth-credential-template" annotations of
+    Nothing -> Right Nothing
+    Just "v1" -> do
+      namespace <- fieldText "namespace" metadata
+      name <- fieldText "name" metadata
+      unless (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root))
+        (Left "auth credential template has an invalid namespace or includes data")
+      case name of
+        "nagare-en-api-keys" -> Right (Just ["read-write", "read-only"])
+        "nagare-shomei-keys" -> Right (Just ["key-encryption-key"])
+        "nagare-access" -> Right (Just ["cookie-key"])
+        _ -> Left "auth credential template has an unexpected Secret name"
+    Just _ -> Left "unknown auth credential template"
+authCredentialKind _ = Right Nothing
+
+generatedCredentialTemplate :: Text -> Either Text Bool
+generatedCredentialTemplate native = do
+  value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 native))
+  auth <- authCredentialKind value
+  database <- databaseCredentialKind value
+  pure (isJust auth || isJust database)
 
 databaseCredentialKind :: Value -> Either Text (Maybe (Text, Text, Engine))
 databaseCredentialKind value = case value of
@@ -339,18 +408,27 @@ fillCredential template dbName namespace engine password = do
     _ -> Left "credential template is malformed"
 
 credentialDataMatches :: Value -> Value -> Bool
-credentialDataMatches desired observed = case databaseCredentialKind desired of
+credentialDataMatches desired observed = case authCredentialKind desired of
+  Right (Just keys) -> databaseCredentialKind desired == Right Nothing
+    && dataMatches (Set.fromList (map Key.fromText keys)) observed
+  Left _ -> False
+  Right Nothing -> databaseDataMatches desired observed
+
+databaseDataMatches :: Value -> Value -> Bool
+databaseDataMatches desired observed = case databaseCredentialKind desired of
   Right Nothing -> True
   Left _ -> False
-  Right (Just (_, _, engine)) -> case observed of
-    Object root -> case KM.lookup "data" root of
-      Just (Object entries) ->
-        let connection = ConnectionParts defaultDbUser "example" "example" "example"
-            expected = Set.fromList (map (Key.fromText . fst) (secretKeysFor engine connection))
-         in Set.fromList (KM.keys entries) == expected
-              && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
-      _ -> False
-    _ -> False
+  Right (Just (_, _, engine)) ->
+    let connection = ConnectionParts defaultDbUser "example" "example" "example"
+        expected = Set.fromList (map (Key.fromText . fst) (secretKeysFor engine connection))
+     in dataMatches expected observed
+
+dataMatches :: Set.Set Key -> Value -> Bool
+dataMatches expected (Object root) = case KM.lookup "data" root of
+  Just (Object entries) -> Set.fromList (KM.keys entries) == expected
+    && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
+  _ -> False
+dataMatches _ _ = False
 
 cacheClientTemplate :: Value -> Either Text (Maybe (ResourceId, Text))
 cacheClientTemplate value = case value of

@@ -51,6 +51,7 @@ data UpstreamInput = UpstreamInput
   , upstreamConfigMapData :: !(Map ProviderAddress (Map Text (Maybe Text)))
   , upstreamGenerated :: ![(SourceLocation, Value)]
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
+  , upstreamOrderDeployments :: !Bool
   }
 
 data IssuerMode
@@ -90,6 +91,7 @@ pinnedUpstreamInputs cluster root =
       , upstreamConfigMapData = Map.empty
       , upstreamGenerated = []
       , upstreamAfter = Map.empty
+      , upstreamOrderDeployments = True
       }
 
 -- | Bind the context's Knative policy into the reviewed release members.
@@ -209,6 +211,7 @@ issuerComponent cluster root mode = do
       , upstreamConfigMapData = Map.empty
       , upstreamGenerated = objects
       , upstreamAfter = ordering
+      , upstreamOrderDeployments = True
       }
   where
     replaceOne input (slot, value) = do
@@ -300,7 +303,8 @@ compileUpstream input = do
               maybe [] (pure . OrderedAfter) (Map.lookup namespaceName dependencies)
             _ -> []
           crdEdges = if isCrd resource then [] else map OrderedAfter crdIds
-          prerequisiteEdges = if isDeployment resource then map OrderedAfter prerequisites else []
+          prerequisiteEdges = if isDeployment resource && upstreamOrderDeployments input
+            then map OrderedAfter prerequisites else []
           explicitIds = mapMaybe (`Map.lookup` resourceIds)
             (Map.findWithDefault [] (resource ^. #address) (upstreamAfter input))
           explicitEdges = map OrderedAfter explicitIds

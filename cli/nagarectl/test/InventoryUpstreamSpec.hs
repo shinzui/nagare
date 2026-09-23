@@ -177,7 +177,7 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
   ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty [] Map.empty
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty [] Map.empty True
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

@@ -101,6 +101,7 @@ library
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud
+    Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.Upstream
     Nagare.Inventory.Artifact
@@ -239,6 +240,7 @@ test-suite nagarectl-test
     InventoryCacheSpec
     InventoryFoundationSpec
     InventoryUpstreamSpec
+    InventoryAuthSpec
     InventoryCloudSpec
     InventoryHostSpec
     InventoryKubernetesSpec
