@@ -61,6 +61,11 @@ provenance:
       at: 2026-09-23T20:05:12Z
       mode: "implement"
       note: "Advance child plans and complete EP-151"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T21:30:29Z
+      mode: "implement"
+      note: "Close EP147 registry status and synchronize cross-plan boundaries"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -101,7 +106,7 @@ Rejected alternatives were isolated platform/application inventories without sha
 | 144 | Define typed resource scopes and validate composed inventories | docs/plans/144-define-typed-resource-scopes-and-validate-composed-inventories.md | None | None | Complete |
 | 145 | Persist reviewed resource plans and resumable execution receipts | docs/plans/145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md | EP-144 | None | Complete |
 | 146 | Reconcile cloud host and artifact resources through inventory adapters | docs/plans/146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md | EP-144, EP-145 | EP-149 | Complete |
-| 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | In Progress |
+| 147 | Compile cluster bootstrap into owned resource components | docs/plans/147-compile-cluster-bootstrap-into-owned-resource-components.md | EP-144, EP-145 | EP-146, EP-149 | Complete |
 | 148 | Route application and data lifecycles through independent resource scopes | docs/plans/148-route-application-and-data-lifecycles-through-independent-resource-scopes.md | EP-146, EP-147, EP-149 | EP-151 | Not Started |
 | 149 | Explain drift and execute reviewed adoption migration and retirement | docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md | EP-144, EP-145 | EP-146, EP-147 | In Progress |
 | 150 | Integrate resource inventories into upgrades and release verification | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | EP-146, EP-147, EP-148, EP-149, EP-151 | None | Not Started |
@@ -176,7 +181,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M1b partial: The disposable native transport refused both stale-version and foreign-manager update attempts after a concurrent annotation write.
 - [x] (2026-09-22) EP-147 M1b partial: A disposable Service selector update succeeded; an unnamed Service port change exposed a per-kind server-side apply validation case, addressed by the guarded patch below.
 - [x] (2026-09-22) EP-147 M1b partial: An atomic UID/resourceVersion-tested JSON Patch now handles the isolated unnamed Service port change; disposable create, selector update, and port update pass.
-- [ ] EP-147 M1b: Prove safe update ownership transitions and API-server preconditions across supported kinds through the registered command path.
+- [x] (2026-09-23) EP-147 M1b: The registered bootstrap command refuses stale resource versions and foreign owners before mutation; disposable per-kind update fixtures and replaced-UID refusal cover the admitted Kubernetes kinds.
 - [x] (2026-09-22) EP-147 M2a: Database Secret read distinguishes confirmed absence from failure/malformed data.
 - [x] (2026-09-22) EP-147 M2b: Database config carries an optional stable logical key across rename and wire round-trip.
 - [x] (2026-09-22) EP-147 M2c partial: Direct database renderer objects compile into stable typed PVC/Service/StatefulSet/optional ConfigMap declarations and canonical native bytes; 431 DSL and 616 CLI tests pass.
@@ -221,8 +226,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-147 M3/M4 partial: Admission now has a regression fixture for concurrent no-op Namespace contributor reviews; the later one refuses on a stale accepted vector. The standalone `platform stamp` mutation bypass now refuses and directs operators to reviewed bootstrap plan/apply; its built CLI refusal was checked. Explicit legacy adoption and upgrade paths remain to be migrated.
 - [x] (2026-09-23) EP-149 M2 transfer hardening: A scope handoff now requires the Kubernetes provider and an unchanged native resource contract, including address, specification, policy, and dependencies. A changed spec refuses before review; provider-specific transfer capability remains required for other executors.
 - [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
-- [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
-- [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
+- [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
+- [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
 - [x] (2026-09-23) EP-147 M4: Supported bootstrap orchestration enters reviewed inventory; the disposable full bootstrap and accepted replay converged.
 - [ ] EP-149 M1: Read-only drift/status/explanation.
 - [ ] EP-149 M2: Reviewed adoption and transfer.
@@ -243,6 +248,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-23: Closing EP-147 required distinguishing its reviewed bootstrap path from standalone and application data commands. The latter still call direct `db create` and are recorded as legacy in the mutation coverage audit; EP-148 explicitly consumes EP-147's completed database builder and owns those command paths. Host registry and forge timers remain the narrow authority for rotating values. Their guarded refresh now refuses foreign or unmarked Secrets, which means operators must verify and annotate preexisting timer-created Secrets before the first updated host activation.
 
 2026-09-23: The installed Nagare release payload supplied the Attic and patched net-certmanager archives missing from the source checkout. Full disposable local bootstrap and accepted-state replay now converge. The same run showed why read-only verification must bind physical identity, owner, and desired digest without treating controller-only resourceVersion churn as a desired change. EP-147 still owns legacy entry-point retirement, remaining shared contributions, and broad per-kind update proof; this evidence does not complete EP-147 or the MasterPlan.
 
@@ -308,6 +315,9 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-23: Mark EP-147 Complete when its supported bootstrap path, reusable database/cache builders, cluster executors, shared owner composition, and host timer delegation have evidence. Keep EP-148's standalone/application database command migration and EP-149/150's lifecycle and integrated cloud work visible as separate children; completion of this child does not imply complete mutation coverage for the MasterPlan.
+
+
 2026-09-16: Preserve deliberate platform/application ownership boundaries while composing their claims and dependencies in one context inventory. Rationale: independent deployments should not erase unrelated resources, but isolated inventories cannot detect cross-boundary collisions.
 
 2026-09-16: Use one typed declaration path for render, review, and execution, with removal of superseded policy scripts as acceptance. Rationale: a handwritten inventory beside scripts would duplicate and drift from the behavior it is meant to govern.
@@ -339,7 +349,7 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Outcomes & Retrospective
 
-EP-144, EP-145, and EP-146 are complete as of 2026-09-22; five children remain. Cloud, host, and supported artifact scopes now have production adapters behind the typed composition, digest-bound review, lock-scoped admission, durable receipt, and recovery protocol. EP-147, EP-149, and EP-151 remain independently implementable, while EP-148 and EP-150 retain their dependency gates. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed compatibility paths, legacy recovery compatibility, shared inventory-history evidence, and production-shaped disposable-context convergence/no-op/removal evidence. Deterministic provider mocks are recorded as parity evidence, not a substitute for EP-150's live disposable-context proof.
+EP-144, EP-145, EP-146, EP-147, and EP-151 are complete as of 2026-09-23; EP-149 is in progress and EP-148/EP-150 remain. Cloud, host, artifact, and cluster bootstrap scopes have production adapters behind typed composition, digest-bound review, lock-scoped admission, durable receipt, and recovery. EP-148 can now consume EP-147's database and shared-owner interfaces while retaining its EP-149 lifecycle dependency. Completion still requires all eight child outcomes, IR-24's full verification set, independent-scope isolation, complete declaration/execution parity, removed compatibility paths, legacy recovery compatibility, and EP-150's integrated release evidence. The disposable EP-147 bootstrap proves local component convergence; it does not substitute for EP-150's cloud and upgrade rehearsal.
 
 At completion, compare these outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected existing ADRs. Do not publish a release or modify existing operator deployments as a side effect of updating plan status.
 
@@ -353,3 +363,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-22: Marked EP-144 complete and recorded its compiler, typed-boundary, schema, and command evidence. EP-145 is now the next implementable child. The decomposition and dependency graph are unchanged; ADRs 16 and 22 describe the implemented foundation and the remaining admission boundary.
 
 2026-09-22: Marked EP-145 complete after the conditional-store, review/admission, journal/recovery, process-lock, backup, negative-type, and CLI acceptance suites passed. Four children in phase 2 are now implementable; no dependency edge or child scope changed. ADR 22 now distinguishes the implemented generic authority boundary from the still-refusing manifest-only CLI adapter.
+
+2026-09-23: Marked EP-147 complete after the full disposable local bootstrap and accepted replay, registered Kubernetes precondition proofs, complete database/cache bundle, owner-composed auth settings, and guarded host timer delegation. Synchronized the three remaining parent checklist items, documented EP-148's standalone/application database command boundary, and kept EP-149/150 lifecycle and integrated cloud evidence open.

@@ -290,3 +290,24 @@ Pulumi mocks for base, image, cache, and every CDN certificate mode; each comple
 registration set is replayed through the declaration guard. Remaining upgrade,
 Just, and first-context bootstrap compatibility paths belong to EP-150/151 and stay
 listed as such rather than being treated as inventory-converged.
+
+## Amendment — 2026-09-23: cluster bootstrap and rotating host credentials
+
+The supported cluster bootstrap now compiles its database, cache, upstream,
+certificate, auth, observability, and local object-store components into one
+reviewed inventory transaction. The last platform-version marker depends on
+component completion; an accepted replay verifies the retained cluster state
+without rewriting unchanged resources. The direct standalone database and
+application deploy commands remain separate scope owners for EP-148. Their
+continued existence does not grant a bootstrap adapter permission to invoke
+them inside an inventory transaction.
+
+The host's registry and forge timers have bounded credential-refresh authority.
+The registry timer names only `personal` and `nagare-system` pull Secrets and
+the default ServiceAccount pull reference in those namespaces. The forge timers
+name only their read/write Secrets in the configured namespace. They stamp the
+source version and actual credential expiry, refuse foreign or unmarked Secrets,
+and use Kubernetes resource versions for updates. These are delegated values:
+inventory does not acquire deletion or adoption authority over them. A
+preexisting unmarked Secret requires an operator to verify its provenance and
+explicitly mark it before activating the guarded timer.
