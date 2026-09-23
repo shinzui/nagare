@@ -673,6 +673,7 @@ data Command
   | InventoryCollect String FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
+  | InventoryRecover String String FilePath Bool
   | InventoryExport FilePath
   | InventoryStatus Bool
   | InventoryExplain String Bool
@@ -1878,6 +1879,13 @@ opts =
                   (info (InventoryResume <$> strArgument (metavar "TRANSACTION") <*> switch (long "yes")
                     <*> switch (long "take-over") <**> helper) (progDesc "Resume an unresolved inventory transaction"))
                 <> command
+                  "recover"
+                  (info (InventoryRecover <$> strArgument (metavar "TRANSACTION")
+                    <*> strOption (long "operation" <> metavar "OPERATION")
+                    <*> strOption (long "decision" <> metavar "FILE")
+                    <*> switch (long "take-over") <**> helper)
+                    (progDesc "Record an adapter-proved recovery decision for one uncertain operation"))
+                <> command
                   "export"
                   (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
                 <> command
@@ -2761,6 +2769,8 @@ main = do
     InventoryCollect resource output -> runInventoryCollect mctx resource output
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
+    InventoryRecover transaction operation decisionFile takeOver ->
+      runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
     InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
     InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
@@ -4635,6 +4645,11 @@ runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
   Inventory.resumeInventoryWithFactoryTakeover (inventoryExecutionRegistry mctx) target transaction yes takeOver
+
+runInventoryRecover :: Maybe String -> Text -> Text -> FilePath -> Bool -> IO ()
+runInventoryRecover mctx transaction operation decisionFile takeOver = do
+  target <- activeTarget mctx
+  Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
 
 inventoryExecutionRegistry :: Maybe String -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
 inventoryExecutionRegistry mctx bundle = do

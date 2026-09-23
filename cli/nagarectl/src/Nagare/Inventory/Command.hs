@@ -19,6 +19,7 @@ module Nagare.Inventory.Command
   , resumeInventoryWith
   , resumeInventoryWithFactory
   , resumeInventoryWithFactoryTakeover
+  , recoverInventoryWithFactory
   , exportInventory
   , manifestAdapterFor
   , executionBlockedAdapterFor
@@ -328,6 +329,22 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
   case result of
     Converged _ -> pure ()
     _ -> exitFailure
+
+recoverInventoryWithFactory
+  :: (ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
+recoverInventoryWithFactory registryFor target transactionToken operationToken decisionFile takeOver = do
+  rejectReentry
+  transaction <- either dieText pure (mkTransactionId transactionToken)
+  operation <- either dieText pure (mkOperationId operationToken)
+  bytes <- try (BS.readFile decisionFile) :: IO (Either IOException ByteString)
+  input <- either (dieText . showText) (either dieText pure . decodeOperatorRecoveryInput) bytes
+  unless (recoveryTransaction input == transaction && recoveryOperation input == operation)
+    (dieText "recovery decision file does not match the requested transaction and operation")
+  store <- openTargetStore target
+  bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
+  registry <- registryFor bundle
+  recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
+  TIO.putStrLn "Adapter-proved recovery decision recorded; run inventory resume --yes for the transaction"
 
 exportInventory :: ActiveTarget -> FilePath -> IO ()
 exportInventory target output = do

@@ -11,11 +11,19 @@ module Nagare.Inventory.Execute
   , applyReviewed
   , resumeTransaction
   , resumeTransactionWithTakeover
+  , OperatorRecoveryInput (..)
+  , RecoveryAction (..)
+  , decodeOperatorRecoveryInput
+  , recordOperatorRecovery
   )
 where
 
 import Control.Exception (bracket)
 import Control.Monad (foldM, forM, forM_)
+import Data.Aeson (FromJSON (..), eitherDecodeStrict', withObject, (.:))
+import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (Parser)
+import Data.ByteString (ByteString)
 import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.List (find, sortOn)
@@ -45,6 +53,34 @@ data AdmissionError = AdmissionError
   , admissionErrorMessage :: !Text
   }
   deriving stock (Eq, Show, Generic)
+
+data RecoveryAction = AcceptAdapterProof | RetryAfterAdapterProof
+  deriving stock (Eq, Show)
+
+data OperatorRecoveryInput = OperatorRecoveryInput
+  { recoveryTransaction :: !TransactionId
+  , recoveryOperation :: !OperationId
+  , recoveryReview :: !ContentDigest
+  , recoveryAction :: !RecoveryAction
+  }
+  deriving stock (Eq, Show)
+
+decodeOperatorRecoveryInput :: ByteString -> Either Text OperatorRecoveryInput
+decodeOperatorRecoveryInput = first T.pack . eitherDecodeStrict'
+
+instance FromJSON OperatorRecoveryInput where
+  parseJSON = withObject "OperatorRecoveryInput" $ \o -> do
+    unless (all (`elem` ["version", "transaction", "operation", "review", "action"]) (KM.keys o))
+      (fail "operator recovery input has an unknown field")
+    version <- o .: "version" :: Parser Int
+    unless (version == 1) (fail "unsupported operator recovery version")
+    action <- o .: "action" :: Parser Text
+    decision <- case action of
+      "accept-adapter-proof" -> pure AcceptAdapterProof
+      "retry-after-adapter-proof" -> pure RetryAfterAdapterProof
+      _ -> fail "unsupported operator recovery action"
+    OperatorRecoveryInput <$> o .: "transaction" <*> o .: "operation"
+      <*> o .: "review" <*> pure decision
 
 data ExecutablePlan s = ExecutablePlan
   { executableTransaction :: !TransactionId
@@ -300,6 +336,85 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                             case preflightErrors of
                               firstError : rest -> releaseClaim lock transaction False >> pure (Left (firstError :| rest))
                               [] -> Right <$> execute lock registry (ExecutablePlan transaction reviewed)
+
+-- | The decision file selects an action; the adapter must independently prove
+-- that action from the current provider state under the writer lock. An
+-- unresolved adapter outcome never becomes operator authority.
+recordOperatorRecovery
+  :: InventoryStore -> AdapterRegistry -> OperatorRecoveryInput -> Bool
+  -> IO (Either (NonEmpty AdmissionError) ())
+recordOperatorRecovery store registry input takeOver = do
+  locked <- withProcessLock store $ \lock -> recoverLocked lock
+  pure $ case locked of
+    Left err -> failure "process-lock" (showText err)
+    Right result -> result
+  where
+    transaction = recoveryTransaction input
+    operationId = recoveryOperation input
+    recoverLocked :: forall s. LockedStore s -> IO (Either (NonEmpty AdmissionError) ())
+    recoverLocked lock = do
+      headResult <- readHead store
+      eventsResult <- readJournal lock
+      case (headResult, eventsResult) of
+        (Left err, _) -> pure (failure "store" (showText err))
+        (_, Left err) -> pure (failure "journal" (showText err))
+        (Right Nothing, _) -> pure (failure "store" "inventory store is not initialized")
+        (Right (Just headValue), Right events)
+          | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
+              pure (failure "inactive-transaction" "operator recovery requires the active transaction")
+          | Just (recoveryReview input) /= transactionDigest transaction ->
+              pure (failure "recovery-review" "decision file review digest differs from transaction")
+          | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
+              pure (failure "recovery-state" "operation has no uncertain effect to resolve")
+          | otherwise -> do
+              claimed <- acquireResumeClaim store transaction headValue takeOver
+              case claimed of
+                Left err -> pure (Left err)
+                Right () -> do
+                  result <- inspectRecovery lock
+                  released <- releaseClaim lock transaction False
+                  pure $ if released then result else failure "executor-claim" "could not release operator recovery claim"
+    inspectRecovery :: forall s. LockedStore s -> IO (Either (NonEmpty AdmissionError) ())
+    inspectRecovery lock = do
+      bundle <- loadPublishedReview store (recoveryReview input)
+      snapshot <- readStoreSnapshot store
+      case (bundle, snapshot) of
+        (Left err, _) -> pure (failure "review" (showText err))
+        (_, Left err) -> pure (failure "store" (showText err))
+        (Right published, Right state) -> case verifyActiveReview state (transactionIdText transaction) published of
+          Left errs -> pure (Left (fmap reviewAdmission errs))
+          Right reviewed -> case find ((== operationId) . plannedOperationId . reviewPlannedOperation)
+            (reviewOperations (reviewedDocument reviewed)) of
+            Nothing -> pure (failure "recovery-operation" "operation is absent from the active review")
+            Just reviewOperation -> case (preparedFor reviewed reviewOperation,
+              lookupAdapter registry (plannedExecutor (reviewPlannedOperation reviewOperation))) of
+              (Left err, _) -> pure (failure "native-bundle" err)
+              (_, Left err) -> pure (failure "adapter" err)
+              (Right prepared, Right adapter)
+                | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
+                  || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
+                    pure (failure "adapter-version" "recovery adapter differs from the issued review")
+                | otherwise -> do
+                    let operation = reviewPlannedOperation reviewOperation
+                    decision <- withAdapterEnv transaction operation
+                      (adapterRecover adapter operation prepared)
+                    case (recoveryAction input, decision) of
+                      (AcceptAdapterProof, RecoveryProvedComplete proof) -> do
+                        appended <- appendEvent lock transaction (Just operationId)
+                          (Completed proof) "operator accepted adapter recovery proof"
+                        pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+                      (RetryAfterAdapterProof, RecoverySafeToRetry) -> do
+                        appended <- appendEvent lock transaction (Just operationId)
+                          (OperatorResolved "adapter-proved-safe-retry") "operator selected adapter-proved safe retry"
+                        pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
+                      _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
+    recoverableState state = case state of
+      Just IntentRecorded -> True
+      Just Ambiguous -> True
+      Just (Failed (PartialOrUnknown _)) -> True
+      _ -> False
+    transactionDigest token = either (const Nothing) Just
+      (mkContentDigest (T.drop 3 (transactionIdText token)))
 
 runOperations :: LockedStore s -> AdapterRegistry -> TransactionId -> ReviewedPlan -> [JournalEvent] -> [ReviewOperation] -> IO (Maybe TransactionResult)
 runOperations locked registry transaction reviewed initialEvents operations = go initialEvents ordered

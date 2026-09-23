@@ -90,3 +90,29 @@ The report records `deletionAuthorized: false`; a candidate still needs the
 separate reviewed `inventory collect` transaction before any object can be
 deleted. The executor may refuse a candidate that has no proved collection
 transport for its kind or provider.
+
+## Operator recovery
+
+For an active transaction with an uncertain operation, inspect `inventory status
+--json` and the private provider evidence, then write a version 1 decision file:
+
+```json
+{
+  "version": 1,
+  "transaction": "tx-REVIEW_DIGEST",
+  "operation": "op-OPERATION_ID",
+  "review": "REVIEW_DIGEST",
+  "action": "accept-adapter-proof"
+}
+```
+
+Use the exact transaction, operation, and review digest from the issued review
+and journal. `action` is either `accept-adapter-proof` or
+`retry-after-adapter-proof`. Run `nagarectl inventory recover TRANSACTION
+--operation OPERATION --decision FILE`, then `nagarectl inventory resume
+TRANSACTION --yes`. The recovery command records a journal decision under the
+writer lock only when the issued adapter independently proves completion or
+safe retry from current provider state. It refuses a mismatched file, an
+inactive transaction, an already resolved operation, changed adapter identity,
+and any unresolved or contrary adapter result. A decision file cannot supply
+its own completion proof or override the adapter.

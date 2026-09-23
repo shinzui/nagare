@@ -861,6 +861,31 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         case resumed of Converged value -> value @?= transaction; other -> assertFailure (show other)
         length <$> readIORef calls >>= (@?= 1)
+    , testCase "operator recovery records only the adapter-proved action" $ do
+        store <- newMemoryStore
+        calls <- newIORef (0 :: Int)
+        let executeOnce _ _ = modifyIORef' calls (+ 1) >> pure (AdapterEffectAmbiguous "lost acknowledgement")
+            recover operation _ = pure (RecoveryProvedComplete (proof operation))
+        (reviewed, registry) <- preparedFixtureWith store executeOnce recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+            digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
+            input action = OperatorRecoveryInput transaction operation digest action
+        refused <- recordOperatorRecovery store registry (input RetryAfterAdapterProof) False
+        assertBool "safe retry cannot be inferred from a completion proof" (isLeft refused)
+        recordOperatorRecovery store registry (input AcceptAdapterProof) False >>= expectRight
+        replayed <- recordOperatorRecovery store registry (input AcceptAdapterProof) False
+        assertBool "recorded proof cannot be replayed" (isLeft replayed)
+        resumed <- resumeTransaction store registry transaction >>= expectRight
+        resumed @?= Converged transaction
+        readIORef calls >>= (@?= 1)
+    , testCase "operator recovery decision DTO is strict" $ do
+        let good = "{\"version\":1,\"transaction\":\"tx-abc\",\"operation\":\"op-def\",\"review\":\""
+              <> TE.encodeUtf8 (digestText (contentDigest "sample"))
+              <> "\",\"action\":\"accept-adapter-proof\"}"
+        assertBool "valid decision decodes" (either (const False) (const True) (decodeOperatorRecoveryInput good))
+        assertBool "unknown field rejected" (isLeft (decodeOperatorRecoveryInput (BS.init good <> ",\"override\":true}")))
     , testCase "resume recovers an ambiguous effect before checking its old precondition" $ do
         store <- newMemoryStore
         effected <- newIORef False
