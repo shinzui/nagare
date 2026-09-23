@@ -30,6 +30,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Kubernetes (supportsRetainedCollection)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
@@ -199,6 +200,9 @@ assessCollections history inventory observations =
           reasons =
             ["retention-policy" | retainedLifecycle finding /= DeleteWhenUnreferenced]
               <> ["durable-recovery-evidence" | retainedDataPolicy finding /= Stateless]
+              <> ["unsupported-collection-transport"
+                 | Just (_, managed) <- [Map.lookup resource (historyRetained history)]
+                 , not (supportsRetainedCollection managed)]
               <> ["dependent-consumers" | not (null consumers)]
               <> ["exact-incarnation-not-present" | retainedObservation finding /= "present"]
               <> ["active-transaction" | isJust (headActiveTransaction (historyHead history))]

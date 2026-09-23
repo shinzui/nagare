@@ -7,6 +7,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesMutation (..)
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
+  , supportsRetainedCollection
   , unstampNative
   )
 where
@@ -140,15 +141,24 @@ singleSpec specs operation = do
     _ -> Left "Kubernetes object operation must name exactly one resource"
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
-  when (plannedAction operation == RetireResource) $ case declaration ^. #address of
-    Kubernetes _ "" kind (Just _) _ | nameText kind == "configmap"
-      , declaration ^. #lifecycle == DeleteWhenUnreferenced
-      , declaration ^. #dataPolicy == Stateless -> pure ()
-    _ -> Left "reviewed collection currently supports only stateless namespaced ConfigMaps with deletion policy"
+  when (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
+    (Left "reviewed collection currently supports only stateless namespaced ConfigMaps with deletion policy")
   when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
     _ -> Left "Kubernetes declared operation must verify a bound Job"
   pure (resource, declaration, native)
+
+-- | The exact kind and policy for which the native transport has a
+-- server-enforced UID/resourceVersion DELETE. Keep read-only GC screening in
+-- step with this execution boundary.
+supportsRetainedCollection :: ManagedResource -> Bool
+supportsRetainedCollection declaration =
+  declaration ^. #executor == KubernetesExecutor
+    && declaration ^. #lifecycle == DeleteWhenUnreferenced
+    && declaration ^. #dataPolicy == Stateless
+    && case declaration ^. #address of
+      Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
+      _ -> False
 
 validateBefore :: PlannedOperation -> ResourceId -> ContentDigest -> KubernetesState -> Either PrepareError ()
 validateBefore operation resource desiredDigest state =

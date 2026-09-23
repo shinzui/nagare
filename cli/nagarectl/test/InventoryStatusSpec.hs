@@ -5,6 +5,7 @@ import Data.Aeson (toJSON, object, (.=))
 import Data.Generics.Labels ()
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Kubernetes (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Status
@@ -48,6 +49,16 @@ inventoryStatusTests = testGroup "inventory status"
         [(resourceId, ObservationUnavailable "private provider stderr")])) of
         [finding] -> findingReason finding @?= Just "provider observation is unavailable"
         _ -> assertFailure "status fixture has no unique managed resource"
+  , testCase "collection screening matches the conditional Kubernetes delete transport" $ do
+      let supported = resource {lifecycle = DeleteWhenUnreferenced}
+          service = supported {address = Kubernetes cluster "" (known (mkName "service"))
+            (Just (known (mkName "default"))) (known (mkName "status-fixture"))}
+          clusterScoped = supported {address = Kubernetes cluster "" (known (mkName "configmap"))
+            Nothing (known (mkName "status-fixture"))}
+      supportsRetainedCollection supported @?= True
+      supportsRetainedCollection resource @?= False
+      supportsRetainedCollection service @?= False
+      supportsRetainedCollection clusterScoped @?= False
   , testCase "read-only status does not initialize a missing inventory store" $
       withSystemTempDirectory "inventory-status" $ \temporary -> do
         let missing = temporary </> "inventory"

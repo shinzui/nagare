@@ -90,11 +90,13 @@ seed, verify, switch, write-admission, and recovery graph is available.
 `nagarectl inventory gc --plan --out DIRECTORY` writes a read-only
 `collection-plan.json`. Each retained resource has a candidate flag and reasons
 for any current refusal, including retention policy, durable recovery evidence,
-dependent consumers, an unverified physical identity, or an active transaction.
+dependent consumers, an unverified physical identity, an unsupported conditional
+collection transport, or an active transaction.
 The report records `deletionAuthorized: false`; a candidate still needs the
 separate reviewed `inventory collect` transaction before any object can be
-deleted. The executor may refuse a candidate that has no proved collection
-transport for its kind or provider.
+deleted. The current executor supports only stateless namespaced ConfigMaps with
+`DeleteWhenUnreferenced`; other kinds and providers carry an explicit transport
+blocker in this assessment.
 
 ## Operator recovery
 

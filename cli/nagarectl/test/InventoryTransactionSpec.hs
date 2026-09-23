@@ -200,6 +200,8 @@ inventoryTransactionTests =
             InventoryStatus.collectionCandidate entry @?= False
             assertBool "retained dependent is a collection blocker"
               ("dependent-consumers" `elem` InventoryStatus.collectionReasons entry)
+            assertBool "GC screening reports the conditional executor boundary"
+              ("unsupported-collection-transport" `elem` InventoryStatus.collectionReasons entry)
           _ -> assertFailure "retained resource lacks a collection assessment"
         let competing = member otherOwner cluster "legacy"
             competingScope = ok (mkScopeDeclaration otherOwner

@@ -37,6 +37,11 @@ provenance:
       at: 2026-09-23T21:56:54Z
       mode: "implement"
       note: "Expose sanitized journal recovery state in read-only inventory status"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T23:54:30Z
+      mode: "implement"
+      note: "Align collection screening with proved Kubernetes delete transport"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
@@ -79,6 +84,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M4 partial: `inventory recover TRANSACTION --operation OPERATION --decision FILE` accepts a strict version 1 decision bound to the transaction, operation, and immutable review. Under the writer lock it asks the issued adapter to prove completion or safe retry before appending an audited journal state; unresolved and contrary proofs refuse. A focused recording-adapter fixture proves completion without replay, rejects a contrary retry decision and duplicate recovery, and checks strict DTO decoding. Migration and provider-specific forward recovery remain open.
 - [x] (2026-09-23) M1 partial: Read-only status probes Kubernetes Job, CRD, cert-manager, Knative Service, and Deployment conditions independently of configuration drift. It accepts a condition only when the second read has the same UID as the inventory observation, and otherwise leaves health unknown. A pure kind-selection fixture and the CLI executable build pass. Other provider health remains open.
 - [x] (2026-09-23) M2 compatibility: Legacy `platform adopt` now says explicitly in text and JSON that it pins the platform release without adopting any provider object into inventory. The upgrade runbook links the per-resource exact-incarnation adoption review. The legacy status and marker flow remains intact.
+- [x] (2026-09-23) M3 collection screening: Read-only `gc --plan` now uses the same supported-kind predicate as the conditional Kubernetes deletion adapter. Unsupported resources carry `unsupported-collection-transport` rather than appearing collectible. The 150 focused inventory tests and Haskell style check pass; durable-data and other-provider collection remain open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -96,6 +102,8 @@ The command-level adoption DTO already required an unowned observation, but the 
 Removing a scope also removes its active declaration from the accepted vector. A retained entry therefore stores the immutable old scope revision, not just a UID, so later status and claim validation can reconstruct the declaration even after the scope disappears. A review alone is insufficient: admission reobserves each retained UID under the writer lock before advancing the head.
 
 The head wire format can encode an accepted resource and one retained incarnation under the same logical ID, but `loadInventoryHistory` currently rejects that overlap. The observation set and adapter registry also select one provider object per ResourceId. A reviewed rename must extend all three contracts to bind source and destination observations, carry the old native evidence through admission, and plan a phased operation graph before the existing retained-reactivation guard can be relaxed. A direct `UpdateResource` would not prove destination creation or preserve the source claim.
+
+The read-only collection assessment previously checked lifecycle, data, consumers, identity, and transaction state but omitted the executor's supported kind. It could label a Service as a candidate even though conditional deletion permits only a namespaced ConfigMap. Screening now calls the adapter's support predicate, so its candidate flag agrees with the proved transport boundary.
 
 
 ## Decision Log
@@ -243,6 +251,8 @@ Support types are explicit alternatives in Lifecycle/Migration; identity and pol
 2026-09-23: Recorded the narrow retained ConfigMap collection and adapter-proved operator recovery implementation. The remaining migration and provider coverage stays explicit in Progress.
 
 2026-09-23: Added Kubernetes condition health reporting to read-only status while retaining unknown health for unsupported kinds and failed observations.
+
+2026-09-23: Aligned read-only collection candidate screening with the Kubernetes executor's conditional deletion support; unsupported kinds and providers now report a blocker.
 
 2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
 
