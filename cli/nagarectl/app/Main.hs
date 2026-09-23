@@ -4418,10 +4418,6 @@ runInventoryStatus mctx requested json = do
                        "identity" Aeson..= InventoryAdapter.adapterIdentity adapter,
                        "version" Aeson..= InventoryAdapter.adapterVersion adapter]
         | adapter <- [kubernetes, helm, pulumi, artifact, host, cache]]
-      dependencyTarget dependency = case dependency of
-        ResourceReference.Consumes reference -> Just (let (producer, _, _, _, _) = ResourceReference.refSignature reference in producer)
-        ResourceReference.ReadyAfter reference -> Just (let (producer, _, _, _, _) = ResourceReference.refSignature reference in producer)
-        ResourceReference.OrderedAfter producer -> Just producer
       revisions values =
         [Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
         | (scope, revision) <- Map.toAscList values]
@@ -4458,9 +4454,7 @@ runInventoryStatus mctx requested json = do
             [ "finding" Aeson..= finding
             , "dependencies" Aeson..= (resource ^. #dependencies)
             , "dependencyTrace" Aeson..= InventoryStatus.traceDependencies inventory resourceId
-            , "consumers" Aeson..=
-                [consumer ^. #identity | consumer <- managed,
-                  any ((== Just resourceId) . dependencyTarget) (consumer ^. #dependencies)]
+            , "consumers" Aeson..= InventoryStatus.consumersOf history inventory resourceId
             , "addressAliases" Aeson..= (resource ^. #aliases)
             , "requiredConditions" Aeson..=
                 [reference | ResourceReference.ReadyAfter reference <- resource ^. #dependencies]
@@ -4476,7 +4470,7 @@ runInventoryStatus mctx requested json = do
             pure (Aeson.object (baseFields <>
               [ "finding" Aeson..= finding
               , "dependencies" Aeson..= (resource ^. #dependencies)
-              , "consumers" Aeson..= ([] :: [Resource.ResourceId])
+              , "consumers" Aeson..= InventoryStatus.consumersOf history inventory resourceId
               , "recoveryReason" Aeson..= ("retained incarnation requires explicit collection or recovery review" :: Text)
               ]), "Retained resource " <> Resource.resourceIdText resourceId)
           Nothing -> dieT "resource is absent from accepted and retained inventory history"

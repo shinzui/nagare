@@ -9,6 +9,7 @@ module Nagare.Inventory.Status
   , RetainedFinding (..)
   , classifyDrift
   , traceDependencies
+  , consumersOf
   , retainedFindings
   , loadAcceptedNative
   , loadActiveTransactionStatus
@@ -79,6 +80,21 @@ traceDependencies inventory start = go Set.empty [(start, 1)]
                 (declarationSource <$> Map.lookup resource declarations) depth
            in map row targets <> go (Set.insert consumer visited)
                 (pending <> [(resource, depth + 1) | resource <- targets])
+
+-- | Include retained declarations: a retired resource can still depend on
+-- another retained or active incarnation after its original scope disappears.
+consumersOf :: InventoryHistory -> ValidatedInventory -> ResourceId -> [ResourceId]
+consumersOf history inventory target =
+  [resource ^. #identity
+  | resource <- active <> retained
+  , any ((== Just target) . dependencyTarget) (resource ^. #dependencies)]
+  where
+    active = [resource | Managed resource <- inventoryDeclarations inventory]
+    retained = [resource | (_, resource) <- Map.elems (historyRetained history)]
+    dependencyTarget dependency = case dependency of
+      Consumes reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
+      ReadyAfter reference -> Just (let (producer, _, _, _, _) = refSignature reference in producer)
+      OrderedAfter resource -> Just resource
 
 instance ToJSON DependencyTrace where
   toJSON entry = object

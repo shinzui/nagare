@@ -19,7 +19,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
-import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
+import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption, decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store
@@ -111,7 +111,11 @@ inventoryTransactionTests =
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
             oldResource = member owner cluster "legacy"
             resourceId = declarationId oldResource
-            oldScope = ok (mkScopeDeclaration owner [ResourceBundle [oldResource] [] [] [] [] []])
+            dependent = case member owner cluster "dependent" of
+              Managed value -> Managed (value {dependencies = [OrderedAfter resourceId]})
+              declaration -> declaration
+            dependentId = declarationId dependent
+            oldScope = ok (mkScopeDeclaration owner [ResourceBundle [oldResource, dependent] [] [] [] [] []])
             initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
               (ReplaceScope oldScope :| []))
             physical = ok (mkPhysicalIdentity "legacy-uid")
@@ -133,7 +137,9 @@ inventoryTransactionTests =
         store <- newMemoryStore
         _ <- initializeStore store fixtureBinding "retention-test" >>= expectRight
         emptyHistory <- loadInventoryHistory store >>= expectRight
-        let absent = ok (observationSet [(resourceId, ConfirmedAbsent (contentDigest "absent"))])
+        let absent = ok (observationSet
+              [(resourceId, ConfirmedAbsent (contentDigest "absent")),
+               (dependentId, ConfirmedAbsent (contentDigest "absent"))])
             initialProposal = ok (planChanges initial noLifecycleDecisions emptyHistory absent)
         before <- readStoreSnapshot store >>= expectRight
         initialReview <- prepareReview registry before initialProposal >>= expectRight
@@ -147,10 +153,8 @@ inventoryTransactionTests =
             candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
               (RetireScope owner RetainResources :| []))
             fact = ObservedPresent physical
-            observed = ok (observationSet [(resourceId, fact)])
-            decision = LifecycleProposal resourceId ApproveRetirement
-              (lifecycleObservationDigest fixtureBinding resourceId fact)
-            decisions = ok (validateLifecycleDecisions candidate history observed [decision])
+            observed = ok (observationSet [(resourceId, fact), (dependentId, fact)])
+            decisions = ok (decideRetirement candidate history observed)
             proposal = ok (planChanges candidate decisions history observed)
         proposalOperations proposal @?= []
         retirementSnapshot <- readStoreSnapshot store >>= expectRight
@@ -176,16 +180,20 @@ inventoryTransactionTests =
             declaration ^. #identity @?= resourceId
           Nothing -> assertFailure "retired resource was absent from durable history"
         let retainedCategory currentFact =
-              map InventoryStatus.retainedObservation (InventoryStatus.retainedFindings retainedHistory
-                (ok (observationSet [(resourceId, currentFact)])))
+              [InventoryStatus.retainedObservation finding
+              | finding <- InventoryStatus.retainedFindings retainedHistory
+                  (ok (observationSet [(resourceId, currentFact)])),
+                InventoryStatus.retainedResource finding == resourceId]
         retainedCategory (ObservedPresent physical) @?= ["present"]
         retainedCategory (ObservedPresent (ok (mkPhysicalIdentity "replacement-uid"))) @?= ["replaced-incarnation"]
         retainedCategory (ConfirmedAbsent (contentDigest "absent")) @?= ["confirmed-absent"]
+        let retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty
+              (historyReservations retainedHistory))
+            emptyInventory = ok (composeSnapshot retainedSnapshot)
+        InventoryStatus.consumersOf retainedHistory emptyInventory resourceId @?= [dependentId]
         let competing = member otherOwner cluster "legacy"
             competingScope = ok (mkScopeDeclaration otherOwner
               [ResourceBundle [competing] [] [] [] [] []])
-            retainedSnapshot = ok (mkScopeSnapshot fixtureBinding Map.empty
-              (historyReservations retainedHistory))
         case composeInventory retainedSnapshot (ReplaceScope competingScope :| []) of
           Left _ -> pure ()
           Right _ -> assertFailure "retained physical address became claimable"

@@ -59,7 +59,9 @@ The retained objects keep their provider addresses reserved. `inventory status
 --json` and `inventory explain RESOURCE_ID --json` observe them through the native
 bytes in their original accepted review and distinguish the retained UID from a
 replacement, absence, foreign ownership, or an unavailable provider. These
-observations do not grant collection authority.
+observations do not grant collection authority. Explain includes consumers
+among both active and retained declarations, so retiring two related resources
+does not erase their dependency relationship.
 
 Collection still refuses until a separate reviewed deletion path can prove
 retention policy, dependent consumers, exact live identity, recovery evidence,
