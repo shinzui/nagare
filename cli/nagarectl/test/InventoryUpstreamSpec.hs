@@ -2,6 +2,7 @@ module InventoryUpstreamSpec (inventoryUpstreamTests) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -11,6 +12,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Upstream
+import Nagare.Inventory.Components.ControllerImage (compileControllerImage, controllerImageDeclaration)
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compileIssuerBootstrap, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -19,6 +21,9 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 
 inventoryUpstreamTests :: TestTree
 inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
@@ -72,11 +77,11 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
             "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundation Nothing [certInput]) >>= expectRight
+        (BootstrapInput foundation Nothing [certInput] []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
       Map.size bootstrapNative @?= Map.size (snd cert) + 3
       (servingBootstrap, _) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundation Nothing [servingInput, netInput]) >>= expectRight
+        (BootstrapInput foundation Nothing [servingInput, netInput] []) >>= expectRight
       let allMembers = [resource | Managed resource <- inventoryDeclarations (candidateInventory servingBootstrap)]
           servingMembers = [resource ^. #identity | resource <- allMembers,
             resource ^. #owner == componentOwner "serving"]
@@ -101,31 +106,53 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       assertBool "changed pinned asset was accepted" (either (const True) (const False) result)
   , testCase "patched net-certmanager controller image is in reviewed native bytes" $ do
       let image = "registry.example.test/net-certmanager@sha256:" <> T.replicate 64 "a"
+          publication = mintResourceId (componentOwner "image")
+            (ok (mkLogicalKey "image")) (ok (mkName "publish"))
       selected <- either (assertFailure . T.unpack) pure
-        (bindNetCertManagerControllerImage fixtureCluster image
+        (bindNetCertManagerControllerImage fixtureCluster image publication
           (pinnedUpstreamInputs fixtureCluster "../.."))
       net <- case selected of
         [_, _, _, componentInput] -> pure componentInput
         _ -> assertFailure "net-certmanager scope is absent" >> pure (error "unreachable")
       (_, native) <- compileUpstream net >>= expectRight
-      let matching = [bytes | (resource, bytes) <- Map.elems native,
+      let matching = [(resource, bytes) | (resource, bytes) <- Map.elems native,
             case resource ^. #address of
               Kubernetes _ "apps" kind (Just namespace) name ->
                 nameText kind == "deployment" && nameText namespace == "knative-serving"
                   && nameText name == "net-certmanager-controller"
               _ -> False]
       case matching of
-        [bytes] -> assertBool "patched image is not in reviewed Deployment"
-          (image `T.isInfixOf` TE.decodeUtf8 bytes)
+        [(controller, bytes)] -> do
+          assertBool "patched image is not in reviewed Deployment"
+            (image `T.isInfixOf` TE.decodeUtf8 bytes)
+          assertBool "controller does not wait for image publication"
+            (OrderedAfter publication `elem` controller ^. #dependencies)
         _ -> assertFailure "reviewed controller Deployment is missing"
       mutable <- either (assertFailure . T.unpack) pure
-        (bindNetCertManagerControllerImage fixtureCluster "registry.example.test/net-certmanager:mutable"
+        (bindNetCertManagerControllerImage fixtureCluster "registry.example.test/net-certmanager:mutable" publication
           (pinnedUpstreamInputs fixtureCluster "../.."))
       case mutable of
         [_, _, _, componentInput] -> do
           refused <- compileUpstream componentInput
           assertBool "mutable controller image was accepted" (case refused of Left _ -> True; Right _ -> False)
         _ -> assertFailure "net-certmanager scope is absent"
+  , testCase "released controller archive is required before image review" $
+      withSystemTempDirectory "controller-image-payload" $ \root -> do
+        let directory = root </> "cluster/bootstrap/net-certmanager"
+        createDirectoryIfMissing True directory
+        BS.writeFile (directory </> "image-reference")
+          "nagare/net-certmanager-controller:v1.14.0-nagare.1\n"
+        missing <- compileControllerImage root "registry.example.test"
+        assertBool "controller image archive absence was accepted"
+          (case missing of Left _ -> True; Right _ -> False)
+        (scope, image, publication) <- expectRight
+          (controllerImageDeclaration "registry.example.test"
+            (ok (mkContentDigest (T.replicate 64 "a")))
+            (ok (mkContentDigest (T.replicate 64 "b"))))
+        assertBool "controller image was not digest-addressed"
+          ("@sha256:" `T.isInfixOf` image)
+        assertBool "image publication operation is absent"
+          (any (any ((== publication) . (^. #identity)) . operations) (scopeBundles scope))
   , testCase "reviewed upstream ConfigMap overlay changes one owned native member" $ do
       servingInput <- case pinnedUpstreamInputs fixtureCluster "../.." of
         _ : serving : _ -> pure serving
@@ -206,7 +233,7 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
   ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Map.empty [] Map.empty True
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty Map.empty [] Map.empty Map.empty True
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

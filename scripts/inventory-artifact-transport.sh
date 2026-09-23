@@ -17,6 +17,7 @@ version="$(jq -er '.version' <<<"${request}")"
 kind="$(jq -er '.kind' <<<"${request}")"
 destination="$(jq -er '.destination' <<<"${request}")"
 expected="$(jq -er '.expectedDigest' <<<"${request}")"
+source_digest="$(jq -er '.specDigest' <<<"${request}")"
 [ "${version}" = 1 ] || { echo "unsupported artifact transport version" >&2; exit 2; }
 case "${expected}" in sha256:[0-9a-f][0-9a-f]*) ;; *) echo "invalid expected artifact digest" >&2; exit 2 ;; esac
 
@@ -68,15 +69,33 @@ observe_gce_image() {
   fi
 }
 
-observe_oci_image() {
+observe_oci_image() (
   local output
-  if ! output="$(skopeo inspect --format '{{.Digest}}' "docker://${destination}" 2>&1)"; then
+  local tls_args=()
+  local auth_args=()
+  if [ "${NAGARE_MODE:-cloud}" = local ]; then
+    tls_args+=(--tls-verify=false)
+  else
+    _require_target_project
+    case "${destination}" in
+      "${NAGARE_REGISTRY_PREFIX}/"*) ;;
+      *) emit_owner_mismatch "oci://${destination}" "registry destination differs from the selected project"; return ;;
+    esac
+    local private_dir
+    private_dir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-artifact-observe.XXXXXX")"
+    chmod 700 "${private_dir}"
+    trap 'rm -rf "${private_dir}"' EXIT
+    gcloud auth print-access-token | skopeo login --username oauth2accesstoken \
+      --password-stdin --authfile "${private_dir}/auth.json" "${NAGARE_REGISTRY_HOST}" >/dev/null
+    auth_args=(--authfile "${private_dir}/auth.json")
+  fi
+  if ! output="$(skopeo inspect "${tls_args[@]}" "${auth_args[@]}" --format '{{.Digest}}' "docker://${destination}" 2>&1)"; then
     if grep -Eqi 'manifest unknown|name unknown|not found' <<<"${output}"; then emit_missing; return; fi
     printf '%s\n' "${output}" >&2
     return 1
   fi
   emit_present "oci://${destination}" "$(tail -n 1 <<<"${output}")"
-}
+)
 
 observe_gcs_object() {
   local output actual
@@ -111,9 +130,20 @@ publish() {
         bash "${script_dir}/upload-images.sh" >&2
       ;;
     OciImageArtifact)
-      NAGARE_ARTIFACT_DESTINATION="${destination}" \
-      NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
-        bash "${repo_root}/cluster/bootstrap/nix-cache/publish-image.sh" >&2
+      case "${destination}" in
+        */attic:*)
+          NAGARE_ARTIFACT_DESTINATION="${destination}" \
+          NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+            bash "${repo_root}/cluster/bootstrap/nix-cache/publish-image.sh" >&2
+          ;;
+        */net-certmanager-controller:v1.14.0-nagare.1)
+          NAGARE_ARTIFACT_DESTINATION="${destination}" \
+          NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+          NAGARE_ARTIFACT_SOURCE_DIGEST="${source_digest}" \
+            bash "${repo_root}/cluster/bootstrap/net-certmanager/publish-image.sh" >&2
+          ;;
+        *) echo "unsupported OCI image destination" >&2; return 2 ;;
+      esac
       ;;
     *) echo "artifact kind ${kind} has no publication transport" >&2; return 2 ;;
   esac

@@ -143,7 +143,7 @@ inventoryCacheTests = testGroup "cache inventory adapter"
         (all (elem (OrderedAfter namespaceId) . (^. #dependencies)) nativeMembers)
       let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       (bootstrap, bootstrapNative) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) []) >>= expectRight
+        (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) [] []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
       Map.size bootstrapNative @?= 18
       (fullBootstrap, fullNative) <- compilePinnedBootstrap snapshot foundationInput
@@ -152,7 +152,7 @@ inventoryCacheTests = testGroup "cache inventory adapter"
       assertBool "full cache and upstream bootstrap dropped native members"
         (Map.size fullNative > Map.size bootstrapNative + 100)
       (withoutCache, foundationOnly) <- compileBootstrapCandidate snapshot
-        (BootstrapInput foundationInput Nothing []) >>= expectRight
+        (BootstrapInput foundationInput Nothing [] []) >>= expectRight
       Map.size (inventoryScopes (candidateInventory withoutCache)) @?= 1
       Map.size foundationOnly @?= 3
   , testCase "foreign and unavailable cache state never authorizes creation" $ do

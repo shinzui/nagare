@@ -60,5 +60,6 @@ compileLocalObjectStore root foundation store
       , upstreamGenerated = []
       , upstreamAfter = Map.fromList
           [(deployment, [credential]), (service, [deployment]), (bucketJob, [credential, deployment, service])]
+      , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = False
       }

@@ -54,6 +54,7 @@ data UpstreamInput = UpstreamInput
   , upstreamImageOverrides :: !(Map ProviderAddress (Map Text Text))
   , upstreamGenerated :: ![(SourceLocation, Value)]
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
+  , upstreamExternalAfter :: !(Map ProviderAddress [ResourceId])
   , upstreamOrderDeployments :: !Bool
   }
 
@@ -65,15 +66,18 @@ data IssuerMode
 -- | Replace only the controller image in the pinned net-certmanager release.
 -- The immutable reference is retained in the reviewed native Deployment.
 bindNetCertManagerControllerImage
-  :: ResourceId -> Text -> [UpstreamInput] -> Either Text [UpstreamInput]
-bindNetCertManagerControllerImage cluster image inputs = do
+  :: ResourceId -> Text -> ResourceId -> [UpstreamInput] -> Either Text [UpstreamInput]
+bindNetCertManagerControllerImage cluster image publication inputs = do
   address <- kubernetesAddress cluster "apps/v1" "Deployment"
     (Just "knative-serving") "net-certmanager-controller"
   let matching = [input | input <- inputs, upstreamOwner input == owner]
   unless (length matching == 1)
     (Left "configured bootstrap has no unique net-certmanager scope")
   pure [if upstreamOwner input == owner
-    then input {upstreamImageOverrides = Map.singleton address (Map.singleton "controller" image)}
+    then input
+      { upstreamImageOverrides = Map.singleton address (Map.singleton "controller" image)
+      , upstreamExternalAfter = Map.singleton address [publication]
+      }
     else input | input <- inputs]
   where
     owner = either (error . T.unpack) id (mkScopeId Platform "net-certmanager")
@@ -111,6 +115,7 @@ pinnedUpstreamInputs cluster root =
       , upstreamImageOverrides = Map.empty
       , upstreamGenerated = []
       , upstreamAfter = Map.empty
+      , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = True
       }
 
@@ -232,6 +237,7 @@ issuerComponent cluster root mode = do
       , upstreamImageOverrides = Map.empty
       , upstreamGenerated = objects
       , upstreamAfter = ordering
+      , upstreamExternalAfter = Map.empty
       , upstreamOrderDeployments = True
       }
   where
@@ -266,6 +272,9 @@ compileUpstream input = do
     unless (Map.keysSet (upstreamAfter input) `Set.isSubsetOf` Set.fromList
         [resource ^. #address | (resource, _) <- uniqueMembers])
       (Left (single (invalid "upstream ordering target is absent from the component")))
+    unless (Map.keysSet (upstreamExternalAfter input) `Set.isSubsetOf` Set.fromList
+        [resource ^. #address | (resource, _) <- uniqueMembers])
+      (Left (single (invalid "upstream external ordering target is absent from the component")))
     let retained = filter (\(resource, _) -> Set.notMember (resource ^. #address) (upstreamTransferred input)) uniqueMembers
         namespaceIds = Map.fromList
           [(name, resource ^. #identity) | (resource, _) <- retained,
@@ -335,8 +344,11 @@ compileUpstream input = do
           explicitIds = mapMaybe (`Map.lookup` resourceIds)
             (Map.findWithDefault [] (resource ^. #address) (upstreamAfter input))
           explicitEdges = map OrderedAfter explicitIds
+          externalEdges = map OrderedAfter
+            (Map.findWithDefault [] (resource ^. #address) (upstreamExternalAfter input))
           own = resource ^. #identity
-          edges = filter (/= OrderedAfter own) (namespaceEdges <> crdEdges <> prerequisiteEdges <> explicitEdges)
+          edges = filter (/= OrderedAfter own)
+            (namespaceEdges <> crdEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
        in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
 
 isCrd :: ManagedResource -> Bool

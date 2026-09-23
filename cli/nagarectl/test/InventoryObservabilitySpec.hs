@@ -17,6 +17,7 @@ import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth
 import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
+import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, pinnedUpstreamInputs)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
@@ -121,12 +122,15 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= either (assertFailure . show) pure
         (auth, databases) <- either (assertFailure . show) pure
           (packagedAuthInputs "../.." foundation CloudAuth "example.test" images backend)
+        (controllerScope, controllerImage, publication) <- either (assertFailure . show) pure
+          (controllerImageDeclaration "registry.example.test"
+            (ok (mkContentDigest (T.replicate 64 "a")))
+            (ok (mkContentDigest (T.replicate 64 "b"))))
         upstream <- either (assertFailure . T.unpack) pure
-          (bindNetCertManagerControllerImage cluster
-            ("registry.example.test/net-certmanager@sha256:" <> T.replicate 64 "b")
+          (bindNetCertManagerControllerImage cluster controllerImage publication
             (pinnedUpstreamInputs cluster "../.."))
         (base, baseNative) <- compileBootstrapWithAuth snapshot
-          (BootstrapInput foundation Nothing upstream) auth databases
+          (BootstrapInput foundation Nothing upstream [controllerScope]) auth databases
           >>= either (assertFailure . show) pure
         (observability, obsNative) <- compilePinnedObservability owner observabilityInputs
           >>= either (assertFailure . show) pure
@@ -135,7 +139,7 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
             native = Map.unions [baseNative, cacheNative, obsNative]
         Map.size native @?= sum (map Map.size [baseNative, cacheNative, obsNative])
         complete <- either (assertFailure . show) pure (composeInventory snapshot changes)
-        Map.size (inventoryScopes (candidateInventory complete)) @?= 13
+        Map.size (inventoryScopes (candidateInventory complete)) @?= 14
   , testCase "reviewed Helm adapter refuses a changed release revision" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           operation = PlannedOperation (ok (mkOperationId "op-helm-create")) CreateResource HelmExecutor

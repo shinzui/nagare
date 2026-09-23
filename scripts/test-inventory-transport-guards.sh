@@ -23,5 +23,6 @@ assert_refused 'cache adapter child marker' bash scripts/inventory-cache-transpo
 assert_refused 'artifact adapter child marker' bash scripts/setup-nix-builder.sh
 assert_refused 'host adapter child marker' bash scripts/vm-power.sh start
 assert_refused 'artifact adapter child marker' bash cluster/bootstrap/nix-cache/publish-image.sh
+assert_refused 'artifact adapter child marker' bash cluster/bootstrap/net-certmanager/publish-image.sh
 
 printf '%s\n' 'inventory transport re-entry guards passed'

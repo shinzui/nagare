@@ -102,6 +102,7 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud
     Nagare.Inventory.Components.Auth
+    Nagare.Inventory.Components.ControllerImage
     Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.LocalObjectStore

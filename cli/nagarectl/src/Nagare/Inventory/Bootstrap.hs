@@ -31,6 +31,7 @@ data BootstrapInput = BootstrapInput
   { bootstrapFoundation :: !FoundationInput
   , bootstrapCache :: !(Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput))
   , bootstrapUpstream :: ![UpstreamInput]
+  , bootstrapAdditionalScopes :: ![ScopeDeclaration]
   }
 
 -- | Compile the payload's complete pinned operator release set with the
@@ -45,7 +46,7 @@ compilePinnedBootstrap
        (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
 compilePinnedBootstrap snapshot foundation cache root =
   compileBootstrapCandidate snapshot (BootstrapInput foundation cache
-    (pinnedUpstreamInputs (foundationCluster foundation) root))
+    (pinnedUpstreamInputs (foundationCluster foundation) root) [])
 
 compileConfiguredBootstrap
   :: ScopeSnapshot
@@ -61,7 +62,7 @@ compileConfiguredBootstrap snapshot foundation cache root domain registry certif
   configured <- configuredUpstreamInputs (foundationCluster foundation) root domain registry certificatePatch
   case configured of
     Left message -> pure (Left (inventoryError "invalid-upstream-policy" message :| []))
-    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
+    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream [])
 
 compileIssuerBootstrap
   :: ScopeSnapshot
@@ -77,7 +78,7 @@ compileIssuerBootstrap snapshot foundation cache root domain registry mode = do
   configured <- configuredUpstreamInputsWithIssuer (foundationCluster foundation) root domain registry mode
   case configured of
     Left message -> pure (Left (inventoryError "invalid-issuer-policy" message :| []))
-    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
+    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream [])
 
 compileBootstrapWithAuth
   :: ScopeSnapshot
@@ -174,7 +175,9 @@ compileBootstrapCandidate snapshot input = do
         suppliedCount = sum (map Map.size nativeMaps)
     unless (Map.size native == suppliedCount)
       (Left (single (invalid "bootstrap components share a native logical identity")))
-    let changes = ReplaceScope ownerScope :| (cacheChanges <> map ReplaceScope upstreamScopes)
+    let changes = ReplaceScope ownerScope :|
+          (cacheChanges <> map ReplaceScope upstreamScopes
+            <> map ReplaceScope (bootstrapAdditionalScopes input))
     candidate <- composeInventory snapshot changes
     pure (candidate, native)
   where

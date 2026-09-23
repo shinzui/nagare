@@ -13,6 +13,7 @@ import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
+import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
 import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
@@ -94,7 +95,7 @@ inventoryAuthTests = testGroup "auth inventory component"
             authDatabasePrerequisites = Map.fromList [(service, dbId service) | service <- ["shomei", "en"]]}
           backends = [(service, direct service, GcsBackend "project" "bucket")
             | service <- ["shomei", "en"]]
-          bootstrap = BootstrapInput foundation Nothing (pinnedUpstreamInputs fixtureCluster "../..")
+          bootstrap = BootstrapInput foundation Nothing (pinnedUpstreamInputs fixtureCluster "../..") []
           binding = ContextBinding (ok (mkContextId "fixture")) (ok (mkName "project"))
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       (candidate, native) <- compileBootstrapWithAuth snapshot bootstrap auth backends >>= expectRight
@@ -142,10 +143,13 @@ inventoryAuthTests = testGroup "auth inventory component"
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
       rawUpstream <- configuredUpstreamInputsWithIssuer fixtureCluster "../.."
         "example.test" "registry.example.test" LocalIssuer >>= expectRight
+      (controllerScope, controllerImage, publication) <- expectRight
+        (controllerImageDeclaration "registry.example.test"
+          (ok (mkContentDigest (T.replicate 64 "a")))
+          (ok (mkContentDigest (T.replicate 64 "b"))))
       upstream <- either (assertFailure . T.unpack) pure
-        (bindNetCertManagerControllerImage fixtureCluster
-          ("registry.example.test/net-certmanager@sha256:" <> T.replicate 64 "b") rawUpstream)
-      let bootstrap = BootstrapInput foundation Nothing upstream
+        (bindNetCertManagerControllerImage fixtureCluster controllerImage publication rawUpstream)
+      let bootstrap = BootstrapInput foundation Nothing upstream [controllerScope]
       (localScope, localNative) <- compileLocalObjectStore "../.." foundation store >>= expectRight
       let bucketJobs = [resource ^. #identity | (resource, _) <- Map.elems localNative,
             case resource ^. #address of
@@ -162,7 +166,7 @@ inventoryAuthTests = testGroup "auth inventory component"
         (case observability of
           firstScope : rest -> ReplaceScope firstScope :| map ReplaceScope rest
           [] -> error "observability scopes disappeared")))
-      Map.size (inventoryScopes (candidateInventory complete)) @?= 13
+      Map.size (inventoryScopes (candidateInventory complete)) @?= 14
   ]
 
 fixture :: AuthInput

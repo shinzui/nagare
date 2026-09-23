@@ -110,6 +110,7 @@ compileAuth input = do
                 , upstreamGenerated = objects <> map secretTemplate
                     ["nagare-access", "nagare-en-api-keys", "nagare-shomei-keys"]
                 , upstreamAfter = internalOrder
+                , upstreamExternalAfter = Map.empty
                 , upstreamOrderDeployments = False
                 }
           compiled <- compileUpstream upstream

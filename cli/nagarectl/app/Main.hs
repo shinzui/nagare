@@ -256,6 +256,7 @@ import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
+import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
@@ -4098,9 +4099,12 @@ runPlatformBootstrapPlan mctx output = do
     (dieT "Attic cache is available only in cloud bootstrap mode")
   rawUpstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
     (profile ^. #registryHost) issuer >>= either dieT pure
-  controllerImage <- lookupEnv "NAGARE_NET_CERTMANAGER_IMAGE" >>=
-    maybe (dieT "bootstrap requires NAGARE_NET_CERTMANAGER_IMAGE as an immutable published patched-controller reference") (pure . T.pack)
-  upstream <- either dieT pure (bindNetCertManagerControllerImage cluster controllerImage rawUpstream)
+  let controllerRegistry = if profile ^. #mode == Local
+        then profile ^. #registryHost else registryPrefix profile
+  (controllerImageScope, controllerImage, controllerPublish) <-
+    compileControllerImage root controllerRegistry >>= either (dieT . T.pack . show) pure
+  upstream <- either dieT pure
+    (bindNetCertManagerControllerImage cluster controllerImage controllerPublish rawUpstream)
   (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner observabilityInputs
     >>= either (dieT . T.pack . show) pure
   cacheComponent <- if profile ^. #nixCacheEnabled
@@ -4133,7 +4137,8 @@ runPlatformBootstrapPlan mctx output = do
       _ -> dieT "local object store has no unique bucket preparation Job"
   let auth = rawAuth {authExtraPrerequisites = localPrerequisites}
   (base, baseNative) <- compileBootstrapWithAuthAndScopes snapshot
-    (BootstrapInput foundation Nothing upstream) auth authDatabases (maybe [] (pure . fst) localStore)
+    (BootstrapInput foundation Nothing upstream [controllerImageScope]) auth authDatabases
+    (maybe [] (pure . fst) localStore)
     >>= either (dieT . T.pack . show) pure
   let (cacheScopes, cacheNative) = case cacheComponent of
         Nothing -> ([], Map.empty)
