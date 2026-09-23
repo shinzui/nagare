@@ -9,13 +9,13 @@ its external address.
 
 ## Install
 
-Version matches the Knative Serving line: **knative-v1.22.0**. To find the
-latest: `gh release list -R knative-extensions/net-kourier`.
+Version matches the Knative Serving line: **knative-v1.22.0**. Bootstrap binds
+the packaged manifest digest into the review.
 
 ```bash
-kubectl apply -f https://github.com/knative-extensions/net-kourier/releases/download/knative-v1.22.0/kourier.yaml
-kubectl -n kourier-system get pods
-kubectl -n kourier-system get svc kourier   # EXTERNAL-IP should equal the publicIp stack output
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
 Knative is told to use Kourier as its ingress by the `config-network` patch in
@@ -23,5 +23,5 @@ Knative is told to use Kourier as its ingress by the `config-network` patch in
 (`ingress-class: kourier.ingress.networking.knative.dev`).
 
 There are no Nagare-authored manifests for Kourier itself; the upstream release
-manifest is applied as-is and the ingress class is selected via the Knative
-ConfigMap patch.
+manifest is retained as an exact reviewed input and the ingress class is
+selected in the compiled Knative ConfigMap.

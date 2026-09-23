@@ -9,14 +9,14 @@ the only ACME challenge type that can issue wildcard certificates.
 
 ## Install
 
-Pinned version: **v1.20.2** (current as of June 2026). To find the latest:
-`gh release list -R cert-manager/cert-manager`.
+Pinned version: **v1.20.2**. Bootstrap binds the packaged release bytes and
+their digest to the inventory review. Update the pin through a separate
+reviewed payload change.
 
 ```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
-kubectl -n cert-manager rollout status deploy/cert-manager
-kubectl -n cert-manager rollout status deploy/cert-manager-webhook
-kubectl -n cert-manager rollout status deploy/cert-manager-cainjector
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
 ## Files
@@ -32,16 +32,9 @@ kubectl -n cert-manager rollout status deploy/cert-manager-cainjector
   | `spec.acme.server` | `NAGARE_ACME_DIRECTORY` (`production`, `staging`, or an `https://` URL) |
   | `spec.acme.solvers[0].dns01.cloudDNS.project` | `CLOUDSDK_CORE_PROJECT`, asserted by the project guardrail |
 
-  `just cluster-bootstrap` renders it to a temporary file and applies it only on
-  success, so a refusal never reaches `kubectl`. To do the same by hand:
-
-  ```bash
-  issuer="$(mktemp)"
-  cluster/bootstrap/render-context-template.sh cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl > "$issuer"
-  kubectl apply -f "$issuer"
-  kubectl get clusterissuer letsencrypt-dns -o wide   # READY=True within a minute
-  rm -f "$issuer"
-  ```
+  Bootstrap compiles the issuer from the selected context into a typed resource
+  and reviews its exact native bytes. The issuer is ordered after cert-manager
+  and its `Ready` condition is checked before dependent resources run.
 
   Rendering with no contact configured exits non-zero, writes nothing to
   standard output, and names `NAGARE_ACME_EMAIL`. Select Let's Encrypt's staging
@@ -50,7 +43,8 @@ kubectl -n cert-manager rollout status deploy/cert-manager-cainjector
   an ACME account is keyed by the private key in
   `privateKeySecretRef` (`letsencrypt-dns-account-key` in `cert-manager`), not by
   the `email:` field: changing the contact or the endpoint on an already-Ready
-  issuer requires deleting that Secret so a fresh account is registered.
+  issuer requires separate account recovery review; the inventory bootstrap
+  will not delete that Secret implicitly.
 
 - `test-wildcard-cert.yaml` — a throwaway proof-of-issuance `Certificate`.
   **Deferred** until a real `baseDomain` is delegated (see the file header and

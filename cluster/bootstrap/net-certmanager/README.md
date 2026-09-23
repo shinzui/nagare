@@ -30,13 +30,13 @@ controller, and creates the local-only image reference
 `nagare-platform` payload includes the resulting Docker archive. Bootstrap
 applies the latest upstream manifest (retaining its webhook), imports the
 bundled controller archive directly into k3s/containerd, and patches only the
-controller Deployment. There is no mutable registry tag or separate fork to
-keep synchronized.
+controller Deployment within the reviewed inventory operation. There is no
+mutable registry tag or separate fork to keep synchronized.
 
 ```bash
-kubectl apply -f https://storage.googleapis.com/knative-releases/net-certmanager/previous/v1.14.0/net-certmanager.yaml
-kubectl -n knative-serving rollout status deploy/net-certmanager-webhook --timeout=5m
-scripts/install-net-certmanager-controller.sh
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
 Before changing the pin, inspect both sources again:
@@ -56,9 +56,8 @@ skew is inert until TLS is enabled.
 It is configured by the `config-certmanager` ConfigMap patch in
 `../knative-serving/config-certmanager.yaml`. External-domain certificates use the context-owned
 `letsencrypt-dns` ClusterIssuer; cluster-local and system-internal certificates explicitly use
-`knative-selfsigned-issuer`. Bootstrap waits up to five minutes for
-`deploy/net-certmanager-webhook` before applying that patch, then submits the merge patch through
-the same five-attempt, two-second retry helper used for the other Knative ConfigMaps.
+`knative-selfsigned-issuer`. Bootstrap orders the reviewed ConfigMap update
+after the webhook is available and uses a conditional Kubernetes write.
 
 Build the archive and run its native upstream regression case with:
 

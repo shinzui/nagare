@@ -7,14 +7,13 @@ public URL.
 
 ## Install
 
-Pinned version: **knative-v1.22.0**. To find the latest:
-`gh release list -R knative/serving`.
+Pinned version: **knative-v1.22.0**. The packaged release manifests and digests
+are bound into the bootstrap review.
 
 ```bash
-kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.22.0/serving-crds.yaml
-kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.22.0/serving-core.yaml
-kubectl -n knative-serving rollout status deploy/controller --timeout=5m
-kubectl -n knative-serving rollout status deploy/webhook --timeout=5m
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
 ```
 
 Then install Kourier (see `../kourier/README.md`) and net-certmanager (see
