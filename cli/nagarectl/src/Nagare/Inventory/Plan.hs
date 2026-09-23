@@ -207,10 +207,8 @@ validateLifecycleDecisions candidate history observations proposals =
           kind = lifecycleDecision proposal
           shape = case kind of
             ApproveAdoption -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
-              (Just (Managed _), Nothing, Just (ObservedPresent _)) -> []
-              (Just (Managed _), Nothing, Just (ObservedDrifted _ _)) -> []
               (Just (Managed _), Nothing, Just (ObservedUnowned _)) -> []
-              _ -> issue "invalid-adoption" "adoption needs a new managed declaration and a present nonforeign incarnation"
+              _ -> issue "invalid-adoption" "adoption needs a new managed declaration and an unowned incarnation; an existing ownership stamp needs authoritative history"
             ApproveTransfer -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
               (Just (Managed next), Just (Managed old), Just (ObservedPresent _))
                 | next ^. #owner /= old ^. #owner
@@ -424,13 +422,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->
-        if decisionIs ApproveAdoption resourceId
-          then ([], Just (resourceOperation AdoptResource resource))
-          else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
+        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservedDrifted _ _)) ->
-        if decisionIs ApproveAdoption resourceId
-          then ([], Just (resourceOperation AdoptResource resource))
-          else ([PlanError "adoption-required" "resource exists but is not owned by accepted history" [resourceId]], Nothing)
+        ([PlanError "unverified-owner" "resource has an ownership stamp but no accepted history" [resourceId]], Nothing)
       (Nothing, Just (ObservedUnowned _)) ->
         if decisionIs ApproveAdoption resourceId
           then ([], Just (resourceOperation AdoptResource resource))

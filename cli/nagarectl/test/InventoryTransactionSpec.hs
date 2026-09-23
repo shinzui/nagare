@@ -90,6 +90,19 @@ inventoryTransactionTests =
           Left failures -> assertBool "absence is not adoptable"
             ("invalid-adoption" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "absent resource accepted for adoption"
+        forM_ [ObservedPresent (ok (mkPhysicalIdentity "legacy-uid")),
+               ObservedDrifted (ok (mkPhysicalIdentity "legacy-uid")) (contentDigest "drifted")] $ \stamped -> do
+          let stampedFacts = ok (observationSet [(resourceId, stamped)])
+              stampedDecision = decision
+                { lifecycleEvidence = lifecycleObservationDigest fixtureBinding resourceId stamped }
+          case validateLifecycleDecisions candidate history stampedFacts [stampedDecision] of
+            Left failures -> assertBool "stamped object without history is not adoptable"
+              ("invalid-adoption" `elem` map planErrorCode (NE.toList failures))
+            Right _ -> assertFailure "stamped object without history accepted for adoption"
+          case planChanges candidate noLifecycleDecisions history stampedFacts of
+            Left failures -> assertBool "stamped object has no verified owner"
+              ("unverified-owner" `elem` map planErrorCode (NE.toList failures))
+            Right _ -> assertFailure "stamped object without history planned for mutation"
     , testCase "moving a known resource to another scope cannot become an ordinary update" $ do
         let oldOwner = ok (mkScopeId Platform "transfer-source")
             newOwner = ok (mkScopeId Platform "transfer-destination")

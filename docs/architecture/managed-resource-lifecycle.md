@@ -29,6 +29,8 @@ path supports an object whose desired fields already match the declaration. The 
 stamps only Nagare's reserved annotations using one UID and resourceVersion tested JSON
 Patch. A changed object or owner refuses; a failed acknowledgement requires the ordinary
 journal recovery path. Preparing the review does not write to the managed object.
+An existing inventory stamp without accepted ownership history cannot be adopted through
+this route, even when its logical identity appears to match.
 
 For a transfer between known scopes, keep the same ResourceId in the new declaration,
 select both the prior and next scopes in the compiled candidate, and set

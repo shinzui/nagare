@@ -67,6 +67,7 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-23) M1 partial: Status findings now expose health separately from configuration drift. An observed matching specification reports health `unknown`, while confirmed absence reports `unavailable`; the CLI does not equate `converged` configuration with workload readiness. The 137 focused inventory tests pass. Provider-specific condition probes remain open.
 - [x] (2026-09-23) M1 read consistency: Status and explain reread the accepted head after provider observations and refuse if another transaction changed it during the report. The CLI executable builds.
 - [x] (2026-09-23) M1 recovery visibility: Status and explain now validate the committed journal for an active transaction and report each operation's latest sanitized state, with a separate recovery-required flag. Journal detail and provider errors stay private; a final head reread rejects a concurrent change. Eleven focused status tests, the 734-test CLI suite, the CLI executable build, and Haskell style checks pass. Retained history and provider-specific health probes remain open.
+- [x] (2026-09-23) M2 ownership proof: The generic lifecycle validator and planner now refuse an already stamped object when accepted history has no ownership record. Only a fresh unowned incarnation enters the current adoption route. Five focused adoption tests, the 734-test CLI suite, and Haskell style checks pass; other-provider adoption remains open.
 - [ ] M1: Classify observations and expose complete read-only status/explain.
 - [ ] M2: Plan explicit legacy adoption and ownership transfer.
 - [ ] M3: Plan migration/retirement with retained data and recovery evidence.
@@ -78,6 +79,8 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 The platform workspace resolver materialized an immutable payload copy, so status needed a separate existing-workspace lookup to keep its read-only contract. Provider observation errors may include command output; status collapses these to a generic unavailable reason and names the missing provider scope.
 
 The first live scope transfer had a valid intermediate head with the new accepted owner and the old converged owner. The head decoder's blanket subset check refused this state after admission, before journal append. The decoder now permits the mismatch only with an active transaction; the existing durable transaction resumed and converged without recreating the ConfigMap.
+
+The command-level adoption DTO already required an unowned observation, but the generic validator still accepted a stamped present or drifted object without accepted history. Direct validator callers could have produced an adoption decision without the stronger DTO check. The validator and planner now share the same conservative boundary.
 
 
 ## Decision Log
@@ -93,6 +96,8 @@ The first live scope transfer had a valid intermediate head with the new accepte
 2026-09-23: Do not allow a reviewed RetainResources scope removal to erase the last accepted resource declaration before retained-incarnation history exists. A retirement approval is not deletion authority. Collection also needs exact historical identity and a deletion tombstone; the validator refuses these paths until the catalogue is implemented.
 
 2026-09-23: Expose the versioned adoption DTO/validator module for package tests while keeping `LifecycleDecisions` opaque. Only the validator constructs a non-empty decision through `validateLifecycleDecisions`; the public command accepts proposal data, not proof objects.
+
+2026-09-23: A provider ownership stamp without accepted history is insufficient for adoption. Require an unowned observation for the currently supported route and refuse stamped objects until a separate history recovery protocol proves them. This keeps direct calls to the generic validator within the same authority rule as the operator proposal command.
 
 
 ## Outcomes & Retrospective
