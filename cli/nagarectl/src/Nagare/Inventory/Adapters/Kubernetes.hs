@@ -133,7 +133,7 @@ mkKubernetesAdapter specs ops =
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support adoption or retirement")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, AdoptResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support this action")
   resource <- case NE.toList (plannedResources operation) of
     [single] -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
@@ -148,6 +148,8 @@ validateBefore :: PlannedOperation -> ResourceId -> ContentDigest -> KubernetesS
 validateBefore operation resource desiredDigest state =
   first (PrepareRefused (plannedOperationId operation)) $ case (plannedAction operation, state) of
     (CreateResource, KubernetesAbsent _) -> Right ()
+    (AdoptResource, KubernetesPresent _ revision Nothing digest)
+      | not (T.null revision) && digest == desiredDigest -> Right ()
     (UpdateResource, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
@@ -155,6 +157,7 @@ validateBefore operation resource desiredDigest state =
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (CreateResource, _) -> Left "create requires confirmed absence; an existing object needs reviewed adoption"
+    (AdoptResource, _) -> Left "adoption requires an unstamped matching object with a physical identity and resourceVersion"
     (UpdateResource, _) -> Left "update requires a present object stamped with this logical identity and resourceVersion"
     (RunDeclaredOperation, _) -> Left "declared Job operation requires a completed owned Job"
     _ -> Left "unsupported Kubernetes action"

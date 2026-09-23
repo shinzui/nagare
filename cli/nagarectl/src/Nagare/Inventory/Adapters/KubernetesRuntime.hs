@@ -124,6 +124,9 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
           request <- case (mutationAction mutation, mutationBefore mutation) of
             (CreateResource, KubernetesAbsent _) ->
               pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
+            (AdoptResource, KubernetesPresent uid revision Nothing digest)
+              | digest == mutationNativeDigest mutation ->
+                  adoptionPatch config mutation uid revision
             (UpdateResource, KubernetesPresent _ _ _ _)
               | not (supportedUpdateAddress (mutationAddress mutation)) ->
                   pure (Left "Kubernetes update kind lacks a proved conditional mutation policy")
@@ -350,10 +353,12 @@ parseObserved config resource native response = do
       stampedOwner = textAt "nagare.dev/resource-id" annotations >>= either (const Nothing) Just . mkResourceId
       owner = if stampedContext == Just (contextIdText (runtimeContext config)) then stampedOwner else Nothing
       desiredDigest = contentDigest native
-      desiredMatches = desiredFieldsMatch (withoutCacheClientData desired) observed
+      fieldsMatch = desiredFieldsMatch (withoutCacheClientData desired) observed
         && credentialDataMatches desired observed
         && cacheClientDataMatches desired observed
-        && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
+      stampMatches = textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
+      hasAnyStamp = any (`KM.member` annotations)
+        ["nagare.dev/context-id", "nagare.dev/resource-id", "nagare.dev/spec-digest"]
   case observed of
     Object root -> case KM.lookup "kind" root of
       Just (String "Job") -> unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
@@ -369,7 +374,10 @@ parseObserved config resource native response = do
         unless (deploymentAvailable observed) (Left "Kubernetes Deployment is not available")
       _ -> pure ()
     _ -> pure ()
-  driftDigest <- if desiredMatches then Right desiredDigest else contentDigest <$> canonicalValue observed
+  when (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
+    (Left "Kubernetes inventory ownership stamp is incomplete or malformed")
+  driftDigest <- if fieldsMatch && (not hasAnyStamp || stampMatches)
+    then Right desiredDigest else contentDigest <$> canonicalValue observed
   -- Keep a different logical owner visible to status. A foreign context is
   -- refused below rather than being misclassified as an unstamped object.
   when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
@@ -751,6 +759,52 @@ applyRequest :: PhysicalIdentity -> Text -> Text -> Either Text ([String], Text)
 applyRequest uid revision native = do
   body <- addPreconditions uid revision native
   pure (["apply", "--server-side", "--force-conflicts", "--field-manager=nagare-inventory", "-f", "-"], body)
+
+-- | Adoption changes only Nagare's reserved annotations. The API server
+-- tests UID and resourceVersion in the same JSON Patch that writes them, so a
+-- replacement or concurrent mutation cannot be stamped from a stale review.
+adoptionPatch :: KubernetesRuntimeConfig -> KubernetesMutation -> PhysicalIdentity -> Text -> IO (Either Text ([String], Text))
+adoptionPatch config mutation uid revision = case mutationAddress mutation of
+  Kubernetes _ group kind namespace name -> do
+    fetched <- invoke config
+      (["get", kindToken group kind, T.unpack (nameText name)]
+        <> namespaceArgs namespace <> ["-o", "json"]) ""
+    pure $ do
+      observed <- case fetched of
+        Right (ExitSuccess, output, _) ->
+          first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+        _ -> Left "could not verify the unowned Kubernetes object before adoption"
+      metadata <- metadataOf observed
+      liveUid <- fieldText "uid" metadata
+      liveRevision <- fieldText "resourceVersion" metadata
+      unless (liveUid == physicalIdentityText uid && liveRevision == revision)
+        (Left "Kubernetes adoption identity or resourceVersion changed")
+      annotations <- case KM.lookup "annotations" metadata of
+        Nothing -> Right Nothing
+        Just (Object values) -> Right (Just values)
+        _ -> Left "Kubernetes annotations are malformed"
+      let reserved =
+            [ ("nagare.dev/context-id", contextIdText (runtimeContext config))
+            , ("nagare.dev/resource-id", resourceIdText (mutationResource mutation))
+            , ("nagare.dev/spec-digest", digestText (mutationNativeDigest mutation))
+            ]
+      when (maybe False (\values -> any (\(key, _) -> KM.member (Key.fromText key) values) reserved) annotations)
+        (Left "Kubernetes object already has an inventory ownership stamp")
+      let tests =
+            [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= liveUid]
+            , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= liveRevision]
+            ]
+          writes = case annotations of
+            Nothing -> [object ["op" .= ("add" :: Text), "path" .= ("/metadata/annotations" :: Text),
+              "value" .= object [Key.fromText key .= value | (key, value) <- reserved]]]
+            Just _ -> [object ["op" .= ("add" :: Text),
+              "path" .= ("/metadata/annotations/" <> T.replace "/" "~1" key), "value" .= value]
+              | (key, value) <- reserved]
+      patch <- canonicalValue (toJSON (tests <> writes))
+      pure (["patch", kindToken group kind, T.unpack (nameText name)]
+        <> namespaceArgs namespace <> ["--type=json", "--field-manager=nagare-inventory",
+          "-p", T.unpack (TE.decodeUtf8 patch)], "")
+  _ -> pure (Left "Kubernetes adoption has no Kubernetes address")
 
 -- | Service ports use a merge key that includes the port number. SSA can
 -- temporarily retain both unnamed entries while changing that number, which

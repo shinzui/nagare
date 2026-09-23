@@ -6,6 +6,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -97,6 +98,23 @@ inventoryKubernetesTests =
           Left PrepareRefused {} -> pure ()
           other -> assertFailure ("foreign object accepted: " <> show other)
         readIORef calls >>= (@?= 0)
+    , testCase "reviewed adoption requires an unstamped matching incarnation" $ do
+        state <- newIORef (KubernetesPresent physical "4" Nothing (contentDigest nativeBytes))
+        calls <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter specs (ops state calls)
+            adoptOperation = operation AdoptResource
+        prepared <- adapterPrepare adapter adoptOperation >>= expectRight
+        writeIORef state (KubernetesPresent physical "5" Nothing (contentDigest nativeBytes))
+        changed <- adapterPreflight adapter adoptOperation prepared
+        assertBool "changed resourceVersion was accepted" (isLeft changed)
+        writeIORef state (KubernetesPresent physical "4" Nothing (contentDigest nativeBytes))
+        adapterPreflight adapter adoptOperation prepared >>= expectRight
+        adapterExecute adapter adoptOperation prepared >>= (@?= AdapterEffectCompleted)
+        readIORef calls >>= (@?= 1)
+        _ <- adapterVerify adapter adoptOperation prepared >>= expectRight
+        writeIORef state (KubernetesPresent physical "6" Nothing (contentDigest "different"))
+        refused <- adapterPrepare adapter adoptOperation
+        assertBool "drifted unowned object was accepted" (isLeft refused)
     , testCase "unchanged accepted object plans repair for observed drift and refuses foreign ownership" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
@@ -666,6 +684,44 @@ inventoryKubernetesTests =
               case uidResult of
                 AdapterEffectFailed (KnownNoEffect _) -> pure ()
                 other -> assertFailure ("replacement UID was accepted by a stale update: " <> show other)
+              pure ()) `finally` cleanup
+    , testCase "disposable cluster adopts only the reviewed unowned incarnation" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let value = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ConfigMap" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep149-adoption" :: Text), "namespace" .= ("default" :: Text)]
+                  , "data" .= object ["message" .= ("adopt-me" :: Text)]
+                  ]
+                bytes = ok (canonicalValue value)
+                native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
+                bound = Map.singleton resource native
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                adoptOperation = operation AdoptResource
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl"
+                    ["--context", selectedContext, "delete", "configmap", "nagare-ep149-adoption",
+                      "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              (created, _, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "create", "-f", "-"] (T.unpack (TE.decodeUtf8 bytes))
+              created @?= ExitSuccess
+              prepared <- adapterPrepare adapter adoptOperation >>= expectRight
+              adapterPreflight adapter adoptOperation prepared >>= expectRight
+              adapterExecute adapter adoptOperation prepared >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify adapter adoptOperation prepared >>= expectRight
+              observed <- adapterObserve adapter [resource] >>= expectRight
+              case Map.lookup resource (observationMap observed) of
+                Just (ObservedPresent _) -> pure ()
+                other -> assertFailure ("adopted object did not converge: " <> show other)
               pure ()) `finally` cleanup
     , testCase "disposable reviewed transaction refuses a foreign create after publication" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
