@@ -1,7 +1,8 @@
 module InventoryStatusSpec (inventoryStatusTests) where
 
 import Data.Map.Strict qualified as Map
-import Nagare.Dsl.Prelude
+import Data.Aeson (toJSON, object, (.=))
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Status
@@ -30,6 +31,16 @@ inventoryStatusTests = testGroup "inventory status"
       category [(resourceId, ConfirmedAbsent changed)] @?= MissingResource
       category [(resourceId, ObservationUnavailable "unreadable")] @?= UnknownObservation
       category [] @?= UnknownObservation
+      case classifyDrift inventory (known (observationSet [(resourceId, ObservedPresent uid)])) of
+        [finding] -> do
+          findingHealth finding @?= HealthUnknown
+          toJSON finding @?= object
+            ["resource" .= resourceId, "owner" .= owner,
+             "executor" .= KubernetesExecutor, "address" .= (resource ^. #address),
+             "category" .= Converged, "health" .= HealthUnknown,
+             "physical" .= Just uid, "observedDigest" .= (Nothing :: Maybe ContentDigest),
+             "reason" .= (Nothing :: Maybe Text)]
+        _ -> assertFailure "status fixture has no unique managed resource"
       case classifyDrift inventory (known (observationSet
         [(resourceId, ObservationUnavailable "private provider stderr")])) of
         [finding] -> findingReason finding @?= Just "provider observation is unavailable"
