@@ -65,7 +65,7 @@ import System.Directory
 import System.Environment (lookupEnv)
 import System.FilePath
 import System.IO
-import System.IO.Error (isAlreadyExistsError, isDoesNotExistError)
+import System.IO.Error (isAlreadyExistsError, isAlreadyInUseError, isDoesNotExistError)
 import System.IO.Temp (withTempDirectory)
 import System.Posix.Files (fileMode, getFileStatus, isDirectory, isRegularFile, setFileMode)
 import System.Posix.IO (OpenMode (ReadOnly), closeFd, defaultFileFlags, openFd)
@@ -432,7 +432,10 @@ withProcessLock store action = do
           if not acquired
             then pure (Left StoreBusy)
             else (Right <$> action (LockedStore store)) `finally` hUnlock handle
-        pure (either (Left . StoreIoError . T.pack . show) id (attempted :: Either IOException (Either StoreError a)))
+        pure $ case (attempted :: Either IOException (Either StoreError a)) of
+          Left err | isAlreadyInUseError err -> Left StoreBusy
+          Left err -> Left (StoreIoError (T.pack (show err)))
+          Right result -> result
     maskMVar lock work = do
       acquired <- tryTakeMVar lock
       case acquired of

@@ -32,6 +32,16 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
       ops <- fakeObjectOps
       store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
       exerciseStore store
+  , testCase "two object clients sharing a workstation process lock cannot overlap" $
+      withSystemTempDirectory "inventory-object-lock" $ \root -> do
+        ops <- fakeObjectOps
+        let lockPath = root </> "inventory-remote.lock"
+        firstStore <- newObjectStoreWithLock ops fixtureBinding "client-a" Nothing lockPath
+          >>= either (assertFailure . show) pure
+        secondStore <- newObjectStoreWithLock ops fixtureBinding "client-b" Nothing lockPath
+          >>= either (assertFailure . show) pure
+        held <- withProcessLock firstStore $ \_ -> withProcessLock secondStore (\_ -> pure ())
+        held @?= Right (Left StoreBusy)
   , testCase "two clients cannot replace one observed head generation" $ do
       ops <- fakeObjectOps
       firstStore <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
@@ -250,6 +260,19 @@ inventoryObjectOpsTests = testGroup "inventory object operations"
         PutNoEffect "object remains absent after failed put"
       classifyPutReadback IfAbsent sent (GetUnknown "read denied") @?=
         PutUnknown "read denied"
+  , testCase "a write that lands before its acknowledgement is accepted by read-back" $ do
+      baseOps <- fakeObjectOps
+      let ops = baseOps
+            { putObject = \condition name bytes -> do
+                _ <- putObject baseOps condition name bytes
+                observed <- getObject baseOps name
+                pure (classifyPutReadback condition bytes observed)
+            }
+      store <- newObjectStore ops fixtureBinding "client-a" Nothing
+        >>= either (assertFailure . show) pure
+      headValue <- initializeStore store fixtureBinding "client-a"
+        >>= either (assertFailure . show) pure
+      readHead store >>= (@?= Right (Just headValue))
   , testCase "gated real bucket passes the conditional store contract" $ do
       requestedUrl <- lookupEnv "NAGARE_TEST_INVENTORY_STORE_URL"
       requestedProject <- lookupEnv "NAGARE_TEST_EXPECTED_PROJECT"
