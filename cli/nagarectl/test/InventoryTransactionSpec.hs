@@ -880,6 +880,29 @@ inventoryTransactionTests =
         resumed <- resumeTransaction store registry transaction >>= expectRight
         resumed @?= Converged transaction
         readIORef calls >>= (@?= 1)
+    , testCase "operator recovery refuses unresolved effects and retries only after adapter proof" $ do
+        store <- newMemoryStore
+        attempts <- newIORef (0 :: Int)
+        safe <- newIORef False
+        let executeOnce _ _ = do
+              count <- atomicModifyIORef' attempts (\value -> (value + 1, value))
+              pure (if count == 0 then AdapterEffectAmbiguous "lost acknowledgement" else AdapterEffectCompleted)
+            recover _ _ = do
+              proved <- readIORef safe
+              pure (if proved then RecoverySafeToRetry else RecoveryUnresolved "provider state is uncertain")
+        (reviewed, registry) <- preparedFixtureWith store executeOnce recover
+        stopped <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
+            digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
+            input = OperatorRecoveryInput transaction operation digest RetryAfterAdapterProof
+        refused <- recordOperatorRecovery store registry input False
+        assertBool "unresolved provider state became retry authority" (isLeft refused)
+        readIORef attempts >>= (@?= 1)
+        writeIORef safe True
+        recordOperatorRecovery store registry input False >>= expectRight
+        resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
+        readIORef attempts >>= (@?= 2)
     , testCase "operator recovery decision DTO is strict" $ do
         let good = "{\"version\":1,\"transaction\":\"tx-abc\",\"operation\":\"op-def\",\"review\":\""
               <> TE.encodeUtf8 (digestText (contentDigest "sample"))
