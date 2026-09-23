@@ -55,6 +55,7 @@ import Nagare.Dsl.Types
   )
 import Nagare.Env.Store (extractSecretData)
 import Nagare.Target (TargetProfile (..), storeBackendFor)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
 import System.IO (hClose)
@@ -119,6 +120,9 @@ buildResources mc mm = do
 -- | Run @db create@.
 runDbCreate :: Engine -> Text -> DbCreateParams -> IO ()
 runDbCreate eng nameT params = do
+  transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+  when (isJust transaction) $
+    dieT "db create cannot run inside a reviewed inventory transaction"
   db <- case params ^. #config of
     Just path -> do
       eDb <- loadDatabase path

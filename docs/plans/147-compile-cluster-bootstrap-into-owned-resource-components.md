@@ -57,6 +57,11 @@ provenance:
       at: 2026-09-23T20:05:12Z
       mode: "implement"
       note: "Close reviewed bootstrap bypasses and verify contribution admission"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T20:51:57Z
+      mode: "implement"
+      note: "Guard legacy database creation against inventory transaction re-entry"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -171,6 +176,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-22) M3 partial: Pin the five existing cert-manager, Knative Serving, Kourier, and net-certmanager release YAML assets in the payload with SHA-256 checks. Cloud/local legacy recipes now apply those packaged files instead of fetching URLs during mutation. A compiler expands and binds their native members, accepts Kubernetes RBAC names with colons without loosening scope names, ignores only a trailing empty YAML document, collapses byte-identical Serving CRDs, and explicitly transfers `config-certmanager` from Serving to net-certmanager ownership. The compiled scopes compose with no direct claim collision, and bootstrap adds cross-component Namespace ordering. Installer readiness and vendor-digest tests pass; Helm, readiness, shared ConfigMap policy, and production command replacement remain open.
 - [x] (2026-09-23) M4 partial: `just nix-cache-publish` now enters the same reviewed full-bootstrap path as the other public bootstrap recipes. The Attic low-level publisher refuses a missing artifact-child marker and requires the reviewed destination, OCI digest, and archive digest on every call. The transport guard test passes; remaining non-bootstrap direct entry points are tracked in the coverage audit.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
+- [x] (2026-09-23) M2c partial: The remaining direct `db create` entry point now refuses before loading configuration or making a cluster call when invoked inside an inventory transaction. The full nagarectl suite passes (732 tests). Standalone `db create` and application deploy still call its direct mutation path, so replacement with reviewed inventory remains open.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
 - [x] (2026-09-23) M4: Supported bootstrap recipes and installer entry points use reviewed inventory plan/apply; the standalone stamp command refuses. A disposable 17-scope/208-operation local bootstrap converged through readiness pauses, and an accepted replay verified 205 resources with zero updates. Stale resourceVersion, foreign owner, and replaced UID paths refuse. Non-bootstrap application/data and legacy upgrade paths remain assigned to EP-148/EP-149/EP-150.
 - [x] (2026-09-23) M4 documentation: En, Shomei, nagare-access, and local-auth guides now describe the reviewed bootstrap path and its immutable image inputs instead of directing operators to create databases and apply manifests outside inventory. The pre-0.2 Shomei note requires separate recovery review for retained data.
@@ -178,6 +184,8 @@ A component is an independently identified group of resources and operations, su
 
 
 ## Surprises & Discoveries
+
+2026-09-23: The standalone `db create` command is also called from application deploy, so retiring its direct mutation path requires both command and deploy callers to enter a reviewed database component transaction. A transaction entry guard closes adapter re-entry but does not itself migrate these callers.
 
 2026-09-23: The full local bootstrap exposed five integration gaps that smaller fixtures missed: net-certmanager's self-signed CA Certificate must follow its ClusterIssuer, the Serving routing Certificate must follow the CA-backed issuer, Kourier's gateway must follow its xDS controller, Kubernetes canonicalizes CPU and empty environment fields, and the selected Shomei image requires a base64-encoded 32-byte key-encryption key rather than a 64-character hex value. The installed Nagare release payload contained the previously missing Attic and patched-controller archives. MinIO's old Docker Hub image references could not be pulled; the local component now uses verified immutable Quay manifest digests.
 
@@ -389,5 +397,7 @@ ResourceBundle, ScopeDeclaration, and the DeclaredOperation values inside a bund
 
 
 ## Revision Notes
+
+2026-09-23: Guarded the still-active direct database creation entry point against inventory transaction re-entry. This prevents an adapter from invoking its unreviewed Kubernetes writes while the context transaction lock is held; command and application deploy migration remain required for M2c.
 
 2026-09-16: Cascaded from the MasterPlan's pre-implementation API validation. This plan now supplies the Kubernetes derived-reservation table for EP-144's claim function, with the application/database same-name fixture; stamps identity and per-object spec digest rather than scope revision; places contribution composers in EP-144's dispatch with content-based effective digests; mints database ResourceIds from a stable logical key; and forbids adapter re-entry. The reasons are a collision class the direct-claim model missed, no-op convergence, composition ordering, rename safety, and lock re-entrancy.
