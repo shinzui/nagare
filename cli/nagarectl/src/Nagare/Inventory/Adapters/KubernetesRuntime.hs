@@ -13,6 +13,8 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , jobCompleted
+  , crdEstablished
+  , deploymentAvailable
   , materializeCacheKey
   , cacheClientDataMatches
   , withoutCacheClientData
@@ -123,20 +125,33 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
             Right (arguments, body) -> do
               result <- invoke config arguments (T.unpack body)
               case result of
-                Right (ExitSuccess, _, _) -> waitForJob config (mutationAddress mutation)
+                Right (ExitSuccess, _, _) -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
-waitForJob :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
-waitForJob config (Kubernetes _ "batch" kind namespace name)
-  | nameText kind == "job" = do
+waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
+waitForReadiness config address = case address of
+  Kubernetes _ "batch" kind namespace name | nameText kind == "job" ->
+    waitCondition "complete" "job" namespace name "Job"
+  Kubernetes _ "apiextensions.k8s.io" kind namespace name | nameText kind == "customresourcedefinition" ->
+    waitCondition "established" "crd" namespace name "CustomResourceDefinition"
+  Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
+    result <- invoke config
+      (["rollout", "status", "deployment/" <> T.unpack (nameText name)]
+        <> namespaceArgs namespace <> ["--timeout=300s"])
+      ""
+    pure $ case result of
+      Right (ExitSuccess, _, _) -> AdapterEffectCompleted
+      _ -> AdapterEffectAmbiguous "Kubernetes Deployment did not prove availability; reobserve before retry"
+  _ -> pure AdapterEffectCompleted
+  where
+    waitCondition condition kind namespace name label = do
       result <- invoke config
-        (["wait", "--for=condition=complete", "job/" <> T.unpack (nameText name)]
+        (["wait", "--for=condition=" <> condition, kind <> "/" <> T.unpack (nameText name)]
           <> namespaceArgs namespace <> ["--timeout=300s"])
         ""
       pure $ case result of
         Right (ExitSuccess, _, _) -> AdapterEffectCompleted
-        _ -> AdapterEffectAmbiguous "Kubernetes Job did not prove completion; reobserve before retry"
-waitForJob _ _ = pure AdapterEffectCompleted
+        _ -> AdapterEffectAmbiguous ("Kubernetes " <> label <> " did not prove readiness; reobserve before retry")
 
 -- The client ConfigMap's data is delegated at review time, but observation
 -- still compares it with the current output of the named logical cache.
@@ -202,23 +217,44 @@ parseObserved config resource native response = do
         && cacheClientDataMatches desired observed
         && textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
   case observed of
-    Object root | KM.lookup "kind" root == Just (String "Job") ->
-      unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
+    Object root -> case KM.lookup "kind" root of
+      Just (String "Job") -> unless (jobCompleted observed) (Left "Kubernetes Job has not completed")
+      Just (String "CustomResourceDefinition") ->
+        unless (crdEstablished observed) (Left "Kubernetes CustomResourceDefinition is not established")
+      Just (String "Deployment") ->
+        unless (deploymentAvailable observed) (Left "Kubernetes Deployment is not available")
+      _ -> pure ()
     _ -> pure ()
   driftDigest <- if desiredMatches then Right desiredDigest else contentDigest <$> canonicalValue observed
   pure (KubernetesPresent uid revision (if owner == Just resource then owner else Nothing) driftDigest)
 
 jobCompleted :: Value -> Bool
-jobCompleted (Object root) = case KM.lookup "status" root of
+jobCompleted = hasCondition "Complete"
+
+crdEstablished :: Value -> Bool
+crdEstablished = hasCondition "Established"
+
+hasCondition :: Text -> Value -> Bool
+hasCondition conditionType (Object root) = case KM.lookup "status" root of
   Just (Object status) -> case KM.lookup "conditions" status of
     Just (Array conditions) -> any completed (foldr (:) [] conditions)
     _ -> False
   _ -> False
   where
-    completed (Object condition) = KM.lookup "type" condition == Just (String "Complete")
+    completed (Object condition) = KM.lookup "type" condition == Just (String conditionType)
       && KM.lookup "status" condition == Just (String "True")
     completed _ = False
-jobCompleted _ = False
+hasCondition _ _ = False
+
+deploymentAvailable :: Value -> Bool
+deploymentAvailable value@(Object root) = hasCondition "Available" value
+  && case (KM.lookup "status" root, KM.lookup "metadata" root) of
+    (Just (Object status), Just (Object metadata)) ->
+      case (KM.lookup "observedGeneration" status, KM.lookup "generation" metadata) of
+        (Just observed, Just desired) -> observed == desired
+        _ -> False
+    _ -> False
+deploymentAvailable _ = False
 
 metadataOf :: Value -> Either Text Object
 metadataOf (Object root) = case KM.lookup "metadata" root of

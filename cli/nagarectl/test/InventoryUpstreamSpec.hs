@@ -37,7 +37,27 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
           native = Map.unions [values | (_, (_, values)) <- components]
           resources = [resource | Managed resource <- members]
           binding = ContextBinding (ok (mkContextId "fixture")) (known "project")
+          certMembers = [resource | Managed resource <- declarations (fst cert)]
+          certCrds = [resource ^. #identity | resource <- certMembers,
+            case resource ^. #address of
+              Kubernetes _ "apiextensions.k8s.io" kind Nothing _ -> nameText kind == "customresourcedefinition"
+              _ -> False]
+          certDeployments = [resource | resource <- certMembers,
+            case resource ^. #address of
+              Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+              _ -> False]
+          certServiceAccounts = [resource ^. #identity | resource <- certMembers,
+            case resource ^. #address of
+              Kubernetes _ "" kind (Just _) _ -> nameText kind == "serviceaccount"
+              _ -> False]
       assertBool "upstream release members were dropped" (length resources > 100)
+      assertBool "cert-manager release lacks expected readiness fixtures" (not (null certCrds) && not (null certDeployments) && not (null certServiceAccounts))
+      assertBool "cert-manager direct objects precede CRD consumers"
+        (all (\resource -> all (\crd -> OrderedAfter crd `elem` resource ^. #dependencies) certCrds)
+          [resource | resource <- certMembers, resource ^. #identity `notElem` certCrds])
+      assertBool "cert-manager Deployment starts after its prerequisites"
+        (all (\resource -> all (\account -> OrderedAfter account `elem` resource ^. #dependencies) certServiceAccounts)
+          certDeployments)
       Map.size native @?= length resources
       _ <- expectRight (validateSuppliedKubernetesMembers resources native)
       case scopes of
@@ -60,11 +80,16 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       (servingBootstrap, _) <- compileBootstrapCandidate snapshot
         (BootstrapInput foundation Nothing [servingInput, netInput]) >>= expectRight
       let allMembers = [resource | Managed resource <- inventoryDeclarations (candidateInventory servingBootstrap)]
+          servingMembers = [resource ^. #identity | resource <- allMembers,
+            resource ^. #owner == componentOwner "serving"]
           namespaceIds = [resource ^. #identity | resource <- allMembers,
             resource ^. #address == Kubernetes fixtureCluster "" (known "namespace") Nothing (known "knative-serving")]
           netMembers = [resource | resource <- allMembers,
             resource ^. #owner == componentOwner "net-certmanager",
             case resource ^. #address of Kubernetes _ _ _ (Just name) _ -> name == known "knative-serving"; _ -> False]
+      assertBool "ordered upstream scope does not wait for prior operator readiness"
+        (not (null servingMembers) && not (null netMembers)
+          && all (\resource -> all (\prior -> OrderedAfter prior `elem` resource ^. #dependencies) servingMembers) netMembers)
       case namespaceIds of
         [namespaceId] -> assertBool "net-certmanager lacks the serving Namespace prerequisite"
           (not (null netMembers) && all (elem (OrderedAfter namespaceId) . (^. #dependencies)) netMembers)

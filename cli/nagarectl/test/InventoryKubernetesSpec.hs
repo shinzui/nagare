@@ -20,7 +20,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersi
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), cacheClientDataMatches, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, deploymentAvailable, desiredFieldsMatch, jobCompleted, materializeCacheKey, mkKubernetesRuntimeOps, observeCacheClientOutput, withoutCacheClientData)
 import Nagare.Inventory.Database (compileDatabaseForBackend, compileDatabaseNative, compileDatabaseNativeWithBackup)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -186,6 +186,20 @@ inventoryKubernetesTests =
         assertBool "running Job proved complete" (not (jobCompleted (job [condition "Complete" "False"])))
         assertBool "failed Job proved complete" (not (jobCompleted (job [condition "Failed" "True"])))
         assertBool "completed Job was not recognized" (jobCompleted (job [condition "Complete" "True"]))
+    , testCase "CRD and Deployment verification requires current controller readiness" $ do
+        let condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
+            crd state = object ["status" .= object ["conditions" .= [condition "Established" state]]]
+            deployment observedGeneration = object
+              [ "metadata" .= object ["generation" .= (3 :: Int)]
+              , "status" .= object
+                  [ "observedGeneration" .= (observedGeneration :: Int)
+                  , "conditions" .= [condition "Available" "True"]
+                  ]
+              ]
+        assertBool "unestablished CRD was accepted" (not (crdEstablished (crd "False")))
+        assertBool "established CRD was rejected" (crdEstablished (crd "True"))
+        assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
+        assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
     , testCase "cache client fills only the typed generated-key slot after review" $ do
         let template = object
               [ "apiVersion" .= ("v1" :: Text)

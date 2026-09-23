@@ -59,7 +59,10 @@ compileUpstream input = do
           [(name, resource ^. #identity) | (resource, _) <- retained,
             Kubernetes _ "" kind Nothing name <- [resource ^. #address], nameText kind == "namespace"]
         dependencies = Map.union namespaceIds (upstreamNamespaces input)
-        ordered = map (addNamespaceDependency dependencies) retained
+        crdIds = [resource ^. #identity | (resource, _) <- retained, isCrd resource]
+        prerequisites = [resource ^. #identity | (resource, _) <- retained,
+          not (isCrd resource || isDeployment resource)]
+        ordered = map (addDependencies dependencies crdIds prerequisites) retained
     let bundle = ResourceBundle (map (Managed . fst) ordered) [] [] [] [] []
     pure (bundle, Map.fromList [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- ordered])
   where
@@ -99,12 +102,26 @@ compileUpstream input = do
           , prior {source = resource ^. #source} == resource -> Right existing
           | otherwise -> Left (single (invalid ("upstream assets give different content to "
               <> resourceIdText (resource ^. #identity))))
-    addNamespaceDependency dependencies (resource, bound) =
-      let edges = case resource ^. #address of
+    addDependencies dependencies crdIds prerequisites (resource, bound) =
+      let namespaceEdges = case resource ^. #address of
             Kubernetes _ _ _ (Just namespaceName) _ ->
               maybe [] (pure . OrderedAfter) (Map.lookup namespaceName dependencies)
             _ -> []
-       in (resource {dependencies = edges <> resource ^. #dependencies}, bound)
+          crdEdges = if isCrd resource then [] else map OrderedAfter crdIds
+          prerequisiteEdges = if isDeployment resource then map OrderedAfter prerequisites else []
+          own = resource ^. #identity
+          edges = filter (/= OrderedAfter own) (namespaceEdges <> crdEdges <> prerequisiteEdges)
+       in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
+
+isCrd :: ManagedResource -> Bool
+isCrd resource = case resource ^. #address of
+  Kubernetes _ "apiextensions.k8s.io" kind Nothing _ -> nameText kind == "customresourcedefinition"
+  _ -> False
+
+isDeployment :: ManagedResource -> Bool
+isDeployment resource = case resource ^. #address of
+  Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "deployment"
+  _ -> False
 
 sensitivityOf :: Value -> Sensitivity
 sensitivityOf (Object root) | KM.lookup "kind" root == Just (String "Secret") = Secret

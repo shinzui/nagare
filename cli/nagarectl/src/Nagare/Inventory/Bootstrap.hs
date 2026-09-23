@@ -62,7 +62,7 @@ compileBootstrapCandidate snapshot input = do
           [((cluster, name), resource ^. #identity)
           | bundle <- foundationBundle : map fst rawUpstream, Managed resource <- declarations bundle,
             Kubernetes cluster "" kind Nothing name <- [resource ^. #address], nameText kind == "namespace"]
-        upstreamComponents = map (orderNamespaces namespaceIds) rawUpstream
+        upstreamComponents = orderUpstreamPhases (map (orderNamespaces namespaceIds) rawUpstream)
     upstreamScopes <- traverse (uncurry mkScopeDeclaration)
       [(upstreamOwner upstreamInput, [bundle]) | (upstreamInput, (bundle, _)) <- zip (bootstrapUpstream input) upstreamComponents]
     let nativeMaps = foundationNative : cacheNative : map snd upstreamComponents
@@ -93,3 +93,22 @@ compileBootstrapCandidate snapshot input = do
           updatedNative = Map.mapWithKey (\resource (original, bytes) ->
             (Map.findWithDefault original resource declarationsById, bytes)) native
        in (updatedBundle, updatedNative)
+    -- The input order is the reviewed installation order of pinned operator
+    -- releases. Later releases may include CRs whose CRDs and webhooks live in
+    -- earlier scopes, so readiness of every earlier direct member is required.
+    orderUpstreamPhases = go []
+      where
+        go _ [] = []
+        go prior ((bundle, native) : remaining) =
+          let attach resource = resource
+                {dependencies = map OrderedAfter prior <> resource ^. #dependencies}
+              revised = [(resource ^. #identity, attach resource)
+                | Managed resource <- declarations bundle]
+              byId = Map.fromList revised
+              update (Managed resource) = Managed (Map.findWithDefault resource (resource ^. #identity) byId)
+              update declaration = declaration
+              updatedBundle = bundle {declarations = map update (declarations bundle)}
+              updatedNative = Map.mapWithKey (\resource (original, bytes) ->
+                (Map.findWithDefault original resource byId, bytes)) native
+              current = map fst revised
+           in (updatedBundle, updatedNative) : go (prior <> current) remaining
