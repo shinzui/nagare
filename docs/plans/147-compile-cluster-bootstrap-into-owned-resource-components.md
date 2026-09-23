@@ -52,6 +52,11 @@ provenance:
       at: 2026-09-23T18:30:06Z
       mode: "implement"
       note: "Close the standalone cache publisher path through reviewed bootstrap"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T20:05:12Z
+      mode: "implement"
+      note: "Close reviewed bootstrap bypasses and verify contribution admission"
 ---
 
 # Compile cluster bootstrap into owned resource components
@@ -167,7 +172,7 @@ A component is an independently identified group of resources and operations, su
 - [x] (2026-09-23) M4 partial: `just nix-cache-publish` now enters the same reviewed full-bootstrap path as the other public bootstrap recipes. The Attic low-level publisher refuses a missing artifact-child marker and requires the reviewed destination, OCI digest, and archive digest on every call. The transport guard test passes; remaining non-bootstrap direct entry points are tracked in the coverage audit.
 - [ ] M2c: Build the complete database/cache resource bundles and remove the alternate create path.
 - [ ] M3: Compile remaining cloud/local bootstrap and shared-owner contributions.
-- [ ] M4: Replace bootstrap orchestration, prove parity, and test component resume.
+- [x] (2026-09-23) M4: Supported bootstrap recipes and installer entry points use reviewed inventory plan/apply; the standalone stamp command refuses. A disposable 17-scope/208-operation local bootstrap converged through readiness pauses, and an accepted replay verified 205 resources with zero updates. Stale resourceVersion, foreign owner, and replaced UID paths refuse. Non-bootstrap application/data and legacy upgrade paths remain assigned to EP-148/EP-149/EP-150.
 
 
 ## Surprises & Discoveries

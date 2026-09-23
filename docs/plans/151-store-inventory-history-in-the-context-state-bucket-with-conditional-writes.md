@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-23T17:51:14Z
       mode: "implement"
       note: "Begin conditional GCS object transport and shared store backend"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T20:05:04Z
+      mode: "implement"
+      note: "Complete live GCS probe, conformance, and two-state-root migration recovery"
 ---
 
 # Store inventory history in the context state bucket with conditional writes

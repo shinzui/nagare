@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-23T17:51:23Z
       mode: "implement"
       note: "Record current model contribution to accepted inventory status and shared store progress"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T20:05:12Z
+      mode: "implement"
+      note: "Implement reviewed adoption and scoped transfer checks"
 ---
 
 # Explain drift and execute reviewed adoption migration and retirement
