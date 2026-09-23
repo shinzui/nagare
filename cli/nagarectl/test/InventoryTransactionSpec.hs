@@ -105,6 +105,10 @@ inventoryTransactionTests =
             resourceId = declarationId oldDeclaration
             oldScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [oldDeclaration] [] [] [] [] []])
             newScope = ok (mkScopeDeclaration newOwner [ResourceBundle [moved] [] [] [] [] []])
+            changed = case moved of
+              Managed value -> Managed (value {spec = NativeObject (contentDigest "changed-during-transfer")})
+              _ -> error "fixture resource must be managed"
+            changedScope = ok (mkScopeDeclaration newOwner [ResourceBundle [changed] [] [] [] [] []])
             dummyScope = ok (mkScopeDeclaration dummyOwner [])
             generation = ok (mkScopeGeneration 1)
             snapshot = ok (mkScopeSnapshot fixtureBinding
@@ -112,6 +116,8 @@ inventoryTransactionTests =
             seedCandidate = ok (composeInventory snapshot (ReplaceScope dummyScope :| []))
             transfer = ok (composeInventory snapshot
               (RetireScope oldOwner RetainResources :| [ReplaceScope newScope]))
+            changedTransfer = ok (composeInventory snapshot
+              (RetireScope oldOwner RetainResources :| [ReplaceScope changedScope]))
             observations = ok (observationSet
               [(resourceId, ObservedPresent (ok (mkPhysicalIdentity "same-uid")))])
         store <- newMemoryStore
@@ -128,6 +134,10 @@ inventoryTransactionTests =
         approved <- expectRight (validateLifecycleDecisions transfer history observations [decision])
         map plannedAction (proposalOperations (ok (planChanges transfer approved history observations)))
           @?= [VerifyResource]
+        case validateLifecycleDecisions changedTransfer history observations [decision] of
+          Left failures -> assertBool "transfer silently changed native content"
+            ("invalid-transfer" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "transfer silently changed native content"
         let transferInput = AdoptionInput "compiled" fixtureBinding
               [AdoptionTarget resourceId movedAddress
                 (ok (mkPhysicalIdentity "same-uid")) (Just oldOwner)]

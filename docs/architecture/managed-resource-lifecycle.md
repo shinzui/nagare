@@ -28,6 +28,8 @@ For a transfer between known scopes, keep the same ResourceId in the new declara
 select both the prior and next scopes in the compiled candidate, and set
 `previousOwner` on that proposal resource to the exact prior ScopeId. The observed
 object must already carry the same logical identity and desired native content.
+The proved transfer route currently accepts Kubernetes resources only, and requires
+the address, spec, aliases, policies, delegations, and dependencies to remain equal.
 The review runs an incarnation-bound verification before the transfer can converge.
 An unreviewed move between files or scopes is refused as `owner-transfer-required`.
 

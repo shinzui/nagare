@@ -215,8 +215,18 @@ validateLifecycleDecisions candidate history observations proposals =
               (Just (Managed next), Just (Managed old), Just (ObservedPresent _))
                 | next ^. #owner /= old ^. #owner
                 , Set.fromList [next ^. #owner, old ^. #owner]
-                    `Set.isSubsetOf` selectedScopes -> []
-              _ -> issue "invalid-transfer" "transfer needs both selected scopes and a matching owned incarnation"
+                    `Set.isSubsetOf` selectedScopes
+                , next ^. #executor == KubernetesExecutor
+                , old ^. #executor == KubernetesExecutor
+                , next ^. #address == old ^. #address
+                , next ^. #spec == old ^. #spec
+                , next ^. #aliases == old ^. #aliases
+                , next ^. #lifecycle == old ^. #lifecycle
+                , next ^. #dataPolicy == old ^. #dataPolicy
+                , next ^. #sensitivity == old ^. #sensitivity
+                , next ^. #delegations == old ^. #delegations
+                , Set.fromList (next ^. #dependencies) == Set.fromList (old ^. #dependencies) -> []
+              _ -> issue "invalid-transfer" "transfer needs both selected scopes, a matching owned incarnation, and an unchanged Kubernetes resource contract"
             ApproveRetirement -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource) of
               (Nothing, Just (Managed _), Just RetainResources) ->
                 issue "retention-catalog-required" "retirement needs a durable retained-incarnation catalogue before the accepted scope can disappear"
