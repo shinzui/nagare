@@ -45,6 +45,7 @@ data AuthInput = AuthInput
   , authImages :: !(Map Text Text)
   , authBaseDomain :: !Text
   , authDatabasePrerequisites :: !(Map Text ResourceId)
+  , authExtraPrerequisites :: ![ResourceId]
   , authMode :: !AuthMode
   }
 

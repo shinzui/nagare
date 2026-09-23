@@ -7,6 +7,7 @@ module Nagare.Inventory.Bootstrap
   , compileConfiguredBootstrap
   , compileIssuerBootstrap
   , compileBootstrapWithAuth
+  , compileBootstrapWithAuthAndScopes
   ) where
 
 import Data.ByteString (ByteString)
@@ -86,6 +87,17 @@ compileBootstrapWithAuth
   -> IO (Either (NonEmpty InventoryError)
        (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
 compileBootstrapWithAuth snapshot bootstrap auth databases = do
+  compileBootstrapWithAuthAndScopes snapshot bootstrap auth databases []
+
+compileBootstrapWithAuthAndScopes
+  :: ScopeSnapshot
+  -> BootstrapInput
+  -> AuthInput
+  -> [(Text, DatabaseDirectInput, StoreBackend)]
+  -> [ScopeDeclaration]
+  -> IO (Either (NonEmpty InventoryError)
+       (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compileBootstrapWithAuthAndScopes snapshot bootstrap auth databases extras = do
   baseResult <- compileBootstrapCandidate snapshot bootstrap
   authResult <- compileAuthComponent auth databases
   pure $ do
@@ -101,7 +113,8 @@ compileBootstrapWithAuth snapshot bootstrap auth databases = do
           | Managed resource <- inventoryDeclarations (candidateInventory base),
             resource ^. #owner `elem` upstreamOwners]
         orderResource resource = resource
-          {dependencies = map OrderedAfter upstreamIds <> resource ^. #dependencies}
+          {dependencies = map OrderedAfter (upstreamIds <> authExtraPrerequisites auth)
+            <> resource ^. #dependencies}
         orderedBundles =
           [bundle {declarations = map (\case
               Managed resource -> Managed (orderResource resource)
@@ -109,7 +122,8 @@ compileBootstrapWithAuth snapshot bootstrap auth databases = do
           | bundle <- scopeBundles authScope]
         orderedNative = Map.map (\(resource, bytes) -> (orderResource resource, bytes)) authNative
     orderedScope <- mkScopeDeclaration (authOwner auth) orderedBundles
-    candidate <- composeInventory snapshot (candidateChanges base <> (ReplaceScope orderedScope :| []))
+    candidate <- composeInventory snapshot (candidateChanges base
+      <> (ReplaceScope orderedScope :| map ReplaceScope extras))
     pure (candidate, Map.union baseNative orderedNative)
   where
     known = either (error . show) id . mkName

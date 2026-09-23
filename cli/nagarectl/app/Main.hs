@@ -101,7 +101,7 @@ import Nagare.Cdn.Status
   )
 import Nagare.Cluster.CertificateMigration qualified as CertificateMigration
 import Nagare.Cluster.CertificatePolicy (parseLabeledNamespaces)
-import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Cluster.GcsJob (StoreBackend (..))
 import Nagare.Cluster.Kubeconfig
   ( KubeconfigIdentity (..)
   , defaultFetchOps
@@ -252,10 +252,13 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
+import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
+import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
+import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
@@ -4102,12 +4105,38 @@ runPlatformBootstrapPlan mctx output = do
       (registryPrefix profile) (profile ^. #backupBucket) (profile ^. #nixCacheBucket)
       >>= either (dieT . T.pack . show) pure)
     else pure Nothing
-  (base, baseNative) <- compileBootstrapCandidate snapshot (BootstrapInput foundation Nothing upstream)
+  authImages <- fmap Map.fromList $ forM
+    [("en", "NAGARE_AUTH_EN_IMAGE"), ("shomei", "NAGARE_AUTH_SHOMEI_IMAGE"),
+     ("nagare-access", "NAGARE_AUTH_ACCESS_IMAGE")] $ \(service, variable) -> do
+      value <- lookupEnv variable >>= maybe (dieT ("bootstrap requires " <> T.pack variable <> " as an immutable image reference")) pure
+      pure (service, T.pack value)
+  backupBackend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
+  localStore <- case backupBackend of
+    MinioBackend store -> Just <$> (compileLocalObjectStore root foundation store
+      >>= either (dieT . T.pack . show) pure)
+    GcsBackend {} -> pure Nothing
+  let authMode = if profile ^. #mode == Local then LocalAuth else CloudAuth
+  (rawAuth, authDatabases) <- either (dieT . T.pack . show) pure
+    (packagedAuthInputs root foundation authMode (profile ^. #baseDomain) authImages backupBackend)
+  localPrerequisites <- case localStore of
+    Nothing -> pure []
+    Just (_, members) -> case
+      [resource ^. #identity | (resource, _) <- Map.elems members,
+        case resource ^. #address of
+          Resource.Kubernetes _ "batch" kind _ name ->
+            Resource.nameText kind == "job" && Resource.nameText name == "minio-make-bucket"
+          _ -> False] of
+      [bucketJob] -> pure [bucketJob]
+      _ -> dieT "local object store has no unique bucket preparation Job"
+  let auth = rawAuth {authExtraPrerequisites = localPrerequisites}
+  (base, baseNative) <- compileBootstrapWithAuthAndScopes snapshot
+    (BootstrapInput foundation Nothing upstream) auth authDatabases (maybe [] (pure . fst) localStore)
     >>= either (dieT . T.pack . show) pure
   let (cacheScopes, cacheNative) = case cacheComponent of
         Nothing -> ([], Map.empty)
         Just (imageScope, cacheScope, native) -> ([imageScope, cacheScope], native)
-      nativeMaps = [baseNative, observabilityNative, cacheNative]
+      localNative = maybe Map.empty snd localStore
+      nativeMaps = [baseNative, observabilityNative, cacheNative, localNative]
       native = Map.unions nativeMaps
   unless (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")

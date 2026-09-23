@@ -5,13 +5,15 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Cluster.GcsJob (StoreBackend (..), MinioRef (..))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
+import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
+import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Upstream (pinnedUpstreamInputs)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -97,11 +99,62 @@ inventoryAuthTests = testGroup "auth inventory component"
       (candidate, native) <- compileBootstrapWithAuth snapshot bootstrap auth backends >>= expectRight
       Map.size (inventoryScopes (candidateInventory candidate)) @?= 6
       assertBool "auth bootstrap omitted direct native members" (Map.size native > 130)
+  , testCase "packaged auth supplies complete database inputs and refuses mutable images" $ do
+      let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          backend = GcsBackend "project" "bucket"
+          pinned = authImages fixture
+      (auth, databases) <- expectRight (packagedAuthInputs "../.." foundation CloudAuth
+        "example.test" pinned backend)
+      length databases @?= 2
+      authNamespace auth @?= foundationNamespaceId foundation (ok (mkName "nagare-system"))
+      (scope, native) <- compilePackagedAuth "../.." foundation CloudAuth
+        "example.test" pinned backend >>= expectRight
+      length (scopeBundles scope) @?= 3
+      assertBool "packaged auth native database members are missing" (Map.size native > 20)
+      invalid <- compilePackagedAuth "../.." foundation CloudAuth "example.test"
+        (Map.insert "en" "registry.example.test/en:mutable" pinned) backend
+      assertBool "mutable auth image was accepted" (case invalid of Left _ -> True; Right _ -> False)
+  , testCase "local MinIO transport compiles as an owned scope" $ do
+      let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          store = MinioRef "http://minio.nagare-system.svc.cluster.local:9000"
+            "nagare-backups" "nagare-minio-credentials"
+      (scope, native) <- compileLocalObjectStore "../.." foundation store >>= expectRight
+      Map.size native @?= 5
+      assertBool "MinIO scope omitted the bucket Job"
+        (any (\(resource, _) -> case resource ^. #address of
+          Kubernetes _ "batch" kind _ name -> nameText kind == "job" && nameText name == "minio-make-bucket"
+          _ -> False) (Map.elems native))
+      length (scopeBundles scope) @?= 1
+      changed <- compileLocalObjectStore "../.." foundation
+        (store {bucket = "wrong-bucket"})
+      assertBool "local object-store profile mismatch was accepted" (case changed of Left _ -> True; Right _ -> False)
+  , testCase "local auth backup waits for the owned MinIO bucket" $ do
+      let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          store = MinioRef "http://minio.nagare-system.svc.cluster.local:9000"
+            "nagare-backups" "nagare-minio-credentials"
+          backend = MinioBackend store
+          binding = ContextBinding (ok (mkContextId "local-auth-fixture")) (ok (mkName "project"))
+          snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+          bootstrap = BootstrapInput foundation Nothing (pinnedUpstreamInputs fixtureCluster "../..")
+      (localScope, localNative) <- compileLocalObjectStore "../.." foundation store >>= expectRight
+      let bucketJobs = [resource ^. #identity | (resource, _) <- Map.elems localNative,
+            case resource ^. #address of
+              Kubernetes _ "batch" kind _ name -> nameText kind == "job" && nameText name == "minio-make-bucket"
+              _ -> False]
+      [bucketJob] <- pure bucketJobs
+      (auth, databases) <- expectRight (packagedAuthInputs "../.." foundation LocalAuth
+        "example.test" (authImages fixture) backend)
+      (candidate, _) <- compileBootstrapWithAuthAndScopes snapshot bootstrap
+        auth {authExtraPrerequisites = [bucketJob]} databases [localScope] >>= expectRight
+      Map.size (inventoryScopes (candidateInventory candidate)) @?= 7
   ]
 
 fixture :: AuthInput
 fixture = AuthInput fixtureOwner fixtureCluster namespaceId "../.." images "example.test"
-  (Map.fromList [("en", dbId "en"), ("shomei", dbId "shomei")]) CloudAuth
+  (Map.fromList [("en", dbId "en"), ("shomei", dbId "shomei")]) [] CloudAuth
   where
     images = Map.fromList [(name, "registry.example.test/" <> name <> "@sha256:" <> digest)
       | name <- ["en", "shomei", "nagare-access"]]

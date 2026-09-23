@@ -102,7 +102,9 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Cloud
     Nagare.Inventory.Components.Auth
+    Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.Foundation
+    Nagare.Inventory.Components.LocalObjectStore
     Nagare.Inventory.Components.Observability
     Nagare.Inventory.Components.PackagedCache
     Nagare.Inventory.Adapters.Helm
