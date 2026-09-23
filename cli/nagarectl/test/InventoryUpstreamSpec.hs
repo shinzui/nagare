@@ -1,5 +1,7 @@
 module InventoryUpstreamSpec (inventoryUpstreamTests) where
 
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -7,7 +9,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Components.Upstream
-import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
+import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compileConfiguredBootstrap, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
 import Nagare.Resource.Inventory
@@ -95,10 +97,58 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       result <- compileUpstream (component "cert-manager"
         [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", digest (replicateText 64 "0"))])
       assertBool "changed pinned asset was accepted" (either (const True) (const False) result)
+  , testCase "reviewed upstream ConfigMap overlay changes one owned native member" $ do
+      servingInput <- case pinnedUpstreamInputs fixtureCluster "../.." of
+        _ : serving : _ -> pure serving
+        _ -> assertFailure "serving release is absent" >> pure (error "unreachable")
+      let address = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
+          overlaid = servingInput {upstreamConfigMapData = Map.singleton address
+            (Map.singleton "ingress-class" (Just "kourier.ingress.networking.knative.dev"))}
+      (_, original) <- compileUpstream servingInput >>= expectRight
+      (_, changed) <- compileUpstream overlaid >>= expectRight
+      let boundAt native = [(resource ^. #identity, bytes) | (resource, bytes) <- Map.elems native,
+            resource ^. #address == address]
+      case (boundAt original, boundAt changed) of
+        ([(priorId, priorBytes)], [(nextId, nextBytes)]) -> do
+          priorId @?= nextId
+          assertBool "ConfigMap overlay did not change retained native bytes" (priorBytes /= nextBytes)
+        _ -> assertFailure "config-network was not uniquely bound"
+      missing <- compileUpstream servingInput {upstreamConfigMapData = Map.singleton
+        (ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "absent"))
+        (Map.singleton "key" (Just "value"))}
+      assertBool "absent upstream ConfigMap overlay was accepted" (either (const True) (const False) missing)
+  , testCase "packaged cloud and local Knative policy bind into upstream scopes" $ do
+      let foundation = FoundationInput (componentOwner "foundation") fixtureCluster
+            "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+          snapshot = ok (mkScopeSnapshot
+            (ContextBinding (ok (mkContextId "fixture")) (known "project")) Map.empty Map.empty)
+          compileWith certificatePatch = compileConfiguredBootstrap snapshot foundation Nothing
+            "../.." "example.test" "registry.example.test" certificatePatch >>= expectRight
+      (cloud, cloudNative) <- compileWith "cluster/bootstrap/knative-serving/config-certmanager.yaml"
+      (local, localNative) <- compileWith "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
+      Map.size (inventoryScopes (candidateInventory cloud)) @?= 5
+      Map.size (inventoryScopes (candidateInventory local)) @?= 5
+      Map.size cloudNative @?= Map.size localNative
+      assertBool "cloud/local issuer policy did not change retained native members" (cloudNative /= localNative)
+      let domainAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-domain")
+          domainObjects = [bytes | (resource, bytes) <- Map.elems cloudNative,
+            resource ^. #address == domainAddress]
+      case domainObjects of
+        [bytes] -> case eitherDecodeStrict bytes of
+          Right (Object root) -> case KM.lookup "data" root of
+            Just (Object entries) -> do
+              KM.lookup "example.test" entries @?= Just (String "")
+              KM.lookup "svc.cluster.local" entries @?= Nothing
+            _ -> assertFailure "configured domain has no data"
+          _ -> assertFailure "configured domain native member is malformed"
+        _ -> assertFailure "configured domain is not uniquely owned"
+      invalidPatch <- configuredUpstreamInputs fixtureCluster "../.." "example.test"
+        "registry.example.test" "../outside.yaml"
+      assertBool "non-packaged certificate policy was accepted" (either (const True) (const False) invalidPatch)
   ]
 
 component :: Text -> [(FilePath, ContentDigest)] -> UpstreamInput
-component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty
+component name files = UpstreamInput (componentOwner name) fixtureCluster (ok (mkLogicalKey name)) "../.." files Map.empty Set.empty Map.empty
 
 componentOwner :: Text -> ScopeId
 componentOwner name = ok (mkScopeId Platform name)

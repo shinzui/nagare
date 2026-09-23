@@ -4,6 +4,7 @@ module Nagare.Inventory.Bootstrap
   ( BootstrapInput (..)
   , compileBootstrapCandidate
   , compilePinnedBootstrap
+  , compileConfiguredBootstrap
   ) where
 
 import Data.ByteString (ByteString)
@@ -11,6 +12,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Inventory.Cache
@@ -40,6 +42,22 @@ compilePinnedBootstrap
 compilePinnedBootstrap snapshot foundation cache root =
   compileBootstrapCandidate snapshot (BootstrapInput foundation cache
     (pinnedUpstreamInputs (foundationCluster foundation) root))
+
+compileConfiguredBootstrap
+  :: ScopeSnapshot
+  -> FoundationInput
+  -> Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput)
+  -> FilePath
+  -> Text
+  -> Text
+  -> FilePath
+  -> IO (Either (NonEmpty InventoryError)
+       (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
+compileConfiguredBootstrap snapshot foundation cache root domain registry certificatePatch = do
+  configured <- configuredUpstreamInputs (foundationCluster foundation) root domain registry certificatePatch
+  case configured of
+    Left message -> pure (Left (inventoryError "invalid-upstream-policy" message :| []))
+    Right upstream -> compileBootstrapCandidate snapshot (BootstrapInput foundation cache upstream)
 
 compileBootstrapCandidate
   :: ScopeSnapshot
