@@ -134,6 +134,7 @@ publish() {
         */attic:*)
           NAGARE_ARTIFACT_DESTINATION="${destination}" \
           NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
+          NAGARE_ARTIFACT_SOURCE_DIGEST="${source_digest}" \
             bash "${repo_root}/cluster/bootstrap/nix-cache/publish-image.sh" >&2
           ;;
         */net-certmanager-controller:v1.14.0-nagare.1)

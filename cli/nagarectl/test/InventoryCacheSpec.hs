@@ -16,7 +16,7 @@ import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
-import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
+import Nagare.Inventory.Components.PackagedCache (compilePackagedCache, compilePackagedCacheWithVerifiedImage)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -49,8 +49,18 @@ inventoryCacheTests = testGroup "cache inventory adapter"
         BC.writeFile (destination </> "attic-server-image.tar.gz") "fixture-archive"
         let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
               "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
-        (imageScope, cacheScope, native) <- compilePackagedCache root foundation "project"
-          "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= expectRight
+        invalidArchive <- compilePackagedCache root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket"
+        assertBool "malformed Attic archive reached review" (either (const True) (const False) invalidArchive)
+        let archiveDigest = contentDigest "fixture-archive"
+            imageDigest = ok (mkContentDigest "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        (imageScope, cacheScope, native) <- compilePackagedCacheWithVerifiedImage root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket"
+          "abcdef123456" imageDigest archiveDigest >>= expectRight
+        let imageSpecifications = [spec imageResource | imageBundle <- scopeBundles imageScope,
+              Managed imageResource <- declarations imageBundle]
+        assertBool "archive bytes are absent from the artifact specification"
+          (any (\case ArtifactPublication _ _ sourceDigest _ -> sourceDigest == archiveDigest; _ -> False) imageSpecifications)
         assertBool "packaged cache native members are incomplete" (Map.size native >= 15)
         (foundationBundle, _) <- compileFoundation foundation >>= expectRight
         foundationScope <- expectRight (mkScopeDeclaration (foundationOwner foundation) [foundationBundle])

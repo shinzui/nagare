@@ -4,6 +4,7 @@
 module Nagare.Inventory.Components.ControllerImage
   ( compileControllerImage
   , controllerImageDeclaration
+  , inspectArchive
   ) where
 
 import Control.Exception (IOException, try)

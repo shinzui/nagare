@@ -186,6 +186,18 @@ inventoryUpstreamTests = testGroup "pinned upstream bootstrap manifests"
       Map.size (inventoryScopes (candidateInventory local)) @?= 5
       Map.size cloudNative @?= Map.size localNative
       assertBool "cloud/local issuer policy did not change retained native members" (cloudNative /= localNative)
+      let networkAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-network")
+          networkData native = [entries | (resource, bytes) <- Map.elems native,
+            resource ^. #address == networkAddress,
+            Right (Object root) <- [eitherDecodeStrict bytes],
+            Just (Object entries) <- [KM.lookup "data" root]]
+      case (networkData cloudNative, networkData localNative) of
+        ([cloudNetwork], [localNetwork]) -> do
+          KM.lookup "external-domain-tls" cloudNetwork @?= Nothing
+          KM.lookup "external-domain-tls" localNetwork @?= Just (String "Enabled")
+          assertBool "local namespace wildcard selector is missing"
+            (KM.member "namespace-wildcard-cert-selector" localNetwork)
+        _ -> assertFailure "cloud/local config-network is not uniquely owned"
       let domainAddress = ok (kubernetesAddress fixtureCluster "v1" "ConfigMap" (Just "knative-serving") "config-domain")
           domainObjects = [bytes | (resource, bytes) <- Map.elems cloudNative,
             resource ^. #address == domainAddress]

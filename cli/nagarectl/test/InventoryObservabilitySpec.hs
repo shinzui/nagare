@@ -22,7 +22,7 @@ import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets, loadObservabilitySecretObjectsFromDirectory, readAlertmanagerEnabled)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
-import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
+import Nagare.Inventory.Components.PackagedCache (compilePackagedCacheWithVerifiedImage)
 import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, pinnedUpstreamInputs)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Inventory.Digest (contentDigest)
@@ -195,8 +195,10 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
         BC.writeFile (destination </> "attic-pin.json")
           "{\"sourceCommit\":\"abcdef123456\",\"linuxAmd64Digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
         BC.writeFile (destination </> "attic-server-image.tar.gz") "fixture-archive"
-        (imageScope, cacheScope, cacheNative) <- compilePackagedCache root foundation "project"
-          "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= either (assertFailure . show) pure
+        (imageScope, cacheScope, cacheNative) <- compilePackagedCacheWithVerifiedImage root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket" "abcdef123456"
+          (ok (mkContentDigest (T.replicate 64 "a"))) (contentDigest "fixture-archive")
+          >>= either (assertFailure . show) pure
         (auth, databases) <- either (assertFailure . show) pure
           (packagedAuthInputs "../.." foundation CloudAuth "example.test" images backend)
         (controllerScope, controllerImage, publication) <- either (assertFailure . show) pure
