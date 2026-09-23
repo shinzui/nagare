@@ -759,6 +759,97 @@ inventoryKubernetesTests =
                  "--namespace", "default", "-o", "jsonpath={.data.value}"] ""
               readCode @?= ExitSuccess
               live @?= "d29ybGQ=") `finally` cleanup
+    , testCase "disposable cluster conditionally updates a reviewed ResourceQuota" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let quota limit = object
+                  [ "apiVersion" .= ("v1" :: Text)
+                  , "kind" .= ("ResourceQuota" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-quota" :: Text),
+                      "namespace" .= ("default" :: Text)]
+                  , "spec" .= object ["hard" .= object ["count/jobs.batch" .= (limit :: Text)]]
+                  ]
+                mkBound limit = let value = quota limit
+                                    bytes = ok (canonicalValue value)
+                                 in Map.singleton resource (ok (bindKubernetesObject
+                                      (input {inputObject = value, objectDigest = contentDigest bytes})))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter limit = let bound = mkBound limit in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
+                    "delete", "resourcequota", "nagare-ep147-quota", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              let initial = adapter "10"
+                  changed = adapter "11"
+              created <- adapterPrepare initial createOperation >>= expectRight
+              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify initial createOperation created >>= expectRight
+              updated <- adapterPrepare changed updateOperation >>= expectRight
+              adapterPreflight changed updateOperation updated >>= expectRight
+              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changed updateOperation updated >>= expectRight
+              (readCode, live, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "resourcequota", "nagare-ep147-quota",
+                 "--namespace", "default", "-o", "json"] ""
+              readCode @?= ExitSuccess
+              case eitherDecodeStrict (TE.encodeUtf8 (T.pack live)) of
+                Right (Object root) -> case KM.lookup "spec" root of
+                  Just (Object specFields) -> case KM.lookup "hard" specFields of
+                    Just (Object hard) -> KM.lookup "count/jobs.batch" hard @?= Just (String "11")
+                    _ -> assertFailure "ResourceQuota has no hard limits"
+                  _ -> assertFailure "ResourceQuota has no spec"
+                _ -> assertFailure "ResourceQuota observation is malformed") `finally` cleanup
+    , testCase "disposable cluster conditionally updates a reviewed NetworkPolicy" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let policy direction = object
+                  [ "apiVersion" .= ("networking.k8s.io/v1" :: Text)
+                  , "kind" .= ("NetworkPolicy" :: Text)
+                  , "metadata" .= object ["name" .= ("nagare-ep147-policy" :: Text),
+                      "namespace" .= ("default" :: Text)]
+                  , "spec" .= object
+                      [ "podSelector" .= object ["matchLabels" .= object
+                          ["app" .= ("nagare-ep147-no-pods" :: Text)]]
+                      , "policyTypes" .= (if direction == ("Ingress" :: Text)
+                          then ["Ingress"] else ["Ingress", "Egress"] :: [Text])
+                      ]
+                  ]
+                mkBound direction = let value = policy direction
+                                        bytes = ok (canonicalValue value)
+                                     in Map.singleton resource (ok (bindKubernetesObject
+                                          (input {inputObject = value, objectDigest = contentDigest bytes})))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter direction = let bound = mkBound direction in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
+                    "delete", "networkpolicy", "nagare-ep147-policy", "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              let initial = adapter "Ingress"
+                  changed = adapter "Egress"
+              created <- adapterPrepare initial createOperation >>= expectRight
+              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify initial createOperation created >>= expectRight
+              updated <- adapterPrepare changed updateOperation >>= expectRight
+              adapterPreflight changed updateOperation updated >>= expectRight
+              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify changed updateOperation updated >>= expectRight
+              (readCode, live, _) <- readProcessWithExitCode "kubectl"
+                ["--context", selectedContext, "get", "networkpolicy", "nagare-ep147-policy",
+                 "--namespace", "default", "-o", "jsonpath={.spec.policyTypes[1]}"] ""
+              readCode @?= ExitSuccess
+              live @?= "Egress") `finally` cleanup
     , testCase "disposable cluster creates a database credential and reviewed backup CronJob" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of

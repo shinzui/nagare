@@ -156,9 +156,11 @@ supportedUpdateAddress (Kubernetes _ group kind _ _) =
     , ("", "service")
     , ("", "secret")
     , ("", "persistentvolumeclaim")
+    , ("", "resourcequota")
     , ("apps", "deployment")
     , ("apps", "statefulset")
     , ("batch", "cronjob")
+    , ("networking.k8s.io", "networkpolicy")
     ]
 supportedUpdateAddress _ = False
 
