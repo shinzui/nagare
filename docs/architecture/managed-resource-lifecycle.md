@@ -1,0 +1,34 @@
+# Managed resource lifecycle
+
+The accepted inventory names logical resources and their owning scopes. A provider object at
+the same address is not ownership proof. `inventory status --json` reports an unstamped
+Kubernetes object as `unowned` and an object stamped for another logical resource as
+`foreign-owner`. An observation error is `unknown`, never confirmed absence.
+
+## Adoption review
+
+Compile the complete candidate with `inventory compile`, then write a version 1 adoption
+proposal. [The example](../../cli/nagarectl/test/fixtures/inventory/lifecycle/adopt.example.json)
+shows its wire shape. `candidate` is relative to the proposal file unless absolute. Its
+`binding` must equal the candidate's context/project; each resource must name the exact
+composed provider address and a freshly observed physical identity. It does not repeat the
+desired specification, owner, dependencies, or data policy.
+
+Run `nagarectl inventory adopt --input PROPOSAL.json --out REVIEW_DIRECTORY`. This observes
+all candidate and historical resources before issuing a normal immutable review. The
+proposal's selected objects must still be unowned at their exact incarnation. Other
+resources in the same candidate may be ordinary creates or updates. Apply the review with
+`nagarectl inventory apply REVIEW_DIRECTORY --yes`. For Kubernetes, the initial adoption
+path supports an object whose desired fields already match the declaration. The adapter
+stamps only Nagare's reserved annotations using one UID and resourceVersion tested JSON
+Patch. A changed object or owner refuses; a failed acknowledgement requires the ordinary
+journal recovery path. Preparing the review does not write to the managed object.
+
+## Retirement and migration
+
+Retirement and collection currently refuse. The head must first retain historical physical
+incarnations and deletion tombstones after an accepted scope disappears. A retirement
+approval cannot be interpreted as deletion authority, and durable data requires backup and
+recovery evidence. Migration also refuses until a reviewed prepare, seed, verify, switch,
+write-admission, and recovery graph is available. These safeguards prevent a partial
+implementation from deleting or reassigning data by name alone.

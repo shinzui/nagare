@@ -667,6 +667,7 @@ data Command
   = Version VersionOpts
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath FilePath
+  | InventoryAdopt FilePath FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryExport FilePath
@@ -1855,6 +1856,9 @@ opts =
                   "plan"
                   (info (InventoryPlan <$> strOption (long "inventory" <> metavar "DIRECTORY") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Prepare and publish a digest-bound inventory review"))
                 <> command
+                  "adopt"
+                  (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact unowned resource incarnations for adoption"))
+                <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
                 <> command
@@ -2739,6 +2743,7 @@ main = do
     Cleanup o -> runCleanup mctx o
     InventoryCompile input output json -> Inventory.compileInventory input output json
     InventoryPlan input output -> runInventoryPlan mctx input output
+    InventoryAdopt input output -> runInventoryAdopt mctx input output
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
@@ -4524,6 +4529,12 @@ runInventoryPlan mctx candidateDirectory output = do
             pure (active, workspace)
           else prepareInfraMutation mctx
       Inventory.planInventoryWith (inventoryPlanRegistry active workspace) target candidateDirectory output
+
+runInventoryAdopt :: Maybe String -> FilePath -> FilePath -> IO ()
+runInventoryAdopt mctx input output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  Inventory.planInventoryAdoptionWith (inventoryPlanRegistry active workspace) active input output
 
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do

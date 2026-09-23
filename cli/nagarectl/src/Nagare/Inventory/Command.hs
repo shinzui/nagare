@@ -9,6 +9,7 @@ module Nagare.Inventory.Command
   , planInventory
   , planInventoryWith
   , planInventoryCandidateWith
+  , planInventoryAdoptionWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -48,6 +49,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps (gcloudObjectOps)
@@ -203,10 +205,31 @@ planInventoryWith registryFor target candidateDirectory output = do
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
   planInventoryCandidateWith registryFor target candidate output
 
+-- | Versioned adoption proposals name a compiled candidate and exact
+-- observed incarnations. The decision is validated after fresh observation.
+planInventoryAdoptionWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> FilePath -> IO ()
+planInventoryAdoptionWith registryFor target inputFile output = do
+  bytes <- (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
+    >>= either (dieText . showText) pure
+  proposalInput <- either dieText pure (decodeAdoptionInput bytes)
+  let relative = adoptionCandidateDirectory proposalInput
+      candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
+  candidate <- loadCandidate candidateDirectory >>= either dieText pure
+  planInventoryCandidateWithDecider registryFor
+    (\history observations -> decideAdoption candidate history observations proposalInput)
+    target candidate output
+
 -- | Plan a freshly compiled component candidate with native member bytes held
 -- by the caller. Publication still retains those bytes in the private review.
 planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
-planInventoryCandidateWith registryFor target candidate output = do
+planInventoryCandidateWith registryFor =
+  planInventoryCandidateWithDecider registryFor (\_ _ -> Right noLifecycleDecisions)
+
+planInventoryCandidateWithDecider
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
+  -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithDecider registryFor decide target candidate output = do
   rejectReentry
   validateTarget target candidate
   store <- openTargetStore target
@@ -217,7 +240,8 @@ planInventoryCandidateWith registryFor target candidate output = do
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
   observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
-  proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate noLifecycleDecisions history observations)
+  decisions <- either (dieText . showText . NE.toList) pure (decide history observations)
+  proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate decisions history observations)
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   bundle <- prepareReview registry snapshot proposal >>= either (dieText . showText . NE.toList) pure
   digest <- publishReview store bundle >>= either (dieText . showText) pure
