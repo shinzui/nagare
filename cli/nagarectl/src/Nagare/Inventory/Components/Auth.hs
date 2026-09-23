@@ -106,6 +106,7 @@ compileAuth input = do
                 , upstreamNamespaces = Map.singleton (known "nagare-system") (authNamespace input)
                 , upstreamTransferred = mempty
                 , upstreamConfigMapData = Map.empty
+                , upstreamImageOverrides = Map.empty
                 , upstreamGenerated = objects <> map secretTemplate
                     ["nagare-access", "nagare-en-api-keys", "nagare-shomei-keys"]
                 , upstreamAfter = internalOrder

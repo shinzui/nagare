@@ -260,7 +260,7 @@ import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
-import Nagare.Inventory.Components.Upstream (IssuerMode (..), configuredUpstreamInputsWithIssuer)
+import Nagare.Inventory.Components.Upstream (IssuerMode (..), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -4096,8 +4096,11 @@ runPlatformBootstrapPlan mctx output = do
     (dieT "bootstrap requires the selected context's ACME contact")
   when (profile ^. #mode == Local && profile ^. #nixCacheEnabled)
     (dieT "Attic cache is available only in cloud bootstrap mode")
-  upstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
+  rawUpstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
     (profile ^. #registryHost) issuer >>= either dieT pure
+  controllerImage <- lookupEnv "NAGARE_NET_CERTMANAGER_IMAGE" >>=
+    maybe (dieT "bootstrap requires NAGARE_NET_CERTMANAGER_IMAGE as an immutable published patched-controller reference") (pure . T.pack)
+  upstream <- either dieT pure (bindNetCertManagerControllerImage cluster controllerImage rawUpstream)
   (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner observabilityInputs
     >>= either (dieT . T.pack . show) pure
   cacheComponent <- if profile ^. #nixCacheEnabled

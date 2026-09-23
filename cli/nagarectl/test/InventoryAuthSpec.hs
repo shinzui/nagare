@@ -15,7 +15,7 @@ import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationN
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
-import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
+import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (LifecyclePolicy (Protect), RecoveryIntent (..), mkSecretRef)
@@ -140,8 +140,11 @@ inventoryAuthTests = testGroup "auth inventory component"
           backend = MinioBackend store
           binding = ContextBinding (ok (mkContextId "local-auth-fixture")) (ok (mkName "project"))
           snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
-      upstream <- configuredUpstreamInputsWithIssuer fixtureCluster "../.."
+      rawUpstream <- configuredUpstreamInputsWithIssuer fixtureCluster "../.."
         "example.test" "registry.example.test" LocalIssuer >>= expectRight
+      upstream <- either (assertFailure . T.unpack) pure
+        (bindNetCertManagerControllerImage fixtureCluster
+          ("registry.example.test/net-certmanager@sha256:" <> T.replicate 64 "b") rawUpstream)
       let bootstrap = BootstrapInput foundation Nothing upstream
       (localScope, localNative) <- compileLocalObjectStore "../.." foundation store >>= expectRight
       let bucketJobs = [resource ^. #identity | (resource, _) <- Map.elems localNative,

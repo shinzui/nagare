@@ -56,6 +56,7 @@ compileLocalObjectStore root foundation store
           ,(known (mkName "personal"), foundationNamespaceId foundation (known (mkName "personal")))]
       , upstreamTransferred = Set.singleton namespace
       , upstreamConfigMapData = Map.empty
+      , upstreamImageOverrides = Map.empty
       , upstreamGenerated = []
       , upstreamAfter = Map.fromList
           [(deployment, [credential]), (service, [deployment]), (bucketJob, [credential, deployment, service])]

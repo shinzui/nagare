@@ -18,7 +18,7 @@ import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..))
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
-import Nagare.Inventory.Components.Upstream (pinnedUpstreamInputs)
+import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, pinnedUpstreamInputs)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -121,8 +121,12 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
           "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= either (assertFailure . show) pure
         (auth, databases) <- either (assertFailure . show) pure
           (packagedAuthInputs "../.." foundation CloudAuth "example.test" images backend)
+        upstream <- either (assertFailure . T.unpack) pure
+          (bindNetCertManagerControllerImage cluster
+            ("registry.example.test/net-certmanager@sha256:" <> T.replicate 64 "b")
+            (pinnedUpstreamInputs cluster "../.."))
         (base, baseNative) <- compileBootstrapWithAuth snapshot
-          (BootstrapInput foundation Nothing (pinnedUpstreamInputs cluster "../..")) auth databases
+          (BootstrapInput foundation Nothing upstream) auth databases
           >>= either (assertFailure . show) pure
         (observability, obsNative) <- compilePinnedObservability owner observabilityInputs
           >>= either (assertFailure . show) pure

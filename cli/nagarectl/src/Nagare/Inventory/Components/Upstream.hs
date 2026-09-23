@@ -6,6 +6,7 @@ module Nagare.Inventory.Components.Upstream
   , pinnedUpstreamInputs
   , configuredUpstreamInputs
   , configuredUpstreamInputsWithIssuer
+  , bindNetCertManagerControllerImage
   , compileUpstream
   ) where
 
@@ -29,6 +30,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -49,6 +51,7 @@ data UpstreamInput = UpstreamInput
   , upstreamNamespaces :: !(Map Name ResourceId)
   , upstreamTransferred :: !(Set ProviderAddress)
   , upstreamConfigMapData :: !(Map ProviderAddress (Map Text (Maybe Text)))
+  , upstreamImageOverrides :: !(Map ProviderAddress (Map Text Text))
   , upstreamGenerated :: ![(SourceLocation, Value)]
   , upstreamAfter :: !(Map ProviderAddress [ProviderAddress])
   , upstreamOrderDeployments :: !Bool
@@ -58,6 +61,22 @@ data IssuerMode
   = CloudIssuer !Text !Text !Text
   | LocalIssuer
   deriving stock (Eq, Show)
+
+-- | Replace only the controller image in the pinned net-certmanager release.
+-- The immutable reference is retained in the reviewed native Deployment.
+bindNetCertManagerControllerImage
+  :: ResourceId -> Text -> [UpstreamInput] -> Either Text [UpstreamInput]
+bindNetCertManagerControllerImage cluster image inputs = do
+  address <- kubernetesAddress cluster "apps/v1" "Deployment"
+    (Just "knative-serving") "net-certmanager-controller"
+  let matching = [input | input <- inputs, upstreamOwner input == owner]
+  unless (length matching == 1)
+    (Left "configured bootstrap has no unique net-certmanager scope")
+  pure [if upstreamOwner input == owner
+    then input {upstreamImageOverrides = Map.singleton address (Map.singleton "controller" image)}
+    else input | input <- inputs]
+  where
+    owner = either (error . T.unpack) id (mkScopeId Platform "net-certmanager")
 
 -- | The packaged release order is part of the bootstrap contract. A later
 -- scope may contain custom resources served by an earlier release.
@@ -89,6 +108,7 @@ pinnedUpstreamInputs cluster root =
       , upstreamNamespaces = Map.empty
       , upstreamTransferred = transferred
       , upstreamConfigMapData = Map.empty
+      , upstreamImageOverrides = Map.empty
       , upstreamGenerated = []
       , upstreamAfter = Map.empty
       , upstreamOrderDeployments = True
@@ -209,6 +229,7 @@ issuerComponent cluster root mode = do
       , upstreamNamespaces = Map.empty
       , upstreamTransferred = Set.empty
       , upstreamConfigMapData = Map.empty
+      , upstreamImageOverrides = Map.empty
       , upstreamGenerated = objects
       , upstreamAfter = ordering
       , upstreamOrderDeployments = True
@@ -239,6 +260,9 @@ compileUpstream input = do
       (Left (single (invalid "transferred upstream object is absent from the pinned release")))
     unless (Set.fromList configured == Map.keysSet (upstreamConfigMapData input))
       (Left (single (invalid "configured ConfigMap is absent from the pinned release")))
+    unless (Map.keysSet (upstreamImageOverrides input) `Set.isSubsetOf` Set.fromList
+        [resource ^. #address | (resource, _) <- uniqueMembers])
+      (Left (single (invalid "image override target is absent from the pinned release")))
     unless (Map.keysSet (upstreamAfter input) `Set.isSubsetOf` Set.fromList
         [resource ^. #address | (resource, _) <- uniqueMembers])
       (Left (single (invalid "upstream ordering target is absent from the component")))
@@ -279,11 +303,14 @@ compileUpstream input = do
       configured <- case Map.lookup (probed ^. #address) (upstreamConfigMapData input) of
         Nothing -> Right value
         Just entries -> first (single . invalid) (mergeConfigMapData entries value)
-      native <- first (single . invalid) (canonicalValue configured)
+      imaged <- case Map.lookup (probed ^. #address) (upstreamImageOverrides input) of
+        Nothing -> Right configured
+        Just images -> first (single . invalid) (setDeploymentImages images configured)
+      native <- first (single . invalid) (canonicalValue imaged)
       addressBytes <- first (single . invalid) (canonicalValue (toJSON (probed ^. #address)))
       let role = known ("object-" <> T.take 40 (digestText (contentDigest addressBytes)))
           identity = mintResourceId (upstreamOwner input) (upstreamKey input) role
-          actual = template {resourceId = identity, inputObject = configured, objectDigest = contentDigest native}
+          actual = template {resourceId = identity, inputObject = imaged, objectDigest = contentDigest native}
       (resource, bound) <- first single (bindKubernetesObject actual)
       unless (bound == native) (Left (single (invalid "upstream native bytes changed during binding")))
       pure (resource, bound)
@@ -325,6 +352,42 @@ isDeployment resource = case resource ^. #address of
 sensitivityOf :: Value -> Sensitivity
 sensitivityOf (Object root) | KM.lookup "kind" root == Just (String "Secret") = Secret
 sensitivityOf _ = Private
+
+setDeploymentImages :: Map Text Text -> Value -> Either Text Value
+setDeploymentImages images (Object root)
+  | KM.lookup "kind" root == Just (String "Deployment") = do
+      spec <- objectField "spec" root
+      template <- objectField "template" spec
+      podSpec <- objectField "spec" template
+      containers <- case KM.lookup "containers" podSpec of
+        Just (Array entries) -> Right entries
+        _ -> Left "image override Deployment has no container array"
+      let found = [containerName | Object container <- V.toList containers,
+            Just (String containerName) <- [KM.lookup "name" container]]
+      unless (Map.keysSet images `Set.isSubsetOf` Set.fromList found)
+        (Left "image override names a container absent from the Deployment")
+      updated <- traverse replaceContainer containers
+      let podSpec' = KM.insert "containers" (Array updated) podSpec
+          template' = KM.insert "spec" (Object podSpec') template
+          spec' = KM.insert "template" (Object template') spec
+      pure (Object (KM.insert "spec" (Object spec') root))
+  where
+    objectField name parent = case KM.lookup name parent of
+      Just (Object value) -> Right value
+      _ -> Left ("image override Deployment lacks " <> Key.toText name)
+    replaceContainer (Object container) = case KM.lookup "name" container of
+      Just (String name) -> case Map.lookup name images of
+        Nothing -> Right (Object container)
+        Just image -> do
+          unless (immutable image) (Left "image override must use an immutable sha256 digest")
+          pure (Object (KM.insert "image" (String image) container))
+      _ -> Left "image override Deployment has an unnamed container"
+    replaceContainer _ = Left "image override Deployment has a malformed container"
+    immutable image = case T.splitOn "@sha256:" image of
+      [repository, digest] -> not (T.null repository) && T.length digest == 64
+        && T.all (`elem` (['0'..'9'] <> ['a'..'f'])) digest
+      _ -> False
+setDeploymentImages _ _ = Left "image override targets a non-Deployment object"
 
 mergeConfigMapData :: Map Text (Maybe Text) -> Value -> Either Text Value
 mergeConfigMapData entries (Object root)

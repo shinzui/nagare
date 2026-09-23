@@ -182,6 +182,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-22) EP-147 M3/M4 partial: Public bootstrap planning includes digest-addressed auth and both databases; local mode adds the pinned MinIO scope and orders auth after bucket preparation. Full CLI tests pass. Image publication, shared contributions, and live convergence remain open.
 - [x] (2026-09-22) EP-147 M4 partial: Complete cloud and local bootstrap fixtures compose issuer/upstream, auth, observability, and cache publication or MinIO without claim conflicts; production command and resume parity remain open.
 - [x] (2026-09-22) EP-147 M1b partial: A disposable shared transaction refuses a foreign ConfigMap created after review publication and leaves it untouched; broad update admission remains open.
+- [x] (2026-09-22) EP-147 M3 partial: The patched net-certmanager controller Deployment binds a required immutable image reference into reviewed native bytes; archive publication and provenance proof remain open.
 - [x] (2026-09-22) EP-147 M3 partial: Helm 4 capture/verify post-renderer plugins prove exact native render binding and reject a nondeterministic chart before resource changes; release declarations and chart pinning remain open.
 - [ ] EP-147 M2c: Complete cache/database composition and inventory execution.
 - [ ] EP-147 M3: Remaining bootstrap, contributions, and delegation.
