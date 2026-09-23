@@ -66,6 +66,11 @@ provenance:
       at: 2026-09-23T21:30:29Z
       mode: "implement"
       note: "Close EP147 registry status and synchronize cross-plan boundaries"
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T22:07:28Z
+      mode: "implement"
+      note: "Track EP-149 recovery status, adoption proof, and dependency explanation"
 ---
 
 # Make managed resources first-class through typed scoped inventories
@@ -225,6 +230,7 @@ These ownership, identity, review, storage, migration, and controller-delegation
 - [x] (2026-09-23) EP-151 M4 live: The gated real-bucket store contract passed in 73.43 seconds under a unique `labs` inventory child. An isolated, reviewed empty-scope history then migrated to another unique child; after a duplicate-name listing fix, interrupted migration resumed and a fresh second state/cache root matched head digest `5fa2e88e3f22c83ece53f81b2eb32ad41c8dfac47fe8f0a928068d9b1f7a8417` and exact exported members. The ordinary `labs` state and context config were untouched. Both cloud prefixes remain for review; EP-151 records them.
 - [x] (2026-09-23) EP-147 M3/M4 partial: Admission now has a regression fixture for concurrent no-op Namespace contributor reviews; the later one refuses on a stale accepted vector. The standalone `platform stamp` mutation bypass now refuses and directs operators to reviewed bootstrap plan/apply; its built CLI refusal was checked. Explicit legacy adoption and upgrade paths remain to be migrated.
 - [x] (2026-09-23) EP-149 M2 transfer hardening: A scope handoff now requires the Kubernetes provider and an unchanged native resource contract, including address, specification, policy, and dependencies. A changed spec refuses before review; provider-specific transfer capability remains required for other executors.
+- [x] (2026-09-23) EP-149 M1/M2 partial: Status validates the committed journal and reports sanitized active-operation recovery state; explain traces transitive dependencies to declarations and owners. Generic adoption validation refuses a stamped object without accepted history even for direct planner callers. The 735-test CLI suite, executable build, and Haskell style checks pass. Retained history, provider-specific health, and remaining lifecycle commands remain open.
 - [x] (2026-09-23) EP-147/149 follow-up: Bootstrap component guides now use reviewed plan/apply and pinned inputs. Status reports health independently of configuration and refuses a report when the accepted head changes during provider observation.
 - [x] (2026-09-23) EP-147 M2c: Complete cache/database bundles execute through reviewed bootstrap; EP-148 owns standalone and application database command migration.
 - [x] (2026-09-23) EP-147 M3: Cloud/local components, owner-composed auth settings, foundation Namespace/certificate policy, and bounded host timer credential delegation are recorded and validated.
@@ -248,6 +254,8 @@ These ownership, identity, review, storage, migration, and controller-delegation
 
 
 ## Surprises & Discoveries
+
+2026-09-23: EP-149 found that the operator adoption DTO required an unowned observation but the lower-level lifecycle validator still accepted stamped present/drifted resources without accepted history. The validator and planner now refuse those resources. EP-148 must use the versioned proposal path and cannot treat provider stamps as recovered ownership authority.
 
 2026-09-23: Closing EP-147 required distinguishing its reviewed bootstrap path from standalone and application data commands. The latter still call direct `db create` and are recorded as legacy in the mutation coverage audit; EP-148 explicitly consumes EP-147's completed database builder and owns those command paths. Host registry and forge timers remain the narrow authority for rotating values. Their guarded refresh now refuses foreign or unmarked Secrets, which means operators must verify and annotate preexisting timer-created Secrets before the first updated host activation.
 
@@ -315,6 +323,8 @@ One question is open and is the operator's to decide. ADR 13 moved tan-nb-exp's 
 
 ## Decision Log
 
+2026-09-23: Keep adoption authority consistent at the operator DTO, generic lifecycle validator, and planner boundaries. A matching provider stamp without accepted history is not proof of ownership; the current route requires an unowned physical incarnation. Rationale: direct callers of the shared validator must not bypass the reviewed proposal's ownership check.
+
 2026-09-23: Mark EP-147 Complete when its supported bootstrap path, reusable database/cache builders, cluster executors, shared owner composition, and host timer delegation have evidence. Keep EP-148's standalone/application database command migration and EP-149/150's lifecycle and integrated cloud work visible as separate children; completion of this child does not imply complete mutation coverage for the MasterPlan.
 
 
@@ -365,3 +375,5 @@ At completion, compare these outcomes with IR-24, update its status only with ev
 2026-09-22: Marked EP-145 complete after the conditional-store, review/admission, journal/recovery, process-lock, backup, negative-type, and CLI acceptance suites passed. Four children in phase 2 are now implementable; no dependency edge or child scope changed. ADR 22 now distinguishes the implemented generic authority boundary from the still-refusing manifest-only CLI adapter.
 
 2026-09-23: Marked EP-147 complete after the full disposable local bootstrap and accepted replay, registered Kubernetes precondition proofs, complete database/cache bundle, owner-composed auth settings, and guarded host timer delegation. Synchronized the three remaining parent checklist items, documented EP-148's standalone/application database command boundary, and kept EP-149/150 lifecycle and integrated cloud evidence open.
+
+2026-09-23: Recorded further EP-149 status and adoption evidence without changing dependencies or claiming a completed lifecycle milestone. EP-148 and EP-150 remain blocked on the existing hard edges.
