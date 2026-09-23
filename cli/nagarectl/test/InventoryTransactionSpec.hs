@@ -299,9 +299,11 @@ inventoryTransactionTests =
         let owner = ok (mkScopeId Platform "foundation")
             firstContributor = ok (mkScopeId Application "first")
             second = ok (mkScopeId Application "second")
+            third = ok (mkScopeId Application "third")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
             request = RegisterNamespace owner cluster (ok (mkName "shared")) (ok (mkLogicalKey "shared"))
-            grant = ResourceBundle [] [] [] [] [] [NamespaceGrant firstContributor cluster, NamespaceGrant second cluster]
+            grant = ResourceBundle [] [] [] [] []
+              [NamespaceGrant firstContributor cluster, NamespaceGrant second cluster, NamespaceGrant third cluster]
             platform = ok (mkScopeDeclaration owner [grant])
             contributor who = ok (mkScopeDeclaration who [ResourceBundle [] [] [] [request] [] []])
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
@@ -345,6 +347,24 @@ inventoryTransactionTests =
             proposal = ok (planChanges next noLifecycleDecisions history observations)
         length (Set.toAscList required) @?= 1
         proposalOperations proposal @?= []
+        let competing = ok (composeInventory snapshot (ReplaceScope (contributor third) :| []))
+            competingProposal = ok (planChanges competing noLifecycleDecisions history observations)
+        proposalOperations competingProposal @?= []
+        reviewBase <- readStoreSnapshot store >>= expectRight
+        secondBundle <- prepareReview registry reviewBase proposal >>= expectRight
+        thirdBundle <- prepareReview registry reviewBase competingProposal >>= expectRight
+        _ <- publishReview store secondBundle >>= expectRight
+        _ <- publishReview store thirdBundle >>= expectRight
+        issued <- readStoreSnapshot store >>= expectRight
+        secondReview <- either (assertFailure . show . NE.toList) pure (verifyReview issued secondBundle)
+        thirdReview <- either (assertFailure . show . NE.toList) pure (verifyReview issued thirdBundle)
+        acceptedSecond <- applyReviewed store registry secondReview >>= expectRight
+        case acceptedSecond of Converged _ -> pure (); other -> assertFailure (show other)
+        refusedThird <- applyReviewed store registry thirdReview
+        case refusedThird of
+          Left failures -> assertBool "stale contribution vector was accepted"
+            ("stale-head" `elem` map admissionErrorCode (NE.toList failures))
+          Right _ -> assertFailure "stale contribution review was accepted"
         let missingObservations =
               ok
                 ( observationSet
