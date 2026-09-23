@@ -64,6 +64,7 @@ library
     Nagare.Resource.Cache
     Nagare.Resource.CacheKubernetes
     Nagare.Resource.CacheClient
+    Nagare.Resource.Canonical
     Nagare.Resource.Inventory
     Nagare.Resource.Kubernetes
     Nagare.Resource.Helm
@@ -77,6 +78,7 @@ library
     base >=4.17 && <5,
     bytestring,
     containers,
+    crypton >=1.1.5 && <1.2,
     directory,
     filepath,
     generic-lens ^>=2.3,

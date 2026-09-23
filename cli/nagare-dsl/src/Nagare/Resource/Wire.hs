@@ -23,9 +23,6 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as BS
-import Data.ByteString.Char8 qualified as BC
-import Data.ByteString.Lazy qualified as BL
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (sortOn)
@@ -36,23 +33,11 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
-
--- Keys are sorted explicitly, independent of aeson's ordered-keymap build flag.
--- Only integers occur in this protocol; strings use aeson's JSON escaping.
-canonicalValue :: Value -> Either Text ByteString
-canonicalValue = \case
-  Object o -> do
-    pairs <- traverse (\(k, v) -> ((BL.toStrict (encode (Key.toText k)) <> ":") <>) <$> canonicalValue v) (sortOn (Key.toText . fst) (KM.toList o))
-    pure ("{" <> BS.intercalate "," pairs <> "}")
-  Array a -> (\vs -> "[" <> BS.intercalate "," vs <> "]") <$> traverse canonicalValue (toList a)
-  Number n -> case fromJSON (Number n) :: Result Integer of
-    Success i -> Right (BC.pack (show i))
-    Error _ -> Left "canonical resource JSON permits integers only"
-  v -> Right (BL.toStrict (encode v))
 
 strictObject :: String -> [Key] -> (Object -> Parser a) -> Value -> Parser a
 strictObject label allowed f = withObject label $ \o -> do
@@ -287,8 +272,13 @@ instance FromJSON ProviderAddress where
     case contents of
       [target, group, kind, namespace, name] -> do
         parsedName <- withText "Kubernetes name" (either (fail . T.unpack) pure . mkKubernetesName) name
-        address <- Kubernetes <$> parseJSON target <*> parseJSON group <*> parseJSON kind
-          <*> parseJSON namespace <*> pure parsedName
+        address <-
+          Kubernetes
+            <$> parseJSON target
+            <*> parseJSON group
+            <*> parseJSON kind
+            <*> parseJSON namespace
+            <*> pure parsedName
         either (fail . T.unpack) pure (mkProviderAddress address)
       _ -> fail "Kubernetes address must have five fields"
   parseJSON value = genericParseJSON options value >>= either (fail . T.unpack) pure . mkProviderAddress
