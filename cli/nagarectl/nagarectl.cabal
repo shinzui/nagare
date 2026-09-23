@@ -104,6 +104,7 @@ library
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.Observability
+    Nagare.Inventory.Components.PackagedCache
     Nagare.Inventory.Adapters.Helm
     Nagare.Inventory.Adapters.HelmRuntime
     Nagare.Inventory.Components.Upstream

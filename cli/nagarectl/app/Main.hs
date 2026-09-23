@@ -256,6 +256,7 @@ import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidat
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), pinnedObservabilityInputs, compilePinnedObservability)
+import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Components.Upstream (IssuerMode (..), configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -4090,20 +4091,31 @@ runPlatformBootstrapPlan mctx output = do
           (profile ^. #project)
   when (profile ^. #mode == Cloud && T.null (profile ^. #acmeEmail))
     (dieT "bootstrap requires the selected context's ACME contact")
+  when (profile ^. #mode == Local && profile ^. #nixCacheEnabled)
+    (dieT "Attic cache is available only in cloud bootstrap mode")
   upstream <- configuredUpstreamInputsWithIssuer cluster root (profile ^. #baseDomain)
     (profile ^. #registryHost) issuer >>= either dieT pure
   (observabilityScopes, observabilityNative) <- compilePinnedObservability foundationOwner observabilityInputs
     >>= either (dieT . T.pack . show) pure
+  cacheComponent <- if profile ^. #nixCacheEnabled
+    then Just <$> (compilePackagedCache root foundation (profile ^. #project)
+      (registryPrefix profile) (profile ^. #backupBucket) (profile ^. #nixCacheBucket)
+      >>= either (dieT . T.pack . show) pure)
+    else pure Nothing
   (base, baseNative) <- compileBootstrapCandidate snapshot (BootstrapInput foundation Nothing upstream)
     >>= either (dieT . T.pack . show) pure
-  unless (Map.null (Map.intersection baseNative observabilityNative))
-    (dieT "bootstrap and observability native members share an identity")
-  extra <- case observabilityScopes of
+  let (cacheScopes, cacheNative) = case cacheComponent of
+        Nothing -> ([], Map.empty)
+        Just (imageScope, cacheScope, native) -> ([imageScope, cacheScope], native)
+      nativeMaps = [baseNative, observabilityNative, cacheNative]
+      native = Map.unions nativeMaps
+  unless (Map.size native == sum (map Map.size nativeMaps))
+    (dieT "bootstrap component native members share an identity")
+  extra <- case observabilityScopes <> cacheScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
-    [] -> dieT "pinned observability release set is empty"
+    [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
     (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges base <> extra))
-  let native = Map.union baseNative observabilityNative
   Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native)
     active candidate output
 

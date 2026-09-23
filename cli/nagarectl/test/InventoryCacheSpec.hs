@@ -1,5 +1,6 @@
 module InventoryCacheSpec (inventoryCacheTests) where
 
+import Control.Monad (forM_, when)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -15,6 +16,7 @@ import Nagare.Inventory.Adapters.CacheRuntime
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
+import Nagare.Inventory.Components.PackagedCache (compilePackagedCache)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -29,10 +31,35 @@ import Test.Tasty.HUnit
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, listDirectory)
 
 inventoryCacheTests :: TestTree
 inventoryCacheTests = testGroup "cache inventory adapter"
-  [ testCase "packaged cache templates bind nine exact native members" $ do
+  [ testCase "packaged Attic image publication orders the complete cache scope" $
+      withSystemTempDirectory "nagare-cache-payload" $ \root -> do
+        let source = "../../cluster/bootstrap/nix-cache"
+            destination = root </> "cluster/bootstrap/nix-cache"
+        createDirectoryIfMissing True destination
+        names <- listDirectory source
+        forM_ names $ \name -> do
+          present <- doesFileExist (source </> name)
+          when present (copyFile (source </> name) (destination </> name))
+        BC.writeFile (destination </> "attic-pin.json")
+          "{\"sourceCommit\":\"abcdef123456\",\"linuxAmd64Digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+        BC.writeFile (destination </> "attic-server-image.tar.gz") "fixture-archive"
+        let foundation = FoundationInput (ok (mkScopeId Platform "foundation")) fixtureCluster
+              "../../cluster/bootstrap/job-runs/resourcequota.yaml" []
+        (imageScope, cacheScope, native) <- compilePackagedCache root foundation "project"
+          "registry.example/project/nagare" "backups" "nix-cache-bucket" >>= expectRight
+        assertBool "packaged cache native members are incomplete" (Map.size native >= 15)
+        (foundationBundle, _) <- compileFoundation foundation >>= expectRight
+        foundationScope <- expectRight (mkScopeDeclaration (foundationOwner foundation) [foundationBundle])
+        let binding = ContextBinding (ok (mkContextId "cache-payload")) (ok (mkName "project"))
+            snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
+        _ <- expectRight (composeInventory snapshot (ReplaceScope foundationScope :|
+          [ReplaceScope imageScope, ReplaceScope cacheScope]))
+        pure ()
+  , testCase "packaged cache templates bind nine exact native members" $ do
       (compiled, native) <- compileCacheNative renderInput >>= expectRight
       length (declarations compiled) @?= 9
       Map.size native @?= 9
