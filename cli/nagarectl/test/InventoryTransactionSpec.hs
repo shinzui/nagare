@@ -74,6 +74,35 @@ inventoryTransactionTests =
           Left failures -> assertBool "absence is not adoptable"
             ("invalid-adoption" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "absent resource accepted for adoption"
+    , testCase "moving a known resource to another scope cannot become an ordinary update" $ do
+        let oldOwner = ok (mkScopeId Platform "transfer-source")
+            newOwner = ok (mkScopeId Platform "transfer-destination")
+            dummyOwner = ok (mkScopeId Platform "transfer-seed")
+            cluster = mintResourceId oldOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            oldDeclaration = member oldOwner cluster "config"
+            moved = case oldDeclaration of
+              Managed value -> Managed (value {owner = newOwner})
+              _ -> error "fixture resource must be managed"
+            resourceId = declarationId oldDeclaration
+            oldScope = ok (mkScopeDeclaration oldOwner [ResourceBundle [oldDeclaration] [] [] [] [] []])
+            newScope = ok (mkScopeDeclaration newOwner [ResourceBundle [moved] [] [] [] [] []])
+            dummyScope = ok (mkScopeDeclaration dummyOwner [])
+            generation = ok (mkScopeGeneration 1)
+            snapshot = ok (mkScopeSnapshot fixtureBinding
+              (Map.singleton oldOwner (generation, oldScope)) Map.empty)
+            seedCandidate = ok (composeInventory snapshot (ReplaceScope dummyScope :| []))
+            transfer = ok (composeInventory snapshot
+              (RetireScope oldOwner RetainResources :| [ReplaceScope newScope]))
+            observations = ok (observationSet
+              [(resourceId, ObservedPresent (ok (mkPhysicalIdentity "same-uid")))])
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "transfer-test" >>= expectRight
+        _ <- seedInventoryHistory store seedCandidate >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        case planChanges transfer noLifecycleDecisions history observations of
+          Left errors -> assertBool "implicit scope transfer was accepted"
+            ("owner-transfer-required" `elem` map planErrorCode (NE.toList errors))
+          Right _ -> assertFailure "implicit scope transfer was accepted"
     , testCase "dependency order does not turn an accepted resource into an update" $ do
         let owner = ok (mkScopeId Platform "dependency-order")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

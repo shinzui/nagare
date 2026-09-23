@@ -396,6 +396,9 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
          in canonicalBytes (toJSON (Managed (canonicalDependencies previous)))
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
+    classifyDesired (resourceId, resource, Just (Managed old), _)
+      | old ^. #owner /= resource ^. #owner =
+          ([PlanError "owner-transfer-required" "moving a known resource between scopes needs a reviewed two-scope transfer" [resourceId]], Nothing)
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->
