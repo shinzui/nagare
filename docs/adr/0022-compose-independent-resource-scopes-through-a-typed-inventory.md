@@ -335,3 +335,14 @@ retention observation contract has not been proved cannot retire through this
 route.
 The read-only collection assessment may identify candidates and blockers, but
 its output is not a deletion review or a tombstone.
+
+The first reviewed collection route is restricted to retained stateless
+namespaced ConfigMaps with `DeleteWhenUnreferenced`, no active or retained
+consumers, and an exact present stamped UID. `CollectRetained` leaves desired
+scope revisions unchanged while its review binds the old owner, immutable
+scope revision, and physical identity. Admission checks the exact current
+Kubernetes resourceVersion; the native DELETE uses UID and resourceVersion
+preconditions and orphan propagation. Only confirmed absence permits a
+review-bound deletion tombstone to replace the retained claim in the head.
+The tombstone keeps the old logical ID unavailable for silent reuse. Other
+kinds and durable data remain outside this proved route.

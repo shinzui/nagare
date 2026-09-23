@@ -11,6 +11,7 @@ module Nagare.Inventory.Command
   , planInventoryCandidateWith
   , planInventoryAdoptionWith
   , planInventoryRetirementWith
+  , planInventoryCollectionWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -231,6 +232,17 @@ planInventoryRetirementWith registryFor target owner output = do
     (composeInventory snapshot (RetireScope owner RetainResources :| []))
   planInventoryCandidateWithDecider registryFor
     (\history observations -> decideRetirement candidate history observations)
+    target candidate output
+
+planInventoryCollectionWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> ActiveTarget -> ResourceId -> FilePath -> IO ()
+planInventoryCollectionWith registryFor target resource output = do
+  snapshot <- loadTargetSnapshot target
+  candidate <- either (dieText . showText . NE.toList) pure
+    (composeInventory snapshot (CollectRetained resource :| []))
+  planInventoryCandidateWithDecider registryFor
+    (\history observations -> decideCollection candidate history observations)
     target candidate output
 
 -- | Plan a freshly compiled component candidate with native member bytes held

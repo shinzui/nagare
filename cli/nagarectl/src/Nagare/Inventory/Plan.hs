@@ -71,6 +71,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy
@@ -99,13 +100,20 @@ loadInventoryHistory store = do
     Right (Just headValue) -> do
       loaded <- traverse (loadScope store) (Map.toAscList (headAccepted headValue))
       retained <- traverse (loadRetained store) (Map.toAscList (headRetained headValue))
+      collected <- traverse (loadCollected store) (Map.toAscList (headCollected headValue))
       pure $ do
         accepted <- Map.fromList <$> sequence loaded
         historical <- Map.fromList <$> sequence retained
+        _ <- sequence collected
         let reservations = retainedReservations historical
             count = sum [length (NE.toList (claimsOf (Managed resource))) | (_, resource) <- Map.elems historical]
         unless (Map.size reservations == count)
           (Left (StoreInvalidObject "head.json" "retained address claims overlap"))
+        acceptedDeclarations <- first (StoreInvalidObject "head.json" . T.pack . show)
+          (composedDeclarations (fmap snd accepted))
+        let acceptedIds = Set.fromList (map declarationId acceptedDeclarations)
+        unless (Set.null (Set.intersection acceptedIds (Map.keysSet historical `Set.union` Map.keysSet (headCollected headValue))))
+          (Left (StoreInvalidObject "head.json" "historical resource is also active"))
         pure (InventoryHistory headValue accepted (headConverged headValue) historical)
   where
     loadScope inventoryStore (scope, revision) = do
@@ -133,6 +141,19 @@ loadInventoryHistory store = do
         unless (managed ^. #owner == retainedOwner retained)
           (Left (StoreInvalidObject key "retained resource owner mismatch"))
         pure (resourceId, (retained, managed))
+    loadCollected inventoryStore (resourceId, tombstone) = do
+      let historical = InventoryStore.RetainedIncarnation (tombstoneOwner tombstone)
+            (tombstoneRevision tombstone) (tombstonePhysical tombstone) (tombstoneAt tombstone)
+          digest = tombstoneReview tombstone
+          key = reviewKey digest
+      declaration <- loadRetained inventoryStore (resourceId, historical)
+      review <- readObject inventoryStore key
+      pure $ do
+        _ <- declaration
+        bytes <- review >>= maybe (Left (StoreInvalidObject key "collection review is missing")) Right
+        unless (contentDigest bytes == digest)
+          (Left (StoreInvalidObject key "collection review digest mismatch"))
+        pure ()
 
 historyReservations :: InventoryHistory -> Map CanonicalClaim ClaimHolder
 historyReservations = retainedReservations . historyRetained
@@ -198,6 +219,9 @@ observationRequirements candidate history =
   where
     declarations = inventoryDeclarations (candidateInventory candidate) <> historyDeclarations history
     managed = [(resource ^. #identity, resource ^. #executor) | Managed resource <- declarations]
+      <> [(resourceId, resource ^. #executor)
+         | CollectRetained resourceId <- NE.toList (candidateChanges candidate)
+         , Just (_, resource) <- [Map.lookup resourceId (historyRetained history)]]
     ids = Set.fromList (map fst managed)
     grouped = Map.map (Set.toAscList . Set.fromList) (Map.fromListWith (<>) [(executor, [resource]) | (resource, executor) <- managed])
 
@@ -232,6 +256,7 @@ validateLifecycleDecisions candidate history observations proposals =
     desired = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
     historical = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
     known = Map.keysSet desired `Set.union` Map.keysSet historical
+      `Set.union` Map.keysSet (historyRetained history)
     observed = observationMap observations
     retirementIntent resource = listToMaybe
       [intent | RetireScope scope intent <- NE.toList (candidateChanges candidate)
@@ -271,17 +296,29 @@ validateLifecycleDecisions candidate history observations proposals =
                 , old ^. #executor == KubernetesExecutor
                 , Map.notMember resource (headRetained (historyHead history)) -> []
               _ -> issue "invalid-retirement" "retention needs a retired Kubernetes declaration, present owned incarnation, and RetainResources intent"
-            ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource historical, retirementIntent resource, fact) of
-              (Nothing, Just (Managed old), Just (CollectWithRecovery _), Just (ObservedPresent _))
-                | old ^. #lifecycle == DeleteWhenUnreferenced
-                , old ^. #dataPolicy == Stateless ->
-                    issue "collection-catalog-required" "collection needs retained incarnation and deletion tombstone history"
-              _ -> issue "invalid-collection" "collection needs an exact present stateless historical resource, deletion policy, and collection intent"
+            ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
+              (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
+                | CollectRetained resource `elem` NE.toList (candidateChanges candidate)
+                , physical == retainedPhysical incarnation
+                , old ^. #executor == KubernetesExecutor
+                , old ^. #lifecycle == DeleteWhenUnreferenced
+                , old ^. #dataPolicy == Stateless
+                , null [consumer | consumer <- historyDeclarations history <> map (Managed . snd) (Map.elems (historyRetained history)),
+                    any ((== resource) . dependencyTarget) (declarationDependencies consumer)] -> []
+              _ -> issue "invalid-collection" "collection needs a selected retained Kubernetes incarnation, exact present UID, stateless deletion policy, and no known consumers"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
        in evidence <> shape
     selectedScopes = Set.fromList
-      [case change of ReplaceScope scope -> scopeId scope; RetireScope scope _ -> scope
-      | change <- NE.toList (candidateChanges candidate)]
+      [scope | change <- NE.toList (candidateChanges candidate)
+      , Just scope <- [case change of
+          ReplaceScope declaration -> Just (scopeId declaration)
+          RetireScope owner _ -> Just owner
+          CollectRetained _ -> Nothing]
+      ]
+    dependencyTarget dependency = case dependency of
+      Consumes reference -> let (resource, _, _, _, _) = refSignature reference in resource
+      ReadyAfter reference -> let (resource, _, _, _, _) = refSignature reference in resource
+      OrderedAfter resource -> resource
     errors =
       [PlanError "duplicate-lifecycle-decision" "resource has more than one lifecycle decision" [resource] | resource <- duplicateValues (map lifecycleResource proposals)]
         <> [PlanError "unknown-lifecycle-resource" "lifecycle decision names an unknown resource" [resource] | resource <- Map.keys values, Set.notMember resource known]
@@ -303,6 +340,7 @@ data ChangeProposal = ChangeProposal
   , proposalCandidateDigest :: !ContentDigest
   , proposalOperations :: ![PlannedOperation]
   , proposalRetentions :: !(Map ResourceId RetentionProof)
+  , proposalCollections :: !(Map ResourceId RetentionProof)
   }
   deriving stock (Eq, Show)
 
@@ -318,6 +356,7 @@ planChanges candidate decisions history observations = do
   unless (null structuralErrors) (Left (NE.fromList structuralErrors))
   operations <- buildOperations candidate decisions history observations
   retentions <- buildRetentionProofs candidate decisions history observations
+  collections <- buildCollectionProofs candidate decisions history observations
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
       desiredRevisions =
@@ -342,6 +381,7 @@ planChanges candidate decisions history observations = do
       , proposalCandidateDigest = contentDigest candidateBytes
       , proposalOperations = sortOn (operationIdText . plannedOperationId) operations
       , proposalRetentions = retentions
+      , proposalCollections = collections
       }
   where
     baseRevisions = fmap fst (historyAccepted history)
@@ -359,11 +399,16 @@ planChanges candidate decisions history observations = do
         <> [PlanError "reservation-history" "candidate retained address reservations differ from the authoritative store" [] | candidateReservations candidate /= historyReservations history]
         <> [PlanError "retained-reactivation" "a retained logical resource requires a reviewed restore or migration before becoming desired again" retainedReactivations
            | not (null retainedReactivations)]
+        <> [PlanError "collected-reactivation" "a collected logical resource has a deletion tombstone and cannot be silently reused" collectedReactivations
+           | not (null collectedReactivations)]
         <> [PlanError "accepted-contributions" "accepted scopes cannot be composed into their effective resources" [] | either (const True) (const False) (historyComposition history)]
         <> [PlanError "observation-coverage" "required resource was not observed" missing | not (null missing)]
         <> [PlanError "observation-unavailable" "required resource observation is unavailable" unavailable | not (null unavailable)]
     retainedReactivations = Set.toAscList
       (Set.intersection (Map.keysSet (headRetained (historyHead history)))
+        (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
+    collectedReactivations = Set.toAscList
+      (Set.intersection (Map.keysSet (headCollected (historyHead history)))
         (Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))))
 
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
@@ -390,6 +435,20 @@ buildRetentionProofs candidate (LifecycleDecisions decisions) history observatio
         | lifecycleDecision decision == ApproveRetirement ->
             Right (resourceId, RetentionProof (resource ^. #owner) revision physical)
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
+
+buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
+buildCollectionProofs candidate (LifecycleDecisions decisions) history observations =
+  Map.fromList <$> traverse one selected
+  where
+    selected = [resource | CollectRetained resource <- NE.toList (candidateChanges candidate)]
+    one resource = case (Map.lookup resource decisions, Map.lookup resource (historyRetained history),
+      Map.lookup resource (observationMap observations)) of
+      (Just decision, Just (incarnation, _), Just (ObservedPresent physical))
+        | lifecycleDecision decision == ApproveCollection
+        , physical == retainedPhysical incarnation ->
+            Right (resource, RetentionProof (retainedOwner incarnation)
+              (retainedRevision incarnation) physical)
+      _ -> Left (PlanError "collection-proof" "collection lacks an exact retained incarnation proof" [resource] :| [])
 
 buildOperations :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) [PlannedOperation]
 buildOperations candidate (LifecycleDecisions decisions) history observations =
@@ -426,9 +485,16 @@ buildOperations candidate (LifecycleDecisions decisions) history observations =
     observed = observationMap observations
     desiredManaged = [(resource ^. #identity, resource, Map.lookup (resource ^. #identity) oldDeclarations, Map.lookup (resource ^. #identity) observed) | Managed resource <- Map.elems desiredDeclarations]
     retired = [(resource, declaration) | (resource, declaration@(Managed _)) <- Map.toAscList oldDeclarations, Map.notMember resource desiredDeclarations]
+    selectedCollections =
+      [(resourceId, resource)
+      | CollectRetained resourceId <- NE.toList (candidateChanges candidate)
+      , Just (_, resource) <- [Map.lookup resourceId (historyRetained history)]]
     classified = map classifyDesired desiredManaged
     errors = concatMap fst classified <> concatMap retireError retired
+      <> [PlanError "collection-decision" "retained collection lacks a validated lifecycle decision" [resourceId]
+         | (resourceId, _) <- selectedCollections, not (decisionIs ApproveCollection resourceId)]
     preliminary = mapMaybe snd classified <> mapMaybe retireOperation retired
+      <> [resourceOperation RetireResource resource | (_, resource) <- selectedCollections]
     operationByResource = Map.fromList [(resource, plannedOperationId operation) | operation <- preliminary, resource <- NE.toList (plannedResources operation)]
     operationByDeclaration =
       Map.fromList
@@ -588,6 +654,7 @@ data ReviewDocument = ReviewDocument
   , reviewOperations :: ![ReviewOperation]
   , reviewBarriers :: ![ReviewBarrier]
   , reviewRetentions :: !(Map ResourceId RetentionProof)
+  , reviewCollections :: !(Map ResourceId RetentionProof)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -674,7 +741,9 @@ instance ToJSON ReviewDocument where
       , "operations" .= reviewOperations document
       , "barriers" .= reviewBarriers document
       ] <> ["retentions" .= retentionEntries (reviewRetentions document)
-           | not (Map.null (reviewRetentions document))])
+           | not (Map.null (reviewRetentions document))]
+        <> ["collections" .= retentionEntries (reviewCollections document)
+           | not (Map.null (reviewCollections document))])
     where
       retentionEntries entries =
         [object ["resource" .= resource, "proof" .= proof]
@@ -682,11 +751,12 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
     retentions <- parseRetentions =<< o .:? "retentions" .!= []
+    collections <- parseRetentions =<< o .:? "collections" .!= []
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -699,6 +769,7 @@ instance FromJSON ReviewDocument where
       <*> o .: "operations"
       <*> o .: "barriers"
       <*> pure retentions
+      <*> pure collections
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
@@ -730,6 +801,7 @@ prepareReview registry snapshot proposal = do
               , reviewOperations = operations
               , reviewBarriers = barriers
               , reviewRetentions = proposalRetentions proposal
+              , reviewCollections = proposalCollections proposal
               }
       pure (Right (ReviewBundle document (proposalScopes proposal) native))
   where
@@ -875,6 +947,7 @@ verifyReview snapshot bundle =
         <> [ReviewError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
         <> [ReviewError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
         <> retentionReviewErrors headValue document
+        <> collectionReviewErrors headValue document
         <> [ReviewError "scope-member" "review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
         <> [ReviewError "native-member" "review native member is missing or has a different digest" | not (membersMatch (bundleNative bundle) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]])]
         <> [ReviewError "operation-dependency" "review operation depends on an operation absent from the same review" | not (null missingDependencies)]
@@ -901,6 +974,7 @@ verifyActiveReview snapshot transaction bundle =
                  || retainedRevision retained /= retentionRevision proof
                  || retainedPhysical retained /= retentionPhysical proof
                Nothing -> True]
+        <> activeCollectionReviewErrors headValue document
         <> [ReviewError "scope-member" "active review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
         <> [ReviewError "native-member" "active review native member is missing or has a different digest" | not (membersMatch (bundleNative bundle) [member | operation <- reviewOperations document, Just member <- [reviewNativeDigest operation]])]
     membersMatch members digests =
@@ -915,6 +989,39 @@ retentionReviewErrors headValue document =
       || Map.member (retentionOwner proof) (reviewDesiredRevisions document)
   ] <> [ ReviewError "retention-history" "retained resource already exists in the historical catalogue"
        | resource <- Map.keys (reviewRetentions document), Map.member resource (headRetained headValue)]
+
+collectionReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
+collectionReviewErrors headValue document =
+  [ ReviewError "collection-history" "collection proof differs from retained historical incarnation"
+  | (resource, proof) <- Map.toAscList (reviewCollections document)
+  , case Map.lookup resource (headRetained headValue) of
+      Just retained -> retainedOwner retained /= retentionOwner proof
+        || retainedRevision retained /= retentionRevision proof
+        || retainedPhysical retained /= retentionPhysical proof
+      Nothing -> True]
+  <> [ReviewError "collection-operations" "collection proofs must match exactly the reviewed retire operations"
+     | Map.keysSet (reviewCollections document) /= Set.fromList
+         [resource | operation <- reviewOperations document
+         , plannedAction (reviewPlannedOperation operation) == RetireResource
+         , resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]]
+
+activeCollectionReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
+activeCollectionReviewErrors headValue document =
+  [ReviewError "active-collection" "active collection differs from retained history or finalized tombstone"
+  | (resource, proof) <- Map.toAscList (reviewCollections document)
+  , not (matchesRetained resource proof || matchesTombstone resource proof)]
+  where
+    matchesRetained resource proof = case Map.lookup resource (headRetained headValue) of
+      Just retained -> retainedOwner retained == retentionOwner proof
+        && retainedRevision retained == retentionRevision proof
+        && retainedPhysical retained == retentionPhysical proof
+      Nothing -> False
+    matchesTombstone resource proof = case Map.lookup resource (headCollected headValue) of
+      Just tombstone -> tombstoneOwner tombstone == retentionOwner proof
+        && tombstoneRevision tombstone == retentionRevision proof
+        && tombstonePhysical tombstone == retentionPhysical proof
+        && tombstoneReview tombstone == contentDigest (encodeReviewDocument document)
+      Nothing -> False
 
 historyDeclarations :: InventoryHistory -> [Declaration]
 historyDeclarations = either (const []) id . historyComposition

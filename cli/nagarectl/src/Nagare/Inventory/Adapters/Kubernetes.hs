@@ -30,6 +30,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
@@ -133,12 +134,17 @@ mkKubernetesAdapter specs ops =
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, AdoptResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support this action")
+  unless (plannedAction operation `elem` [CreateResource, UpdateResource, VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation]) (Left "Kubernetes adapter does not support this action")
   resource <- case NE.toList (plannedResources operation) of
     [single] -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
+  when (plannedAction operation == RetireResource) $ case declaration ^. #address of
+    Kubernetes _ "" kind (Just _) _ | nameText kind == "configmap"
+      , declaration ^. #lifecycle == DeleteWhenUnreferenced
+      , declaration ^. #dataPolicy == Stateless -> pure ()
+    _ -> Left "reviewed collection currently supports only stateless namespaced ConfigMaps with deletion policy"
   when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
     _ -> Left "Kubernetes declared operation must verify a bound Job"
@@ -152,6 +158,8 @@ validateBefore operation resource desiredDigest state =
       | not (T.null revision) && digest == desiredDigest -> Right ()
     (UpdateResource, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
+      | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
+    (RetireResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RunDeclaredOperation, KubernetesPresent _ revision (Just owner) _) | owner == resource && not (T.null revision) -> Right ()
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
@@ -324,12 +332,23 @@ requireSameBefore mutation current =
       else Left "Kubernetes object changed since review; replan before mutation"
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
-completionProof mutation state = case state of
-  KubernetesPresent physical _ (Just owner) digest
-    | owner == mutationResource mutation && digest == mutationNativeDigest mutation ->
-        contentDigest <$> canonicalValue (object ["operation" .= mutationOperation mutation, "resource" .= owner, "physicalIdentity" .= physical, "desiredDigest" .= digest])
-  KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
-  _ -> Left "Kubernetes object is absent, foreign, or differs from the reviewed native object"
+completionProof mutation state
+  | mutationAction mutation == RetireResource = case state of
+      KubernetesAbsent absence -> case mutationBefore mutation of
+        KubernetesPresent physical _ _ _ -> contentDigest <$> canonicalValue
+          (object ["operation" .= mutationOperation mutation,
+                   "resource" .= mutationResource mutation,
+                   "removedPhysical" .= physical,
+                   "absence" .= absence])
+        _ -> Left "collection lacks a present historical precondition"
+      KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
+      _ -> Left "collected Kubernetes object remains present or was replaced"
+  | otherwise = case state of
+      KubernetesPresent physical _ (Just owner) digest
+        | owner == mutationResource mutation && digest == mutationNativeDigest mutation ->
+            contentDigest <$> canonicalValue (object ["operation" .= mutationOperation mutation, "resource" .= owner, "physicalIdentity" .= physical, "desiredDigest" .= digest])
+      KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
+      _ -> Left "Kubernetes object is absent, foreign, or differs from the reviewed native object"
 
 summary :: KubernetesMutation -> Text
 summary mutation =

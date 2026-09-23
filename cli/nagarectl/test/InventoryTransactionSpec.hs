@@ -959,7 +959,7 @@ inventoryTransactionTests =
           restored <- newMemoryStore
           readHead restored >>= (@?= Right Nothing)
           _ <- restoreStore restored backup >>= expectRight
-          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Nothing Nothing Nothing))
+          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing))
           removeFile (backup </> "head.json")
           incomplete <- newMemoryStore
           refused <- restoreStore incomplete backup

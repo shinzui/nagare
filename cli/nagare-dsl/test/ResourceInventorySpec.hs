@@ -83,6 +83,17 @@ resourceInventoryTests =
     , testCase "stable key survives provider rename" $ do
         let Managed x = service a "stable" "old"; Managed y = service a "stable" "new"
         x ^. #identity @?= y ^. #identity
+    , testCase "collection candidate requires a retained exact claim" $ do
+        let resourceId = rid p "old"
+            address = Kubernetes cluster "" (n "configmap") (Just (n "nagare-system")) (n "old")
+            claim = canonicalClaim address
+            holder = ClaimHolder p resourceId (ok (mkPhysicalIdentity "old-uid")) RetainedIncarnation
+            snapshot = ok (mkScopeSnapshot binding Map.empty (Map.singleton claim holder))
+            candidate = ok (composeInventory snapshot (CollectRetained resourceId :| []))
+            encoded = ok (canonicalValue (candidateInputValue (CandidateInput snapshot (CollectRetained resourceId :| []))))
+        candidateChanges candidate @?= (CollectRetained resourceId :| [])
+        decodeCandidateInput encoded @?= Right (CandidateInput snapshot (CollectRetained resourceId :| []))
+        rejects "unknown-collection" (composeInventory emptySnapshot (CollectRetained resourceId :| []))
     , testCase "exact nix-cache Service collision reports both owners" $ do
         let result = compileScopes [scope p [service p "cache" "nix-cache"], scope a [service a "database" "nix-cache"]]
         rejects "claim-conflict" result

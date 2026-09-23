@@ -207,6 +207,7 @@ candidateInputValue (CandidateInput snapshot changes) =
   where
     changeValue (ReplaceScope s) = object ["replace" .= scopeValue s]
     changeValue (RetireScope s intent) = object ["retire" .= s, "intent" .= intent]
+    changeValue (CollectRetained resource) = object ["collect" .= resource]
 
 decodeCandidateInput :: ByteString -> Either (NonEmpty InventoryError) CandidateInput
 decodeCandidateInput = decodeWith $ strictObject "candidate" ["version", "context", "base", "snapshot", "reservations", "changes"] $ \o -> do
@@ -233,6 +234,7 @@ decodeCandidateInput = decodeWith $ strictObject "candidate" ["version", "contex
   changesValues <- o .: "changes"
   changes <- forM changesValues $ \v -> case v of
     Object kv | KM.member "replace" kv -> strictObject "replace" ["replace"] (\r -> ReplaceScope <$> (r .: "replace" >>= parseScope)) v
+    Object kv | KM.member "collect" kv -> strictObject "collect" ["collect"] (\r -> CollectRetained <$> r .: "collect") v
     _ -> strictObject "retire" ["retire", "intent"] (\r -> RetireScope <$> r .: "retire" <*> r .: "intent") v
   case changes of [] -> fail "candidate requires at least one explicit scope change"; c : cs -> pure (CandidateInput snapshot (c :| cs))
 

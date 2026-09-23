@@ -7,6 +7,7 @@ module Nagare.Inventory.Lifecycle
   , decodeAdoptionInput
   , decideAdoption
   , decideRetirement
+  , decideCollection
   ) where
 
 import Data.Aeson
@@ -101,6 +102,18 @@ decideRetirement candidate history observations =
     , let resourceId = resource ^. #identity
     , Just fact <- [Map.lookup resourceId (observationMap observations)]
     ]
+  where
+    binding = inventoryBinding (candidateInventory candidate)
+
+decideCollection
+  :: CompositionCandidate -> InventoryHistory -> ObservationSet
+  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideCollection candidate history observations =
+  validateLifecycleDecisions candidate history observations
+    [LifecycleProposal resource ApproveCollection
+      (lifecycleObservationDigest binding resource fact)
+    | CollectRetained resource <- NE.toList (candidateChanges candidate)
+    , Just fact <- [Map.lookup resource (observationMap observations)]]
   where
     binding = inventoryBinding (candidateInventory candidate)
 

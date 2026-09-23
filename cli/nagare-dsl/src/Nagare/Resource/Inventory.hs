@@ -284,7 +284,7 @@ snapshotScopes (ScopeSnapshot _ ss _) = ss
 snapshotReservations :: ScopeSnapshot -> Map CanonicalClaim ClaimHolder
 snapshotReservations (ScopeSnapshot _ _ rs) = rs
 
-data ScopeChange = ReplaceScope !ScopeDeclaration | RetireScope !ScopeId !RetirementIntent deriving stock (Eq, Ord, Show, Generic)
+data ScopeChange = ReplaceScope !ScopeDeclaration | RetireScope !ScopeId !RetirementIntent | CollectRetained !ResourceId deriving stock (Eq, Ord, Show, Generic)
 
 data ValidatedInventory = ValidatedInventory ContextBinding (Map ScopeId ScopeDeclaration) [Declaration] deriving stock (Eq, Show)
 
@@ -336,15 +336,24 @@ composeInventory snapshot changes = do
     original = snapshotScopes snapshot
     base = fmap fst original
     selected = NE.toList changes
-    changedId (ReplaceScope s) = scopeId s
-    changedId (RetireScope s _) = s
+    changedId (ReplaceScope s) = Just (scopeId s)
+    changedId (RetireScope s _) = Just s
+    changedId (CollectRetained _) = Nothing
+    selectedScopes = [s | Just s <- map changedId selected]
+    collectedIds = [resource | CollectRetained resource <- selected]
     changeErrors =
-      [inventoryError "duplicate-change" "scope selected more than once" & #scopes .~ [s] | s <- duplicates (map changedId selected)]
+      [inventoryError "duplicate-change" "scope selected more than once" & #scopes .~ [s] | s <- duplicates selectedScopes]
         <> [inventoryError "unknown-retirement" "cannot retire a scope absent from the snapshot" & #scopes .~ [s] | RetireScope s _ <- selected, Map.notMember s original]
+        <> [inventoryError "duplicate-collection" "retained resource selected more than once" & #resources .~ [resource] | resource <- duplicates collectedIds]
+        <> [inventoryError "unknown-collection" "collection needs a reserved retained incarnation" & #resources .~ [resource]
+           | resource <- collectedIds,
+             not (any (\(ClaimHolder _ held _ reason) -> held == resource && reason == RetainedIncarnation)
+               (Map.elems (snapshotReservations snapshot)))]
     ss = foldl change (fmap snd original) selected
     change m (ReplaceScope s) = Map.insert (scopeId s) s m
     change m (RetireScope s _) = Map.delete s m
-    generations = Map.mapWithKey (\s _ -> if s `elem` map changedId selected then nextGeneration (Map.lookup s base) else base Map.! s) ss
+    change m (CollectRetained _) = m
+    generations = Map.mapWithKey (\s _ -> if s `elem` selectedScopes then nextGeneration (Map.lookup s base) else base Map.! s) ss
 
 -- | Reconstruct accepted effective resources for read-only status. This runs
 -- the same closed contribution and claim validation as a changed candidate.

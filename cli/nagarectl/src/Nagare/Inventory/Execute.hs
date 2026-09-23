@@ -155,6 +155,8 @@ retentionCoverage store document = do
       (Left "observed controller children cannot disappear without retained child claims")
     unless (Set.null (Set.intersection desiredIds (Map.keysSet (headRetained (historyHead history)))))
       (Left "retained logical identity cannot be reactivated without reviewed recovery")
+    unless (Set.null (Set.intersection desiredIds (Map.keysSet (headCollected (historyHead history)))))
+      (Left "collected logical identity cannot be reused after its deletion tombstone")
     unless (Map.keysSet removed == Map.keysSet proofs)
       (Left "removed managed resources require exactly one retained-incarnation proof")
     forM_ (Map.toAscList proofs) $ \(resource, proof) ->
@@ -197,8 +199,51 @@ execute locked registry executable = do
               case completed of
                 Left _ -> ambiguousFallback transaction document
                 Right _ -> do
-                  converged <- releaseClaim locked transaction True
-                  pure $ if converged then Converged transaction else fallbackResult transaction document
+                  finalized <- finalizeCollections locked transaction document
+                  if not finalized
+                    then pure (fallbackResult transaction document)
+                    else do
+                      converged <- releaseClaim locked transaction True
+                      pure $ if converged then Converged transaction else fallbackResult transaction document
+
+finalizeCollections :: LockedStore s -> TransactionId -> ReviewDocument -> IO Bool
+finalizeCollections locked transaction document
+  | Map.null (reviewCollections document) = pure True
+  | otherwise = do
+      let store = lockedStore locked
+      current <- readHead store
+      case current of
+        Right (Just headValue)
+          | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
+              now <- timestamp
+              let proofMatches resource proof = case Map.lookup resource (headRetained headValue) of
+                    Just retained -> retainedOwner retained == retentionOwner proof
+                      && retainedRevision retained == retentionRevision proof
+                      && retainedPhysical retained == retentionPhysical proof
+                    Nothing -> case Map.lookup resource (headCollected headValue) of
+                      Just tombstone -> tombstoneOwner tombstone == retentionOwner proof
+                        && tombstoneRevision tombstone == retentionRevision proof
+                        && tombstonePhysical tombstone == retentionPhysical proof
+                        && tombstoneReview tombstone == reviewDocumentDigest document
+                      Nothing -> False
+              if not (all (uncurry proofMatches) (Map.toAscList (reviewCollections document)))
+                then pure False
+                else do
+                  let collected = Map.map (\proof -> DeletionTombstone
+                        (retentionOwner proof) (retentionRevision proof)
+                        (retentionPhysical proof) now (reviewDocumentDigest document))
+                        (Map.filterWithKey (\resource _ -> Map.member resource (headRetained headValue))
+                          (reviewCollections document))
+                      replacement = headValue
+                        { headGeneration = headGeneration headValue + 1
+                        , headRetained = Map.withoutKeys (headRetained headValue)
+                            (Map.keysSet (reviewCollections document))
+                        , headCollected = Map.union collected (headCollected headValue)
+                        }
+                  if Map.null collected then pure True else do
+                    result <- replaceHeadIfGenerationMatches store (Just (headGeneration headValue)) replacement
+                    pure (isRight result)
+        _ -> pure False
 
 applyReviewed :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> IO (Either (NonEmpty AdmissionError) TransactionResult)
 applyReviewed store registry reviewed = do

@@ -64,15 +64,29 @@ among both active and retained declarations, so retiring two related resources
 does not erase their dependency relationship. A retained resource's own
 `dependencyTrace` also follows those historical declarations to their owners.
 
-Collection still refuses until a separate reviewed deletion path can prove
-retention policy, dependent consumers, exact live identity, recovery evidence,
-and a durable tombstone. Migration also refuses until a reviewed prepare, seed,
-verify, switch, write-admission, and recovery graph is available. Durable data
-requires backup and recovery evidence before either action can discard it.
+The first collection route accepts only retained stateless namespaced ConfigMaps
+whose lifecycle policy is `DeleteWhenUnreferenced`, whose exact stamped UID is
+present, and whose active and retained consumers are absent. Run `nagarectl
+inventory collect --resource RESOURCE_ID --out REVIEW_DIRECTORY`, inspect the
+ordinary review, then apply it. Admission checks the reviewed Kubernetes
+resourceVersion and UID again. The DELETE request carries both as server-side
+preconditions and uses orphan propagation; the adapter verifies confirmed
+absence before the context head drops the retained claim and records a tombstone
+bound to the review digest. A replacement or changed object refuses. A resumed
+transaction can finish an already verified tombstone without deleting again.
+Status lists collected tombstones, and `inventory explain RESOURCE_ID --json`
+returns the collection record after the retained entry leaves the catalogue.
+
+Collection of durable data, controller children, other Kubernetes kinds, and
+other executors still refuses until their dependency, backup, recovery, and
+deletion contracts are proved. Migration also refuses until a reviewed prepare,
+seed, verify, switch, write-admission, and recovery graph is available.
 
 `nagarectl inventory gc --plan --out DIRECTORY` writes a read-only
 `collection-plan.json`. Each retained resource has a candidate flag and reasons
 for any current refusal, including retention policy, durable recovery evidence,
 dependent consumers, an unverified physical identity, or an active transaction.
 The report records `deletionAuthorized: false`; a candidate still needs the
-separate reviewed collection transaction before any object can be deleted.
+separate reviewed `inventory collect` transaction before any object can be
+deleted. The executor may refuse a candidate that has no proved collection
+transport for its kind or provider.

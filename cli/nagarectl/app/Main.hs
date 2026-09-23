@@ -670,6 +670,7 @@ data Command
   | InventoryAdopt FilePath FilePath
   | InventoryRetire String FilePath
   | InventoryGc FilePath
+  | InventoryCollect String FilePath
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryExport FilePath
@@ -1867,6 +1868,9 @@ opts =
                   "gc"
                   (info (InventoryGc <$> (flag' () (long "plan" <> help "Write a read-only collection assessment") *> strOption (long "out" <> metavar "DIRECTORY")) <**> helper) (progDesc "Screen retained resources for later collection review"))
                 <> command
+                  "collect"
+                  (info (InventoryCollect <$> strOption (long "resource" <> metavar "RESOURCE_ID") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact collection of a retained stateless ConfigMap"))
+                <> command
                   "apply"
                   (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
                 <> command
@@ -2754,6 +2758,7 @@ main = do
     InventoryAdopt input output -> runInventoryAdopt mctx input output
     InventoryRetire owner output -> runInventoryRetire mctx owner output
     InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
+    InventoryCollect resource output -> runInventoryCollect mctx resource output
     InventoryApply directory yes -> runInventoryApply mctx directory yes
     InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
     InventoryExport output -> activeTarget mctx >>= \target -> Inventory.exportInventory target output
@@ -4406,6 +4411,7 @@ runInventoryStatus mctx requested json gcOutput = do
         (InventoryAdapter.observationSet (allFacts <> remaining))
       findings = InventoryStatus.classifyDrift inventory observations
       retainedFindings = InventoryStatus.retainedFindings history observations
+      collectedEntries = Map.toAscList (InventoryStore.headCollected (InventoryPlan.historyHead history))
       unavailable = Set.toAscList (Set.fromList
         ([InventoryStatus.findingExecutor finding | finding <- findings,
           InventoryStatus.findingCategory finding == InventoryStatus.UnknownObservation]
@@ -4456,6 +4462,9 @@ runInventoryStatus mctx requested json gcOutput = do
             | (scope, executor) <- missingScopes]
         , "providers" Aeson..= providers
         , "retained" Aeson..= retainedFindings
+        , "collected" Aeson..=
+            [Aeson.object ["resource" Aeson..= resource, "tombstone" Aeson..= tombstone]
+            | (resource, tombstone) <- collectedEntries]
         ]
   case (gcOutput, requested) of
     (Just _, _) -> pure ()
@@ -4465,6 +4474,7 @@ runInventoryStatus mctx requested json gcOutput = do
       if json then LBC.putStrLn (Aeson.encode report)
         else TIO.putStrLn ("Inventory status: " <> T.pack (show (length findings))
           <> " resources; retained: " <> T.pack (show (length retainedFindings))
+          <> "; collected: " <> T.pack (show (length collectedEntries))
           <> "; unavailable providers: " <> T.pack (show unavailable))
     (Nothing, Just raw) -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
@@ -4496,7 +4506,14 @@ runInventoryStatus mctx requested json gcOutput = do
               , "consumers" Aeson..= InventoryStatus.consumersOf history inventory resourceId
               , "recoveryReason" Aeson..= ("retained incarnation requires explicit collection or recovery review" :: Text)
               ]), "Retained resource " <> Resource.resourceIdText resourceId)
-          Nothing -> dieT "resource is absent from accepted and retained inventory history"
+          Nothing -> case Map.lookup resourceId (InventoryStore.headCollected (InventoryPlan.historyHead history)) of
+            Just tombstone -> pure (Aeson.object (baseFields <>
+              ["finding" Aeson..= Aeson.object
+                ["resource" Aeson..= resourceId,
+                 "category" Aeson..= ("collected" :: Text),
+                 "tombstone" Aeson..= tombstone]]),
+              "Collected resource " <> Resource.resourceIdText resourceId)
+            Nothing -> dieT "resource is absent from accepted and historical inventory"
       if json then LBC.putStrLn (Aeson.encode explanation)
         else TIO.putStrLn summary
 
@@ -4602,6 +4619,13 @@ runInventoryRetire mctx rawScope output = do
         Resource.mkScopeId scopeKind name
       _ -> Left "scope must be KIND:NAME"
 
+runInventoryCollect :: Maybe String -> String -> FilePath -> IO ()
+runInventoryCollect mctx rawResource output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  resource <- either dieT pure (Resource.mkResourceId (T.pack rawResource))
+  Inventory.planInventoryCollectionWith (inventoryPlanRegistry active workspace) active resource output
+
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
@@ -4623,6 +4647,7 @@ inventoryExecutionRegistry mctx bundle = do
   reviewedKubernetesSpecs <- either dieT pure (kubernetesSpecsFromReview bundle)
   helmSpecs <- either dieT pure (helmSpecsFromReview bundle)
   let retiredIds = Map.keysSet (InventoryPlan.reviewRetentions (InventoryPlan.reviewBundleDocument bundle))
+        `Set.union` Map.keysSet (InventoryPlan.reviewCollections (InventoryPlan.reviewBundleDocument bundle))
       binding = InventoryPlan.reviewContextBinding (InventoryPlan.reviewBundleDocument bundle)
   retiringKubernetesSpecs <- if Set.null retiredIds then pure Map.empty else do
     active <- activeTarget mctx
@@ -4709,7 +4734,10 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
         , ResourceInventory.Managed resource <- ResourceInventory.declarations bundle
         , resource ^. #executor == ResourceInventory.KubernetesExecutor
         , Set.notMember (resource ^. #identity) desiredIds]
-  retiringNative <- if Set.null retiringIds then pure Map.empty else do
+      collectingIds = Set.fromList
+        [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate)]
+      historicalIds = Set.union retiringIds collectingIds
+  retiringNative <- if Set.null historicalIds then pure Map.empty else do
     store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
     acceptedSnapshot <- either (dieT . T.pack . show) pure (ResourceInventory.mkScopeSnapshot
       (ResourceInventory.inventoryBinding inventory)
@@ -4720,9 +4748,9 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
       (ResourceInventory.composeSnapshot acceptedSnapshot)
     (native, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory
       >>= either dieT pure
-    let selected = Map.filterWithKey (\resource _ -> Set.member resource retiringIds) native
-    unless (Map.keysSet selected == retiringIds)
-      (dieT "retiring Kubernetes resource lacks accepted immutable native evidence")
+    let selected = Map.filterWithKey (\resource _ -> Set.member resource historicalIds) native
+    unless (Map.keysSet selected == historicalIds)
+      (dieT "retained or retiring Kubernetes resource lacks immutable native evidence")
     pure selected
   let kubernetesSpecs = Map.unions [kubernetesSuppliedNative, loaded, retiringNative]
   pulumi <-

@@ -118,15 +118,21 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
           materialized <- case mutationAction mutation of
             CreateResource -> materializeLocalObjectStoreCredential config (mutationNativeJson mutation)
             _ -> pure (Right (mutationNativeJson mutation))
-          resolved <- case materialized of
-            Left reason -> pure (Left reason)
-            Right native -> materializeCacheKey resolveCacheKey native
+          resolved <- if mutationAction mutation == RetireResource
+            then pure (Right "")
+            else case materialized of
+              Left reason -> pure (Left reason)
+              Right native -> materializeCacheKey resolveCacheKey native
           request <- case (mutationAction mutation, mutationBefore mutation) of
             (CreateResource, KubernetesAbsent _) ->
               pure ((["create", "--field-manager=nagare-inventory", "-f", "-"],) <$> resolved)
             (AdoptResource, KubernetesPresent uid revision Nothing digest)
               | digest == mutationNativeDigest mutation ->
                   adoptionPatch config mutation uid revision
+            (RetireResource, KubernetesPresent uid revision (Just owner) digest)
+              | owner == mutationResource mutation
+              , digest == mutationNativeDigest mutation ->
+                  pure (collectionDeleteRequest (mutationAddress mutation) uid revision)
             (UpdateResource, KubernetesPresent _ _ _ _)
               | not (supportedUpdateAddress (mutationAddress mutation)) ->
                   pure (Left "Kubernetes update kind lacks a proved conditional mutation policy")
@@ -154,8 +160,24 @@ mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
             Right (arguments, body) -> do
               result <- invoke config arguments (T.unpack body)
               case result of
-                Right (ExitSuccess, _, _) -> waitForReadiness config (mutationAddress mutation)
+                Right (ExitSuccess, _, _)
+                  | mutationAction mutation == RetireResource -> pure AdapterEffectCompleted
+                  | otherwise -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
+collectionDeleteRequest address uid revision = case address of
+  Kubernetes _ "" kind (Just namespace) name | nameText kind == "configmap" -> do
+    bytes <- canonicalValue (object
+      ["apiVersion" .= ("meta.k8s.io/v1" :: Text)
+      ,"kind" .= ("DeleteOptions" :: Text)
+      ,"preconditions" .= object
+        ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
+      ,"propagationPolicy" .= ("Orphan" :: Text)])
+    let path = "/api/v1/namespaces/" <> T.unpack (nameText namespace)
+          <> "/configmaps/" <> T.unpack (nameText name)
+    pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
+  _ -> Left "conditional collection supports only namespaced ConfigMaps"
 
 -- | Each admitted kind has disposable-cluster evidence for ownership checks,
 -- UID/resourceVersion handling, and its normal update form. New kinds require

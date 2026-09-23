@@ -33,7 +33,7 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
-import Nagare.Inventory.Lifecycle (decideRetirement)
+import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status (loadAcceptedNative)
 import Nagare.Inventory.Store
@@ -571,6 +571,112 @@ inventoryKubernetesTests =
         (native, _) <- loadAcceptedNative store retainedHistory (candidateInventory retirement) >>= expectRight
         Map.lookup resource native @?= Map.lookup resource specs
         readIORef calls >>= (@?= 1)
+    , testCase "reviewed stateless collection records a tombstone after exact absence" $ do
+        let value = object
+              ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+               "metadata" .= object ["name" .= ("collectable" :: Text), "namespace" .= ("default" :: Text)],
+               "data" .= object ["value" .= ("old" :: Text)]]
+            bytes = ok (canonicalValue value)
+            bound = Map.singleton resource (ok (bindKubernetesObject
+              (input {inputObject = value, objectDigest = contentDigest bytes,
+                lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+            managed = fst (bound Map.! resource)
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed managed] [] [] [] [] []])
+            initial = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope scopeDeclaration :| []))
+        state <- newIORef (KubernetesAbsent absence)
+        calls <- newIORef (0 :: Int)
+        store <- newMemoryStore
+        let nativeOps = ops state calls
+            guardedOps = nativeOps
+              { kubernetesMutateConditional = \mutation ->
+                  if mutationAction mutation == RetireResource
+                    then do
+                      modifyIORef' calls (+ 1)
+                      writeIORef state (KubernetesAbsent absence)
+                      pure AdapterEffectCompleted
+                    else kubernetesMutateConditional nativeOps mutation
+              }
+            registry = ok (mkAdapterRegistry [mkKubernetesAdapter bound guardedOps])
+            reviewAndApply candidate history decisions observations = do
+              let proposal = ok (planChanges candidate decisions history observations)
+              before <- readStoreSnapshot store >>= expectRight
+              review <- prepareReview registry before proposal >>= expectRight
+              _ <- publishReview store review >>= expectRight
+              after <- readStoreSnapshot store >>= expectRight
+              reviewed <- expectRight (verifyReview after review)
+              applyReviewed store registry reviewed >>= expectRight
+        _ <- initializeStore store binding "collection-test" >>= expectRight
+        emptyHistory <- loadInventoryHistory store >>= expectRight
+        _ <- reviewAndApply initial emptyHistory noLifecycleDecisions
+          (ok (observationSet [(resource, ConfirmedAbsent absence)]))
+        acceptedHistory <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
+              (historyAccepted acceptedHistory)
+            retirement = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty))
+              (RetireScope scope RetainResources :| []))
+        current <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement acceptedHistory)) >>= expectRight
+        retirementDecisions <- expectRight (decideRetirement retirement acceptedHistory current)
+        _ <- reviewAndApply retirement acceptedHistory retirementDecisions current
+        retainedHistory <- loadInventoryHistory store >>= expectRight
+        let collection = ok (composeInventory
+              (ok (mkScopeSnapshot binding Map.empty (historyReservations retainedHistory)))
+              (CollectRetained resource :| []))
+        present <- observeWithRegistry registry (requirementsByExecutor (observationRequirements collection retainedHistory)) >>= expectRight
+        collectionDecisions <- expectRight (decideCollection collection retainedHistory present)
+        result <- reviewAndApply collection retainedHistory collectionDecisions present
+        case result of Converged _ -> pure (); other -> assertFailure (show other)
+        collectedHistory <- loadInventoryHistory store >>= expectRight
+        Map.null (historyRetained collectedHistory) @?= True
+        case Map.lookup resource (headCollected (historyHead collectedHistory)) of
+          Just tombstone -> tombstonePhysical tombstone @?= physical
+          Nothing -> assertFailure "collection did not record a durable tombstone"
+        let reuse = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope scopeDeclaration :| []))
+        case planChanges reuse noLifecycleDecisions collectedHistory
+          (ok (observationSet [(resource, ConfirmedAbsent absence)])) of
+          Left failures -> assertBool "collected logical identity cannot be silently reused"
+            ("collected-reactivation" `elem` map planErrorCode (NE.toList failures))
+          Right _ -> assertFailure "deletion tombstone did not guard logical identity"
+        readIORef state >>= (@?= KubernetesAbsent absence)
+        readIORef calls >>= (@?= 2)
+    , testCase "disposable cluster conditionally collects an owned ConfigMap" $ do
+        selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
+        case selected of
+          Nothing -> pure ()
+          Just selectedContext -> do
+            assertBool "refusing a non-disposable Kubernetes context"
+              ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+            let value = object
+                  ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
+                   "metadata" .= object ["name" .= ("nagare-ep149-collect" :: Text), "namespace" .= ("default" :: Text)],
+                   "data" .= object ["value" .= ("reviewed" :: Text)]]
+                bytes = ok (canonicalValue value)
+                bound = Map.singleton resource (ok (bindKubernetesObject
+                  (input {inputObject = value, objectDigest = contentDigest bytes,
+                    lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+                config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
+                adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
+                cleanup = do
+                  _ <- readProcessWithExitCode "kubectl"
+                    ["--context", selectedContext, "delete", "configmap", "nagare-ep149-collect",
+                     "--namespace", "default", "--ignore-not-found"] ""
+                  pure ()
+            cleanup
+            (do
+              created <- adapterPrepare adapter createOperation >>= expectRight
+              adapterPreflight adapter createOperation created >>= expectRight
+              adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify adapter createOperation created >>= expectRight
+              let collectionOperation = operation RetireResource
+              collected <- adapterPrepare adapter collectionOperation >>= expectRight
+              adapterPreflight adapter collectionOperation collected >>= expectRight
+              adapterExecute adapter collectionOperation collected >>= (@?= AdapterEffectCompleted)
+              _ <- adapterVerify adapter collectionOperation collected >>= expectRight
+              observed <- adapterObserve adapter [resource] >>= expectRight
+              Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))))
+              `finally` cleanup
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
