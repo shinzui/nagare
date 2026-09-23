@@ -337,6 +337,20 @@ inventoryObservabilityTests = testGroup "Helm release compiler"
       case verified of
         Right _ -> pure ()
         Left reason -> assertFailure (show reason)
+  , testCase "Helm observation reports release drift and foreign ownership" $ do
+      let (release, native) = ok (compileRenderedRelease fixture)
+          resource = releaseId fixture
+          physical = ok (mkPhysicalIdentity "helm-drift")
+          adapterFor current = mkHelmAdapter (Map.singleton resource (release, native)) HelmAdapterOps
+            { helmObserve = \_ -> readIORef current
+            , helmMutateConditional = \_ -> pure AdapterEffectCompleted
+            }
+      current <- newIORef (HelmPresent physical "2" resource (contentDigest (BC.pack "changed")))
+      drifted <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
+      Map.lookup resource (observationMap drifted) @?= Just (ObservedDrifted physical (contentDigest (BC.pack "changed")))
+      writeIORef current (HelmPresent physical "3" (mintResourceId scope (ok (mkLogicalKey "foreign")) (name "resource")) (contentDigest native))
+      occupied <- adapterObserve (adapterFor current) [resource] >>= either (assertFailure . show) pure
+      Map.lookup resource (observationMap occupied) @?= Just (ObservedForeign physical)
   , testCase "private review reconstructs the Helm contract" $ do
       let (release, native) = ok (compileRenderedRelease fixture)
           specs = Map.singleton (releaseId fixture) (release, native)

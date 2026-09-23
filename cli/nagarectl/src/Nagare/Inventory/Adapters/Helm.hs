@@ -102,7 +102,11 @@ mkHelmAdapter specs ops = Adapter
     refuse operation = PrepareRefused (plannedOperationId operation)
     observe resource = \case
       HelmAbsent digest -> (resource, ConfirmedAbsent digest)
-      HelmPresent physical _ _ _ -> (resource, ObservedPresent physical)
+      HelmPresent physical _ owner digest
+        | owner /= resource -> (resource, ObservedForeign physical)
+        | Just (_, contract) <- Map.lookup resource specs
+        , digest /= contentDigest contract -> (resource, ObservedDrifted physical digest)
+        | otherwise -> (resource, ObservedPresent physical)
       HelmForeign reason -> (resource, ObservationUnavailable reason)
       HelmUnavailable reason -> (resource, ObservationUnavailable reason)
     specFor operation = do
