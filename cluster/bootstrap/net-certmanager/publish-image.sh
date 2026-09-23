@@ -31,7 +31,7 @@ destination="${registry}/net-certmanager-controller:v1.14.0-nagare.1"
   echo "reviewed patched-controller destination differs from the selected context" >&2
   exit 2
 }
-archive="${script_dir}/nagare-net-certmanager-controller.tar.gz"
+archive="${NAGARE_CONTROLLER_IMAGE_ARCHIVE:-${script_dir}/nagare-net-certmanager-controller.tar.gz}"
 [ -s "${archive}" ] || { echo "released patched-controller archive is missing" >&2; exit 1; }
 actual_source="$(shasum -a 256 "${archive}" | awk '{print $1}')"
 [ "sha256:${actual_source}" = "${NAGARE_ARTIFACT_SOURCE_DIGEST:-}" ] || {
