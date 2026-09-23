@@ -46,6 +46,45 @@ inventoryTransactionTests =
         withSystemTempDirectory "inventory-store" $ \root -> do
           filesystem <- openFilesystemStore root >>= expectRight
           exerciseStore filesystem
+    , testCase "a second namespace contributor does not recreate the accepted shared resource" $ do
+        let owner = ok (mkScopeId Platform "foundation")
+            firstContributor = ok (mkScopeId Application "first")
+            second = ok (mkScopeId Application "second")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            request = RegisterNamespace owner cluster (ok (mkName "shared")) (ok (mkLogicalKey "shared"))
+            grant = ResourceBundle [] [] [] [] [] [NamespaceGrant firstContributor cluster, NamespaceGrant second cluster]
+            platform = ok (mkScopeDeclaration owner [grant])
+            contributor who = ok (mkScopeDeclaration who [ResourceBundle [] [] [] [request] [] []])
+            binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
+              (ReplaceScope platform :| [ReplaceScope (contributor firstContributor)]))
+            absent = ConfirmedAbsent (contentDigest "absent")
+            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+        store <- newMemoryStore
+        _ <- initializeStore store binding "contribution-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let initialRequired = requiredResources (observationRequirements candidate initialHistory)
+            initialObservations = ok (observationSet [(resource, absent) | resource <- Set.toAscList initialRequired])
+            initialProposal = ok (planChanges candidate noLifecycleDecisions initialHistory initialObservations)
+        length (proposalOperations initialProposal) @?= 1
+        storeBefore <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry storeBefore initialProposal >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        storeAfter <- readStoreSnapshot store >>= expectRight
+        reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview storeAfter bundle)
+        applied <- applyReviewed store registry reviewed >>= expectRight
+        case applied of Converged _ -> pure (); other -> assertFailure (show other)
+        history <- loadInventoryHistory store >>= expectRight
+        let snapshot = ok (mkScopeSnapshot binding
+              (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) Map.empty)
+            next = ok (composeInventory snapshot (ReplaceScope (contributor second) :| []))
+            required = requiredResources (observationRequirements next history)
+            present resource = ObservedPresent (ok (mkPhysicalIdentity ("accepted:" <> resourceIdText resource)))
+            observations = ok (observationSet [(resource, present resource) | resource <- Set.toAscList required])
+            proposal = ok (planChanges next noLifecycleDecisions history observations)
+        length (Set.toAscList required) @?= 1
+        proposalOperations proposal @?= []
     , testCase "declared cache operation waits for its resource, database, and workload" $ do
         let owner = ok (mkScopeId Platform "cache")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

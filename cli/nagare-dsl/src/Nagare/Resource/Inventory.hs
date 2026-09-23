@@ -37,6 +37,7 @@ module Nagare.Resource.Inventory
   , inventoryDeclarations
   , inventoryBinding
   , contributionDependents
+  , composedDeclarations
   )
 where
 
@@ -300,8 +301,7 @@ contributionDependents inventory =
 composeInventory :: ScopeSnapshot -> NonEmpty ScopeChange -> Either (NonEmpty InventoryError) CompositionCandidate
 composeInventory snapshot changes = do
   checked changeErrors ()
-  derivedDeclarations <- composeContributions ss
-  let ds = sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> derivedDeclarations)
+  ds <- composedDeclarations ss
   checked
     (validateGraph ss ds (snapshotReservations snapshot))
     (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations)
@@ -321,6 +321,14 @@ composeInventory snapshot changes = do
 
 scopeDeclarations :: ScopeDeclaration -> [Declaration]
 scopeDeclarations = concatMap (^. #declarations) . scopeBundles
+
+-- | Reconstruct the effective view from accepted scope members as well as
+-- from a candidate. Shared resources are never stored in a contributor's
+-- scope bytes, so historical comparison must run the same closed composer.
+composedDeclarations :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
+composedDeclarations ss = do
+  contributed <- composeContributions ss
+  pure (sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> contributed))
 
 composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
 composeContributions ss = checked errors generated
