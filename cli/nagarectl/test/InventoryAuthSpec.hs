@@ -2,6 +2,7 @@ module InventoryAuthSpec (inventoryAuthTests) where
 
 import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Aeson.KeyMap qualified as KM
 import Data.Text.Encoding qualified as TE
@@ -16,13 +17,14 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps, renderBackendMapNative)
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), credentialDataMatches, materializeLocalObjectStoreCredentialWith, minioSourceData, mkKubernetesRuntimeOps)
-import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), ResourceObservation (ConfirmedAbsent), observationSet)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Digest (contentDigest)
@@ -38,6 +40,8 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (LifecyclePolicy (Protect), RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Kubernetes (parseKubernetesManifest)
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
 import System.Exit (ExitCode (..))
@@ -84,6 +88,41 @@ inventoryAuthTests = testGroup "auth inventory component"
       (localBundle, localNative) <- compileAuth fixture {authMode = LocalAuth} >>= expectRight
       length (declarations localBundle) @?= length members
       assertBool "local WebAuthn policy did not change the reviewed auth object" (localNative /= native)
+  , testCase "backend contributions bind exact reviewed ConfigMap bytes" $ do
+      (authBundle, _) <- compileAuth fixture >>= expectRight
+      let authScope = ok (mkScopeDeclaration fixtureOwner [authBundle])
+          appOwner = ok (mkScopeId Application "sample")
+          route = RegisterBackend fixtureOwner fixtureCluster (ok (mkName "sample.example.test"))
+            "http://sample.personal.svc.cluster.local" ProtectedBackend (ok (mkLogicalKey "route"))
+          appScope = ok (mkScopeDeclaration appOwner
+            [ResourceBundle [] [] [] [route] [] []])
+          scopes = Map.fromList [(fixtureOwner, authScope), (appOwner, appScope)]
+          effective = ok (composedDeclarations scopes)
+      [(resourceId, (resource, native))] <- pure (Map.toList (ok (compileContributedBackendMaps effective)))
+      resourceId @?= backendMapResourceId fixtureOwner
+      emptyObject <- either (assertFailure . show) pure (composedDeclarations
+        (Map.singleton fixtureOwner authScope))
+      [(_, (_, emptyNative))] <- pure (Map.toList (ok (compileContributedBackendMaps emptyObject)))
+      packaged <- BS.readFile "../../cluster/bootstrap/nagare-access/configmap.yaml"
+      manifests <- either (assertFailure . show) pure (parseKubernetesManifest
+        (SourceLocation "cluster/bootstrap/nagare-access/configmap.yaml" "auth") packaged)
+      [legacyMap] <- pure [value | (_, value@(Object fields)) <- manifests,
+        KM.lookup "kind" fields == Just (String "ConfigMap")]
+      canonicalValue legacyMap @?= Right emptyNative
+      let context = ok (mkContextId "auth-backend-test")
+          ops = KubernetesAdapterOps context
+            (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+            (\_ -> pure AdapterEffectCompleted)
+          operation = PlannedOperation (ok (mkOperationId "op-auth-backend"))
+            CreateResource KubernetesExecutor (resourceId :| []) (contentDigest "backend-map") [] Idempotent
+          adapter = mkKubernetesAdapter (Map.singleton resourceId (resource, native)) ops
+      _ <- adapterPrepare adapter operation >>= expectRight
+      changed <- either (assertFailure . T.unpack) pure (renderBackendMapNative
+        [(ok (mkName "sample.example.test"), "https://foreign.example.test", ProtectedBackend)])
+      let badAdapter = mkKubernetesAdapter (Map.singleton resourceId (resource, changed)) ops
+      rejected <- adapterPrepare badAdapter operation
+      assertBool "changed backend bytes passed typed contribution binding" (case rejected of
+        Left _ -> True; Right _ -> False)
   , testCase "complete auth scope includes its typed database bundles" $ do
       let database service = Database (ok (mkDatabaseName (service <> "-db"))) Nothing Postgres
             (defaultEngineVersion Postgres) (ok (Dsl.mkNamespace "nagare-system"))

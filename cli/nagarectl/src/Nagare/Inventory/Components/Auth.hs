@@ -17,6 +17,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -104,7 +105,7 @@ compileAuth input = do
                 , upstreamRoot = authRoot input
                 , upstreamFiles = []
                 , upstreamNamespaces = Map.singleton (known "nagare-system") (authNamespace input)
-                , upstreamTransferred = mempty
+                , upstreamTransferred = Set.singleton (address "v1" "ConfigMap" "nagare-access-backends")
                 , upstreamConfigMapData = Map.empty
                 , upstreamImageOverrides = Map.empty
                 , upstreamGenerated = objects <> map secretTemplate
@@ -132,6 +133,10 @@ compileAuth input = do
                     Kubernetes _ _ _ _ name -> service `T.isPrefixOf` nameText name
                     _ -> False]
                 addExternal resource = case resource ^. #address of
+                  Kubernetes _ "serving.knative.dev" kind _ name
+                    | nameText kind == "service" && nameText name == "nagare-access" ->
+                        resource {dependencies = OrderedAfter (backendMapResourceId (authOwner input))
+                          : resource ^. #dependencies}
                   Kubernetes _ "" kind _ _ | nameText kind == "secret" ->
                     resource {lifecycle = Protect}
                   Kubernetes _ _ kind _ name
@@ -150,7 +155,8 @@ compileAuth input = do
                 update declaration = declaration
             unless (all (`Map.member` authDatabasePrerequisites input) ["en", "shomei"])
               (Left (single "auth database prerequisite is missing"))
-            pure (bundle {declarations = map update (declarations bundle), operations = proofs}, updated)
+            pure (bundle {declarations = map update (declarations bundle), operations = proofs
+              , grants = [BackendMapGrant (authCluster input)]}, updated)
   where
     single message = (inventoryError "invalid-auth-component" message
       & #scopes .~ [authOwner input]) :| []
@@ -269,5 +275,5 @@ compileAuth input = do
         , (address "apps/v1" "Deployment" "en", [enJob, address "v1" "Secret" "nagare-en-api-keys", address "v1" "ConfigMap" "en-schema"])
         , (address "serving.knative.dev/v1" "Service" "nagare-access",
             [address "apps/v1" "Deployment" "shomei", address "apps/v1" "Deployment" "en",
-             address "v1" "Secret" "nagare-access", address "v1" "ConfigMap" "nagare-access-backends"])
+             address "v1" "Secret" "nagare-access"])
         ])

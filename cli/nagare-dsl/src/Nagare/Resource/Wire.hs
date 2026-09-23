@@ -340,7 +340,9 @@ instance ToJSON DesiredSpec where
     genericToJSON options . \case
       StatefulSet count templates digest -> StatefulSet count (sortOn nameText templates) digest
       HelmRelease objects digest -> HelmRelease (NE.sort objects) digest
+      BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
       other -> other
+    where first3 (name, _, _) = name
 
 instance FromJSON DesiredSpec where parseJSON = genericParseJSON options
 
@@ -364,13 +366,51 @@ instance ToJSON DeclaredOperation where toJSON = genericToJSON options . (\opera
 
 instance FromJSON DeclaredOperation where parseJSON = genericParseJSON options
 
-instance ToJSON Contribution where toJSON = genericToJSON options
+instance ToJSON BackendRole where
+  toJSON ProtectedBackend = String "protected"
+  toJSON PortalBackend = String "portal"
 
-instance FromJSON Contribution where parseJSON = genericParseJSON options
+instance FromJSON BackendRole where
+  parseJSON = withText "backend role" $ \case
+    "protected" -> pure ProtectedBackend
+    "portal" -> pure PortalBackend
+    _ -> fail "unknown backend role"
 
-instance ToJSON ContributionGrant where toJSON = genericToJSON options
+-- Preserve the v1 namespace contribution representation in accepted scopes.
+instance ToJSON Contribution where
+  toJSON (RegisterNamespace owner cluster namespace key) = object
+    ["owner" .= owner, "cluster" .= cluster, "namespace" .= namespace, "key" .= key]
+  toJSON (RegisterBackend owner cluster host upstream role key) = object
+    ["tag" .= ("RegisterBackend" :: Text), "owner" .= owner, "cluster" .= cluster
+    , "host" .= host, "upstream" .= upstream, "role" .= role, "key" .= key]
 
-instance FromJSON ContributionGrant where parseJSON = genericParseJSON options
+instance FromJSON Contribution where
+  parseJSON = withObject "contribution" $ \value -> case KM.lookup "tag" value of
+    Nothing -> do
+      unless (all (`elem` ["owner", "cluster", "namespace", "key"]) (KM.keys value))
+        (fail "namespace contribution has unknown field")
+      RegisterNamespace <$> value .: "owner" <*> value .: "cluster"
+        <*> value .: "namespace" <*> value .: "key"
+    Just (String "RegisterBackend") -> do
+      unless (all (`elem` ["tag", "owner", "cluster", "host", "upstream", "role", "key"]) (KM.keys value))
+        (fail "backend contribution has unknown field")
+      RegisterBackend <$> value .: "owner" <*> value .: "cluster" <*> value .: "host"
+        <*> value .: "upstream" <*> value .: "role" <*> value .: "key"
+    _ -> fail "unknown contribution kind"
+
+instance ToJSON ContributionGrant where
+  toJSON (NamespaceGrant scope cluster) = toJSON (scope, cluster)
+  toJSON (BackendMapGrant cluster) = object
+    ["tag" .= ("BackendMapGrant" :: Text), "cluster" .= cluster]
+
+instance FromJSON ContributionGrant where
+  parseJSON value@(Array _) = do
+    (scope, cluster) <- parseJSON value
+    pure (NamespaceGrant scope cluster)
+  parseJSON value = strictObject "backend map grant" ["tag", "cluster"] (\fields -> do
+    tag <- fields .: "tag"
+    unless (tag == ("BackendMapGrant" :: Text)) (fail "unknown contribution grant")
+    BackendMapGrant <$> fields .: "cluster") value
 
 instance ToJSON ResourceBundle where toJSON = genericToJSON options
 

@@ -255,6 +255,7 @@ import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileContributedNamespaces)
+import Nagare.Inventory.BackendMap (compileContributedBackendMaps)
 import Nagare.Inventory.Components.Auth (AuthInput (..), AuthMode (..))
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
@@ -4157,7 +4158,17 @@ runPlatformBootstrapPlan mctx output = do
       [bucketJob] -> pure [bucketJob]
       _ -> dieT "local object store has no unique bucket preparation Job"
   let auth = rawAuth {authExtraPrerequisites = localPrerequisites}
-  (base, baseNative) <- compileBootstrapWithAuthAndScopes snapshot
+  -- The accepted completion marker depends on the previous resource set. Build
+  -- the new set without that marker, then replace the marker in the final
+  -- composition against the unmodified snapshot.
+  let stampOwner = either (error . T.unpack) (\scope -> scope)
+        (Resource.mkScopeId Resource.Platform "bootstrap-stamp")
+      unstampedSnapshot = either (error . show) (\loaded -> loaded)
+        (ResourceInventory.mkScopeSnapshot
+          (ResourceInventory.snapshotBinding snapshot)
+          (Map.delete stampOwner (ResourceInventory.snapshotScopes snapshot))
+          (ResourceInventory.snapshotReservations snapshot))
+  (base, baseNative) <- compileBootstrapWithAuthAndScopes unstampedSnapshot
     (BootstrapInput foundation Nothing upstream [controllerImageScope]) auth authDatabases
     (maybe [] (pure . fst) localStore)
     >>= either (dieT . T.pack . show) pure
@@ -4194,7 +4205,7 @@ runPlatformBootstrapPlan mctx output = do
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   candidate <- either (dieT . T.pack . show) pure
-    (ResourceInventory.composeInventory snapshot (ResourceInventory.candidateChanges base <> extra))
+    (ResourceInventory.composeInventory unstampedSnapshot (ResourceInventory.candidateChanges base <> extra))
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   installedAt <- acceptedBootstrapInstalledAt active snapshot cluster
     (identityFromPayload manifest) candidate
@@ -4346,10 +4357,13 @@ inventoryPlanRegistryWithNative active workspace suppliedNative candidate histor
   hostInputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   let kubernetesResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.KubernetesExecutor]
       helmResources = [resource | ResourceInventory.Managed resource <- declarations, resource ^. #executor == ResourceInventory.HelmExecutor]
-  contributionNative <- either dieT pure (compileContributedNamespaces declarations)
-  unless (Map.null (Map.intersection suppliedNative contributionNative))
-    (dieT "generated native members overlap a contributed Namespace")
-  let allSuppliedNative = Map.union suppliedNative contributionNative
+  namespaceNative <- either dieT pure (compileContributedNamespaces declarations)
+  backendNative <- either dieT pure (compileContributedBackendMaps declarations)
+  let generatedNative = Map.union namespaceNative backendNative
+  unless (Map.size generatedNative == Map.size namespaceNative + Map.size backendNative
+      && Map.null (Map.intersection suppliedNative generatedNative))
+    (dieT "generated native members overlap a supplied or contributed resource")
+  let allSuppliedNative = Map.union suppliedNative generatedNative
       kubernetesSuppliedNative = Map.filter ((== ResourceInventory.KubernetesExecutor) . (^. #executor) . fst) allSuppliedNative
       helmSuppliedNative = Map.filter ((== ResourceInventory.HelmExecutor) . (^. #executor) . fst) allSuppliedNative
       suppliedIds = Map.keysSet kubernetesSuppliedNative

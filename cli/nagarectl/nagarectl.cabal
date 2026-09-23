@@ -86,43 +86,44 @@ library
     Nagare.Image
     Nagare.Infra.Plan
     Nagare.Init
-    Nagare.Inventory.Command
     Nagare.Inventory.Adapter
     Nagare.Inventory.Adapters.Artifact
+    Nagare.Inventory.Adapters.ArtifactRuntime
     Nagare.Inventory.Adapters.Cache
     Nagare.Inventory.Adapters.CacheRuntime
-    Nagare.Inventory.Cache
-    Nagare.Inventory.Bootstrap
-    Nagare.Inventory.Adapters.ArtifactRuntime
+    Nagare.Inventory.Adapters.Helm
+    Nagare.Inventory.Adapters.HelmRuntime
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Kubernetes
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
+    Nagare.Inventory.Artifact
+    Nagare.Inventory.BackendMap
+    Nagare.Inventory.Bootstrap
+    Nagare.Inventory.Cache
     Nagare.Inventory.Cloud
+    Nagare.Inventory.Command
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.ControllerImage
-    Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.Foundation
     Nagare.Inventory.Components.LocalObjectStore
     Nagare.Inventory.Components.Observability
     Nagare.Inventory.Components.ObservabilityExtras
     Nagare.Inventory.Components.ObservabilitySecrets
+    Nagare.Inventory.Components.PackagedAuth
     Nagare.Inventory.Components.PackagedCache
-    Nagare.Inventory.Adapters.Helm
-    Nagare.Inventory.Adapters.HelmRuntime
     Nagare.Inventory.Components.Upstream
-    Nagare.Inventory.Artifact
     Nagare.Inventory.Database
-    Nagare.Inventory.Host
     Nagare.Inventory.Digest
     Nagare.Inventory.Execute
+    Nagare.Inventory.HelmReview
+    Nagare.Inventory.Host
     Nagare.Inventory.Journal
     Nagare.Inventory.Kubernetes
-    Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesReview
-    Nagare.Inventory.HelmReview
+    Nagare.Inventory.KubernetesSources
     Nagare.Inventory.Plan
     Nagare.Inventory.Store
     Nagare.Ops.Cleanup
@@ -247,16 +248,16 @@ test-suite nagarectl-test
     DomainBindingSpec
     HostSpec
     InventoryArtifactSpec
-    InventoryCacheSpec
-    InventoryFoundationSpec
-    InventoryUpstreamSpec
     InventoryAuthSpec
-    InventoryObservabilitySpec
+    InventoryCacheSpec
     InventoryCloudSpec
+    InventoryFoundationSpec
     InventoryHostSpec
     InventoryKubernetesSpec
+    InventoryObservabilitySpec
     InventorySpec
     InventoryTransactionSpec
+    InventoryUpstreamSpec
     PlatformCutoverSpec
     PlatformSpec
 

@@ -268,6 +268,48 @@ inventoryTransactionTests =
         case proposalOperations repair of
           [operation] -> plannedAction operation @?= CreateResource
           other -> assertFailure ("missing accepted Namespace was not recreated, got " <> show other)
+    , testCase "backend map changes only when a contribution changes content" $ do
+        let owner = ok (mkScopeId Platform "auth")
+            app = ok (mkScopeId Application "backend-app")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            platform = ok (mkScopeDeclaration owner
+              [ResourceBundle [] [] [] [] [] [BackendMapGrant cluster]])
+            contributor upstream = ok (mkScopeDeclaration app [ResourceBundle [] [] []
+              [RegisterBackend owner cluster (ok (mkName "app.example.test")) upstream
+                ProtectedBackend (ok (mkLogicalKey "route"))] [] []])
+            registry = recordingRegistry (\_ _ -> pure AdapterEffectCompleted)
+              (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
+            absent = ConfirmedAbsent (contentDigest "absent")
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "backend-map-test" >>= expectRight
+        initialHistory <- loadInventoryHistory store >>= expectRight
+        let initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty))
+              (ReplaceScope platform :| [ReplaceScope (contributor "http://first.example.test")]))
+            initialRequired = requiredResources (observationRequirements initial initialHistory)
+            initialProposal = ok (planChanges initial noLifecycleDecisions initialHistory
+              (ok (observationSet [(resource, absent) | resource <- Set.toAscList initialRequired])))
+        length (proposalOperations initialProposal) @?= 1
+        snapshot <- readStoreSnapshot store >>= expectRight
+        review <- prepareReview registry snapshot initialProposal >>= expectRight
+        _ <- publishReview store review >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        admitted <- expectRight (verifyReview published review)
+        _ <- applyReviewed store registry admitted >>= expectRight
+        history <- loadInventoryHistory store >>= expectRight
+        let accepted = Map.map (\(revision, value) -> (revisionGeneration revision, value))
+              (historyAccepted history)
+            replay upstream = ok (composeInventory
+              (ok (mkScopeSnapshot fixtureBinding accepted Map.empty))
+              (ReplaceScope (contributor upstream) :| []))
+            observed candidate = ok (observationSet
+              [(resource, ObservedPresent (ok (mkPhysicalIdentity (resourceIdText resource))))
+              | resource <- Set.toAscList (requiredResources (observationRequirements candidate history))])
+            unchanged = replay "http://first.example.test"
+            changed = replay "https://second.example.test"
+        proposalOperations (ok (planChanges unchanged noLifecycleDecisions history (observed unchanged))) @?= []
+        case proposalOperations (ok (planChanges changed noLifecycleDecisions history (observed changed))) of
+          [operation] -> plannedAction operation @?= UpdateResource
+          other -> assertFailure ("backend content change did not update the owner map: " <> show other)
     , testCase "missing accepted durable resource refuses automatic recreation" $ do
         let owner = ok (mkScopeId Platform "durable")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

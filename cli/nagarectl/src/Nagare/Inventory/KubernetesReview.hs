@@ -15,6 +15,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.BackendMap (renderBackendMapNative)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
 import Nagare.Resource.Inventory
@@ -85,9 +86,19 @@ kubernetesSpecsFromReview bundle = do
           }
       let generatedNamespace = declaration ^. #spec == NamespaceSpec Nothing
             && declaration ^. #source . #file == "contribution"
+          generatedBackend = case declaration ^. #spec of
+            BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
+            _ -> False
+      when generatedBackend $ case declaration ^. #spec of
+        BackendMapSpec entries -> do
+          expected <- renderBackendMapNative entries
+          unless (expected == native) (Left "reviewed backend map differs from typed contributions")
+        _ -> pure ()
+      let
           reboundDeclaration = recompiled
             { dependencies = declaration ^. #dependencies
-            , spec = if generatedNamespace then NamespaceSpec Nothing else recompiled ^. #spec
+            , spec = if generatedNamespace || generatedBackend
+                then declaration ^. #spec else recompiled ^. #spec
             }
       unless (reboundDeclaration == declaration && rebound == native)
         (Left "reviewed Kubernetes native object differs from its typed declaration")

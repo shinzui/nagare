@@ -11,8 +11,10 @@ module Nagare.Resource.Inventory
   , DeclaredOperation (..)
   , OperationKind (..)
   , OperationInput (..)
+  , BackendRole (..)
   , Contribution (..)
   , ContributionGrant (..)
+  , backendMapResourceId
   , ResourceBundle (..)
   , ScopeDeclaration
   , mkScopeDeclaration
@@ -69,6 +71,7 @@ data DesiredSpec
   | HelmRelease !(NonEmpty ProviderAddress) !ContentDigest
   | ArtifactPublication !Name !Text !ContentDigest !Bool
   | NamespaceSpec !(Maybe ContentDigest)
+  | BackendMapSpec ![(Name, Text, BackendRole)]
   | LogicalCache !ContentDigest
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -153,11 +156,18 @@ data DeclaredOperation = DeclaredOperation
   }
   deriving stock (Eq, Ord, Show, Generic)
 
-data Contribution = RegisterNamespace
-  {owner :: !ScopeId, cluster :: !ResourceId, namespace :: !Name, key :: !LogicalKey}
+data BackendRole = ProtectedBackend | PortalBackend
   deriving stock (Eq, Ord, Show, Generic)
 
-data ContributionGrant = NamespaceGrant !ScopeId !ResourceId
+data Contribution
+  = RegisterNamespace
+      {owner :: !ScopeId, cluster :: !ResourceId, namespace :: !Name, key :: !LogicalKey}
+  | RegisterBackend
+      {owner :: !ScopeId, cluster :: !ResourceId, host :: !Name, upstream :: !Text
+      , role :: !BackendRole, key :: !LogicalKey}
+  deriving stock (Eq, Ord, Show, Generic)
+
+data ContributionGrant = NamespaceGrant !ScopeId !ResourceId | BackendMapGrant !ResourceId
   deriving stock (Eq, Ord, Show, Generic)
 
 data ResourceBundle = ResourceBundle
@@ -187,6 +197,8 @@ mkScopeDeclaration s bs = checked errors (ScopeDeclaration s (sort bs))
       [inventoryError "duplicate-id" "duplicate resource or operation identity in scope" & #scopes .~ [s] & #resources .~ [r] | r <- duplicates ids]
         <> concatMap validateDeclaration ds
         <> [err "wrong-owner" "managed declaration belongs to a different scope" d | d@(Managed r) <- ds, r ^. #owner /= s]
+        <> [err "derived-backend-map" "shared backend map must be composed from the owner grant and contributions" d
+           | d@(Managed r) <- ds, BackendMapSpec _ <- [r ^. #spec]]
     err c m d = inventoryError c m & #scopes .~ [s] & #resources .~ [declarationId d] & #sources .~ [declarationSource d]
 
 validateDeclaration :: Declaration -> [InventoryError]
@@ -202,6 +214,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
         <> ["generated controller address exceeds provider name bounds" | StatefulSet count templates _ <- [r ^. #spec], count >= 0, count <= 10000, toInteger (length (derived r)) /= count * (1 + toInteger (length templates))]
         <> ["delegated fields overlap" | or [x == y || (x <> ".") `Data.Text.isPrefixOf` y || (y <> ".") `Data.Text.isPrefixOf` x | (i, x) <- zip [0 :: Int ..] delegatedFields, (j, y) <- zip [0 :: Int ..] delegatedFields, i < j]]
         <> ["duplicate address within declaration" | length claimSet /= Set.size (Set.fromList claimSet)]
+        <> ["shared backend map belongs to the platform auth scope"
+           | BackendMapSpec _ <- [r ^. #spec], scopeIdText (r ^. #owner) /= "platform:auth"]
     -- Avoid expanding an invalid StatefulSet before reporting its bounds.
     claimSet = case r ^. #spec of
       StatefulSet n _ _ | n < 0 || n > 10000 || addressNameLength > 230 -> []
@@ -223,6 +237,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "cert-manager.io" k (Just _) _, Certificate {}) -> nameText k == "certificate"
       (Kubernetes _ "apps" k (Just _) _, StatefulSet {}) -> nameText k == "statefulset"
       (Kubernetes _ "" k Nothing _, NamespaceSpec _) -> nameText k == "namespace"
+      (Kubernetes _ "" k (Just ns) n, BackendMapSpec _) ->
+        nameText k == "configmap" && nameText ns == "nagare-system" && nameText n == "nagare-access-backends"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
@@ -292,7 +308,7 @@ inventoryBinding (ValidatedInventory b _ _) = b
 contributionDependents :: ValidatedInventory -> Map ResourceId (Set.Set ScopeId)
 contributionDependents inventory =
   Map.fromListWith Set.union
-    [ (namespaceContributionId c, Set.singleton s)
+    [ (contributionResourceId c, Set.singleton s)
     | (s, d) <- Map.toList (inventoryScopes inventory)
     , b <- scopeBundles d
     , c <- b ^. #contributions
@@ -331,23 +347,53 @@ composedDeclarations ss = do
   pure (sortOn declarationId (concatMap scopeDeclarations (Map.elems ss) <> contributed))
 
 composeContributions :: Map ScopeId ScopeDeclaration -> Either (NonEmpty InventoryError) [Declaration]
-composeContributions ss = checked errors generated
+composeContributions ss = checked errors (namespaces <> backendMaps)
   where
     requests = [(s, c) | (s, d) <- Map.toList ss, b <- scopeBundles d, c <- b ^. #contributions]
+    namespaceRequests = [(s, c, namespaceName) | (s, c@(RegisterNamespace _ _ namespaceName _)) <- requests]
+    backendRequests = [(s, c, hostName, upstreamText, backendRole)
+      | (s, c@(RegisterBackend _ _ hostName upstreamText backendRole _)) <- requests]
     grouped = Map.fromListWith (<>)
-      [ ((c ^. #owner, c ^. #cluster, c ^. #namespace), (s, c) :| []) | (s, c) <- requests ]
+      [ ((c ^. #owner, c ^. #cluster, namespaceName), (s, c) :| []) | (s, c, namespaceName) <- namespaceRequests ]
     authorized s c = maybe False (elem (NamespaceGrant s (c ^. #cluster)) . concatMap (^. #grants) . scopeBundles) (Map.lookup (c ^. #owner) ss)
-    errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c) <- requests, not (authorized s c)]
+    backendOwners =
+      [ (s, clusterId)
+      | (s, d) <- Map.toList ss
+      , b <- scopeBundles d
+      , BackendMapGrant clusterId <- b ^. #grants]
+    backendAuthorized s c = scopeKind s == Application
+      && (c ^. #owner, c ^. #cluster) `elem` backendOwners
+    backendGroups = Map.fromListWith (<>)
+      [ ((c ^. #owner, c ^. #cluster), [(s, c, hostName, upstreamText, backendRole)])
+      | (s, c, hostName, upstreamText, backendRole) <- backendRequests]
+    errors = [inventoryError "unauthorized-contribution" "namespace contribution lacks an owner grant" & #scopes .~ [s, c ^. #owner] | (s, c, _) <- namespaceRequests, not (authorized s c)]
       <> [inventoryError "reserved-namespace-contribution" "shared platform and Kubernetes system namespaces cannot be requested by a contributor" & #scopes .~ [s, c ^. #owner]
-         | (s, c) <- requests, nameText (c ^. #namespace) `elem`
+         | (s, c, namespaceName) <- namespaceRequests, nameText namespaceName `elem`
            ["default", "kube-system", "kube-public", "kube-node-lease", "cert-manager", "knative-serving", "kourier-system", "nagare-system", "personal"]]
-    generated =
+      <> [inventoryError "unauthorized-contribution" "backend contribution lacks an application scope and owner grant" & #scopes .~ [s, c ^. #owner]
+         | (s, c, _, _, _) <- backendRequests, not (backendAuthorized s c)]
+      <> [inventoryError "invalid-backend-upstream" "backend upstream must be an HTTP(S) origin" & #scopes .~ [s, c ^. #owner]
+         | (s, c, _, upstreamText, _) <- backendRequests, not ("http://" `Data.Text.isPrefixOf` upstreamText
+           || "https://" `Data.Text.isPrefixOf` upstreamText)]
+      <> [inventoryError "conflicting-backend" "public host has multiple backend contributions" & #scopes .~ [s | (s, _, _, _, _) <- entries]
+         | (_, groupEntries) <- Map.toList backendGroups
+         , entries <- Map.elems (Map.fromListWith (<>) [(hostName, [entry]) | entry@(_, _, hostName, _, _) <- groupEntries])
+         , length entries > 1]
+      <> [inventoryError "multiple-portals" "backend map has more than one portal" & #scopes .~ [s | (s, _, _, _, _) <- portals]
+         | (_, entries) <- Map.toList backendGroups
+         , let portals = [entry | entry@(_, _, _, _, backendRole) <- entries, backendRole == PortalBackend]
+         , length portals > 1]
+      <> [inventoryError "duplicate-backend-owner" "backend map owner has duplicate grants" & #scopes .~ [owner]
+         | (owner, _) <- duplicates backendOwners]
+      <> [inventoryError "invalid-backend-owner" "only the platform auth scope can own the shared backend map" & #scopes .~ [owner]
+         | (owner, _) <- backendOwners, scopeKind owner /= Platform || scopeIdText owner /= "platform:auth"]
+    namespaces =
       [ Managed
           ( ManagedResource
               (namespaceContributionId c)
               (c ^. #owner)
               KubernetesExecutor
-              (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing (c ^. #namespace))
+              (Kubernetes (c ^. #cluster) "" (known "namespace") Nothing namespaceName)
               []
               (NamespaceSpec Nothing)
               Retain
@@ -357,14 +403,40 @@ composeContributions ss = checked errors generated
               []
               (SourceLocation "contribution" (scopeIdText (c ^. #owner)))
           )
-      | (_, (_, c) :| _) <- Map.toAscList grouped
+      | ((_, _, namespaceName), (_, c) :| _) <- Map.toAscList grouped
       ]
+    backendMaps =
+      [ Managed
+          (ManagedResource
+            (backendMapResourceId owner)
+            owner KubernetesExecutor
+            (Kubernetes clusterId "" (known "configmap") (Just (known "nagare-system")) (known "nagare-access-backends"))
+            []
+            (BackendMapSpec (sortOn (nameText . first3) [(hostName, upstreamText, backendRole)
+              | (_, _, hostName, upstreamText, backendRole) <- Map.findWithDefault [] (owner, clusterId) backendGroups]))
+            Retain Stateless Private [] [] (SourceLocation "contribution" (scopeIdText owner)))
+      | (owner, clusterId) <- backendOwners
+      ]
+    first3 (value, _, _) = value
 
 namespaceContributionId :: Contribution -> ResourceId
-namespaceContributionId contribution =
-  mintResourceId (contribution ^. #owner)
-    (either (error . Data.Text.unpack) id (mkLogicalKey (nameText (contribution ^. #namespace))))
+namespaceContributionId (RegisterNamespace owner _ namespaceName _) =
+  mintResourceId owner
+    (either (error . Data.Text.unpack) id (mkLogicalKey (nameText namespaceName)))
     (known "namespace")
+namespaceContributionId (RegisterBackend owner _ _ _ _ _) = backendMapResourceId owner
+
+backendMapResourceId :: ScopeId -> ResourceId
+backendMapResourceId owner =
+  -- Preserve the accepted direct ConfigMap identity while changing its
+  -- declaration to owner-composed content. A new ID at the same address would
+  -- require a separate reviewed ownership transfer.
+  mintResourceId owner (either (error . Data.Text.unpack) id (mkLogicalKey "auth"))
+    (known "object-4eecf2a0a71a1cc10010dce9a74e8f6276942e0d")
+
+contributionResourceId :: Contribution -> ResourceId
+contributionResourceId c@RegisterNamespace {} = namespaceContributionId c
+contributionResourceId c@RegisterBackend {} = backendMapResourceId (c ^. #owner)
 
 validateGraph :: Map ScopeId ScopeDeclaration -> [Declaration] -> Map CanonicalClaim ClaimHolder -> [InventoryError]
 validateGraph ss ds reservations =
@@ -372,7 +444,8 @@ validateGraph ss ds reservations =
     <> [issue "claim-conflict" "canonical address claimed by multiple resources" holders [c] | (c, holders) <- Map.toList claims, length holders > 1]
     <> [issue "reserved-claim" "address held by retained, candidate, or unresolved history" [d] [c] & #scopes %~ (s :) & #resources %~ (r :) | (c, ClaimHolder s r _ _) <- Map.toList reservations, d <- Map.findWithDefault [] c claims, declarationId d /= r]
     <> concatMap validateDeclaration ds
-    <> [issue "dangling-reference" "dependency producer is absent" [d] [] | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId && Set.notMember p operationIds]
+    <> [issue "dangling-reference" "dependency producer is absent" [d] [] & #resources %~ (p :)
+       | d <- ds, p <- map dependencyProducer (declarationDependencies d), Map.notMember p byId && Set.notMember p operationIds]
     <> [issue "reference-mismatch" "output capability, constraints, or sensitivity disagree with its export" [d] [] | d <- ds, ref <- dependencyRefs (declarationDependencies d), not (matches ref)]
     <> [issue "output-operation" "cache signing-key consumer has no logical-cache operation" [d] []
        | d <- ds, ref <- dependencyRefs (declarationDependencies d), cacheKeyRef ref
@@ -410,7 +483,7 @@ validateGraph ss ds reservations =
           ( Set.fromList
               ( [s | (s, sc) <- Map.toList ss, any (`elem` scopeDeclarations sc) involved]
                   <> [r ^. #owner | Managed r <- involved]
-                  <> [s | (s, sc) <- Map.toList ss, b <- scopeBundles sc, contribution <- b ^. #contributions, namespaceContributionId contribution `elem` map declarationId involved]
+                  <> [s | (s, sc) <- Map.toList ss, b <- scopeBundles sc, contribution <- b ^. #contributions, contributionResourceId contribution `elem` map declarationId involved]
               )
           )
         & #resources

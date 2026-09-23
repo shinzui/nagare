@@ -323,6 +323,36 @@ resourceInventoryTests =
         let reserved = ok (mkScopeDeclaration a [bundle [] & #contributions .~
               [RegisterNamespace p cluster (n "kube-system") (ok (mkLogicalKey "system"))]])
         rejects "reserved-namespace-contribution" (compileScopes [owner, reserved])
+    , testCase "backend contributions compose one authorized owner map" $ do
+        let authOwner = s Platform "auth"
+            other = s Application "other"
+            grant = BackendMapGrant cluster
+            owner = ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])
+            route hostName target role = RegisterBackend authOwner cluster (n hostName) target role
+              (ok (mkLogicalKey "route"))
+            consumer who contribution = ok (mkScopeDeclaration who
+              [bundle [] & #contributions .~ [contribution]])
+            protected = route "app.example.test" "http://app.personal.svc.cluster.local" ProtectedBackend
+            portal = route "login.example.test" "http://shomei.nagare-system.svc.cluster.local" PortalBackend
+            composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
+        rejects "unauthorized-contribution" (compileScopes [scope p [], consumer a protected])
+        rejects "conflicting-backend" (compileScopes
+          [owner, consumer a protected, consumer other protected])
+        let [Managed emptyMap] = composed [owner]
+        emptyMap ^. #spec @?= BackendMapSpec []
+        let [Managed completeMap] = composed [owner, consumer a protected, consumer other portal]
+        completeMap ^. #spec @?= BackendMapSpec
+          [(n "app.example.test", "http://app.personal.svc.cluster.local", ProtectedBackend)
+          , (n "login.example.test", "http://shomei.nagare-system.svc.cluster.local", PortalBackend)]
+        contributionDependents (candidateInventory (ok (compileScopes
+          [owner, consumer a protected, consumer other portal]))) @?=
+          Map.singleton (backendMapResourceId authOwner) (Set.fromList [a, other])
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope (consumer a protected)))
+          @?= Right (encodeCanonicalScope (consumer a protected))
+        fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner))
+          @?= Right (encodeCanonicalScope owner)
+        rejects "multiple-portals" (compileScopes [owner, consumer a portal,
+          consumer other (route "other.example.test" "https://other.example.test" PortalBackend)])
     , testCase "canonical scope ignores declaration order and roundtrips" $ do
         let x = service a "x" "x"
             y = service a "y" "y"

@@ -623,6 +623,29 @@
             "tag"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tag": {
+              "const": "BackendMapSpec"
+            },
+            "contents": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {"$ref": "#/$defs/name"},
+                  {"type": "string", "minLength": 1},
+                  {"enum": ["protected", "portal"]}
+                ],
+                "minItems": 3,
+                "maxItems": 3
+              }
+            }
+          },
+          "required": ["tag", "contents"],
+          "additionalProperties": false
         }
       ]
     },
@@ -1057,41 +1080,55 @@
       "additionalProperties": false
     },
     "contribution": {
-      "type": "object",
-      "properties": {
-        "owner": {
-          "$ref": "#/$defs/scopeId"
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "owner": {"$ref": "#/$defs/scopeId"},
+            "cluster": {"$ref": "#/$defs/resource"},
+            "namespace": {"$ref": "#/$defs/name"},
+            "key": {"$ref": "#/$defs/name"}
+          },
+          "required": ["owner", "cluster", "namespace", "key"],
+          "additionalProperties": false
         },
-        "cluster": {
-          "$ref": "#/$defs/resource"
-        },
-        "namespace": {
-          "$ref": "#/$defs/name"
-        },
-        "key": {
-          "$ref": "#/$defs/name"
+        {
+          "type": "object",
+          "properties": {
+            "tag": {"const": "RegisterBackend"},
+            "owner": {"$ref": "#/$defs/scopeId"},
+            "cluster": {"$ref": "#/$defs/resource"},
+            "host": {"$ref": "#/$defs/name"},
+            "upstream": {"type": "string", "minLength": 1},
+            "role": {"enum": ["protected", "portal"]},
+            "key": {"$ref": "#/$defs/name"}
+          },
+          "required": ["tag", "owner", "cluster", "host", "upstream", "role", "key"],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "owner",
-        "cluster",
-        "namespace",
-        "key"
-      ],
-      "additionalProperties": false
+      ]
     },
     "grant": {
-      "type": "array",
-      "prefixItems": [
+      "oneOf": [
         {
-          "$ref": "#/$defs/scopeId"
+          "type": "array",
+          "prefixItems": [
+            {"$ref": "#/$defs/scopeId"},
+            {"$ref": "#/$defs/resource"}
+          ],
+          "minItems": 2,
+          "maxItems": 2
         },
         {
-          "$ref": "#/$defs/resource"
+          "type": "object",
+          "properties": {
+            "tag": {"const": "BackendMapGrant"},
+            "cluster": {"$ref": "#/$defs/resource"}
+          },
+          "required": ["tag", "cluster"],
+          "additionalProperties": false
         }
-      ],
-      "minItems": 2,
-      "maxItems": 2
+      ]
     },
     "bundle": {
       "type": "object",
